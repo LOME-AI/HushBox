@@ -8,8 +8,8 @@ import {
   ERROR_CODE_USER_NOT_FOUND,
   accessibilityPreferencesSchema,
 } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
+import type { AppEnv } from '../types.js';
 
 /**
  * User-preferences routes.

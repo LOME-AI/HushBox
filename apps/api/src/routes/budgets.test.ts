@@ -74,8 +74,6 @@ function createQueryChainFactory(
   return createQueryChain;
 }
 
-// ── GET budgets mock infrastructure ──
-
 interface GetBudgetsMockDbConfig {
   requesterMember?: { id: string; privilege: string } | null;
   memberBudgets?: {
@@ -102,7 +100,6 @@ interface GetBudgetsMockDbConfig {
 function createGetBudgetsMockDb(config: GetBudgetsMockDbConfig): unknown {
   const indexRef = { value: 0 };
   const selectResults: unknown[][] = [
-    // Query 0: middleware membership lookup
     config.requesterMember
       ? [
           {
@@ -113,15 +110,11 @@ function createGetBudgetsMockDb(config: GetBudgetsMockDbConfig): unknown {
           },
         ]
       : [],
-    // Query 1: members LEFT JOIN budgets
     config.memberBudgets ?? [],
-    // Query 2: conversationSpending
     config.totalSpent !== undefined && config.totalSpent !== null
       ? [{ totalSpent: config.totalSpent }]
       : [],
-    // Query 3: conversation budget lookup (non-nullable, default 0)
     [{ conversationBudget: config.conversationBudget ?? '0.00' }],
-    // Query 4: conversation owner lookup
     [{ userId: config.conversationOwnerId ?? 'owner-user-1' }],
   ];
   const createQueryChain = createQueryChainFactory(selectResults, indexRef);
@@ -163,8 +156,6 @@ function createGetTestApp(options: GetTestAppOptions = {}): Hono<AppEnv> {
   return app;
 }
 
-// ── PATCH budget mock infrastructure ──
-
 interface PatchBudgetMockDbConfig {
   requesterMember?: { id: string; privilege: string } | null;
 }
@@ -177,7 +168,6 @@ interface PatchBudgetMockDbConfig {
 function createPatchBudgetMockDb(config: PatchBudgetMockDbConfig): unknown {
   const indexRef = { value: 0 };
   const selectResults: unknown[][] = [
-    // Query 0: middleware membership lookup
     config.requesterMember
       ? [
           {
@@ -225,8 +215,6 @@ function createPatchTestApp(options: PatchTestAppOptions = {}): Hono<AppEnv> {
   return app;
 }
 
-// ── PATCH conversation budget mock infrastructure ──
-
 interface PatchConversationBudgetMockDbConfig {
   requesterMember?: { id: string; privilege: string } | null;
 }
@@ -239,7 +227,6 @@ interface PatchConversationBudgetMockDbConfig {
 function createPatchConversationBudgetMockDb(config: PatchConversationBudgetMockDbConfig): unknown {
   const indexRef = { value: 0 };
   const selectResults: unknown[][] = [
-    // Query 0: middleware membership lookup
     config.requesterMember
       ? [
           {

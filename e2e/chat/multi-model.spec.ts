@@ -80,7 +80,6 @@ test.describe('Multi-Model Chat', () => {
         const unselectedCount = await unselectedModels.count();
 
         if (unselectedCount > 0) {
-          // Dimmed models should have pointer-events-none
           await expect(unselectedModels.first()).toHaveClass(/opacity-40/);
         }
       });
@@ -90,7 +89,6 @@ test.describe('Multi-Model Chat', () => {
         const selectedItems = modal.locator('[data-testid^="model-item-"][data-selected="true"]');
         await selectedItems.last().getByTestId('model-checkbox').click();
 
-        // Previously dimmed models should no longer be dimmed
         const unselected = modal.locator(
           '[data-testid^="model-item-"][data-selected="false"]:not(:has([data-testid="lock-icon"]))'
         );
@@ -215,7 +213,6 @@ test.describe('Multi-Model Chat', () => {
         const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
         const nametag1 = await assistantMessages.nth(0).getByTestId('model-nametag').textContent();
         const nametag2 = await assistantMessages.nth(1).getByTestId('model-nametag').textContent();
-        // The 2 models selected by fixture should have different names
         expect(nametag1).not.toBe(nametag2);
       });
     });
@@ -228,7 +225,6 @@ test.describe('Multi-Model Chat', () => {
 
       const costElements = chatPage.messageList.locator('[data-testid="message-cost"]');
       const count = await costElements.count();
-      // Each AI response should have its own cost
       expect(count).toBeGreaterThanOrEqual(2);
     });
 
@@ -272,7 +268,6 @@ test.describe('Multi-Model Chat', () => {
         await chatPage.waitForAIResponse(setupMsg);
         await chatPage.waitForStreamComplete();
 
-        // Fork from the AI response → Fork 1 active
         await chatPage.clickFork(1);
         await chatPage.expectForkTabCount(2);
         await chatPage.expectActiveForkTab('Fork 1');
@@ -321,10 +316,8 @@ test.describe('Multi-Model Chat', () => {
         await authenticatedPage.reload();
         await chatPage.waitForConversationLoaded();
 
-        // Fork 1 should still be active
         await chatPage.expectActiveForkTab('Fork 1');
 
-        // All 3 assistant messages should still be in client state
         await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '3', {
           timeout: 15_000,
         });
@@ -359,21 +352,15 @@ test.describe('Multi-Model Chat', () => {
       await chatPage.goto();
       await chatPage.waitForAppStable();
 
-      // Step 1: Select first + LAST non-premium models (isolates fail target from other tests)
       const { successModelId, failModelId } = await chatPage.selectModelsWithFailTarget();
       await chatPage.expectComparisonBarVisible();
 
-      // Step 2: Configure the last model to fail
-      await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
-        data: { modelId: failModelId },
-      });
+      await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModelId });
 
       try {
-        // Step 3: Send message
         await chatPage.sendNewChatMessage(`Partial failure test ${String(Date.now())}`);
         await chatPage.waitForConversation();
 
-        // Step 4: Wait for stream to complete and verify successful model
         await chatPage.waitForStreamComplete();
 
         const successResponse = authenticatedPage
@@ -381,14 +368,12 @@ test.describe('Multi-Model Chat', () => {
           .filter({ hasText: 'Echo:' });
         await expect(successResponse.first()).toBeVisible({ timeout: 15_000 });
 
-        // Step 5: Verify failed model shows error message
         // Error renders on an optimistic message after stream ends — opt out of settled
         // to wait for the React re-render without premature failure
         const errorMessage = authenticatedPage.getByTestId('model-error-message');
         await unsettledExpect(errorMessage).toBeVisible({ timeout: 10_000 });
         await unsettledExpect(errorMessage).toContainText(/something went wrong/i);
 
-        // Step 6: Verify billing via API — only successful model persisted
         const conversationUrl = authenticatedPage.url();
         const conversationId = conversationUrl.split('/chat/')[1]?.split('?')[0];
         expect(conversationId).toBeTruthy();
@@ -398,26 +383,27 @@ test.describe('Multi-Model Chat', () => {
         );
         expect(apiResponse.ok()).toBe(true);
         const { messages } = (await apiResponse.json()) as {
-          messages: { senderType: string; modelName: string | null; cost: string | null }[];
+          messages: {
+            senderType: string;
+            contentItems: { modelName: string | null; cost: string | null }[];
+          }[];
         };
 
-        const aiMessages = messages.filter((m) => m.senderType === 'ai');
-        // Only the successful model should have a persisted message
-        const successfulAiMessages = aiMessages.filter((m) => m.cost !== null && m.cost !== '0');
-        expect(successfulAiMessages.length).toBe(1);
-        expect(successfulAiMessages[0]!.modelName).toBe(successModelId);
+        const aiContentItems = messages
+          .filter((m) => m.senderType === 'ai')
+          .flatMap((m) => m.contentItems);
 
-        // No persisted message for the failed model
-        const failedModelMessages = aiMessages.filter((m) => m.modelName === failModelId);
-        expect(failedModelMessages.length).toBe(0);
+        const succeededItems = aiContentItems.filter((ci) => ci.modelName === successModelId);
+        expect(succeededItems.length).toBe(1);
+        expect(succeededItems[0]!.cost).not.toBeNull();
+        expect(Number.parseFloat(succeededItems[0]!.cost ?? '0')).toBeGreaterThan(0);
 
-        // Step 7: Verify chat still usable
+        const failedItems = aiContentItems.filter((ci) => ci.modelName === failModelId);
+        expect(failedItems.length).toBe(0);
+
         await expect(chatPage.messageInput).toBeVisible();
       } finally {
-        // Cleanup: clear failing models
-        await authenticatedPage.request.post(`${apiUrl}/api/dev/fail-model`, {
-          data: { modelId: null },
-        });
+        await authenticatedPage.setExtraHTTPHeaders({});
       }
     });
   });

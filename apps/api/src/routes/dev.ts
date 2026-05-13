@@ -1,20 +1,20 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { getIronSession } from 'iron-session';
-import { users } from '@hushbox/db';
+import { users, sharedMessages, llmCompletions, messages, usageRecords } from '@hushbox/db';
 import { ERROR_CODE_NOT_FOUND, ERROR_CODE_SERVER_MISCONFIGURED } from '@hushbox/shared';
 import {
   listDevPersonas,
   cleanupTestData,
   resetTrialUsage,
   resetAuthRateLimits,
+  resetUsageRateLimits,
   createDevConversation,
   createDevGroupChat,
   setWalletBalance,
 } from '../services/dev/index.js';
-import type { MockAIClient } from '../services/ai/index.js';
 import {
   verificationEmail,
   passwordChangedEmail,
@@ -106,6 +106,11 @@ export const devRoute = new Hono<AppEnv>()
   .delete('/auth-rate-limits', async (c) => {
     const redis = c.get('redis');
     const result = await resetAuthRateLimits(redis);
+    return c.json({ success: true, deleted: result.deleted });
+  })
+  .delete('/usage-rate-limits', async (c) => {
+    const redis = c.get('redis');
+    const result = await resetUsageRateLimits(redis);
     return c.json({ success: true, deleted: result.deleted });
   })
   .post(
@@ -218,17 +223,62 @@ export const devRoute = new Hono<AppEnv>()
 
     return c.json({ success: true });
   })
-  .post('/fail-model', zValidator('json', z.object({ modelId: z.string().nullable() })), (c) => {
-    const { modelId } = c.req.valid('json');
-    const aiClient = c.get('aiClient');
-    if (!aiClient.isMock) {
-      return c.json({ success: false, error: 'fail-model only works with mock client' }, 400);
+  // Counts llm_completions rows for a given conversation. Used by smart-model
+  // E2E tests to assert that BOTH classifier + inference completions persisted
+  // (= 2 rows for a single Smart Model send).
+  .get(
+    '/llm-completions-count/:conversationId',
+    zValidator('param', z.object({ conversationId: z.string().min(1) })),
+    async (c) => {
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const [row] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(llmCompletions)
+        .innerJoin(usageRecords, eq(usageRecords.id, llmCompletions.usageRecordId))
+        .innerJoin(messages, eq(messages.id, usageRecords.sourceId))
+        .where(eq(messages.conversationId, conversationId));
+      return c.json({ count: row?.count ?? 0 });
     }
-    const mockClient = aiClient as MockAIClient;
-    if (modelId) {
-      mockClient.addFailingModel(modelId);
-    } else {
-      mockClient.clearFailingModels();
+  )
+  // Lists AI messages with their resolved payer (from `usage_records.user_id`).
+  // `messages.payer_id` was dropped in the wrap-once refactor — payment lives in
+  // `usage_records`. Group-billing E2E tests use this to verify the
+  // owner-funded vs personal-fallthrough decision (`payerId` differs from
+  // sender id in the personal-fallthrough case).
+  .get(
+    '/message-payers/:conversationId',
+    zValidator('param', z.object({ conversationId: z.string().min(1) })),
+    async (c) => {
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const rows = await db
+        .select({
+          messageId: messages.id,
+          payerId: usageRecords.userId,
+          sequenceNumber: messages.sequenceNumber,
+        })
+        .from(messages)
+        .leftJoin(
+          usageRecords,
+          and(eq(usageRecords.sourceId, messages.id), eq(usageRecords.sourceType, 'message'))
+        )
+        .where(and(eq(messages.conversationId, conversationId), eq(messages.senderType, 'ai')))
+        .orderBy(messages.sequenceNumber);
+      return c.json({
+        payers: rows.map((r) => ({ messageId: r.messageId, payerId: r.payerId })),
+      });
     }
-    return c.json({ success: true });
-  });
+  )
+  // Revokes a single message share by deleting the row from `shared_messages`.
+  // Used by E2E to assert that subsequent /api/shares/:id calls return 404.
+  .post(
+    '/revoke-message-share',
+    zValidator('json', z.object({ shareId: z.string().min(1) })),
+    async (c) => {
+      const db = c.get('db');
+      const { shareId } = c.req.valid('json');
+      const result = await db.delete(sharedMessages).where(eq(sharedMessages.id, shareId));
+      return c.json({ success: true, rowsAffected: result.rowCount ?? 0 });
+    }
+  );

@@ -12,7 +12,6 @@ const { mockUseStableBalance, mockUseTransactions, mockUseStability, mockIsPayme
     mockIsPaymentDisabled: vi.fn(() => false),
   }));
 
-// Mock tanstack router
 vi.mock('@tanstack/react-router', async () => {
   const actual = await vi.importActual('@tanstack/react-router');
   return {
@@ -22,32 +21,26 @@ vi.mock('@tanstack/react-router', async () => {
   };
 });
 
-// Mock auth
 vi.mock('@/lib/auth', () => ({
   requireAuth: vi.fn().mockImplementation(() => Promise.resolve()),
 }));
 
-// Mock stable balance hook
 vi.mock('@/hooks/use-stable-balance', () => ({
   useStableBalance: mockUseStableBalance,
 }));
 
-// Mock billing hooks (for useTransactions)
 vi.mock('@/hooks/billing', () => ({
   useTransactions: mockUseTransactions,
 }));
 
-// Mock stability provider
 vi.mock('@/providers/stability-provider', () => ({
   useStability: mockUseStability,
 }));
 
-// Mock platform detection
 vi.mock('@/capacitor/platform', () => ({
   isPaymentDisabled: mockIsPaymentDisabled,
 }));
 
-// Mock ManageOnlineButton (it has its own tests)
 vi.mock('@/components/billing/manage-online-button', () => ({
   ManageOnlineButton: () => (
     <button data-testid="manage-online-button">Manage Balance Online</button>
@@ -113,7 +106,6 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      // Find the skeleton container - it should have 5 skeleton rows
       const skeletonRows = screen.getAllByTestId('transaction-skeleton-row');
       expect(skeletonRows).toHaveLength(5);
 
@@ -141,7 +133,6 @@ describe('BillingPage', () => {
 
       const skeletonRows = screen.getAllByTestId('transaction-skeleton-row');
 
-      // Each skeleton row should have h-16 class for consistent height
       for (const row of skeletonRows) {
         expect(row.className).toContain('h-16');
       }
@@ -173,7 +164,6 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      // Should show the transaction
       expect(screen.getByText('Deposit of $10.00')).toBeInTheDocument();
       expect(screen.getByText('+$10.00')).toBeInTheDocument();
     });
@@ -251,7 +241,6 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      // Next button should be disabled even with 5 items because nextCursor is null
       const nextButton = screen.getByRole('button', { name: /next/i });
       expect(nextButton).toBeDisabled();
     });
@@ -279,7 +268,6 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      // Next button should be enabled because nextCursor is present
       const nextButton = screen.getByRole('button', { name: /next/i });
       expect(nextButton).not.toBeDisabled();
     });
@@ -321,7 +309,6 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      // PaymentModal should not be rendered at all
       expect(screen.queryByTestId('payment-modal')).not.toBeInTheDocument();
     });
   });

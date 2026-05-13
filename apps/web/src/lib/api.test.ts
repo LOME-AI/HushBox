@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 
-// Mock import.meta.env before importing the module
 vi.mock('@hushbox/shared', () => ({
   frontendEnvSchema: {
     parse: () => ({ VITE_API_URL: 'http://localhost:8787' }),

@@ -103,13 +103,11 @@ describe('verify-typecheck-coverage', () => {
         { name: 'api', path: 'apps/api', fullName: '@hushbox/api' },
       ]);
 
-      // Create workspace dirs with tsconfigs
       await mkdir(path.join(TEST_DIR, 'apps/web'), { recursive: true });
       await mkdir(path.join(TEST_DIR, 'apps/api'), { recursive: true });
       await writeFile(path.join(TEST_DIR, 'apps/web/tsconfig.json'), '{}');
       await writeFile(path.join(TEST_DIR, 'apps/web/tsconfig.native-tests.json'), '{}');
       await writeFile(path.join(TEST_DIR, 'apps/api/tsconfig.json'), '{}');
-      // Root tsconfig
       await writeFile(path.join(TEST_DIR, 'tsconfig.json'), '{}');
 
       const tsconfigs = findAllTsconfigs(TEST_DIR);

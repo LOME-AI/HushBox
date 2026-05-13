@@ -66,7 +66,6 @@ export function useCipherWall(
 
     colorsRef.current = themeOverride ?? readThemeColors();
 
-    // --- Sizing ---
     const dpr = Math.min(devicePixelRatio, DPR_CAP);
 
     function computeGridSize(w: number, h: number): { cols: number; rows: number } {
@@ -100,7 +99,6 @@ export function useCipherWall(
       });
     }
 
-    // --- Initial setup ---
     const initW = parent?.clientWidth ?? 0;
     const initH = parent?.clientHeight ?? 0;
     sizeCanvas(initW, initH);
@@ -109,7 +107,6 @@ export function useCipherWall(
     let lastCols = initCols;
     let lastRows = initRows;
 
-    // --- Static render for frozen mode ---
     if (frozen) {
       stateRef.current = createFrozenSnapshot(initCols, initRows, frozenMessageCount);
       tryRender();
@@ -135,7 +132,6 @@ export function useCipherWall(
       };
     }
 
-    // --- Animated mode ---
     const state = createGrid(initCols, initRows);
     state.exclusionZone = exclusionZoneRef.current;
     seedInitialReveals(state);
@@ -174,7 +170,6 @@ export function useCipherWall(
     // eslint-disable-next-line no-restricted-globals -- intentional raw rAF for canvas render loop; respects motion via internal flag
     rafIdRef.current = requestAnimationFrame(animate);
 
-    // --- Theme observer ---
     const mutationObserver = new MutationObserver(() => {
       colorsRef.current = readThemeColors();
     });

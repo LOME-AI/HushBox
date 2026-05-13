@@ -1,19 +1,16 @@
-// ---------------------------------------------------------------------------
-// AIClient — provider-agnostic inference interface
-//
-// The real implementation uses the Vercel AI SDK + AI Gateway, but that detail
-// stays in real.ts. Nothing in this file references a specific gateway or SDK.
-// ---------------------------------------------------------------------------
+/**
+ * `unicorn/prefer-export-from` requires `export type … from` for re-exports;
+ * we also need `RawModel` in this file's local scope for the AIClient
+ * declarations below, so pair the re-export with a separate type import.
+ */
+export type { RawModel } from '@hushbox/shared/models';
+import type { RawModel } from '@hushbox/shared/models';
 
 /** Content modality discriminator. */
 export type Modality = 'text' | 'image' | 'audio' | 'video';
 
 /** Capability tag advertised by a model (beyond its base modality). */
 export type ModelCapability = 'aspect-ratio' | 'duration';
-
-// ---------------------------------------------------------------------------
-// Model metadata
-// ---------------------------------------------------------------------------
 
 export type ModelPricing =
   | { kind: 'token'; inputPerToken: number; outputPerToken: number; webSearchPerCall?: number }
@@ -33,10 +30,6 @@ export interface ModelInfo {
   isZdr: boolean;
   created?: number;
 }
-
-// ---------------------------------------------------------------------------
-// Request types — discriminated by modality
-// ---------------------------------------------------------------------------
 
 export interface AIMessage {
   role: 'system' | 'user' | 'assistant';
@@ -92,10 +85,6 @@ export interface VideoRequest {
 
 export type InferenceRequest = TextRequest | ImageRequest | AudioRequest | VideoRequest;
 
-// ---------------------------------------------------------------------------
-// Streaming events — yielded by AIClient.stream()
-// ---------------------------------------------------------------------------
-
 export type InferenceEvent =
   | { kind: 'text-delta'; content: string }
   | { kind: 'media-start'; mediaType: 'image' | 'audio' | 'video'; mimeType: string }
@@ -119,41 +108,73 @@ export interface ProviderMetadata {
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
-// ---------------------------------------------------------------------------
-// Stream interface
-// ---------------------------------------------------------------------------
-
 export interface InferenceStream {
   [Symbol.asyncIterator](): AsyncIterator<InferenceEvent>;
 }
 
-// ---------------------------------------------------------------------------
-// Client interfaces
-// ---------------------------------------------------------------------------
-
-export interface AIClient {
-  readonly isMock: boolean;
+/**
+ * Shared methods for any AIClient. Concrete clients narrow `isMock` to a
+ * literal so `if (client.isMock)` is enough for TypeScript to discriminate.
+ */
+export interface AIClientBase {
   listModels(): Promise<ModelInfo[]>;
+  /**
+   * Gateway-shaped catalog (raw, before processModels filtering / smart-model
+   * synthesis). The single funnel for any caller that needs `processModels`'s
+   * `premiumIds` or `Model[]` output. Keeping this on the AIClient is what
+   * lets `getAIClient`'s `isLocalDev || isE2E` fork stay the only env check —
+   * routes never touch `fetchModels` directly.
+   */
+  listRawModels(): Promise<RawModel[]>;
   getModel(id: string): Promise<ModelInfo>;
   stream(request: InferenceRequest): InferenceStream;
   getGenerationStats(generationId: string): Promise<{ costUsd: number }>;
 }
 
-export interface MockAIClient extends AIClient {
-  getRequestHistory(): InferenceRequest[];
-  clearHistory(): void;
-  addFailingModel(id: string): void;
-  clearFailingModels(): void;
-  /**
-   * Configure the model id the mock returns for classifier calls (any text
-   * stream whose system message starts with `CLASSIFIER_SYSTEM_PROMPT_MARKER`).
-   * Defaults to a stable mock id; tests override per scenario.
-   */
-  setClassifierResolution(modelId: string): void;
-  /**
-   * Make the next classifier call fail by rejecting the stream's iterator.
-   * Pass `null` to clear. Failure mode: rejection from the async iterator;
-   * passing `null` after the test is good practice.
-   */
-  setClassifierFailure(error: Error | null): void;
+export interface RealAIClient extends AIClientBase {
+  readonly isMock: false;
 }
+
+/**
+ * History entry recorded by the mock client. Carries the original
+ * {@link InferenceRequest} fields plus a `zdrEnforced` flag so tests can
+ * assert that ZDR was applied on every call without having to inspect the
+ * SDK args. The mock never talks to a real gateway, so the flag is always
+ * `true` — tracking it explicitly lets a regression on `real.ts`-style
+ * paths (where ZDR is REAL provider options, not just a flag) surface at
+ * the boundary.
+ */
+export type RecordedInferenceRequest = InferenceRequest & { zdrEnforced: boolean };
+
+export interface MockAIClient extends AIClientBase {
+  readonly isMock: true;
+  getRequestHistory(): RecordedInferenceRequest[];
+  clearHistory(): void;
+}
+
+/**
+ * Per-request configuration for the mock AI client. Set by
+ * `aiClientMiddleware` from request headers (`x-mock-classifier-resolution`,
+ * `x-mock-classifier-failure`, `x-mock-failing-models`). E2E tests drive
+ * deterministic scenarios via `page.setExtraHTTPHeaders` — no shared mutable
+ * state, no afterEach cleanup, no cross-test bleed.
+ */
+export interface MockAIClientConfig {
+  /** Model id the classifier resolves to. Defaults to a stable mock id when omitted. */
+  classifierResolution?: string;
+  /** Force classifier failures (rejection from the async iterator). */
+  classifierFailure?: boolean;
+  /** Model ids whose inference stream rejects immediately. */
+  failingModels?: readonly string[];
+  /**
+   * Sleep this many milliseconds before yielding the first classifier event.
+   * Mock streams resolve on the microtask queue, so without a delay the
+   * `stage:start` → `stage:done` round-trip completes in microseconds — the
+   * "Choosing the best model…" thinking indicator never has a chance to
+   * render observably. Tests that assert that indicator set this to ~500ms.
+   */
+  classifierDelayMs?: number;
+}
+
+/** Discriminated union — narrows on `client.isMock` without casts. */
+export type AIClient = RealAIClient | MockAIClient;

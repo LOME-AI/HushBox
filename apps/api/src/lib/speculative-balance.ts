@@ -1,5 +1,5 @@
-import type { Redis } from '@upstash/redis';
 import { redisGet, redisIncrByFloat } from './redis-registry.js';
+import type { Redis } from '@upstash/redis';
 
 export interface GroupBudgetReservation {
   conversationId: string;

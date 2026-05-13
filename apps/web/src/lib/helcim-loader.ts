@@ -57,16 +57,10 @@ export function resetHelcimLoader(): void {
   isLoaded = false;
 }
 
-/**
- * Checks if the Helcim script is loaded.
- */
 export function isHelcimScriptLoaded(): boolean {
   return isLoaded;
 }
 
-/**
- * Interface for the Helcim tokenization result returned via DOM elements.
- */
 export interface HelcimTokenResult {
   success: boolean;
   cardToken?: string | undefined;

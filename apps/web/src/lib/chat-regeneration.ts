@@ -10,6 +10,29 @@ interface MessageWithParent {
   parentMessageId?: string | null;
 }
 
+interface MessageWithMedia extends MessageWithParent {
+  mediaItems?: readonly { contentType: 'image' | 'audio' | 'video' }[] | undefined;
+}
+
+export type RegenerateModality = 'text' | 'image' | 'audio' | 'video';
+
+/**
+ * `targetMessageId` is the user message; walk to its first AI child and read
+ * the modality from `mediaItems[0].contentType`. Falls back to `'text'` when
+ * no AI reply exists yet (the target hasn't been answered) or when the AI
+ * reply has no media (a text reply).
+ */
+export function inferRegenerateModality(
+  targetMessageId: string,
+  allMessages: readonly MessageWithMedia[]
+): RegenerateModality {
+  const aiChild = allMessages.find(
+    (m) => m.parentMessageId === targetMessageId && m.role === 'assistant'
+  );
+  const firstMedia = aiChild?.mediaItems?.[0];
+  return firstMedia?.contentType ?? 'text';
+}
+
 function hasMultipleAssistantSiblings(
   messages: MessageWithParent[],
   target: MessageWithParent

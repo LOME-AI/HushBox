@@ -301,7 +301,6 @@ describe('docker-cleanup', () => {
       expect(result.removed).toEqual([]);
       expect(result.failed).toEqual([]);
 
-      // Should not have called docker compose down
       const downCalls = mockExeca.mock.calls.filter(
         ([cmd, args]) => cmd === 'docker' && Array.isArray(args) && args.includes('down')
       );

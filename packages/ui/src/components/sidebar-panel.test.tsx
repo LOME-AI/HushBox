@@ -3,7 +3,6 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SidebarPanel } from './sidebar-panel';
 
-// Mock useIsMobile hook
 vi.mock('../hooks/use-is-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }));
@@ -12,7 +11,6 @@ import { useIsMobile } from '../hooks/use-is-mobile';
 
 const mockUseIsMobile = vi.mocked(useIsMobile);
 
-// Mock Sheet components
 vi.mock('./sheet', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./sheet')>();
   return {

@@ -1,16 +1,32 @@
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import { MessageItem } from './message-item';
-import type { Message } from '@/lib/api';
 import { groupConsecutiveMessages, type MessageGroup } from '@/lib/chat-sender';
-import type { LinkInfo } from '@/lib/chat-sender';
 import { isMultiModelResponse, canRegenerateMessage } from '@/lib/chat-regeneration';
 import {
   resolveMessageActions,
   buildChatContext,
   type MessageContext,
 } from '@/lib/message-actions';
+import { env } from '@/lib/env';
+import { MessageItem } from './message-item';
+import type { Message } from '@/lib/api';
+import type { LinkInfo } from '@/lib/chat-sender';
 import type { MemberPrivilege } from '@hushbox/shared';
+
+declare global {
+  // Test-only escape hatch exposed by `MessageList` in dev/E2E builds. Calls
+  // Virtuoso's native `scrollIntoView({ index, done })` and resolves when the
+  // row is measured and rendered.
+  var __virtuosoScrollToIndex: ((index: number) => Promise<void>) | undefined;
+}
 
 /**
  * Data row for a single Virtuoso item. Wraps the message (or group) together
@@ -136,6 +152,26 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       },
     };
   });
+
+  // Playwright-only escape hatch. iPhone-15 viewport + tall media tiles cause
+  // Virtuoso to virtualize away the target message-item before action helpers
+  // can locate it. Exposing `scrollIntoView({ done })` lets tests deterministically
+  // park a specific row in view and `await` its measurement.
+  useEffect(() => {
+    if (!env.isLocalDev && !env.isE2E) return;
+    globalThis.__virtuosoScrollToIndex = (index: number): Promise<void> =>
+      new Promise((resolve) => {
+        const handle = virtuosoRef.current;
+        if (!handle) {
+          resolve();
+          return;
+        }
+        handle.scrollIntoView({ index, align: 'center', behavior: 'auto', done: resolve });
+      });
+    return () => {
+      globalThis.__virtuosoScrollToIndex = undefined;
+    };
+  }, []);
 
   const handleAtBottomStateChange = useCallback((atBottom: boolean): void => {
     if (!atBottom) {
@@ -266,6 +302,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       data-assistant-count={assistantCount}
       data-cost-count={costCount}
       data-message-count={messages.length}
+      data-rows-count={rows.length}
       data-virtuoso-scrolling={String(isVirtuosoScrolling)}
       className="h-full min-h-0 flex-1"
     >

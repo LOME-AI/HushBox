@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createHelcimClient, verifyWebhookSignatureAsync } from './helcim.js';
 import { signHmacSha256Webhook } from '@hushbox/crypto';
 import { toStandardBase64, textEncoder } from '@hushbox/shared';
+import { createHelcimClient, verifyWebhookSignatureAsync } from './helcim.js';
 
-// Mock fetch globally
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
@@ -407,7 +406,6 @@ describe('verifyWebhookSignatureAsync', () => {
       webhookId,
     });
 
-    // "v0,invalid v1,valid"
     const multiSignature = `v0,invalidSignature ${signature}`;
 
     const result = await verifyWebhookSignatureAsync({

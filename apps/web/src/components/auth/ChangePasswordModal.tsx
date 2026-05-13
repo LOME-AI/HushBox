@@ -75,7 +75,6 @@ export function ChangePasswordModal({
   useFormEnterNav(formRef);
   const handleOpenAutoFocus = useMobileAutoFocus();
 
-  // Reset state when modal opens
   React.useEffect(() => {
     if (open) {
       setCurrentPassword('');

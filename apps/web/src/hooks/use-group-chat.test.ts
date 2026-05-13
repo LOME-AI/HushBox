@@ -1,8 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ---- mocks ----
-
 const mockMembers = [
   { id: 'm1', userId: 'u1', username: 'alice', privilege: 'owner' },
   { id: 'm2', userId: 'u2', username: 'bob', privilege: 'write' },
@@ -125,11 +123,11 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: vi.fn(() => mockNavigate),
 }));
 
+import { wrapEpochKeyForNewMember } from '@hushbox/crypto';
 import { useGroupChat } from './use-group-chat.js';
 import { useConversationMembers } from './use-conversation-members.js';
 import { useConversationLinks } from './use-conversation-links.js';
 import { getCurrentEpoch, getEpochKey, getSnapshot } from '../lib/epoch-key-cache.js';
-import { wrapEpochKeyForNewMember } from '@hushbox/crypto';
 import { useRemoteStreaming } from './use-remote-streaming.js';
 import { useTypingIndicators } from './use-typing-indicators.js';
 import { useConversationWebSocket } from './use-conversation-websocket.js';
@@ -137,7 +135,6 @@ import { useConversationWebSocket } from './use-conversation-websocket.js';
 describe('useGroupChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Restore defaults after clearAllMocks
     vi.mocked(getCurrentEpoch).mockReturnValue(3);
     vi.mocked(getEpochKey).mockReturnValue(new Uint8Array(32).fill(7));
     mockExecuteWithRotation.mockResolvedValue({

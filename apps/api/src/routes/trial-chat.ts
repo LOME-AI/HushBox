@@ -9,21 +9,24 @@ import {
   ERROR_CODE_AUTHENTICATED_ON_TRIAL,
   ERROR_CODE_TRIAL_MESSAGE_TOO_EXPENSIVE,
   ERROR_CODE_STREAM_ERROR,
+  ERROR_CODE_FEATURE_REQUIRES_AUTH,
   calculateBudget,
   resolveBilling,
-  getModelPricing,
   buildSystemPrompt,
 } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
+import { processModels } from '@hushbox/shared/models';
 import { buildPrompt } from '../services/prompt/builder.js';
 import { consumeTrialMessage } from '../services/billing/index.js';
-import { fetchModels, processModels } from '@hushbox/shared/models';
 import { validateLastMessageIsFromUser, buildAIMessages } from '../services/chat/index.js';
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
 import { lookupModelPricing } from '../lib/stream-pipeline.js';
+import { textStrategy } from '../lib/modality-strategies.js';
 import { hashIp, getClientIp } from '../lib/client-ip.js';
+import { rateLimitByIp } from '../middleware/rate-limit.js';
+import type { AppEnv } from '../types.js';
+import type { getModelPricing } from '@hushbox/shared';
 import type { Context } from 'hono';
 
 interface TrialMessage {
@@ -166,11 +169,7 @@ async function validateTrialRequest(
     return { success: false, response: quotaResult.errorResponse };
   }
 
-  const apiKey = c.env.AI_GATEWAY_API_KEY;
-  if (!apiKey) throw new Error('AI_GATEWAY_API_KEY required for trial chat');
-  const publicModelsUrl = c.env.PUBLIC_MODELS_URL;
-  if (!publicModelsUrl) throw new Error('PUBLIC_MODELS_URL required for trial chat');
-  const allModels = await fetchModels({ apiKey, publicModelsUrl });
+  const allModels = await c.var.aiClient.listRawModels();
   const { premiumIds } = processModels(allModels);
 
   const modelError = checkTrialModelAccess(c, model, premiumIds);
@@ -200,14 +199,23 @@ const messageSchema = z.object({
 const trialStreamRequestSchema = z.object({
   messages: z.array(messageSchema).min(1),
   model: z.string(),
+  webSearchEnabled: z.boolean().optional(),
 });
 
 export const trialChatRoute = new Hono<AppEnv>().post(
   '/stream',
+  rateLimitByIp('trialChatStreamIpRateLimit'),
   zValidator('json', trialStreamRequestSchema),
   async (c) => {
-    const { messages, model } = c.req.valid('json');
+    const { messages, model, webSearchEnabled } = c.req.valid('json');
     const aiClient = c.get('aiClient');
+
+    // Defense-in-depth: trial users have no reserved budget for the search
+    // tool cap, so reject hand-crafted requests that try to enable it. The
+    // frontend already gates this for trial users.
+    if (webSearchEnabled === true) {
+      return c.json(createErrorResponse(ERROR_CODE_FEATURE_REQUIRES_AUTH), 403);
+    }
 
     const validation = await validateTrialRequest(c, messages, model);
     if (!validation.success) {
@@ -235,16 +243,17 @@ export const trialChatRoute = new Hono<AppEnv>().post(
       let streamError: Error | null = null;
 
       try {
-        const inferenceStream = aiClient.stream({
-          modality: 'text',
-          model,
-          messages: aiMessages,
-          ...(safeMaxTokens === undefined ? {} : { maxOutputTokens: safeMaxTokens }),
-        });
+        const inferenceStream = aiClient.stream(
+          textStrategy.buildRequest({
+            modelId: model,
+            messages: aiMessages,
+            ...(safeMaxTokens !== undefined && { maxOutputTokens: safeMaxTokens }),
+          })
+        );
 
         for await (const event of inferenceStream) {
           if (event.kind === 'text-delta' && event.content.length > 0) {
-            await writer.writeToken(event.content);
+            await writer.writeModelToken({ modelId: model, content: event.content });
           }
         }
       } catch (error) {

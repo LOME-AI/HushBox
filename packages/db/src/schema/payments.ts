@@ -23,7 +23,6 @@ export const payments = pgTable(
     cardType: text('card_type'),
     cardLastFour: text('card_last_four'),
 
-    // Error tracking
     errorMessage: text('error_message'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

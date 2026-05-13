@@ -11,6 +11,7 @@ import sonarjs from 'eslint-plugin-sonarjs';
 import unicorn from 'eslint-plugin-unicorn';
 import pluginPromise from 'eslint-plugin-promise';
 import unusedImports from 'eslint-plugin-unused-imports';
+import importPlugin from 'eslint-plugin-import';
 import eslintPluginAstro from 'eslint-plugin-astro';
 
 /**
@@ -56,8 +57,41 @@ export function createBaseConfig(tsconfigRootDir) {
       plugins: {
         'no-secrets': noSecrets,
         'unused-imports': unusedImports,
+        import: importPlugin,
       },
       rules: {
+        // Import ordering — enforces the project convention from CODE-RULES.md:
+        //   1. External dependencies
+        //   2. Internal packages (@hushbox/*)
+        //   3. Relative imports
+        //   4. Type imports last (complements consistent-type-imports below)
+        // Most violations auto-fix with `eslint --fix`.
+        'import/order': [
+          'error',
+          {
+            groups: [
+              ['builtin', 'external'],
+              'internal',
+              ['parent', 'sibling', 'index'],
+              'type',
+            ],
+            pathGroups: [
+              {
+                pattern: '@hushbox/**',
+                group: 'internal',
+                position: 'before',
+              },
+              {
+                pattern: '@/**',
+                group: 'internal',
+                position: 'after',
+              },
+            ],
+            pathGroupsExcludedImportTypes: ['type'],
+            'newlines-between': 'ignore',
+          },
+        ],
+
         // Secret detection (patterns based on env.config.ts)
         'no-secrets/no-secrets': [
           'error',
@@ -102,6 +136,16 @@ export function createBaseConfig(tsconfigRootDir) {
         // Errors on: console.log(), console.info(), console.debug(), console.trace(), etc.
         // Allows only: console.warn() and console.error() (legitimate error reporting)
         'no-console': ['error', { allow: ['warn', 'error'] }],
+
+        // Force separate `import type { ... }` lines instead of inline `import { type ... }`.
+        // `disallowTypeAnnotations: false` keeps `typeof import('./foo.js')` patterns (used
+        // by vitest's `importOriginal<typeof import('./mock.js')>()` mock pattern) working.
+        // Keeps top-level type and value imports visually distinct so changes to either
+        // don't accidentally pull in the other.
+        '@typescript-eslint/consistent-type-imports': [
+          'error',
+          { prefer: 'type-imports', disallowTypeAnnotations: false },
+        ],
 
         // Unicorn overrides for project conventions
         'unicorn/prevent-abbreviations': [
@@ -200,6 +244,11 @@ export const testConfig = [
       // Test setup uses nested functions and empty callbacks
       'sonarjs/no-nested-functions': 'off',
       '@typescript-eslint/no-empty-function': 'off',
+
+      // Tests routinely interleave `vi.mock(...)` calls with imports of the
+      // mocked module — strict import ordering breaks that pattern. Source
+      // files keep the rule on; only tests opt out.
+      'import/order': 'off',
 
       // Tests may use Math.random for test data
       'sonarjs/pseudo-random': 'off',

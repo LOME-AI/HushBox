@@ -6,14 +6,6 @@
  * the existing generateDebugReport() → writeReport() pipeline.
  */
 
-import type {
-  Reporter,
-  FullResult,
-  Suite,
-  TestCase,
-  TestResult,
-  TestStep,
-} from '@playwright/test/reporter';
 import path from 'node:path';
 import {
   generateDebugReport,
@@ -25,6 +17,14 @@ import {
   type PlaywrightTest,
   type PlaywrightTestResult,
 } from './e2e-debug.js';
+import type {
+  Reporter,
+  FullResult,
+  Suite,
+  TestCase,
+  TestResult,
+  TestStep,
+} from '@playwright/test/reporter';
 
 function mapStep(step: TestStep): PlaywrightStep {
   return {

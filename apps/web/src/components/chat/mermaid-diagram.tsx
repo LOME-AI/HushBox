@@ -1,13 +1,12 @@
 import * as React from 'react';
-import { cn } from '@hushbox/ui';
 import mermaid from 'mermaid';
+import { cn } from '@hushbox/ui';
 
 interface MermaidDiagramProps {
   chart: string;
   className?: string;
 }
 
-// Track if mermaid has been initialized
 let mermaidInitialized = false;
 
 function initializeMermaid(): void {

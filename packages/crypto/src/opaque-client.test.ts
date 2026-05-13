@@ -60,7 +60,6 @@ describe('opaque-client', () => {
       const client = createOpaqueClient();
       await startRegistration(client, 'test-password');
 
-      // Invalid server response should throw
       const invalidResponse = [1, 2, 3]; // Too short to be valid
 
       await expect(finishRegistration(client, invalidResponse)).rejects.toThrow();
@@ -104,7 +103,6 @@ describe('opaque-client', () => {
       const client = createOpaqueClient();
       await startLogin(client, 'test-password');
 
-      // Invalid ke2 should throw
       const invalidKe2 = [1, 2, 3]; // Too short to be valid
 
       await expect(finishLogin(client, invalidKe2)).rejects.toThrow();

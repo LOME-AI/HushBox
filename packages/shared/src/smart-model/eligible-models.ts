@@ -5,10 +5,10 @@ import {
 } from '../constants.js';
 import { canAffordModel, estimateTokensForTier, getEffectiveBalance } from '../budget.js';
 import { applyFees } from '../pricing.js';
+import { computeClassifierPromptOverhead } from './prompts.js';
+import { MAX_CLASSIFIER_CONTEXT_CHARS } from './truncate.js';
 import type { Model } from '../schemas/api/models.js';
 import type { UserTier } from '../tiers.js';
-
-import { MAX_CLASSIFIER_CONTEXT_CHARS } from './truncate.js';
 
 /**
  * Hard cap on classifier output tokens. The classifier should emit a single
@@ -18,11 +18,32 @@ import { MAX_CLASSIFIER_CONTEXT_CHARS } from './truncate.js';
 export const CLASSIFIER_OUTPUT_TOKEN_CAP = 50;
 
 /**
- * Conservative overhead added to {@link MAX_CLASSIFIER_CONTEXT_CHARS} when
- * estimating the classifier prompt size. Covers the system prompt template
- * plus a long-tail model list (≈30 entries × ~150 chars per entry).
+ * Legacy fallback constant. Retained as a backstop for paths that still need
+ * a numeric estimate without a model list in hand. New code should call
+ * {@link computeMaxClassifierOverhead} or {@link computeClassifierPromptOverhead}
+ * to get the EXACT prompt overhead for a known eligible set — the constant
+ * was a guess (5000 ≈ 30 entries × ~150 chars) that drifts from the prompt
+ * template every time the wording or model list size changes.
  */
 export const CLASSIFIER_PROMPT_OVERHEAD_CHARS = 5000;
+
+/**
+ * Compute the EXACT classifier-prompt overhead in characters for the supplied
+ * model list. Approach A from the lane-4 brief: render the prompt template
+ * against the actual eligible models (with Smart-Model entries skipped) and
+ * count the rendered chars. The result equals the system prompt + user-side
+ * wrapping when truncated context is empty — i.e. the worst-case overhead
+ * before adding {@link MAX_CLASSIFIER_CONTEXT_CHARS} of context.
+ *
+ * Pure function — no caching needed; the input list is small (~tens of
+ * entries) and callers run this once per Smart Model invocation.
+ */
+export function computeMaxClassifierOverhead(models: readonly Model[]): number {
+  const eligibleForPrompt = models
+    .filter((m) => m.isSmartModel !== true)
+    .map((m) => ({ id: m.id, description: m.description }));
+  return computeClassifierPromptOverhead(eligibleForPrompt);
+}
 
 export interface EligibleModelsInput {
   /** Text models from `processModels(...).models` (raw prices, no fees applied). */
@@ -85,9 +106,17 @@ function filterAndSortCandidates(input: EligibleModelsInput): RealCandidate[] {
  * Treats the prompt as the largest plausible classifier call: full
  * conversation truncation budget plus system prompt and model list overhead.
  * Uses {@link CLASSIFIER_OUTPUT_TOKEN_CAP} as the output ceiling.
+ *
+ * `overheadChars` is computed from the ACTUAL prompt template via
+ * {@link computeMaxClassifierOverhead} so the estimate updates automatically
+ * if the prompt template grows, instead of drifting from a fixed constant.
  */
-function computeClassifierWorstCaseCents(classifier: RealCandidate, tier: UserTier): number {
-  const inputChars = MAX_CLASSIFIER_CONTEXT_CHARS + CLASSIFIER_PROMPT_OVERHEAD_CHARS;
+function computeClassifierWorstCaseCents(
+  classifier: RealCandidate,
+  tier: UserTier,
+  overheadChars: number
+): number {
+  const inputChars = MAX_CLASSIFIER_CONTEXT_CHARS + overheadChars;
   const inputTokens = estimateTokensForTier(tier, inputChars);
   // Output storage chars-per-token is tier-inverted (matches buildCostManifest).
   const outputCharsPerToken =
@@ -153,7 +182,16 @@ export function buildEligibleModels(input: EligibleModelsInput): EligibleModelsR
 
   const classifier = candidates[0];
   if (classifier === undefined) return null;
-  const classifierWorstCaseCents = computeClassifierWorstCaseCents(classifier, input.payerTier);
+  // Worst-case overhead uses the FULL textModels list (Smart Model entries
+  // skipped inside `computeMaxClassifierOverhead`) — once a budget tightens
+  // and shrinks the eligible set, the prompt the classifier actually sees is
+  // smaller, so this is an upper bound that's safe for budgeting.
+  const overheadChars = computeMaxClassifierOverhead(input.textModels);
+  const classifierWorstCaseCents = computeClassifierWorstCaseCents(
+    classifier,
+    input.payerTier,
+    overheadChars
+  );
 
   const affordable = findAffordableCandidates(candidates, classifierWorstCaseCents, input);
   if (affordable.length === 0) return null;

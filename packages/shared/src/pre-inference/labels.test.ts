@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { StageId } from './events.js';
 import { STAGE_LABELS, stageLabel } from './labels.js';
+import type { StageId } from './events.js';
 
 describe('STAGE_LABELS', () => {
   it('has an entry for every StageId', () => {

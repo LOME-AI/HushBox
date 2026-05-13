@@ -26,6 +26,7 @@ import {
 import { queryClient } from '@/providers/query-provider';
 import { getApiUrl } from '@/lib/api';
 import { clearEpochKeyCache } from '@/lib/epoch-key-cache';
+import { useModelStore } from '@/stores/model';
 import {
   STORAGE_KEY,
   persistExportKey,
@@ -35,13 +36,7 @@ import {
   type MeResponse,
 } from './auth-client.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
-import { useModelStore } from '@/stores/model';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Extract raw error code from API response body. */
 function extractErrorCode(body: unknown): string | undefined {
   if (body && typeof body === 'object' && 'code' in body) {
     const code = (body as { code: unknown }).code;
@@ -50,7 +45,6 @@ function extractErrorCode(body: unknown): string | undefined {
   return undefined;
 }
 
-/** Extract error code from API response body and return user-facing message. */
 export function parseErrorMessage(body: unknown): string {
   const code = extractErrorCode(body);
   if (code) return friendlyErrorMessage(code);
@@ -61,10 +55,6 @@ async function handleErrorResponse(response: Response): Promise<{ success: false
   const body: unknown = await response.json();
   return { success: false, error: parseErrorMessage(body) };
 }
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface UserData {
   id: string;
@@ -102,10 +92,6 @@ interface VerifyEmailResult {
   error?: { message: string };
 }
 
-// ---------------------------------------------------------------------------
-// Zustand Store
-// ---------------------------------------------------------------------------
-
 // SECURITY: No persist middleware. Private key must only exist in memory.
 // Persisting would leak encryption keys to localStorage/sessionStorage.
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -139,10 +125,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 }));
 
-// ---------------------------------------------------------------------------
-// useSession hook (backward-compatible with old Better Auth shape)
-// ---------------------------------------------------------------------------
-
 interface SessionHookResult {
   data: { user: UserData; session: { id: string } } | null;
   isPending: boolean;
@@ -167,14 +149,6 @@ export function useSession(): SessionHookResult {
   };
 }
 
-// ---------------------------------------------------------------------------
-// signIn (OPAQUE protocol)
-// ---------------------------------------------------------------------------
-
-/**
- * Unwrap account key, persist export key, set private key, and fetch /me to hydrate user store.
- * Shared by both 2FA and non-2FA login paths.
- */
 async function finalizeLoginWithKey(
   exportKey: Uint8Array,
   wrappedPrivateKey: Uint8Array,
@@ -252,7 +226,6 @@ async function signInEmail(options: {
   const passwordBytes = new TextEncoder().encode(password);
 
   try {
-    // 1. OPAQUE login init
     const client = createOpaqueClient();
     const { ke1 } = await startLogin(client, password);
 
@@ -271,11 +244,9 @@ async function signInEmail(options: {
       ke2: number[];
     };
 
-    // 2. OPAQUE login finish (client-side) — gives us exportKey
     const loginResult = await finishLogin(client, ke2, OPAQUE_SERVER_IDENTIFIER);
     const exportKey = new Uint8Array(loginResult.exportKey);
 
-    // 3. Send ke3 to server
     const finishResponse = await fetch(`${getApiUrl()}/api/auth/login/finish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -302,7 +273,6 @@ async function signInEmail(options: {
       };
     }
 
-    // Non-2FA path: unwrap account private key immediately
     if (!finishData.passwordWrappedPrivateKey) {
       return { error: { message: friendlyErrorMessage('ENCRYPTION_NOT_SETUP') } };
     }
@@ -314,9 +284,7 @@ async function signInEmail(options: {
       keepSignedIn
     );
 
-    // finalizeLoginWithKey fetches /me; if that failed, fallback to minimal info
     if (!useAuthStore.getState().user) {
-      // Fallback to minimal user info from login response
       useAuthStore.getState().setUser({
         id: finishData.userId,
         email: finishData.email ?? '',
@@ -339,10 +307,6 @@ export const signIn = {
   email: signInEmail,
 };
 
-// ---------------------------------------------------------------------------
-// signUp (OPAQUE protocol)
-// ---------------------------------------------------------------------------
-
 async function signUpEmail(options: {
   username: string;
   email: string;
@@ -353,7 +317,6 @@ async function signUpEmail(options: {
   const passwordBytes = new TextEncoder().encode(password);
 
   try {
-    // 1. OPAQUE registration init
     const client = createOpaqueClient();
     const { serialized } = await startRegistration(client, password);
 
@@ -377,18 +340,15 @@ async function signUpEmail(options: {
       registrationResponse: number[];
     };
 
-    // 2. OPAQUE registration finish (client-side) — gives us exportKey
     const { record, exportKey } = await finishRegistration(
       client,
       registrationResponse,
       OPAQUE_SERVER_IDENTIFIER
     );
 
-    // 3. Create account crypto material using OPAQUE export key
     const opaqueExportKey = new Uint8Array(exportKey);
     const accountResult = await createAccount(opaqueExportKey);
 
-    // 4. Send registration record and crypto material to server
     const finishResponse = await fetch(`${getApiUrl()}/api/auth/register/finish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -411,7 +371,6 @@ async function signUpEmail(options: {
   } catch {
     return { error: { message: friendlyErrorMessage('REGISTRATION_FAILED') } };
   } finally {
-    // Cleanup sensitive material
     passwordBytes.fill(0);
   }
 }
@@ -419,10 +378,6 @@ async function signUpEmail(options: {
 export const signUp = {
   email: signUpEmail,
 };
-
-// ---------------------------------------------------------------------------
-// changePassword (OPAQUE protocol — password never touches server)
-// ---------------------------------------------------------------------------
 
 interface ChangePasswordResult {
   success: boolean;
@@ -442,15 +397,12 @@ export async function changePassword(
   const newPasswordBytes = new TextEncoder().encode(newPassword);
 
   try {
-    // 1. Start OPAQUE login with current password (to verify it)
     const loginClient = createOpaqueClient();
     const { ke1 } = await startLogin(loginClient, currentPassword);
 
-    // 2. Start OPAQUE registration with new password
     const regClient = createOpaqueClient();
     const { serialized: newRegistrationRequest } = await startRegistration(regClient, newPassword);
 
-    // 3. Send both to server in one round trip
     const initResponse = await fetch(`${getApiUrl()}/api/auth/change-password/init`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -467,30 +419,25 @@ export async function changePassword(
       newRegistrationResponse: number[];
     };
 
-    // 4. Finish OPAQUE login (proves current password, gives us KE3)
     const loginResult = await finishLogin(loginClient, ke2, OPAQUE_SERVER_IDENTIFIER);
 
-    // 5. Finish OPAQUE registration (gives us new export key)
     const newRegResult = await finishRegistration(
       regClient,
       newRegistrationResponse,
       OPAQUE_SERVER_IDENTIFIER
     );
 
-    // 6. Get account private key from store
     const { privateKey: accountPrivateKey } = useAuthStore.getState();
     if (!accountPrivateKey) {
       return { success: false, error: friendlyErrorMessage('ACCOUNT_KEY_NOT_AVAILABLE') };
     }
 
-    // 7. Re-wrap account private key with new OPAQUE export key
     const newExportKey = new Uint8Array(newRegResult.exportKey);
     const newPasswordWrappedPrivateKey = rewrapAccountKeyForPasswordChange(
       accountPrivateKey,
       newExportKey
     );
 
-    // 8. Send finish request with new registration record + new wrapped key
     const finishResponse = await fetch(`${getApiUrl()}/api/auth/change-password/finish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -506,7 +453,6 @@ export async function changePassword(
       return await handleErrorResponse(finishResponse);
     }
 
-    // 9. Update local export key storage
     const storedAuth = getStoredAuth();
     if (storedAuth) {
       const keepSignedIn = localStorage.getItem(STORAGE_KEY) !== null;
@@ -522,10 +468,6 @@ export async function changePassword(
   }
 }
 
-// ---------------------------------------------------------------------------
-// resetPasswordViaRecovery
-// ---------------------------------------------------------------------------
-
 export async function resetPasswordViaRecovery(
   rawIdentifier: string,
   recoveryPhrase: string,
@@ -536,7 +478,6 @@ export async function resetPasswordViaRecovery(
   let newPasswordBytes: Uint8Array | null = null;
 
   try {
-    // 1. Request recovery wrapped key from server
     const getKeyResponse = await fetch(`${getApiUrl()}/api/auth/recovery/get-wrapped-key`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -552,17 +493,14 @@ export async function resetPasswordViaRecovery(
       recoveryWrappedPrivateKey: string;
     };
 
-    // 2. Recover account private key from mnemonic
     accountPrivateKey = await recoverAccountFromMnemonic(
       recoveryPhrase,
       fromBase64(recoveryWrappedPrivateKey)
     );
 
-    // 3. Start OPAQUE registration with new password
     const client = createOpaqueClient();
     const { serialized: newRegistrationRequest } = await startRegistration(client, newPassword);
 
-    // 4. Send init request
     const initResponse = await fetch(`${getApiUrl()}/api/auth/recovery/reset`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -578,21 +516,18 @@ export async function resetPasswordViaRecovery(
       newRegistrationResponse: number[];
     };
 
-    // 5. Finish OPAQUE registration — gives us new export key
     const { record, exportKey } = await finishRegistration(
       client,
       newRegistrationResponse,
       OPAQUE_SERVER_IDENTIFIER
     );
 
-    // 6. Re-wrap account private key with new OPAQUE export key
     const newExportKey = new Uint8Array(exportKey);
     const newPasswordWrappedPrivateKey = rewrapAccountKeyForPasswordChange(
       accountPrivateKey,
       newExportKey
     );
 
-    // 7. Send finish request
     newPasswordBytes = new TextEncoder().encode(newPassword);
     const finishResponse = await fetch(`${getApiUrl()}/api/auth/recovery/reset/finish`, {
       method: 'POST',
@@ -620,10 +555,6 @@ export async function resetPasswordViaRecovery(
     if (newPasswordBytes) newPasswordBytes.fill(0);
   }
 }
-
-// ---------------------------------------------------------------------------
-// disable2FAInit (OPAQUE password re-auth for 2FA disable)
-// ---------------------------------------------------------------------------
 
 export async function disable2FAInit(
   password: string
@@ -654,10 +585,6 @@ export async function disable2FAInit(
   }
 }
 
-// ---------------------------------------------------------------------------
-// disable2FAFinish (send ke3 + TOTP code to finalize 2FA disable)
-// ---------------------------------------------------------------------------
-
 export async function disable2FAFinish(
   ke3: number[],
   code: string
@@ -679,31 +606,20 @@ export async function disable2FAFinish(
   }
 }
 
-// ---------------------------------------------------------------------------
-// signOut
-// ---------------------------------------------------------------------------
-
 export async function signOutAndClearCache(): Promise<void> {
   await fetch(`${getApiUrl()}/api/auth/logout`, {
     method: 'POST',
     credentials: 'include',
   });
   clearStoredAuth();
-  clearEpochKeyCache(); // zeros and clears all cached epoch keys
-  useAuthStore.getState().clear(); // zeros privateKey, clears state
-  // Reset every modality on sign out so the next user starts clean.
-  const modelStore = useModelStore.getState();
-  modelStore.clearSelection('text');
-  modelStore.clearSelection('image');
-  modelStore.clearSelection('audio');
-  modelStore.clearSelection('video');
+  clearEpochKeyCache();
+  useAuthStore.getState().clear();
+  // Reset every modality and force text active so the trial page never lands
+  // with a non-text modality (which disables every icon for trial users).
+  useModelStore.getState().resetForUnauthenticated();
   queryClient.clear();
   initPromise = null;
 }
-
-// ---------------------------------------------------------------------------
-// authClient helpers
-// ---------------------------------------------------------------------------
 
 async function simpleAuthPost(
   path: string,
@@ -729,10 +645,6 @@ async function simpleAuthPost(
   }
 }
 
-// ---------------------------------------------------------------------------
-// authClient (backward-compatible object)
-// ---------------------------------------------------------------------------
-
 export const authClient = {
   getSession: async (): Promise<{ data: { user: UserData } | null }> => {
     await initAuth();
@@ -753,10 +665,6 @@ export const authClient = {
     simpleAuthPost('/api/auth/verify-email', { token: options.query.token }, 'VERIFICATION_FAILED'),
 };
 
-// ---------------------------------------------------------------------------
-// Helpers — custom instructions decryption
-// ---------------------------------------------------------------------------
-
 function decryptCustomInstructions(
   privateKey: Uint8Array,
   encryptedBase64: string | null | undefined
@@ -769,10 +677,6 @@ function decryptCustomInstructions(
     return null;
   }
 }
-
-// ---------------------------------------------------------------------------
-// initAuth (singleton — restores session from stored export key)
-// ---------------------------------------------------------------------------
 
 let initPromise: Promise<void> | null = null;
 
@@ -793,7 +697,6 @@ async function doInitAuth(): Promise<void> {
   try {
     const restored = await restoreSession();
     if (!restored) {
-      // Session not restored (transient error or cleared auth).
       // Reset singleton so next initAuth() call retries.
       initPromise = null;
       useAuthStore.getState().setLoading(false);
@@ -808,17 +711,13 @@ async function doInitAuth(): Promise<void> {
         decryptCustomInstructions(restored.privateKey, restored.customInstructionsEncrypted)
       );
   } catch {
-    // restoreSession() handles clearing auth for definitive failures (401/403).
-    // Don't clear here — transient errors should allow retry.
+    // restoreSession() handles clearing auth for definitive failures (401/403);
+    // transient errors should allow retry.
     initPromise = null;
   } finally {
     useAuthStore.getState().setLoading(false);
   }
 }
-
-// ---------------------------------------------------------------------------
-// requireAuth (route guard)
-// ---------------------------------------------------------------------------
 
 export async function requireAuth(): Promise<{ user: UserData }> {
   const { user, isAuthenticated } = useAuthStore.getState();
@@ -826,7 +725,6 @@ export async function requireAuth(): Promise<{ user: UserData }> {
     return { user };
   }
 
-  // Try restore
   await initAuth();
 
   const state = useAuthStore.getState();
@@ -838,7 +736,6 @@ export async function requireAuth(): Promise<{ user: UserData }> {
   return { user: state.user };
 }
 
-// Allow test resets
 export function resetInitPromise(): void {
   initPromise = null;
 }

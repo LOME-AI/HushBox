@@ -3,7 +3,6 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SignupModal } from './signup-modal';
 
-// Mock useNavigate
 const mockNavigate = vi.fn();
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
@@ -36,7 +35,6 @@ describe('SignupModal', () => {
   it('displays description about signing up', () => {
     render(<SignupModal open={true} onOpenChange={vi.fn()} />);
 
-    // Look for the paragraph containing the description
     expect(screen.getByText(/sign up for free to access/i)).toBeInTheDocument();
   });
 
@@ -95,7 +93,6 @@ describe('SignupModal', () => {
   it('shows generic message when modelName is not provided', () => {
     render(<SignupModal open={true} onOpenChange={vi.fn()} />);
 
-    // Check for the specific description text (not the heading)
     expect(screen.getByText(/access premium models including/i)).toBeInTheDocument();
   });
 });

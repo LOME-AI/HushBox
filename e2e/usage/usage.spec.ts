@@ -16,25 +16,20 @@ test.describe('Usage Analytics', () => {
       await usagePage.selectDateRange('all');
       await usagePage.expectAllChartsVisible();
 
-      // Verify each chart has rendered SVG data (not just empty containers)
       await usagePage.expectChartHasData(usagePage.spendingChart);
       await usagePage.expectChartHasData(usagePage.costByModelChart);
       await usagePage.expectChartHasData(usagePage.tokenUsageChart);
       await usagePage.expectChartHasData(usagePage.balanceHistoryChart);
 
-      // KPI cards should show non-zero values
       await expect(usagePage.kpiTotalSpentValue).not.toHaveText('$0.00');
       await expect(usagePage.kpiMessagesValue).not.toHaveText('0');
     });
 
     await test.step('date range filters update KPIs', async () => {
-      // Record All-time total
       const allTimeText = await usagePage.getKpiTotalSpentText();
 
-      // Switch to 7d — should show less than All
       await usagePage.selectDateRange('7d');
 
-      // Wait for data to update (KPI text should change)
       await expect(async () => {
         const sevenDayText = await usagePage.getKpiTotalSpentText();
         expect(sevenDayText).not.toBe(allTimeText);
@@ -46,13 +41,10 @@ test.describe('Usage Analytics', () => {
       await usagePage.selectDateRange('all');
       await usagePage.expectChartHasData(usagePage.costByModelChart);
 
-      // Select a specific model
       await usagePage.selectModel('anthropic/claude-opus-4.6');
 
-      // Cost by model chart should still render with filtered data
       await usagePage.expectChartHasData(usagePage.costByModelChart);
 
-      // Clear the filter
       await usagePage.clearModelFilter();
     });
   });

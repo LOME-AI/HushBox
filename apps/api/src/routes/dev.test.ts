@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { devRoute } from './dev.js';
 import { WELCOME_CREDIT_BALANCE } from '@hushbox/shared';
+import { devRoute } from './dev.js';
 import { getVersionOverride, clearVersionOverride } from '../lib/version-override.js';
 import type { DevPersonasResponse } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
@@ -356,7 +356,6 @@ describe('devRoute', () => {
       const res = await app.request('/dev/personas');
 
       expect(res.status).toBe(200);
-      // Default behavior should query dev domain
       expect(mockDb.select).toHaveBeenCalled();
     });
 
@@ -597,25 +596,28 @@ describe('devRoute', () => {
     });
   });
 
+  function createRateLimitResetApp(keys: string[]): {
+    app: Hono<AppEnv>;
+    mockRedis: { scan: ReturnType<typeof vi.fn>; del: ReturnType<typeof vi.fn> };
+  } {
+    const mockRedis = {
+      scan: vi.fn().mockResolvedValue(['0', keys]),
+      del: vi.fn().mockResolvedValue(keys.length),
+    };
+
+    const app = new Hono<AppEnv>();
+    app.use('*', async (c, next) => {
+      c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+      c.set('db', {} as unknown as AppEnv['Variables']['db']);
+      await next();
+    });
+    app.route('/dev', devRoute);
+    return { app, mockRedis };
+  }
+
   describe('DELETE /auth-rate-limits', () => {
-    function createAuthRateLimitsApp(keys: string[]) {
-      const mockRedis = {
-        scan: vi.fn().mockResolvedValue(['0', keys]),
-        del: vi.fn().mockResolvedValue(keys.length),
-      };
-
-      const app = new Hono<AppEnv>();
-      app.use('*', async (c, next) => {
-        c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
-        c.set('db', {} as unknown as AppEnv['Variables']['db']);
-        await next();
-      });
-      app.route('/dev', devRoute);
-      return { app, mockRedis };
-    }
-
     it('returns success with count of deleted keys', async () => {
-      const { app } = createAuthRateLimitsApp([
+      const { app } = createRateLimitResetApp([
         'login:user:ratelimit:alice',
         'login:lockout:alice',
       ]);
@@ -628,13 +630,91 @@ describe('devRoute', () => {
     });
 
     it('returns success with zero when no keys exist', async () => {
-      const { app } = createAuthRateLimitsApp([]);
+      const { app } = createRateLimitResetApp([]);
       const res = await app.request('/dev/auth-rate-limits', { method: 'DELETE' });
 
       expect(res.status).toBe(200);
       const body: TrialUsageResetResponse = await res.json();
       expect(body.success).toBe(true);
       expect(body.deleted).toBe(0);
+    });
+  });
+
+  describe('DELETE /usage-rate-limits', () => {
+    it('returns success with count of deleted keys across all per-user prefixes', async () => {
+      const { app } = createRateLimitResetApp([
+        'chat:stream:user:ratelimit:alice',
+        'media:download:user:ratelimit:bob',
+      ]);
+      const res = await app.request('/dev/usage-rate-limits', { method: 'DELETE' });
+
+      expect(res.status).toBe(200);
+      const body: TrialUsageResetResponse = await res.json();
+      expect(body.success).toBe(true);
+      expect(typeof body.deleted).toBe('number');
+    });
+
+    it('returns success with zero when no keys exist', async () => {
+      const { app } = createRateLimitResetApp([]);
+      const res = await app.request('/dev/usage-rate-limits', { method: 'DELETE' });
+
+      expect(res.status).toBe(200);
+      const body: TrialUsageResetResponse = await res.json();
+      expect(body.success).toBe(true);
+      expect(body.deleted).toBe(0);
+    });
+  });
+
+  describe('GET /message-payers/:conversationId', () => {
+    function createMessagePayersApp(
+      rows: { messageId: string; payerId: string | null; sequenceNumber: number }[]
+    ) {
+      const orderBy = vi.fn().mockResolvedValue(rows);
+      const where = vi.fn().mockReturnValue({ orderBy });
+      const leftJoin = vi.fn().mockReturnValue({ where });
+      const from = vi.fn().mockReturnValue({ leftJoin });
+      const select = vi.fn().mockReturnValue({ from });
+      const mockDb = { select };
+      return createTestAppWithMockDb(mockDb);
+    }
+
+    it('returns AI messages with their resolved payerId from usage_records', async () => {
+      const app = createMessagePayersApp([
+        { messageId: 'msg-1', payerId: 'user-alice', sequenceNumber: 1 },
+        { messageId: 'msg-2', payerId: 'user-bob', sequenceNumber: 3 },
+      ]);
+      const res = await app.request('/dev/message-payers/conv-1');
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{
+        payers: { messageId: string; payerId: string | null }[];
+      }>(res);
+      expect(body.payers).toEqual([
+        { messageId: 'msg-1', payerId: 'user-alice' },
+        { messageId: 'msg-2', payerId: 'user-bob' },
+      ]);
+    });
+
+    it('surfaces null payerId for AI messages with no matching usage_records row', async () => {
+      const app = createMessagePayersApp([
+        { messageId: 'msg-only', payerId: null, sequenceNumber: 1 },
+      ]);
+      const res = await app.request('/dev/message-payers/conv-empty');
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{
+        payers: { messageId: string; payerId: string | null }[];
+      }>(res);
+      expect(body.payers).toEqual([{ messageId: 'msg-only', payerId: null }]);
+    });
+
+    it('returns an empty list when the conversation has no AI messages', async () => {
+      const app = createMessagePayersApp([]);
+      const res = await app.request('/dev/message-payers/conv-none');
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ payers: unknown[] }>(res);
+      expect(body.payers).toEqual([]);
     });
   });
 

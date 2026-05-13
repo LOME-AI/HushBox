@@ -2,7 +2,6 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { MermaidDiagram } from './mermaid-diagram';
 
-// Mock mermaid library
 vi.mock('mermaid', () => ({
   default: {
     initialize: vi.fn(),
@@ -15,7 +14,6 @@ import mermaid from 'mermaid';
 describe('MermaidDiagram', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default mock implementation for successful render
     vi.mocked(mermaid.render).mockResolvedValue({
       svg: '<svg data-testid="mermaid-svg"><text>Diagram</text></svg>',
       bindFunctions: vi.fn(),
@@ -48,7 +46,6 @@ describe('MermaidDiagram', () => {
       expect(mermaid.render).toHaveBeenCalled();
     });
 
-    // Verify chart content was passed (first call, second argument)
     const renderCalls = vi.mocked(mermaid.render).mock.calls;
     expect(renderCalls[0]?.[1]).toBe(chart);
   });
@@ -90,8 +87,6 @@ describe('MermaidDiagram', () => {
   });
 
   it('shows loading state while rendering', () => {
-    // Make render hang indefinitely to test loading state
-
     vi.mocked(mermaid.render).mockImplementation(() => new Promise(() => {}));
 
     const chart = `graph TD

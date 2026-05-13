@@ -16,8 +16,8 @@
 // bundle splitting and for tests that don't mock kokoro-js).
 
 import { createTtsStreamFeeder } from '@hushbox/ui/accessibility/lib/tts-stream-feeder';
-import type { TtsStreamFeeder } from '@hushbox/ui/accessibility/lib/tts-stream-feeder';
 import { useA11yStore } from '@hushbox/ui/accessibility/store';
+import type { TtsStreamFeeder } from '@hushbox/ui/accessibility/lib/tts-stream-feeder';
 
 /**
  * Build a per-stream TTS feeder if the user has opted into chat-aloud,

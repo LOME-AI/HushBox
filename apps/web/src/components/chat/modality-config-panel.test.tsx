@@ -196,6 +196,12 @@ describe('ModalityConfigPanel', () => {
       render(<ModalityConfigPanel />);
       expect(screen.getByText(/4s/i)).toBeInTheDocument();
     });
+
+    it('exposes the duration in aria-valuetext for screen readers', () => {
+      render(<ModalityConfigPanel />);
+      const slider = screen.getByRole('slider');
+      expect(slider).toHaveAttribute('aria-valuetext', '4 seconds');
+    });
   });
 
   describe('video pricing UI', () => {
@@ -408,6 +414,12 @@ describe('ModalityConfigPanel', () => {
       const slider = screen.getByRole('slider', { name: /audio max duration/i });
       expect(slider).toHaveAttribute('max', '600');
       expect(slider).toHaveAttribute('min', '1');
+    });
+
+    it('exposes the audio max duration in aria-valuetext for screen readers', () => {
+      render(<ModalityConfigPanel />);
+      const slider = screen.getByRole('slider', { name: /audio max duration/i });
+      expect(slider).toHaveAttribute('aria-valuetext', '60 seconds');
     });
   });
 });

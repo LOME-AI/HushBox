@@ -24,11 +24,9 @@ export function useTypingIndicators(ws: ConversationWebSocket | null): Set<strin
         return next;
       });
 
-      // Clear existing timeout for this user if any
       const existingTimeout = timeoutsRef.current.get(event.userId);
       if (existingTimeout !== undefined) clearTimeout(existingTimeout);
 
-      // Set auto-clear timeout
       timeoutsRef.current.set(
         event.userId,
         setTimeout(() => {
@@ -63,7 +61,6 @@ export function useTypingIndicators(ws: ConversationWebSocket | null): Set<strin
 
     return (): void => {
       for (const unsub of unsubscribes) unsub();
-      // Clear all timeouts on cleanup
       for (const timeout of timeoutsRef.current.values()) {
         clearTimeout(timeout);
       }

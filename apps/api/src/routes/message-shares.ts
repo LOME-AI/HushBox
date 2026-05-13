@@ -1,13 +1,15 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { eq, and, asc, isNull } from 'drizzle-orm';
 import {
-  ERROR_CODE_FORBIDDEN,
   ERROR_CODE_INTERNAL,
   ERROR_CODE_MESSAGE_NOT_FOUND,
+  ERROR_CODE_SHARE_FORBIDDEN,
   ERROR_CODE_SHARE_NOT_FOUND,
   ERROR_CODE_STORAGE_READ_FAILED,
-  publicShareContentTypeSchema,
+  ALLOWED_MEDIA_MIME_TYPES,
+  contentTypeSchema,
   toBase64,
   fromBase64,
 } from '@hushbox/shared';
@@ -18,8 +20,8 @@ import {
   conversationMembers,
   type ContentItem,
 } from '@hushbox/db';
-import { eq, and, asc, isNull } from 'drizzle-orm';
 import { requireAuth } from '../middleware/require-auth.js';
+import { rateLimitByCaller, rateLimitByIp } from '../middleware/rate-limit.js';
 import { getUser } from '../lib/get-user.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import type { AppEnv } from '../types.js';
@@ -41,13 +43,14 @@ const createShareSchema = z.object({
 export const messageSharesRoute = new Hono<AppEnv>().post(
   '/share',
   requireAuth(),
+  rateLimitByCaller('shareCreateUserRateLimit'),
   zValidator('json', createShareSchema),
   async (c) => {
     const user = getUser(c);
     const db = c.get('db');
     const { messageId, wrappedShareKey: wrappedShareKeyBase64 } = c.req.valid('json');
 
-    // 1. Verify the message exists
+    // 1. Verify the message exists (cheap pre-check so we can return 404 vs 403).
     const message = await db
       .select({
         id: messages.id,
@@ -62,43 +65,46 @@ export const messageSharesRoute = new Hono<AppEnv>().post(
       return c.json(createErrorResponse(ERROR_CODE_MESSAGE_NOT_FOUND), 404);
     }
 
-    // 2. Verify the user is an active member of the conversation
-    const membership = await db
-      .select({
-        id: conversationMembers.id,
-      })
-      .from(conversationMembers)
-      .where(
-        and(
-          eq(conversationMembers.conversationId, message.conversationId),
-          eq(conversationMembers.userId, user.id),
-          isNull(conversationMembers.leftAt)
-        )
-      )
-      .limit(1)
-      .then((rows) => rows[0]);
-
-    if (!membership) {
-      return c.json(createErrorResponse(ERROR_CODE_FORBIDDEN), 403);
-    }
-
-    // 3. Insert the shared message — stores the message's content key re-wrapped
-    //    under a shareSecret. The server never sees the shareSecret or the
-    //    unwrapped content key.
+    // 2. Atomic membership check + insert inside one transaction. We use a
+    //    `SELECT ... FOR SHARE` to lock the membership row for the duration of
+    //    the transaction so a concurrent removal blocks until we commit, and
+    //    a concurrent removal that committed first leaves us with no row.
+    //    This closes the previous check-then-act race where a user could be
+    //    removed between the membership lookup and the insert.
     const wrappedShareKeyBytes = fromBase64(wrappedShareKeyBase64);
-    const [inserted] = await db
-      .insert(sharedMessages)
-      .values({
-        messageId,
-        wrappedContentKey: wrappedShareKeyBytes,
-      })
-      .returning();
+    const conversationId = message.conversationId;
+    const result = await db.transaction(async (tx) => {
+      const [activeMembership] = await tx
+        .select({ id: conversationMembers.id })
+        .from(conversationMembers)
+        .where(
+          and(
+            eq(conversationMembers.conversationId, conversationId),
+            eq(conversationMembers.userId, user.id),
+            isNull(conversationMembers.leftAt)
+          )
+        )
+        .for('share')
+        .limit(1);
 
-    if (!inserted) {
+      if (!activeMembership) return { kind: 'forbidden' as const };
+
+      const [row] = await tx
+        .insert(sharedMessages)
+        .values({ messageId, wrappedContentKey: wrappedShareKeyBytes })
+        .returning();
+
+      return row ? { kind: 'ok' as const, shareId: row.id } : { kind: 'internal' as const };
+    });
+
+    if (result.kind === 'forbidden') {
+      return c.json(createErrorResponse(ERROR_CODE_SHARE_FORBIDDEN, { messageId }), 403);
+    }
+    if (result.kind === 'internal') {
       return c.json(createErrorResponse(ERROR_CODE_INTERNAL), 500);
     }
 
-    return c.json({ shareId: inserted.id }, 201);
+    return c.json({ shareId: result.shareId }, 201);
   }
 );
 
@@ -114,13 +120,27 @@ async function serializePublicShareContentItem(
 ): Promise<PublicShareContentItem> {
   // DB CHECK constraint enforces the value set at write time; parsing here
   // gives us a type-narrow and a loud failure if a rogue row ever slips through.
-  const contentType = publicShareContentTypeSchema.parse(item.contentType);
+  const contentType = contentTypeSchema.parse(item.contentType);
+
+  // Defense-in-depth: media items must carry a mimeType in the platform's
+  // allowlist. The upload path (media-pipeline.ts) blocks non-conforming
+  // values before they hit the DB, but if anything ever bypasses that check
+  // we throw here so the share response never ships malformed media.
+  let validatedMimeType: PublicShareContentItem['mimeType'] = null;
+  if (item.mimeType !== null) {
+    const parsed = ALLOWED_MEDIA_MIME_TYPES.safeParse(item.mimeType);
+    if (!parsed.success) {
+      throw new Error(`Disallowed mime type in stored media: ${item.mimeType}`);
+    }
+    validatedMimeType = parsed.data;
+  }
+
   const base: Omit<PublicShareContentItem, 'downloadUrl' | 'expiresAt'> = {
     id: item.id,
     contentType,
     position: item.position,
     encryptedBlob: item.encryptedBlob ? toBase64(item.encryptedBlob) : null,
-    mimeType: item.mimeType,
+    mimeType: validatedMimeType,
     sizeBytes: item.sizeBytes,
     width: item.width,
     height: item.height,
@@ -138,7 +158,8 @@ async function serializePublicShareContentItem(
 /** Public route — GET /:shareId (mounted at /api/shares). No auth required. */
 export const publicSharesRoute = new Hono<AppEnv>().get(
   '/:shareId',
-  zValidator('param', z.object({ shareId: z.string() })),
+  rateLimitByIp('shareGetIpRateLimit'),
+  zValidator('param', z.object({ shareId: z.string().min(1) })),
   async (c) => {
     const db = c.get('db');
     const mediaStorage = c.get('mediaStorage');

@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { ChatHeader } from './chat-header';
 import type { Model } from '@hushbox/shared';
 
-// Mock the theme provider
 vi.mock('../providers/theme-provider', () => ({
   useTheme: () => ({
     mode: 'light',
@@ -33,7 +32,6 @@ vi.mock('@/hooks/use-header-layout', () => ({
   useHeaderLayout: () => 1,
 }));
 
-// Mock Link and useNavigate used by EncryptionBadge and SignupModal
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
     <a href={to} {...props}>
@@ -182,7 +180,6 @@ describe('ChatHeader', () => {
         />
       );
 
-      // Click button to open modal
       await user.click(screen.getByTestId('model-selector-button'));
 
       // Wait for modal to open (search input appears twice for mobile/desktop)
@@ -190,10 +187,8 @@ describe('ChatHeader', () => {
         expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
       });
 
-      // Double-click to toggle Claude into selection
       await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
 
-      // Click confirm button to trigger onModelSelect
       await user.click(screen.getByRole('button', { name: /select.*model/i }));
 
       expect(onModelSelect).toHaveBeenCalledWith(
@@ -377,7 +372,6 @@ describe('ChatHeader', () => {
         const themeButton = screen.getByRole('button', { name: /switch to dark mode/i });
         const facepile = screen.getByTestId('member-facepile');
 
-        // Encryption badge and theme toggle should come before facepile
         const parent = encBadge.parentElement!;
         const children = [...parent.children];
         const encIndex = children.indexOf(encBadge);

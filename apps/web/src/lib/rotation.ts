@@ -6,9 +6,9 @@
 
 import { performEpochRotation, encryptTextForEpoch } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
-import type { StreamChatRotation } from '@hushbox/shared';
 import { client, fetchJson } from './api-client.js';
 import { setEpochKey, setCurrentEpoch } from './epoch-key-cache.js';
+import type { StreamChatRotation } from '@hushbox/shared';
 
 export interface RotationMember {
   publicKey: Uint8Array;

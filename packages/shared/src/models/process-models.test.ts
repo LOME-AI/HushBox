@@ -8,11 +8,7 @@ vi.mock('./zdr.js', () => ({
 }));
 
 import { processModels } from './process-models.js';
-import {
-  SMART_MODEL_ID,
-  SMART_MODEL_INPUT_PRICE_PER_TOKEN,
-  SMART_MODEL_OUTPUT_PRICE_PER_TOKEN,
-} from '../constants.js';
+import { SMART_MODEL_ID } from '../constants.js';
 
 /**
  * Strip the synthetic Smart Model entry so tests can assert against only
@@ -21,10 +17,6 @@ import {
 function realModelIds(result: ReturnType<typeof processModels>): string[] {
   return result.models.filter((m) => m.id !== SMART_MODEL_ID).map((m) => m.id);
 }
-
-// ============================================================
-// Test Fixtures
-// ============================================================
 
 const now = Date.now();
 const twoYearsAgo = now - 2 * 365 * 24 * 60 * 60 * 1000;
@@ -97,9 +89,6 @@ describe('processModels', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
-
-  // ZDR compliance tests removed — ZDR is now per-model via isZdrModel,
-  // covered by zdr.test.ts. process-models tests bypass ZDR via vi.mock above.
 
   describe('filtering - always excluded', () => {
     it('excludes free models (both prices = 0)', () => {
@@ -590,14 +579,27 @@ describe('processModels', () => {
       expect(smart?.provider).toBe('HushBox');
     });
 
-    it('uses the client-estimation pricing constants for headline prices', () => {
-      const models = [createModel({ id: 'normal/model' })];
-
-      const result = processModels(models);
+    it('headline price tracks the cheapest pool input/output (dynamic, not the static constant)', () => {
+      const cheapModel = createModel({
+        id: 'cheap/model',
+        pricing: { prompt: '0.0001', completion: '0.0002' },
+      });
+      const expensiveModel = createModel({
+        id: 'expensive/model',
+        pricing: { prompt: '0.01', completion: '0.02' },
+      });
+      const result = processModels([cheapModel, expensiveModel]);
       const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(smart?.pricePerInputToken).toBe(SMART_MODEL_INPUT_PRICE_PER_TOKEN);
-      expect(smart?.pricePerOutputToken).toBe(SMART_MODEL_OUTPUT_PRICE_PER_TOKEN);
+      // Plan §10.12: headline pricing is derived from the eligible-model
+      // price spread, not the static `SMART_MODEL_*_PRICE_PER_TOKEN` constants.
+      expect(smart?.pricePerInputToken).toBe(0.0001);
+      expect(smart?.pricePerOutputToken).toBe(0.0002);
+    });
+
+    it('omits the Smart Model entry entirely when the eligible pool is empty', () => {
+      const result = processModels([]);
+      expect(result.models.find((m) => m.id === SMART_MODEL_ID)).toBeUndefined();
     });
 
     it('computes price ranges from the model pool', () => {

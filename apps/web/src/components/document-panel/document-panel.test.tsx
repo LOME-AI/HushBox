@@ -12,7 +12,6 @@ vi.mock('streamdown', () => ({
   Streamdown: ({ children }: { children: string }) => <pre>{children}</pre>,
 }));
 
-// Mock matchMedia for viewport simulation
 // isMobile: true = mobile (<768px), false = desktop (>=768px)
 const mockMatchMedia = (isMobile: boolean): void => {
   Object.defineProperty(globalThis, 'matchMedia', {
@@ -45,7 +44,6 @@ describe('DocumentPanel', () => {
   const defaultDocument = createDocument();
 
   beforeEach(() => {
-    // Mock desktop viewport by default (isMobile = false)
     mockMatchMedia(false);
     useDocumentStore.setState({
       isPanelOpen: false,
@@ -211,14 +209,12 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      // Mock URL.createObjectURL and URL.revokeObjectURL
       const mockUrl = 'blob:mock-url';
       const createObjectURL = vi.fn(() => mockUrl);
       const revokeObjectURL = vi.fn();
       globalThis.URL.createObjectURL = createObjectURL;
       globalThis.URL.revokeObjectURL = revokeObjectURL;
 
-      // Mock anchor click
       const clickSpy = vi.fn();
       vi.spyOn(document, 'createElement').mockReturnValueOnce({
         href: '',
@@ -296,26 +292,21 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      // Initially shows rendered view (mermaid component)
       expect(
         screen.queryByTestId('mermaid-loading') ?? screen.queryByTestId('mermaid-diagram')
       ).toBeInTheDocument();
 
-      // Click to show raw
       await user.click(screen.getByRole('button', { name: /show raw/i }));
 
-      // Now should show code block with mermaid content
       expect(screen.getByTestId('highlighted-code')).toBeInTheDocument();
       expect(screen.getByText(/flowchart TD/)).toBeInTheDocument();
 
-      // Toggle back to rendered
       await user.click(screen.getByRole('button', { name: /show rendered/i }));
 
       // Back to mermaid diagram (either loading or rendered)
       expect(
         screen.queryByTestId('mermaid-loading') ?? screen.queryByTestId('mermaid-diagram')
       ).toBeInTheDocument();
-      // Code block should no longer be visible
       expect(screen.queryByTestId('highlighted-code')).not.toBeInTheDocument();
     });
 
@@ -408,7 +399,7 @@ describe('DocumentPanel', () => {
 
   describe('responsive behavior', () => {
     it('renders panel with fixed width on desktop', () => {
-      mockMatchMedia(false); // desktop
+      mockMatchMedia(false);
       useDocumentStore.setState({
         isPanelOpen: true,
         activeDocumentId: 'doc-123',
@@ -423,7 +414,7 @@ describe('DocumentPanel', () => {
     });
 
     it('renders panel with full width on mobile', () => {
-      mockMatchMedia(true); // mobile
+      mockMatchMedia(true);
       useDocumentStore.setState({
         isPanelOpen: true,
         activeDocumentId: 'doc-123',
@@ -437,7 +428,7 @@ describe('DocumentPanel', () => {
     });
 
     it('hides resize handle on mobile', () => {
-      mockMatchMedia(true); // mobile
+      mockMatchMedia(true);
       useDocumentStore.setState({
         isPanelOpen: true,
         activeDocumentId: 'doc-123',
@@ -449,7 +440,7 @@ describe('DocumentPanel', () => {
     });
 
     it('shows resize handle on desktop', () => {
-      mockMatchMedia(false); // desktop
+      mockMatchMedia(false);
       useDocumentStore.setState({
         isPanelOpen: true,
         activeDocumentId: 'doc-123',
@@ -461,7 +452,7 @@ describe('DocumentPanel', () => {
     });
 
     it('shows document title on mobile', () => {
-      mockMatchMedia(true); // mobile
+      mockMatchMedia(true);
       const document_ = createDocument({ title: 'MobileTitle' });
       useDocumentStore.setState({
         isPanelOpen: true,
@@ -586,7 +577,6 @@ describe('DocumentPanel', () => {
 
       const handle = screen.getByTestId('resize-handle');
       expect(handle).toBeInTheDocument();
-      // Should have a visible indicator element inside
       expect(screen.getByTestId('resize-indicator')).toBeInTheDocument();
     });
 
@@ -602,7 +592,6 @@ describe('DocumentPanel', () => {
       const handle = screen.getByTestId('resize-handle');
       await user.pointer({ keys: '[MouseLeft>]', target: handle });
 
-      // Panel should have select-none class when resizing
       const panel = screen.getByTestId('document-panel');
       expect(panel).toHaveClass('select-none');
     });
@@ -618,13 +607,10 @@ describe('DocumentPanel', () => {
 
       const handle = screen.getByTestId('resize-handle');
 
-      // Start resize
       await user.pointer({ keys: '[MouseLeft>]', target: handle });
 
-      // Release mouse
       await user.pointer({ keys: '[/MouseLeft]' });
 
-      // Panel should no longer have select-none class
       const panel = screen.getByTestId('document-panel');
       expect(panel).not.toHaveClass('select-none');
     });
@@ -641,17 +627,12 @@ describe('DocumentPanel', () => {
 
       const handle = screen.getByTestId('resize-handle');
 
-      // Start resize
       await user.pointer({ keys: '[MouseLeft>]', target: handle });
 
-      // Move mouse (this will trigger the effect's mousemove handler)
       await user.pointer({ coords: { x: 100, y: 100 } });
 
-      // The width may have changed (depends on panel position)
-      // Just verify the panel is still rendered and interaction didn't break
       expect(screen.getByTestId('document-panel')).toBeInTheDocument();
 
-      // Release mouse
       await user.pointer({ keys: '[/MouseLeft]' });
     });
   });

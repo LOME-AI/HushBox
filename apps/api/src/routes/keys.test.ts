@@ -67,7 +67,6 @@ function placeholderBytes(length: number): Uint8Array {
   return bytes;
 }
 
-// Store for mocking user/session per request - keyed by user ID
 const mockUserStore = new Map<string, { email: string; username: string; publicKey: Uint8Array }>();
 
 function createTestAppWithAuth(db: ReturnType<typeof createDb>): Hono<AppEnv> {
@@ -206,7 +205,6 @@ describe('keys routes', () => {
     const testUserInfo = mockUserStore.get(testUserId);
     if (!testUserInfo) throw new Error('Test user not found in mock store');
 
-    // Epoch member for test user on epoch 1
     await db.insert(epochMembers).values({
       epochId: epoch1.id,
       memberPublicKey: testUserInfo.publicKey,
@@ -214,7 +212,6 @@ describe('keys routes', () => {
       visibleFromEpoch: 1,
     });
 
-    // Conversation member for test user
     await db.insert(conversationMembers).values({
       conversationId: conv1.id,
       userId: testUserId,
@@ -267,7 +264,6 @@ describe('keys routes', () => {
       .returning();
     if (!conv2Epoch2) throw new Error('Failed to create conv2 epoch 2');
 
-    // Epoch members for testUser on both epochs
     await db.insert(epochMembers).values({
       epochId: conv2Epoch1.id,
       memberPublicKey: testUserInfo.publicKey,

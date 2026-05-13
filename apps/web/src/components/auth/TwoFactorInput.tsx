@@ -25,7 +25,6 @@ export function TwoFactorInput({
     useOtpVerification({ onVerify, onSuccess });
   const handleOpenAutoFocus = useMobileAutoFocus();
 
-  // Reset state when modal opens
   React.useEffect(() => {
     if (open) {
       reset();

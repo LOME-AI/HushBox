@@ -33,7 +33,6 @@ describe('AuthPasswordInput', () => {
 
   it('renders lock icon', () => {
     render(<AuthPasswordInput label="Password" />);
-    // Icon is rendered by the Input component with testid 'input-icon'
     expect(screen.getByTestId('input-icon')).toBeInTheDocument();
   });
 
@@ -67,12 +66,10 @@ describe('AuthPasswordInput', () => {
     const label = screen.getByText('Password');
     const input = screen.getByLabelText('Password');
 
-    // Before focus
     expect(label).toHaveClass('top-1/2');
 
     await user.click(input);
 
-    // After focus, label moves up
     expect(label).toHaveClass('top-2');
   });
 

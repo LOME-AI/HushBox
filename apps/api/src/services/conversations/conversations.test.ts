@@ -169,7 +169,6 @@ describe('conversations service', () => {
         toBytes('Alice Conv')
       );
 
-      // Add Charlie as a member
       await db.insert(conversationMembers).values({
         conversationId,
         userId: charlie.id,
@@ -191,7 +190,6 @@ describe('conversations service', () => {
         toBytes('Left Conv')
       );
 
-      // Add Charlie as a member who has left
       await db.insert(conversationMembers).values({
         conversationId,
         userId: charlie.id,
@@ -214,7 +212,6 @@ describe('conversations service', () => {
         toBytes('Bob Owned')
       );
 
-      // Add Alice as a member of Bob's conversation
       await db.insert(conversationMembers).values({
         conversationId: bobConv,
         userId: alice.id,
@@ -241,7 +238,6 @@ describe('conversations service', () => {
         toBytes('Newer')
       );
 
-      // Update conv1 to be more recent
       await db
         .update(conversations)
         .set({ updatedAt: new Date() })
@@ -272,7 +268,6 @@ describe('conversations service', () => {
         toBytes('Alice Conv')
       );
 
-      // Add Bob as unaccepted member
       await db.insert(conversationMembers).values({
         conversationId,
         userId: bob.id,
@@ -297,7 +292,6 @@ describe('conversations service', () => {
         toBytes('Alice Conv')
       );
 
-      // Add Bob as member invited by Alice
       await db.insert(conversationMembers).values({
         conversationId,
         userId: bob.id,
@@ -349,7 +343,6 @@ describe('conversations service', () => {
         toBytes('Muted Conv')
       );
 
-      // Mute the conversation
       await db
         .update(conversationMembers)
         .set({ muted: true })
@@ -411,12 +404,10 @@ describe('conversations service', () => {
           .where(eq(conversations.id, conversationId));
       }
 
-      // Page 1: get first 2
       const page1 = await listConversations(db, user.id, { limit: 2 });
       expect(page1.rows).toHaveLength(2);
       expect(page1.nextCursor).not.toBeNull();
 
-      // Page 2: get next 2
       const page2 = await listConversations(db, user.id, {
         limit: 2,
         cursor: page1.nextCursor!,
@@ -424,7 +415,6 @@ describe('conversations service', () => {
       expect(page2.rows).toHaveLength(2);
       expect(page2.nextCursor).not.toBeNull();
 
-      // Page 3: get last 1
       const page3 = await listConversations(db, user.id, {
         limit: 2,
         cursor: page2.nextCursor!,
@@ -470,7 +460,6 @@ describe('conversations service', () => {
         toBytes('Pinned Conv')
       );
 
-      // Pin the conversation
       await db
         .update(conversationMembers)
         .set({ pinned: true })
@@ -597,7 +586,6 @@ describe('conversations service', () => {
         toBytes('Shared Conv')
       );
 
-      // Add Bob as a member invited by Alice
       await db.insert(conversationMembers).values({
         conversationId,
         userId: bob.id,
@@ -622,7 +610,6 @@ describe('conversations service', () => {
         toBytes('Pending Conv')
       );
 
-      // Add Bob as unaccepted member
       await db.insert(conversationMembers).values({
         conversationId,
         userId: bob.id,
@@ -652,7 +639,6 @@ describe('conversations service', () => {
       const charlie = await createTestUser();
       const { conversationId } = await createTestConversationWithEpoch(alice.id);
 
-      // Add Charlie as a member
       await db.insert(conversationMembers).values({
         conversationId,
         userId: charlie.id,
@@ -749,7 +735,6 @@ describe('conversations service', () => {
       const conversationId = crypto.randomUUID();
       const encTitle = toBytes('New Conversation');
 
-      // Generate real crypto keys
       const accountKeyPair = generateKeyPair();
       const epochResult = createFirstEpoch([accountKeyPair.publicKey]);
       const memberWrap = epochResult.memberWraps[0];
@@ -793,7 +778,6 @@ describe('conversations service', () => {
       });
       expect(result?.isNew).toBe(true);
 
-      // Verify epoch was created
       const [epoch] = await db
         .select()
         .from(epochs)
@@ -824,14 +808,12 @@ describe('conversations service', () => {
       });
       expect(result?.isNew).toBe(true);
 
-      // Find the epoch to get its ID
       const [epoch] = await db
         .select()
         .from(epochs)
         .where(eq(epochs.conversationId, conversationId));
       if (!epoch) throw new Error('Epoch not found');
 
-      // Verify epoch member was created
       const [member] = await db
         .select()
         .from(epochMembers)
@@ -861,7 +843,6 @@ describe('conversations service', () => {
       });
       expect(result?.isNew).toBe(true);
 
-      // Verify conversation member was created
       const [convMember] = await db
         .select()
         .from(conversationMembers)
@@ -895,11 +876,9 @@ describe('conversations service', () => {
         userPublicKey: accountKeyPair.publicKey,
       };
 
-      // First call creates
       const firstResult = await createOrGetConversation(db, user.id, params);
       expect(firstResult?.isNew).toBe(true);
 
-      // Second call returns existing (idempotent)
       const secondResult = await createOrGetConversation(db, user.id, {
         ...params,
         title: toBytes('Different Title'), // Should be ignored
@@ -930,7 +909,6 @@ describe('conversations service', () => {
         userPublicKey: accountKeyPair.publicKey,
       };
 
-      // User 1 creates conversation
       const firstResult = await createOrGetConversation(db, user1.id, params);
       expect(firstResult?.isNew).toBe(true);
 
@@ -977,11 +955,9 @@ describe('conversations service', () => {
         userPublicKey: accountKeyPair.publicKey,
       };
 
-      // Create conversation
       const firstResult = await createOrGetConversation(db, user.id, params);
       expect(firstResult?.isNew).toBe(true);
 
-      // Add messages directly to DB
       await createTestMessage({
         conversationId,
         sequenceNumber: 1,
@@ -991,7 +967,6 @@ describe('conversations service', () => {
       });
       await createTestMessage({ conversationId, sequenceNumber: 2, senderType: 'ai' });
 
-      // Second call should return all messages
       const secondResult = await createOrGetConversation(db, user.id, params);
 
       expect(secondResult).not.toBeNull();
@@ -1034,7 +1009,6 @@ describe('conversations service', () => {
       expect(result1.conversation.id).toBe(conversationId);
       expect(result2.conversation.id).toBe(conversationId);
 
-      // Exactly one should be new
       const newCount = [result1.isNew, result2.isNew].filter(Boolean).length;
       expect(newCount).toBe(1);
 
@@ -1064,7 +1038,6 @@ describe('conversations service', () => {
         userPublicKey: accountKeyPair.publicKey,
       };
 
-      // Create twice
       await createOrGetConversation(db, user.id, params);
       await createOrGetConversation(db, user.id, params);
 
@@ -1142,7 +1115,7 @@ describe('conversations service', () => {
         .from(conversations)
         .where(inArray(conversations.id, [conversationId]));
 
-      await new Promise((resolve) => setTimeout(resolve, 10)); // Small delay
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       const result = await updateConversation(db, conversationId, user.id, {
         title: toBytes('Updated'),
@@ -1201,7 +1174,6 @@ describe('conversations service', () => {
         userPublicKey: accountKeyPair.publicKey,
       });
 
-      // Add a message
       await createTestMessage({
         conversationId,
         sequenceNumber: 1,
@@ -1210,10 +1182,8 @@ describe('conversations service', () => {
         userId: user.id,
       });
 
-      // Delete the conversation
       await deleteConversation(db, conversationId, user.id);
 
-      // Verify all related rows are gone
       const remainingMessages = await db
         .select()
         .from(messages)

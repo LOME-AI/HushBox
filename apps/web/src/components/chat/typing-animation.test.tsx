@@ -19,7 +19,6 @@ describe('TypingAnimation', () => {
   it('renders full text invisibly as layout spacer', () => {
     render(<TypingAnimation text="Hello World" />);
     const container = screen.getByTestId('typing-animation');
-    // Invisible spacer contains full text to reserve layout space
     const spacer = container.querySelector('[aria-hidden="true"]');
     expect(spacer).toBeInTheDocument();
     expect(spacer).toHaveTextContent('Hello World');
@@ -34,16 +33,13 @@ describe('TypingAnimation', () => {
   it('progressively types out the text', () => {
     render(<TypingAnimation text="Hi" typingSpeed={75} />);
 
-    // Initially empty
     expect(screen.getByTestId('typed-text').textContent).toBe('');
 
-    // After first character
     act(() => {
       vi.advanceTimersByTime(75);
     });
     expect(screen.getByTestId('typed-text').textContent).toBe('H');
 
-    // After second character
     act(() => {
       vi.advanceTimersByTime(75);
     });
@@ -53,13 +49,11 @@ describe('TypingAnimation', () => {
   it('hides cursor when complete and loop is false', () => {
     render(<TypingAnimation text="Hi" typingSpeed={75} loop={false} />);
 
-    // Type 'H'
     act(() => {
       vi.advanceTimersByTime(75);
     });
     expect(screen.getByTestId('typing-cursor')).toBeInTheDocument();
 
-    // Type 'i' — cursor disappears immediately, no intermediate frame
     act(() => {
       vi.advanceTimersByTime(75);
     });
@@ -69,12 +63,10 @@ describe('TypingAnimation', () => {
   it('keeps cursor visible when loop is true', () => {
     render(<TypingAnimation text="Hi" typingSpeed={75} loop={true} />);
 
-    // Advance past typing
     act(() => {
       vi.advanceTimersByTime(200);
     });
 
-    // Cursor should still be visible
     expect(screen.getByTestId('typing-cursor')).toBeInTheDocument();
   });
 
@@ -87,7 +79,6 @@ describe('TypingAnimation', () => {
     const onComplete = vi.fn();
     render(<TypingAnimation text="Hi" typingSpeed={75} loop={false} onComplete={onComplete} />);
 
-    // Type out "Hi"
     act(() => {
       vi.advanceTimersByTime(75);
     });

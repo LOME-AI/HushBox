@@ -17,10 +17,9 @@ vi.mock('@hushbox/realtime/events', () => ({
 }));
 
 import { getModelPricing } from '@hushbox/shared';
-import { broadcastFireAndForget } from './broadcast.js';
 import { createEvent } from '@hushbox/realtime/events';
-import type { RawModel as ModelInfo } from '@hushbox/shared/models';
-import type { InferenceEvent, InferenceStream } from '../services/ai/index.js';
+import { computeImageWorstCaseCents } from '@hushbox/shared';
+import { broadcastFireAndForget } from './broadcast.js';
 import {
   BATCH_INTERVAL_MS,
   lookupModelPricing,
@@ -35,18 +34,12 @@ import {
   resolveAndReserveAudioBilling,
   type BroadcastContext,
 } from './stream-pipeline.js';
-import { computeImageWorstCaseCents } from '@hushbox/shared';
+import type { RawModel as ModelInfo } from '@hushbox/shared/models';
+import type { InferenceEvent, InferenceStream } from '../services/ai/index.js';
 import type { BuildBillingResult } from '../services/billing/index.js';
 import type { AppEnv } from '../types.js';
 import type { Context } from 'hono';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// Stub envelope/content-item used by billingResult fixtures. Uses the fishery
-// factories would complicate the pure unit test setup, so inline a minimal
-// shape matching the InsertedTextContentItem type.
 const stubUserEnvelope = {
   messageId: 'user-msg-stub',
   wrappedContentKey: new Uint8Array([0, 1, 2, 3]),
@@ -88,19 +81,11 @@ function createMockContext(): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// BATCH_INTERVAL_MS
-// ---------------------------------------------------------------------------
-
 describe('BATCH_INTERVAL_MS', () => {
   it('equals 100', () => {
     expect(BATCH_INTERVAL_MS).toBe(100);
   });
 });
-
-// ---------------------------------------------------------------------------
-// lookupModelPricing
-// ---------------------------------------------------------------------------
 
 describe('lookupModelPricing', () => {
   beforeEach(() => {
@@ -165,10 +150,6 @@ describe('lookupModelPricing', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// computeWorstCaseCents
-// ---------------------------------------------------------------------------
-
 describe('computeWorstCaseCents', () => {
   it('computes (estimatedInputCost + maxOutput * outputCost) * 100', () => {
     // (0.50 + 1000 * 0.001) * 100 = (0.50 + 1.0) * 100 = 150
@@ -205,67 +186,27 @@ describe('computeWorstCaseCents', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// derivedIsSmartModel
-// ---------------------------------------------------------------------------
-
 describe('derivedIsSmartModel', () => {
-  it('returns false for an empty billing list', () => {
+  it('returns false when no stages ran', () => {
     expect(derivedIsSmartModel([])).toBe(false);
   });
 
-  it('returns true when at least one billing entry has stageId smart-model', () => {
-    expect(
-      derivedIsSmartModel([
-        {
-          stageId: 'smart-model',
-          modelId: 'cheap/c',
-          generationId: 'gen-1',
-          inputContent: 'in',
-          outputContent: 'out',
-        },
-      ])
-    ).toBe(true);
+  // Bound to "did the routing stage execute," NOT "did it produce a billable
+  // LLM call." The classifier-failure → fallback path runs the stage without
+  // producing a billing breadcrumb; the chip must still render. Reading from
+  // the stages-run list rather than billings is what gives us this contract.
+  it('returns true when the smart-model stage ran (even with no billing)', () => {
+    expect(derivedIsSmartModel(['smart-model'])).toBe(true);
   });
 
-  it('does NOT return true for a hypothetical non-Smart-Model stage that produced billing', () => {
-    // Forward-compat: a future stage type (prompt-enhancer, fallback-router, etc.)
-    // that bills should NOT flag the slot as Smart Model.
-    const fakeBilling = {
-      // Cast lets us simulate a future StageId without polluting the real union.
-      stageId: 'prompt-enhancer' as 'smart-model',
-      modelId: 'cheap/c',
-      generationId: 'gen-1',
-      inputContent: 'in',
-      outputContent: 'out',
-    };
-    expect(derivedIsSmartModel([fakeBilling])).toBe(false);
+  it('does NOT return true for a hypothetical non-Smart-Model stage', () => {
+    expect(derivedIsSmartModel(['prompt-enhancer'])).toBe(false);
   });
 
-  it('returns true when smart-model billing is mixed with other stages', () => {
-    const fakePromptEnhancer = {
-      stageId: 'prompt-enhancer' as 'smart-model',
-      modelId: 'cheap/c',
-      generationId: 'gen-1',
-      inputContent: 'in',
-      outputContent: 'out',
-    };
-    const smartModel = {
-      stageId: 'smart-model' as const,
-      modelId: 'cheap/c',
-      generationId: 'gen-2',
-      inputContent: 'in',
-      outputContent: 'out',
-    };
-    expect(derivedIsSmartModel([fakePromptEnhancer, smartModel])).toBe(true);
+  it('returns true when smart-model ran alongside other stages', () => {
+    expect(derivedIsSmartModel(['prompt-enhancer', 'smart-model'])).toBe(true);
   });
 });
-
-// buildOpenRouterRequest tests removed — function deleted in Step 3 (AIClient migration)
-
-// ---------------------------------------------------------------------------
-// computeImageWorstCaseCents
-// ---------------------------------------------------------------------------
 
 describe('computeImageWorstCaseCents', () => {
   it('computes worst-case cents for a single image model', () => {
@@ -291,10 +232,6 @@ describe('computeImageWorstCaseCents', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveWebSearchCost
-// ---------------------------------------------------------------------------
-
 describe('resolveWebSearchCost', () => {
   it('returns 0 when webSearchEnabled is false', () => {
     const models = [
@@ -307,7 +244,7 @@ describe('resolveWebSearchCost', () => {
     expect(resolveWebSearchCost(false, 'openai/gpt-4o', models)).toBe(0);
   });
 
-  it('returns parsed web_search cost when enabled and model has web_search pricing', () => {
+  it('returns the worst-case search cost (10 calls, fees included) when enabled', async () => {
     const models = [
       makeModelInfo({
         id: 'openai/gpt-4o',
@@ -315,10 +252,14 @@ describe('resolveWebSearchCost', () => {
       }),
     ];
 
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBe(0.004);
+    const { worstCaseSearchCost } = await import('@hushbox/shared');
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(
+      worstCaseSearchCost(),
+      9
+    );
   });
 
-  it('returns 0 when enabled but model has no web_search pricing', () => {
+  it('returns the worst-case cost regardless of per-call price (gateway settles actual)', async () => {
     const models = [
       makeModelInfo({
         id: 'openai/gpt-4o',
@@ -326,34 +267,56 @@ describe('resolveWebSearchCost', () => {
       }),
     ];
 
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBe(0);
+    const { worstCaseSearchCost } = await import('@hushbox/shared');
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(
+      worstCaseSearchCost(),
+      9
+    );
   });
 
-  it('returns 0 when enabled but model is not found', () => {
+  it('still returns the worst case when the model is not found in the list', async () => {
     const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
 
-    expect(resolveWebSearchCost(true, 'nonexistent/model', models)).toBe(0);
+    const { worstCaseSearchCost } = await import('@hushbox/shared');
+    expect(resolveWebSearchCost(true, 'nonexistent/model', models)).toBeCloseTo(
+      worstCaseSearchCost(),
+      9
+    );
   });
 
-  it('returns 0 when models array is empty', () => {
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', [])).toBe(0);
+  it('returns the worst case when models array is empty', async () => {
+    const { worstCaseSearchCost } = await import('@hushbox/shared');
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', [])).toBeCloseTo(worstCaseSearchCost(), 9);
   });
 
-  it('parses web_search string pricing correctly', () => {
-    const models = [
-      makeModelInfo({
-        id: 'test/model',
-        pricing: { prompt: '0', completion: '0', web_search: '0.0123' },
-      }),
-    ];
+  it('reserves MAX_SEARCH_TOOL_CALLS × SEARCH_COST_PER_CALL × (1 + fee) per request', async () => {
+    const { applyFees, MAX_SEARCH_TOOL_CALLS, SEARCH_COST_PER_CALL } =
+      await import('@hushbox/shared');
+    const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
 
-    expect(resolveWebSearchCost(true, 'test/model', models)).toBe(0.0123);
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(
+      applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL),
+      9
+    );
+  });
+
+  it('reserves the locked worst-case dollar amount (~$0.05475) per request', () => {
+    // Pinning the math: MAX=10, per_call=$0.005, fee_rate=0.095
+    // Total = applyFees(10 × 0.005) = 0.05 × 1.095 = 0.05475
+    const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(0.054_75, 9);
+  });
+
+  it('is strictly greater than the legacy 1× per-call estimate (the bug we fixed)', async () => {
+    const { applyFees, SEARCH_COST_PER_CALL } = await import('@hushbox/shared');
+    const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
+
+    // The previous bug reserved only 1× SEARCH_COST_PER_CALL (with fees).
+    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeGreaterThan(
+      applyFees(SEARCH_COST_PER_CALL)
+    );
   });
 });
-
-// ---------------------------------------------------------------------------
-// handleBillingResult
-// ---------------------------------------------------------------------------
 
 describe('handleBillingResult', () => {
   beforeEach(() => {
@@ -484,10 +447,6 @@ describe('handleBillingResult', () => {
     expect(result).toEqual(billingResult);
   });
 });
-
-// ---------------------------------------------------------------------------
-// withBroadcast
-// ---------------------------------------------------------------------------
 
 describe('withBroadcast', () => {
   beforeEach(() => {
@@ -627,10 +586,6 @@ describe('withBroadcast', () => {
     expect(broadcastFireAndForget).not.toHaveBeenCalled();
   });
 });
-
-// ---------------------------------------------------------------------------
-// broadcastAndFinish
-// ---------------------------------------------------------------------------
 
 describe('broadcastAndFinish', () => {
   const stubTextContentItem = (overrides: {
@@ -922,7 +877,8 @@ describe('broadcastAndFinish', () => {
     const item = items[0]!;
     expect(item['id']).toBe('ci-img');
     expect(item['contentType']).toBe('image');
-    expect(item['downloadUrl']).toBeNull();
+    // downloadUrl is omitted (not nulled) when not yet populated by the strategy.
+    expect(item['downloadUrl']).toBeUndefined();
     expect(item['mimeType']).toBe('image/png');
     expect(item['sizeBytes']).toBe(1_000_000);
     expect(item['width']).toBe(1024);
@@ -932,10 +888,6 @@ describe('broadcastAndFinish', () => {
     expect(item['storageKey']).toBeUndefined();
   });
 });
-
-// ---------------------------------------------------------------------------
-// resolveAndReserveImageBilling
-// ---------------------------------------------------------------------------
 
 interface MockRedisForBilling {
   get: ReturnType<typeof vi.fn>;
@@ -1069,25 +1021,12 @@ describe('resolveAndReserveImageBilling', () => {
     // Redis eval was NOT called because denial happens before reservation
     expect(redis.eval).not.toHaveBeenCalled();
   });
-
-  // Additional coverage (deferred — exercised indirectly via chat.test.ts route tests):
-  // - 409 BILLING_MISMATCH when clientFundingSource disagrees with server
-  // - Group billing happy path (memberContext + conversationId + groupBudgetContext)
-  // - Race-guard release path (reserveBudget returns total > availableCents → release + 402)
-  // These require more elaborate billingResult fixtures (groupBudgetContext) and
-  // additional redis.eval call scripting.
 });
-
-// ---------------------------------------------------------------------------
-// resolveAndReserveVideoBilling
-// ---------------------------------------------------------------------------
 
 describe('resolveAndReserveVideoBilling', () => {
   type MockRedis = MockRedisForBilling;
   const createMockVideoBillingContext = createMockBillingContext;
 
-  // Shares the same shape as the audio billing fixture; centralized at module
-  // scope (`buildPaidMediaBillingResult`) — $1000 default balance covers video.
   const makeBillingResult = buildPaidMediaBillingResult;
 
   it('happy path: paid tier reserves worst-case cents and returns success', async () => {
@@ -1235,8 +1174,6 @@ describe('resolveAndReserveAudioBilling', () => {
   type MockRedis = MockRedisForBilling;
   const createMockAudioBillingContext = createMockBillingContext;
 
-  // Shares the same shape as the video billing fixture; centralized at module
-  // scope (`buildPaidMediaBillingResult`) to keep duplication in check.
   const makeBillingResult = buildPaidMediaBillingResult;
 
   it('happy path: paid tier reserves worst-case cents and returns success', async () => {

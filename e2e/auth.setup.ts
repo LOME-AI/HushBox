@@ -1,10 +1,10 @@
 import { test as setup, expect } from '@playwright/test';
-import { TEST_PERSONAS, TEST_2FA_TOTP_SECRET } from '../scripts/seed.js';
-import { DEV_PASSWORD } from '../packages/shared/src/constants.js';
-import { clearAuthRateLimits, generateTOTPCode } from './helpers/auth.js';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TEST_PERSONAS, TEST_2FA_TOTP_SECRET } from '../scripts/seed.js';
+import { DEV_PASSWORD } from '../packages/shared/src/constants.js';
+import { clearAuthRateLimits, generateTOTPCode } from './helpers/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const authDir = path.join(__dirname, '.auth');
@@ -18,7 +18,6 @@ const standardPersonas = verifiedPersonas.filter((p) => !p.totpSecret);
 // 2FA personas need login page + TOTP code
 const twoFactorPersonas = verifiedPersonas.filter((p) => p.totpSecret);
 
-// Ensure auth directory exists
 setup.beforeAll(() => {
   if (!fs.existsSync(authDir)) {
     fs.mkdirSync(authDir, { recursive: true });
@@ -79,7 +78,6 @@ for (const persona of twoFactorPersonas) {
     await page.getByLabel('Keep me signed in').check();
     await page.getByRole('button', { name: 'Log in' }).click();
 
-    // Wait for 2FA modal
     const otpModal = page.getByTestId('two-factor-input-modal');
     await expect(otpModal).toBeVisible({ timeout: 30_000 });
 

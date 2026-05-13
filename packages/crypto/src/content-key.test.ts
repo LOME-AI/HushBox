@@ -125,7 +125,7 @@ describe('content-key', () => {
       const contentKey = generateContentKey();
 
       const wrapped = wrapContentKeyForShare(shareSecret, contentKey);
-      const tampered = new Uint8Array(wrapped);
+      const tampered = new Uint8Array(wrapped) as typeof wrapped;
       tampered[tampered.length - 1] = (tampered.at(-1) ?? 0) ^ 0xff;
 
       expect(() => unwrapContentKeyForShare(shareSecret, tampered)).toThrow();

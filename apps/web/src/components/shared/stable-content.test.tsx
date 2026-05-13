@@ -24,7 +24,6 @@ describe('StableContent', () => {
 
       const content = screen.getByTestId('content');
       expect(content).toBeInTheDocument();
-      // Check that the wrapper has visibility: hidden
       const wrapper = content.parentElement;
       expect(wrapper).toHaveClass('invisible');
     });
@@ -87,7 +86,6 @@ describe('StableContent', () => {
 
       const content = screen.getByTestId('content');
       expect(content).toBeInTheDocument();
-      // Wrapper should not have invisible class
       expect(content.parentElement).not.toHaveClass('invisible');
     });
   });

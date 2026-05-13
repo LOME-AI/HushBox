@@ -1,13 +1,13 @@
 ---
-import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
 import { render } from 'astro:content';
+import { Badge } from '@hushbox/ui';
 import BlogLayout from '../../layouts/BlogLayout.astro';
 import BlogPostCard from '../../components/blog/BlogPostCard.astro';
 import { TableOfContents } from '../../components/blog/TableOfContents';
 import BlogDisclaimer from '../../components/blog/BlogDisclaimer.astro';
 import { ShareButton } from '../../components/blog/ShareButton';
 import { getPublishedPosts, getRelatedPosts, getReadingTime, formatPostDate } from '../../lib/blog';
-import { Badge } from '@hushbox/ui';
+import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
 
 export const getStaticPaths = (async () => {
   const posts = await getPublishedPosts();
@@ -52,7 +52,6 @@ const initials = post.data.author
       &larr; Back to Blog
     </a>
 
-    <!-- Article Header -->
     <header class="mt-8">
       <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">
         {post.data.title}
@@ -89,7 +88,6 @@ const initials = post.data.author
       }
     </header>
 
-    <!-- Mobile TOC (above article on small screens) -->
     <details class="border-border mt-4 rounded-lg border p-4 lg:hidden">
       <summary class="text-foreground cursor-pointer text-sm font-semibold">On this page</summary>
       <div class="mt-3">
@@ -97,7 +95,6 @@ const initials = post.data.author
       </div>
     </details>
 
-    <!-- Content + TOC -->
     <div class="mt-4 lg:grid lg:grid-cols-[1fr_220px] lg:gap-10">
       <article class="prose-blog max-w-none">
         <Content />
@@ -110,7 +107,6 @@ const initials = post.data.author
       </aside>
     </div>
 
-    <!-- Disclaimer + Share -->
     <div
       class="border-border mt-8 flex flex-col gap-4 border-t pt-6 sm:flex-row sm:items-start sm:justify-between"
     >
@@ -118,7 +114,6 @@ const initials = post.data.author
       <ShareButton client:visible />
     </div>
 
-    <!-- Related Posts -->
     {
       relatedPosts.length > 0 && (
         <div class="border-border mt-8 border-t pt-8">

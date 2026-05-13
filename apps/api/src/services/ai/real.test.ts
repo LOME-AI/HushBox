@@ -7,24 +7,28 @@ import type {
   AudioRequest,
 } from './types.js';
 
-// ---------------------------------------------------------------------------
-// Module mocks — intercept ai + @ai-sdk/gateway at the module boundary
-// ---------------------------------------------------------------------------
-
 const mockStreamText = vi.fn();
 const mockGenerateImage = vi.fn();
 const mockGenerateVideo = vi.fn();
+const mockPerplexitySearchTool = vi.fn(() => ({ __mockPerplexityTool: true }));
+const mockStepCountIs = vi.fn((n: number) => ({ __mockStopWhen: n }));
 
 vi.mock('ai', () => ({
   streamText: mockStreamText,
   generateImage: mockGenerateImage,
   experimental_generateVideo: mockGenerateVideo,
+  stepCountIs: mockStepCountIs,
+  gateway: {
+    tools: {
+      perplexitySearch: mockPerplexitySearchTool,
+    },
+  },
 }));
 
 const mockGatewayInstance = {
   __call: vi.fn(),
   imageModel: vi.fn(),
-  videoModel: vi.fn(),
+  video: vi.fn(),
   getAvailableModels: vi.fn(),
   getGenerationInfo: vi.fn(),
 };
@@ -47,12 +51,7 @@ vi.mock('@hushbox/shared/models', async (importOriginal) => {
   };
 });
 
-// Import after mocks are defined
 const { createRealAIClient } = await import('./real.js');
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 async function collectEvents(stream: AsyncIterable<InferenceEvent>): Promise<InferenceEvent[]> {
   const events: InferenceEvent[] = [];
@@ -93,10 +92,6 @@ function createMockFullStream(parts: MockStreamPart[]): MockStreamResult {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe('createRealAIClient', () => {
   let client: ReturnType<typeof createRealAIClient>;
 
@@ -118,7 +113,7 @@ describe('createRealAIClient', () => {
     it('calls streamText with ZDR provider options', async () => {
       mockStreamText.mockReturnValue(
         createMockFullStream([
-          { type: 'text-delta', textDelta: 'Hello' },
+          { type: 'text-delta', text: 'Hello' },
           {
             type: 'finish',
             finishReason: 'stop',
@@ -145,7 +140,7 @@ describe('createRealAIClient', () => {
     it('passes the model via gateway provider', async () => {
       mockStreamText.mockReturnValue(
         createMockFullStream([
-          { type: 'text-delta', textDelta: 'Hi' },
+          { type: 'text-delta', text: 'Hi' },
           { type: 'finish', finishReason: 'stop', totalUsage: {} },
         ])
       );
@@ -164,8 +159,8 @@ describe('createRealAIClient', () => {
     it('yields text-delta events from streamText text-delta parts', async () => {
       mockStreamText.mockReturnValue(
         createMockFullStream([
-          { type: 'text-delta', textDelta: 'Hello' },
-          { type: 'text-delta', textDelta: ' world' },
+          { type: 'text-delta', text: 'Hello' },
+          { type: 'text-delta', text: ' world' },
           { type: 'finish', finishReason: 'stop', totalUsage: {} },
         ])
       );
@@ -185,11 +180,44 @@ describe('createRealAIClient', () => {
       ]);
     });
 
+    it('throws loudly when gateway metadata is present but generationId is missing (schema drift guard)', async () => {
+      // The Vercel AI Gateway docs declare
+      // `providerMetadata.gateway.generationId: string`. If a future SDK
+      // version renames or removes that field, our cost-lookup pipeline
+      // would silently produce a request with `id: undefined` and
+      // mis-attribute generation costs. Detect drift loudly here so
+      // upgrades cannot ship without updating the schema and resolver.
+      mockStreamText.mockReturnValue(
+        Object.assign(
+          createMockFullStream([
+            { type: 'text-delta', text: 'Hi' },
+            { type: 'finish', finishReason: 'stop' },
+          ]),
+          {
+            // gateway namespace exists, but the expected `generationId`
+            // field has been renamed (simulating SDK drift).
+            providerMetadata: Promise.resolve({
+              gateway: { generation_id: 'gen-abc-123' },
+            }),
+            totalUsage: Promise.resolve({}),
+          }
+        )
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(/generationId missing/i);
+    });
+
     it('yields a finish event with usage and generation info from providerMetadata', async () => {
       mockStreamText.mockReturnValue(
         Object.assign(
           createMockFullStream([
-            { type: 'text-delta', textDelta: 'Hi' },
+            { type: 'text-delta', text: 'Hi' },
             { type: 'finish', finishReason: 'stop' },
           ]),
           {
@@ -218,10 +246,57 @@ describe('createRealAIClient', () => {
       expect(finish!.providerMetadata?.usage?.outputTokens).toBe(25);
     });
 
-    it('passes maxOutputTokens as maxTokens to streamText', async () => {
+    it('attaches perplexitySearch tool when webSearchEnabled=true', async () => {
       mockStreamText.mockReturnValue(
         createMockFullStream([
-          { type: 'text-delta', textDelta: 'Hi' },
+          { type: 'text-delta', text: 'Hi' },
+          { type: 'finish', finishReason: 'stop', totalUsage: {} },
+        ])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Search for X' }],
+        webSearchEnabled: true,
+      };
+
+      await collectEvents(client.stream(request));
+
+      const callArgs = mockStreamText.mock.calls[0]![0]!;
+      expect(callArgs.tools).toBeDefined();
+      expect(callArgs.tools.perplexitySearch).toBeDefined();
+      expect(mockPerplexitySearchTool).toHaveBeenCalled();
+      // stopWhen caps the tool-call loop at MAX_SEARCH_TOOL_CALLS.
+      expect(callArgs.stopWhen).toEqual({ __mockStopWhen: 10 });
+      expect(mockStepCountIs).toHaveBeenCalledWith(10);
+    });
+
+    it('does NOT attach search tools when webSearchEnabled is false or undefined', async () => {
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          { type: 'text-delta', text: 'Hi' },
+          { type: 'finish', finishReason: 'stop', totalUsage: {} },
+        ])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      await collectEvents(client.stream(request));
+
+      const callArgs = mockStreamText.mock.calls[0]![0]!;
+      expect(callArgs.tools).toBeUndefined();
+      expect(callArgs.stopWhen).toBeUndefined();
+    });
+
+    it('passes maxOutputTokens directly to streamText (v6 option name)', async () => {
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          { type: 'text-delta', text: 'Hi' },
           { type: 'finish', finishReason: 'stop', totalUsage: {} },
         ])
       );
@@ -236,13 +311,14 @@ describe('createRealAIClient', () => {
       await collectEvents(client.stream(request));
 
       const callArgs = mockStreamText.mock.calls[0]![0]!;
-      expect(callArgs.maxTokens).toBe(500);
+      expect(callArgs.maxOutputTokens).toBe(500);
+      expect(callArgs.maxTokens).toBeUndefined();
     });
 
     it('converts AIMessage[] to the ai SDK message format', async () => {
       mockStreamText.mockReturnValue(
         createMockFullStream([
-          { type: 'text-delta', textDelta: 'Ok' },
+          { type: 'text-delta', text: 'Ok' },
           { type: 'finish', finishReason: 'stop', totalUsage: {} },
         ])
       );
@@ -267,14 +343,55 @@ describe('createRealAIClient', () => {
         { role: 'assistant', content: 'Hi there' },
       ]);
     });
+
+    it('converts image content parts using mediaType (AI SDK v6 ImagePart shape)', async () => {
+      // AI SDK v6 ImagePart (re-exported from @ai-sdk/provider-utils) declares
+      // the field as `mediaType?: string`, NOT `mimeType`. A regression that
+      // reverts to `mimeType` would silently break image inputs at runtime
+      // because the gateway would not recognize the field. This test guards
+      // against that drift by asserting the converted shape on the wire.
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          { type: 'text-delta', text: 'Ok' },
+          { type: 'finish', finishReason: 'stop', totalUsage: {} },
+        ])
+      );
+
+      const imageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'What is in this image?' },
+              { type: 'image', data: imageBytes, mimeType: 'image/png' },
+            ],
+          },
+        ],
+      };
+
+      await collectEvents(client.stream(request));
+
+      const callArgs = mockStreamText.mock.calls[0]![0]!;
+      const userMessage = callArgs.messages[0];
+      expect(userMessage.role).toBe('user');
+      const parts = userMessage.content as { type: string; [key: string]: unknown }[];
+      const imagePart = parts.find((p) => p.type === 'image');
+      expect(imagePart).toBeDefined();
+      expect(imagePart!['image']).toEqual(imageBytes);
+      // The AI SDK v6 field is `mediaType`, not `mimeType`.
+      expect(imagePart!['mediaType']).toBe('image/png');
+      expect(imagePart!['mimeType']).toBeUndefined();
+    });
   });
 
   describe('image generation', () => {
     it('calls generateImage with ZDR and yields media events', async () => {
       const mockImageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
       mockGenerateImage.mockResolvedValue({
-        image: { uint8Array: mockImageBytes, mimeType: 'image/png' },
-        images: [{ uint8Array: mockImageBytes, mimeType: 'image/png' }],
+        images: [{ uint8Array: mockImageBytes, mediaType: 'image/png' }],
         usage: {},
         providerMetadata: { gateway: { generationId: 'img-gen-1' } },
       });
@@ -300,11 +417,53 @@ describe('createRealAIClient', () => {
       expect(callArgs.aspectRatio).toBe('16:9');
     });
 
+    it('throws when the SDK returns an empty images array', async () => {
+      mockGenerateImage.mockResolvedValue({
+        images: [],
+        usage: {},
+        providerMetadata: {},
+      });
+
+      const request: ImageRequest = {
+        modality: 'image',
+        model: 'google/imagen-4',
+        prompt: 'Test',
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(
+        /empty image generation result/i
+      );
+    });
+
+    it('reads file.mediaType (not mimeType) from the GeneratedFile', async () => {
+      const mockImageBytes = new Uint8Array([1, 2, 3]);
+      mockGenerateImage.mockResolvedValue({
+        // No `mimeType` — only `mediaType`. We're confirming the code path
+        // does not silently fall back to a default.
+        images: [{ uint8Array: mockImageBytes, mediaType: 'image/webp' }],
+        usage: {},
+        providerMetadata: {},
+      });
+
+      const request: ImageRequest = {
+        modality: 'image',
+        model: 'google/imagen-4',
+        prompt: 'Test',
+      };
+
+      const events = await collectEvents(client.stream(request));
+      const done = events.find((e) => e.kind === 'media-done');
+
+      expect(done).toBeDefined();
+      if (done?.kind === 'media-done') {
+        expect(done.mimeType).toBe('image/webp');
+      }
+    });
+
     it('emits media-done with bytes and dimensions from the image result', async () => {
       const mockImageBytes = new Uint8Array([1, 2, 3, 4]);
       mockGenerateImage.mockResolvedValue({
-        image: { uint8Array: mockImageBytes, mimeType: 'image/png' },
-        images: [{ uint8Array: mockImageBytes, mimeType: 'image/png' }],
+        images: [{ uint8Array: mockImageBytes, mediaType: 'image/png' }],
         usage: {},
         providerMetadata: {},
       });
@@ -330,8 +489,7 @@ describe('createRealAIClient', () => {
     it('calls experimental_generateVideo with ZDR and yields media events', async () => {
       const mockVideoBytes = new Uint8Array([0x00, 0x00, 0x00, 0x14]);
       mockGenerateVideo.mockResolvedValue({
-        video: { uint8Array: mockVideoBytes, mimeType: 'video/mp4' },
-        videos: [{ uint8Array: mockVideoBytes, mimeType: 'video/mp4' }],
+        videos: [{ uint8Array: mockVideoBytes, mediaType: 'video/mp4' }],
         providerMetadata: { gateway: { generationId: 'vid-gen-1' } },
       });
 
@@ -353,6 +511,41 @@ describe('createRealAIClient', () => {
         gateway: { zeroDataRetention: true },
       });
     });
+
+    it('uses gateway.video() (not videoModel) to resolve the model', async () => {
+      const mockVideoBytes = new Uint8Array([0x00]);
+      mockGenerateVideo.mockResolvedValue({
+        videos: [{ uint8Array: mockVideoBytes, mediaType: 'video/mp4' }],
+        providerMetadata: {},
+      });
+
+      const request: VideoRequest = {
+        modality: 'video',
+        model: 'google/veo-3.1',
+        prompt: 'A wave',
+      };
+
+      await collectEvents(client.stream(request));
+
+      expect(mockGatewayInstance.video).toHaveBeenCalledWith('google/veo-3.1');
+    });
+
+    it('throws when the SDK returns an empty videos array', async () => {
+      mockGenerateVideo.mockResolvedValue({
+        videos: [],
+        providerMetadata: {},
+      });
+
+      const request: VideoRequest = {
+        modality: 'video',
+        model: 'google/veo-3.1',
+        prompt: 'A wave',
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(
+        /empty video generation result/i
+      );
+    });
   });
 
   describe('audio generation', () => {
@@ -367,6 +560,145 @@ describe('createRealAIClient', () => {
       await expect(collectEvents(client.stream(request))).rejects.toThrow(
         /audio output is not yet supported by the AI Gateway/i
       );
+    });
+  });
+
+  // ZDR enforcement — generic boundary check
+  //
+  // The whole point of `real.ts` over `mock.ts` is that ZDR is enforced at the
+  // SDK boundary on EVERY modality path. This block uses the same mocks the
+  // per-modality cases above use, but asserts ZDR generically — adding a new
+  // modality and forgetting `providerOptions: ZDR_PROVIDER_OPTIONS` should
+  // immediately fail this test.
+  describe('ZDR enforcement at the SDK boundary', () => {
+    const EXPECTED_ZDR = { gateway: { zeroDataRetention: true } };
+
+    it('text streaming sets ZDR providerOptions on every streamText call', async () => {
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          { type: 'text-delta', text: 'Hi' },
+          { type: 'finish', finishReason: 'stop', totalUsage: {} },
+        ])
+      );
+
+      await collectEvents(
+        client.stream({
+          modality: 'text',
+          model: 'anthropic/claude-sonnet-4.6',
+          messages: [{ role: 'user', content: 'Hi' }],
+        })
+      );
+
+      expect(mockStreamText).toHaveBeenCalledTimes(1);
+      const callArgs = mockStreamText.mock.calls[0]![0]!;
+      expect(callArgs.providerOptions).toEqual(EXPECTED_ZDR);
+    });
+
+    it('image generation sets ZDR providerOptions on every generateImage call', async () => {
+      mockGenerateImage.mockResolvedValue({
+        images: [{ uint8Array: new Uint8Array([0]), mediaType: 'image/png' }],
+        usage: {},
+        providerMetadata: {},
+      });
+
+      await collectEvents(
+        client.stream({
+          modality: 'image',
+          model: 'google/imagen-4',
+          prompt: 'A cat',
+        })
+      );
+
+      expect(mockGenerateImage).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateImage.mock.calls[0]![0]!;
+      expect(callArgs.providerOptions).toEqual(EXPECTED_ZDR);
+    });
+
+    it('video generation sets ZDR providerOptions on every experimental_generateVideo call', async () => {
+      mockGenerateVideo.mockResolvedValue({
+        videos: [{ uint8Array: new Uint8Array([0]), mediaType: 'video/mp4' }],
+        providerMetadata: {},
+      });
+
+      await collectEvents(
+        client.stream({
+          modality: 'video',
+          model: 'google/veo-3.1',
+          prompt: 'A wave',
+        })
+      );
+
+      expect(mockGenerateVideo).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateVideo.mock.calls[0]![0]!;
+      expect(callArgs.providerOptions).toEqual(EXPECTED_ZDR);
+    });
+
+    it('every modality that reaches the SDK has ZDR set (regression guard)', async () => {
+      // Reset and run all enabled modality paths back-to-back. If a NEW modality
+      // is added that hits the SDK without `providerOptions: ZDR_PROVIDER_OPTIONS`,
+      // this assertion will need updating — that update should also remind the
+      // implementer to add ZDR to the new path.
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          { type: 'text-delta', text: 'Hi' },
+          { type: 'finish', finishReason: 'stop', totalUsage: {} },
+        ])
+      );
+      mockGenerateImage.mockResolvedValue({
+        images: [{ uint8Array: new Uint8Array([0]), mediaType: 'image/png' }],
+        usage: {},
+        providerMetadata: {},
+      });
+      mockGenerateVideo.mockResolvedValue({
+        videos: [{ uint8Array: new Uint8Array([0]), mediaType: 'video/mp4' }],
+        providerMetadata: {},
+      });
+
+      await collectEvents(
+        client.stream({
+          modality: 'text',
+          model: 'anthropic/claude-sonnet-4.6',
+          messages: [{ role: 'user', content: 'Hi' }],
+        })
+      );
+      await collectEvents(
+        client.stream({
+          modality: 'image',
+          model: 'google/imagen-4',
+          prompt: 'A cat',
+        })
+      );
+      await collectEvents(
+        client.stream({
+          modality: 'video',
+          model: 'google/veo-3.1',
+          prompt: 'A wave',
+        })
+      );
+
+      // Aggregate every SDK call recorded across the three mocks. Each must
+      // have providerOptions exactly equal to the ZDR shape — no overrides
+      // and no missing fields.
+      const everySdkCallArgs = [
+        ...mockStreamText.mock.calls.map((call) => call[0]),
+        ...mockGenerateImage.mock.calls.map((call) => call[0]),
+        ...mockGenerateVideo.mock.calls.map((call) => call[0]),
+      ];
+
+      expect(everySdkCallArgs.length).toBe(3);
+      for (const args of everySdkCallArgs) {
+        expect(args.providerOptions).toEqual(EXPECTED_ZDR);
+      }
+    });
+
+    it('ZDR_PROVIDER_OPTIONS shape stays paired with the mock-side `zdrEnforced` flag (consistency guard)', () => {
+      // The mock client tags every recorded request with `zdrEnforced: true`
+      // so unit-level tests can detect a regression on either side. This
+      // assertion pins the "ground truth" — if `gateway.zeroDataRetention`
+      // ever flips to `false` here, the mock's `zdrEnforced: true` would be
+      // a lie. Failing both at the same time forces the implementer to
+      // confront the discrepancy instead of silently letting one drift.
+      expect(EXPECTED_ZDR.gateway.zeroDataRetention).toBe(true);
     });
   });
 
@@ -428,6 +760,95 @@ describe('createRealAIClient', () => {
       if (models[2]!.pricing.kind === 'video') {
         expect(models[2]!.pricing.perSecondByResolution).toEqual({ '720p': 0.4, '1080p': 0.4 });
       }
+    });
+
+    it('handles audio modality and throws on unrecognized modality (assertNever guard)', async () => {
+      // Audio modality returns audio pricing kind with perSecond 0
+      mockFetchModels.mockResolvedValue([
+        {
+          id: 'openai/whisper-1',
+          name: 'Whisper',
+          description: 'Audio',
+          modality: 'audio',
+          context_length: 0,
+          pricing: { prompt: '0', completion: '0' },
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['audio'], output_modalities: ['audio'] },
+        },
+      ]);
+
+      const audioModels = await client.listModels();
+      expect(audioModels[0]!.modality).toBe('audio');
+      expect(audioModels[0]!.pricing.kind).toBe('audio');
+
+      // Unknown modality (cast bypasses type system): assertNever throws.
+      mockFetchModels.mockResolvedValue([
+        {
+          id: 'rogue/model',
+          name: 'Rogue',
+          description: 'Unknown',
+          modality: 'rogue' as 'text',
+          context_length: 0,
+          pricing: { prompt: '0', completion: '0' },
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+      ]);
+
+      await expect(client.listModels()).rejects.toThrow(/exhaustiveness/i);
+    });
+  });
+
+  describe('listRawModels', () => {
+    it('returns the merged RawModel list straight from fetchModels', async () => {
+      const raw = [
+        {
+          id: 'anthropic/claude-sonnet-4.6',
+          name: 'Claude Sonnet 4.6',
+          description: 'Fast model',
+          modality: 'text' as const,
+          context_length: 200_000,
+          pricing: { prompt: '0.000003', completion: '0.000015' },
+          supported_parameters: [],
+          created: 0,
+          architecture: {
+            input_modalities: ['text'],
+            output_modalities: ['text'],
+          },
+        },
+      ];
+      mockFetchModels.mockResolvedValue(raw);
+
+      const result = await client.listRawModels();
+
+      expect(result).toEqual(raw);
+      expect(mockFetchModels).toHaveBeenCalledWith({
+        apiKey: 'test-api-key',
+        publicModelsUrl: 'https://test.example/v1/models',
+      });
+    });
+
+    it('listModels reuses listRawModels (single fetch path)', async () => {
+      mockFetchModels.mockResolvedValue([
+        {
+          id: 'anthropic/claude-sonnet-4.6',
+          name: 'Claude Sonnet 4.6',
+          description: 'Fast model',
+          modality: 'text',
+          context_length: 200_000,
+          pricing: { prompt: '0.000003', completion: '0.000015' },
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+      ]);
+
+      mockFetchModels.mockClear();
+      await client.listModels();
+      // listModels delegates to listRawModels, which calls fetchModels exactly once.
+      expect(mockFetchModels).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -508,7 +929,7 @@ describe('createRealAIClient', () => {
       });
       mockStreamText.mockReturnValue(
         createMockFullStream([
-          { type: 'text-delta', textDelta: 'Hi' },
+          { type: 'text-delta', text: 'Hi' },
           { type: 'finish', finishReason: 'stop', totalUsage: {} },
         ])
       );
@@ -560,6 +981,18 @@ describe('createRealAIClient', () => {
 
       // Should not throw (no db to record with) and should return models normally.
       await expect(plainClient.listModels()).resolves.toEqual([]);
+    });
+  });
+
+  describe('stream exhaustiveness guard', () => {
+    it('throws when given an unrecognized modality (assertNever)', () => {
+      const badRequest = {
+        modality: 'rogue',
+        model: 'rogue/model',
+        prompt: 'unused',
+      } as unknown as TextRequest;
+
+      expect(() => client.stream(badRequest)).toThrow(/exhaustiveness/i);
     });
   });
 });

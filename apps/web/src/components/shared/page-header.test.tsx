@@ -2,12 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { PageHeader } from './page-header';
 
-// Mock HamburgerButton
 vi.mock('@/components/sidebar/hamburger-button', () => ({
   HamburgerButton: () => <button data-testid="hamburger-button">Menu</button>,
 }));
 
-// Mock useHeaderLayout — control row count per test
 const mockRows = vi.fn<() => 1 | 2 | 3>(() => 1);
 vi.mock('@/hooks/use-header-layout', () => ({
   useHeaderLayout: (): 1 | 2 | 3 => mockRows(),

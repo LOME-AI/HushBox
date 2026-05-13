@@ -4,6 +4,7 @@ import {
   buildClassifierMessages,
   CLASSIFIER_MAX_DESCRIPTION_CHARS,
   CLASSIFIER_SYSTEM_PROMPT_MARKER,
+  computeClassifierPromptOverhead,
 } from './prompts.js';
 
 const MODELS = [
@@ -85,5 +86,67 @@ describe('buildClassifierMessages', () => {
     expect(messages).toHaveLength(2);
     expect(messages[0]?.role).toBe('system');
     expect(messages[1]?.role).toBe('user');
+  });
+});
+
+describe('computeClassifierPromptOverhead', () => {
+  it('returns a positive integer for a non-empty model list', () => {
+    const overhead = computeClassifierPromptOverhead(MODELS);
+    expect(overhead).toBeGreaterThan(0);
+    expect(Number.isInteger(overhead)).toBe(true);
+  });
+
+  it('matches the rendered system prompt + non-context user wrapping for empty truncated context', () => {
+    const messages = buildClassifierMessages({
+      truncatedContext: '',
+      eligibleModels: MODELS,
+    });
+    const total = messages.reduce((accumulator, m) => accumulator + m.content.length, 0);
+    expect(computeClassifierPromptOverhead(MODELS)).toBe(total);
+  });
+
+  it('grows with the number of eligible models', () => {
+    const small = computeClassifierPromptOverhead(MODELS.slice(0, 1));
+    const large = computeClassifierPromptOverhead([
+      ...MODELS,
+      { id: 'extra/m', description: 'Another model.' },
+      { id: 'extra/n', description: 'Yet another.' },
+    ]);
+    expect(large).toBeGreaterThan(small);
+  });
+
+  it('truncates per-model description to the cap when computing overhead', () => {
+    const longDescModels = [
+      {
+        id: 'long/desc',
+        description: 'X'.repeat(CLASSIFIER_MAX_DESCRIPTION_CHARS * 5),
+      },
+    ];
+    const shortDescModels = [
+      {
+        id: 'long/desc',
+        description: 'X'.repeat(CLASSIFIER_MAX_DESCRIPTION_CHARS * 5 + 2000),
+      },
+    ];
+    // Both descriptions are well over the per-model cap; the overhead
+    // calculation must clamp them, so the two results agree to within a
+    // single character of slack.
+    const a = computeClassifierPromptOverhead(longDescModels);
+    const b = computeClassifierPromptOverhead(shortDescModels);
+    expect(Math.abs(a - b)).toBeLessThanOrEqual(1);
+  });
+
+  it('returns the same value as length(buildClassifierMessages.system) + length(user wrapping with empty body)', () => {
+    // Stable invariant: as long as the overhead helper and the prompt builder
+    // share the same template, the overhead should equal the rendered prompt
+    // chars when the truncated context is empty. Used so the helper can NOT
+    // drift away from the actual prompt as the template evolves.
+    const overhead = computeClassifierPromptOverhead(MODELS);
+    const messages = buildClassifierMessages({
+      truncatedContext: '',
+      eligibleModels: MODELS,
+    });
+    const concat = messages.map((m) => m.content).join('');
+    expect(overhead).toBe(concat.length);
   });
 });

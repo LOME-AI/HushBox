@@ -1,16 +1,16 @@
 # Code Rules
 
-Coding standards for all contributors (human and AI).
-
 ---
 
 ## Core Principles
 
 ### 95% Test Coverage
 
+- 95% line, branch, and function coverage
 - No exceptions
 - Tests written before or with implementation
 - No skipped or commented tests
+- Check with `pnpm test:coverage`
 - Coverage checked on every push
 
 ### Type Safety
@@ -34,6 +34,7 @@ Coding standards for all contributors (human and AI).
 - No `@ts-ignore` without explanation
 - No `eslint-disable` without justification
 - No `--force` or `--legacy-peer-deps`
+- No `console.log` or `debugger` in committed code
 - Fix root causes, don't mask symptoms
 
 ---
@@ -60,8 +61,7 @@ Coding standards for all contributors (human and AI).
 
 - Always use `envUtils` (from `createEnvUtilities()`) for environment branching
 - Never check `NODE_ENV`, `CI`, or `E2E` directly
-- Never use `??` fallback defaults for environment variables — `envConfig` defines values for every mode
-- Never branch on env-var existence to choose between mock and real implementations. Mock-vs-real picks come from `isLocalDev`/`isE2E`/`isCI` — never `if (env.API_KEY) { real } else { mock }`. Required-config existence checks (`if (!env.DATABASE_URL) throw`) are fine and encouraged — that's fail-fast on missing infra, not a silent fallback.
+- Never use `??` fallback defaults for environment variables. `envConfig` defines values for every mode
 - If a variable is missing at runtime, fail-fast with a clear error
 - Backend middleware: use `c.get('envUtils')` (set by `envMiddleware()`)
 - Middleware running before `envMiddleware()`: call `createEnvUtilities(c.env)` directly
@@ -73,8 +73,8 @@ Coding standards for all contributors (human and AI).
 - Use unique constraints and upsert
 - Check completion before external calls
 - Content-addressable keys for storage
-- Never use check-then-act - Two queries (check if done, then do it) are vulnerable to race conditions.
-- Use atomic conditional updates: `UPDATE ... WHERE condition_not_met` inside a transaction, and check rows affected.
+- Never use check-then-act. Two queries (check if done, then do it) are vulnerable to race conditions
+- Use atomic conditional updates: `UPDATE ... WHERE condition_not_met` inside a transaction, and check rows affected
 
 ### Direct Resource Access
 
@@ -91,13 +91,13 @@ Coding standards for all contributors (human and AI).
 
 ### Error Responses
 
-- API errors return `{ code: string, details?: object }` — no message field
+- API errors return `{ code: string, details?: object }`, with no message field
 - `code` is a machine-readable constant exported from `packages/shared/src/schemas/api/error.ts`
-- Frontend maps `code` → user-facing message via `friendlyErrorMessage()` from `@hushbox/shared`
+- Frontend maps `code` to user-facing message via `friendlyErrorMessage()` from `@hushbox/shared`
 - All user-facing error messages live in `packages/shared/src/error-messages.ts`
 - New error codes need: (1) constant in shared error schema, (2) entry in `friendlyErrorMessage` map
 - Budget/billing notifications use `generateNotifications()` (separate system, already user-friendly)
-- Use `createErrorResponse(code, details?)` for all API error responses — never `c.json({ error: ... })`
+- Use `createErrorResponse(code, details?)` for all API error responses; never `c.json({ error: ... })`
 
 ### Serverless Mindset
 
@@ -220,10 +220,23 @@ Tag chrome wrappers (sidebar, header, footer, panels surrounding main content) w
 
 ### When to Comment
 
-- Non-obvious business logic
+Comment durable facts that a future reader with no context cannot derive from the code, names, types, or tests, when the information is load-bearing on correctness or future modification and survives the current task.
+
+Examples:
+
+- Non-obvious business or domain logic
+- Source-of-truth designations
+- Hidden coupling between files or modules
+- Race conditions and ordering constraints
+- Security or regulatory requirements the code enforces but doesn't explain
+- Performance traps
+- Library, browser, or external API quirks
+- Rejected alternatives with the reason for rejection
+- Code that looks removable but isn't
 - Exceptions to established rules
-- Complex algorithms
 - Subtle edge cases
+
+A wrong comment is worse than no comment. If you can't state the durable fact precisely, leave it out.
 
 ### When Not to Comment
 
@@ -231,6 +244,7 @@ Tag chrome wrappers (sidebar, header, footer, panels surrounding main content) w
 - Self-explanatory names
 - Standard patterns
 - What code does (code shows this)
+- Code you didn't change
 
 ### Never Include
 
@@ -238,6 +252,7 @@ Tag chrome wrappers (sidebar, header, footer, panels surrounding main content) w
 - Hardcoded version numbers
 - Specific timing estimates
 - Ephemeral values (container IDs, hashes)
+- TODO and FIXME
 
 ---
 

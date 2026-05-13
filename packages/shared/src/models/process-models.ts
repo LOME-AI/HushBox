@@ -4,24 +4,16 @@
  * Handles filtering, classification, and transformation of AI Gateway models.
  */
 
-import type { Model, ModelCapability } from '../schemas/api/models.js';
-import {
-  SMART_MODEL_ID,
-  SMART_MODEL_INPUT_PRICE_PER_TOKEN,
-  SMART_MODEL_OUTPUT_PRICE_PER_TOKEN,
-} from '../constants.js';
+import { SMART_MODEL_ID } from '../constants.js';
 import { parseTokenPrice } from '../pricing.js';
 
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 
 import { isPremiumModel, PREMIUM_PRICE_PERCENTILE, exceedsTrialBudget } from './premium-check.js';
 import { isZdrModel } from './zdr.js';
+import type { Model, ModelCapability } from '../schemas/api/models.js';
 
 import type { Modality, RawModel, ProcessedModels } from './types.js';
-
-// ============================================================
-// Constants
-// ============================================================
 
 /** Percentile threshold for top context (0.95 = top 5%) */
 const TOP_CONTEXT_PERCENTILE = 0.95;
@@ -46,10 +38,6 @@ export const PROVIDER_MAP: Record<string, string> = {
   perplexity: 'Perplexity',
   deepseek: 'DeepSeek',
 };
-
-// ============================================================
-// Shared helpers
-// ============================================================
 
 function getCombinedPrice(model: RawModel): number {
   return parseTokenPrice(model.pricing.prompt) + parseTokenPrice(model.pricing.completion);
@@ -78,10 +66,6 @@ function deriveCapabilities(params: string[]): ModelCapability[] {
   if (params.includes('web_search_options')) caps.push('internet-search');
   return caps;
 }
-
-// ============================================================
-// Text processing (existing logic preserved)
-// ============================================================
 
 function isExcludedAlways(model: RawModel): boolean {
   if (getCombinedPrice(model) === 0) return true;
@@ -161,11 +145,21 @@ function processTextModels(raws: RawModel[]): TextProcessingResult {
  * Synthetic Smart Model entry with price ranges derived from the text pool.
  * The Smart Model is not a gateway model — it's a virtual entry the UI can
  * select; the backend resolves the actual model per-message.
+ *
+ * Headline `pricePerInputToken` / `pricePerOutputToken` track the cheapest
+ * model in the pool so cost-aware UI surfaces (budget bars, cheapest-eligible
+ * reservation) reflect the real lower bound. Caller MUST guarantee the pool
+ * is non-empty (gated at `processModels`'s `smartPrefix` construction).
  */
 function buildSmartModelEntry(pool: RawModel[]): Model {
   const inputPrices = pool.map((m) => parseTokenPrice(m.pricing.prompt));
   const outputPrices = pool.map((m) => parseTokenPrice(m.pricing.completion));
   const contexts = pool.map((m) => m.context_length);
+
+  const minInput = Math.min(...inputPrices);
+  const minOutput = Math.min(...outputPrices);
+  const maxInput = Math.max(...inputPrices);
+  const maxOutput = Math.max(...outputPrices);
 
   return {
     id: SMART_MODEL_ID,
@@ -174,24 +168,20 @@ function buildSmartModelEntry(pool: RawModel[]): Model {
     provider: 'HushBox',
     modality: 'text',
     contextLength: Math.max(...contexts),
-    pricePerInputToken: SMART_MODEL_INPUT_PRICE_PER_TOKEN,
-    pricePerOutputToken: SMART_MODEL_OUTPUT_PRICE_PER_TOKEN,
+    pricePerInputToken: minInput,
+    pricePerOutputToken: minOutput,
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
     capabilities: [],
     supportedParameters: [],
     isSmartModel: true,
-    minPricePerInputToken: Math.min(...inputPrices),
-    minPricePerOutputToken: Math.min(...outputPrices),
-    maxPricePerInputToken: Math.max(...inputPrices),
-    maxPricePerOutputToken: Math.max(...outputPrices),
+    minPricePerInputToken: minInput,
+    minPricePerOutputToken: minOutput,
+    maxPricePerInputToken: maxInput,
+    maxPricePerOutputToken: maxOutput,
   };
 }
-
-// ============================================================
-// Image processing
-// ============================================================
 
 function transformImage(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
@@ -232,10 +222,6 @@ function processImageModels(raws: RawModel[]): MediaProcessingResult {
   return { models, premiumIds: models.map((m) => m.id) };
 }
 
-// ============================================================
-// Video processing
-// ============================================================
-
 function transformVideo(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
   const rawByResolution = model.pricing.per_second_by_resolution ?? {};
@@ -272,10 +258,6 @@ function processVideoModels(raws: RawModel[]): MediaProcessingResult {
   const models = priced.map((m) => transformVideo(m));
   return { models, premiumIds: models.map((m) => m.id) };
 }
-
-// ============================================================
-// Audio processing
-// ============================================================
 
 function transformAudio(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
@@ -316,10 +298,6 @@ function processAudioModels(raws: RawModel[]): MediaProcessingResult {
   const models = priced.map((m) => transformAudio(m));
   return { models, premiumIds: models.map((m) => m.id) };
 }
-
-// ============================================================
-// Entry point
-// ============================================================
 
 function groupByModality(rawModels: RawModel[]): Record<Modality, RawModel[]> {
   const groups: Record<Modality, RawModel[]> = { text: [], image: [], audio: [], video: [] };

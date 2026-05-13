@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { Badge } from '@hushbox/ui';
-import type { Model } from '@hushbox/shared';
 import { formatNumber, formatPriceRange, isExpensiveModel } from '@hushbox/shared';
 import { applyFees, formatPricePer1k } from '../../lib/format';
+import type { Model } from '@hushbox/shared';
 
 const CAPABILITY_DISPLAY_NAMES: Record<string, string> = {
   'internet-search': 'Internet Search',
@@ -13,7 +13,7 @@ interface ModelInfoPanelProps {
   compact?: boolean;
 }
 
-function AutoRouterPanel({
+function SmartModelPanel({
   model,
   compact,
 }: Readonly<{ model: Model; compact: boolean }>): React.JSX.Element {
@@ -147,7 +147,7 @@ export function ModelInfoPanel({
   compact = false,
 }: Readonly<ModelInfoPanelProps>): React.JSX.Element {
   if (model.isSmartModel === true) {
-    return <AutoRouterPanel model={model} compact={compact} />;
+    return <SmartModelPanel model={model} compact={compact} />;
   }
   return <StandardPanel model={model} compact={compact} />;
 }

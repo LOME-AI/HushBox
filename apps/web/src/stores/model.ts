@@ -23,6 +23,12 @@ export interface ModelStoreState {
   toggleModel: (modality: Modality, entry: SelectedModelEntry) => void;
   removeModel: (modality: Modality, modelId: string) => void;
   clearSelection: (modality: Modality) => void;
+  /**
+   * Resets state for an unauthenticated user: forces text modality (so the
+   * trial chat page never lands with image/video/audio active and all icons
+   * disabled) and clears every modality selection.
+   */
+  resetForUnauthenticated: () => void;
   setImageConfig: (config: Partial<ImageConfig>) => void;
   setVideoConfig: (config: Partial<VideoConfig>) => void;
   setAudioConfig: (config: Partial<AudioConfig>) => void;
@@ -131,6 +137,12 @@ export const useModelStore = create<ModelStoreState>()(
           if (current.length === 0) return state;
           return updateModalitySelection(state, modality, []);
         }),
+
+      resetForUnauthenticated: () =>
+        set(() => ({
+          activeModality: 'text',
+          selections: defaultSelections(),
+        })),
 
       setImageConfig: (config) =>
         set((state) => ({ imageConfig: { ...state.imageConfig, ...config } })),

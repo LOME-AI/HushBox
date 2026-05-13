@@ -6,6 +6,7 @@ import {
   conversations,
   epochs,
   type Database,
+  type DatabaseClient,
 } from '@hushbox/db';
 import { submitRotation, StaleEpochError, type SubmitRotationParams } from '../keys/keys.js';
 
@@ -74,7 +75,7 @@ export async function listLinks(db: Database, conversationId: string): Promise<L
 
 /** Resolves the display name for a link, generating "Guest N" if not provided. */
 async function resolveDisplayName(
-  txDb: Database,
+  txDb: DatabaseClient,
   conversationId: string,
   providedName?: string
 ): Promise<string> {
@@ -96,7 +97,7 @@ export async function createLink(
   params: CreateLinkParams
 ): Promise<CreateLinkResult> {
   return db.transaction(async (tx) => {
-    const txDb = tx as unknown as Database;
+    const txDb = tx;
 
     // Step 0: Lock conversation row and verify epoch freshness.
     const [conv] = await txDb
@@ -123,11 +124,10 @@ export async function createLink(
       throw new StaleEpochError(conv.currentEpoch);
     }
 
-    // 1. Resolve display name
     const displayName = await resolveDisplayName(txDb, params.conversationId, params.displayName);
 
     // 2. Upsert sharedLinks row — idempotent on duplicate linkPublicKey
-    const [link] = await (tx as unknown as Database)
+    const [link] = await tx
       .insert(sharedLinks)
       .values({
         conversationId: params.conversationId,
@@ -144,8 +144,7 @@ export async function createLink(
       throw new Error('Failed to insert shared link');
     }
 
-    // 3. Upsert conversationMembers row
-    const [member] = await (tx as unknown as Database)
+    const [member] = await tx
       .insert(conversationMembers)
       .values({
         conversationId: params.conversationId,
@@ -166,11 +165,10 @@ export async function createLink(
       throw new Error('Failed to insert conversation member');
     }
 
-    // 4. Either rotate epoch or insert epochMembers wrap
     if (params.rotation) {
       await submitRotation(txDb, params.rotation);
     } else {
-      await (tx as unknown as Database)
+      await tx
         .insert(epochMembers)
         .values({
           epochId: params.currentEpochId,
@@ -197,7 +195,6 @@ export async function changeLinkPrivilege(
   db: Database,
   params: ChangeLinkPrivilegeParams
 ): Promise<ChangeLinkPrivilegeResult> {
-  // Verify the link exists and is active
   const [link] = await db
     .select({ id: sharedLinks.id })
     .from(sharedLinks)
@@ -254,7 +251,6 @@ export async function revokeLink(
       return { revoked: false, memberId: null };
     }
 
-    // Step 2: Find the active conversation member for this link
     const [member] = await tx
       .select()
       .from(conversationMembers)
@@ -264,14 +260,13 @@ export async function revokeLink(
       return { revoked: true, memberId: null };
     }
 
-    // Step 3: Set leftAt on the conversation member
     await tx
       .update(conversationMembers)
       .set({ leftAt: now })
       .where(and(eq(conversationMembers.linkId, linkId), isNull(conversationMembers.leftAt)));
 
     // Step 4: Rotate epoch to revoke access
-    await submitRotation(tx as unknown as Database, rotationParams);
+    await submitRotation(tx, rotationParams);
 
     return { revoked: true, memberId: member.id };
   });

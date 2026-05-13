@@ -87,9 +87,6 @@ const ACTION_GUARDS: Partial<
   'retry-error': (_chat, msg) => msg.isError,
 };
 
-/**
- * Pure function: given chat context + message context, returns the set of allowed actions.
- */
 export function resolveMessageActions(chat: ChatContext, msg: MessageContext): Set<MessageAction> {
   const privilegeKey = chat.privilege ?? 'none';
   const baseActions = BASE_PERMISSIONS[chat.mode][privilegeKey] ?? [];
@@ -106,7 +103,6 @@ export function resolveMessageActions(chat: ChatContext, msg: MessageContext): S
     allowed.delete('edit');
   }
 
-  // Apply dynamic guards
   const result = new Set<MessageAction>();
   for (const action of allowed) {
     const guard = ACTION_GUARDS[action];
@@ -117,9 +113,6 @@ export function resolveMessageActions(chat: ChatContext, msg: MessageContext): S
   return result;
 }
 
-/**
- * Builds a ChatContext from the available props in the component tree.
- */
 export function buildChatContext(options: {
   isAuthenticated: boolean;
   isLinkGuest: boolean;

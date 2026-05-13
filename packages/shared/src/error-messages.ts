@@ -6,10 +6,6 @@
  * to get the human-readable string displayed to users.
  */
 
-// ============================================================================
-// Branded type for user-facing messages
-// ============================================================================
-
 declare const __brand: unique symbol;
 
 /**
@@ -23,12 +19,7 @@ declare const __brand: unique symbol;
  */
 export type UserFacingMessage = string & { readonly [__brand]: 'UserFacingMessage' };
 
-// ============================================================================
-// Error code → message map
-// ============================================================================
-
 const ERROR_MESSAGES = {
-  // General codes
   UNAUTHORIZED: 'You are not logged in. Please log in and try again.',
   NOT_FOUND: "The item you're looking for doesn't exist.",
   VALIDATION: 'Invalid input. Please check your data and try again.',
@@ -38,12 +29,12 @@ const ERROR_MESSAGES = {
   FORBIDDEN: "You don't have permission to do this.",
   PAYMENT_REQUIRED: 'Payment is required for this action.',
   CONFLICT: 'This action conflicts with the current state. Please refresh and try again.',
+  INVALID_OPERATION: 'This operation is not supported in the current context.',
   EXPIRED: 'This item has expired.',
   SERVICE_UNAVAILABLE: 'This service is temporarily unavailable. Please try again later.',
   BILLING_MISMATCH: 'Billing state has changed. Please retry.',
   CSRF_REJECTED: 'Request rejected for security reasons. Please refresh and try again.',
 
-  // Auth codes
   AUTH_FAILED: 'Invalid credentials.',
   LOGIN_FAILED: 'Login failed. Please check your credentials and try again.',
   LOGIN_INIT_FAILED: 'Login failed. Please try again.',
@@ -69,7 +60,6 @@ const ERROR_MESSAGES = {
   VERIFICATION_FAILED: 'Email verification failed. Please try again or request a new link.',
   INVALID_OR_EXPIRED_TOKEN: 'This link has expired. Please request a new verification email.',
 
-  // 2FA codes
   '2FA_VERIFICATION_FAILED': 'Two-factor verification failed. Please try again.',
   '2FA_REQUIRED': 'Two-factor authentication is required.',
   '2FA_EXPIRED': 'Your two-factor session expired. Please log in again.',
@@ -82,13 +72,11 @@ const ERROR_MESSAGES = {
   NO_PENDING_DISABLE: 'Your two-factor disable session expired. Please start over.',
   DISABLE_2FA_INIT_FAILED: 'Failed to start two-factor disable. Please try again.',
 
-  // Infrastructure codes
   USER_NOT_FOUND: 'Account not found.',
   SERVER_MISCONFIGURED: 'Something went wrong on our end. Please try again later.',
   INVALID_BASE64: 'Something went wrong with your request. Please try again.',
   TOO_MANY_ATTEMPTS: 'Too many attempts. Your account has been temporarily locked.',
 
-  // Domain codes
   CONVERSATION_NOT_FOUND: 'Conversation not found.',
   MODEL_NOT_FOUND: 'Model not found.',
   LAST_MESSAGE_NOT_USER: 'Last message must be from you.',
@@ -97,6 +85,12 @@ const ERROR_MESSAGES = {
   STREAM_ERROR: 'Something went wrong. Please try again or try a different model.',
   BILLING_ERROR: 'Something went wrong saving your message. Your balance was not charged.',
   CHAT_STREAM_FAILED: 'Something went wrong. Please try again or try a different model.',
+  STREAM_TIMEOUT: 'The model stopped responding. Please try again.',
+  CONTENT_POLICY:
+    'The model declined to answer because it considered the request unsafe. Try rephrasing your message.',
+  PROVIDER_BILLING:
+    "The AI provider rejected our credentials. We're investigating; please try again shortly.",
+  NETWORK_ERROR: "We couldn't reach the AI provider. Check your connection and try again.",
   CONTEXT_LENGTH_EXCEEDED:
     'This conversation is too long for the selected model. Try a model with a larger context window.',
   PAYMENT_NOT_FOUND: 'Payment not found.',
@@ -110,8 +104,11 @@ const ERROR_MESSAGES = {
   WEBHOOK_VERIFIER_MISSING: 'Webhook processing unavailable.',
   PREMIUM_REQUIRES_BALANCE: 'Premium models require a positive balance.',
   PREMIUM_REQUIRES_ACCOUNT: 'Premium models require a free account.',
+  MODEL_TIER_LOCKED:
+    'This model is only available for paid accounts. Top up your balance to unlock.',
   TRIAL_MESSAGE_TOO_EXPENSIVE: 'This message exceeds trial limits. Sign up for more capacity.',
   AUTHENTICATED_ON_TRIAL: 'Authenticated users should use the main chat.',
+  FEATURE_REQUIRES_AUTH: 'This feature requires a free account. Please sign up to use it.',
   MEMBER_LIMIT_REACHED: 'Conversation has reached the maximum of 100 members.',
   PRIVILEGE_INSUFFICIENT: 'Insufficient privilege for this action.',
   MEMBER_NOT_FOUND: 'Member not found.',
@@ -123,10 +120,10 @@ const ERROR_MESSAGES = {
   EPOCH_NOT_FOUND: 'Current epoch not found.',
   MESSAGE_NOT_FOUND: 'Message not found.',
   SHARE_NOT_FOUND: 'Shared message not found.',
+  SHARE_FORBIDDEN: "You can't share this message.",
   WRAP_SET_MISMATCH: 'Member wrap set does not match active members.',
   ROTATION_REQUIRED: 'Epoch rotation is required for this operation.',
 
-  // Regeneration & Fork codes
   REGENERATION_BLOCKED_BY_OTHER_USER:
     'Cannot regenerate — another user has replied after this message.',
   FORK_NOT_FOUND: 'Fork not found.',
@@ -136,22 +133,24 @@ const ERROR_MESSAGES = {
   TARGET_MESSAGE_NOT_FOUND: 'Target message not found.',
   INVALID_PARENT_MESSAGE: 'Something went wrong saving your message. Please try again.',
   CANNOT_REGENERATE_WHILE_STREAMING: 'Please wait for the current response to finish.',
+  FORK_TIP_CONFLICT: 'Another reply landed at the same time. Please retry.',
+  DUPLICATE_MESSAGE: 'This message was already sent. Refresh to see the latest state.',
 
-  // Mobile codes
   UPGRADE_REQUIRED: 'A new version is available. Please update to continue.',
   LOGIN_TOKEN_INVALID: 'This login link has expired or already been used.',
   BILLING_SESSION_RESTRICTED:
     'This session can only access billing. Please log in normally for full access.',
   BUILD_NOT_FOUND: 'The requested app version was not found.',
 
-  // Media storage codes
   STORAGE_WRITE_FAILED: "We couldn't save the generated media. Please try again.",
+  MEDIA_TOO_LARGE: 'Generated media is too large to store. Please try a smaller request.',
   STORAGE_READ_FAILED: "We couldn't load this media. Please refresh the page.",
   CONTENT_ITEM_NOT_FOUND: 'Content item not found.',
   CONTENT_ITEM_NOT_MEDIA: 'This content item is not downloadable media.',
   INFERENCE_FAILED: "The AI provider couldn't complete your request. Please try again in a moment.",
   EMPTY_MEDIA_RESULT:
     "The AI didn't produce any output for your request. Try rephrasing your prompt.",
+  UNKNOWN_MIME_TYPE: "The generated media couldn't be identified. Please report this.",
   MEDIA_TRIAL_BLOCKED:
     'Media generation is only available for signed-in users. Create an account to unlock.',
   MODALITY_MISMATCH: "One or more selected models don't match the requested content type.",

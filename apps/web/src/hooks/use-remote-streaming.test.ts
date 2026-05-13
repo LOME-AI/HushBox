@@ -3,10 +3,6 @@ import { renderHook, act } from '@testing-library/react';
 import { useRemoteStreaming } from './use-remote-streaming.js';
 import type { ConversationWebSocket } from '../lib/ws-client.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 interface MockWs {
   on: ReturnType<typeof vi.fn>;
   listeners: Map<string, Set<(event: unknown) => void>>;
@@ -40,10 +36,6 @@ function createMockWs(): MockWs {
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useRemoteStreaming', () => {
   beforeEach(() => {
@@ -192,7 +184,6 @@ describe('useRemoteStreaming', () => {
       useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
     );
 
-    // First token creates the entry
     act(() => {
       mockWs.emit('message:stream', {
         type: 'message:stream',
@@ -207,7 +198,6 @@ describe('useRemoteStreaming', () => {
       senderType: 'ai',
     });
 
-    // Second token accumulates
     act(() => {
       mockWs.emit('message:stream', {
         type: 'message:stream',
@@ -222,7 +212,6 @@ describe('useRemoteStreaming', () => {
       senderType: 'ai',
     });
 
-    // Third token accumulates
     act(() => {
       mockWs.emit('message:stream', {
         type: 'message:stream',
@@ -273,7 +262,6 @@ describe('useRemoteStreaming', () => {
       senderType: 'ai',
     });
 
-    // Tokens for each stream accumulate independently
     act(() => {
       mockWs.emit('message:stream', {
         type: 'message:stream',
@@ -300,12 +288,10 @@ describe('useRemoteStreaming', () => {
       useRemoteStreaming(mockWs as unknown as ConversationWebSocket, 'current-user')
     );
 
-    // Two event types registered
     expect(mockWs.on).toHaveBeenCalledTimes(2);
     expect(mockWs.on).toHaveBeenCalledWith('message:new', expect.any(Function));
     expect(mockWs.on).toHaveBeenCalledWith('message:stream', expect.any(Function));
 
-    // Verify listeners are registered
     const newListeners = mockWs.listeners.get('message:new');
     const streamListeners = mockWs.listeners.get('message:stream');
     expect(newListeners?.size).toBe(1);
@@ -313,7 +299,6 @@ describe('useRemoteStreaming', () => {
 
     unmount();
 
-    // After unmount, all listeners should be removed
     expect(newListeners?.size).toBe(0);
     expect(streamListeners?.size).toBe(0);
   });

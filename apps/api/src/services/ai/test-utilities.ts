@@ -1,5 +1,5 @@
 import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from '@hushbox/db';
-import { createEnvUtilities } from '@hushbox/shared';
+import { assertNever, createEnvUtilities } from '@hushbox/shared';
 import { MIN_VIDEO_DURATION_SECONDS } from '@hushbox/shared';
 import { createMockAIClient } from './mock.js';
 import { createRealAIClient, type EvidenceConfig } from './real.js';
@@ -52,10 +52,6 @@ export function setupIntegrationClient(): IntegrationClientSetup {
   const client = createRealAIClient({ apiKey, publicModelsUrl, evidence });
   return { client, db, isMock: false };
 }
-
-// ---------------------------------------------------------------------------
-// Cheapest-model resolution per modality
-// ---------------------------------------------------------------------------
 
 export interface TextTestParameters {
   kind: 'text';
@@ -118,6 +114,9 @@ export async function getCheapestTestModel(
     }
     case 'audio': {
       throw new Error('Audio integration tests are not in scope.');
+    }
+    default: {
+      return assertNever(modality);
     }
   }
 
@@ -200,10 +199,6 @@ function pickCheapestVideoModel(candidates: readonly ModelInfo[]): TestModelSpec
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Stream consumption + media verification
-// ---------------------------------------------------------------------------
 
 export interface ConsumedStream {
   events: InferenceEvent[];

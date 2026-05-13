@@ -26,6 +26,7 @@ import {
   openMessageEnvelope,
   encryptTextWithContentKey,
   decryptTextWithContentKey,
+  type WrappedContentKey,
 } from '@hushbox/crypto';
 import {
   createOrGetConversation,
@@ -492,7 +493,10 @@ describe('member rotation integration', () => {
     const msgRow1 = defined(
       defined(await getConversationForMember(db, conversationId, 1, memberC.id)).messages[0]
     );
-    const ck1 = openMessageEnvelope(epoch1PrivateKey, msgRow1.wrappedContentKey);
+    const ck1 = openMessageEnvelope(
+      epoch1PrivateKey,
+      msgRow1.wrappedContentKey as WrappedContentKey
+    );
     const msg1 = decryptTextWithContentKey(ck1, defined(msgRow1.contentItems[0]).encryptedBlob!);
     expect(msg1).toBe('epoch 1 message');
   });
@@ -880,15 +884,24 @@ describe('member rotation integration', () => {
     const msgs = defined(memberCConversation).messages;
     expect(msgs).toHaveLength(3);
 
-    const ckE1 = openMessageEnvelope(epoch1PrivateKey, defined(msgs[0]).wrappedContentKey);
+    const ckE1 = openMessageEnvelope(
+      epoch1PrivateKey,
+      defined(msgs[0]).wrappedContentKey as WrappedContentKey
+    );
     expect(
       decryptTextWithContentKey(ckE1, defined(defined(msgs[0]).contentItems[0]).encryptedBlob!)
     ).toBe('msg epoch 1');
-    const ckE2 = openMessageEnvelope(epoch2PrivateKey, defined(msgs[1]).wrappedContentKey);
+    const ckE2 = openMessageEnvelope(
+      epoch2PrivateKey,
+      defined(msgs[1]).wrappedContentKey as WrappedContentKey
+    );
     expect(
       decryptTextWithContentKey(ckE2, defined(defined(msgs[1]).contentItems[0]).encryptedBlob!)
     ).toBe('msg epoch 2');
-    const ckE3 = openMessageEnvelope(epoch3PrivateKey, defined(msgs[2]).wrappedContentKey);
+    const ckE3 = openMessageEnvelope(
+      epoch3PrivateKey,
+      defined(msgs[2]).wrappedContentKey as WrappedContentKey
+    );
     expect(
       decryptTextWithContentKey(ckE3, defined(defined(msgs[2]).contentItems[0]).encryptedBlob!)
     ).toBe('msg epoch 3');
@@ -1125,7 +1138,10 @@ describe('member rotation integration', () => {
     const memberBConversation = await getConversationForMember(db, conversationId, 1, memberB.id);
     const msgs = defined(memberBConversation).messages;
     expect(msgs).toHaveLength(1);
-    const ckBR = openMessageEnvelope(epoch1PrivateKey, defined(msgs[0]).wrappedContentKey);
+    const ckBR = openMessageEnvelope(
+      epoch1PrivateKey,
+      defined(msgs[0]).wrappedContentKey as WrappedContentKey
+    );
     expect(
       decryptTextWithContentKey(ckBR, defined(defined(msgs[0]).contentItems[0]).encryptedBlob!)
     ).toBe('before removal');
@@ -1423,7 +1439,10 @@ describe('member rotation integration', () => {
     const memberBConv = await getConversationForMember(db, conversationId, 1, memberB.id);
     const msgs = defined(memberBConv).messages;
     expect(msgs).toHaveLength(1);
-    const ckWH = openMessageEnvelope(epoch1Key, defined(msgs[0]).wrappedContentKey);
+    const ckWH = openMessageEnvelope(
+      epoch1Key,
+      defined(msgs[0]).wrappedContentKey as WrappedContentKey
+    );
     expect(
       decryptTextWithContentKey(ckWH, defined(defined(msgs[0]).contentItems[0]).encryptedBlob!)
     ).toBe('epoch 1 message');

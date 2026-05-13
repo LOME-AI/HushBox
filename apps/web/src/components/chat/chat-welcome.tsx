@@ -1,21 +1,20 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { cn } from '@hushbox/ui';
-import { TypingAnimation } from './typing-animation';
-import { PromptInput } from './prompt-input';
-import type { ChatSearchProps, PromptInputRef } from './prompt-input';
-import { getPromptPlaceholder } from './prompt-placeholder';
-import { SuggestionChips } from './suggestion-chips';
-import { ChatHeader } from './chat-header';
-import { ComparisonBar } from './comparison-bar';
+import { cn, useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
 import { getGreeting } from '@/lib/greetings';
 import { useModelStore, type SelectedModelEntry } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
 import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabilities';
 import { useResolveDefaultModel } from '@/hooks/use-resolve-default-model';
 import { useStableBalance } from '@/hooks/use-stable-balance';
-import { useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
+import { ComparisonBar } from './comparison-bar';
+import { ChatHeader } from './chat-header';
+import { SuggestionChips } from './suggestion-chips';
+import { getPromptPlaceholder } from './prompt-placeholder';
+import { PromptInput } from './prompt-input';
+import { TypingAnimation } from './typing-animation';
 import type { FundingSource, Modality } from '@hushbox/shared';
+import type { ChatSearchProps, PromptInputRef } from './prompt-input';
 
 interface WelcomeGreetingProps {
   greeting: ReturnType<typeof getGreeting> | null;
@@ -113,7 +112,6 @@ export function ChatWelcome({
     removeModel(current, modelId);
   }, []);
 
-  // Premium access requires authentication AND positive balance
   const { displayBalance } = useStableBalance();
   const balance = Number.parseFloat(displayBalance);
   const canAccessPremium = isAuthenticated && balance > 0;

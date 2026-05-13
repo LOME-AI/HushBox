@@ -1,5 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { openShare, decryptTextWithContentKey } from '@hushbox/crypto';
+import {
+  openShare,
+  decryptTextWithContentKey,
+  type ContentKey,
+  type WrappedContentKey,
+} from '@hushbox/crypto';
 import { fromBase64 } from '@hushbox/shared';
 import { client, fetchJson } from '../lib/api-client.js';
 import type { PublicShareContentItem, PublicShareResponse } from '@hushbox/shared';
@@ -41,13 +46,13 @@ export interface SharedMessageData {
    * Held in React Query state for the page lifetime; view is read-only and
    * ephemeral, same risk profile as the epoch-key cache on the member side.
    */
-  contentKey: Uint8Array;
+  contentKey: ContentKey;
   contentItems: SharedContentItem[];
 }
 
 function buildSharedContentItem(
   item: PublicShareContentItem,
-  contentKey: Uint8Array
+  contentKey: ContentKey
 ): SharedContentItem | null {
   if (item.contentType === 'text') {
     if (item.encryptedBlob == null) return null;
@@ -108,7 +113,7 @@ export function useSharedMessage(
       );
 
       const shareSecret = fromBase64(keyBase64);
-      const wrappedShareKey = fromBase64(response.wrappedShareKey);
+      const wrappedShareKey = fromBase64(response.wrappedShareKey) as WrappedContentKey;
       const contentKey = openShare(shareSecret, wrappedShareKey);
 
       const sorted = response.contentItems.toSorted((a, b) => a.position - b.position);

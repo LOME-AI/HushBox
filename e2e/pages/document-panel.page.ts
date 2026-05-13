@@ -23,8 +23,6 @@ export class DocumentPanelPage {
     this.mermaidDiagram = page.getByTestId('mermaid-diagram');
   }
 
-  // --- Locators ---
-
   /** All document cards in the message list */
   documentCards(): Locator {
     return this.page.getByTestId('document-card');
@@ -73,8 +71,6 @@ export class DocumentPanelPage {
     return this.panel.locator('h2');
   }
 
-  // --- Actions ---
-
   async clickCard(index: number): Promise<void> {
     await this.documentCard(index).click();
   }
@@ -82,8 +78,6 @@ export class DocumentPanelPage {
   async closePanel(): Promise<void> {
     await this.closeButton.click();
   }
-
-  // --- Waits ---
 
   /**
    * Scroll through the Virtuoso message list until the nth document card is rendered.
@@ -122,8 +116,6 @@ export class DocumentPanelPage {
   async waitForMermaidRendered(timeout = 15_000): Promise<void> {
     await this.mermaidDiagram.waitFor({ state: 'visible', timeout });
   }
-
-  // --- Assertions ---
 
   async expectTitle(text: string): Promise<void> {
     await expect(this.panelTitle()).toContainText(text);

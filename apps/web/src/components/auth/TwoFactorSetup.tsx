@@ -1,14 +1,14 @@
 import * as React from 'react';
 import { useState, useCallback, useEffect } from 'react';
-import { Overlay, OverlayContent, Button, ModalActions } from '@hushbox/ui';
 import { Copy, Check, Loader2 } from 'lucide-react';
 import { QRCode } from 'react-qrcode-logo';
+import { Overlay, OverlayContent, Button, ModalActions } from '@hushbox/ui';
 import logoUrl from '@hushbox/ui/assets/HushBoxLogo.png';
+import { errorResponseSchema } from '@hushbox/shared';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { useOtpVerification } from '@/hooks/use-otp-verification';
 import { OtpInput } from '@/components/auth/otp-input';
 import { ModalSuccessStep } from '@/components/shared/modal-success-step';
-import { errorResponseSchema } from '@hushbox/shared';
 import { getApiUrl } from '@/lib/api';
 
 interface TwoFactorSetupProps {
@@ -171,7 +171,6 @@ export function TwoFactorSetup({
     onSuccess: handleVerifySuccess,
   });
 
-  // Reset state when modal opens
   useEffect(() => {
     if (open) {
       setStep('loading');

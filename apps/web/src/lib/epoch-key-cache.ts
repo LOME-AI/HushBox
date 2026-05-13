@@ -184,11 +184,6 @@ function resolveChainLinks(
   }
 }
 
-/**
- * Processes a key chain response and populates the epoch key cache.
- * Unwraps direct epoch keys and resolves chain links for older epochs.
- * Shared between useDecryptedMessages and useDecryptedConversations.
- */
 export function processKeyChain(
   conversationId: string,
   keyChain: KeyChainResponse,

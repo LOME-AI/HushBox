@@ -1,8 +1,8 @@
 import { Factory } from 'fishery';
 import { faker } from '@faker-js/faker';
 
-import type { conversations } from '../schema/conversations';
 import { placeholderBytes } from './helpers.js';
+import type { conversations } from '../schema/conversations';
 
 type Conversation = typeof conversations.$inferSelect;
 

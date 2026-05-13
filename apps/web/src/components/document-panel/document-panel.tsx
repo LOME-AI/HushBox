@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { Button, cn, useIsMobile } from '@hushbox/ui';
 import { X, Code, Eye, Copy, Check, Download, Maximize2, Minimize2 } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import { code } from '@streamdown/code';
+import { Button, cn, useIsMobile } from '@hushbox/ui';
 import { useDocumentStore } from '../../stores/document';
 import { MermaidDiagram } from '../chat/mermaid-diagram';
 import { getFileExtension } from '../../lib/document-parser';
@@ -163,9 +163,7 @@ function buildFencedCodeBlock(content: string, language?: string): string {
   return `${fence}${language ?? ''}\n${content}\n${fence}`;
 }
 
-/** Renders the document content based on type */
 function DocumentContent({ document, showRaw }: Readonly<DocumentContentProps>): React.JSX.Element {
-  // For mermaid, show raw or rendered based on toggle
   if (document.type === 'mermaid') {
     if (showRaw) {
       return (
@@ -179,7 +177,6 @@ function DocumentContent({ document, showRaw }: Readonly<DocumentContentProps>):
     return <MermaidDiagram chart={document.content} />;
   }
 
-  // For code types, render with Shiki syntax highlighting via Streamdown
   return (
     <div data-testid="highlighted-code" className="document-panel-code">
       <Streamdown plugins={{ code }} controls={{ code: false }} animated={false}>
@@ -208,12 +205,10 @@ export function DocumentPanel({
   const panelRef = React.useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
-  // Reset showRaw when active document changes
   React.useEffect(() => {
     setShowRaw(false);
   }, [activeDocumentId]);
 
-  // Handle resize drag (desktop only)
   React.useEffect(() => {
     if (!isResizing || isMobile) return;
 
@@ -238,7 +233,6 @@ export function DocumentPanel({
     };
   }, [isResizing, isMobile, setPanelWidth]);
 
-  // Don't render if panel is closed or no active document
   if (!isPanelOpen || !activeDocument) {
     return null;
   }
@@ -280,7 +274,6 @@ export function DocumentPanel({
     URL.revokeObjectURL(url);
   };
 
-  // Check if document type supports raw toggle
   const supportsRawToggle = activeDocument.type === 'mermaid';
 
   return (

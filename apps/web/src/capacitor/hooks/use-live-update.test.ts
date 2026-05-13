@@ -108,13 +108,11 @@ describe('useLiveUpdate', () => {
       useLiveUpdate();
     });
 
-    // Wait for mount check to complete, then clear
     await vi.waitFor(() => {
       expect(mockCheckForUpdate).toHaveBeenCalledOnce();
     });
     mockCheckForUpdate.mockClear();
 
-    // Simulate resume
     capturedCallbacks?.onResume?.();
 
     await vi.waitFor(() => {
@@ -130,7 +128,6 @@ describe('useLiveUpdate', () => {
       useLiveUpdate();
     });
 
-    // Wait for mount check, then reconfigure mock for resume
     await vi.waitFor(() => {
       expect(mockCheckForUpdate).toHaveBeenCalledOnce();
     });

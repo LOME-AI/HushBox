@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Navigate } from '@tanstack/react-router';
+import { ROUTES } from '@hushbox/shared';
 import { ChatLayout } from '@/components/chat/chat-layout';
 import { useAuthenticatedChat } from '@/hooks/use-authenticated-chat';
 import { useGroupChat } from '@/hooks/use-group-chat';
@@ -9,9 +10,8 @@ import { useForkStore } from '@/stores/fork';
 import { useChatEditStore } from '@/stores/chat-edit';
 import { RenameConversationDialog } from '@/components/sidebar/rename-conversation-dialog';
 import { DeleteConversationDialog } from '@/components/sidebar/delete-conversation-dialog';
-import { ROUTES } from '@hushbox/shared';
-import type { FundingSource, MemberPrivilege } from '@hushbox/shared';
 import { resolveRegenerateTarget } from '@/lib/chat-regeneration';
+import type { FundingSource, MemberPrivilege } from '@hushbox/shared';
 import type { Message } from '@/lib/api';
 
 interface AuthenticatedChatPageProps {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SMART_MODEL_ID, MAX_SELECTED_MODELS } from '@hushbox/shared';
-import type { Modality } from '@hushbox/shared';
 import { useModelStore, DEFAULT_MODEL_ID, DEFAULT_MODEL_NAME, getPrimaryModel } from './model';
+import type { Modality } from '@hushbox/shared';
 import type { SelectedModelEntry } from './model';
 
 const defaultTextEntry: SelectedModelEntry = { id: DEFAULT_MODEL_ID, name: DEFAULT_MODEL_NAME };
@@ -211,6 +211,49 @@ describe('useModelStore', () => {
     it('does nothing when the id is not present', () => {
       useModelStore.getState().removeModel('text', 'nonexistent');
       expect(useModelStore.getState().selections.text).toEqual([defaultTextEntry]);
+    });
+  });
+
+  describe('resetForUnauthenticated', () => {
+    it('forces activeModality back to text', () => {
+      useModelStore.setState({ activeModality: 'image' });
+      useModelStore.getState().resetForUnauthenticated();
+      expect(useModelStore.getState().activeModality).toBe('text');
+    });
+
+    it('resets text selection to the default Smart Model entry', () => {
+      useModelStore.setState({
+        selections: {
+          text: [{ id: 'a', name: 'A' }],
+          image: [{ id: 'imagen', name: 'Imagen' }],
+          audio: [],
+          video: [],
+        },
+      });
+      useModelStore.getState().resetForUnauthenticated();
+      expect(useModelStore.getState().selections.text).toEqual([defaultTextEntry]);
+    });
+
+    it('clears non-text modalities', () => {
+      useModelStore.setState({
+        selections: {
+          text: [defaultTextEntry],
+          image: [{ id: 'imagen', name: 'Imagen' }],
+          audio: [{ id: 'audio-m', name: 'Audio' }],
+          video: [{ id: 'veo', name: 'Veo' }],
+        },
+      });
+      useModelStore.getState().resetForUnauthenticated();
+      const state = useModelStore.getState();
+      expect(state.selections.image).toEqual([]);
+      expect(state.selections.audio).toEqual([]);
+      expect(state.selections.video).toEqual([]);
+    });
+
+    it('forces text modality even when starting from video', () => {
+      useModelStore.setState({ activeModality: 'video' });
+      useModelStore.getState().resetForUnauthenticated();
+      expect(useModelStore.getState().activeModality).toBe('text');
     });
   });
 

@@ -14,7 +14,6 @@ import {
 } from '@hushbox/shared';
 import { useModels, getAccessibleModelIds, modelKeys, modelsQueryOptions } from './models.js';
 
-// Mock the api-client module
 vi.mock('../lib/api-client.js', () => ({
   client: {
     api: {
@@ -30,7 +29,6 @@ import { fetchJson } from '../lib/api-client.js';
 
 const mockFetchJson = vi.mocked(fetchJson);
 
-// Mock transformed Model objects (as returned by the API)
 const MOCK_MODELS: Model[] = [
   {
     id: 'openai/gpt-4-turbo',
@@ -66,7 +64,6 @@ const MOCK_MODELS: Model[] = [
   },
 ];
 
-// Backend API response format
 const MOCK_API_RESPONSE = {
   models: MOCK_MODELS,
   premiumModelIds: ['openai/gpt-4-turbo'],
@@ -178,7 +175,6 @@ describe('useModels', () => {
 });
 
 describe('getAccessibleModelIds', () => {
-  // Models with varying prices for testing sorting
   const testModels: Model[] = [
     {
       id: 'expensive-basic',
@@ -248,9 +244,20 @@ describe('getAccessibleModelIds', () => {
 
   const premiumIds = new Set(['premium-model']);
 
-  it('returns hardcoded text pins when canAccessPremium is true and modality defaults to text', () => {
+  it('paid users on text get the most-expensive non-premium as strongest and cheapest as value (dynamic)', () => {
+    // Plan §10.12: text "Strongest" / "Value" buttons must resolve dynamically
+    // for paid users — not the hardcoded constants.
     const result = getAccessibleModelIds(testModels, premiumIds, true);
 
+    expect(result.strongestId).toBe('expensive-basic');
+    expect(result.valueId).toBe('cheap-basic');
+    // Sanity: never the hardcoded constants when dynamic data is available.
+    expect(result.strongestId).not.toBe(STRONGEST_TEXT_MODEL_ID);
+    expect(result.valueId).not.toBe(VALUE_TEXT_MODEL_ID);
+  });
+
+  it('paid users on text fall back to hardcoded text pins when no models are available', () => {
+    const result = getAccessibleModelIds([], new Set(), true);
     expect(result.strongestId).toBe(STRONGEST_TEXT_MODEL_ID);
     expect(result.valueId).toBe(VALUE_TEXT_MODEL_ID);
   });
@@ -279,14 +286,12 @@ describe('getAccessibleModelIds', () => {
   it('returns highest-price basic model as strongest when canAccessPremium is false', () => {
     const result = getAccessibleModelIds(testModels, premiumIds, false);
 
-    // 'expensive-basic' has the highest price among basic models
     expect(result.strongestId).toBe('expensive-basic');
   });
 
   it('returns lowest-price basic model as value when canAccessPremium is false', () => {
     const result = getAccessibleModelIds(testModels, premiumIds, false);
 
-    // 'cheap-basic' has the lowest price among basic models
     expect(result.valueId).toBe('cheap-basic');
   });
 
@@ -301,7 +306,6 @@ describe('getAccessibleModelIds', () => {
     const allPremium = new Set(testModels.map((m) => m.id));
     const result = getAccessibleModelIds(testModels, allPremium, false);
 
-    // When no basic models, falls back to first model
     expect(result.strongestId).toBe(testModels[0]?.id);
     expect(result.valueId).toBe(testModels[0]?.id);
   });

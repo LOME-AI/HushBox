@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { SplashScreen } from '@capacitor/splash-screen';
-import { isNative } from '../platform.js';
 import { useAppVersionStore } from '@/stores/app-version.js';
+import { isNative } from '../platform.js';
 
 /**
  * Hides the native splash screen once the app has stabilized or an upgrade

@@ -27,9 +27,12 @@ describe('MediaPlaceholder', () => {
     expect(screen.getByRole('status', { name: /loading media/i })).toBeInTheDocument();
   });
 
-  it('renders the error label when status is error', () => {
+  it('renders the friendly STORAGE_READ_FAILED error message when status is error', () => {
     render(<MediaPlaceholder width={null} height={null} status="error" />);
-    expect(screen.getByRole('status', { name: /failed to load media/i })).toBeInTheDocument();
+    // Friendly mapping for STORAGE_READ_FAILED: "We couldn't load this media. Please refresh the page."
+    expect(
+      screen.getByRole('status', { name: /couldn['’]t load this media.+refresh the page/i })
+    ).toBeInTheDocument();
   });
 
   it('uses the given dimensions as the aspect ratio', () => {
@@ -42,6 +45,36 @@ describe('MediaPlaceholder', () => {
     render(<MediaPlaceholder width={null} height={null} status="loading" />);
     const placeholder = screen.getByRole('status');
     expect(placeholder.style.aspectRatio).toBe('1 / 1');
+  });
+
+  it('uses the loadingLabel override when provided', () => {
+    render(
+      <MediaPlaceholder
+        width={null}
+        height={null}
+        status="loading"
+        loadingLabel="Generating image…"
+      />
+    );
+    expect(screen.getByRole('status', { name: /generating image/i })).toBeInTheDocument();
+  });
+
+  it('renders a progress bar when progressPercent is provided in loading state', () => {
+    render(<MediaPlaceholder width={null} height={null} status="loading" progressPercent={42} />);
+    const bar = screen.getByTestId('media-progress-bar');
+    expect(bar).toBeInTheDocument();
+    const fill = bar.querySelector('div');
+    expect(fill?.getAttribute('style')).toContain('42%');
+  });
+
+  it('renders the "Almost there…" label once progressPercent >= 95', () => {
+    render(<MediaPlaceholder width={null} height={null} status="loading" progressPercent={95} />);
+    expect(screen.getByText(/almost there/i)).toBeInTheDocument();
+  });
+
+  it('hides the progress bar in error state', () => {
+    render(<MediaPlaceholder width={null} height={null} status="error" progressPercent={50} />);
+    expect(screen.queryByTestId('media-progress-bar')).not.toBeInTheDocument();
   });
 });
 
@@ -112,10 +145,32 @@ describe('MediaPreview', () => {
     expect(modal.dataset['alt']).toBe('Shared media');
   });
 
-  it('does not render the lightbox trigger for non-image content', () => {
-    render(<MediaPreview {...baseProps({ contentType: 'video', mimeType: 'video/mp4' })} />);
+  it('opens the fullscreen modal when a video thumbnail is clicked', async () => {
+    const user = userEvent.setup();
+    render(
+      <MediaPreview
+        {...baseProps({
+          contentType: 'video',
+          mimeType: 'video/mp4',
+          ariaPrefix: 'Generated',
+        })}
+      />
+    );
+
+    expect(screen.queryByTestId('media-modal')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /open video in fullscreen/i }));
+    const modal = screen.getByTestId('media-modal');
+    expect(modal).toBeInTheDocument();
+    expect(modal.dataset['alt']).toBe('Generated video');
+  });
+
+  it('does not render the fullscreen trigger for audio content', () => {
+    render(<MediaPreview {...baseProps({ contentType: 'audio', mimeType: 'audio/mpeg' })} />);
     expect(
       screen.queryByRole('button', { name: /open image in lightbox/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /open video in fullscreen/i })
     ).not.toBeInTheDocument();
   });
 });

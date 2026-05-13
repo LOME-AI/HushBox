@@ -1,10 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
+import type { ContentKey } from '@hushbox/crypto';
 
 const mockUseDecryptedSharedMedia = vi.fn<
   (params: { downloadUrl: string | null; contentKey: Uint8Array | null; mimeType: string }) => {
@@ -21,15 +18,11 @@ vi.mock('@/hooks/use-decrypted-shared-media', () => ({
 
 import { SharedMediaContentItem } from './shared-media-content-item';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 interface SharedMediaItemProps extends Omit<
   Parameters<typeof SharedMediaContentItem>[0],
   'contentKey'
 > {
-  contentKey?: Uint8Array;
+  contentKey?: ContentKey;
 }
 
 function defaultItem(
@@ -56,14 +49,10 @@ function baseProps(
 ): Parameters<typeof SharedMediaContentItem>[0] {
   return {
     item: defaultItem(),
-    contentKey: new Uint8Array([9, 9, 9]),
+    contentKey: new Uint8Array([9, 9, 9]) as unknown as ContentKey,
     ...overrides,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('SharedMediaContentItem', () => {
   beforeEach(() => {
@@ -92,7 +81,9 @@ describe('SharedMediaContentItem', () => {
 
     render(<SharedMediaContentItem {...baseProps()} />);
 
-    expect(screen.getByRole('status', { name: /failed to load media/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('status', { name: /couldn['’]t load this media.+refresh the page/i })
+    ).toBeInTheDocument();
   });
 
   it('renders <img> with the blob URL for image content', () => {
@@ -212,7 +203,7 @@ describe('SharedMediaContentItem', () => {
       error: null,
     });
 
-    const contentKey = new Uint8Array([1, 2, 3]);
+    const contentKey = new Uint8Array([1, 2, 3]) as ContentKey;
     render(
       <SharedMediaContentItem
         item={defaultItem({

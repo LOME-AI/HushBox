@@ -195,28 +195,28 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 
 ## AI / LLM
 
-| Technology              | Purpose                                                                                               |
-| ----------------------- | ----------------------------------------------------------------------------------------------------- |
-| **Vercel AI SDK**       | Provider-agnostic streaming inference for text, image, and video. Backs the internal `AIClient` interface. |
-| **Vercel AI Gateway**   | LLM gateway. Single API for GPT, Claude, Gemini, Grok, others. Model metadata API for auto-discovery. |
+| Technology            | Purpose                                                                                                    |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Vercel AI SDK**     | Provider-agnostic streaming inference for text, image, and video. Backs the internal `AIClient` interface. |
+| **Vercel AI Gateway** | LLM gateway. Single API for GPT, Claude, Gemini, Grok, others. Model metadata API for auto-discovery.      |
 
 ---
 
 ## Development
 
-| Technology          | Purpose                                                                             |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| **Turborepo**       | Monorepo orchestration. Parallel builds, caching, task dependencies.                |
-| **pnpm**            | Package manager.                                                                    |
-| **Vitest**          | Unit/integration testing.                                                           |
-| **Playwright**      | E2E testing. Cross-browser,.                                                        |
-| **fishery**         | Test factories with traits, sequences, and async DB creation.                       |
-| **@faker-js/faker** | Realistic fake data generation.                                                     |
+| Technology          | Purpose                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| **Turborepo**       | Monorepo orchestration. Parallel builds, caching, task dependencies.                 |
+| **pnpm**            | Package manager.                                                                     |
+| **Vitest**          | Unit/integration testing.                                                            |
+| **Playwright**      | E2E testing. Cross-browser,.                                                         |
+| **fishery**         | Test factories with traits, sequences, and async DB creation.                        |
+| **@faker-js/faker** | Realistic fake data generation.                                                      |
 | **MinIO**           | Local S3-compatible server. Emulates R2 for local dev and CI tests via `pnpm db:up`. |
-| **Payment Mocks**   | Local mock for Helcim. No real API calls in local development.                      |
-| **Helcim Sandbox**  | Helcim's test environment. Used in CI for real payment flow testing.                |
-| **execa**           | Subprocess execution. Clean API for running shell commands from TypeScript scripts. |
-| **tsx**             | TypeScript execution. Runs TypeScript directly without compilation step.            |
+| **Payment Mocks**   | Local mock for Helcim. No real API calls in local development.                       |
+| **Helcim Sandbox**  | Helcim's test environment. Used in CI for real payment flow testing.                 |
+| **execa**           | Subprocess execution. Clean API for running shell commands from TypeScript scripts.  |
+| **tsx**             | TypeScript execution. Runs TypeScript directly without compilation step.             |
 
 ---
 

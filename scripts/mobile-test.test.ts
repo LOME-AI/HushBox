@@ -5,7 +5,6 @@ vi.mock('execa', () => ({
   execa: vi.fn(),
 }));
 
-// Mock fs functions used across tests
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
   return {
@@ -360,7 +359,6 @@ describe('mobile-test script', () => {
 
       await startDevStack();
 
-      // Only the health check call, no db:up/migrate/seed
       const dbUpCalls = mockExeca.mock.calls.filter(
         (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:up')
       );
@@ -646,7 +644,6 @@ describe('mobile-test script', () => {
       expect(maestroCall).toBeDefined();
       const flowArgs = (maestroCall![1] as string[]).filter((a) => a.endsWith('.yaml'));
 
-      // Includes non-OTA flows
       expect(flowArgs).toContain('mobile-tests/flows/01-app-launch.yaml');
       // Excludes OTA flow (run separately after setupOtaUpdate)
       expect(flowArgs).not.toContain('mobile-tests/flows/13-ota-update.yaml');
@@ -779,7 +776,6 @@ describe('mobile-test script', () => {
       expect(callOrder[0]).toBe('check-docker');
       expect(callOrder[1]).toBe('check-maestro');
 
-      // All expected steps were called
       const expectedLabels = [
         'detect-kvm-gid',
         'start-emulator',

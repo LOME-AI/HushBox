@@ -209,7 +209,6 @@ test.describe('Fork Lifecycle', () => {
       await chatPage.hoverMessage(1);
       await chatPage.getForkButton(1).click();
 
-      // Should show an error (toast or similar) rather than creating a 6th tab
       await chatPage.expectForkTabCount(5);
     });
   });
@@ -301,7 +300,6 @@ test.describe('Group Chat Forking', () => {
       await aliceChatPage.gotoConversation(groupConversation.id);
       await aliceChatPage.waitForConversationLoaded();
 
-      // Fork from the AI message
       const aiMessage = aliceChatPage.messageList.locator('[data-role="assistant"]').first();
       await aiMessage.hover();
       await aiMessage.getByRole('button', { name: 'Fork' }).click();
@@ -348,7 +346,6 @@ test.describe('Fork History Preservation', () => {
     expect(totalMessages).toBe(6);
 
     await test.step('fork from 4th message (2nd AI response)', async () => {
-      await chatPage.scrollToTop();
       await chatPage.clickFork(3);
       await chatPage.expectForkTabCount(2);
       await chatPage.expectActiveForkTab('Fork 1');
@@ -400,7 +397,6 @@ test.describe('Fork History Preservation', () => {
     expect(await chatPage.getMessageCountViaAPI()).toBe(6);
 
     await test.step('fork from 4th message (2nd AI response)', async () => {
-      await chatPage.scrollToTop();
       await chatPage.clickFork(3);
       await chatPage.expectForkTabCount(2);
       await chatPage.expectActiveForkTab('Fork 1');
@@ -425,6 +421,49 @@ test.describe('Fork History Preservation', () => {
     });
   });
 
+  /**
+   * E4 (image fork): forking a conversation that contains a generated image
+   * must preserve the image content item in the forked branch. This covers
+   * the case where the parent chain replay must re-attach the storage_key /
+   * mime_type / size_bytes columns rather than just message text.
+   */
+  test('fork from a generated image preserves the image in both branches', async ({
+    authenticatedPage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.goto();
+    await chatPage.waitForAppStable();
+
+    await test.step('generate an image then fork from the assistant message', async () => {
+      const imageIcon = authenticatedPage.getByRole('button', { name: /switch to image/i });
+      await expect(imageIcon).toBeVisible();
+      await imageIcon.click();
+      await expect(authenticatedPage.getByRole('button', { name: '1:1' })).toBeVisible();
+
+      const prompt = `Image to fork ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(prompt);
+      await chatPage.waitForConversation();
+      await expect(chatPage.messageList.locator('img').first()).toBeVisible({ timeout: 30_000 });
+      await chatPage.waitForStreamComplete();
+
+      await chatPage.clickFork(1);
+      await chatPage.expectForkTabCount(2);
+      await chatPage.expectActiveForkTab('Fork 1');
+    });
+
+    await test.step('Fork 1 still shows the inherited image', async () => {
+      await expect(chatPage.messageList.locator('img').first()).toBeVisible({ timeout: 15_000 });
+    });
+
+    await test.step('Main also still shows the original image', async () => {
+      await unsettledExpect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
+      await chatPage.clickForkTab('Main');
+      await chatPage.expectActiveForkTab('Main');
+      await expect(chatPage.messageList.locator('img').first()).toBeVisible({ timeout: 15_000 });
+    });
+  });
+
   test('fork from multi-model response preserves sibling AI messages', async ({
     authenticatedPage,
   }) => {
@@ -445,7 +484,6 @@ test.describe('Fork History Preservation', () => {
     const totalMessages = await chatPage.getMessageCountViaAPI();
     expect(totalMessages).toBe(3); // 1 user + 2 AI
 
-    // Capture the first AI message's model nametag before forking
     const firstAiNametag = await chatPage.getMessage(1).getByTestId('model-nametag').textContent();
 
     await test.step('fork from first AI message', async () => {

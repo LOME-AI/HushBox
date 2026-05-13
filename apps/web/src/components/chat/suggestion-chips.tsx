@@ -1,8 +1,8 @@
 import * as React from 'react';
+import { Dices } from 'lucide-react';
 import { cn } from '@hushbox/ui';
 import { Button } from '@hushbox/ui';
 import { getSecureRandomIndex } from '@hushbox/shared';
-import { Dices } from 'lucide-react';
 import { promptSuggestions } from '@/lib/prompt-suggestions';
 
 interface SuggestionChipsProps {

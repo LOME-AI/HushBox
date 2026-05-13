@@ -1,7 +1,7 @@
 import { type Page, type Locator } from '@playwright/test';
+import { isMobileWidth } from '@hushbox/shared';
 import { expect } from '../helpers/settled-expect.js';
 import { expectCorrectOverlayVariant } from '../helpers/overlay.js';
-import { isMobileWidth } from '@hushbox/shared';
 
 export class SidebarPage {
   readonly page: Page;

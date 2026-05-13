@@ -31,6 +31,7 @@ import {
   generateKeyPair,
   openMessageEnvelope,
   decryptTextWithContentKey,
+  type WrappedContentKey,
 } from '@hushbox/crypto';
 import { saveChatTurn, saveUserOnlyMessage } from './message-persistence.js';
 
@@ -55,7 +56,7 @@ function decryptMessageText(
   wrappedContentKey: Uint8Array,
   encryptedBlob: Uint8Array
 ): string {
-  const contentKey = openMessageEnvelope(epochPrivateKey, wrappedContentKey);
+  const contentKey = openMessageEnvelope(epochPrivateKey, wrappedContentKey as WrappedContentKey);
   return decryptTextWithContentKey(contentKey, encryptedBlob);
 }
 
@@ -187,11 +188,9 @@ describe('saveChatTurn', () => {
     expect(aiMsg.wrappedContentKey).toBeInstanceOf(Uint8Array);
     expect(aiMsg.epochNumber).toBe(1);
 
-    // Cost and modelName now live on content_items
     const aiCi = await getTextContentItem(db, assistantMessageId);
     expect(aiCi.cost).toBe('0.00136000');
 
-    // User content item should not have cost
     const userCi = await getTextContentItem(db, userMessageId);
     expect(userCi.cost).toBeNull();
 
@@ -1548,11 +1547,9 @@ describe('saveUserOnlyMessage', () => {
     expect(msg.epochNumber).toBe(1);
     expect(msg.wrappedContentKey).toBeInstanceOf(Uint8Array);
 
-    // Cost now lives on content_items; user messages have null cost
     const ci = await getTextContentItem(db, messageId);
     expect(ci.cost).toBeNull();
 
-    // Can decrypt via wrap-once envelope
     const decrypted = decryptMessageText(
       setup.epochPrivateKey,
       msg.wrappedContentKey,

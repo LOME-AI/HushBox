@@ -29,13 +29,12 @@ export interface ErrorEventData {
 export interface ModelDoneEventData {
   modelId: string;
   assistantMessageId: string;
-  cost: string;
 }
 
 export interface ModelErrorEventData {
   modelId: string;
   message: string;
-  code?: string;
+  code: string;
 }
 
 export interface TokenEventData {
@@ -44,11 +43,40 @@ export interface TokenEventData {
 }
 
 /**
+ * `model:media:start` payload — surfaced from the AI client's media-start
+ * event so the UI can swap the generic "Loading…" placeholder for a more
+ * descriptive "Generating image…" indicator.
+ *
+ * `assistantMessageId` lets the frontend correlate the event with the
+ * specific row it just rendered (one row per model in the slot). Without it,
+ * the UI would have to guess which slot is starting when multiple models
+ * stream concurrently.
+ */
+export interface ModelMediaStartEventData {
+  modelId: string;
+  assistantMessageId: string;
+  mediaType: 'image' | 'audio' | 'video';
+  mimeType: string;
+}
+
+/**
+ * `model:media:progress` payload — synthetic progress for long-running media
+ * generation calls (today: video). Emitted at fixed percent steps based on
+ * an EXPECTED-duration estimate; the real generation time is unknown until
+ * `model:done`. See {@link createSSEEventWriter.writeModelMediaProgress}.
+ */
+export interface ModelMediaProgressEventData {
+  modelId: string;
+  assistantMessageId: string;
+  /** Integer in [0, 100]. Server emits up to 95% pre-completion. */
+  percent: number;
+}
+
+/**
  * A single content item delivered in the SSE done event.
  * Mirrors the write-path shape of a row inserted into `content_items` under
  * the wrap-once envelope model. Text items carry `encryptedBlob` (base64);
- * media items carry only metadata (Step 1 text-only, but the shape is ready
- * for image/audio/video in later steps).
+ * media items carry only metadata (the bytes live in R2 under `storageKey`).
  */
 export interface DoneContentItem {
   id: string;
@@ -56,8 +84,12 @@ export interface DoneContentItem {
   position: number;
   /** Base64-encoded symmetric ciphertext under the message's content key. Text items only. */
   encryptedBlob?: string | null;
-  /** Presigned GET URL for media items. Populated by the strategy after R2 upload. */
-  downloadUrl?: string | null;
+  /**
+   * Presigned GET URL for media items. Populated by the strategy after R2 upload.
+   * Omitted (not nulled) when not applicable — keep this consistent with
+   * `InsertedMediaContentItem.downloadUrl` so the persistence and wire shapes match.
+   */
+  downloadUrl?: string;
   mimeType?: string | null;
   sizeBytes?: number | null;
   width?: number | null;
@@ -110,8 +142,9 @@ export interface StageDoneEventData {
 
 export interface SSEEventWriter {
   writeStart: (data: StartEventData) => Promise<void>;
-  writeToken: (content: string) => Promise<void>;
   writeModelToken: (data: TokenEventData) => Promise<void>;
+  writeModelMediaStart: (data: ModelMediaStartEventData) => Promise<void>;
+  writeModelMediaProgress: (data: ModelMediaProgressEventData) => Promise<void>;
   writeError: (data: ErrorEventData) => Promise<void>;
   writeModelDone: (data: ModelDoneEventData) => Promise<void>;
   writeModelError: (data: ModelErrorEventData) => Promise<void>;
@@ -157,12 +190,16 @@ export function createSSEEventWriter(stream: SSEStream): SSEEventWriter {
       await writeIfConnected('start', data);
     },
 
-    writeToken: async (content: string) => {
-      await writeIfConnected('token', { content });
-    },
-
     writeModelToken: async (data: TokenEventData) => {
       await writeIfConnected('token', data);
+    },
+
+    writeModelMediaStart: async (data: ModelMediaStartEventData) => {
+      await writeIfConnected('model:media:start', data);
+    },
+
+    writeModelMediaProgress: async (data: ModelMediaProgressEventData) => {
+      await writeIfConnected('model:media:progress', data);
     },
 
     writeError: async (data: ErrorEventData) => {

@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { ModalActions } from '@hushbox/ui';
 import { CheckCircle2 } from 'lucide-react';
+import { ModalActions } from '@hushbox/ui';
 
 interface ModalSuccessStepProps {
   heading: string;

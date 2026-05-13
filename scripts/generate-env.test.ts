@@ -11,14 +11,12 @@ const TEST_DIR_EDGE = path.resolve(__dirname, '__test-fixtures-edge__');
 
 describe('generateEnvFiles', () => {
   beforeEach(() => {
-    // Create test directory structure
     mkdirSync(TEST_DIR_ENV, { recursive: true });
     mkdirSync(path.join(TEST_DIR_ENV, 'apps/api'), { recursive: true });
 
     // Simulate main repo (.git as directory) for worktree detection
     mkdirSync(path.join(TEST_DIR_ENV, '.git'), { recursive: true });
 
-    // Create minimal wrangler.toml
     writeFileSync(
       path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'),
       `# Wrangler configuration
@@ -30,12 +28,10 @@ local_protocol = "http"
 `
     );
 
-    // Suppress console output during tests
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    // Clean up test directory
     rmSync(TEST_DIR_ENV, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
@@ -251,7 +247,6 @@ local_protocol = "http"
 
   describe('e2e mode', () => {
     beforeEach(() => {
-      // Set up mock CI secrets in process.env
       process.env['RESEND_API_KEY'] = 'test-resend-key';
       process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test-helcim-token';
       process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test-helcim-verifier';
@@ -598,6 +593,88 @@ old content
     });
   });
 
+  describe('ops-env section', () => {
+    it('generates env block using canonical worker keys (not GitHub secret names)', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // Worker key (canonical) on LHS, GitHub secret name on RHS — for aliased secrets.
+      expect(content).toContain('AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY_PRODUCTION }}');
+      expect(content).toContain('HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}');
+      // Same name on both sides — for non-aliased secrets.
+      expect(content).toContain('DATABASE_URL: ${{ secrets.DATABASE_URL }}');
+      expect(content).toContain('R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}');
+      expect(content).toContain('R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}');
+      expect(content).toContain('R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}');
+    });
+
+    it('emits non-secret production literals (e.g. R2_BUCKET_MEDIA) so runner scripts have them too', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // R2_BUCKET_MEDIA is a literal string in production mode (not a secret).
+      // It lives in wrangler.toml [vars] for the Worker AND here in the env
+      // block so ops scripts running on the GitHub runner see it via process.env.
+      expect(content).toContain('R2_BUCKET_MEDIA: hushbox-media');
+      // It must NOT use a secrets reference (no GitHub secret of this name exists).
+      expect(content).not.toContain('R2_BUCKET_MEDIA: ${{');
+    });
+
+    it('does not emit frontend-only secrets (e.g. VITE_HELCIM_JS_TOKEN)', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).not.toContain('VITE_HELCIM_JS_TOKEN');
+    });
+
+    it('overrides APP_VERSION to use the version job output (not the empty GitHub secret)', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // APP_VERSION is computed by the version job at workflow time, not stored
+      // as a GitHub secret. The deploy job's env block uses the same override
+      // already applied in deploy-secrets so ops scripts see a real value.
+      expect(content).toContain('APP_VERSION: ${{ needs.version.outputs.version }}');
+      expect(content).not.toContain('APP_VERSION: ${{ secrets.APP_VERSION }}');
+    });
+
+    it('preserves content outside markers', () => {
+      createCiYml(`name: CI
+before
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env
+after`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).toContain('name: CI');
+      expect(content).toContain('before');
+      expect(content).toContain('after');
+    });
+  });
+
   describe('multiple sections', () => {
     it('updates all sections in a single call', () => {
       createCiYml(`name: CI
@@ -649,7 +726,6 @@ describe('updateWorkflows edge cases', () => {
   it('handles file with no markers gracefully', () => {
     writeFileSync(path.join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'name: CI\njobs: {}');
 
-    // Should not throw
     updateWorkflows(TEST_DIR_EDGE);
 
     const content = readFileSync(path.join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'utf8');
@@ -659,9 +735,7 @@ describe('updateWorkflows edge cases', () => {
   it('does nothing if ci.yml does not exist', () => {
     rmSync(path.join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true, force: true });
     mkdirSync(path.join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true });
-    // ci.yml doesn't exist
 
-    // Should not throw
     expect(() => {
       updateWorkflows(TEST_DIR_EDGE);
     }).not.toThrow();
@@ -833,7 +907,6 @@ local_protocol = "http"
       generateEnvFiles(TEST_DIR_WT);
 
       const content = readFileSync(path.join(TEST_DIR_WT, 'apps/api/.dev.vars'), 'utf8');
-      // Should NOT contain base ports
       expect(content).not.toContain('localhost:8787');
       expect(content).not.toContain('localhost:5173');
       expect(content).not.toContain('localhost:4444');
@@ -865,7 +938,6 @@ local_protocol = "http"
     });
 
     it('does not offset ports in CI modes', () => {
-      // Set up required CI secrets
       process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test';
       process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test';
       process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test';

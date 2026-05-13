@@ -43,9 +43,6 @@ export interface CardValidationState {
   zipCode: FieldValidationState;
 }
 
-/**
- * Validates deposit amount.
- */
 export function validateAmount(value: string): AmountValidation {
   if (!value) {
     return { isValid: false, error: 'Please enter an amount' };
@@ -56,7 +53,6 @@ export function validateAmount(value: string): AmountValidation {
     return { isValid: false, error: 'Please enter a valid amount' };
   }
 
-  // Check for more than 2 decimal places
   const decimalIndex = value.indexOf('.');
   if (decimalIndex !== -1 && value.length - decimalIndex - 1 > 2) {
     return { isValid: false, error: 'Amount cannot have more than 2 decimal places' };
@@ -73,9 +69,6 @@ export function validateAmount(value: string): AmountValidation {
   return { isValid: true, success: 'Valid amount' };
 }
 
-/**
- * Validates cardholder name.
- */
 export function validateCardHolderName(name: string): string | null {
   if (!name || name.trim().length === 0) return 'Name is required';
   if (name.trim().length < MIN_NAME_LENGTH) return 'Name is too short';
@@ -83,9 +76,6 @@ export function validateCardHolderName(name: string): string | null {
   return null;
 }
 
-/**
- * Validates billing address.
- */
 export function validateBillingAddress(address: string): string | null {
   if (!address || address.trim().length === 0) return 'Address is required';
   if (address.trim().length < MIN_ADDRESS_LENGTH) return 'Address is too short';
@@ -137,9 +127,6 @@ export function getCardValidationState(
   };
 }
 
-/**
- * Validates all card fields and returns whether all are valid.
- */
 export function validateAllCardFields(fields: CardFields): boolean {
   const errors = {
     cardNumber: validateCardNumber(fields.cardNumber),

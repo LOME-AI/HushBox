@@ -1,6 +1,20 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import {
+  Plus,
+  Link as LinkIcon,
+  Lock,
+  MoreVertical,
+  LogOut,
+  Pencil,
+  Search,
+  UserMinus,
+  Users,
+  Shield,
+  DollarSign,
+  Trash2,
+} from 'lucide-react';
+import {
   IconButton,
   Input,
   Separator,
@@ -20,26 +34,12 @@ import {
   normalizeUsername,
   displayUsername,
 } from '@hushbox/shared';
-import {
-  Plus,
-  Link as LinkIcon,
-  Lock,
-  MoreVertical,
-  LogOut,
-  Pencil,
-  Search,
-  UserMinus,
-  Users,
-  Shield,
-  DollarSign,
-  Trash2,
-} from 'lucide-react';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useConversationBudgets } from '@/hooks/use-conversation-budgets';
 import { SidebarActionButton } from '@/components/shared/sidebar-action-button';
 import { SidebarFooterBase } from '@/components/shared/sidebar-footer-base';
-import { LeaveConfirmationModal } from './leave-confirmation-modal';
 import { ConfirmationModal } from '@/components/shared/confirmation-modal';
+import { LeaveConfirmationModal } from './leave-confirmation-modal';
 
 interface MemberEntry {
   id: string;
@@ -447,7 +447,6 @@ function MemberSidebarBody({
       data-testid="member-sidebar-content"
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      {/* Action buttons */}
       {isAdmin && (
         <div className="mb-3 flex flex-col gap-2">
           <AdminActionButtons
@@ -458,7 +457,6 @@ function MemberSidebarBody({
         </div>
       )}
 
-      {/* Search */}
       <div className="mb-3">
         <Input
           icon={<Search className="h-4 w-4" />}
@@ -473,7 +471,6 @@ function MemberSidebarBody({
 
       <Separator className="bg-sidebar-border mb-3" />
 
-      {/* Scrollable member/link list grouped by privilege */}
       <div className="scrollbar-hide min-h-0 flex-1 overflow-y-auto">
         {PRIVILEGE_ORDER.map((privilege) => {
           const memberGroup = membersByPrivilege[privilege];

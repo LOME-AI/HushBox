@@ -107,7 +107,6 @@ export function useDecryptedConversations(): {
   const accountPrivateKey = useAuthStore((s) => s.privateKey);
   const cacheVersion = useSyncExternalStore(epochCacheSubscribe, epochCacheSnapshot);
 
-  // Determine which conversations need key chain fetching
   const conversationsNeedingKeys = useMemo(() => {
     if (!data) return [];
     return data.filter((conv) => !getEpochKey(conv.id, conv.titleEpochNumber));
@@ -119,7 +118,6 @@ export function useDecryptedConversations(): {
     [conversationsNeedingKeys]
   );
 
-  // Fetch key chains for all conversations needing keys in a single batch request
   const batchResult = useQuery({
     queryKey: ['keys', 'batch', batchIds] as const,
     queryFn: async (): Promise<Record<string, KeyChainResponse>> => {
@@ -132,7 +130,6 @@ export function useDecryptedConversations(): {
     enabled: batchIds.length > 0 && !!accountPrivateKey,
   });
 
-  // Process fetched key chains into epoch key cache
   useEffect(() => {
     if (!accountPrivateKey || !batchResult.data) return;
     for (const [convId, keyChain] of Object.entries(batchResult.data)) {
@@ -140,7 +137,6 @@ export function useDecryptedConversations(): {
     }
   }, [batchResult.data, accountPrivateKey]);
 
-  // Decrypt titles using cached epoch keys
   const decryptedData = useMemo(() => {
     if (!data) return;
     return data.map((conv): ConversationListItem => {

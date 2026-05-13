@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ROUTES } from '@hushbox/shared';
-import { SidebarFooter } from './sidebar-footer';
 import { useUIStore } from '@/stores/ui';
+import { SidebarFooter } from './sidebar-footer';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
 const {
@@ -230,9 +230,7 @@ describe('SidebarFooter', () => {
       render(<SidebarFooter />);
 
       const trigger = screen.getByTestId('sidebar-trigger');
-      // ChevronUp is rendered as an svg inside the trigger
       const svgs = trigger.querySelectorAll('svg');
-      // Should have at least 2 svgs: User icon + ChevronUp
       expect(svgs.length).toBeGreaterThanOrEqual(2);
     });
   });

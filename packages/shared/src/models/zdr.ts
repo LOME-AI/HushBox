@@ -1,3 +1,4 @@
+import { assertNever } from '../utils/assert-never.js';
 import type { Modality } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,9 @@ export function isZdrModel(modelId: string, modality: Modality): boolean {
     }
     case 'audio': {
       return ZDR_AUDIO_MODELS.has(modelId);
+    }
+    default: {
+      return assertNever(modality);
     }
   }
 }

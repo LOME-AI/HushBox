@@ -102,7 +102,6 @@ test.describe('Login & Session', () => {
 
       await test.step('after logout, /chat loads as trial user', async () => {
         await page.goto('/chat', { waitUntil: 'domcontentloaded' });
-        // Trial user sees the chat page with prompt input visible
         await expect(page.getByRole('textbox', { name: /ask me anything/i })).toBeVisible({
           timeout: 15_000,
         });

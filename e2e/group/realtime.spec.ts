@@ -1,6 +1,6 @@
-import type { Page } from '@playwright/test';
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages';
+import type { Page } from '@playwright/test';
 
 async function setupRealtimePair(
   alicePage: Page,
@@ -44,12 +44,10 @@ test.describe('Real-time WebSocket events', () => {
     await aiToggle.click();
     await expect(aiToggle).toHaveAccessibleName(/AI response off/);
 
-    // Alice sends a timestamped message
     const timestamp = String(Date.now());
     const testMessage = `Realtime test ${timestamp}`;
     await aliceChatPage.sendFollowUpMessage(testMessage);
 
-    // Alice sees her own message
     await aliceChatPage.expectMessageVisible(testMessage);
 
     // Bob sees Alice's message appear WITHOUT refresh (via WebSocket)
@@ -70,7 +68,6 @@ test.describe('Real-time WebSocket events', () => {
       groupConversation.id
     );
 
-    // Alice sends a message with AI on (default)
     const timestamp = String(Date.now());
     const testMessage = `AI test ${timestamp}`;
     await aliceChatPage.sendFollowUpMessage(testMessage);
@@ -87,7 +84,6 @@ test.describe('Real-time WebSocket events', () => {
       timeout: 15_000,
     });
 
-    // Alice waits for AI Echo response to complete
     await aliceChatPage.waitForAIResponse(testMessage);
 
     // Bob sees complete AI "Echo:" response (phantoms replaced by real messages via message:complete)
@@ -115,10 +111,8 @@ test.describe('Real-time WebSocket events', () => {
     await aliceChatPage.waitForWebSocketConnected();
     await bobChatPage.waitForWebSocketConnected();
 
-    // Alice starts typing (fill but don't submit)
     await aliceChatPage.messageInput.fill('typing test');
 
-    // Bob sees typing indicator appear
     await unsettledExpect(bobChatPage.getTypingIndicator()).toBeVisible({ timeout: 10_000 });
 
     // Alice toggles AI off and submits (faster, no streaming)
@@ -126,7 +120,6 @@ test.describe('Real-time WebSocket events', () => {
     await aiToggle.click();
     await aliceChatPage.messageInput.press('Enter');
 
-    // Bob's typing indicator disappears
     await unsettledExpect(bobChatPage.getTypingIndicator()).not.toBeVisible({ timeout: 10_000 });
   });
 });

@@ -10,10 +10,13 @@ vi.mock('@ai-sdk/gateway', () => ({
 }));
 
 import { Hono } from 'hono';
-import type { ModelsListResponse } from '@hushbox/shared';
-import { modelsRoute } from './models.js';
-import type { AppEnv } from '../types.js';
 import { clearModelCache } from '@hushbox/shared/models';
+import { modelsRoute } from './models.js';
+import { aiClientMiddleware, envMiddleware } from '../middleware/index.js';
+import { createMockAIClient } from '../services/ai/mock.js';
+import type { AIClient, RawModel } from '../services/ai/types.js';
+import type { ModelsListResponse } from '@hushbox/shared';
+import type { AppEnv } from '../types.js';
 
 interface MockGatewayModel {
   id: string;
@@ -48,12 +51,18 @@ function setMockModels(models: MockGatewayModel[]): void {
 function createTestApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use('*', async (c, next) => {
+    // Production-mode env so getAIClient constructs the real client, which
+    // consumes the mocked @ai-sdk/gateway above. Local dev / E2E modes would
+    // return the in-memory mock and ignore __TEST_MOCK_MODELS__.
     c.env = {
+      NODE_ENV: 'production',
       AI_GATEWAY_API_KEY: 'test-key',
       PUBLIC_MODELS_URL: 'https://test.example/v1/models',
     } as AppEnv['Bindings'];
     await next();
   });
+  app.use('*', envMiddleware());
+  app.use('*', aiClientMiddleware());
   app.route('/models', modelsRoute);
   return app;
 }
@@ -63,10 +72,25 @@ describe('Models Routes', () => {
     clearModelCache();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
+    // The route's `fetchModels` call also hits the unauthenticated public
+    // `/v1/models` endpoint via raw `fetch`. Stub it so the test never
+    // attempts a real DNS lookup against `test.example`, which times out
+    // under coverage instrumentation. Empty `data` is the contract for
+    // "no media pricing" — text-only fixtures don't depend on it.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: [] }),
+        })
+      )
+    );
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     delete (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__;
   });
 
@@ -157,16 +181,54 @@ describe('Models Routes', () => {
       expect(data.models).toEqual([]);
     });
 
-    it('returns 500 when AI_GATEWAY_API_KEY is missing', async () => {
+    it('returns 500 in production when AI_GATEWAY_API_KEY is missing', async () => {
       const app = new Hono<AppEnv>();
       app.use('*', async (c, next) => {
+        c.env = { NODE_ENV: 'production' } as AppEnv['Bindings'];
+        await next();
+      });
+      app.use('*', envMiddleware());
+      app.use('*', aiClientMiddleware());
+      app.route('/models', modelsRoute);
+
+      const response = await app.request('/models');
+      expect(response.status).toBe(500);
+    });
+
+    it('reads the catalog from c.var.aiClient.listRawModels — never touches env keys', async () => {
+      const customRaw: RawModel[] = [
+        {
+          id: 'anthropic/claude-sonnet-4.6',
+          name: 'Sentinel Sonnet',
+          description: 'Custom catalog injected via aiClient',
+          modality: 'text',
+          context_length: 200_000,
+          pricing: { prompt: '0.000003', completion: '0.000015' },
+          supported_parameters: [],
+          created: 0,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+      ];
+      const stubClient: AIClient = {
+        ...createMockAIClient(),
+        listRawModels: () => Promise.resolve(customRaw),
+      };
+
+      const app = new Hono<AppEnv>();
+      app.use('*', async (c, next) => {
+        // Intentionally NO AI_GATEWAY_API_KEY — proves the route never reads it.
         c.env = {} as AppEnv['Bindings'];
+        c.set('aiClient', stubClient);
         await next();
       });
       app.route('/models', modelsRoute);
 
       const response = await app.request('/models');
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(200);
+      const data: ModelsListResponse = await response.json();
+      expect(data.models.find((m) => m.id === 'anthropic/claude-sonnet-4.6')?.name).toBe(
+        'Sentinel Sonnet'
+      );
     });
   });
 });

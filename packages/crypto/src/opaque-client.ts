@@ -12,7 +12,6 @@ export function createOpaqueClient(): OpaqueClient {
   return new OpaqueClient(OpaqueClientConfig);
 }
 
-// Registration
 export interface RegistrationRequest {
   serialized: number[];
 }
@@ -51,7 +50,6 @@ export async function finishRegistration(
   };
 }
 
-// Login
 export interface LoginRequest {
   ke1: number[];
 }
@@ -90,8 +88,6 @@ export async function finishLogin(
 }
 
 // Re-export value (needed for .deserialize() in seed scripts)
-
-// Re-export types for convenience
 
 export {
   RegistrationRequest as OpaqueRegistrationRequest,

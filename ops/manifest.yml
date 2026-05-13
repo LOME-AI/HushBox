@@ -1,0 +1,25 @@
+# Operations script manifest. Single source of truth for:
+#   - which scripts can be triggered via PR labels (allowlist)
+#   - which phase each runs in (pre-deploy / post-deploy)
+#   - which production secrets each requires (fail-fast validation)
+#
+# Editing this file requires CODEOWNERS approval (.github/CODEOWNERS).
+# After merge, .github/workflows/sync-ops-labels.yml creates the matching
+# `run-script:<name>` labels in the repo.
+#
+# See ops/README.md for the contributor contract (idempotency, dependency
+# injection at network boundaries, etc.).
+
+scripts:
+  - name: configure-r2-cors
+    file: ops/r2/configure-cors.ts
+    phase: pre-deploy
+    description: |
+      Apply CORS rules to the production R2 media bucket. Replaces the rule
+      set wholesale (idempotent). Re-run whenever PRODUCTION_ALLOWED_ORIGINS
+      changes.
+    requires_secrets:
+      - R2_S3_ENDPOINT
+      - R2_ACCESS_KEY_ID
+      - R2_SECRET_ACCESS_KEY
+      - R2_BUCKET_MEDIA

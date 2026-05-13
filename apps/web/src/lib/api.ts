@@ -1,4 +1,4 @@
-import { frontendEnvSchema } from '@hushbox/shared';
+import { frontendEnvSchema, type ContentItemResponse } from '@hushbox/shared';
 
 const env = frontendEnvSchema.parse({
   VITE_API_URL: import.meta.env['VITE_API_URL'] as unknown,
@@ -68,18 +68,51 @@ export interface Message {
    * and decrypts on mount using the message's wrappedContentKey.
    */
   mediaItems?: MessageMediaItem[];
+  /**
+   * Live "media generation in flight" hint sourced from `model:media:start`.
+   * Drives the placeholder swap from generic "Loading…" to a media-specific
+   * label ("Generating image…" / "Generating video…" / "Generating audio…").
+   * The first emit carries a placeholder mimeType (e.g. `application/octet-stream`);
+   * the second emit carries the real mime so the UI can prepare the right
+   * `<img>`/`<video>`/`<audio>` element type once decoded.
+   */
+  mediaInFlight?: {
+    mediaType: 'image' | 'audio' | 'video';
+    mimeType: string;
+  };
+  /**
+   * 0-100 progress for long-running media generations (today: video). Sourced
+   * from `model:media:progress`; `model:done` is the authoritative 100%.
+   */
+  mediaProgress?: { percent: number };
 }
 
-export interface MessageMediaItem {
-  id: string;
+/**
+ * Display-shape for media content items attached to a message.
+ *
+ * Derived from the shared `contentItemResponseSchema` so the wire/display
+ * shapes never drift. We narrow `contentType` to non-text media, mark the
+ * media-only fields as required (the shared schema makes them nullable for
+ * text items, but the UI never receives those here), and add `downloadUrl`
+ * which is forwarded from the SSE `done` event for just-generated media.
+ */
+export type MessageMediaItem = Pick<ContentItemResponse, 'id' | 'position'> & {
   contentType: 'image' | 'audio' | 'video';
-  position: number;
   mimeType: string;
   sizeBytes: number;
   width?: number | null;
   height?: number | null;
   durationMs?: number | null;
-}
+  /**
+   * Pre-fetched presigned GET URL forwarded from the SSE `done` event for
+   * media items generated in the current session. Lets the consumer skip
+   * `useMediaDownloadUrl()` for the common case (just-generated media), saving
+   * a network round-trip immediately after the assistant message lands.
+   * Re-fetched messages from the API don't carry this — the URL is only valid
+   * for `MEDIA_DOWNLOAD_URL_TTL_SECONDS`.
+   */
+  downloadUrl?: string;
+};
 
 export {
   type ConversationResponse as Conversation,

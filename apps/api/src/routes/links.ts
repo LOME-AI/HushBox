@@ -14,11 +14,11 @@ import {
 } from '@hushbox/shared';
 import { createEvent } from '@hushbox/realtime/events';
 import { toRotationParams, handleRotationError } from '../services/keys/keys.js';
-import type { AppEnv } from '../types.js';
 import { requirePrivilege, requireLinkGuest } from '../middleware/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { broadcastFireAndForget } from '../lib/broadcast.js';
 import { listLinks, createLink, revokeLink, changeLinkPrivilege } from '../services/links/index.js';
+import type { AppEnv } from '../types.js';
 
 export const linksRoute = new Hono<AppEnv>()
   .get(
@@ -69,7 +69,6 @@ export const linksRoute = new Hono<AppEnv>()
       const { conversationId } = c.req.valid('param');
       const body = c.req.valid('json');
 
-      // Look up current epoch and member count
       const currentEpoch = await db
         .select({
           id: epochs.id,
@@ -117,7 +116,6 @@ export const linksRoute = new Hono<AppEnv>()
           }),
         });
 
-        // Broadcast rotation:complete if epoch rotated
         if (body.rotation) {
           broadcastFireAndForget(
             c.env,
@@ -160,7 +158,6 @@ export const linksRoute = new Hono<AppEnv>()
           return c.json(createErrorResponse(ERROR_CODE_LINK_NOT_FOUND), 404);
         }
 
-        // Fire-and-forget broadcast
         if (result.memberId) {
           broadcastFireAndForget(
             c.env,
@@ -172,7 +169,6 @@ export const linksRoute = new Hono<AppEnv>()
           );
         }
 
-        // Broadcast rotation:complete (fire-and-forget)
         broadcastFireAndForget(
           c.env,
           conversationId,
@@ -229,7 +225,6 @@ export const linksRoute = new Hono<AppEnv>()
       const { linkId } = c.req.valid('param');
       const { displayName } = c.req.valid('json');
 
-      // Check link exists and is not revoked
       const link = await db
         .select({ id: sharedLinks.id })
         .from(sharedLinks)
@@ -241,7 +236,6 @@ export const linksRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_LINK_NOT_FOUND), 404);
       }
 
-      // Update display name
       await db.update(sharedLinks).set({ displayName }).where(eq(sharedLinks.id, linkId));
 
       return c.json({ success: true }, 200);

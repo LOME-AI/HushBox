@@ -17,8 +17,11 @@ export class ChatPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.promptInput = page.getByRole('textbox', { name: 'Ask me anything...' });
-    this.messageInput = page.locator('main').getByRole('textbox', { name: /message/i });
+    // Locate the prompt textarea by stable testid — the placeholder/aria-label
+    // changes per modality (e.g. "Describe the image you want..." for image),
+    // so name-based locators silently break after switchToImageMode/Video/Audio.
+    this.promptInput = page.getByTestId('prompt-input');
+    this.messageInput = page.locator('main').getByTestId('prompt-input');
     this.sendButton = page.getByTestId('send-button');
     this.messageList = page.getByRole('log', { name: 'Chat messages' });
     this.newChatPage = page.getByTestId('new-chat-page');
@@ -322,7 +325,100 @@ export class ChatPage {
     await unsettledExpect(costBadge).toBeVisible({ timeout });
   }
 
-  // --- Group chat locators ---
+  /** Switch the prompt input to image generation modality. Click the image icon button. */
+  async switchToImageMode(): Promise<void> {
+    await this.waitForAppStable();
+    const imageIcon = this.page.getByRole('button', { name: /switch to image/i });
+    await expect(imageIcon).toBeVisible();
+    await imageIcon.click();
+    // Confirmation: the aspect ratio toggle pill is rendered (1:1 default).
+    await expect(this.page.getByRole('button', { name: '1:1' })).toBeVisible();
+  }
+
+  /** Switch the prompt input to video generation modality. Click the video icon button. */
+  async switchToVideoMode(): Promise<void> {
+    await this.waitForAppStable();
+    const videoIcon = this.page.getByRole('button', { name: /switch to video/i });
+    await expect(videoIcon).toBeVisible();
+    await videoIcon.click();
+    // Confirmation: video resolution buttons render (720p default for mock Veo 3.1).
+    await expect(this.page.getByRole('button', { name: /720p/i })).toBeVisible();
+  }
+
+  /** Click an aspect-ratio toggle pill ('1:1' | '16:9' | '9:16' | '4:5' etc). */
+  async selectAspectRatio(ratio: string): Promise<void> {
+    const pill = this.page.getByRole('button', { name: ratio });
+    await expect(pill).toBeVisible();
+    await pill.click();
+    await expect(pill).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  /** Click a video resolution toggle pill (label starts with '720p' or '1080p' followed by inline price). */
+  async selectResolution(resolution: '720p' | '1080p'): Promise<void> {
+    const pill = this.page.getByRole('button', {
+      name: new RegExp(String.raw`^${resolution}\s+\$`, 'i'),
+    });
+    await expect(pill).toBeVisible();
+    await pill.click();
+    await expect(pill).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  /** Drag the video duration slider to N seconds (uses keyboard for determinism). */
+  async setVideoDuration(seconds: number): Promise<void> {
+    const slider = this.page.getByRole('slider', { name: /video duration in seconds/i });
+    await expect(slider).toBeVisible();
+    await slider.focus();
+    // Range inputs are controlled by React state; setting `input.value` alone
+    // is overwritten on the next render. Use the native HTMLInputElement value
+    // setter so React's onChange synthetic event picks up the new value.
+    await slider.evaluate((el, value) => {
+      const input = el as HTMLInputElement;
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- descriptor.set is invoked via .call(input)
+      const setter = descriptor?.set;
+      setter?.call(input, String(value));
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, seconds);
+    await expect(slider).toHaveValue(String(seconds));
+  }
+
+  /**
+   * Park the last row in view and wait for an inline `<img>` to render.
+   * The scroll-to-last guards against Virtuoso virtualizing the bottommost
+   * media tile out of the DOM after several prior messages in the same
+   * conversation push it below the rendered window.
+   */
+  async expectImageVisible(timeout = 30_000): Promise<void> {
+    await this.scrollLastMessageIntoView();
+    const imageElement = this.messageList.locator('img').first();
+    await expect(imageElement).toBeVisible({ timeout });
+  }
+
+  /** Wait for an inline `<video>` element to render in the assistant message list. */
+  async expectVideoVisible(timeout = 30_000): Promise<void> {
+    await this.scrollLastMessageIntoView();
+    const videoElement = this.messageList.locator('video').first();
+    await expect(videoElement).toBeVisible({ timeout });
+  }
+
+  private async scrollLastMessageIntoView(): Promise<void> {
+    const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
+    if (Number.isNaN(rowsCount) || rowsCount <= 0) return;
+    await this.scrollMessageIntoView(rowsCount - 1);
+  }
+
+  /** Confirm the "Download media" link is rendered alongside the inline media element. */
+  async expectDownloadLinkVisible(): Promise<void> {
+    const downloadLink = this.messageList.getByRole('link', { name: /download media/i }).first();
+    await expect(downloadLink).toBeVisible();
+  }
+
+  /** Returns the href of the first download media link in the assistant message list. */
+  async getDownloadLinkHref(): Promise<string | null> {
+    const downloadLink = this.messageList.getByRole('link', { name: /download media/i }).first();
+    return downloadLink.getAttribute('href');
+  }
 
   getSenderLabels(): Locator {
     return this.messageList.locator('[data-testid="sender-label"]');
@@ -422,11 +518,16 @@ export class ChatPage {
     return data.messages.length;
   }
 
-  // --- Message action buttons ---
-
-  /** Get the nth message item (0-indexed). */
+  /**
+   * Get the message-item at Virtuoso row index N (0-indexed). Addresses by
+   * `data-item-index` (Virtuoso's per-row attribute) rather than by DOM
+   * position, so callers don't get the wrong message when some rows are
+   * virtualized out of the DOM.
+   */
   getMessage(index: number): Locator {
-    return this.messageList.locator('[data-testid="message-item"]').nth(index);
+    return this.messageList.locator(
+      `[data-item-index="${String(index)}"] [data-testid="message-item"]`
+    );
   }
 
   /** Get the last message item. */
@@ -439,13 +540,53 @@ export class ChatPage {
     return this.messageList.locator('[data-testid="message-item"]').count();
   }
 
-  /** Hover over the nth message to reveal action buttons (opacity-0 until hover). */
+  /**
+   * Deterministically park a virtualized row in view. Uses Virtuoso's native
+   * `scrollIntoView({ index, done })` via the dev/E2E-gated window backdoor in
+   * `MessageList`. Resolves when the target row is measured and mounted —
+   * `getMessage(index)` is guaranteed to resolve afterwards. Avoids the
+   * iPhone-15 virtualization failure mode where `scrollTop = 0` alone leaves
+   * the target unmounted because a tall media tile dominates the viewport.
+   *
+   * `index` is a Virtuoso row index, NOT a message index. In group chats
+   * consecutive same-sender messages are collapsed into a single row, so
+   * `rowsCount < messageCount`. Use `data-rows-count` (exposed by the
+   * MessageList component) to bound the index.
+   */
+  async scrollMessageIntoView(index: number): Promise<void> {
+    const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
+    if (Number.isNaN(rowsCount) || index < 0 || index >= rowsCount) {
+      throw new Error(
+        `scrollMessageIntoView: index ${String(index)} out of range [0, ${String(rowsCount)})`
+      );
+    }
+    await this.page.evaluate(async (index_) => {
+      const function_ = (
+        globalThis as unknown as { __virtuosoScrollToIndex?: (n: number) => Promise<void> }
+      ).__virtuosoScrollToIndex;
+      if (typeof function_ !== 'function') {
+        throw new TypeError(
+          '__virtuosoScrollToIndex not exposed — check env.isLocalDev or env.isE2E is true'
+        );
+      }
+      await function_(index_);
+    }, index);
+    await expect(this.getMessage(index)).toBeAttached({ timeout: 5000 });
+  }
+
+  /**
+   * Hover the nth message to reveal action buttons. Scrolls the target into
+   * Virtuoso's mounted window first. On touch devices the click target is the
+   * `message-cost` row when present — clicking the media tile would open the
+   * lightbox dialog instead of revealing the action menu.
+   */
   async hoverMessage(index: number): Promise<void> {
-    const target = this.getMessage(index);
+    await this.scrollMessageIntoView(index);
+    const item = this.getMessage(index);
     if (await isTouchDevice(this.page)) {
-      await target.click();
+      await touchActivateMessage(item);
     } else {
-      await target.hover();
+      await item.hover();
     }
   }
 
@@ -453,7 +594,7 @@ export class ChatPage {
   async hoverLastMessage(): Promise<void> {
     const target = this.getLastMessage();
     if (await isTouchDevice(this.page)) {
-      await target.click();
+      await touchActivateMessage(target);
     } else {
       await target.hover();
     }
@@ -510,8 +651,6 @@ export class ChatPage {
     await this.getLastMessageActionButton('Fork').click();
   }
 
-  // --- Fork tabs ---
-
   getForkTabList(): Locator {
     return this.page.getByRole('tablist', { name: 'Conversation forks' });
   }
@@ -545,8 +684,6 @@ export class ChatPage {
     await this.page.getByRole('menuitem', { name: action }).click();
   }
 
-  // --- Edit mode ---
-
   async expectEditModeActive(): Promise<void> {
     await expect(this.page.getByText('Editing message')).toBeVisible();
   }
@@ -558,8 +695,6 @@ export class ChatPage {
   async cancelEdit(): Promise<void> {
     await this.page.getByRole('button', { name: 'Cancel' }).click();
   }
-
-  // --- Fork URL helpers ---
 
   getForkIdFromUrl(): string | null {
     const url = new URL(this.page.url());
@@ -582,8 +717,6 @@ export class ChatPage {
     await this.page.getByTestId('confirm-delete-button').click();
     await expect(this.page.getByText('Delete conversation?')).not.toBeVisible();
   }
-
-  // --- Multi-model selection ---
 
   /** Open the model selector modal by clicking the header button. */
   async openModelSelector(): Promise<void> {
@@ -618,9 +751,8 @@ export class ChatPage {
     await this.openModelSelector();
     const modal = this.page.getByTestId('model-selector-modal');
 
-    // Find all non-premium model items (no lock icon)
     const nonPremiumItems = modal.locator(
-      '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
+      '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
     );
 
     // Clear all selections using the UI button (bypasses the min-1 checkbox guard)
@@ -630,7 +762,6 @@ export class ChatPage {
       await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
     }
 
-    // Select exactly `count` non-premium models
     const available = await nonPremiumItems.count();
     const toSelect = Math.min(count, available);
     for (let index = 0; index < toSelect; index++) {
@@ -656,7 +787,7 @@ export class ChatPage {
     await this.openModelSelector();
     const modal = this.page.getByTestId('model-selector-modal');
     const nonPremiumItems = modal.locator(
-      '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
+      '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
     );
 
     const clearButton = modal.getByTestId('clear-selection-button');
@@ -667,7 +798,6 @@ export class ChatPage {
 
     const available = await nonPremiumItems.count();
 
-    // Select first model (success target)
     const firstItem = nonPremiumItems.nth(0);
     await firstItem.getByTestId('model-checkbox').click();
     await expect(firstItem).toHaveAttribute('data-selected', 'true');
@@ -690,8 +820,6 @@ export class ChatPage {
     const modal = this.page.getByTestId('model-selector-modal');
     return modal.locator('[data-testid^="model-item-"][data-selected="true"]').count();
   }
-
-  // --- Comparison bar ---
 
   /** Assert the comparison bar (multi-model pill bar) is visible. */
   async expectComparisonBarVisible(): Promise<void> {
@@ -716,8 +844,6 @@ export class ChatPage {
       .getByRole('button', { name: `Remove ${modelName}` })
       .click();
   }
-
-  // --- Model nametag ---
 
   /** Assert the nametag text on the nth message item (0-indexed). */
   async expectModelNametag(messageIndex: number, expectedName: string): Promise<void> {
@@ -747,8 +873,6 @@ export class ChatPage {
       throw new Error('expectAllAIMessagesHaveNametag: no assistant messages rendered');
     }
   }
-
-  // --- Multi-model streaming ---
 
   /**
    * Wait for N AI response messages to appear after sending.
@@ -792,4 +916,20 @@ export class ChatPage {
     }
     return id;
   }
+}
+
+/**
+ * Activate the touch-equivalent of hover on a message-item. The action menu
+ * uses `group-hover:opacity-100`, so we need the browser to set `:hover` on
+ * the inner `.group` wrapper. Clicking the outer row container doesn't work
+ * for right-aligned user messages (the click lands in empty margin outside
+ * `.group`) and clicking the row center for media AI messages opens the
+ * lightbox (the `<img>`/`<video>` is wrapped in a button). Targeting the
+ * direct child div — Virtuoso's row container's only child — lands inside
+ * `.group` for both alignments and skips the media tile via top-left
+ * positioning.
+ */
+async function touchActivateMessage(item: Locator): Promise<void> {
+  const groupWrapper = item.locator(':scope > div').first();
+  await groupWrapper.click({ position: { x: 5, y: 5 } });
 }

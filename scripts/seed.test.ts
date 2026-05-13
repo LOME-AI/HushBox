@@ -563,7 +563,6 @@ describe('seed script', () => {
 
       const charlieProjects = data.projects.filter((p) => p.userId === charlieId);
       expect(charlieProjects).toHaveLength(0);
-      // Charlie has a conversation but no projects/payments
     });
 
     it('charlie has exactly 1 conversation with 4 messages', async () => {
@@ -578,7 +577,6 @@ describe('seed script', () => {
       );
       expect(charlieMessages).toHaveLength(4);
 
-      // Verify alternating sender types
       expect(charlieMessages[0]?.senderType).toBe('user');
       expect(charlieMessages[1]?.senderType).toBe('ai');
       expect(charlieMessages[2]?.senderType).toBe('user');
@@ -675,7 +673,6 @@ describe('seed script', () => {
 
     it('each persona has 2 wallets (purchased + free_tier)', async () => {
       const data = await generatePersonaData();
-      // 3 personas * 2 wallets each = 6
       expect(data.wallets).toHaveLength(6);
 
       const aliceId = seedUUID('dev-user-alice');
@@ -695,7 +692,6 @@ describe('seed script', () => {
       const aliceId = seedUUID('dev-user-alice');
       const aliceConversations = data.conversations.filter((c) => c.userId === aliceId);
 
-      // Each conversation should have 1 epoch
       for (const conv of aliceConversations) {
         const convEpochs = data.epochs.filter((e) => e.conversationId === conv.id);
         expect(convEpochs).toHaveLength(1);
@@ -793,7 +789,6 @@ describe('seed script', () => {
       const devEmails = devData.users.map((u) => u.email);
       const testEmails = testData.users.map((u) => u.email);
 
-      // No overlap between dev and test emails
       for (const devEmail of devEmails) {
         expect(testEmails).not.toContain(devEmail);
       }
@@ -822,7 +817,6 @@ describe('seed script', () => {
 
     it('each test persona has 2 wallets (purchased + free_tier)', async () => {
       const data = await generateTestPersonaData();
-      // 11 personas * 2 wallets each = 22
       expect(data.wallets).toHaveLength(22);
     });
 

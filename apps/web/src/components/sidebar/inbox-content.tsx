@@ -36,7 +36,6 @@ export function InboxContent({ conversations }: Readonly<InboxContentProps>): Re
     <div data-testid="inbox-content" className="flex flex-col gap-2">
       {conversations.map((conv) => (
         <div key={conv.id} className="bg-sidebar-accent/30 rounded-lg px-3 py-2">
-          {/* Row 1: Title + green check */}
           <div className="flex items-center justify-between gap-2">
             <p className="text-sidebar-foreground min-w-0 flex-1 truncate text-sm font-medium">
               {conv.title}
@@ -51,7 +50,6 @@ export function InboxContent({ conversations }: Readonly<InboxContentProps>): Re
               <Check className="h-4 w-4" />
             </IconButton>
           </div>
-          {/* Row 2: Username + red X */}
           <div className="flex items-center justify-between gap-2">
             {conv.invitedByUsername ? (
               <p className="text-sidebar-foreground/50 min-w-0 flex-1 truncate text-xs">

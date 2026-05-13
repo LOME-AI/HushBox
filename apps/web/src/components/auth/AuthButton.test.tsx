@@ -51,7 +51,6 @@ describe('AuthButton', () => {
   it('renders as primary variant by default', () => {
     render(<AuthButton>Sign in</AuthButton>);
     const button = screen.getByRole('button');
-    // shadcn Button default variant styling
     expect(button).toHaveClass('bg-primary');
   });
 

@@ -16,7 +16,6 @@ import {
   CostPieChart,
 } from '@hushbox/ui';
 import { EncryptionDemo } from '../components/encryption-demo';
-import type { Model } from '@hushbox/shared';
 import LandingLayout from '../layouts/LandingLayout.astro';
 import LandingHeader from '../components/LandingHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
@@ -27,6 +26,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 import ModelProviderStrip from '../components/ModelProviderStrip.astro';
 import { calculateMonthlyCost } from '../lib/calculate-cost';
 import { extractProviders } from '../lib/extract-providers';
+import type { Model } from '@hushbox/shared';
 
 // Fetch models from the deployed API at build time. Staleness until next
 // marketing deploy is acceptable. If the API is unreachable, the page renders
@@ -48,16 +48,11 @@ const costData = calculateMonthlyCost(models);
 const providers = extractProviders(models);
 const modelCount = models.length;
 
-/** Map shared comparison rows to DataGrid format */
 const comparisonRows = COMPARISON_ROWS.map((row) => ({
   label: row.label,
   values: [row.others ? 'Yes' : 'No', row.hushbox ? 'Yes' : 'No'],
 }));
 
-/**
- * Convert PascalCase Lucide icon name to kebab-case filename.
- * Must match the logic in scripts/generate-icons.ts.
- */
 function toKebabCase(name: string): string {
   return name
     .replaceAll(/([a-z0-9])([A-Z])/g, '$1-$2')
@@ -65,7 +60,6 @@ function toKebabCase(name: string): string {
     .toLowerCase();
 }
 
-/** Resolve a feature's Lucide icon to the path of its generated SVG file */
 function iconPath(lucideIcon: string): string {
   return `@hushbox/ui/assets/icons/${toKebabCase(lucideIcon)}.svg`;
 }
@@ -77,7 +71,6 @@ function iconPath(lucideIcon: string): string {
 >
   <LandingHeader />
 
-  {/* ===== HERO ===== */}
   <section class="relative flex min-h-svh items-center justify-center overflow-hidden">
     <style is:inline>
       /* Override Astro's display:contents so CipherWall can read parent dimensions */
@@ -162,7 +155,6 @@ function iconPath(lucideIcon: string): string {
     </script>
   </section>
 
-  {/* ===== THREE PILLARS ===== */}
   <section id="pillars" class="py-12">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
@@ -184,7 +176,6 @@ function iconPath(lucideIcon: string): string {
     </div>
   </section>
 
-  {/* ===== PRIVACY PROOF ===== */}
   <section id="how-it-works" class="py-12">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
@@ -219,7 +210,6 @@ function iconPath(lucideIcon: string): string {
     </div>
   </section>
 
-  {/* ===== COST COMPARISON ===== */}
   {
     costData.monthlyCost > 0 && (
       <section class="py-12">
@@ -251,7 +241,6 @@ function iconPath(lucideIcon: string): string {
     )
   }
 
-  {/* ===== COMPARISON TABLE ===== */}
   <section class="py-12">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
@@ -269,7 +258,6 @@ function iconPath(lucideIcon: string): string {
     </div>
   </section>
 
-  {/* ===== FEATURES ===== */}
   <section class="py-12">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
@@ -299,7 +287,6 @@ function iconPath(lucideIcon: string): string {
     </div>
   </section>
 
-  {/* ===== TRANSPARENT PRICING ===== */}
   <section class="py-12">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
@@ -314,7 +301,6 @@ function iconPath(lucideIcon: string): string {
     </div>
   </section>
 
-  {/* ===== FINAL CTA ===== */}
   <section class="py-12">
     <div class="mx-auto max-w-3xl px-6 text-center">
       <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Ready to chat privately?</h2>

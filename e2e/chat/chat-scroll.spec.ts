@@ -57,7 +57,6 @@ test.describe('Auto-scroll During Streaming', () => {
     const initialPos = await chatPage.getScrollPosition();
     expect(initialPos.scrollHeight).toBeGreaterThan(initialPos.clientHeight);
 
-    // ~5 seconds at 10ms/char
     const testMessage = 'Testing scroll behavior during streaming. '.repeat(10);
 
     await chatPage.sendFollowUpMessage(testMessage);
@@ -71,7 +70,6 @@ test.describe('Auto-scroll During Streaming', () => {
     await chatPage.scrollUp(300);
     await chatPage.waitForScrollStable();
 
-    // Verify scroll position holds while streaming continues
     await expect(async () => {
       const pos = await chatPage.getScrollPosition();
       const distanceFromBottom = pos.scrollHeight - pos.scrollTop - pos.clientHeight;
@@ -85,7 +83,6 @@ test.describe('Auto-scroll During Streaming', () => {
     const minDistance = Math.max(20, midStreamPos.clientHeight * 0.05);
     expect(midStreamDistance).toBeGreaterThan(minDistance);
 
-    // Wait for streaming to complete, then verify user stayed scrolled up
     await chatPage.waitForStreamComplete();
 
     const finalPos = await chatPage.getScrollPosition();
@@ -195,7 +192,6 @@ test.describe('Input Ready After Streaming', () => {
   }) => {
     const chatPage = new ChatPage(authenticatedPage);
 
-    // ~5 seconds at 10ms/char
     const message = 'Testing user interaction during streaming response. '.repeat(10);
     const countBefore = await chatPage.getMessageCountViaAPI();
 

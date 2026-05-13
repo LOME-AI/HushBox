@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { FeeBreakdown } from './fee-breakdown';
 import {
   HUSHBOX_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
@@ -9,6 +8,7 @@ import {
   FEE_CATEGORIES,
   roundPreservingSum,
 } from '@hushbox/shared';
+import { FeeBreakdown } from './fee-breakdown';
 
 describe('FeeBreakdown', () => {
   describe('rendering', () => {

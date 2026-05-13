@@ -3,10 +3,6 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactNode } from 'react';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 vi.mock('../lib/api-client.js', () => ({
   client: {
     api: {
@@ -27,10 +23,6 @@ import { fetchJson } from '../lib/api-client.js';
 import { useGuestLinkName, useAdminLinkName } from './use-link-name.js';
 
 const mockFetchJson = vi.mocked(fetchJson);
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   const queryClient = new QueryClient({
@@ -61,10 +53,6 @@ function createWrapperWithClient(): ({ children }: { children: ReactNode }) => R
   Wrapper.displayName = 'TestWrapper';
   return Wrapper;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useGuestLinkName', () => {
   beforeEach(() => {

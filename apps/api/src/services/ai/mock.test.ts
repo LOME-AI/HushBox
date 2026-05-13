@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
-import { createMockAIClient } from './mock.js';
+import { createMockAIClient, CANNED_IMAGE, CANNED_VIDEO } from './mock.js';
 import type {
   MockAIClient,
   TextRequest,
@@ -23,8 +23,6 @@ describe('createMockAIClient', () => {
 
   beforeEach(() => {
     client = createMockAIClient();
-    client.clearHistory();
-    client.clearFailingModels();
   });
 
   describe('factory', () => {
@@ -39,13 +37,9 @@ describe('createMockAIClient', () => {
       expect(typeof client.getGenerationStats).toBe('function');
     });
 
-    it('exposes all MockAIClient test helpers', () => {
+    it('exposes request-history helpers', () => {
       expect(typeof client.getRequestHistory).toBe('function');
       expect(typeof client.clearHistory).toBe('function');
-      expect(typeof client.addFailingModel).toBe('function');
-      expect(typeof client.clearFailingModels).toBe('function');
-      expect(typeof client.setClassifierResolution).toBe('function');
-      expect(typeof client.setClassifierFailure).toBe('function');
     });
   });
 
@@ -65,8 +59,10 @@ describe('createMockAIClient', () => {
     }
 
     it('emits the configured resolution as text-deltas plus a finish event', async () => {
-      client.setClassifierResolution('anthropic/claude-opus-4.6');
-      const events = await collectEvents(client.stream(classifierRequest()));
+      const configured = createMockAIClient({
+        classifierResolution: 'anthropic/claude-opus-4.6',
+      });
+      const events = await collectEvents(configured.stream(classifierRequest()));
       const text = events
         .filter(
           (e): e is Extract<InferenceEvent, { kind: 'text-delta' }> => e.kind === 'text-delta'
@@ -88,22 +84,59 @@ describe('createMockAIClient', () => {
       expect(text.length).toBeGreaterThan(0);
     });
 
-    it('rejects the stream when classifier failure is set', async () => {
-      client.setClassifierFailure(new Error('classifier dead'));
-      await expect(collectEvents(client.stream(classifierRequest()))).rejects.toThrow(
-        'classifier dead'
+    it('rejects the stream when classifier failure is configured', async () => {
+      const failing = createMockAIClient({ classifierFailure: true });
+      await expect(collectEvents(failing.stream(classifierRequest()))).rejects.toThrow(
+        'Classifier unavailable (test)'
       );
     });
 
-    it('clears classifier failure when set to null', async () => {
-      client.setClassifierFailure(new Error('classifier dead'));
-      client.setClassifierFailure(null);
-      const events = await collectEvents(client.stream(classifierRequest()));
-      expect(events.length).toBeGreaterThan(0);
+    it('delays the first classifier event by classifierDelayMs', async () => {
+      // Real-classifier round-trip timing is ~1-3s; the mock resolves on the
+      // microtask queue with no delay, so the "Choosing the best model…"
+      // indicator never paints long enough for E2E to observe. The delay
+      // option restores observability without slowing every test.
+      const delayMs = 80;
+      const delayed = createMockAIClient({
+        classifierResolution: 'anthropic/claude-haiku-4.5',
+        classifierDelayMs: delayMs,
+      });
+      const start = Date.now();
+      await collectEvents(delayed.stream(classifierRequest()));
+      const elapsed = Date.now() - start;
+      expect(elapsed).toBeGreaterThanOrEqual(delayMs);
+    });
+
+    it('delays the failure rejection by classifierDelayMs as well', async () => {
+      const delayMs = 80;
+      const delayedFailure = createMockAIClient({
+        classifierFailure: true,
+        classifierDelayMs: delayMs,
+      });
+      const start = Date.now();
+      await expect(collectEvents(delayedFailure.stream(classifierRequest()))).rejects.toThrow(
+        'Classifier unavailable (test)'
+      );
+      const elapsed = Date.now() - start;
+      expect(elapsed).toBeGreaterThanOrEqual(delayMs);
+    });
+
+    it('does not delay when classifierDelayMs is zero or unset', async () => {
+      const noDelay = createMockAIClient({
+        classifierResolution: 'anthropic/claude-haiku-4.5',
+      });
+      const start = Date.now();
+      await collectEvents(noDelay.stream(classifierRequest()));
+      const elapsed = Date.now() - start;
+      // Generous ceiling — the entire iteration drains on the microtask queue,
+      // but we leave headroom for CI scheduler jitter.
+      expect(elapsed).toBeLessThan(50);
     });
 
     it('does not classify when system prompt lacks the marker', async () => {
-      // Plain text request — should echo the user message, not return a model id
+      const configured = createMockAIClient({
+        classifierResolution: 'classifier/should-not-fire',
+      });
       const request: TextRequest = {
         modality: 'text',
         model: 'm/a',
@@ -112,15 +145,14 @@ describe('createMockAIClient', () => {
           { role: 'user', content: 'Hello, world!' },
         ],
       };
-      client.setClassifierResolution('classifier/should-not-fire');
-      const events = await collectEvents(client.stream(request));
+      const events = await collectEvents(configured.stream(request));
       const text = events
         .filter(
           (e): e is Extract<InferenceEvent, { kind: 'text-delta' }> => e.kind === 'text-delta'
         )
         .map((e) => e.content)
         .join('');
-      expect(text).toBe('Echo: Hello, world!');
+      expect(text).toBe('Echo:\nHello, world!');
     });
   });
 
@@ -143,7 +175,7 @@ describe('createMockAIClient', () => {
         .map((e) => e.content)
         .join('');
 
-      expect(textContent).toBe('Echo: Hello, world!');
+      expect(textContent).toBe('Echo:\nHello, world!');
     });
 
     it('yields individual characters as text-delta events', async () => {
@@ -159,7 +191,7 @@ describe('createMockAIClient', () => {
       );
 
       // Each character is a separate event
-      expect(deltas.length).toBe('Echo: Hi'.length);
+      expect(deltas.length).toBe('Echo:\nHi'.length);
       for (const delta of deltas) {
         expect(delta.content.length).toBe(1);
       }
@@ -197,7 +229,7 @@ describe('createMockAIClient', () => {
         .map((e) => e.content)
         .join('');
 
-      expect(textContent).toBe('Echo: No message');
+      expect(textContent).toBe('Echo:\nNo message');
     });
 
     it('uses the last user message when multiple exist', async () => {
@@ -219,7 +251,7 @@ describe('createMockAIClient', () => {
         .map((e) => e.content)
         .join('');
 
-      expect(textContent).toBe('Echo: Second');
+      expect(textContent).toBe('Echo:\nSecond');
     });
   });
 
@@ -237,7 +269,7 @@ describe('createMockAIClient', () => {
       expect(kinds).toEqual(['media-start', 'media-done', 'finish']);
     });
 
-    it('emits media-start with image mediaType and image/png mimeType', async () => {
+    it('emits media-start with image mediaType and image/jpeg mimeType', async () => {
       const request: ImageRequest = {
         modality: 'image',
         model: 'google/imagen-4',
@@ -251,10 +283,10 @@ describe('createMockAIClient', () => {
 
       expect(start).toBeDefined();
       expect(start!.mediaType).toBe('image');
-      expect(start!.mimeType).toBe('image/png');
+      expect(start!.mimeType).toBe('image/jpeg');
     });
 
-    it('emits media-done with non-empty PNG bytes and dimensions', async () => {
+    it('emits media-done with non-empty JPEG bytes and 400×300 dimensions', async () => {
       const request: ImageRequest = {
         modality: 'image',
         model: 'google/imagen-4',
@@ -268,9 +300,16 @@ describe('createMockAIClient', () => {
 
       expect(done).toBeDefined();
       expect(done!.bytes.length).toBeGreaterThan(0);
-      expect(done!.mimeType).toBe('image/png');
-      expect(done!.width).toBe(1);
-      expect(done!.height).toBe(1);
+      expect(done!.mimeType).toBe('image/jpeg');
+      expect(done!.width).toBe(400);
+      expect(done!.height).toBe(300);
+    });
+
+    it('canned image bytes start with the JPEG SOI marker', () => {
+      expect(CANNED_IMAGE.length).toBeGreaterThan(0);
+      expect(CANNED_IMAGE[0]).toBe(0xff);
+      expect(CANNED_IMAGE[1]).toBe(0xd8);
+      expect(CANNED_IMAGE[2]).toBe(0xff);
     });
 
     it('emits finish with a generationId (no inline cost)', async () => {
@@ -322,7 +361,7 @@ describe('createMockAIClient', () => {
       expect(start!.mimeType).toBe('video/mp4');
     });
 
-    it('emits media-done with bytes and durationMs of 2000', async () => {
+    it('emits media-done with bytes and durationMs matching the canned video', async () => {
       const request: VideoRequest = {
         modality: 'video',
         model: 'google/veo-3.1',
@@ -337,7 +376,15 @@ describe('createMockAIClient', () => {
       expect(done).toBeDefined();
       expect(done!.bytes.length).toBeGreaterThan(0);
       expect(done!.mimeType).toBe('video/mp4');
-      expect(done!.durationMs).toBe(2000);
+      expect(done!.durationMs).toBe(5000);
+    });
+
+    it('canned video bytes carry the ISO BMFF ftyp box at offset 4', () => {
+      expect(CANNED_VIDEO.length).toBeGreaterThan(0);
+      expect(CANNED_VIDEO[4]).toBe(0x66); // f
+      expect(CANNED_VIDEO[5]).toBe(0x74); // t
+      expect(CANNED_VIDEO[6]).toBe(0x79); // y
+      expect(CANNED_VIDEO[7]).toBe(0x70); // p
     });
   });
 
@@ -355,7 +402,7 @@ describe('createMockAIClient', () => {
       expect(kinds).toEqual(['media-start', 'media-done', 'finish']);
     });
 
-    it('emits media-done with audio/wav mimeType and durationMs', async () => {
+    it('emits media-done with audio/mpeg mimeType and durationMs', async () => {
       const request: AudioRequest = {
         modality: 'audio',
         model: 'some/audio-model',
@@ -369,7 +416,7 @@ describe('createMockAIClient', () => {
 
       expect(done).toBeDefined();
       expect(done!.bytes.length).toBeGreaterThan(0);
-      expect(done!.mimeType).toBe('audio/wav');
+      expect(done!.mimeType).toBe('audio/mpeg');
       expect(done!.durationMs).toBeGreaterThan(0);
     });
   });
@@ -390,7 +437,7 @@ describe('createMockAIClient', () => {
 
       const history = client.getRequestHistory();
       expect(history).toHaveLength(1);
-      expect(history[0]).toEqual(request);
+      expect(history[0]).toMatchObject(request);
     });
 
     it('records image requests', async () => {
@@ -404,7 +451,7 @@ describe('createMockAIClient', () => {
 
       const history = client.getRequestHistory();
       expect(history).toHaveLength(1);
-      expect(history[0]).toEqual(request);
+      expect(history[0]).toMatchObject(request);
     });
 
     it('records multiple requests in order', async () => {
@@ -458,9 +505,73 @@ describe('createMockAIClient', () => {
     });
   });
 
+  describe('zdrEnforced tracking', () => {
+    it('records zdrEnforced=true on text requests', async () => {
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Test' }],
+      };
+      await collectEvents(client.stream(request));
+      const history = client.getRequestHistory();
+      expect(history[0]?.zdrEnforced).toBe(true);
+    });
+
+    it('records zdrEnforced=true on image requests', async () => {
+      const request: ImageRequest = {
+        modality: 'image',
+        model: 'google/imagen-4',
+        prompt: 'A sunset',
+      };
+      await collectEvents(client.stream(request));
+      const history = client.getRequestHistory();
+      expect(history[0]?.zdrEnforced).toBe(true);
+    });
+
+    it('records zdrEnforced=true on video requests', async () => {
+      const request: VideoRequest = {
+        modality: 'video',
+        model: 'google/veo-3.1',
+        prompt: 'A wave',
+      };
+      await collectEvents(client.stream(request));
+      const history = client.getRequestHistory();
+      expect(history[0]?.zdrEnforced).toBe(true);
+    });
+
+    it('records zdrEnforced=true on audio requests', async () => {
+      const request: AudioRequest = {
+        modality: 'audio',
+        model: 'openai/tts-1',
+        prompt: 'Hello.',
+      };
+      await collectEvents(client.stream(request));
+      const history = client.getRequestHistory();
+      expect(history[0]?.zdrEnforced).toBe(true);
+    });
+
+    it('records zdrEnforced=true on classifier (Smart Model) calls', async () => {
+      const classifierRequest: TextRequest = {
+        modality: 'text',
+        model: 'cheap/c',
+        messages: [
+          {
+            role: 'system',
+            content: `${CLASSIFIER_SYSTEM_PROMPT_MARKER}\nPick a model.\n- a/x — A.\n- b/y — B.`,
+          },
+          { role: 'user', content: '[USER START]: hi' },
+        ],
+      };
+      await collectEvents(client.stream(classifierRequest));
+      const history = client.getRequestHistory();
+      expect(history).toHaveLength(1);
+      expect(history[0]?.zdrEnforced).toBe(true);
+    });
+  });
+
   describe('failing models', () => {
-    it('throws for a model added to the failing set', async () => {
-      client.addFailingModel('bad/model');
+    it('throws for a model in the configured failing set', async () => {
+      const configured = createMockAIClient({ failingModels: ['bad/model'] });
 
       const request: TextRequest = {
         modality: 'text',
@@ -468,13 +579,13 @@ describe('createMockAIClient', () => {
         messages: [{ role: 'user', content: 'Test' }],
       };
 
-      await expect(collectEvents(client.stream(request))).rejects.toThrow(
+      await expect(collectEvents(configured.stream(request))).rejects.toThrow(
         'Model bad/model is unavailable'
       );
     });
 
     it('does not throw for models not in the failing set', async () => {
-      client.addFailingModel('bad/model');
+      const configured = createMockAIClient({ failingModels: ['bad/model'] });
 
       const request: TextRequest = {
         modality: 'text',
@@ -482,26 +593,24 @@ describe('createMockAIClient', () => {
         messages: [{ role: 'user', content: 'Test' }],
       };
 
-      const events = await collectEvents(client.stream(request));
+      const events = await collectEvents(configured.stream(request));
       expect(events.length).toBeGreaterThan(0);
     });
 
-    it('clears failing models', async () => {
-      client.addFailingModel('bad/model');
-      client.clearFailingModels();
-
+    it('fresh client with no failing config accepts any model', async () => {
+      const fresh = createMockAIClient();
       const request: TextRequest = {
         modality: 'text',
         model: 'bad/model',
         messages: [{ role: 'user', content: 'Test' }],
       };
 
-      const events = await collectEvents(client.stream(request));
+      const events = await collectEvents(fresh.stream(request));
       expect(events.length).toBeGreaterThan(0);
     });
 
     it('throws for image requests to failing models', async () => {
-      client.addFailingModel('bad/image-model');
+      const configured = createMockAIClient({ failingModels: ['bad/image-model'] });
 
       const request: ImageRequest = {
         modality: 'image',
@@ -509,7 +618,7 @@ describe('createMockAIClient', () => {
         prompt: 'Test',
       };
 
-      await expect(collectEvents(client.stream(request))).rejects.toThrow(
+      await expect(collectEvents(configured.stream(request))).rejects.toThrow(
         'Model bad/image-model is unavailable'
       );
     });
@@ -544,6 +653,55 @@ describe('createMockAIClient', () => {
     });
   });
 
+  describe('listRawModels', () => {
+    it('returns a non-empty RawModel array with the gateway-shaped pricing fields', async () => {
+      const raw = await client.listRawModels();
+      expect(raw.length).toBeGreaterThan(0);
+      for (const model of raw) {
+        expect(typeof model.id).toBe('string');
+        expect(typeof model.name).toBe('string');
+        expect(['text', 'image', 'audio', 'video']).toContain(model.modality);
+        expect(typeof model.context_length).toBe('number');
+        expect(typeof model.pricing.prompt).toBe('string');
+        expect(typeof model.pricing.completion).toBe('string');
+        expect(Array.isArray(model.supported_parameters)).toBe(true);
+        expect(Array.isArray(model.architecture.input_modalities)).toBe(true);
+        expect(Array.isArray(model.architecture.output_modalities)).toBe(true);
+      }
+    });
+
+    it('exposes the same id set as listModels — single source of truth', async () => {
+      const [raw, info] = await Promise.all([client.listRawModels(), client.listModels()]);
+      const rawIds = raw.map((m) => m.id).toSorted((a, b) => a.localeCompare(b));
+      const infoIds = info.map((m) => m.id).toSorted((a, b) => a.localeCompare(b));
+      expect(rawIds).toEqual(infoIds);
+    });
+
+    it('returns a defensive copy — mutating the result does not affect future calls', async () => {
+      const first = await client.listRawModels();
+      first.length = 0;
+      const second = await client.listRawModels();
+      expect(second.length).toBeGreaterThan(0);
+    });
+
+    it('feeds processModels with at least one premium text model so the tier gate has something to lock', async () => {
+      const { processModels } = await import('@hushbox/shared/models');
+      const raw = await client.listRawModels();
+      const { premiumIds } = processModels(raw);
+      expect(premiumIds.length).toBeGreaterThan(0);
+    });
+
+    it('exposes at least 5 non-premium text models so the multi-model max-selection flow has enough options', async () => {
+      const { processModels } = await import('@hushbox/shared/models');
+      const raw = await client.listRawModels();
+      const { models, premiumIds } = processModels(raw);
+      const nonPremiumText = models.filter(
+        (m) => m.modality === 'text' && !premiumIds.includes(m.id)
+      );
+      expect(nonPremiumText.length).toBeGreaterThanOrEqual(5);
+    });
+  });
+
   describe('getModel', () => {
     it('returns the model matching the given id', async () => {
       const models = await client.listModels();
@@ -562,6 +720,18 @@ describe('createMockAIClient', () => {
       const stats = await client.getGenerationStats('mock-gen-123');
       expect(typeof stats.costUsd).toBe('number');
       expect(stats.costUsd).toBeGreaterThan(0);
+    });
+  });
+
+  describe('stream exhaustiveness guard', () => {
+    it('throws when given an unrecognized modality (assertNever)', () => {
+      const badRequest = {
+        modality: 'rogue',
+        model: 'rogue/model',
+        prompt: 'unused',
+      } as unknown as TextRequest;
+
+      expect(() => client.stream(badRequest)).toThrow(/exhaustiveness/i);
     });
   });
 });

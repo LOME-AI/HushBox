@@ -27,7 +27,6 @@ describe('evidence', () => {
   });
 
   afterAll(async () => {
-    // Clean up test evidence records
     await db.delete(serviceEvidence).where(eq(serviceEvidence.service, `${testRunId}-ai-gateway`));
     await db.delete(serviceEvidence).where(eq(serviceEvidence.service, `${testRunId}-hookdeck`));
   });
@@ -37,6 +36,12 @@ describe('evidence', () => {
       expect(SERVICE_NAMES.AI_GATEWAY).toBe('ai-gateway');
       expect(SERVICE_NAMES.HELCIM).toBe('helcim');
       expect(SERVICE_NAMES.HOOKDECK).toBe('hookdeck');
+    });
+
+    it('exports R2 storage, R2 GC and billing-mismatch service names', () => {
+      expect(SERVICE_NAMES.R2_STORAGE).toBe('r2-storage');
+      expect(SERVICE_NAMES.R2_GC).toBe('r2-gc');
+      expect(SERVICE_NAMES.BILLING_MISMATCH).toBe('billing-mismatch');
     });
 
     it('has correct type inference', () => {
@@ -106,7 +111,6 @@ describe('evidence', () => {
 
   describe('verifyServiceEvidence', () => {
     beforeEach(async () => {
-      // Ensure test records exist
       await recordServiceEvidence(db, true, `${testRunId}-ai-gateway` as ServiceName);
     });
 

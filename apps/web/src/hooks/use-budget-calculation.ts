@@ -40,7 +40,6 @@ export function useBudgetCalculation(
 ): BudgetCalculationResult & { isBalanceLoading: boolean } {
   const { isBalanceStable } = useStability();
 
-  // Balance is loading when authenticated and balance isn't stable yet
   const isBalanceLoading = input.isAuthenticated && !isBalanceStable;
 
   const tierInfo = useUserTierInfo(input.isAuthenticated);
@@ -66,7 +65,6 @@ export function useBudgetCalculation(
     ]
   );
 
-  // Initialize with computed result
   const [debouncedResult, setDebouncedResult] =
     React.useState<BudgetCalculationResult>(computeResult);
 
@@ -79,7 +77,6 @@ export function useBudgetCalculation(
     setDebouncedResult(computeResult());
   }
 
-  // Debounced calculation effect - runs on mount and when inputs change
   React.useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedResult(computeResult());

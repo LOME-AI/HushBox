@@ -52,7 +52,6 @@ test.describe('Recovery Phrase & Forgot Password', () => {
 
       capturedWords = await modal.getWords();
       expect(capturedWords).toHaveLength(12);
-      // Every word should be non-empty
       for (const word of capturedWords) {
         expect(word.length).toBeGreaterThan(0);
       }
@@ -111,10 +110,8 @@ test.describe('Recovery Phrase & Forgot Password', () => {
 
       const newWords = await modal.getWords();
       expect(newWords).toHaveLength(12);
-      // New words should be different from original
       expect(newWords.join(' ')).not.toBe(capturedWords.join(' '));
 
-      // Update captured words for verification
       capturedWords = newWords;
     });
 

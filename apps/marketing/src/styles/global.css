@@ -8,7 +8,6 @@
 
 @import '@hushbox/ui/accessibility/styles';
 
-/* Blog prose typography overrides */
 .prose-blog {
   @apply text-foreground leading-relaxed;
 }
@@ -38,7 +37,7 @@
 }
 
 .prose-blog :where(blockquote):not(:where([class~='not-prose'] *)) {
-  @apply border-brand-red bg-brand-red-subtle border-l-4 rounded-r-lg py-3 pl-4 italic;
+  @apply border-brand-red bg-brand-red-subtle rounded-r-lg border-l-4 py-3 pl-4 italic;
 }
 
 .prose-blog :where(pre):not(:where([class~='not-prose'] *)) {
@@ -89,12 +88,10 @@
   @apply border-border border-b py-2;
 }
 
-/* Sources section: colored clickable links */
 .prose-blog :where(h2#sources ~ ol a, h2#sources ~ ul a):not(:where([class~='not-prose'] *)) {
   @apply text-brand-red hover:text-brand-red-hover underline underline-offset-2 transition-colors;
 }
 
-/* ScrollReveal animations */
 [data-slot='scroll-reveal'][data-visible='false'] {
   opacity: 0;
 }
@@ -121,7 +118,6 @@
   transition-delay: var(--reveal-delay, 0ms);
 }
 
-/* DataGrid row stagger */
 [data-slot='data-grid'][data-animated][data-visible='false'] tbody tr {
   opacity: 0;
   transform: translateY(1rem);
@@ -132,7 +128,6 @@
   animation-delay: var(--row-delay, 0ms);
 }
 
-/* StepFlow connecting lines */
 [data-slot='step-flow'][data-connected] [data-slot='step-item'] {
   position: relative;
 }
@@ -147,14 +142,12 @@
   background: var(--color-border);
 }
 
-/* StepFlow animated lines */
 [data-slot='step-flow'][data-animated][data-visible='true'] [data-slot='step-item']::after {
   animation: lineGrow 0.4s ease-out forwards;
   animation-delay: calc(var(--step-delay, 0ms) + 0.3s);
   transform-origin: top;
 }
 
-/* StepFlow step stagger */
 [data-slot='step-flow'][data-animated][data-visible='false'] [data-slot='step-item'] {
   opacity: 0;
   transform: translateY(1rem);
@@ -185,7 +178,6 @@
   }
 }
 
-/* CipherWall fade-in on load */
 [data-cipher-bg] {
   animation: cipherFadeIn 2.5s ease-in forwards;
 }

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MAX_MEDIA_OBJECT_BYTES } from '@hushbox/shared';
 import { StorageReadError, StorageWriteError } from './types.js';
 
 const fetchMock = vi.fn();
@@ -15,7 +16,17 @@ vi.mock('aws4fetch', () => ({
   },
 }));
 
+const recordEvidenceMock = vi.fn((..._args: unknown[]): Promise<void> => Promise.resolve());
+vi.mock('@hushbox/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/db')>();
+  return {
+    ...actual,
+    recordServiceEvidence: recordEvidenceMock,
+  };
+});
+
 const { createMediaStorage } = await import('./media-storage.js');
+const { SERVICE_NAMES } = await import('@hushbox/db');
 
 function baseEnv(overrides: Record<string, string | undefined> = {}): {
   R2_S3_ENDPOINT?: string;
@@ -84,9 +95,7 @@ describe('createMediaStorage', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] ?? [];
-      expect(url).toContain(
-        'https://abc.r2.cloudflarestorage.com/hushbox-media/media%2Fc%2Fm%2Fi.enc'
-      );
+      expect(url).toContain('https://abc.r2.cloudflarestorage.com/hushbox-media/media/c/m/i.enc');
       const initObject = init as {
         method?: string;
         body?: ArrayBuffer;
@@ -115,6 +124,35 @@ describe('createMediaStorage', () => {
         storage.put('k', new Uint8Array([1]), 'application/octet-stream')
       ).rejects.toBeInstanceOf(StorageWriteError);
     });
+
+    it('rejects payloads larger than MAX_MEDIA_OBJECT_BYTES with StorageWriteError', async () => {
+      const storage = createMediaStorage(baseEnv());
+      // Avoid actually allocating 250 MB — fake the byteLength via a small
+      // backing buffer plus a property override. The size guard reads only
+      // `byteLength`, so this is sufficient and keeps the test fast.
+      const payload = new Uint8Array(1);
+      Object.defineProperty(payload, 'byteLength', {
+        value: MAX_MEDIA_OBJECT_BYTES + 1,
+      });
+
+      await expect(storage.put('k', payload, 'application/octet-stream')).rejects.toBeInstanceOf(
+        StorageWriteError
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('accepts payloads at exactly MAX_MEDIA_OBJECT_BYTES', async () => {
+      fetchMock.mockResolvedValueOnce(okResponse());
+      const storage = createMediaStorage(baseEnv());
+      const payload = new Uint8Array(1);
+      Object.defineProperty(payload, 'byteLength', {
+        value: MAX_MEDIA_OBJECT_BYTES,
+      });
+
+      await storage.put('k', payload, 'application/octet-stream');
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('delete', () => {
@@ -125,14 +163,12 @@ describe('createMediaStorage', () => {
       await storage.delete('media/c/m/i.enc');
 
       const [url, init] = fetchMock.mock.calls[0] ?? [];
-      expect(url).toContain(
-        'https://abc.r2.cloudflarestorage.com/hushbox-media/media%2Fc%2Fm%2Fi.enc'
-      );
+      expect(url).toContain('https://abc.r2.cloudflarestorage.com/hushbox-media/media/c/m/i.enc');
       expect((init as { method: string }).method).toBe('DELETE');
     });
 
-    it('treats 404 as success (idempotent)', async () => {
-      fetchMock.mockResolvedValueOnce(errorResponse(404));
+    it('treats 204 as success (R2/MinIO idempotent delete)', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
       const storage = createMediaStorage(baseEnv());
 
       await expect(storage.delete('missing-key')).resolves.toBeUndefined();
@@ -157,7 +193,7 @@ describe('createMediaStorage', () => {
       expect(signMock).toHaveBeenCalledTimes(1);
       const [inputUrl, init] = signMock.mock.calls[0] ?? [];
       expect(inputUrl as string).toContain(
-        'https://abc.r2.cloudflarestorage.com/hushbox-media/media%2Fc%2Fm%2Fi.enc'
+        'https://abc.r2.cloudflarestorage.com/hushbox-media/media/c/m/i.enc'
       );
       expect((inputUrl as string).includes('X-Amz-Expires=')).toBe(true);
       expect((init as { method: string }).method).toBe('GET');
@@ -299,6 +335,237 @@ describe('createMediaStorage', () => {
       expect(result.objects).toHaveLength(1);
       expect(result.objects[0]!.key).toBe('good.bin');
       expect(result.nextCursor).toBeUndefined();
+    });
+
+    describe('XML entity decoding (D1.1)', () => {
+      it('decodes &amp; in keys', async () => {
+        const xml =
+          '<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>' +
+          '<Contents><Key>foo&amp;bar</Key><LastModified>2026-04-30T12:00:00.000Z</LastModified><Size>1</Size></Contents>' +
+          '<IsTruncated>false</IsTruncated></ListBucketResult>';
+        fetchMock.mockResolvedValueOnce(okResponse(xml));
+        const storage = createMediaStorage(baseEnv());
+
+        const result = await storage.list('media/');
+
+        expect(result.objects).toHaveLength(1);
+        expect(result.objects[0]!.key).toBe('foo&bar');
+      });
+
+      it('decodes &lt; and &gt; in keys', async () => {
+        const xml =
+          '<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>' +
+          '<Contents><Key>a&lt;b&gt;c</Key><LastModified>2026-04-30T12:00:00.000Z</LastModified><Size>1</Size></Contents>' +
+          '<IsTruncated>false</IsTruncated></ListBucketResult>';
+        fetchMock.mockResolvedValueOnce(okResponse(xml));
+        const storage = createMediaStorage(baseEnv());
+
+        const result = await storage.list('media/');
+
+        expect(result.objects).toHaveLength(1);
+        expect(result.objects[0]!.key).toBe('a<b>c');
+      });
+
+      it('decodes &quot; and &apos; in keys', async () => {
+        const xml =
+          '<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>' +
+          '<Contents><Key>x&quot;y&apos;z</Key><LastModified>2026-04-30T12:00:00.000Z</LastModified><Size>1</Size></Contents>' +
+          '<IsTruncated>false</IsTruncated></ListBucketResult>';
+        fetchMock.mockResolvedValueOnce(okResponse(xml));
+        const storage = createMediaStorage(baseEnv());
+
+        const result = await storage.list('media/');
+
+        expect(result.objects).toHaveLength(1);
+        expect(result.objects[0]!.key).toBe('x"y\'z');
+      });
+
+      it('preserves percent, plus and unicode (no decoding needed)', async () => {
+        // Emoji U+1F600 (😀) is encoded as the raw 4-byte UTF-8 sequence in XML;
+        // S3 does not entity-encode unicode. % and + are literal.
+        const xml =
+          '<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>' +
+          '<Contents><Key>a%20b+c\u{1F600}</Key><LastModified>2026-04-30T12:00:00.000Z</LastModified><Size>1</Size></Contents>' +
+          '<IsTruncated>false</IsTruncated></ListBucketResult>';
+        fetchMock.mockResolvedValueOnce(okResponse(xml));
+        const storage = createMediaStorage(baseEnv());
+
+        const result = await storage.list('media/');
+
+        expect(result.objects).toHaveLength(1);
+        expect(result.objects[0]!.key).toBe('a%20b+c\u{1F600}');
+      });
+    });
+
+    describe('namespaced XML (D1.3)', () => {
+      it('parses namespaced Contents and child tags', async () => {
+        const xml =
+          '<?xml version="1.0" encoding="UTF-8"?><s3:ListBucketResult xmlns:s3="http://s3.amazonaws.com/doc/2006-03-01/">' +
+          '<s3:Contents><s3:Key>media/a.enc</s3:Key><s3:LastModified>2026-04-30T12:00:00.000Z</s3:LastModified><s3:Size>1024</s3:Size></s3:Contents>' +
+          '<s3:IsTruncated>false</s3:IsTruncated></s3:ListBucketResult>';
+        fetchMock.mockResolvedValueOnce(okResponse(xml));
+        const storage = createMediaStorage(baseEnv());
+
+        const result = await storage.list('media/');
+
+        expect(result.objects).toHaveLength(1);
+        expect(result.objects[0]!.key).toBe('media/a.enc');
+        expect(result.objects[0]!.size).toBe(1024);
+        expect(result.nextCursor).toBeUndefined();
+      });
+    });
+
+    describe('self-closing tags (D1.5)', () => {
+      it('treats self-closing IsTruncated as not-truncated', async () => {
+        const xml =
+          '<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>' +
+          '<Contents><Key>media/a.enc</Key><LastModified>2026-04-30T12:00:00.000Z</LastModified><Size>1</Size></Contents>' +
+          '<IsTruncated/></ListBucketResult>';
+        fetchMock.mockResolvedValueOnce(okResponse(xml));
+        const storage = createMediaStorage(baseEnv());
+
+        const result = await storage.list('media/');
+
+        expect(result.objects).toHaveLength(1);
+        expect(result.nextCursor).toBeUndefined();
+      });
+    });
+
+    describe('malformed Size (D1.7)', () => {
+      it('skips Contents whose Size is non-numeric', async () => {
+        const xml =
+          '<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>' +
+          '<Contents><Key>good.bin</Key><LastModified>2026-04-30T12:00:00.000Z</LastModified><Size>100</Size></Contents>' +
+          '<Contents><Key>nan.bin</Key><LastModified>2026-04-30T12:00:00.000Z</LastModified><Size>not-a-number</Size></Contents>' +
+          '<IsTruncated>false</IsTruncated></ListBucketResult>';
+        fetchMock.mockResolvedValueOnce(okResponse(xml));
+        const storage = createMediaStorage(baseEnv());
+
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          const result = await storage.list('media/');
+
+          expect(result.objects).toHaveLength(1);
+          expect(result.objects[0]!.key).toBe('good.bin');
+          expect(result.objects[0]!.size).toBe(100);
+          expect(warnSpy).toHaveBeenCalledWith(
+            'parseListObjectsV2Response: skipping non-numeric Size',
+            expect.objectContaining({ key: 'nan.bin', sizeRaw: 'not-a-number' })
+          );
+        } finally {
+          warnSpy.mockRestore();
+        }
+      });
+    });
+  });
+
+  describe('per-segment URL encoding (B1)', () => {
+    it('preserves slashes between segments and encodes special chars within them', async () => {
+      fetchMock.mockResolvedValueOnce(okResponse());
+      const storage = createMediaStorage(baseEnv());
+      const bytes = new Uint8Array([1]);
+
+      await storage.put('media/conv id/foo&bar.enc', bytes, 'application/octet-stream');
+
+      const url = fetchMock.mock.calls[0]?.[0] as string;
+      expect(url).toBe(
+        'https://abc.r2.cloudflarestorage.com/hushbox-media/media/conv%20id/foo%26bar.enc'
+      );
+    });
+
+    it('preserves slashes for delete', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+      const storage = createMediaStorage(baseEnv());
+
+      await storage.delete('media/c m/i.enc');
+
+      const url = fetchMock.mock.calls[0]?.[0] as string;
+      expect(url).toBe('https://abc.r2.cloudflarestorage.com/hushbox-media/media/c%20m/i.enc');
+    });
+  });
+
+  describe('evidence recording', () => {
+    // The evidence config requires a Database. We never call any DB methods
+    // through the storage path because `recordServiceEvidence` is mocked at
+    // the module boundary, so a sentinel object is enough to satisfy the
+    // type-check and the assertion comparison.
+    const fakeDb = { __fake: 'db' } as unknown as import('@hushbox/db').Database;
+
+    beforeEach(() => {
+      recordEvidenceMock.mockClear();
+    });
+
+    it('does not record evidence when no evidence config is supplied', async () => {
+      fetchMock.mockResolvedValueOnce(okResponse());
+      const storage = createMediaStorage(baseEnv());
+
+      await storage.put('k', new Uint8Array([1]), 'application/octet-stream');
+
+      expect(recordEvidenceMock).not.toHaveBeenCalled();
+    });
+
+    it('records evidence after a successful PUT', async () => {
+      fetchMock.mockResolvedValueOnce(okResponse());
+      const storage = createMediaStorage({
+        ...baseEnv(),
+        evidence: { db: fakeDb, isCI: true },
+      });
+
+      await storage.put('k', new Uint8Array([1]), 'application/octet-stream');
+
+      expect(recordEvidenceMock).toHaveBeenCalledWith(fakeDb, true, SERVICE_NAMES.R2_STORAGE);
+    });
+
+    it('records evidence after a successful DELETE', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+      const storage = createMediaStorage({
+        ...baseEnv(),
+        evidence: { db: fakeDb, isCI: false },
+      });
+
+      await storage.delete('k');
+
+      expect(recordEvidenceMock).toHaveBeenCalledWith(fakeDb, false, SERVICE_NAMES.R2_STORAGE);
+    });
+
+    it('records evidence after a successful mintDownloadUrl', async () => {
+      signMock.mockResolvedValueOnce(new Request('https://s/x'));
+      const storage = createMediaStorage({
+        ...baseEnv(),
+        evidence: { db: fakeDb, isCI: true },
+      });
+
+      await storage.mintDownloadUrl({ key: 'k' });
+
+      expect(recordEvidenceMock).toHaveBeenCalledWith(fakeDb, true, SERVICE_NAMES.R2_STORAGE);
+    });
+
+    it('records evidence after a successful LIST', async () => {
+      const xml =
+        '<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>' +
+        '<IsTruncated>false</IsTruncated></ListBucketResult>';
+      fetchMock.mockResolvedValueOnce(okResponse(xml));
+      const storage = createMediaStorage({
+        ...baseEnv(),
+        evidence: { db: fakeDb, isCI: true },
+      });
+
+      await storage.list('media/');
+
+      expect(recordEvidenceMock).toHaveBeenCalledWith(fakeDb, true, SERVICE_NAMES.R2_STORAGE);
+    });
+
+    it('does not record evidence when PUT fails', async () => {
+      fetchMock.mockResolvedValueOnce(errorResponse(500));
+      const storage = createMediaStorage({
+        ...baseEnv(),
+        evidence: { db: fakeDb, isCI: true },
+      });
+
+      await expect(
+        storage.put('k', new Uint8Array([1]), 'application/octet-stream')
+      ).rejects.toBeInstanceOf(StorageWriteError);
+      expect(recordEvidenceMock).not.toHaveBeenCalled();
     });
   });
 });

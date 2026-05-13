@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono, type MiddlewareHandler } from 'hono';
-import type { AppEnv } from '../types.js';
 
 /** Type-safe JSON response parser for test assertions. */
 async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
@@ -54,6 +53,7 @@ vi.mock('iron-session', () => ({
   getIronSession: vi.fn(),
 }));
 
+import { createDb, LOCAL_NEON_DEV_CONFIG } from '@hushbox/db';
 import {
   dbMiddleware,
   redisMiddleware,
@@ -63,9 +63,9 @@ import {
   ironSessionMiddleware,
   mediaStorageMiddleware,
 } from './dependencies.js';
-import { createDb, LOCAL_NEON_DEV_CONFIG } from '@hushbox/db';
 import { getHelcimClient } from '../services/helcim/index.js';
 import { createRedisClient } from '../lib/redis.js';
+import type { AppEnv } from '../types.js';
 
 describe('dbMiddleware', () => {
   beforeEach(() => {
@@ -138,8 +138,6 @@ describe('dbMiddleware', () => {
     expect(nextCalled).toHaveBeenCalled();
   });
 });
-
-// OPAQUE-MIGRATION: authMiddleware tests removed - auth has been migrated to OPAQUE (Phase 9)
 
 describe('sessionMiddleware', () => {
   beforeEach(() => {
@@ -651,11 +649,6 @@ describe('helcimMiddleware', () => {
     vi.resetAllMocks();
   });
 
-  /**
-   * helcimMiddleware now reads `db` and `envUtils` from context (via
-   * createEvidenceConfig) so it can pass evidence config to the factory.
-   * Stub both before invoking helcimMiddleware in tests.
-   */
   function setupHelcimContext(): MiddlewareHandler<AppEnv> {
     return async (c, next) => {
       c.set('db', {} as never);

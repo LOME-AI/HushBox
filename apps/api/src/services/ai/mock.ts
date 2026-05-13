@@ -1,5 +1,25 @@
-import { CHARS_PER_TOKEN_STANDARD, CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
+import {
+  CHARS_PER_TOKEN_STANDARD,
+  CLASSIFIER_SYSTEM_PROMPT_MARKER,
+  assertNever,
+} from '@hushbox/shared';
 
+import { rawModelToModelInfo } from './model-mapping.js';
+import {
+  TEST_IMAGE_BYTES,
+  TEST_AUDIO_BYTES,
+  TEST_VIDEO_BYTES,
+  TEST_IMAGE_MIME,
+  TEST_AUDIO_MIME,
+  TEST_VIDEO_MIME,
+  TEST_IMAGE_WIDTH,
+  TEST_IMAGE_HEIGHT,
+  TEST_AUDIO_DURATION_MS,
+  TEST_VIDEO_DURATION_MS,
+  TEST_VIDEO_WIDTH,
+  TEST_VIDEO_HEIGHT,
+} from './mock-fixtures/index.js';
+import type { RawModel } from '@hushbox/shared/models';
 import type {
   AIMessage,
   InferenceEvent,
@@ -7,251 +27,197 @@ import type {
   InferenceStream,
   MessageContentPart,
   MockAIClient,
+  MockAIClientConfig,
   ModelInfo,
+  RecordedInferenceRequest,
   TextRequest,
 } from './types.js';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 /** Deterministic mock cost returned by getGenerationStats (USD). */
 const MOCK_GENERATION_STATS_COST = 0.001;
 
-/** Default model id returned by classifier calls — overridable per test. */
-const DEFAULT_CLASSIFIER_RESOLUTION = 'anthropic/claude-sonnet-4.6';
+/**
+ * Default model id returned by classifier calls — overridable per test.
+ *
+ * Must be a cheap text model so it lands in the integration harness's top-N
+ * eligible set (`buildHarness` sorts by cost). claude-haiku-4.5 is one of the
+ * cheapest entries in the catalog below.
+ */
+const DEFAULT_CLASSIFIER_RESOLUTION = 'anthropic/claude-haiku-4.5';
 
-// ---------------------------------------------------------------------------
-// Canned media buffers
-// ---------------------------------------------------------------------------
+export {
+  TEST_IMAGE_BYTES as CANNED_IMAGE,
+  TEST_VIDEO_BYTES as CANNED_VIDEO,
+  TEST_AUDIO_BYTES as CANNED_AUDIO,
+  TEST_IMAGE_WIDTH as CANNED_IMAGE_WIDTH,
+  TEST_IMAGE_HEIGHT as CANNED_IMAGE_HEIGHT,
+  TEST_VIDEO_DURATION_MS as CANNED_VIDEO_DURATION_MS,
+  TEST_VIDEO_WIDTH as CANNED_VIDEO_WIDTH,
+  TEST_VIDEO_HEIGHT as CANNED_VIDEO_HEIGHT,
+  TEST_AUDIO_DURATION_MS as CANNED_AUDIO_DURATION_MS,
+} from './mock-fixtures/index.js';
 
 /**
- * Minimal valid 1x1 PNG (67 bytes).
- * PNG signature + IHDR + IDAT + IEND.
+ * Single source of truth for the mock model catalog.
+ *
+ * Shaped as `RawModel[]` (the gateway-side merged shape) so `processModels`
+ * — used by `/api/models`, the chat tier-gate, and billing premium-id checks
+ * — sees the same data the real gateway produces. `MOCK_MODELS` (ModelInfo)
+ * is derived from this via `rawModelToModelInfo`, keeping inference-layer
+ * pricing and the routes' premium classification consistent in tests.
+ *
+ * Pricing strings follow the gateway's per-token / per-image / per-second
+ * conventions. The text entries are real ZDR ids (anthropic/claude-*) so
+ * `processModels` keeps them after ZDR filtering. The image/video/audio
+ * entries are intentionally not on the ZDR allow-list; `processModels`
+ * filters them out, which is correct (production uses real ZDR ids), while
+ * `listModels()` still returns them for inference-layer mock streaming.
  */
-export const CANNED_PNG = new Uint8Array([
-  // PNG signature
-  0x89,
-  0x50,
-  0x4e,
-  0x47,
-  0x0d,
-  0x0a,
-  0x1a,
-  0x0a,
-  // IHDR chunk (13 bytes data)
-  0x00,
-  0x00,
-  0x00,
-  0x0d, // length
-  0x49,
-  0x48,
-  0x44,
-  0x52, // "IHDR"
-  0x00,
-  0x00,
-  0x00,
-  0x01, // width: 1
-  0x00,
-  0x00,
-  0x00,
-  0x01, // height: 1
-  0x08,
-  0x02, // bit depth 8, color type RGB
-  0x00,
-  0x00,
-  0x00, // compression, filter, interlace
-  0x90,
-  0x77,
-  0x53,
-  0xde, // CRC
-  // IDAT chunk (minimal deflate of single black pixel row)
-  0x00,
-  0x00,
-  0x00,
-  0x0c, // length
-  0x49,
-  0x44,
-  0x41,
-  0x54, // "IDAT"
-  0x08,
-  0xd7,
-  0x63,
-  0x60,
-  0x60,
-  0x60,
-  0x00,
-  0x00,
-  0x00,
-  0x04,
-  0x00,
-  0x01, // CRC
-  // IEND chunk
-  0x00,
-  0x00,
-  0x00,
-  0x00, // length
-  0x49,
-  0x45,
-  0x4e,
-  0x44, // "IEND"
-  0xae,
-  0x42,
-  0x60,
-  0x82, // CRC
-]);
-
-/**
- * Minimal MP4 placeholder (ftyp + moov atoms, not playable but non-empty).
- */
-export const CANNED_MP4 = new Uint8Array([
-  // ftyp box
-  0x00,
-  0x00,
-  0x00,
-  0x14, // size: 20
-  0x66,
-  0x74,
-  0x79,
-  0x70, // "ftyp"
-  0x69,
-  0x73,
-  0x6f,
-  0x6d, // major_brand: "isom"
-  0x00,
-  0x00,
-  0x00,
-  0x01, // minor_version
-  0x69,
-  0x73,
-  0x6f,
-  0x6d, // compatible_brand
-  // moov box (minimal, 8 bytes)
-  0x00,
-  0x00,
-  0x00,
-  0x08,
-  0x6d,
-  0x6f,
-  0x6f,
-  0x76, // "moov"
-]);
-
-/**
- * Minimal WAV header (44 bytes, 0 data samples — silent).
- */
-const CANNED_WAV = new Uint8Array([
-  // "RIFF" header
-  0x52,
-  0x49,
-  0x46,
-  0x46, // "RIFF"
-  0x24,
-  0x00,
-  0x00,
-  0x00, // chunk size (36 + 0 data bytes)
-  0x57,
-  0x41,
-  0x56,
-  0x45, // "WAVE"
-  // "fmt " sub-chunk
-  0x66,
-  0x6d,
-  0x74,
-  0x20, // "fmt "
-  0x10,
-  0x00,
-  0x00,
-  0x00, // sub-chunk size: 16
-  0x01,
-  0x00, // audio format: PCM
-  0x01,
-  0x00, // channels: 1 (mono)
-  0x44,
-  0xac,
-  0x00,
-  0x00, // sample rate: 44100
-  0x88,
-  0x58,
-  0x01,
-  0x00, // byte rate: 88200
-  0x02,
-  0x00, // block align: 2
-  0x10,
-  0x00, // bits per sample: 16
-  // "data" sub-chunk
-  0x64,
-  0x61,
-  0x74,
-  0x61, // "data"
-  0x00,
-  0x00,
-  0x00,
-  0x00, // data size: 0 (silent)
-]);
-
-// ---------------------------------------------------------------------------
-// Mock model catalogue
-// ---------------------------------------------------------------------------
-
-const MOCK_MODELS: ModelInfo[] = [
+const MOCK_RAW_MODELS: RawModel[] = [
   {
     id: 'anthropic/claude-sonnet-4.6',
     name: 'Claude Sonnet 4.6',
-    provider: 'Anthropic',
-    modality: 'text',
     description: 'Fast, intelligent model for everyday tasks',
-    contextLength: 200_000,
-    pricing: { kind: 'token', inputPerToken: 0.000_003, outputPerToken: 0.000_015 },
-    capabilities: [],
-    isZdr: true,
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.000003', completion: '0.000015' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
   {
     id: 'anthropic/claude-opus-4.6',
     name: 'Claude Opus 4.6',
-    provider: 'Anthropic',
-    modality: 'text',
     description: 'Most capable model for complex tasks',
-    contextLength: 200_000,
-    pricing: { kind: 'token', inputPerToken: 0.000_015, outputPerToken: 0.000_075 },
-    capabilities: [],
-    isZdr: true,
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.000015', completion: '0.000075' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
   {
-    id: 'google/imagen-4',
+    id: 'anthropic/claude-haiku-4.5',
+    name: 'Claude Haiku 4.5',
+    description: 'Fast, cheap model for everyday tasks',
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.0000003', completion: '0.0000015' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+  {
+    id: 'openai/gpt-5-nano',
+    name: 'GPT-5 Nano',
+    description: 'Cheap general-purpose model',
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.0000004', completion: '0.0000016' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+  {
+    id: 'google/gemini-2.5-flash-lite',
+    name: 'Gemini 2.5 Flash Lite',
+    description: 'Lightweight, low-cost model',
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.00000025', completion: '0.0000012' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+  {
+    id: 'openai/gpt-5-mini',
+    name: 'GPT-5 Mini',
+    description: 'Balanced cost-quality model',
+    modality: 'text',
+    context_length: 200_000,
+    pricing: { prompt: '0.0000005', completion: '0.0000018' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+  {
+    id: 'google/imagen-4.0-generate-001',
     name: 'Imagen 4',
-    provider: 'Google',
-    modality: 'image',
     description: 'High-quality image generation',
-    pricing: { kind: 'image', perImage: 0.04 },
-    capabilities: ['aspect-ratio'],
-    isZdr: true,
+    modality: 'image',
+    context_length: 0,
+    pricing: { prompt: '0', completion: '0', per_image: '0.04' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['image'], output_modalities: ['image'] },
   },
   {
-    id: 'google/veo-3.1',
+    id: 'google/imagen-4.0-fast-generate-001',
+    name: 'Imagen 4 Fast',
+    description: 'Fast image generation',
+    modality: 'image',
+    context_length: 0,
+    pricing: { prompt: '0', completion: '0', per_image: '0.04' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['image'], output_modalities: ['image'] },
+  },
+  {
+    id: 'google/veo-3.1-generate-001',
     name: 'Veo 3.1',
-    provider: 'Google',
-    modality: 'video',
     description: 'Video generation with audio',
-    pricing: { kind: 'video', perSecondByResolution: { '720p': 0.1, '1080p': 0.15 } },
-    capabilities: ['aspect-ratio', 'duration'],
-    isZdr: true,
+    modality: 'video',
+    context_length: 0,
+    pricing: {
+      prompt: '0',
+      completion: '0',
+      per_second_by_resolution: { '720p': '0.1', '1080p': '0.15' },
+    },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['video'], output_modalities: ['video'] },
+  },
+  {
+    id: 'google/veo-3.1-fast-generate-001',
+    name: 'Veo 3.1 Fast',
+    description: 'Fast video generation with audio',
+    modality: 'video',
+    context_length: 0,
+    pricing: {
+      prompt: '0',
+      completion: '0',
+      per_second_by_resolution: { '720p': '0.12', '1080p': '0.18' },
+    },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['video'], output_modalities: ['video'] },
   },
   {
     id: 'openai/tts-1',
     name: 'TTS-1',
-    provider: 'OpenAI',
-    modality: 'audio',
     description: 'Text-to-speech audio generation',
-    pricing: { kind: 'audio', perSecond: 0.015 },
-    capabilities: [],
-    isZdr: true,
+    modality: 'audio',
+    context_length: 0,
+    pricing: { prompt: '0', completion: '0' },
+    supported_parameters: [],
+    created: 0,
+    architecture: { input_modalities: ['audio'], output_modalities: ['audio'] },
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+const MOCK_AUDIO_PER_SECOND = 0.015;
+
+const MOCK_MODELS: ModelInfo[] = MOCK_RAW_MODELS.map((m) => {
+  const info = rawModelToModelInfo(m);
+  // The shared mapper hardcodes audio.perSecond to 0 because the gateway
+  // fetcher doesn't extract audio pricing yet. Override here so the mock
+  // exposes a deterministic non-zero rate; chat-pipeline tests rely on
+  // perSecond × duration math producing a fixed cost.
+  if (info.modality === 'audio' && info.pricing.kind === 'audio') {
+    return { ...info, pricing: { kind: 'audio', perSecond: MOCK_AUDIO_PER_SECOND } };
+  }
+  return info;
+});
 
 function extractLastUserContent(messages: AIMessage[]): string {
   const lastUser = messages.findLast((m) => m.role === 'user');
@@ -263,10 +229,6 @@ function extractLastUserContent(messages: AIMessage[]): string {
         .map((p) => p.text)
         .join('');
 }
-
-// ---------------------------------------------------------------------------
-// Stream generators
-// ---------------------------------------------------------------------------
 
 /** Wrap a sync generator into an InferenceStream (AsyncIterator). */
 function syncStream(generate: () => Generator<InferenceEvent>): InferenceStream {
@@ -306,38 +268,83 @@ function isClassifierRequest(request: TextRequest): boolean {
   return content.startsWith(CLASSIFIER_SYSTEM_PROMPT_MARKER);
 }
 
-function createClassifierStream(modelId: string): InferenceStream {
-  return syncStream(function* (): Generator<InferenceEvent> {
-    for (const char of modelId) {
-      yield { kind: 'text-delta', content: char };
-    }
-    yield {
-      kind: 'finish',
-      providerMetadata: {
-        generationId: `mock-classifier-${String(Date.now())}`,
-        usage: {
-          inputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
-          outputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
-        },
+function createClassifierStream(modelId: string, delayMs: number): InferenceStream {
+  const events: InferenceEvent[] = [];
+  for (const char of modelId) {
+    events.push({ kind: 'text-delta', content: char });
+  }
+  events.push({
+    kind: 'finish',
+    providerMetadata: {
+      generationId: `mock-classifier-${String(Date.now())}`,
+      usage: {
+        inputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
+        outputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
       },
-    };
+    },
   });
+  return delayedEventStream(events, delayMs);
 }
 
-function createFailingClassifierStream(error: Error): InferenceStream {
+function createFailingClassifierStream(error: Error, delayMs: number): InferenceStream {
+  const gate = createFirstCallDelay(delayMs);
   return {
     [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
       return {
-        next(): Promise<IteratorResult<InferenceEvent>> {
-          return Promise.reject(error);
+        async next(): Promise<IteratorResult<InferenceEvent>> {
+          await gate();
+          throw error;
         },
       };
     },
   };
 }
 
+/**
+ * Yield a pre-built event list one at a time, awaiting `delayMs` before the
+ * first yield. Used by the classifier stream so the "Choosing the best
+ * model…" indicator is observable in tests — without a delay the
+ * `stage:start` → `stage:done` round-trip completes on the microtask queue
+ * faster than Playwright's polling window.
+ */
+function delayedEventStream(events: readonly InferenceEvent[], delayMs: number): InferenceStream {
+  const gate = createFirstCallDelay(delayMs);
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      let index = 0;
+      return {
+        async next(): Promise<IteratorResult<InferenceEvent>> {
+          await gate();
+          const event = events[index];
+          if (event === undefined) {
+            return { value: undefined, done: true };
+          }
+          index++;
+          return { value: event, done: false };
+        },
+      };
+    },
+  };
+}
+
+/**
+ * Returns a function that resolves after `delayMs` the first time it's called
+ * and immediately on subsequent calls. `delayMs <= 0` returns a no-op gate.
+ * Shared by mock streams that need to slow down their first event without
+ * delaying every subsequent yield.
+ */
+function createFirstCallDelay(delayMs: number): () => Promise<void> {
+  if (delayMs <= 0) return () => Promise.resolve();
+  let pending = true;
+  return () => {
+    if (!pending) return Promise.resolve();
+    pending = false;
+    return new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+  };
+}
+
 function createTextStream(request: TextRequest): InferenceStream {
-  const echoContent = `Echo: ${extractLastUserContent(request.messages)}`;
+  const echoContent = `Echo:\n${extractLastUserContent(request.messages)}`;
 
   return syncStream(function* (): Generator<InferenceEvent> {
     for (const char of echoContent) {
@@ -361,13 +368,13 @@ function createTextStream(request: TextRequest): InferenceStream {
 
 function createImageStream(): InferenceStream {
   return syncStream(function* (): Generator<InferenceEvent> {
-    yield { kind: 'media-start', mediaType: 'image', mimeType: 'image/png' };
+    yield { kind: 'media-start', mediaType: 'image', mimeType: TEST_IMAGE_MIME };
     yield {
       kind: 'media-done',
-      bytes: CANNED_PNG,
-      mimeType: 'image/png',
-      width: 1,
-      height: 1,
+      bytes: TEST_IMAGE_BYTES,
+      mimeType: TEST_IMAGE_MIME,
+      width: TEST_IMAGE_WIDTH,
+      height: TEST_IMAGE_HEIGHT,
     };
     yield {
       kind: 'finish',
@@ -380,14 +387,14 @@ function createImageStream(): InferenceStream {
 
 function createVideoStream(): InferenceStream {
   return syncStream(function* (): Generator<InferenceEvent> {
-    yield { kind: 'media-start', mediaType: 'video', mimeType: 'video/mp4' };
+    yield { kind: 'media-start', mediaType: 'video', mimeType: TEST_VIDEO_MIME };
     yield {
       kind: 'media-done',
-      bytes: CANNED_MP4,
-      mimeType: 'video/mp4',
-      width: 1920,
-      height: 1080,
-      durationMs: 2000,
+      bytes: TEST_VIDEO_BYTES,
+      mimeType: TEST_VIDEO_MIME,
+      width: TEST_VIDEO_WIDTH,
+      height: TEST_VIDEO_HEIGHT,
+      durationMs: TEST_VIDEO_DURATION_MS,
     };
     yield {
       kind: 'finish',
@@ -400,12 +407,12 @@ function createVideoStream(): InferenceStream {
 
 function createAudioStream(): InferenceStream {
   return syncStream(function* (): Generator<InferenceEvent> {
-    yield { kind: 'media-start', mediaType: 'audio', mimeType: 'audio/wav' };
+    yield { kind: 'media-start', mediaType: 'audio', mimeType: TEST_AUDIO_MIME };
     yield {
       kind: 'media-done',
-      bytes: CANNED_WAV,
-      mimeType: 'audio/wav',
-      durationMs: 1000,
+      bytes: TEST_AUDIO_BYTES,
+      mimeType: TEST_AUDIO_MIME,
+      durationMs: TEST_AUDIO_DURATION_MS,
     };
     yield {
       kind: 'finish',
@@ -416,21 +423,23 @@ function createAudioStream(): InferenceStream {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
-
-export function createMockAIClient(): MockAIClient {
-  const history: InferenceRequest[] = [];
-  const failingModels = new Set<string>();
-  let classifierResolution = DEFAULT_CLASSIFIER_RESOLUTION;
-  let classifierFailure: Error | null = null;
+export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClient {
+  const history: RecordedInferenceRequest[] = [];
+  const failingModels = new Set(config.failingModels);
+  const classifierResolution = config.classifierResolution ?? DEFAULT_CLASSIFIER_RESOLUTION;
+  const classifierFailure =
+    config.classifierFailure === true ? new Error('Classifier unavailable (test)') : null;
+  const classifierDelayMs = Math.max(0, config.classifierDelayMs ?? 0);
 
   return {
     isMock: true,
 
     listModels(): Promise<ModelInfo[]> {
       return Promise.resolve([...MOCK_MODELS]);
+    },
+
+    listRawModels(): Promise<RawModel[]> {
+      return Promise.resolve(MOCK_RAW_MODELS.map((m) => structuredClone(m)));
     },
 
     getModel(id: string): Promise<ModelInfo> {
@@ -453,15 +462,23 @@ export function createMockAIClient(): MockAIClient {
         };
       }
 
-      history.push(structuredClone(request));
+      // The mock never reaches a real gateway, so ZDR is moot in practice;
+      // we tag every recorded request with `zdrEnforced: true` so test
+      // assertions can detect a future regression on the real-client path
+      // (where ZDR_PROVIDER_OPTIONS must be set on EVERY SDK call).
+      const recorded: RecordedInferenceRequest = {
+        ...structuredClone(request),
+        zdrEnforced: true,
+      };
+      history.push(recorded);
 
       switch (request.modality) {
         case 'text': {
           if (isClassifierRequest(request)) {
             if (classifierFailure !== null) {
-              return createFailingClassifierStream(classifierFailure);
+              return createFailingClassifierStream(classifierFailure, classifierDelayMs);
             }
-            return createClassifierStream(classifierResolution);
+            return createClassifierStream(classifierResolution, classifierDelayMs);
           }
           return createTextStream(request);
         }
@@ -474,6 +491,9 @@ export function createMockAIClient(): MockAIClient {
         case 'audio': {
           return createAudioStream();
         }
+        default: {
+          return assertNever(request);
+        }
       }
     },
 
@@ -481,28 +501,12 @@ export function createMockAIClient(): MockAIClient {
       return Promise.resolve({ costUsd: MOCK_GENERATION_STATS_COST });
     },
 
-    getRequestHistory(): InferenceRequest[] {
+    getRequestHistory(): RecordedInferenceRequest[] {
       return [...history];
     },
 
     clearHistory(): void {
       history.length = 0;
-    },
-
-    addFailingModel(id: string): void {
-      failingModels.add(id);
-    },
-
-    clearFailingModels(): void {
-      failingModels.clear();
-    },
-
-    setClassifierResolution(modelId: string): void {
-      classifierResolution = modelId;
-    },
-
-    setClassifierFailure(error: Error | null): void {
-      classifierFailure = error;
     },
   };
 }

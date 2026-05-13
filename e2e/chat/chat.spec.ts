@@ -50,24 +50,19 @@ test.describe('Chat Functionality', () => {
     }) => {
       const chatPage = new ChatPage(authenticatedPage);
 
-      // Send first message
       const firstMessage = `First followup ${String(Date.now())}`;
       await chatPage.messageInput.fill(firstMessage);
 
-      // Verify button is enabled after filling text
       await expect(chatPage.sendButton).toBeEnabled();
       await chatPage.sendButton.click();
 
-      // Wait for message to appear and AI to respond
       await chatPage.expectMessageVisible(firstMessage);
       await chatPage.waitForAIResponse(firstMessage);
 
-      // Send second message to confirm button works
       const secondMessage = `Second followup ${String(Date.now())}`;
       await chatPage.messageInput.fill(secondMessage);
       await chatPage.sendButton.click();
 
-      // Verify second message works
       await chatPage.expectMessageVisible(secondMessage);
       await chatPage.waitForAIResponse(secondMessage);
       // Button is disabled after streaming when input is empty (correct behavior)

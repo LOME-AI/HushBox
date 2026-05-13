@@ -52,7 +52,6 @@ import {
   OpaqueServerConfig,
 } from '@hushbox/crypto';
 import { createErrorResponse } from '../lib/error-response.js';
-import type { AppEnv, Bindings } from '../types.js';
 import { getSessionOptions, type SessionData } from '../lib/session.js';
 import {
   generateTotpSecret,
@@ -82,6 +81,7 @@ import {
   accountLockedEmail,
 } from '../services/email/templates/index.js';
 import { EMAIL_VERIFY_TOKEN_EXPIRY_MS } from '../constants/auth.js';
+import type { AppEnv, Bindings } from '../types.js';
 
 const PENDING_2FA_LOGIN_SECONDS = 5 * 60; // 5 minutes
 
@@ -248,7 +248,6 @@ function resolveIdentifierCondition(identifier: string): ReturnType<typeof eq> {
     : eq(users.username, identifier.toLowerCase());
 }
 
-// Schema definitions
 const registerInitRequestSchema = z.object({
   email: z.email(),
   username: z.string().min(1),
@@ -318,10 +317,6 @@ const changePasswordFinishRequestSchema = z.object({
   newPasswordWrappedPrivateKey: z.string().min(1),
 });
 
-// NOTE: recovery/request-salt and recovery/verify-phrase are deprecated (Phase 3E).
-// The new recovery flow uses recoveryWrappedPrivateKey stored during registration.
-// These endpoints are kept as stubs returning errors until Phase 3E removes them.
-
 const recoveryResetRequestSchema = z.object({
   identifier: z.string().min(1).max(254),
   newRegistrationRequest: z.array(z.number()).min(1),
@@ -359,7 +354,6 @@ function getAuthEnvWithSession(env: Bindings): AuthEnvWithSession | null {
 
 export const opaqueAuthRoute = new Hono<AppEnv>()
 
-  // POST /register/init - Start OPAQUE registration
   .post('/register/init', zValidator('json', registerInitRequestSchema), async (c) => {
     const { email, username, registrationRequest } = c.req.valid('json');
     const db = c.get('db');
@@ -390,7 +384,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       );
     }
 
-    // Check if email already exists
     const existingUser = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
     const userExists = existingUser.length > 0;
 
@@ -409,7 +402,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_REGISTRATION_FAILED), 500);
     }
 
-    // Store pending registration data in Redis with existing flag if user exists
     await redisSet(
       redis,
       'opaquePendingRegistration',
@@ -430,7 +422,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     );
   })
 
-  // POST /register/finish - Complete OPAQUE registration
   .post('/register/finish', zValidator('json', registerFinishRequestSchema), async (c) => {
     const {
       email,
@@ -442,7 +433,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     const db = c.get('db');
     const redis = c.get('redis');
 
-    // Check for pending registration
     const pendingData = await redisGet(redis, 'opaquePendingRegistration', email);
     if (!pendingData) {
       return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_REGISTRATION), 400);
@@ -452,7 +442,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
     // If this is a fake registration for an existing user, skip DB insert
     if (pending.existing) {
-      // Clean up pending registration
       await redisDel(redis, 'opaquePendingRegistration', email);
 
       // Return success with a fake userId (prevents enumeration)
@@ -465,11 +454,9 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       );
     }
 
-    // Deserialize and validate the registration record
     const record = RegistrationRecord.deserialize(OpaqueServerConfig, registrationRecord);
     const recordBytes = new Uint8Array(record.serialize());
 
-    // Decode base64 key material
     const publicKeyBytes = fromBase64(accountPublicKey);
     const passwordWrappedPrivateKeyBytes = fromBase64(passwordWrappedPrivateKey);
     const recoveryWrappedPrivateKeyBytes = fromBase64(recoveryWrappedPrivateKey);
@@ -497,7 +484,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     // Provision wallets (purchased with welcome credit + free tier with daily allowance)
     await ensureWalletsExist(db, newUser.id);
 
-    // Clean up pending registration
     await redisDel(redis, 'opaquePendingRegistration', email);
 
     // Send verification email (fire-and-forget, don't block registration)
@@ -554,7 +540,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     );
   })
 
-  // POST /login/init - Start OPAQUE login
   .post('/login/init', zValidator('json', loginInitRequestSchema), async (c) => {
     const { identifier, ke1 } = c.req.valid('json');
     const db = c.get('db');
@@ -653,7 +638,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     );
   })
 
-  // POST /login/finish - Complete OPAQUE login, set iron-session
   .post('/login/finish', zValidator('json', loginFinishRequestSchema), async (c) => {
     const { identifier, ke3 } = c.req.valid('json');
     const db = c.get('db');
@@ -662,7 +646,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     if (!authEnv) return c.json(createErrorResponse(ERROR_CODE_SERVER_MISCONFIGURED), 500);
     const { masterSecret, sessionSecret } = authEnv;
 
-    // Check for pending login
     const pendingData = await redisGet(redis, 'opaquePendingLogin', identifier);
     if (!pendingData) {
       return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_LOGIN), 400);
@@ -670,7 +653,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
     const pending = pendingData;
 
-    // Create OPAQUE server and verify KE3
     const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
     const ke3Message = KE3.deserialize(OpaqueServerConfig, ke3);
@@ -690,7 +672,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_AUTH_FAILED), 401);
     }
 
-    // Get user data for response
     if (!pending.userId) {
       await redisDel(redis, 'opaquePendingLogin', identifier);
       return c.json(createErrorResponse(ERROR_CODE_AUTH_FAILED), 401);
@@ -719,13 +700,10 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_EMAIL_NOT_VERIFIED), 401);
     }
 
-    // Clean up pending login
     await redisDel(redis, 'opaquePendingLogin', identifier);
 
-    // Clear lockout on successful login
     await clearLockout(redis, 'loginLockout', user.id, 'loginUserRateLimit');
 
-    // Set iron-session cookie
     const { isProduction } = c.get('envUtils');
     const session = await getIronSession<SessionData>(
       c.req.raw,
@@ -768,7 +746,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     );
   })
 
-  // POST /login/2fa/verify - Verify TOTP during login flow
   .post('/login/2fa/verify', zValidator('json', login2FAVerifyRequestSchema), async (c) => {
     const { code } = c.req.valid('json');
     const db = c.get('db');
@@ -780,7 +757,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_SERVER_MISCONFIGURED), 500);
     }
 
-    // Read iron-session from cookie
     const { isProduction: isProduction } = c.get('envUtils');
     const session = await getIronSession<SessionData>(
       c.req.raw,
@@ -793,7 +769,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(sessionCheck.error), sessionCheck.status);
     }
 
-    // Rate limiting for 2FA
     const lockout = await isLockedOut(redis, 'twoFactorLockout', sessionCheck.userId);
     if (lockout.lockedOut) {
       return c.json(
@@ -814,7 +789,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       );
     }
 
-    // Get user and verify TOTP
     const [userRow] = await db
       .select({
         id: users.id,
@@ -857,7 +831,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
     await redisSet(redis, 'sessionActive', '1', sessionCheck.userId, newSessionId);
 
-    // Clear 2FA lockout on success
     await clearLockout(redis, 'twoFactorLockout', sessionCheck.userId, 'twoFactorUserRateLimit');
 
     return c.json(
@@ -870,7 +843,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     );
   })
 
-  // GET /me - Get current authenticated user data + wrapped account key
   .get('/me', async (c) => {
     const sessionData = c.get('sessionData');
     if (!sessionData?.userId) {
@@ -938,7 +910,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     );
   })
 
-  // POST /logout - Clear session (idempotent — succeeds even without a session)
   .post('/logout', async (c) => {
     const sessionSecret = c.env.IRON_SESSION_SECRET;
     if (!sessionSecret) {
@@ -950,11 +921,9 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json({ success: true }, 200);
     }
 
-    // Clean up session from Redis
     const redis = c.get('redis');
     await redisDel(redis, 'sessionActive', sessionData.userId, sessionData.sessionId);
 
-    // Get writable session and destroy it
     const { isProduction: isProductionLogout } = c.get('envUtils');
     const session = await getIronSession<SessionData>(
       c.req.raw,
@@ -966,7 +935,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     return c.json({ success: true }, 200);
   })
 
-  // POST /2fa/setup - Initiate 2FA setup (authenticated, non-pending)
   .post('/2fa/setup', async (c) => {
     const db = c.get('db');
     const redis = c.get('redis');
@@ -995,18 +963,15 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_USER_NOT_FOUND), 500);
     }
 
-    // Check if 2FA is already enabled
     if (user.totpEnabled) {
       return c.json(createErrorResponse(ERROR_CODE_TOTP_ALREADY_ENABLED), 400);
     }
 
     const totpKey = deriveTotpEncryptionKey(textEncoder.encode(masterSecret));
 
-    // Generate new TOTP secret
     const secret = generateTotpSecret();
     const totpUri = generateTotpUri(user.email ?? user.username, secret);
 
-    // Encrypt and store pending 2FA setup in Redis
     const encryptedBlob = encryptTotpSecret(secret, totpKey);
     await redisSet(
       redis,
@@ -1021,7 +986,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     return c.json({ totpUri, secret }, 200);
   })
 
-  // POST /2fa/verify - Verify TOTP code and enable 2FA (setup flow)
   .post('/2fa/verify', zValidator('json', twoFactorVerifyRequestSchema), async (c) => {
     const { code } = c.req.valid('json');
     const db = c.get('db');
@@ -1036,7 +1000,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_2FA_REQUIRED), 401);
     }
 
-    // Rate limiting
     const rateResult = await checkRateLimit(redis, 'twoFactorUserRateLimit', sessionData.userId);
     if (!rateResult.allowed) {
       return c.json(
@@ -1060,7 +1023,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_USER_NOT_FOUND), 500);
     }
 
-    // Check for pending 2FA setup
     const pendingSetupData = await redisGet(redis, 'totpPendingSetup', user.id);
 
     if (!pendingSetupData) {
@@ -1085,10 +1047,8 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       })
       .where(eq(users.id, user.id));
 
-    // Clean up pending setup
     await redisDel(redis, 'totpPendingSetup', user.id);
 
-    // Send 2FA enabled notification email (fire-and-forget)
     await sendNotificationEmail(db, c.env, user.id, (u) => ({
       subject: 'Two-factor authentication enabled',
       content: twoFactorEnabledEmail({ userName: displayUsername(u.username) }),
@@ -1097,7 +1057,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     return c.json({ success: true }, 200);
   })
 
-  // POST /2fa/disable/init - Initiate 2FA disable with password verification
   .post('/2fa/disable/init', zValidator('json', twoFactorDisableInitRequestSchema), async (c) => {
     const { ke1 } = c.req.valid('json');
     const db = c.get('db');
@@ -1118,7 +1077,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_2FA_REQUIRED), 401);
     }
 
-    // Get user with OPAQUE registration
     const [user] = await db
       .select({
         id: users.id,
@@ -1137,7 +1095,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_TOTP_NOT_ENABLED), 400);
     }
 
-    // Create OPAQUE server and process login init
     const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
     const registrationRecord = RegistrationRecord.deserialize(OpaqueServerConfig, [
@@ -1158,7 +1115,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
     const { ke2, expected } = loginResult;
 
-    // Store pending state in Redis
     await redisSet(
       redis,
       'opaquePending2FADisable',
@@ -1177,7 +1133,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     );
   })
 
-  // POST /2fa/disable/finish - Complete 2FA disable with password verification
   .post(
     '/2fa/disable/finish',
     zValidator('json', twoFactorDisableFinishRequestSchema),
@@ -1197,7 +1152,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
       }
 
-      // Rate limiting
       const rateResult = await checkRateLimit(redis, 'twoFactorUserRateLimit', sessionData.userId);
       if (!rateResult.allowed) {
         return c.json(
@@ -1208,13 +1162,11 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         );
       }
 
-      // Get pending state
       const pendingData = await redisGet(redis, 'opaquePending2FADisable', sessionData.userId);
       if (!pendingData) {
         return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_DISABLE), 400);
       }
 
-      // Verify password with OPAQUE
       const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
       const ke3Message = KE3.deserialize(OpaqueServerConfig, ke3);
@@ -1229,10 +1181,8 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_INCORRECT_PASSWORD), 401);
       }
 
-      // Clean up pending state
       await redisDel(redis, 'opaquePending2FADisable', sessionData.userId);
 
-      // Verify TOTP code
       const totpUserResult = await getUserWithTotpConfig(db, sessionData.userId);
       if (!totpUserResult.found) {
         return c.json(createErrorResponse(totpUserResult.error), totpUserResult.status);
@@ -1251,7 +1201,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(result.error), 400);
       }
 
-      // Disable 2FA
       await db
         .update(users)
         .set({
@@ -1260,7 +1209,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         })
         .where(eq(users.id, user.id));
 
-      // Send 2FA disabled notification email (fire-and-forget)
       await sendNotificationEmail(db, c.env, user.id, (u) => ({
         subject: 'Two-factor authentication disabled',
         content: twoFactorDisabledEmail({ userName: displayUsername(u.username) }),
@@ -1270,7 +1218,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     }
   )
 
-  // POST /verify-email - Verify email address with token
   .post('/verify-email', zValidator('json', verifyEmailRequestSchema), async (c) => {
     const { token } = c.req.valid('json');
     const db = c.get('db');
@@ -1291,7 +1238,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       );
     }
 
-    // Look up user by token
     const [user] = await db
       .select({ id: users.id })
       .from(users)
@@ -1301,7 +1247,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_INVALID_OR_EXPIRED_TOKEN), 400);
     }
 
-    // Verify email
     await db
       .update(users)
       .set({
@@ -1314,7 +1259,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     return c.json({ success: true }, 200);
   })
 
-  // POST /resend-verification - Resend verification email
   .post('/resend-verification', zValidator('json', resendVerificationRequestSchema), async (c) => {
     const { email } = c.req.valid('json');
     const db = c.get('db');
@@ -1339,7 +1283,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       );
     }
 
-    // Look up user by email WHERE emailVerified = false
     const [user] = await db
       .select({ id: users.id, username: users.username })
       .from(users)
@@ -1350,7 +1293,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json({ success: true }, 200);
     }
 
-    // Generate new token
     const emailToken = crypto.randomUUID();
     const emailExpires = new Date(Date.now() + EMAIL_VERIFY_TOKEN_EXPIRY_MS);
 
@@ -1362,7 +1304,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       })
       .where(eq(users.id, user.id));
 
-    // Send verification email
     const frontendUrl = c.env.FRONTEND_URL;
     if (!frontendUrl) {
       throw new Error('FRONTEND_URL is required');
@@ -1388,8 +1329,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     return c.json({ success: true }, 200);
   })
 
-  // POST /change-password/init - Initiate password change (authenticated)
-  // Processes both: OPAQUE login for old password verification + OPAQUE registration for new password
   .post('/change-password/init', zValidator('json', changePasswordInitRequestSchema), async (c) => {
     const { ke1, newRegistrationRequest } = c.req.valid('json');
     const db = c.get('db');
@@ -1401,13 +1340,11 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_SERVER_MISCONFIGURED), 500);
     }
 
-    // Require session
     const sessionData = c.get('sessionData');
     if (!sessionData?.userId) {
       return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
     }
 
-    // Get user
     const [user] = await db
       .select({
         id: users.id,
@@ -1421,10 +1358,8 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_USER_NOT_FOUND), 500);
     }
 
-    // Create OPAQUE server
     const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
-    // 1. Process OPAQUE login init (verify old password)
     const registrationRecord = RegistrationRecord.deserialize(OpaqueServerConfig, [
       ...user.opaqueRegistration,
     ]);
@@ -1443,14 +1378,12 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
     const { ke2, expected } = loginResult;
 
-    // 2. Process OPAQUE registration init (new password)
     const regRequest = RegistrationRequest.deserialize(OpaqueServerConfig, newRegistrationRequest);
     const newRegResult = await opaqueServer.registerInit(regRequest, credentialIdentifier);
     if (newRegResult instanceof Error) {
       return c.json(createErrorResponse(ERROR_CODE_CHANGE_PASSWORD_REG_FAILED), 500);
     }
 
-    // Store pending state in Redis
     await redisSet(
       redis,
       'opaquePendingChangePassword',
@@ -1470,7 +1403,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     );
   })
 
-  // POST /change-password/finish - Complete password change (authenticated)
   .post(
     '/change-password/finish',
     zValidator('json', changePasswordFinishRequestSchema),
@@ -1485,13 +1417,11 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_SERVER_MISCONFIGURED), 500);
       }
 
-      // Require session
       const sessionData = c.get('sessionData');
       if (!sessionData?.userId) {
         return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
       }
 
-      // Get pending state
       const pendingData = await redisGet(redis, 'opaquePendingChangePassword', sessionData.userId);
       if (!pendingData) {
         return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_CHANGE), 400);
@@ -1499,7 +1429,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
       const pending = pendingData;
 
-      // Verify old password with OPAQUE
       const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
 
       const ke3Message = KE3.deserialize(OpaqueServerConfig, ke3);
@@ -1514,11 +1443,9 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_INCORRECT_PASSWORD), 401);
       }
 
-      // Deserialize new registration record
       const newRecord = RegistrationRecord.deserialize(OpaqueServerConfig, newRegistrationRecord);
       const newRecordBytes = new Uint8Array(newRecord.serialize());
 
-      // Decode base64 field
       const newPasswordWrappedPrivateKeyBytes = fromBase64(newPasswordWrappedPrivateKey);
 
       // ATOMIC UPDATE: update all fields in one operation
@@ -1530,13 +1457,11 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         })
         .where(eq(users.id, sessionData.userId));
 
-      // Clean up pending state
       await redisDel(redis, 'opaquePendingChangePassword', sessionData.userId);
 
       // Revoke all sessions for this user (except current)
       await redisSet(redis, 'passwordChangedAt', Date.now(), sessionData.userId);
 
-      // Send password changed notification email (fire-and-forget)
       await sendNotificationEmail(db, c.env, sessionData.userId, (u) => ({
         subject: 'Your password was changed',
         content: passwordChangedEmail({ userName: displayUsername(u.username) }),
@@ -1546,8 +1471,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     }
   )
 
-  // POST /recovery/reset - Start OPAQUE re-registration for recovery
-  // New flow: client enters mnemonic locally, unwraps account key, then re-registers OPAQUE
   .post('/recovery/reset', zValidator('json', recoveryResetRequestSchema), async (c) => {
     const { identifier, newRegistrationRequest } = c.req.valid('json');
     const db = c.get('db');
@@ -1591,7 +1514,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_REGISTRATION_FAILED), 500);
     }
 
-    // Store pending recovery state in Redis
     await redisSet(
       redis,
       'opaquePendingRecoveryReset',
@@ -1602,7 +1524,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     return c.json({ newRegistrationResponse: result.serialize() }, 200);
   })
 
-  // POST /recovery/reset/finish - Complete password reset via recovery
   .post(
     '/recovery/reset/finish',
     zValidator('json', recoveryResetFinishRequestSchema),
@@ -1621,7 +1542,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_RECOVERY), 400);
       }
 
-      // Find user by email or username
       const lookupCondition = resolveIdentifierCondition(identifier);
       const [user] = await db.select({ id: users.id }).from(users).where(lookupCondition);
 
@@ -1646,7 +1566,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
       await redisSet(redis, 'passwordChangedAt', Date.now(), user.id);
 
-      // Send password reset notification email (fire-and-forget)
       await sendNotificationEmail(db, c.env, user.id, (u) => ({
         subject: 'Your password was reset',
         content: passwordChangedEmail({ userName: displayUsername(u.username) }),
@@ -1656,7 +1575,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     }
   )
 
-  // POST /recovery/get-wrapped-key - Return recoveryWrappedPrivateKey for recovery flow
   .post(
     '/recovery/get-wrapped-key',
     zValidator('json', recoveryGetWrappedKeyRequestSchema),
@@ -1698,7 +1616,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     }
   )
 
-  // POST /recovery/save - Save new recovery wrapped private key (authenticated)
   .post('/recovery/save', zValidator('json', recoverySaveRequestSchema), async (c) => {
     const { recoveryWrappedPrivateKey } = c.req.valid('json');
     const db = c.get('db');

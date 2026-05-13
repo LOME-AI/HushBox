@@ -1,8 +1,6 @@
 import * as React from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { ChartTooltipContent, ChartLegendContent } from '@hushbox/ui';
-import type { ChartConfig } from '@hushbox/ui';
-import type { SpendingOverTimeResponse } from '@hushbox/shared';
 import {
   CHART_COLORS,
   UsageChartCard,
@@ -11,6 +9,8 @@ import {
   formatDollarTick,
   formatDollarTooltip,
 } from './chart-utilities';
+import type { ChartConfig } from '@hushbox/ui';
+import type { SpendingOverTimeResponse } from '@hushbox/shared';
 
 interface SpendingOverTimeChartProps {
   data: SpendingOverTimeResponse | undefined;

@@ -1,13 +1,12 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { authClient } from '@/lib/auth';
-import { toast } from '@hushbox/ui';
 import { useSearch } from '@tanstack/react-router';
+import { toast } from '@hushbox/ui';
+import { authClient } from '@/lib/auth';
 
 const mockNavigate = vi.fn();
 
-// Mock TanStack Router
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: vi.fn(() => vi.fn()),
   useSearch: vi.fn(() => ({ token: 'test-token' })),
@@ -19,21 +18,18 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
-// Mock shared routes
 vi.mock('@hushbox/shared', () => ({
   ROUTES: {
     LOGIN: '/login',
   },
 }));
 
-// Mock auth client
 vi.mock('@/lib/auth', () => ({
   authClient: {
     verifyEmail: vi.fn(),
   },
 }));
 
-// Mock UI components
 vi.mock('@hushbox/ui', () => ({
   toast: {
     success: vi.fn(),

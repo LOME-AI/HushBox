@@ -82,12 +82,10 @@ describe('FormInput', () => {
     const label = screen.getByText('Email');
     const input = screen.getByRole('textbox');
 
-    // Before focus, label should be in default position
     expect(label).toHaveClass('top-1/2');
 
     await user.click(input);
 
-    // After focus, label should move up
     expect(label).toHaveClass('top-2');
     expect(label).not.toHaveClass('top-1/2');
   });
@@ -97,7 +95,6 @@ describe('FormInput', () => {
 
     const label = screen.getByText('Email');
 
-    // Label should be up because there's a value
     expect(label).toHaveClass('top-2');
     expect(label).not.toHaveClass('top-1/2');
   });

@@ -2,8 +2,8 @@ import * as React from 'react';
 import { useEffect, useState } from 'react';
 import { createFileRoute, useSearch, Link } from '@tanstack/react-router';
 import { toast } from '@hushbox/ui';
-import { authClient } from '@/lib/auth';
 import { ROUTES } from '@hushbox/shared';
+import { authClient } from '@/lib/auth';
 
 type VerifyState = 'loading' | 'success' | 'error';
 

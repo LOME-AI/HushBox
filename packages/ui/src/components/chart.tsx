@@ -1,6 +1,5 @@
 import * as React from 'react';
 
-// Chart config type for defining series colors and labels
 export type ChartConfig = Record<
   string,
   {

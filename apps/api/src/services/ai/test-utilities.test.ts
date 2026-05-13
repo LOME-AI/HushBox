@@ -9,8 +9,9 @@ import type { AIClient, InferenceEvent, InferenceStream, ModelInfo } from './typ
 
 function makeStubClient(models: ModelInfo[]): AIClient {
   return {
-    isMock: true,
+    isMock: false,
     listModels: vi.fn().mockResolvedValue(models),
+    listRawModels: vi.fn().mockResolvedValue([]),
     getModel: vi.fn(),
     stream: vi.fn() as unknown as AIClient['stream'],
     getGenerationStats: vi.fn(),
@@ -152,6 +153,13 @@ describe('getCheapestTestModel', () => {
   it('throws for audio modality (out of scope)', async () => {
     const client = makeStubClient([]);
     await expect(getCheapestTestModel(client, 'audio')).rejects.toThrow('Audio');
+  });
+
+  it('throws on unrecognized modality (assertNever exhaustiveness guard)', async () => {
+    const client = makeStubClient([]);
+    await expect(getCheapestTestModel(client, 'rogue' as 'text')).rejects.toThrow(
+      /exhaustiveness/i
+    );
   });
 
   it('caches the result across calls', async () => {

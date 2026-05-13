@@ -6,8 +6,8 @@ import { XIcon } from 'lucide-react';
 
 import { cn } from '../lib/utilities';
 import { useVisualViewportHeight } from '../hooks/use-visual-viewport-height';
-import type { OverlayProps } from './overlay';
 import { OverlayNavButtons, CLOSE_BUTTON_CLASS } from './overlay-nav-buttons';
+import type { OverlayProps } from './overlay';
 
 /**
  * Bottom sheet renderer for Overlay — slide-up drawer with drag-to-dismiss.

@@ -3,6 +3,29 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// Break the import chain that requires VITE_API_URL at module load time.
+// Without these mocks, frontendEnvSchema.parse() runs in src/lib/api.ts and
+// throws ZodError, preventing every test in this file from loading.
+vi.mock('@/lib/api', () => ({
+  getApiUrl: vi.fn(() => 'http://localhost:8787'),
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public data?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  },
+}));
+
+vi.mock('@/lib/api-client', () => ({
+  client: {},
+  fetchJson: vi.fn(),
+}));
+
 import { PromptInput } from './prompt-input';
 import type { ChatSearchProps, PromptInputRef } from './prompt-input';
 import type { PromptBudgetResult } from '@/hooks/use-prompt-budget';
@@ -14,7 +37,6 @@ vi.mock('@/hooks/use-prompt-budget', () => ({
   usePromptBudget: (...args: unknown[]) => mockUsePromptBudget(...args),
 }));
 
-// Mock stability hooks - configurable via mockUseStability
 const defaultStabilityState = {
   isAuthStable: true,
   isBalanceStable: true,
@@ -26,13 +48,11 @@ vi.mock('@/providers/stability-provider', () => ({
   useStability: () => mockUseStability(),
 }));
 
-// Mock StableContent — passthrough children when stable
 vi.mock('@/components/shared/stable-content', () => ({
   StableContent: ({ isStable, children }: { isStable: boolean; children: React.ReactNode }) =>
     isStable ? children : null,
 }));
 
-// Default budget result — approved, no notifications, not over capacity
 const defaultBudget: PromptBudgetResult = {
   fundingSource: 'personal_balance',
   notifications: [],
@@ -81,7 +101,6 @@ describe('PromptInput', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    // Default: derive hasContent from input value
     mockUsePromptBudget.mockImplementation((input: { value: string }) => ({
       ...defaultBudget,
       hasContent: input.value.trim().length > 0,
@@ -288,7 +307,6 @@ describe('PromptInput', () => {
     });
 
     it('hides budget messages while app is not stable (balance loading)', () => {
-      // App is not stable (isAppStable: false)
       mockUseStability.mockReturnValue({
         isAuthStable: true,
         isBalanceStable: false,
@@ -307,13 +325,11 @@ describe('PromptInput', () => {
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      // Budget messages should be hidden while app is not stable
       expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
       expect(screen.queryByText('Free preview. Sign up for full access.')).not.toBeInTheDocument();
     });
 
     it('hides budget messages while app is not stable (session loading)', () => {
-      // Session is loading - stability reflects this
       mockUseStability.mockReturnValue({
         isAuthStable: false,
         isBalanceStable: true,
@@ -332,7 +348,6 @@ describe('PromptInput', () => {
       renderWithProviders(
         <PromptInput value="Hello" onChange={mockOnChange} onSubmit={mockOnSubmit} />
       );
-      // Budget messages should be hidden while app is not stable
       expect(screen.queryByTestId('budget-messages')).not.toBeInTheDocument();
       expect(screen.queryByText('Free preview. Sign up for full access.')).not.toBeInTheDocument();
     });
@@ -401,7 +416,6 @@ describe('PromptInput', () => {
       );
       const button = screen.getByRole('button', { name: /cannot send/i });
       expect(button).toBeDisabled();
-      // Button contains Square icon (stop), not Send icon
       expect(button.querySelector('svg')).toBeInTheDocument();
     });
 
@@ -562,9 +576,7 @@ describe('PromptInput', () => {
           isGroupChat
         />
       );
-      // Toggle AI off
       await user.click(screen.getByRole('button', { name: /AI response on/i }));
-      // Submit
       await user.click(screen.getByRole('button', { name: /send/i }));
       expect(mockSubmitUserOnly).toHaveBeenCalled();
       expect(mockOnSubmit).not.toHaveBeenCalled();
@@ -583,7 +595,6 @@ describe('PromptInput', () => {
           isGroupChat
         />
       );
-      // AI is on by default, submit normally
       await user.click(screen.getByRole('button', { name: /send/i }));
       expect(mockOnSubmit).toHaveBeenCalled();
       expect(mockSubmitUserOnly).not.toHaveBeenCalled();
@@ -602,9 +613,7 @@ describe('PromptInput', () => {
           isGroupChat
         />
       );
-      // Toggle AI off
       await user.click(screen.getByRole('button', { name: /AI response on/i }));
-      // Submit via Enter key
       const textarea = screen.getByRole('textbox');
       fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
       expect(mockSubmitUserOnly).toHaveBeenCalled();
@@ -655,15 +664,12 @@ describe('PromptInput', () => {
       );
       const textarea = screen.getByRole('textbox');
 
-      // First change triggers immediately
       fireEvent.change(textarea, { target: { value: 'H' } });
       expect(mockOnTypingChange).toHaveBeenCalledTimes(1);
 
-      // Second change within 3s is throttled
       fireEvent.change(textarea, { target: { value: 'He' } });
       expect(mockOnTypingChange).toHaveBeenCalledTimes(1);
 
-      // After 3s, next change triggers again
       vi.advanceTimersByTime(3000);
       fireEvent.change(textarea, { target: { value: 'Hel' } });
       expect(mockOnTypingChange).toHaveBeenCalledTimes(2);
@@ -681,7 +687,6 @@ describe('PromptInput', () => {
       );
       const textarea = screen.getByRole('textbox');
 
-      // Clear the input
       fireEvent.change(textarea, { target: { value: '' } });
       expect(mockOnTypingChange).toHaveBeenCalledWith(false);
     });
@@ -705,7 +710,6 @@ describe('PromptInput', () => {
     it('does not error when onTypingChange is not provided', () => {
       renderWithProviders(<PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} />);
       const textarea = screen.getByRole('textbox');
-      // Should not throw
       expect(() => {
         fireEvent.change(textarea, { target: { value: 'H' } });
       }).not.toThrow();
@@ -773,8 +777,11 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps({ modelSupportsSearch: false })}
         />
       );
-      const button = screen.getByRole('button', { name: /internet search unavailable/i });
-      expect(button).toBeDisabled();
+      // Disabled state: only the wrapper span is in the accessibility tree
+      // (inner native button is aria-hidden). aria-disabled communicates the
+      // disabled affordance to assistive tech.
+      const wrapper = screen.getByRole('button', { name: /internet search unavailable/i });
+      expect(wrapper).toHaveAttribute('aria-disabled', 'true');
     });
 
     it('shows disabled search toggle for unauthenticated users', () => {
@@ -787,8 +794,36 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps()}
         />
       );
-      const button = screen.getByRole('button', { name: /internet search unavailable/i });
-      expect(button).toBeDisabled();
+      const wrapper = screen.getByRole('button', { name: /internet search unavailable/i });
+      expect(wrapper).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('does not render the search toggle when activeModality is image (searchProps undefined)', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="image"
+        />
+      );
+      // Structural guard: chat-layout omits searchProps in image mode, so the
+      // toggle should not be rendered at all (not just disabled).
+      expect(screen.queryByRole('button', { name: /internet search/i })).not.toBeInTheDocument();
+    });
+
+    it('does not render the search toggle when activeModality is video (searchProps undefined)', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="video"
+        />
+      );
+      expect(screen.queryByRole('button', { name: /internet search/i })).not.toBeInTheDocument();
     });
   });
 
@@ -804,9 +839,11 @@ describe('PromptInput', () => {
         />
       );
 
-      const button = screen.getByRole('button', { name: /internet search unavailable/i });
-      const wrapper = button.closest('span[data-slot="tooltip-trigger"]');
-      expect(wrapper).not.toBeNull();
+      // The role=button entry is the wrapper span itself (inner native button
+      // is aria-hidden when disabled). Confirm it is the tooltip trigger span.
+      const wrapper = screen.getByRole('button', { name: /internet search unavailable/i });
+      expect(wrapper.tagName).toBe('SPAN');
+      expect(wrapper).toHaveAttribute('data-slot', 'tooltip-trigger');
     });
 
     it('wraps enabled search toggle in span for tooltip consistency', () => {
@@ -904,7 +941,6 @@ describe('PromptInput', () => {
       const tooltip = await screen.findByRole('tooltip');
       expect(tooltip).toHaveTextContent('Internet search off');
 
-      // Click to toggle search on — tooltip should stay visible with updated text
       await user.click(button);
 
       expect(screen.getByRole('button', { name: /internet search on/i })).toBeInTheDocument();
@@ -1183,7 +1219,7 @@ describe('PromptInput', () => {
       ).not.toBeInTheDocument();
     });
 
-    it('does not render modality icons for unauthenticated users', () => {
+    it('renders modality icons disabled with sign-up label for unauthenticated users', () => {
       renderWithProviders(
         <PromptInput
           value="Hello"
@@ -1194,9 +1230,108 @@ describe('PromptInput', () => {
           onSelectModality={vi.fn()}
         />
       );
+      // Disabled state: wrapping span owns role=button with aria-disabled=true,
+      // inner native button is aria-hidden so the same name isn't announced
+      // twice. Assert the wrappers communicate disabled via aria-disabled.
+      const wrappers = screen.getAllByRole('button', { name: /sign up to unlock/i });
+      expect(wrappers.length).toBeGreaterThan(0);
+      for (const wrapper of wrappers) {
+        expect(wrapper).toHaveAttribute('aria-disabled', 'true');
+      }
+    });
+
+    it('makes disabled trial modality icons keyboard-focusable for tooltip discovery', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated={false}
+          activeModality="text"
+          onSelectModality={vi.fn()}
+        />
+      );
+      // The wrapping span carries role=button + tabIndex=0 so keyboard users
+      // can tab onto it and read the trial tooltip (the inner native button is
+      // disabled and unreachable). aria-disabled communicates "not actionable".
+      const wrappers = screen
+        .getAllByRole('button', { name: /sign up to unlock/i })
+        .filter((element) => element.tagName !== 'BUTTON');
+      expect(wrappers.length).toBeGreaterThan(0);
+      for (const wrapper of wrappers) {
+        expect(wrapper).toHaveAttribute('tabindex', '0');
+        expect(wrapper).toHaveAttribute('aria-disabled', 'true');
+      }
+    });
+
+    it('uses per-modality trial tooltip text mentioning the modality name', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated={false}
+          activeModality="text"
+          onSelectModality={vi.fn()}
+        />
+      );
+      // The image and video icons render with action-context tooltips.
       expect(
-        screen.queryByRole('button', { name: /switch to (image|video|audio|text)/i })
-      ).not.toBeInTheDocument();
+        screen.queryAllByRole('button', {
+          name: /image generation — sign up to unlock/i,
+        }).length
+      ).toBeGreaterThan(0);
+      expect(
+        screen.queryAllByRole('button', {
+          name: /video generation — sign up to unlock/i,
+        }).length
+      ).toBeGreaterThan(0);
+    });
+
+    it('disabled trial modality icon exposes exactly one accessible button per modality', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated={false}
+          activeModality="text"
+          onSelectModality={vi.fn()}
+        />
+      );
+      // Wrapper span owns the role+name when disabled; inner native button is
+      // aria-hidden so the same accessible name isn't announced twice. Assertion
+      // is one role=button per modality, not two.
+      expect(
+        screen.queryAllByRole('button', {
+          name: /image generation — sign up to unlock/i,
+        })
+      ).toHaveLength(1);
+      expect(
+        screen.queryAllByRole('button', {
+          name: /video generation — sign up to unlock/i,
+        })
+      ).toHaveLength(1);
+    });
+
+    it('does not invoke onSelectModality when a disabled trial icon is clicked', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const handleSelect = vi.fn();
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated={false}
+          activeModality="text"
+          onSelectModality={handleSelect}
+        />
+      );
+      const button = screen.getAllByRole('button', { name: /sign up to unlock/i })[0];
+      if (!button) throw new Error('Expected at least one disabled trial icon');
+      await user.click(button);
+      expect(handleSelect).not.toHaveBeenCalled();
     });
 
     it('renders image and video icons for authenticated users in text mode', () => {

@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Badge } from '@hushbox/ui';
 import { Search } from 'lucide-react';
+import { Badge } from '@hushbox/ui';
 
 interface BlogIndexEntry {
   slug: string;

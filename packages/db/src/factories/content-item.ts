@@ -1,8 +1,8 @@
 import { Factory } from 'fishery';
 import { faker } from '@faker-js/faker';
 
-import type { contentItems } from '../schema/content-items';
 import { placeholderBytes } from './helpers.js';
+import type { contentItems } from '../schema/content-items';
 
 type ContentItem = typeof contentItems.$inferSelect;
 

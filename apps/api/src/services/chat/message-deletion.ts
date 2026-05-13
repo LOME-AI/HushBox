@@ -1,9 +1,5 @@
 import { eq, gt, and, inArray } from 'drizzle-orm';
-import { messages, type Database } from '@hushbox/db';
-
-// ============================================================================
-// Types
-// ============================================================================
+import { messages, type DatabaseClient } from '@hushbox/db';
 
 export interface DeleteMessagesAfterAnchorParams {
   conversationId: string;
@@ -14,10 +10,6 @@ export interface DeleteMessagesAfterAnchorParams {
 export interface DeleteMessagesAfterAnchorResult {
   deletedIds: string[];
 }
-
-// ============================================================================
-// Implementation
-// ============================================================================
 
 /**
  * Deletes messages after an anchor point.
@@ -34,7 +26,7 @@ export interface DeleteMessagesAfterAnchorResult {
  * Idempotent: re-running after deletion returns empty deletedIds.
  */
 export async function deleteMessagesAfterAnchor(
-  tx: Database,
+  tx: DatabaseClient,
   params: DeleteMessagesAfterAnchorParams
 ): Promise<DeleteMessagesAfterAnchorResult> {
   if (params.forkTipMessageId === undefined) {
@@ -48,16 +40,11 @@ export async function deleteMessagesAfterAnchor(
   );
 }
 
-// ============================================================================
-// No-fork (linear) deletion
-// ============================================================================
-
 async function deleteLinear(
-  tx: Database,
+  tx: DatabaseClient,
   conversationId: string,
   anchorMessageId: string
 ): Promise<DeleteMessagesAfterAnchorResult> {
-  // Get the anchor's sequence number
   const [anchor] = await tx
     .select({ sequenceNumber: messages.sequenceNumber })
     .from(messages)
@@ -79,10 +66,6 @@ async function deleteLinear(
 
   return { deletedIds: deleted.map((d) => d.id) };
 }
-
-// ============================================================================
-// Fork-aware deletion
-// ============================================================================
 
 /** Walks from tip to anchor, collecting candidate message IDs (excluding anchor). */
 function collectCandidates(
@@ -130,7 +113,7 @@ function findExclusiveCandidates(
 }
 
 async function deleteForkChain(
-  tx: Database,
+  tx: DatabaseClient,
   conversationId: string,
   anchorMessageId: string,
   forkTipMessageId: string

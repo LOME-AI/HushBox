@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
-import type { AppEnv } from '../types';
 import { requireAuth } from './require-auth';
+import type { AppEnv } from '../types';
 
 describe('requireAuth middleware', () => {
   it('returns 401 when user is null', async () => {

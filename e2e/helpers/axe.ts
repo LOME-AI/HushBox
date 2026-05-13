@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import type { Page, TestInfo } from '@playwright/test';
 import { expect } from '@playwright/test';
+import type { Page, TestInfo } from '@playwright/test';
 
 interface ExpectNoA11yViolationsOptions {
   /**

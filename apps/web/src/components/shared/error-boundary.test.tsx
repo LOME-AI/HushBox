@@ -11,8 +11,6 @@ function ThrowingComponent({ shouldThrow }: Readonly<{ shouldThrow: boolean }>):
 
 describe('ErrorBoundary', () => {
   beforeEach(() => {
-    // Suppress console.error for expected errors
-
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -64,23 +62,18 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     );
 
-    // Should show error UI
     expect(screen.getByRole('heading', { name: /something went wrong/i })).toBeInTheDocument();
 
-    // Fix the error condition
     shouldThrow = false;
 
-    // Click retry
     fireEvent.click(screen.getByRole('button', { name: /try again/i }));
 
-    // Force rerender to pick up the state change
     rerender(
       <ErrorBoundary>
         <ConditionalThrower />
       </ErrorBoundary>
     );
 
-    // Should now show recovered content
     expect(screen.getByTestId('recovered')).toBeInTheDocument();
   });
 

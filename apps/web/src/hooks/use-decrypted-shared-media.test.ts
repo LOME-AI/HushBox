@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
+import type { ContentKey } from '@hushbox/crypto';
 
 const mockDecryptBinaryWithContentKey =
   vi.fn<(contentKey: Uint8Array, ciphertext: Uint8Array) => Uint8Array>();
@@ -19,16 +16,12 @@ const mockFetch = vi.fn<(input: RequestInfo | URL) => Promise<Response>>();
 
 import { useDecryptedSharedMedia } from './use-decrypted-shared-media';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function defaultParams(
   overrides: Partial<Parameters<typeof useDecryptedSharedMedia>[0]> = {}
 ): Parameters<typeof useDecryptedSharedMedia>[0] {
   return {
     downloadUrl: 'https://signed.example/img?sig=a',
-    contentKey: new Uint8Array([4, 5, 6]),
+    contentKey: new Uint8Array([4, 5, 6]) as ContentKey,
     mimeType: 'image/png',
     ...overrides,
   };
@@ -41,10 +34,6 @@ function createFetchResponse(bytes: Uint8Array, ok = true, status = 200): Respon
     arrayBuffer: () => Promise.resolve(bytes.buffer as ArrayBuffer),
   } as Response;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useDecryptedSharedMedia', () => {
   let urlCounter: number;
@@ -72,7 +61,7 @@ describe('useDecryptedSharedMedia', () => {
     mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([10, 11, 12]));
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([7, 8])));
 
-    const contentKey = new Uint8Array([99, 99]);
+    const contentKey = new Uint8Array([99, 99]) as ContentKey;
     const { result } = renderHook(() => useDecryptedSharedMedia(defaultParams({ contentKey })));
 
     await waitFor(() => {
@@ -84,7 +73,6 @@ describe('useDecryptedSharedMedia', () => {
     expect(result.current.error).toBeNull();
     expect(mockFetch).toHaveBeenCalledWith('https://signed.example/img?sig=a');
     expect(mockDecryptBinaryWithContentKey).toHaveBeenCalledTimes(1);
-    // decryptBinaryWithContentKey must be called with the exact contentKey we passed in.
     expect(mockDecryptBinaryWithContentKey.mock.calls[0]![0]).toBe(contentKey);
     expect(mockCreateObjectURL).toHaveBeenCalledTimes(1);
   });
@@ -93,7 +81,7 @@ describe('useDecryptedSharedMedia', () => {
     const { result } = renderHook(() =>
       useDecryptedSharedMedia({
         downloadUrl: null,
-        contentKey: new Uint8Array([1]),
+        contentKey: new Uint8Array([1]) as ContentKey,
         mimeType: 'image/png',
       })
     );

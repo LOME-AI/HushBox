@@ -63,12 +63,10 @@ test.describe('Link Guest Chat', () => {
       const guestMessage = `Guest says hello ${String(Date.now())}`;
       await guestInput.fill(guestMessage);
 
-      // Now wait for send button to be enabled (text filled + no active streams)
       const sendButton = unauthenticatedPage.getByTestId('send-button');
       await expect(sendButton).toBeEnabled({ timeout: 15_000 });
       await sendButton.click();
 
-      // Guest's message and AI Echo response should appear
       await guestChatPage.assertMessageVisible(guestMessage);
       await guestChatPage.assertMessageVisible('Echo:');
     });
@@ -85,10 +83,8 @@ test.describe('Link Guest Chat', () => {
       await expect(sendButton).toBeEnabled({ timeout: 5000 });
       await sendButton.click();
 
-      // Guest's message should appear
       await guestChatPage.assertMessageVisible(modelMessage);
 
-      // AI response should appear with model nametag
       await guestChatPage.waitForAIResponse();
       // Sanity: React state knows about all 4 assistant messages
       await unsettledExpect(guestChatPage.messageList).toHaveAttribute(

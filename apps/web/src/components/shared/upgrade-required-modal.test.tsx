@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { UpgradeRequiredModal } from './upgrade-required-modal';
 import { useAppVersionStore } from '@/stores/app-version';
+import { UpgradeRequiredModal } from './upgrade-required-modal';
 
 const { mockIsNative, mockCheckForUpdate, mockApplyUpdate } = vi.hoisted(() => ({
   mockIsNative: vi.fn(() => false),

@@ -90,7 +90,6 @@ export function generateIcons(outputDir: string, repoRoot?: string): string[] {
   return filenames;
 }
 
-// CLI entry point
 const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../packages/ui/src/assets/icons');
 
 /* v8 ignore next 2 */

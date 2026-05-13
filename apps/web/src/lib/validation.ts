@@ -17,13 +17,6 @@ export interface ValidationResult {
   success?: string | undefined;
 }
 
-/**
- * Creates a validator function from a Zod schema.
- *
- * @param schema - The Zod schema to validate against
- * @param successMessage - Message to return on successful validation (default: 'Valid')
- * @returns A function that validates a value and returns a ValidationResult
- */
 export function createValidator<T>(
   schema: z.ZodType<T>,
   successMessage = 'Valid'

@@ -22,6 +22,7 @@ export * from './text-encoder.js';
 export * from './utils/privileges.js';
 export * from './utils/base64.js';
 export * from './utils/levenshtein.js';
+export * from './utils/assert-never.js';
 export * from './legal/index.js';
 export * from './error-messages.js';
 export * from './mobile.js';

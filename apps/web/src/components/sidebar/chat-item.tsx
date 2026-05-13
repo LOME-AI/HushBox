@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { cn, DropdownMenuItem } from '@hushbox/ui';
 import {
   Bell,
   BellOff,
@@ -12,9 +11,10 @@ import {
   PinOff,
   Trash2,
 } from 'lucide-react';
-import { ItemRow } from '@/components/shared/item-row';
+import { cn, DropdownMenuItem } from '@hushbox/ui';
 import { encryptTextForEpoch, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { toBase64, ROUTES } from '@hushbox/shared';
+import { ItemRow } from '@/components/shared/item-row';
 import { useUIStore } from '@/stores/ui';
 import { useDeleteConversation, useUpdateConversation, DECRYPTING_TITLE } from '@/hooks/chat';
 import {

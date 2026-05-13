@@ -17,6 +17,7 @@ import {
   decryptBinaryWithContentKey,
   encryptBinaryWithContentKey,
   generateKeyPair,
+  type ContentKey,
 } from '@hushbox/crypto';
 import { createMediaStorage } from '../storage/media-storage.js';
 import type { MediaStorage } from '../storage/types.js';
@@ -121,7 +122,7 @@ export async function setupMediaStrategyTest(): Promise<MediaStrategyTestContext
 export interface EncryptedUploadResult {
   storageKey: string;
   ciphertext: Uint8Array;
-  contentKey: Uint8Array;
+  contentKey: ContentKey;
   wrappedContentKey: Uint8Array;
 }
 
@@ -161,7 +162,7 @@ export async function encryptAndUploadMedia(params: {
 export async function fetchAndDecryptMedia(params: {
   storage: MediaStorage;
   storageKey: string;
-  contentKey: Uint8Array;
+  contentKey: ContentKey;
 }): Promise<Uint8Array> {
   const { url } = await params.storage.mintDownloadUrl({ key: params.storageKey });
   const response = await fetch(url);

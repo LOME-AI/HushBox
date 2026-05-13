@@ -1,10 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ERROR_CODE_CLASSIFIER_FAILED } from '@hushbox/shared';
 
 import { createMockAIClient } from '../../services/ai/mock.js';
-import type { SSEEventWriter } from '../stream-handler.js';
-
 import { createSmartModelStage } from './smart-model-stage.js';
+import type { SSEEventWriter } from '../stream-handler.js';
 
 function createRecordingWriter(): SSEEventWriter & {
   events: { method: string; payload: unknown }[];
@@ -19,8 +17,11 @@ function createRecordingWriter(): SSEEventWriter & {
   return {
     events,
     writeStart: record('writeStart') as SSEEventWriter['writeStart'],
-    writeToken: record('writeToken') as SSEEventWriter['writeToken'],
     writeModelToken: record('writeModelToken') as SSEEventWriter['writeModelToken'],
+    writeModelMediaStart: record('writeModelMediaStart') as SSEEventWriter['writeModelMediaStart'],
+    writeModelMediaProgress: record(
+      'writeModelMediaProgress'
+    ) as SSEEventWriter['writeModelMediaProgress'],
     writeError: record('writeError') as SSEEventWriter['writeError'],
     writeModelDone: record('writeModelDone') as SSEEventWriter['writeModelDone'],
     writeModelError: record('writeModelError') as SSEEventWriter['writeModelError'],
@@ -65,8 +66,7 @@ describe('SmartModelStage', () => {
   });
 
   it('emits stage:start, runs the classifier, and emits stage:done with the resolved model', async () => {
-    const aiClient = createMockAIClient();
-    aiClient.setClassifierResolution('anthropic/claude-opus-4.6');
+    const aiClient = createMockAIClient({ classifierResolution: 'anthropic/claude-opus-4.6' });
     const writer = createRecordingWriter();
     const stage = makeStage();
 
@@ -104,8 +104,7 @@ describe('SmartModelStage', () => {
   });
 
   it('passes a TextRequest to aiClient.stream with the classifier model and capped output tokens', async () => {
-    const aiClient = createMockAIClient();
-    aiClient.setClassifierResolution('cheap/c');
+    const aiClient = createMockAIClient({ classifierResolution: 'cheap/c' });
     const streamSpy = vi.spyOn(aiClient, 'stream');
     const writer = createRecordingWriter();
 
@@ -127,52 +126,8 @@ describe('SmartModelStage', () => {
     );
   });
 
-  it('returns CLASSIFIER_FAILED when the classifier call throws', async () => {
-    const aiClient = createMockAIClient();
-    aiClient.setClassifierFailure(new Error('upstream gone'));
-    const writer = createRecordingWriter();
-
-    const outcome = await makeStage().run({
-      aiClient,
-      writer,
-      assistantMessageId: 'asst-1',
-      upstream: {},
-    });
-
-    expect(outcome.ok).toBe(false);
-    if (outcome.ok) return;
-    expect(outcome.errorCode).toBe(ERROR_CODE_CLASSIFIER_FAILED);
-
-    const errorEvent = writer.events.find((e) => e.method === 'writeStageError');
-    expect(errorEvent?.payload).toMatchObject({
-      stageId: 'smart-model',
-      assistantMessageId: 'asst-1',
-      errorCode: ERROR_CODE_CLASSIFIER_FAILED,
-    });
-    // No stage:done emitted on failure
-    expect(writer.events.find((e) => e.method === 'writeStageDone')).toBeUndefined();
-  });
-
-  it('returns CLASSIFIER_FAILED when the classifier output cannot be resolved', async () => {
-    const aiClient = createMockAIClient();
-    aiClient.setClassifierResolution('totally-unrelated-id-not-in-eligible');
-    const writer = createRecordingWriter();
-
-    const outcome = await makeStage().run({
-      aiClient,
-      writer,
-      assistantMessageId: 'asst-1',
-      upstream: {},
-    });
-
-    expect(outcome.ok).toBe(false);
-    if (outcome.ok) return;
-    expect(outcome.errorCode).toBe(ERROR_CODE_CLASSIFIER_FAILED);
-  });
-
   it('falls back to the model id when name metadata is missing', async () => {
-    const aiClient = createMockAIClient();
-    aiClient.setClassifierResolution('cheap/c');
+    const aiClient = createMockAIClient({ classifierResolution: 'cheap/c' });
     const writer = createRecordingWriter();
 
     const stage = makeStage({ modelMetadataById: new Map() });
@@ -189,6 +144,134 @@ describe('SmartModelStage', () => {
     const doneEvent = writer.events.find((e) => e.method === 'writeStageDone');
     expect(doneEvent?.payload).toMatchObject({
       payload: { resolvedModelName: 'cheap/c' },
+    });
+  });
+
+  describe('single-eligible short-circuit', () => {
+    it('skips the classifier call when only one model is eligible', async () => {
+      const aiClient = createMockAIClient();
+      const writer = createRecordingWriter();
+      const stage = makeStage({
+        eligibleInferenceIds: ['cheap/c'],
+      });
+
+      const outcome = await stage.run({
+        aiClient,
+        writer,
+        assistantMessageId: 'asst-only',
+        upstream: {},
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) return;
+      expect(outcome.transformation).toEqual({ resolvedModelId: 'cheap/c' });
+      // No classifier billing — the call was skipped.
+      expect(outcome.billing).toBeNull();
+      // No request was ever made to the AI client.
+      expect(aiClient.getRequestHistory()).toHaveLength(0);
+    });
+
+    it('still emits stage:start and stage:done on single-eligible short-circuit', async () => {
+      const aiClient = createMockAIClient();
+      const writer = createRecordingWriter();
+      const stage = makeStage({
+        eligibleInferenceIds: ['cheap/c'],
+      });
+
+      await stage.run({
+        aiClient,
+        writer,
+        assistantMessageId: 'asst-short',
+        upstream: {},
+      });
+
+      const start = writer.events.find((e) => e.method === 'writeStageStart');
+      expect(start?.payload).toMatchObject({
+        stageId: 'smart-model',
+        assistantMessageId: 'asst-short',
+      });
+      const done = writer.events.find((e) => e.method === 'writeStageDone');
+      expect(done?.payload).toMatchObject({
+        assistantMessageId: 'asst-short',
+        payload: {
+          stageId: 'smart-model',
+          resolvedModelId: 'cheap/c',
+          resolvedModelName: 'Cheap C',
+        },
+      });
+    });
+  });
+
+  describe('classifier failure falls back to value model', () => {
+    it('falls back to the cheapest eligible model when the classifier throws', async () => {
+      const aiClient = createMockAIClient({ classifierFailure: true });
+      const writer = createRecordingWriter();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const outcome = await makeStage().run({
+        aiClient,
+        writer,
+        assistantMessageId: 'asst-fallback-throw',
+        upstream: {},
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) return;
+      // classifierModelId = 'cheap/c' is the cheapest eligible.
+      expect(outcome.transformation).toEqual({ resolvedModelId: 'cheap/c' });
+      // No billing breadcrumb — the failed call has no generationId.
+      expect(outcome.billing).toBeNull();
+
+      const done = writer.events.find((e) => e.method === 'writeStageDone');
+      expect(done?.payload).toMatchObject({
+        payload: {
+          stageId: 'smart-model',
+          resolvedModelId: 'cheap/c',
+          fallbackOccurred: true,
+        },
+      });
+      // No stage:error on fallback — we degraded gracefully.
+      expect(writer.events.find((e) => e.method === 'writeStageError')).toBeUndefined();
+      // Upstream cause must be logged (via console.error) so Sentry/dev see the chain.
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Smart Model classifier failed',
+        expect.objectContaining({ message: 'Classifier unavailable (test)' })
+      );
+      errorSpy.mockRestore();
+    });
+
+    it('falls back to the cheapest eligible model when the classifier output cannot be resolved', async () => {
+      const aiClient = createMockAIClient({
+        classifierResolution: 'totally-unrelated-id-not-in-eligible',
+      });
+      const writer = createRecordingWriter();
+
+      const outcome = await makeStage().run({
+        aiClient,
+        writer,
+        assistantMessageId: 'asst-fallback-garbage',
+        upstream: {},
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) return;
+      expect(outcome.transformation).toEqual({ resolvedModelId: 'cheap/c' });
+      // The failed call still bills — it cost something.
+      expect(outcome.billing).not.toBeNull();
+      expect(outcome.billing).toMatchObject({
+        stageId: 'smart-model',
+        modelId: 'cheap/c',
+      });
+      expect(outcome.billing?.generationId).toBeTruthy();
+
+      const done = writer.events.find((e) => e.method === 'writeStageDone');
+      expect(done?.payload).toMatchObject({
+        payload: {
+          stageId: 'smart-model',
+          resolvedModelId: 'cheap/c',
+          fallbackOccurred: true,
+        },
+      });
     });
   });
 });

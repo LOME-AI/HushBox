@@ -49,7 +49,6 @@ export type { Bindings } from './types.js';
 export function createApp() {
   const base = new Hono<AppEnv>();
 
-  // Global middleware
   base.use('*', cors());
   base.use('*', securityHeaders());
   base.use('*', platformMiddleware());
@@ -57,7 +56,6 @@ export function createApp() {
   base.use('*', versionCheck());
   base.onError(errorHandler);
 
-  // Per-route middleware (all on base, before chaining)
   base.use('/api/auth/*', csrfProtection());
   base.use('/api/auth/*', dbMiddleware());
   base.use('/api/auth/*', redisMiddleware());
@@ -88,6 +86,12 @@ export function createApp() {
   base.use('/api/budgets/*', sessionMiddleware());
 
   base.use('/api/shares/*', dbMiddleware());
+  // The public share endpoint is unauthenticated but rate-limited by IP via the
+  // shareGetIpRateLimit registry entry, so it needs Redis access. Mount AFTER
+  // dbMiddleware so the redis client is available alongside the DB client when
+  // the route handler runs.
+  base.use('/api/shares/*', redisMiddleware());
+  base.use('/api/shares/*', mediaStorageMiddleware());
 
   base.use('/api/messages/*', csrfProtection());
   base.use('/api/messages/*', dbMiddleware());
@@ -129,6 +133,7 @@ export function createApp() {
   base.use('/api/trial/*', mediaStorageMiddleware());
 
   base.use('/api/models/*', csrfProtection());
+  base.use('/api/models/*', aiClientMiddleware());
 
   base.use('/api/billing/*', csrfProtection());
   base.use('/api/billing/*', dbMiddleware());
@@ -172,8 +177,8 @@ export function createApp() {
   base.use('/api/dev/*', devOnly());
   base.use('/api/dev/*', dbMiddleware());
   base.use('/api/dev/*', redisMiddleware());
+  base.use('/api/dev/*', aiClientMiddleware());
 
-  // Chain ALL routes for full AppType inference
   const app = base
     .route('/api/health', healthRoute)
     .route('/api/auth', opaqueAuthRoute)

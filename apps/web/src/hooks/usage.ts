@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { client, fetchJson } from '../lib/api-client.js';
 import type {
   UsageSummaryResponse,
   SpendingOverTimeResponse,
@@ -9,7 +10,6 @@ import type {
   UsageModelsResponse,
   UsageGranularity,
 } from '@hushbox/shared';
-import { client, fetchJson } from '../lib/api-client.js';
 
 interface DateRange {
   startDate: string;

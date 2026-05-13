@@ -1,24 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock getApiUrl before importing the module — vi.hoisted so we can override per-test
 const mockGetApiUrl = vi.hoisted(() => vi.fn(() => 'http://localhost:8787'));
 vi.mock('./api.js', () => ({
   getApiUrl: () => mockGetApiUrl(),
 }));
 
-// Mock parseEvent from realtime package
 const mockParseEvent = vi.fn();
 vi.mock('@hushbox/realtime/events', () => ({
   parseEvent: (...args: unknown[]) => mockParseEvent(...args),
 }));
 
-// Mock link-guest-auth
 const mockGetLinkGuestAuth = vi.fn<() => string | null>(() => null);
 vi.mock('./link-guest-auth.js', () => ({
   getLinkGuestAuth: () => mockGetLinkGuestAuth(),
 }));
 
-// Mock network store for network-aware reconnection
 const mockNetworkStore = vi.hoisted(() => {
   let isOffline = false;
   const listeners = new Set<
@@ -58,7 +54,6 @@ vi.mock('../stores/network.js', () => ({
 
 import { ConversationWebSocket, type ConversationWebSocketOptions } from './ws-client.js';
 
-// --- Mock WebSocket ---
 // readyState starts as OPEN. onopen is NOT auto-fired; tests trigger it manually.
 
 class MockWebSocket {
@@ -100,7 +95,6 @@ class MockWebSocket {
   });
 }
 
-// Track all created MockWebSocket instances
 let createdWebSockets: MockWebSocket[] = [];
 const OriginalMockWebSocket = MockWebSocket;
 
@@ -246,7 +240,6 @@ describe('ConversationWebSocket', () => {
 
       client.disconnect();
 
-      // No new WebSocket should be created even after timer
       vi.advanceTimersByTime(200);
       expect(createdWebSockets).toHaveLength(1);
     });
@@ -277,7 +270,6 @@ describe('ConversationWebSocket', () => {
 
       client.disconnect();
 
-      // Simulate the CONNECTING socket completing its handshake
       ws.readyState = MockWebSocket.OPEN;
       simulateOpen(ws);
 
@@ -293,11 +285,9 @@ describe('ConversationWebSocket', () => {
 
       client.disconnect();
 
-      // Simulate the stale socket closing
       ws1.readyState = MockWebSocket.CLOSED;
       ws1.dispatchEvent('close', {} as CloseEvent);
 
-      // Should not trigger onConnectionChange or reconnect
       expect(onConnectionChange).not.toHaveBeenCalled();
       vi.advanceTimersByTime(10_000);
       expect(createdWebSockets).toHaveLength(1);
@@ -320,7 +310,6 @@ describe('ConversationWebSocket', () => {
 
       client.disconnect();
 
-      // Simulate stale socket receiving a message
       ws1.readyState = MockWebSocket.OPEN;
       ws1.dispatchEvent('message', { data: JSON.stringify(fakeEvent) } as MessageEvent);
 
@@ -334,21 +323,16 @@ describe('ConversationWebSocket', () => {
       client.connect();
       const ws1 = getLastWebSocket();
 
-      // Fire onopen (resets backoff)
       simulateOpen(ws1);
 
-      // Close unexpectedly - backoff is 500ms (initial)
       simulateUnexpectedClose(ws1);
 
-      // Reconnect at 500ms
       vi.advanceTimersByTime(500);
       expect(createdWebSockets).toHaveLength(2);
       const ws2 = getLastWebSocket();
 
-      // Fire onopen on second connection (resets backoff back to 500)
       simulateOpen(ws2);
 
-      // Close second connection
       simulateUnexpectedClose(ws2);
 
       // Should reconnect at 500ms again (not 1000ms) because backoff was reset
@@ -478,14 +462,11 @@ describe('ConversationWebSocket', () => {
       client.connect();
       const ws = getLastWebSocket();
 
-      // First message - listener fires
       ws.dispatchEvent('message', { data: 'msg' } as MessageEvent);
       expect(listener).toHaveBeenCalledTimes(1);
 
-      // Unsubscribe
       unsubscribe();
 
-      // Second message - listener does NOT fire
       ws.dispatchEvent('message', { data: 'msg' } as MessageEvent);
       expect(listener).toHaveBeenCalledTimes(1);
     });
@@ -594,11 +575,9 @@ describe('ConversationWebSocket', () => {
 
       simulateUnexpectedClose(ws);
 
-      // Before backoff expires
       vi.advanceTimersByTime(999);
       expect(createdWebSockets).toHaveLength(1);
 
-      // After backoff expires
       vi.advanceTimersByTime(1);
       expect(createdWebSockets).toHaveLength(2);
     });
@@ -607,23 +586,19 @@ describe('ConversationWebSocket', () => {
       const client = createClient({ initialBackoffMs: 100, maxBackoffMs: 10_000 });
       client.connect();
 
-      // First close - backoff 100ms
       simulateUnexpectedClose(getLastWebSocket());
       vi.advanceTimersByTime(100);
       expect(createdWebSockets).toHaveLength(2);
 
-      // Second close - backoff 200ms (no onopen fired, so backoff stays doubled)
+      // backoff 200ms (no onopen fired, so backoff stays doubled)
       simulateUnexpectedClose(getLastWebSocket());
 
-      // Should NOT reconnect after 100ms
       vi.advanceTimersByTime(100);
       expect(createdWebSockets).toHaveLength(2);
 
-      // Reconnect after another 100ms (total 200ms)
       vi.advanceTimersByTime(100);
       expect(createdWebSockets).toHaveLength(3);
 
-      // Third close - backoff 400ms
       simulateUnexpectedClose(getLastWebSocket());
       vi.advanceTimersByTime(399);
       expect(createdWebSockets).toHaveLength(3);
@@ -635,7 +610,6 @@ describe('ConversationWebSocket', () => {
       const client = createClient({ initialBackoffMs: 1000, maxBackoffMs: 4000 });
       client.connect();
 
-      // Close and reconnect multiple times to exceed cap
       // 1000 -> 2000 -> 4000 -> 4000 (capped)
       for (let index = 0; index < 3; index++) {
         simulateUnexpectedClose(getLastWebSocket());
@@ -644,7 +618,6 @@ describe('ConversationWebSocket', () => {
       }
       expect(createdWebSockets).toHaveLength(4);
 
-      // Fourth close - should be capped at 4000ms
       simulateUnexpectedClose(getLastWebSocket());
 
       vi.advanceTimersByTime(3999);
@@ -688,13 +661,11 @@ describe('ConversationWebSocket', () => {
       const ws = getLastWebSocket();
       simulateOpen(ws);
 
-      // Unexpected close starts reconnect timer
       simulateUnexpectedClose(ws);
 
-      // Go offline — should cancel the timer
+      // Going offline should cancel the timer
       mockNetworkStore._setOffline(true);
 
-      // Timer fires but no reconnect
       vi.advanceTimersByTime(2000);
       expect(createdWebSockets).toHaveLength(1);
     });
@@ -706,10 +677,9 @@ describe('ConversationWebSocket', () => {
       simulateOpen(ws);
       simulateUnexpectedClose(ws);
 
-      // Go offline
       mockNetworkStore._setOffline(true);
 
-      // Come back online — should reconnect immediately, no waiting
+      // Coming back online should reconnect immediately, no waiting.
       mockNetworkStore._setOffline(false);
       expect(createdWebSockets).toHaveLength(2);
     });
@@ -725,13 +695,13 @@ describe('ConversationWebSocket', () => {
       vi.advanceTimersByTime(200);
       expect(createdWebSockets).toHaveLength(3);
 
-      // Go offline, then back online — backoff should reset
+      // Going offline then back online resets backoff to initial.
       simulateUnexpectedClose(getLastWebSocket()); // would be backoff=400
       mockNetworkStore._setOffline(true);
       mockNetworkStore._setOffline(false);
       expect(createdWebSockets).toHaveLength(4);
 
-      // Next close should use initial backoff (100), not 800
+      // Initial backoff is 100, not 800
       simulateUnexpectedClose(getLastWebSocket());
       vi.advanceTimersByTime(99);
       expect(createdWebSockets).toHaveLength(4);
@@ -746,7 +716,6 @@ describe('ConversationWebSocket', () => {
 
       client.disconnect();
 
-      // Simulate offline → online cycle
       mockNetworkStore._setOffline(true);
       mockNetworkStore._setOffline(false);
 
@@ -761,7 +730,6 @@ describe('ConversationWebSocket', () => {
       client.disconnect();
       expect(mockNetworkStore._listenerCount()).toBe(0);
 
-      // Network changes should not trigger reconnect
       mockNetworkStore._setOffline(true);
       mockNetworkStore._setOffline(false);
       expect(createdWebSockets).toHaveLength(1);
@@ -772,17 +740,13 @@ describe('ConversationWebSocket', () => {
       const client = createClient({ initialBackoffMs: 100 });
       client.connect();
 
-      // Go online (connects)
       mockNetworkStore._setOffline(false);
       expect(createdWebSockets).toHaveLength(1);
 
-      // Go offline again
       mockNetworkStore._setOffline(true);
 
-      // Socket closes while offline
       simulateUnexpectedClose(getLastWebSocket());
 
-      // Timer should not create a new socket
       vi.advanceTimersByTime(10_000);
       expect(createdWebSockets).toHaveLength(1);
     });

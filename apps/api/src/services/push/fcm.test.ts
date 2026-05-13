@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, type Mock } from 'vitest';
-import type { PushNotification } from './types.js';
 import { createFcmPushClient, _resetTokenCache } from './fcm.js';
+import type { PushNotification } from './types.js';
 
 let testServiceAccountJson: string;
 const TEST_PROJECT_ID = 'hushbox-test';
@@ -131,13 +131,11 @@ describe('createFcmPushClient', () => {
       const parts = jwt.split('.');
       expect(parts).toHaveLength(3);
 
-      // Decode JWT header
       const header = JSON.parse(
         atob(parts[0]!.replaceAll('-', '+').replaceAll('_', '/'))
       ) as Record<string, unknown>;
       expect(header).toEqual({ alg: 'RS256', typ: 'JWT' });
 
-      // Decode JWT payload
       const payload = JSON.parse(
         atob(parts[1]!.replaceAll('-', '+').replaceAll('_', '/'))
       ) as Record<string, unknown>;

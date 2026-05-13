@@ -4,7 +4,6 @@ import { getApiUrl } from '@/lib/api';
 
 export const STORAGE_KEY = 'hushbox_auth_kek';
 
-// Dependency injection for testing
 type UnwrapFunction = (exportKey: Uint8Array, wrappedKey: Uint8Array) => Uint8Array;
 let unwrapImpl: UnwrapFunction = cryptoUnwrapAccountKey;
 
@@ -106,18 +105,6 @@ export function clearStoredAuth(): void {
   sessionStorage.removeItem(STORAGE_KEY);
 }
 
-/**
- * Restores a session from stored export key by fetching the wrapped account key from server.
- *
- * Flow:
- * 1. Get stored export key from browser storage
- * 2. Fetch wrapped account private key from server (validates session cookie)
- * 3. Unwrap account private key using export key
- * 4. Return private key and userId for use in the app
- *
- * Clears stored auth only on definitive auth failures (401/403).
- * Transient errors (500, network) return null without clearing storage.
- */
 export interface MeResponse {
   user: {
     id: string;

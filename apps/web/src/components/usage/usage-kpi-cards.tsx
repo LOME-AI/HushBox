@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { Card, CardContent } from '@hushbox/ui';
 import { DollarSign, MessageSquare, Zap, TrendingDown } from 'lucide-react';
-import type { UsageSummaryResponse } from '@hushbox/shared';
+import { Card, CardContent } from '@hushbox/ui';
 import { formatTokenCount } from './chart-utilities';
+import type { UsageSummaryResponse } from '@hushbox/shared';
 
 interface UsageKpiCardsProps {
   data: UsageSummaryResponse | undefined;

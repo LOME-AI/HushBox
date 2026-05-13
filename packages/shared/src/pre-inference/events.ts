@@ -21,11 +21,17 @@ export type StageId = 'smart-model';
  * ```
  *
  * The frontend `switch (payload.stageId)` exhaustively dispatches.
+ *
+ * `fallbackOccurred` is set when the classifier path failed (timeout, garbage
+ * output) and the slot fell back to the cheapest eligible model. The user
+ * still pays for the failed classifier attempt; the UI can surface this hint
+ * if desired.
  */
 export interface StageDonePayload {
   stageId: 'smart-model';
   resolvedModelId: string;
   resolvedModelName: string;
+  fallbackOccurred?: boolean;
 }
 
 /** Payload of the `stage:start` SSE event — generic across all stages. */

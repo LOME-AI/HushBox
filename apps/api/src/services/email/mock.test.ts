@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { EmailOptions } from './types.js';
 import { createMockEmailClient } from './mock.js';
+import type { EmailOptions } from './types.js';
 
 describe('createMockEmailClient', () => {
   const testEmail: EmailOptions = {

@@ -1,18 +1,17 @@
-import type { APIRequestContext } from '@playwright/test';
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { BudgetHelper, setWalletBalance } from '../helpers/budget.js';
+import type { APIRequestContext } from '@playwright/test';
 
 async function getLastAiPayerId(
   request: APIRequestContext,
   conversationId: string
 ): Promise<string | null | undefined> {
-  const convResponse = await request.get(`/api/conversations/${conversationId}`);
-  const convData = (await convResponse.json()) as {
-    messages: { senderType: string; payerId: string | null }[];
+  const response = await request.get(`/api/dev/message-payers/${conversationId}`);
+  const data = (await response.json()) as {
+    payers: { messageId: string; payerId: string | null }[];
   };
-  const aiMessages = convData.messages.filter((m) => m.senderType === 'ai');
-  return aiMessages.at(-1)?.payerId;
+  return data.payers.at(-1)?.payerId;
 }
 
 /**
@@ -57,7 +56,6 @@ test.describe('Group Chat Billing', () => {
     });
 
     await test.step('verify owner-funded billing', async () => {
-      // Message cost is visible
       const chatPage = new ChatPage(testBobPage);
       await chatPage.expectMessageCostVisible();
 
@@ -356,7 +354,6 @@ test.describe('Group Chat Billing', () => {
       // Owner sees editable inputs
       await expect(authenticatedPage.getByTestId('budget-conversation-input')).toBeVisible();
 
-      // Total spent is visible
       const totalSpent = authenticatedPage.getByTestId('budget-total-spent');
       await expect(totalSpent).toBeVisible();
 

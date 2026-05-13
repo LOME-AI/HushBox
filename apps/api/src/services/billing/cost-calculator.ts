@@ -3,7 +3,20 @@ import {
   calculateMessageCostFromActual,
   type PreInferenceBilling,
 } from '@hushbox/shared';
+import { recordServiceEvidence, SERVICE_NAMES, type EvidenceConfig } from '@hushbox/db';
 import type { AIClient } from '../ai/index.js';
+
+/**
+ * Tolerated fractional deviation between the pre-flight billing estimate and
+ * the post-flight gateway-reported actual cost. Anything larger triggers a
+ * `billing-mismatch` evidence row so ops can correlate spikes with model or
+ * pricing changes.
+ *
+ * Picked at 0.5 (50%): pricing tiers and tool calls can legitimately push
+ * actuals beyond a tight bound; unfounded "double-bills" rarely sit inside
+ * 50%. Tune via dashboard, not by silently lowering this constant.
+ */
+export const BILLING_MISMATCH_THRESHOLD_RATIO = 0.5;
 
 export interface CalculateMessageCostParams {
   /** The AIClient — used to fetch exact cost from the gateway post-hoc. */
@@ -116,4 +129,63 @@ export async function calculateMessageCostWithStages(
   const mainCostDollars = totalDollars - stageDollarsSum;
 
   return { totalDollars, mainCostDollars, stageBreakdown };
+}
+
+export interface RecordBillingMismatchInput {
+  /** Pre-flight reservation/estimate cost in USD. */
+  estimateUsd: number;
+  /** Post-flight gateway-reported actual cost in USD. */
+  actualUsd: number;
+  /** Optional evidence config — when omitted, this is a no-op. */
+  evidence?: EvidenceConfig;
+  /** Override the default 50% threshold for ops experimentation. */
+  thresholdRatio?: number;
+}
+
+/**
+ * Compare the pre-flight billing estimate against the post-flight actual
+ * gateway cost, and record a `billing-mismatch` evidence row when the
+ * deviation exceeds the threshold. Never throws and never blocks billing —
+ * this is a non-blocking ops signal.
+ *
+ * Behaviour:
+ * - `evidence` undefined → no-op (callers without ops wiring stay quiet).
+ * - both estimate and actual are zero → no-op (nothing happened to compare).
+ * - estimate is zero, actual is non-zero → record (unbounded relative
+ *   deviation; treat as always-over-threshold).
+ * - otherwise: record when |actual − estimate| / estimate > threshold.
+ *
+ * `recordServiceEvidence` itself gates the DB write on `isCI === true`, so
+ * production sees the comparison run but never persists a row — exactly the
+ * same pattern as the AI Gateway / Helcim recording paths.
+ */
+export async function recordBillingMismatchIfExceeded(
+  input: RecordBillingMismatchInput
+): Promise<void> {
+  const { estimateUsd, actualUsd, evidence } = input;
+  if (evidence === undefined) return;
+
+  const threshold = input.thresholdRatio ?? BILLING_MISMATCH_THRESHOLD_RATIO;
+
+  // Both zero: nothing to compare. Estimate zero with non-zero actual: treat
+  // as unbounded deviation. Otherwise: compare relative deviation against
+  // the threshold.
+  let exceeds: boolean;
+  let deviation: number | null;
+  if (estimateUsd === 0) {
+    exceeds = actualUsd !== 0;
+    deviation = null;
+  } else {
+    deviation = Math.abs(actualUsd - estimateUsd) / estimateUsd;
+    exceeds = deviation > threshold;
+  }
+
+  if (!exceeds) return;
+
+  await recordServiceEvidence(evidence.db, evidence.isCI, SERVICE_NAMES.BILLING_MISMATCH, {
+    estimateUsd,
+    actualUsd,
+    deviation,
+    thresholdRatio: threshold,
+  });
 }

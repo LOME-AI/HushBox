@@ -1,20 +1,17 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { eq } from 'drizzle-orm';
 import {
   createConversationRequestSchema,
   updateConversationRequestSchema,
-  conversationResponseSchema,
-  messageResponseSchema,
-  contentItemResponseSchema,
   ERROR_CODE_CONVERSATION_NOT_FOUND,
   toBase64,
   fromBase64,
+  contentTypeSchema,
+  senderTypeSchema,
 } from '@hushbox/shared';
-import { eq } from 'drizzle-orm';
-import type { Conversation, ContentItem, Database } from '@hushbox/db';
 import { conversationForks } from '@hushbox/db';
-import type { MessageWithContent } from '../services/conversations/conversations.js';
 
 type ConversationFork = typeof conversationForks.$inferSelect;
 import { createErrorResponse } from '../lib/error-response.js';
@@ -27,6 +24,13 @@ import {
   updateConversation,
   deleteConversation,
 } from '../services/conversations/index.js';
+import type { Conversation, ContentItem, Database } from '@hushbox/db';
+import type { MessageWithContent } from '../services/conversations/conversations.js';
+import type {
+  conversationResponseSchema,
+  messageResponseSchema,
+  contentItemResponseSchema,
+} from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 
 /** Serialize a conversation entity for API responses. */
@@ -47,7 +51,7 @@ function serializeConversation(conv: Conversation): z.infer<typeof conversationR
 function serializeContentItem(item: ContentItem): z.infer<typeof contentItemResponseSchema> {
   return {
     id: item.id,
-    contentType: item.contentType as 'text' | 'image' | 'audio' | 'video',
+    contentType: contentTypeSchema.parse(item.contentType),
     position: item.position,
     encryptedBlob: item.encryptedBlob ? toBase64(item.encryptedBlob) : null,
     storageKey: item.storageKey,
@@ -68,8 +72,8 @@ function serializeMessage(msg: MessageWithContent): z.infer<typeof messageRespon
     id: msg.id,
     conversationId: msg.conversationId,
     wrappedContentKey: toBase64(msg.wrappedContentKey),
-    // DB constraint guarantees senderType IN ('user', 'ai')
-    senderType: msg.senderType as 'user' | 'ai',
+    // DB CHECK constraint guarantees this set; re-parse so a rogue row fails loud.
+    senderType: senderTypeSchema.parse(msg.senderType),
     senderId: msg.senderId ?? null,
     epochNumber: msg.epochNumber,
     sequenceNumber: msg.sequenceNumber,
@@ -197,12 +201,10 @@ export const conversationsRoute = new Hono<AppEnv>()
       userPublicKey: user.publicKey,
     });
 
-    // Service returns null = ID exists but belongs to different user
     if (!result) {
       return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
     }
 
-    // Fetch forks (empty for new conversations, may exist for idempotent returns)
     const existingForks = result.isNew ? [] : await fetchForks(db, result.conversation.id);
 
     const response = {
@@ -214,7 +216,6 @@ export const conversationsRoute = new Hono<AppEnv>()
       invitedByUsername: null as string | null,
     };
 
-    // HTTP status based on whether new or existing
     const status = result.isNew ? 201 : 200;
     return c.json(response, status);
   })

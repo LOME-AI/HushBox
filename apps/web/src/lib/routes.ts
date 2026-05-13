@@ -3,9 +3,6 @@ import { ROUTES } from '@hushbox/shared';
 /** Drizzle Studio URL — only accessible during local development. */
 export const DRIZZLE_STUDIO_URL = 'https://local.drizzle.studio';
 
-/**
- * Helper for conversation route with ID substitution.
- */
 export function chatConversationRoute(conversationId: string): string {
   return `${ROUTES.CHAT}/${conversationId}`;
 }

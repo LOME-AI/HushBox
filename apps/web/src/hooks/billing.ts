@@ -1,4 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSession } from '@/lib/auth';
+import { client, fetchJson } from '../lib/api-client.js';
 import type {
   GetBalanceResponse,
   ListTransactionsResponse,
@@ -7,8 +9,6 @@ import type {
   GetPaymentStatusResponse,
   LedgerEntryType,
 } from '@hushbox/shared';
-import { useSession } from '@/lib/auth';
-import { client, fetchJson } from '../lib/api-client.js';
 
 export const billingKeys = {
   all: ['billing'] as const,
@@ -119,7 +119,6 @@ export function useProcessPayment(): ReturnType<
         })
       ),
     onSuccess: async (data) => {
-      // Invalidate balance when payment is completed
       if (data.status === 'completed') {
         await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
         await queryClient.invalidateQueries({ queryKey: billingKeys.transactions() });

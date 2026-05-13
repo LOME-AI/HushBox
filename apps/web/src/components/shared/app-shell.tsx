@@ -7,12 +7,10 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: Readonly<AppShellProps>): React.JSX.Element {
-  // Validate cached model selection on mount and when user tier changes
   useModelValidation();
 
   return (
     <div data-testid="app-shell" className="bg-background flex h-dvh">
-      {/* Unified sidebar (handles desktop and mobile) */}
       <Sidebar />
 
       {/* Main content area — min-h-0 prevents flex items from inheriting their

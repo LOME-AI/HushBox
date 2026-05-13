@@ -1,8 +1,7 @@
 import { pgTable, text, timestamp, boolean, index, varchar, jsonb } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import type { AccessibilityPreferences } from '@hushbox/shared';
-
 import { bytea } from './bytea';
+import type { AccessibilityPreferences } from '@hushbox/shared';
 
 export const users = pgTable(
   'users',

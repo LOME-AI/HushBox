@@ -1,8 +1,10 @@
 import { createEnvUtilities, type EnvContext } from '@hushbox/shared';
-import type { Database } from '@hushbox/db';
-import type { AIClient } from './types.js';
 import { createMockAIClient } from './mock.js';
 import { createRealAIClient } from './real.js';
+import { requireGatewayConfig } from '../../lib/gateway-config.js';
+import type { AIClient, MockAIClientConfig } from './types.js';
+import type { Database } from '@hushbox/db';
+import type { Bindings } from '../../types.js';
 
 export type {
   AIClient,
@@ -14,11 +16,13 @@ export type {
   InferenceStream,
   MessageContentPart,
   MockAIClient,
+  MockAIClientConfig,
   Modality,
   ModelCapability,
   ModelInfo,
   ModelPricing,
   ProviderMetadata,
+  RecordedInferenceRequest,
   TextRequest,
   ToolDefinition,
   VideoRequest,
@@ -35,41 +39,40 @@ interface AIClientEnv extends EnvContext {
  * Optional evidence-recording dependencies. When both are provided, the real
  * AI client records `SERVICE_NAMES.AI_GATEWAY` evidence after each successful
  * gateway call so CI integration tests can verify the integration ran.
+ *
+ * `mockConfig` carries per-request mock overrides decoded from
+ * `x-mock-*` request headers; only consulted in dev / E2E builds.
  */
 export interface AIClientOptions {
   db?: Database;
   isCI?: boolean;
+  mockConfig?: MockAIClientConfig;
 }
 
 /**
  * Get the appropriate AIClient based on environment.
  *
- * - Local dev / test: Returns mock client
- * - E2E: Returns mock client (E2E tests UI flows, not AI gateway integration)
- * - CI integration / production: Requires real credentials, fails fast if missing.
- *   If `options.db` and `options.isCI === true` are supplied, the real client
- *   records evidence after each successful call.
+ * - Local dev / E2E: Returns a fresh mock client configured from
+ *   `options.mockConfig` (sourced from request headers). Stateless — no
+ *   module cache, no cross-request bleed.
+ * - CI integration / production: Returns the real client. Requires real
+ *   credentials; fails fast if missing. Evidence recording optional.
  */
 export function getAIClient(env: AIClientEnv, options: AIClientOptions = {}): AIClient {
   const { isLocalDev, isE2E } = createEnvUtilities(env);
 
   if (isLocalDev || isE2E) {
-    return createMockAIClient();
+    return createMockAIClient(options.mockConfig);
   }
 
-  if (!env.AI_GATEWAY_API_KEY) {
-    throw new Error('AI_GATEWAY_API_KEY required in CI/production');
-  }
-  if (!env.PUBLIC_MODELS_URL) {
-    throw new Error('PUBLIC_MODELS_URL required in CI/production');
-  }
+  const { apiKey, publicModelsUrl } = requireGatewayConfig(env as Bindings);
 
   const evidence =
     options.db && options.isCI !== undefined ? { db: options.db, isCI: options.isCI } : undefined;
 
   return createRealAIClient({
-    apiKey: env.AI_GATEWAY_API_KEY,
-    publicModelsUrl: env.PUBLIC_MODELS_URL,
+    apiKey,
+    publicModelsUrl,
     ...(evidence !== undefined && { evidence }),
   });
 }

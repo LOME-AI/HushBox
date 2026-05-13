@@ -144,7 +144,6 @@ export async function runLint(filters: LintFilters, rootDirectory?: string): Pro
 
   validateFilters(filters, workspaces);
 
-  // Build turbo filter args
   const filterArgs: string[] = [];
   if (filters.packages.length > 0) {
     const targetWorkspaces = workspaces.filter((w) => filters.packages.includes(w.name));

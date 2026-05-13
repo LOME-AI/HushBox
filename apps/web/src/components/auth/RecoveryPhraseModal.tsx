@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Overlay, OverlayContent, ModalActions, Input, useIsMobile } from '@hushbox/ui';
 import { Copy, Check, AlertTriangle } from 'lucide-react';
+import { Overlay, OverlayContent, ModalActions, Input, useIsMobile } from '@hushbox/ui';
 import { regenerateRecoveryPhrase } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
@@ -147,7 +147,6 @@ export function RecoveryPhraseModal({
   const [error, setError] = useState<string | null>(null);
   const recoveryWrappedPrivateKeyRef = useRef<Uint8Array | null>(null);
 
-  // Generate phrase and wrapped key when modal opens
   useEffect(() => {
     if (!open) return;
 

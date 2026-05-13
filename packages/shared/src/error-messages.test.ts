@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { friendlyErrorMessage, customUserMessage } from './error-messages.js';
+import * as errorCodes from './schemas/api/error.js';
 
 describe('friendlyErrorMessage', () => {
-  // ------------------------------------------------------------------
-  // General codes
-  // ------------------------------------------------------------------
   it('maps UNAUTHORIZED to user-facing message', () => {
     expect(friendlyErrorMessage('UNAUTHORIZED')).toBe(
       'You are not logged in. Please log in and try again.'
@@ -49,6 +47,12 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps INVALID_OPERATION to user-facing message', () => {
+    expect(friendlyErrorMessage('INVALID_OPERATION')).toBe(
+      'This operation is not supported in the current context.'
+    );
+  });
+
   it('maps EXPIRED to user-facing message', () => {
     expect(friendlyErrorMessage('EXPIRED')).toBe('This item has expired.');
   });
@@ -83,9 +87,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Auth codes
-  // ------------------------------------------------------------------
   it('maps AUTH_FAILED to user-facing message', () => {
     expect(friendlyErrorMessage('AUTH_FAILED')).toBe('Invalid credentials.');
   });
@@ -194,9 +195,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // 2FA codes
-  // ------------------------------------------------------------------
   it('maps 2FA_VERIFICATION_FAILED to user-facing message', () => {
     expect(friendlyErrorMessage('2FA_VERIFICATION_FAILED')).toBe(
       'Two-factor verification failed. Please try again.'
@@ -261,9 +259,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Infrastructure codes
-  // ------------------------------------------------------------------
   it('maps USER_NOT_FOUND to user-facing message', () => {
     expect(friendlyErrorMessage('USER_NOT_FOUND')).toBe('Account not found.');
   });
@@ -286,9 +281,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Domain codes
-  // ------------------------------------------------------------------
   it('maps CONVERSATION_NOT_FOUND to user-facing message', () => {
     expect(friendlyErrorMessage('CONVERSATION_NOT_FOUND')).toBe('Conversation not found.');
   });
@@ -367,6 +359,12 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps MODEL_TIER_LOCKED to user-facing message', () => {
+    expect(friendlyErrorMessage('MODEL_TIER_LOCKED')).toBe(
+      'This model is only available for paid accounts. Top up your balance to unlock.'
+    );
+  });
+
   it('maps TRIAL_MESSAGE_TOO_EXPENSIVE to user-facing message', () => {
     expect(friendlyErrorMessage('TRIAL_MESSAGE_TOO_EXPENSIVE')).toBe(
       'This message exceeds trial limits. Sign up for more capacity.'
@@ -376,6 +374,12 @@ describe('friendlyErrorMessage', () => {
   it('maps AUTHENTICATED_ON_TRIAL to user-facing message', () => {
     expect(friendlyErrorMessage('AUTHENTICATED_ON_TRIAL')).toBe(
       'Authenticated users should use the main chat.'
+    );
+  });
+
+  it('maps FEATURE_REQUIRES_AUTH to user-facing message', () => {
+    expect(friendlyErrorMessage('FEATURE_REQUIRES_AUTH')).toBe(
+      'This feature requires a free account. Please sign up to use it.'
     );
   });
 
@@ -433,6 +437,10 @@ describe('friendlyErrorMessage', () => {
     expect(friendlyErrorMessage('SHARE_NOT_FOUND')).toBe('Shared message not found.');
   });
 
+  it('maps SHARE_FORBIDDEN to user-facing message', () => {
+    expect(friendlyErrorMessage('SHARE_FORBIDDEN')).toBe("You can't share this message.");
+  });
+
   it('maps WRAP_SET_MISMATCH to user-facing message', () => {
     expect(friendlyErrorMessage('WRAP_SET_MISMATCH')).toBe(
       'Member wrap set does not match active members.'
@@ -445,9 +453,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Regeneration & Fork codes
-  // ------------------------------------------------------------------
   it('maps REGENERATION_BLOCKED_BY_OTHER_USER to user-facing message', () => {
     expect(friendlyErrorMessage('REGENERATION_BLOCKED_BY_OTHER_USER')).toBe(
       'Cannot regenerate — another user has replied after this message.'
@@ -490,9 +495,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Mobile codes
-  // ------------------------------------------------------------------
   it('maps UPGRADE_REQUIRED to user-facing message', () => {
     expect(friendlyErrorMessage('UPGRADE_REQUIRED')).toBe(
       'A new version is available. Please update to continue.'
@@ -541,9 +543,24 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Media / storage codes
-  // ------------------------------------------------------------------
+  it('maps CONTENT_POLICY to user-facing message', () => {
+    expect(friendlyErrorMessage('CONTENT_POLICY')).toBe(
+      'The model declined to answer because it considered the request unsafe. Try rephrasing your message.'
+    );
+  });
+
+  it('maps PROVIDER_BILLING to user-facing message', () => {
+    expect(friendlyErrorMessage('PROVIDER_BILLING')).toBe(
+      "The AI provider rejected our credentials. We're investigating; please try again shortly."
+    );
+  });
+
+  it('maps NETWORK_ERROR to user-facing message', () => {
+    expect(friendlyErrorMessage('NETWORK_ERROR')).toBe(
+      "We couldn't reach the AI provider. Check your connection and try again."
+    );
+  });
+
   it('maps STORAGE_WRITE_FAILED to user-facing message', () => {
     expect(friendlyErrorMessage('STORAGE_WRITE_FAILED')).toBe(
       "We couldn't save the generated media. Please try again."
@@ -575,6 +592,12 @@ describe('friendlyErrorMessage', () => {
   it('maps EMPTY_MEDIA_RESULT to user-facing message', () => {
     expect(friendlyErrorMessage('EMPTY_MEDIA_RESULT')).toBe(
       "The AI didn't produce any output for your request. Try rephrasing your prompt."
+    );
+  });
+
+  it('maps UNKNOWN_MIME_TYPE to user-facing message', () => {
+    expect(friendlyErrorMessage('UNKNOWN_MIME_TYPE')).toBe(
+      "The generated media couldn't be identified. Please report this."
     );
   });
 
@@ -614,9 +637,6 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  // ------------------------------------------------------------------
-  // Unknown code fallback
-  // ------------------------------------------------------------------
   it('returns generic fallback for unknown codes', () => {
     expect(friendlyErrorMessage('TOTALLY_UNKNOWN_CODE')).toBe(
       'Something went wrong. Please try again.'
@@ -637,5 +657,34 @@ describe('customUserMessage', () => {
   it('preserves markdown in custom messages', () => {
     const result = customUserMessage('Please [sign up](/signup) to continue.');
     expect(result).toBe('Please [sign up](/signup) to continue.');
+  });
+});
+
+describe('error code completeness', () => {
+  /**
+   * Iterates every `ERROR_CODE_*` constant exported from the error schema and
+   * asserts that {@link friendlyErrorMessage} returns a real, non-fallback
+   * message for it. This is the guardrail that keeps "add a new code" honest:
+   * if you forget the entry in `ERROR_MESSAGES`, this test fails for the new
+   * code. The fallback string is the one returned for unknown inputs.
+   */
+  const FALLBACK_MESSAGE = 'Something went wrong. Please try again.';
+
+  function collectAllErrorCodes(): string[] {
+    return Object.entries(errorCodes)
+      .filter(([key, value]) => key.startsWith('ERROR_CODE_') && typeof value === 'string')
+      .map(([, value]) => value as string);
+  }
+
+  it('exports at least one ERROR_CODE_* constant', () => {
+    expect(collectAllErrorCodes().length).toBeGreaterThan(0);
+  });
+
+  it('has a non-fallback friendly message for every exported error code', () => {
+    const allCodes = collectAllErrorCodes();
+    const missing = allCodes.filter(
+      (code) => friendlyErrorMessage(code) === (FALLBACK_MESSAGE as unknown as string)
+    );
+    expect(missing).toEqual([]);
   });
 });

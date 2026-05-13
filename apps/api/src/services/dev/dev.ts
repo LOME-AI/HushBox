@@ -10,6 +10,7 @@ import {
   epochMembers,
   conversationMembers,
   type Database,
+  type DatabaseClient,
 } from '@hushbox/db';
 import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN, type DevPersona } from '@hushbox/shared';
 import { createFirstEpoch, encryptTextForEpoch } from '@hushbox/crypto';
@@ -119,7 +120,6 @@ export async function cleanupTestData(db: Database): Promise<CleanupResult> {
   const msgResult = await db.delete(messages).where(inArray(messages.conversationId, convIds));
   const deletedMessages = msgResult.rowCount ?? 0;
 
-  // Delete conversations
   const convResult = await db.delete(conversations).where(inArray(conversations.id, convIds));
   const deletedConversations = convResult.rowCount ?? 0;
 
@@ -171,6 +171,33 @@ export async function resetAuthRateLimits(redis: Redis): Promise<ResetAuthRateLi
     'totp:used:*',
   ];
 
+  return deleteRedisKeysByPrefixes(redis, prefixes);
+}
+
+export interface ResetUsageRateLimitsResult {
+  deleted: number;
+}
+
+/**
+ * Reset authenticated-user usage rate limits between tests. Excludes
+ * `trial:chat:stream:ip:ratelimit:*` because `trial-chat.spec.ts` exercises
+ * that limit firing — clearing it would break those tests. Excludes IP-scoped
+ * anti-scraping limits for the same reason.
+ */
+export async function resetUsageRateLimits(redis: Redis): Promise<ResetUsageRateLimitsResult> {
+  const prefixes = [
+    'chat:stream:user:ratelimit:*',
+    'media:download:user:ratelimit:*',
+    'share:create:user:ratelimit:*',
+  ];
+
+  return deleteRedisKeysByPrefixes(redis, prefixes);
+}
+
+async function deleteRedisKeysByPrefixes(
+  redis: Redis,
+  prefixes: readonly string[]
+): Promise<{ deleted: number }> {
   let deleted = 0;
 
   for (const prefix of prefixes) {
@@ -247,7 +274,6 @@ export async function createDevConversation(
     throw new Error('Failed to create conversation');
   }
 
-  // Seed messages using production services
   if (params.messages && params.messages.length > 0) {
     let lastMessageId: string | null = null;
 
@@ -264,9 +290,8 @@ export async function createDevConversation(
           parentMessageId: lastMessageId,
         });
       } else {
-        // AI messages: use production helpers directly in a transaction
         await db.transaction(async (tx) => {
-          const txDb = tx as unknown as Database;
+          const txDb = tx;
           const { sequences, currentEpoch } = await assignSequenceNumbers(
             txDb,
             result.conversation.id,
@@ -303,14 +328,13 @@ export async function createDevConversation(
 }
 
 interface InsertGroupChatMessagesParams {
-  txDb: Database;
+  txDb: DatabaseClient;
   conversationId: string;
   epochPublicKey: Uint8Array;
   msgs: { senderEmail?: string; content: string; senderType: 'user' | 'ai' }[];
   orderedUsers: { id: string; email: string | null }[];
 }
 
-/** Insert dev group-chat messages inside a transaction (extracted for complexity). */
 async function insertGroupChatMessages(params: InsertGroupChatMessagesParams): Promise<void> {
   const { txDb, conversationId, epochPublicKey, msgs, orderedUsers } = params;
   const messageIds = msgs.map(() => crypto.randomUUID());
@@ -412,14 +436,12 @@ export async function createDevGroupChat(
   const epochId = crypto.randomUUID();
 
   await db.transaction(async (tx) => {
-    // Insert conversation
     await tx.insert(conversations).values({
       id: conversationId,
       userId: owner.id,
       title: encryptTextForEpoch(epochResult.epochPublicKey, ''),
     });
 
-    // Insert epoch
     await tx.insert(epochs).values({
       id: epochId,
       conversationId,
@@ -429,7 +451,6 @@ export async function createDevGroupChat(
       chainLink: null,
     });
 
-    // Insert epoch members (one per user with their wrap)
     await tx.insert(epochMembers).values(
       orderedUsers.map((user, index) => {
         const memberWrap = epochResult.memberWraps[index];
@@ -461,7 +482,7 @@ export async function createDevGroupChat(
     // Insert messages if provided — one wrap-once envelope per message
     if (params.messages && params.messages.length > 0) {
       await insertGroupChatMessages({
-        txDb: tx as unknown as Database,
+        txDb: tx,
         conversationId,
         epochPublicKey: epochResult.epochPublicKey,
         msgs: params.messages,

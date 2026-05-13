@@ -1,7 +1,7 @@
-import type { MiddlewareHandler } from 'hono';
 import { getIronSession } from 'iron-session';
 import { createEnvUtilities } from '@hushbox/shared';
 import { getSessionOptions, type SessionData } from '../lib/session.js';
+import type { MiddlewareHandler } from 'hono';
 
 interface IronSessionRequiredEnv {
   Bindings: {

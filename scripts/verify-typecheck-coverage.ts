@@ -11,8 +11,8 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
-import type { Workspace } from './workspaces.js';
 import { discoverWorkspaces } from './workspaces.js';
+import type { Workspace } from './workspaces.js';
 
 const EXCLUDED_DIRS = new Set([
   'node_modules',
@@ -33,13 +33,11 @@ const EXCLUDED_FILES = new Set(['routeTree.gen.ts']);
 export function findAllTsconfigs(rootDirectory: string, workspaces?: Workspace[]): string[] {
   const tsconfigs: string[] = [];
 
-  // Root tsconfig
   const rootTsconfig = path.join(rootDirectory, 'tsconfig.json');
   if (existsSync(rootTsconfig)) {
     tsconfigs.push(rootTsconfig);
   }
 
-  // Workspace tsconfigs
   const resolvedWorkspaces = workspaces ?? discoverWorkspaces(rootDirectory);
   for (const workspace of resolvedWorkspaces) {
     const workspaceDirectory = path.join(rootDirectory, workspace.path);

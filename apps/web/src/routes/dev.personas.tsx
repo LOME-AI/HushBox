@@ -2,11 +2,11 @@ import * as React from 'react';
 import { useState } from 'react';
 import { createFileRoute, useNavigate, redirect, useSearch } from '@tanstack/react-router';
 import { DEV_PASSWORD, displayUsername, ROUTES } from '@hushbox/shared';
-import type { DevPersona } from '@hushbox/shared';
+import { toast } from '@hushbox/ui';
 import { signIn, signOutAndClearCache } from '@/lib/auth';
 import { env } from '@/lib/env';
-import { toast } from '@hushbox/ui';
 import { useDevPersonas, type PersonaType } from '@/hooks/dev-personas';
+import type { DevPersona } from '@hushbox/shared';
 
 function getApiUrl(): string {
   return import.meta.env['VITE_API_URL'] as string;

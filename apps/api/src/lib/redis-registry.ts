@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import type { Redis } from '@upstash/redis';
 import { SESSION_MAX_AGE_SECONDS } from './session.js';
+import type { Redis } from '@upstash/redis';
 
 export function defineKey<TSchema extends z.ZodType, TArgs extends unknown[]>(config: {
   schema: TSchema;
@@ -133,6 +133,51 @@ export const REDIS_REGISTRY = {
     ttl: 60,
     buildKey: (ipHash: string) => `resend-verify:ip:ratelimit:${ipHash}`,
     rateLimitConfig: { maxAttempts: 5, windowSeconds: 60 },
+  }),
+
+  // Rate limit keys — cost-amplification surfaces (chat/media/share)
+  // Per-user cap on AI Gateway calls. The bottleneck is the gateway itself,
+  // so a user-level cap is sufficient — IP-level adds little when the worst
+  // offender is an authenticated user repeatedly invoking inference.
+  chatStreamUserRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (userId: string) => `chat:stream:user:ratelimit:${userId}`,
+    rateLimitConfig: { maxAttempts: 30, windowSeconds: 60 },
+  }),
+  // Per-user cap on presigned URL minting. Minting is cheap, but a flood
+  // could DOS the signing path (R2 SigV4 / KMS) — cap at 60/min/user.
+  mediaDownloadUserRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (userId: string) => `media:download:user:ratelimit:${userId}`,
+    rateLimitConfig: { maxAttempts: 60, windowSeconds: 60 },
+  }),
+  // Per-IP cap on the UNAUTHENTICATED public share lookup endpoint.
+  // Throttle to slow down share-id scraping/scanning.
+  shareGetIpRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (ipHash: string) => `share:get:ip:ratelimit:${ipHash}`,
+    rateLimitConfig: { maxAttempts: 30, windowSeconds: 60 },
+  }),
+  // Per-user cap on share creation — each request inserts a DB row.
+  shareCreateUserRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (userId: string) => `share:create:user:ratelimit:${userId}`,
+    rateLimitConfig: { maxAttempts: 20, windowSeconds: 60 },
+  }),
+  // Per-IP burst cap on the UNAUTHENTICATED trial chat stream. The daily
+  // message-count cap (consumeTrialMessage) limits total spend, but a burst
+  // of requests under the daily cap can still flood Redis / the AI gateway
+  // before the daily counter saturates. 20/60s is generous for trial UX
+  // while throttling pathological floods.
+  trialChatStreamIpRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (ipHash: string) => `trial:chat:stream:ip:ratelimit:${ipHash}`,
+    rateLimitConfig: { maxAttempts: 20, windowSeconds: 60 },
   }),
 
   // Lockout keys
@@ -287,7 +332,6 @@ export async function redisSet<K extends keyof Registry>(
 ): Promise<void> {
   const entry = REDIS_REGISTRY[keyName];
 
-  // Extract options from the end of args if present
   const lastArgument = args.at(-1);
   const hasOptions = typeof lastArgument === 'object' && 'ttlOverride' in lastArgument;
   const options = hasOptions ? lastArgument : undefined;

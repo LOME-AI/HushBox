@@ -9,6 +9,144 @@ export const modelModalitySchema = z.enum(['text', 'image', 'audio', 'video']);
 export type ModelModality = z.infer<typeof modelModalitySchema>;
 
 /**
+ * Pricing-shape view of a Model used by the modality refines. Pulled out so
+ * each per-modality validator can stay tiny and focused.
+ *
+ * Discriminated-union refactor was considered but deferred — too invasive
+ * across 30+ consumers. Refine enforces the same invariants.
+ */
+interface PricingShape {
+  modality: 'text' | 'image' | 'audio' | 'video';
+  pricePerInputToken: number;
+  pricePerOutputToken: number;
+  pricePerImage: number;
+  pricePerSecondByResolution: Record<string, number>;
+  pricePerSecond: number;
+}
+
+function hasResolutionEntries(model: PricingShape): boolean {
+  return Object.keys(model.pricePerSecondByResolution).length > 0;
+}
+
+function hasTokenPricing(model: PricingShape): boolean {
+  return model.pricePerInputToken > 0 || model.pricePerOutputToken > 0;
+}
+
+function addPricingIssue(ctx: z.RefinementCtx, message: string, path: keyof PricingShape): void {
+  ctx.addIssue({ code: 'custom', message, path: [path] });
+}
+
+function refineTextPricing(model: PricingShape, ctx: z.RefinementCtx): void {
+  if (model.pricePerImage > 0) {
+    addPricingIssue(ctx, 'Text models must not set pricePerImage', 'pricePerImage');
+  }
+  if (model.pricePerSecond > 0) {
+    addPricingIssue(ctx, 'Text models must not set pricePerSecond', 'pricePerSecond');
+  }
+  if (hasResolutionEntries(model)) {
+    addPricingIssue(
+      ctx,
+      'Text models must not set pricePerSecondByResolution entries',
+      'pricePerSecondByResolution'
+    );
+  }
+}
+
+function refineImagePricing(model: PricingShape, ctx: z.RefinementCtx): void {
+  if (hasTokenPricing(model)) {
+    addPricingIssue(
+      ctx,
+      'Image models must not set pricePerInputToken or pricePerOutputToken',
+      'pricePerInputToken'
+    );
+  }
+  if (model.pricePerSecond > 0) {
+    addPricingIssue(ctx, 'Image models must not set pricePerSecond', 'pricePerSecond');
+  }
+  if (hasResolutionEntries(model)) {
+    addPricingIssue(
+      ctx,
+      'Image models must not set pricePerSecondByResolution entries',
+      'pricePerSecondByResolution'
+    );
+  }
+  if (model.pricePerImage <= 0) {
+    addPricingIssue(ctx, 'Image models must declare pricePerImage > 0', 'pricePerImage');
+  }
+}
+
+function refineVideoPricing(model: PricingShape, ctx: z.RefinementCtx): void {
+  if (hasTokenPricing(model)) {
+    addPricingIssue(
+      ctx,
+      'Video models must not set pricePerInputToken or pricePerOutputToken',
+      'pricePerInputToken'
+    );
+  }
+  if (model.pricePerImage > 0) {
+    addPricingIssue(ctx, 'Video models must not set pricePerImage', 'pricePerImage');
+  }
+  if (model.pricePerSecond > 0) {
+    addPricingIssue(
+      ctx,
+      'Video models must not set pricePerSecond (use pricePerSecondByResolution)',
+      'pricePerSecond'
+    );
+  }
+  if (!hasResolutionEntries(model)) {
+    addPricingIssue(
+      ctx,
+      'Video models must declare at least one pricePerSecondByResolution entry',
+      'pricePerSecondByResolution'
+    );
+  }
+}
+
+function refineAudioPricing(model: PricingShape, ctx: z.RefinementCtx): void {
+  if (hasTokenPricing(model)) {
+    addPricingIssue(
+      ctx,
+      'Audio models must not set pricePerInputToken or pricePerOutputToken',
+      'pricePerInputToken'
+    );
+  }
+  if (model.pricePerImage > 0) {
+    addPricingIssue(ctx, 'Audio models must not set pricePerImage', 'pricePerImage');
+  }
+  if (hasResolutionEntries(model)) {
+    addPricingIssue(
+      ctx,
+      'Audio models must not set pricePerSecondByResolution (audio is flat per-second)',
+      'pricePerSecondByResolution'
+    );
+  }
+  if (model.pricePerSecond <= 0) {
+    addPricingIssue(ctx, 'Audio models must declare pricePerSecond > 0', 'pricePerSecond');
+  }
+}
+
+const MODALITY_REFINERS: Record<
+  PricingShape['modality'],
+  (model: PricingShape, ctx: z.RefinementCtx) => void
+> = {
+  text: refineTextPricing,
+  image: refineImagePricing,
+  video: refineVideoPricing,
+  audio: refineAudioPricing,
+};
+
+/**
+ * Validate that a model's pricing fields match its declared modality. Each
+ * modality owns one pricing dimension; mismatches are bugs (e.g., a text
+ * model accidentally getting per-image pricing from the gateway). Catching
+ * them at the schema boundary prevents bad data from leaking into the UI or
+ * billing pipeline.
+ */
+function refineModalityPricing(model: PricingShape, ctx: z.RefinementCtx): void {
+  MODALITY_REFINERS[model.modality](model, ctx);
+}
+
+/**
  * Schema for an AI model available through the AI Gateway.
  */
 export const modelSchema = z
@@ -89,14 +227,18 @@ export const modelSchema = z
   .refine((model) => (model.modality === 'text' ? model.contextLength > 0 : true), {
     message: 'Text models must have a positive contextLength',
     path: ['contextLength'],
-  });
+  })
+  .superRefine(refineModalityPricing);
 
 export type Model = z.infer<typeof modelSchema>;
 
 /**
- * Response from GET /models endpoint.
+ * Response from GET /models endpoint. Single source of truth for the wire
+ * contract — the inferred type flows to consumers, no manual mirror.
  */
-export interface ModelsListResponse {
-  models: Model[];
-  premiumModelIds: string[];
-}
+export const modelsListResponseSchema = z.object({
+  models: z.array(modelSchema),
+  premiumModelIds: z.array(z.string()),
+});
+
+export type ModelsListResponse = z.infer<typeof modelsListResponseSchema>;

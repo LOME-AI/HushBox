@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import type { PushNotification } from './types.js';
 import { createConsolePushClient } from './console.js';
+import type { PushNotification } from './types.js';
 
 describe('createConsolePushClient', () => {
   const testNotification: PushNotification = {

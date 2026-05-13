@@ -151,7 +151,6 @@ test.describe('Two-Factor Authentication', () => {
         lastUsedCode = disableCode;
         await disableModal.enterCodeAndDisable(disableCode);
 
-        // Modal should close on success
         await expect(disableModal.modal).not.toBeVisible({ timeout: 15_000 });
       });
 

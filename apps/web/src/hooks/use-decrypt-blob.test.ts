@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
+import type { ContentKey } from '@hushbox/crypto';
 
 const mockDecryptBinaryWithContentKey =
   vi.fn<(contentKey: Uint8Array, ciphertext: Uint8Array) => Uint8Array>();
@@ -20,7 +21,7 @@ function defaultParams(
 ): Parameters<typeof useDecryptBlob>[0] {
   return {
     downloadUrl: 'https://signed.example/img?sig=a',
-    contentKey: new Uint8Array([4, 5, 6]),
+    contentKey: new Uint8Array([4, 5, 6]) as ContentKey,
     mimeType: 'image/png',
     ...overrides,
   };
@@ -60,7 +61,7 @@ describe('useDecryptBlob', () => {
     mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([10, 11, 12]));
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([7, 8])));
 
-    const contentKey = new Uint8Array([99, 99]);
+    const contentKey = new Uint8Array([99, 99]) as ContentKey;
     const { result } = renderHook(() => useDecryptBlob(defaultParams({ contentKey })));
 
     await waitFor(() => {
@@ -80,7 +81,7 @@ describe('useDecryptBlob', () => {
     const { result } = renderHook(() =>
       useDecryptBlob({
         downloadUrl: null,
-        contentKey: new Uint8Array([1]),
+        contentKey: new Uint8Array([1]) as ContentKey,
         mimeType: 'image/png',
       })
     );

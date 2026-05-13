@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import type { Model } from '@hushbox/shared';
 import { useSelectedModelCapabilities } from './use-selected-model-capabilities.js';
+import type { Model } from '@hushbox/shared';
 
 vi.mock('@/stores/model', () => ({
   useModelStore: vi.fn(),

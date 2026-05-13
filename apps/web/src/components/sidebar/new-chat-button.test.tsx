@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { NewChatButton } from './new-chat-button';
 import { useUIStore } from '@/stores/ui';
+import { NewChatButton } from './new-chat-button';
 
-// Mock useNavigate and useLocation
 const mockNavigate = vi.fn();
 const mockLocation = { pathname: '/chat/some-id' };
 vi.mock('@tanstack/react-router', () => ({
@@ -12,7 +11,6 @@ vi.mock('@tanstack/react-router', () => ({
   useLocation: () => mockLocation,
 }));
 
-// Mock useIsMobile
 const mockUseIsMobile = vi.fn(() => false);
 vi.mock('@hushbox/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@hushbox/ui')>();

@@ -113,7 +113,6 @@ describe('keys service', () => {
       await createConversationWithEpoch(user.id, user.publicKey);
       const unknownKey = generateKeyPair().publicKey;
 
-      // Use the conversation ID from the created conversation
       const { conversationId } = await createConversationWithEpoch(user.id, user.publicKey);
       const result = await getKeyChain(db, conversationId, unknownKey);
 
@@ -134,7 +133,6 @@ describe('keys service', () => {
       const user = await createTestUser();
       const { conversationId } = await createConversationWithEpoch(user.id, user.publicKey);
 
-      // Manually insert epoch #2 with a chainLink
       const chainLinkBytes = new Uint8Array(64).fill(42);
       const epoch2Data = epochFactory.build({
         conversationId,
@@ -144,7 +142,6 @@ describe('keys service', () => {
       const [epoch2] = await db.insert(epochs).values(epoch2Data).returning();
       if (!epoch2) throw new Error('Failed to create epoch 2');
 
-      // Add a wrap for this user in epoch 2
       const wrapBytes = new Uint8Array(48).fill(99);
       await db.insert(epochMembers).values(
         epochMemberFactory.build({
@@ -155,7 +152,6 @@ describe('keys service', () => {
         })
       );
 
-      // Update conversation currentEpoch
       await db
         .update(conversations)
         .set({ currentEpoch: 2 })
@@ -177,7 +173,6 @@ describe('keys service', () => {
       const user = await createTestUser();
       const { conversationId } = await createConversationWithEpoch(user.id, user.publicKey);
 
-      // Create epochs 2, 3, 4 with chain links
       const chainLink2 = new Uint8Array(64).fill(2);
       const chainLink3 = new Uint8Array(64).fill(3);
       const chainLink4 = new Uint8Array(64).fill(4);
@@ -246,7 +241,6 @@ describe('keys service', () => {
       // Chain link at epoch 3 connects to epoch 2, which is before visibleFromEpoch=3
       expect(r.chainLinks).toHaveLength(1);
       expect(defined(r.chainLinks[0]).epochNumber).toBe(4);
-      // Epochs 2 and 3 chain links should be filtered out
       const epochNumbers = r.chainLinks.map((cl) => cl.epochNumber);
       expect(epochNumbers).not.toContain(2);
       expect(epochNumbers).not.toContain(3);
@@ -256,7 +250,6 @@ describe('keys service', () => {
       const user = await createTestUser();
       const { conversationId } = await createConversationWithEpoch(user.id, user.publicKey);
 
-      // Add epoch 2 with chain link
       const chainLink2 = new Uint8Array(64).fill(22);
       const epoch2Data = epochFactory.build({
         conversationId,
@@ -285,7 +278,6 @@ describe('keys service', () => {
 
       expect(result).not.toBeNull();
       const r = defined(result);
-      // With visibleFromEpoch=1, all chain links should be returned
       expect(r.chainLinks).toHaveLength(1);
       expect(defined(r.chainLinks[0]).epochNumber).toBe(2);
       expect(r.wraps).toHaveLength(2);
@@ -295,7 +287,6 @@ describe('keys service', () => {
       const user = await createTestUser();
       const { conversationId } = await createConversationWithEpoch(user.id, user.publicKey);
 
-      // Add epochs 2 and 3 with chain links
       const chainLink2 = new Uint8Array(64).fill(20);
       const chainLink3 = new Uint8Array(64).fill(30);
 
@@ -325,7 +316,6 @@ describe('keys service', () => {
         })
       );
 
-      // Remove the original epoch 1 wrap
       const [epoch1] = await db
         .select()
         .from(epochs)
@@ -449,7 +439,6 @@ describe('keys service', () => {
       const user = await createTestUser();
       const { conversationId } = await createConversationWithEpoch(user.id, user.publicKey);
 
-      // Set leftAt to simulate leaving
       await db
         .update(conversationMembers)
         .set({ leftAt: new Date() })
@@ -466,7 +455,6 @@ describe('keys service', () => {
       const user = await createTestUser();
       const { conversationId } = await createConversationWithEpoch(user.id, user.publicKey);
 
-      // Generate synthetic epoch 2 data
       const rotationResult = createFirstEpoch([user.publicKey]);
       const encryptedTitle = new Uint8Array([1, 2, 3, 4, 5]);
       const chainLinkBytes = new Uint8Array(64).fill(77);
@@ -490,7 +478,6 @@ describe('keys service', () => {
       expect(result.newEpochId).toBeDefined();
       expect(typeof result.newEpochId).toBe('string');
 
-      // Verify conversation state
       const [conv] = await db
         .select()
         .from(conversations)
@@ -498,7 +485,6 @@ describe('keys service', () => {
       const c = defined(conv);
       expect(c.currentEpoch).toBe(2);
 
-      // Verify new epoch row
       const [newEpoch] = await db
         .select()
         .from(epochs)
@@ -508,7 +494,6 @@ describe('keys service', () => {
       expect(ne.chainLink).toEqual(chainLinkBytes);
       expect(ne.epochPublicKey).toEqual(rotationResult.epochPublicKey);
 
-      // Verify new epoch member wrap
       const newMembers = await db
         .select()
         .from(epochMembers)
@@ -540,7 +525,6 @@ describe('keys service', () => {
         })
       ).rejects.toThrow(StaleEpochError);
 
-      // Verify conversation unchanged
       const [conv] = await db
         .select()
         .from(conversations)
@@ -552,14 +536,12 @@ describe('keys service', () => {
       const user = await createTestUser();
       const { conversationId } = await createConversationWithEpoch(user.id, user.publicKey);
 
-      // Get old epoch ID
       const [epoch1] = await db
         .select()
         .from(epochs)
         .where(and(eq(epochs.conversationId, conversationId), eq(epochs.epochNumber, 1)));
       if (!epoch1) throw new Error('Epoch 1 not found');
 
-      // Verify epoch 1 has members before rotation
       const membersBefore = await db
         .select()
         .from(epochMembers)
@@ -583,7 +565,6 @@ describe('keys service', () => {
         encryptedTitle: new Uint8Array([5, 6, 7]),
       });
 
-      // Verify old epoch's members are deleted
       const membersAfter = await db
         .select()
         .from(epochMembers)
@@ -604,7 +585,6 @@ describe('keys service', () => {
         visibleFromEpoch: 1,
       });
 
-      // Add epoch 1 wrap for the new member
       const [epoch1] = await db
         .select()
         .from(epochs)
@@ -622,7 +602,6 @@ describe('keys service', () => {
 
       const rotationResult = createFirstEpoch([owner.publicKey, memberUser.publicKey]);
 
-      // Client no longer sends visibleFromEpoch — server always uses authoritative value
       await submitRotation(db, {
         conversationId,
         expectedEpoch: 1,
@@ -655,7 +634,6 @@ describe('keys service', () => {
         .where(eq(epochMembers.epochId, ne.id));
 
       expect(newMembers).toHaveLength(2);
-      // Both members should have visibleFromEpoch=1 (from conversationMembers)
       for (const member of newMembers) {
         expect(member.visibleFromEpoch).toBe(1);
       }
@@ -726,7 +704,6 @@ describe('keys service', () => {
       const memberUser = await createTestUser();
       const { conversationId } = await createConversationWithEpoch(owner.id, owner.publicKey);
 
-      // Add second user as active member
       await db.insert(conversationMembers).values({
         conversationId,
         userId: memberUser.id,
@@ -760,7 +737,6 @@ describe('keys service', () => {
       const memberUser = await createTestUser();
       const { conversationId } = await createConversationWithEpoch(owner.id, owner.publicKey);
 
-      // Add second user as active member with epoch 1 wrap
       await db.insert(conversationMembers).values({
         conversationId,
         userId: memberUser.id,
@@ -844,7 +820,6 @@ describe('keys service', () => {
       expect(kc.wraps).toHaveLength(1);
       expect(defined(kc.wraps[0]).epochNumber).toBe(2);
 
-      // Chain link for epoch 2 should exist
       expect(kc.chainLinks).toHaveLength(1);
       const chainLink = defined(kc.chainLinks[0]);
       expect(chainLink.epochNumber).toBe(2);
@@ -926,11 +901,9 @@ describe('keys service', () => {
       const keyChain = await getKeyChain(db, conversationId, ownerAccount.publicKey);
       const kc = defined(keyChain, 'key chain');
 
-      // Only epoch 3 wrap should exist
       expect(kc.wraps).toHaveLength(1);
       expect(defined(kc.wraps[0]).epochNumber).toBe(3);
 
-      // Chain links for epochs 2 and 3
       expect(kc.chainLinks).toHaveLength(2);
 
       // Unwrap epoch 3 → traverse to 2 → traverse to 1

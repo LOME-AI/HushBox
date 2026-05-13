@@ -173,7 +173,6 @@ export class BillingPage {
         throw new Error('Session lost — redirected to login during webhook confirmation polling');
       }
 
-      // Wait for balance to stabilize (skeleton disappears, real balance shows)
       await this.page
         .locator('.animate-pulse')
         .first()
@@ -202,7 +201,6 @@ export class BillingPage {
    * Call this at the start of a test to begin collecting data.
    */
   enableDiagnostics(): void {
-    // Capture API responses for billing/webhook endpoints
     this.page.on('response', async (response) => {
       const url = response.url();
       if (url.includes('/billing/') || url.includes('/webhooks/') || url.includes('helcim')) {
@@ -223,7 +221,6 @@ export class BillingPage {
       }
     });
 
-    // Capture console errors/warnings from the browser
     this.page.on('console', (msg) => {
       const type = msg.type();
       if (type === 'error' || type === 'warning') {

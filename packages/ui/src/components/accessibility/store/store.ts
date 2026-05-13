@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { StateCreator } from 'zustand';
 import {
   accessibilityPreferencesSchema,
   ACCESSIBILITY_PREFERENCES_DEFAULTS,
   type AccessibilityPreferences,
 } from './schema';
 import { createWebStorageAdapter, type A11yStorageAdapter } from './storage-adapter';
+import type { StateCreator } from 'zustand';
 
 export const A11Y_STORAGE_KEY = 'hushbox.a11y.v1';
 

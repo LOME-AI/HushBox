@@ -1,9 +1,5 @@
 import { z } from 'zod';
 
-// ============================================================
-// Error Codes — General
-// ============================================================
-
 /** Unauthorized - authentication required or invalid */
 export const ERROR_CODE_UNAUTHORIZED = 'UNAUTHORIZED';
 
@@ -31,6 +27,9 @@ export const ERROR_CODE_PAYMENT_REQUIRED = 'PAYMENT_REQUIRED';
 /** Conflict - resource already in conflicting state */
 export const ERROR_CODE_CONFLICT = 'CONFLICT';
 
+/** Invalid operation - request shape valid but operation not supported in current context */
+export const ERROR_CODE_INVALID_OPERATION = 'INVALID_OPERATION';
+
 /** Expired - resource or token has expired */
 export const ERROR_CODE_EXPIRED = 'EXPIRED';
 
@@ -42,10 +41,6 @@ export const ERROR_CODE_BILLING_MISMATCH = 'BILLING_MISMATCH';
 
 /** CSRF rejected - cross-site request forgery protection triggered */
 export const ERROR_CODE_CSRF_REJECTED = 'CSRF_REJECTED';
-
-// ============================================================
-// Error Codes — Auth
-// ============================================================
 
 /** Authentication failed - invalid credentials */
 export const ERROR_CODE_AUTH_FAILED = 'AUTH_FAILED';
@@ -115,10 +110,6 @@ export const ERROR_CODE_VERIFICATION_FAILED = 'VERIFICATION_FAILED';
 /** Invalid or expired verification token */
 export const ERROR_CODE_INVALID_OR_EXPIRED_TOKEN = 'INVALID_OR_EXPIRED_TOKEN';
 
-// ============================================================
-// Error Codes — 2FA
-// ============================================================
-
 /** 2FA verification failed - generic client-side error */
 export const ERROR_CODE_2FA_VERIFICATION_FAILED = '2FA_VERIFICATION_FAILED';
 
@@ -152,10 +143,6 @@ export const ERROR_CODE_NO_PENDING_DISABLE = 'NO_PENDING_DISABLE';
 /** Disable 2FA init failed */
 export const ERROR_CODE_DISABLE_2FA_INIT_FAILED = 'DISABLE_2FA_INIT_FAILED';
 
-// ============================================================
-// Error Codes — Infrastructure
-// ============================================================
-
 /** User not found in database */
 export const ERROR_CODE_USER_NOT_FOUND = 'USER_NOT_FOUND';
 
@@ -167,10 +154,6 @@ export const ERROR_CODE_INVALID_BASE64 = 'INVALID_BASE64';
 
 /** Too many attempts - account temporarily locked */
 export const ERROR_CODE_TOO_MANY_ATTEMPTS = 'TOO_MANY_ATTEMPTS';
-
-// ============================================================
-// Error Codes — Domain
-// ============================================================
 
 /** Conversation not found */
 export const ERROR_CODE_CONVERSATION_NOT_FOUND = 'CONVERSATION_NOT_FOUND';
@@ -220,11 +203,26 @@ export const ERROR_CODE_PREMIUM_REQUIRES_BALANCE = 'PREMIUM_REQUIRES_BALANCE';
 /** Premium model requires a free account */
 export const ERROR_CODE_PREMIUM_REQUIRES_ACCOUNT = 'PREMIUM_REQUIRES_ACCOUNT';
 
+/**
+ * Selected model is gated to paid accounts and the caller is a free/trial/guest
+ * tier user. Distinct from {@link ERROR_CODE_PREMIUM_REQUIRES_BALANCE} (which
+ * covers paid users with empty balance) — this one fires when the tier itself
+ * disqualifies the user from premium models regardless of balance.
+ */
+export const ERROR_CODE_MODEL_TIER_LOCKED = 'MODEL_TIER_LOCKED';
+
 /** Trial message exceeds cost limits */
 export const ERROR_CODE_TRIAL_MESSAGE_TOO_EXPENSIVE = 'TRIAL_MESSAGE_TOO_EXPENSIVE';
 
 /** Authenticated user on trial endpoint */
 export const ERROR_CODE_AUTHENTICATED_ON_TRIAL = 'AUTHENTICATED_ON_TRIAL';
+
+/**
+ * Feature requires authentication. Returned by endpoints that defense-in-depth
+ * reject requests for paid/auth-only features (e.g., web search) when called
+ * by an unauthenticated trial user.
+ */
+export const ERROR_CODE_FEATURE_REQUIRES_AUTH = 'FEATURE_REQUIRES_AUTH';
 
 /** Conversation member limit reached */
 export const ERROR_CODE_MEMBER_LIMIT_REACHED = 'MEMBER_LIMIT_REACHED';
@@ -259,15 +257,19 @@ export const ERROR_CODE_MESSAGE_NOT_FOUND = 'MESSAGE_NOT_FOUND';
 /** Shared message not found */
 export const ERROR_CODE_SHARE_NOT_FOUND = 'SHARE_NOT_FOUND';
 
+/**
+ * Caller cannot share the requested message because they are not (or are no
+ * longer) an active member of the message's conversation. More specific than
+ * {@link ERROR_CODE_FORBIDDEN}: the share-create endpoint uses this so the
+ * frontend can render a sharing-specific message.
+ */
+export const ERROR_CODE_SHARE_FORBIDDEN = 'SHARE_FORBIDDEN';
+
 /** Member wrap set does not match active members */
 export const ERROR_CODE_WRAP_SET_MISMATCH = 'WRAP_SET_MISMATCH';
 
 /** Epoch rotation required */
 export const ERROR_CODE_ROTATION_REQUIRED = 'ROTATION_REQUIRED';
-
-// ============================================================
-// Error Codes — Regeneration & Forks
-// ============================================================
 
 /** Regeneration blocked because another user replied after target message */
 export const ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER = 'REGENERATION_BLOCKED_BY_OTHER_USER';
@@ -293,9 +295,11 @@ export const ERROR_CODE_INVALID_PARENT_MESSAGE = 'INVALID_PARENT_MESSAGE';
 /** Cannot regenerate while a message is currently streaming */
 export const ERROR_CODE_CANNOT_REGENERATE_WHILE_STREAMING = 'CANNOT_REGENERATE_WHILE_STREAMING';
 
-// ============================================================
-// Error Codes — SSE Streaming
-// ============================================================
+/** Fork tip changed between parent resolution and persistence — concurrent writer won the race. */
+export const ERROR_CODE_FORK_TIP_CONFLICT = 'FORK_TIP_CONFLICT';
+
+/** Duplicate user message — same conversation/sequence already persisted (retry hit a PK race). */
+export const ERROR_CODE_DUPLICATE_MESSAGE = 'DUPLICATE_MESSAGE';
 
 /** Context length exceeded — conversation too long for the model */
 export const ERROR_CODE_CONTEXT_LENGTH_EXCEEDED = 'CONTEXT_LENGTH_EXCEEDED';
@@ -309,9 +313,33 @@ export const ERROR_CODE_BILLING_ERROR = 'BILLING_ERROR';
 /** Chat stream failed — generic client-side stream failure */
 export const ERROR_CODE_CHAT_STREAM_FAILED = 'CHAT_STREAM_FAILED';
 
-// ============================================================
-// Error Codes — Mobile
-// ============================================================
+/**
+ * Stream went silent — no SSE event received within {@link STREAM_TIMEOUT_MS}.
+ * Surfaces a server crash mid-stream (after `start`, before `done`) so the UI
+ * can clear the optimistic "streaming" state instead of hanging forever.
+ */
+export const ERROR_CODE_STREAM_TIMEOUT = 'STREAM_TIMEOUT';
+
+/**
+ * Provider returned a content-policy / moderation refusal. Surfaces a
+ * targeted UI message asking the user to rephrase, distinct from generic
+ * stream errors.
+ */
+export const ERROR_CODE_CONTENT_POLICY = 'CONTENT_POLICY';
+
+/**
+ * Provider auth / billing failure (HTTP 401/402/403, "insufficient credits").
+ * Distinct from user-facing PAYMENT_REQUIRED — this is the upstream gateway
+ * rejecting our credentials, not the user lacking balance.
+ */
+export const ERROR_CODE_PROVIDER_BILLING = 'PROVIDER_BILLING';
+
+/**
+ * Network / fetch error — connection refused, DNS failure, AbortError mid-stream.
+ * Distinguishes transient infrastructure issues from provider-side failures so
+ * the UI can suggest "retry" instead of "try a different model".
+ */
+export const ERROR_CODE_NETWORK_ERROR = 'NETWORK_ERROR';
 
 /** App version outdated - client must update before continuing */
 export const ERROR_CODE_UPGRADE_REQUIRED = 'UPGRADE_REQUIRED';
@@ -325,12 +353,11 @@ export const ERROR_CODE_BILLING_SESSION_RESTRICTED = 'BILLING_SESSION_RESTRICTED
 /** Requested build version not found in R2 storage */
 export const ERROR_CODE_BUILD_NOT_FOUND = 'BUILD_NOT_FOUND';
 
-// ============================================================
-// Error Codes — Media Storage
-// ============================================================
-
 /** Media storage write failed — R2 PUT returned an error. */
 export const ERROR_CODE_STORAGE_WRITE_FAILED = 'STORAGE_WRITE_FAILED';
+
+/** Generated media exceeds the single-PUT size limit; multipart upload not supported. */
+export const ERROR_CODE_MEDIA_TOO_LARGE = 'MEDIA_TOO_LARGE';
 
 /** Media storage read failed — presigned URL could not be minted or object fetch failed. */
 export const ERROR_CODE_STORAGE_READ_FAILED = 'STORAGE_READ_FAILED';
@@ -346,6 +373,13 @@ export const ERROR_CODE_INFERENCE_FAILED = 'INFERENCE_FAILED';
 
 /** Media generation produced no output bytes (empty result from gateway). */
 export const ERROR_CODE_EMPTY_MEDIA_RESULT = 'EMPTY_MEDIA_RESULT';
+
+/**
+ * Generated media has a mime type the platform does not recognize. Surfaced
+ * during the upload step so corrupt rows never enter the DB. Validated against
+ * the mime allowlist enum in `message-shares.ts`.
+ */
+export const ERROR_CODE_UNKNOWN_MIME_TYPE = 'UNKNOWN_MIME_TYPE';
 
 /** Image/video/audio modality is not available for trial users. */
 export const ERROR_CODE_MEDIA_TRIAL_BLOCKED = 'MEDIA_TRIAL_BLOCKED';
@@ -378,10 +412,6 @@ export const ERROR_CODE_AUDIO_DISABLED = 'AUDIO_DISABLED';
  * message is aborted; sibling slots (explicit selections) keep streaming.
  */
 export const ERROR_CODE_CLASSIFIER_FAILED = 'CLASSIFIER_FAILED';
-
-// ============================================================
-// Error Response Schema
-// ============================================================
 
 /**
  * Standard error response schema.

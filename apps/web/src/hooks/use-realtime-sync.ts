@@ -1,11 +1,11 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import type { ConversationWebSocket } from '../lib/ws-client.js';
 import { chatKeys } from './chat.js';
 import { memberKeys } from './use-conversation-members.js';
 import { budgetKeys } from './use-conversation-budgets.js';
 import { billingKeys } from './billing.js';
+import type { ConversationWebSocket } from '../lib/ws-client.js';
 
 export function useRealtimeSync(
   ws: ConversationWebSocket | null,

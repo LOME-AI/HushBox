@@ -4,9 +4,12 @@
 -- 1. Wipe shared messages and drop the old per-plaintext share column.
 DELETE FROM "shared_messages";--> statement-breakpoint
 ALTER TABLE "shared_messages" DROP COLUMN "share_blob";--> statement-breakpoint
-ALTER TABLE "shared_messages" ADD COLUMN "wrapped_content_key" "bytea" NOT NULL;--> statement-breakpoint
+ALTER TABLE "shared_messages" ADD COLUMN "wrapped_content_key" bytea NOT NULL;--> statement-breakpoint
 
--- 2. Wipe messages (cascades to shared_messages, conversation_forks, etc. via FK cascade).
+-- 2. Wipe messages. FK behavior on messages.id:
+--      - shared_messages.message_id           ON DELETE CASCADE  (rows removed)
+--      - content_items.message_id             ON DELETE CASCADE  (rows removed; created below)
+--      - conversation_forks.tip_message_id    ON DELETE SET NULL (forks survive, tip cleared)
 DELETE FROM "messages";--> statement-breakpoint
 
 -- 3. Remove content / AI / billing columns from messages. They move to content_items.
@@ -16,7 +19,7 @@ ALTER TABLE "messages" DROP COLUMN "cost";--> statement-breakpoint
 ALTER TABLE "messages" DROP COLUMN "payer_id";--> statement-breakpoint
 
 -- 4. Add the one wrapped content key column on messages (one per message, reused across all content items).
-ALTER TABLE "messages" ADD COLUMN "wrapped_content_key" "bytea" NOT NULL;--> statement-breakpoint
+ALTER TABLE "messages" ADD COLUMN "wrapped_content_key" bytea NOT NULL;--> statement-breakpoint
 
 -- 5. Create content_items table: one row per discrete piece of content in a message.
 --    Text items store inline via encrypted_blob; media items store via storage_key (R2).
@@ -26,7 +29,7 @@ CREATE TABLE "content_items" (
 	"message_id" text NOT NULL,
 	"content_type" text NOT NULL,
 	"position" integer DEFAULT 0 NOT NULL,
-	"encrypted_blob" "bytea",
+	"encrypted_blob" bytea,
 	"storage_key" text,
 	"mime_type" text,
 	"size_bytes" integer,

@@ -133,6 +133,39 @@ export function truncateForClassifier(input: TruncationInput): string {
   return formatSections(directions);
 }
 
+function isDirectionExhausted(dir: DirectionState, directions: readonly DirectionState[]): boolean {
+  const partner = directions[dir.partnerIndex];
+  if (partner === undefined) return true;
+  const sourceLeft = availableForDirection(dir, partner);
+  const capacityLeft = CLASSIFIER_CHARS_PER_DIRECTION - dir.captured.length;
+  return sourceLeft <= 0 || capacityLeft <= 0;
+}
+
+/**
+ * The per-direction cap inflates when sibling directions have exhausted their
+ * source: their unclaimed share redistributes evenly to the directions that
+ * can still make progress, capped by the global budget. On the typical first
+ * turn (assistant empty) this lets USER START + USER END consume the full
+ * 4000-char budget instead of stalling at 2000.
+ */
+function effectivePerDirectionCap(
+  dir: DirectionState,
+  directions: readonly DirectionState[]
+): number {
+  let exhaustedShare = 0;
+  let activeCount = 1; // `dir` itself is always considered active here
+  for (const other of directions) {
+    if (other === dir) continue;
+    if (isDirectionExhausted(other, directions)) {
+      const capacity = Math.max(0, CLASSIFIER_CHARS_PER_DIRECTION - other.captured.length);
+      exhaustedShare += capacity;
+    } else {
+      activeCount += 1;
+    }
+  }
+  return CLASSIFIER_CHARS_PER_DIRECTION + Math.floor(exhaustedShare / activeCount);
+}
+
 /**
  * Consume one chunk for the given direction and return how many characters
  * were captured. Returns 0 when the direction cannot make progress (already
@@ -143,7 +176,8 @@ function consumeChunk(
   directions: readonly DirectionState[],
   remainingGlobal: number
 ): number {
-  const dirRemaining = CLASSIFIER_CHARS_PER_DIRECTION - dir.captured.length;
+  const cap = effectivePerDirectionCap(dir, directions);
+  const dirRemaining = cap - dir.captured.length;
   if (dirRemaining <= 0) return 0;
 
   const partner = directions[dir.partnerIndex];

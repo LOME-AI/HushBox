@@ -1,6 +1,6 @@
+import { generateSecret as otpGenerateSecret, generateURI, verify, generateSync } from 'otplib';
 import { hkdfSha256 } from './hash.js';
 import { symmetricEncrypt, symmetricDecrypt } from './symmetric.js';
-import { generateSecret as otpGenerateSecret, generateURI, verify, generateSync } from 'otplib';
 
 const TOTP_INFO = new TextEncoder().encode('totp-encryption-v1');
 

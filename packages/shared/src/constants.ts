@@ -1,4 +1,3 @@
-// MESSAGE_ROLES moved to enums.ts - re-export for backwards compatibility
 export { MESSAGE_ROLES, type MessageRole } from './enums.js';
 
 import type { ZdrTextModelId, ZdrImageModelId, ZdrVideoModelId } from './models/zdr.js';
@@ -35,24 +34,11 @@ export const VALUE_VIDEO_MODEL_ID = 'google/veo-3.1-fast-generate-001' satisfies
 
 /**
  * Synthetic ID for HushBox's Smart Model — the classifier-based router
- * that picks the best underlying model per message.
- * Step 11 implements the full classifier pipeline; for now this is a
- * stable identifier the frontend can persist and the backend can special-case.
+ * that picks the best underlying model per message. Stable identifier the
+ * frontend persists in user prefs and the backend special-cases on its
+ * classifier path.
  */
 export const SMART_MODEL_ID = 'smart-model';
-
-/**
- * Client-only input price estimation for the Smart Model display.
- * Used only as a headline price on the model selector; backend computes
- * actual pricing dynamically from the allowed models list.
- */
-export const SMART_MODEL_INPUT_PRICE_PER_TOKEN = 0.000_000_039;
-
-/**
- * Client-only output price estimation for the Smart Model display.
- * See SMART_MODEL_INPUT_PRICE_PER_TOKEN.
- */
-export const SMART_MODEL_OUTPUT_PRICE_PER_TOKEN = 0.000_000_19;
 
 /** HushBox's profit margin on AI model usage (5%) */
 export const HUSHBOX_FEE_RATE = 0.05;
@@ -112,10 +98,6 @@ export const STORAGE_COST_PER_1K_CHARS = STORAGE_COST_PER_CHARACTER * 1000;
 /** Payment expiration time in milliseconds (30 minutes) */
 export const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
 
-// ============================================================================
-// Media Storage Constants
-// ============================================================================
-
 /** R2 actual ($0.015) + 3x markup for backup/ops/margin */
 export const MEDIA_MONTHLY_COST_PER_GB = 0.04;
 
@@ -140,9 +122,8 @@ export const ESTIMATED_IMAGE_BYTES = 8_000_000;
  */
 export const MEDIA_DOWNLOAD_URL_TTL_SECONDS = 300;
 
-// ============================================================================
-// Video Generation Constants
-// ============================================================================
+/** Maximum bytes for a single-PUT R2 upload via the Worker. Multipart is not supported. */
+export const MAX_MEDIA_OBJECT_BYTES = 250_000_000; // 250 MB
 
 /** Minimum video duration users can request, in seconds. */
 export const MIN_VIDEO_DURATION_SECONDS = 1;
@@ -166,10 +147,6 @@ export const VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
 /** Aspect ratios offered in the image config picker. Single source of truth — request schema derives from this. */
 export const IMAGE_ASPECT_RATIOS = ['1:1', '3:2', '16:9', '9:16', '4:3'] as const;
 
-// ============================================================================
-// Audio Generation Constants
-// ============================================================================
-
 /**
  * Maximum audio duration the user can cap a TTS generation at, in seconds.
  * Unlike video (deterministic duration in the request), TTS duration emerges
@@ -187,10 +164,6 @@ export const ESTIMATED_AUDIO_BYTES_PER_SECOND = 32_000;
 
 /** Audio output formats offered in the audio config picker. Single source of truth — request schema derives from this. */
 export const AUDIO_FORMATS = ['mp3', 'wav', 'ogg'] as const;
-
-// ============================================================================
-// Budget Protection Constants
-// ============================================================================
 
 /**
  * Maximum allowed negative balance in cents for paid users.
@@ -218,10 +191,6 @@ export const MINIMUM_OUTPUT_TOKENS = 1000;
  */
 export const LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD = 10_000;
 
-// ============================================================================
-// Token Estimation Constants
-// ============================================================================
-
 /**
  * Conservative character-per-token ratio for free/trial users.
  * Lower value = more tokens estimated = more conservative cost estimate.
@@ -234,10 +203,6 @@ export const CHARS_PER_TOKEN_CONSERVATIVE = 2;
  * This is the typical approximation (~4 chars/token for most models).
  */
 export const CHARS_PER_TOKEN_STANDARD = 4;
-
-// ============================================================================
-// Capacity UI Thresholds
-// ============================================================================
 
 /**
  * Capacity threshold for red zone (warning).
@@ -274,12 +239,40 @@ export const MAX_CONVERSATION_MEMBERS = 100;
 /** Maximum number of forks allowed per conversation */
 export const MAX_FORKS_PER_CONVERSATION = 5;
 
+/**
+ * Maximum number of Perplexity Search tool calls allowed per text streaming
+ * request. Used by the AI SDK's `stopWhen` cap and by `worstCaseSearchCost()`
+ * to size the pre-flight reservation.
+ */
+export const MAX_SEARCH_TOOL_CALLS = 10;
+
+/**
+ * Conservative pre-flight cost per Perplexity Search tool call in USD. Real
+ * billing comes from the gateway's `totalCost`, which already includes search;
+ * this constant only sizes the worst-case reservation up front.
+ */
+export const SEARCH_COST_PER_CALL = 0.005;
+
 /** Maximum number of models that can be selected simultaneously for multi-model chat */
 export const MAX_SELECTED_MODELS = 5;
 
-// ============================================================================
-// Legal Constants
-// ============================================================================
+/**
+ * Maximum gap between SSE events before the client gives up on a chat stream.
+ * Surfaces a server crash mid-stream so the UI can clear "streaming" state.
+ * No reconnection is attempted — the failure is reported and the user retries.
+ */
+export const STREAM_TIMEOUT_MS = 90_000;
+
+/**
+ * Cadence at which the media pipeline writes SSE keep-alive comment lines
+ * (`:keep-alive\n\n`). Per the SSE spec, lines starting with `:` are comments
+ * and are discarded by EventSource consumers; we use them so a slow video
+ * generation (>90s with no events between `model:media:start` and `done`)
+ * still resets {@link STREAM_TIMEOUT_MS} on the client and avoids a spurious
+ * timeout. Keep strictly below `STREAM_TIMEOUT_MS / 2` so two consecutive
+ * heartbeats never miss the timeout window.
+ */
+export const KEEPALIVE_INTERVAL_MS = 30_000;
 
 /** Effective date for the Privacy Policy (YYYY-MM-DD) */
 export const PRIVACY_POLICY_EFFECTIVE_DATE = '2026-03-15';

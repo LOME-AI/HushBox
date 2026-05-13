@@ -24,7 +24,6 @@ describe('message-codec', () => {
       const result = encodeForEncryption('A'.repeat(10_000));
 
       expect(result[0]).toBe(FLAG_COMPRESSED);
-      // Compressed payload should be much smaller than original
       expect(result.length).toBeLessThan(10_000);
     });
 
@@ -33,7 +32,6 @@ describe('message-codec', () => {
       const result = encodeForEncryption(text);
       const originalBytes = new TextEncoder().encode(text);
 
-      // Skip flag byte, rest should be original bytes
       expect(result.subarray(1)).toEqual(originalBytes);
     });
 
@@ -68,7 +66,6 @@ describe('message-codec', () => {
     });
 
     it('decodes compressed payload (0x01 flag)', () => {
-      // First encode to get a compressed payload, then decode it
       const text = 'B'.repeat(10_000);
       const encoded = encodeForEncryption(text);
 

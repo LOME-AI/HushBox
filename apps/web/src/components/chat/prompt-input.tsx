@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { cn } from '@hushbox/ui';
 import {
   Bot,
   Image as ImageIcon,
@@ -14,16 +13,17 @@ import {
   Video,
   X,
 } from 'lucide-react';
+import { cn } from '@hushbox/ui';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@hushbox/ui';
 import { Textarea } from '@hushbox/ui';
-import type { CapabilityId, FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
 import { FEATURE_FLAGS } from '@hushbox/shared';
-import { CapacityBar } from './capacity-bar';
-import { BudgetMessages } from './budget-messages';
-import { ModalityConfigPanel } from './modality-config-panel';
 import { usePromptBudget } from '@/hooks/use-prompt-budget';
 import { useStability } from '@/providers/stability-provider';
 import { StableContent } from '@/components/shared/stable-content';
+import { CapacityBar } from './capacity-bar';
+import { BudgetMessages } from './budget-messages';
+import { ModalityConfigPanel } from './modality-config-panel';
+import type { CapabilityId, FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
 
 export interface PromptInputRef {
   focus: () => void;
@@ -88,12 +88,36 @@ function ToggleButtonWithTooltip({
 }: Readonly<ToggleButtonWithTooltipProps>): React.JSX.Element {
   const [open, setOpen] = React.useState(false);
 
+  // When disabled, the inner button can't receive focus or fire pointer events,
+  // so screen-reader / keyboard users would never learn why it's unavailable.
+  // We promote the wrapping span to a focusable role="button" so the tooltip
+  // (e.g. "Sign up to unlock") is announced on focus.
+  const wrapperProps = disabled
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        'aria-label': ariaLabel,
+        'aria-disabled': true,
+        onFocus: () => {
+          setOpen(true);
+        },
+        onBlur: () => {
+          setOpen(false);
+        },
+      }
+    : {};
+
+  // When disabled, the wrapper span carries role=button + aria-label so it's
+  // the only entry in the accessibility tree. The inner native button is
+  // aria-hidden and purely visual — keeps the same accessible name from being
+  // announced twice and resolves the strict-mode locator collision in tests.
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
         {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- tooltip wrapper: span exists so tooltip can show on hover/click even when the inner Button is disabled (disabled buttons swallow events). The Button itself owns keyboard semantics. */}
         <span
           className="inline-flex"
+          {...wrapperProps}
           onClick={() => {
             setOpen(true);
             if (!disabled) onClick?.();
@@ -104,7 +128,7 @@ function ToggleButtonWithTooltip({
             size="icon"
             variant="ghost"
             disabled={disabled}
-            aria-label={ariaLabel}
+            {...(disabled ? { 'aria-hidden': true } : { 'aria-label': ariaLabel })}
           >
             {children}
           </Button>
@@ -256,19 +280,46 @@ function getSearchTooltipText(
 interface ModalityIconsProps {
   activeModality: Modality;
   onSelect: (modality: Modality) => void;
+  /**
+   * When false, icons render disabled with a "Sign up to unlock" tooltip
+   * (per plan §9.1) so trial users still discover the affordance.
+   */
+  isAuthenticated: boolean;
 }
 
 interface ModalityIconEntry {
   modality: Modality;
   label: string;
+  /** Trial tooltip for users who haven't signed up — gives action context. */
+  trialLabel: string;
   Icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
 }
 
 const MODALITY_ICONS: readonly ModalityIconEntry[] = [
-  { modality: 'text', label: 'Switch to text', Icon: Type },
-  { modality: 'image', label: 'Switch to image generation', Icon: ImageIcon },
-  { modality: 'video', label: 'Switch to video generation', Icon: Video },
-  { modality: 'audio', label: 'Switch to audio generation', Icon: Mic },
+  {
+    modality: 'text',
+    label: 'Switch to text',
+    trialLabel: 'Text generation — sign up to unlock',
+    Icon: Type,
+  },
+  {
+    modality: 'image',
+    label: 'Switch to image generation',
+    trialLabel: 'Image generation — sign up to unlock',
+    Icon: ImageIcon,
+  },
+  {
+    modality: 'video',
+    label: 'Switch to video generation',
+    trialLabel: 'Video generation — sign up to unlock',
+    Icon: Video,
+  },
+  {
+    modality: 'audio',
+    label: 'Switch to audio generation',
+    trialLabel: 'Audio generation — sign up to unlock',
+    Icon: Mic,
+  },
 ] as const;
 
 function isModalityAvailable(modality: Modality): boolean {
@@ -279,27 +330,41 @@ function isModalityAvailable(modality: Modality): boolean {
 /**
  * Renders one icon per non-active modality (see §9.1 of the plan).
  * The active modality's icon is omitted. Audio is gated behind FEATURE_FLAGS.
+ *
+ * Trial users (`isAuthenticated === false`) see the icons disabled with a
+ * "Sign up to unlock" tooltip — keeping the affordance visible while
+ * preventing accidental modality switches.
  */
 function ModalityIcons({
   activeModality,
   onSelect,
+  isAuthenticated,
 }: Readonly<ModalityIconsProps>): React.JSX.Element {
   return (
     <>
       {MODALITY_ICONS.filter(
         (entry) => entry.modality !== activeModality && isModalityAvailable(entry.modality)
-      ).map((entry) => (
-        <ToggleButtonWithTooltip
-          key={entry.modality}
-          tooltipText={entry.label}
-          onClick={() => {
-            onSelect(entry.modality);
-          }}
-          ariaLabel={entry.label}
-        >
-          <entry.Icon className="h-4 w-4" aria-hidden />
-        </ToggleButtonWithTooltip>
-      ))}
+      ).map((entry) => {
+        const tooltip = isAuthenticated ? entry.label : entry.trialLabel;
+        const ariaLabel = isAuthenticated ? entry.label : entry.trialLabel;
+        return (
+          <ToggleButtonWithTooltip
+            key={entry.modality}
+            tooltipText={tooltip}
+            onClick={
+              isAuthenticated
+                ? () => {
+                    onSelect(entry.modality);
+                  }
+                : undefined
+            }
+            disabled={!isAuthenticated}
+            ariaLabel={ariaLabel}
+          >
+            <entry.Icon className="h-4 w-4" aria-hidden />
+          </ToggleButtonWithTooltip>
+        );
+      })}
     </>
   );
 }
@@ -350,15 +415,21 @@ function PromptToolbar({
   aiEnabled,
   onToggleAi,
 }: Readonly<PromptToolbarProps>): React.JSX.Element {
-  // Modality icons are paid/free only. Trial users (isAuthenticated === false) never see them.
+  // Modality icons render whenever the parent supplies the props. Trial users
+  // (isAuthenticated === false) see them disabled with a sign-up tooltip per
+  // plan §9.1, so the affordance stays discoverable instead of being hidden.
   const showModality =
-    activeModality !== undefined && onSelectModality !== undefined && isAuthenticated === true;
+    activeModality !== undefined && onSelectModality !== undefined && isAuthenticated !== undefined;
   const showSearch = searchProps !== undefined && isAuthenticated !== undefined;
 
   return (
     <>
       {showModality && (
-        <ModalityIcons activeModality={activeModality} onSelect={onSelectModality} />
+        <ModalityIcons
+          activeModality={activeModality}
+          onSelect={onSelectModality}
+          isAuthenticated={isAuthenticated}
+        />
       )}
       {showSearch && (
         <SearchToggleButton

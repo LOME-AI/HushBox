@@ -15,14 +15,12 @@ describe('useKeyboardOffset', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
 
-    // Mock window.innerHeight
     Object.defineProperty(globalThis, 'innerHeight', {
       value: 844,
       writable: true,
       configurable: true,
     });
 
-    // Mock visualViewport
     mockVisualViewport = {
       height: 844,
       offsetTop: 0,

@@ -1,8 +1,8 @@
-import type { RealtimeEvent, RealtimeEventType } from '@hushbox/realtime/events';
 import { parseEvent } from '@hushbox/realtime/events';
 import { getApiUrl } from './api.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
 import { useNetworkStore } from '../stores/network.js';
+import type { RealtimeEvent, RealtimeEventType } from '@hushbox/realtime/events';
 
 type EventListener<T extends RealtimeEventType> = (
   event: Extract<RealtimeEvent, { type: T }>

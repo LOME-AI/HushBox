@@ -49,11 +49,11 @@ export interface Bindings {
   UPSTASH_REDIS_REST_TOKEN?: string;
   OPAQUE_MASTER_SECRET?: string;
   IRON_SESSION_SECRET?: string;
-  /** R2 S3 API endpoint for presigned GET URL minting (reads only). */
+  /** R2 S3 API endpoint — full read/write scope, used by aws4fetch for all storage operations. */
   R2_S3_ENDPOINT?: string;
-  /** R2 S3 API access key id (reads only). */
+  /** R2 S3 API access key id — full read/write scope, used by aws4fetch for all storage operations. */
   R2_ACCESS_KEY_ID?: string;
-  /** R2 S3 API secret access key (reads only). */
+  /** R2 S3 API secret access key — full read/write scope, used by aws4fetch for all storage operations. */
   R2_SECRET_ACCESS_KEY?: string;
   /** R2 bucket name for media. Used by the aws4fetch S3 client for all operations. */
   R2_BUCKET_MEDIA?: string;
@@ -82,6 +82,17 @@ export interface Variables {
   callerId: string;
   conversationOwnerId: string;
   linkGuest: { linkId: string; publicKey: Uint8Array } | null;
+  /**
+   * Authenticated caller for the `/api/media/:id/download-url` route.
+   * Set by `requireMediaCaller()`. Tagged union: session users carry their
+   * `userId` (used for the conversation_members.user_id JOIN), link guests
+   * carry their `linkId` (used for the conversation_members.link_id JOIN).
+   * Both kinds carry the public key keyed in `epoch_members` for the
+   * epoch-gating check.
+   */
+  mediaCaller:
+    | { kind: 'user'; userId: string; publicKey: Uint8Array }
+    | { kind: 'link'; linkId: string; publicKey: Uint8Array };
   session: SessionData | null;
   sessionData: SessionData | null;
 }

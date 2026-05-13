@@ -104,7 +104,6 @@ describe('verifyHmacSha256Webhook', () => {
       webhookId,
     });
 
-    // Strip the "v1," prefix to get raw signature
     const rawSignature = versionedSig.replace(/^v1,/, '');
 
     const result = await verifyHmacSha256Webhook({
@@ -130,7 +129,6 @@ describe('verifyHmacSha256Webhook', () => {
       webhookId,
     });
 
-    // "v0,invalid v1,valid"
     const multiSig = `v0,invalidSignature ${versionedSig}`;
 
     const result = await verifyHmacSha256Webhook({

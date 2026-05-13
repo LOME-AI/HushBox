@@ -1,9 +1,9 @@
 ---
-title: "What Is OPAQUE Authentication?"
-description: "Your password exists in plaintext on every server you log into. OPAQUE is the protocol that ends this."
-author: "HushBox Team"
+title: 'What Is OPAQUE Authentication?'
+description: 'Your password exists in plaintext on every server you log into. OPAQUE is the protocol that ends this.'
+author: 'HushBox Team'
 date: 2026-03-28
-tags: ["privacy", "encryption", "security", "authentication"]
+tags: ['privacy', 'encryption', 'security', 'authentication']
 draft: false
 ---
 
@@ -17,7 +17,7 @@ This is how every major service works. Google, Apple, Amazon, your bank. The ser
 
 TLS protects the wire. Nothing protects the endpoint.
 
-So: does the server actually *need* to see your password?
+So: does the server actually _need_ to see your password?
 
 ## What OPAQUE actually does
 
@@ -29,7 +29,7 @@ The name stands for "O-PAKE," where the O means "Oblivious," referring to the co
 
 1. You type your password. Your browser "blinds" it, scrambling it with a random value before sending anything to the server.
 2. The server receives this blinded value. It applies its own secret key and sends the result back. The server has no idea what password produced this blinded value.
-3. Your browser "unblinds" the result, recovering a strong cryptographic key derived from *both* your password and the server's secret. This key encrypts your credentials into a sealed record.
+3. Your browser "unblinds" the result, recovering a strong cryptographic key derived from _both_ your password and the server's secret. This key encrypts your credentials into a sealed record.
 4. That sealed record is stored on the server. The server helped create it but can't open it. Only your password can.
 
 **Login** (coming back):
@@ -45,7 +45,7 @@ The word "oblivious" is doing real work here. The server performs a computation 
 
 Password-authenticated key exchange protocols have existed since Bellovin and Merritt proposed the first one in 1992. SRP, the most widely deployed variant, has been around since the late '90s. So why did we need something new?
 
-SRP and similar protocols had a structural weakness: the server transmitted the salt to the client during authentication. If an attacker breached the server and stole the database, they got both the password verifiers *and* the salts. With salts in hand, they could pre-compute dictionaries of common passwords and crack accounts in bulk.
+SRP and similar protocols had a structural weakness: the server transmitted the salt to the client during authentication. If an attacker breached the server and stole the database, they got both the password verifiers _and_ the salts. With salts in hand, they could pre-compute dictionaries of common passwords and crack accounts in bulk.
 
 OPAQUE, introduced at EUROCRYPT 2018 by Stanislaw Jarecki, Hugo Krawczyk, and Jiayu Xu, was the first asymmetric PAKE protocol with a formal proof of resistance to pre-computation attacks. The salt never leaves the server. It's baked into the OPRF evaluation, invisible to the client and invisible to any attacker who compromises the database. A breach gives you encrypted records that require a per-user dictionary attack to crack, each one gated by the server's OPRF key.
 

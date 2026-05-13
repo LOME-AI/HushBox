@@ -405,4 +405,15 @@ describe('fetchModels', () => {
     );
     expect(publicCalls.length).toBe(1);
   });
+
+  it('rejects with a Zod parse error when the SDK response shape drifts', async () => {
+    // Simulate SDK shape drift: gateway.getAvailableModels returns a body
+    // missing the required `models` field. fetchModels parses defensively
+    // with `gatewayModelsResponseSchema.parse(...)`, which throws a ZodError.
+    mockGetAvailableModels.mockResolvedValueOnce({ wrong: 'shape' });
+
+    await expect(
+      fetchModels({ apiKey: 'test-key', publicModelsUrl: 'https://test.example/v1/models' })
+    ).rejects.toThrowError(/models/i);
+  });
 });

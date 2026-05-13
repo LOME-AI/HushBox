@@ -1,5 +1,4 @@
-import { type Database } from '@hushbox/db';
-import type { StageId } from '@hushbox/shared';
+import { type Database, type DatabaseClient } from '@hushbox/db';
 import {
   assignSequenceNumbers,
   fetchEpochPublicKey,
@@ -14,6 +13,8 @@ import {
   updateForkTip,
   validateParentMessageId,
 } from './message-helpers.js';
+import { applyTreeAction, type TreeAction } from './tree-action.js';
+import type { StageId } from '@hushbox/shared';
 
 /**
  * One pre-inference stage charge that the persistence layer must write
@@ -72,39 +73,35 @@ export async function saveUserOnlyMessage(
   const { conversationId, senderId, messageId, content, parentMessageId, forkId } = params;
 
   return db.transaction(async (tx) => {
-    await validateParentMessageId(tx as unknown as Database, conversationId, parentMessageId);
+    await validateParentMessageId(tx, conversationId, parentMessageId);
 
-    const { sequences, currentEpoch } = await assignSequenceNumbers(
-      tx as unknown as Database,
-      conversationId,
-      1
-    );
+    const { sequences, currentEpoch } = await assignSequenceNumbers(tx, conversationId, 1);
     const seq = sequences[0];
     if (seq === undefined) throw new Error('invariant: expected at least one sequence number');
 
     const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
-      tx as unknown as Database,
+      tx,
       conversationId,
       currentEpoch
     );
 
-    const { wrappedContentKey, contentItem } = await insertEnvelopeTextMessage(
-      tx as unknown as Database,
-      {
-        id: messageId,
-        conversationId,
-        textContent: content,
-        epochPublicKey,
-        epochNumber,
-        sequenceNumber: seq,
-        senderType: 'user',
-        senderId,
-        parentMessageId,
-      }
-    );
+    const { wrappedContentKey, contentItem } = await insertEnvelopeTextMessage(tx, {
+      id: messageId,
+      conversationId,
+      textContent: content,
+      epochPublicKey,
+      epochNumber,
+      sequenceNumber: seq,
+      senderType: 'user',
+      senderId,
+      parentMessageId,
+    });
 
     if (forkId) {
-      await updateForkTip(tx as unknown as Database, forkId, messageId);
+      // parentMessageId IS the fork tip when forkId is set (resolved upstream
+      // via resolveParentMessageId). Conditional update detects a concurrent
+      // writer that beat us to advancing the tip.
+      await updateForkTip(tx, forkId, messageId, parentMessageId);
     }
 
     return {
@@ -162,19 +159,26 @@ export interface MediaAssistantMessageInput {
 
 export type AssistantMessageInput = TextAssistantMessageInput | MediaAssistantMessageInput;
 
-interface SaveChatTurnBaseParams {
+interface SaveChatTurnCommonFields {
   conversationId: string;
   userId: string;
   senderId: string;
-  userMessageId: string;
-  userContent: string;
   /** When present, atomically increments group spending tables. Only set when a member uses the owner's balance. */
   groupBillingContext?: { memberId: string };
-  parentMessageId: string | null;
   forkId?: string;
 }
 
-interface SaveChatTurnLegacyParams extends SaveChatTurnBaseParams {
+interface SaveChatTurnLegacyUserFields {
+  userMessageId: string;
+  userContent: string;
+  parentMessageId: string | null;
+}
+
+interface SaveChatTurnTreeActionFields {
+  treeAction: TreeAction;
+}
+
+interface SaveChatTurnLegacyAssistantFields {
   assistantMessageId: string;
   assistantContent: string;
   model: string;
@@ -184,11 +188,13 @@ interface SaveChatTurnLegacyParams extends SaveChatTurnBaseParams {
   cachedTokens?: number;
 }
 
-interface SaveChatTurnMultiParams extends SaveChatTurnBaseParams {
+interface SaveChatTurnMultiAssistantFields {
   assistantMessages: AssistantMessageInput[];
 }
 
-export type SaveChatTurnParams = SaveChatTurnLegacyParams | SaveChatTurnMultiParams;
+export type SaveChatTurnParams = SaveChatTurnCommonFields &
+  (SaveChatTurnLegacyUserFields | SaveChatTurnTreeActionFields) &
+  (SaveChatTurnLegacyAssistantFields | SaveChatTurnMultiAssistantFields);
 
 export interface AssistantResult {
   /** The canonical assistant message id (also present on envelope.messageId). */
@@ -202,12 +208,14 @@ export interface AssistantResult {
 }
 
 export interface SaveChatTurnResult {
-  userSequence: number;
+  /** Undefined for `kind: 'regenerate'` (no new user row inserted). */
+  userSequence: number | undefined;
   aiSequence: number;
   epochNumber: number;
   cost: string;
   usageRecordId: string;
-  userEnvelope: PersistedEnvelope;
+  /** Undefined for `kind: 'regenerate'` (existing user msg preserved). */
+  userEnvelope: PersistedEnvelope | undefined;
   assistantResults: AssistantResult[];
 }
 
@@ -229,6 +237,17 @@ function normalizeAssistantMessages(params: SaveChatTurnParams): AssistantMessag
   ];
 }
 
+function resolveTreeAction(params: SaveChatTurnParams): TreeAction {
+  if ('treeAction' in params) {
+    return params.treeAction;
+  }
+  return {
+    kind: 'fresh-send',
+    userMessage: { id: params.userMessageId, content: params.userContent },
+    parentMessageId: params.parentMessageId,
+  };
+}
+
 interface PersistAssistantContext {
   conversationId: string;
   epochPublicKey: Uint8Array;
@@ -240,7 +259,7 @@ interface PersistAssistantContext {
 }
 
 async function persistTextAssistant(
-  tx: Database,
+  tx: DatabaseClient,
   msg: TextAssistantMessageInput,
   context: PersistAssistantContext
 ): Promise<AssistantResult> {
@@ -310,7 +329,7 @@ async function persistTextAssistant(
 }
 
 async function persistMediaAssistant(
-  tx: Database,
+  tx: DatabaseClient,
   msg: MediaAssistantMessageInput,
   context: PersistAssistantContext
 ): Promise<AssistantResult> {
@@ -378,20 +397,29 @@ function logNegativeCosts(
   }
 }
 
+interface PersistAllAssistantsContext extends Omit<PersistAssistantContext, 'sequenceNumber'> {
+  /** `0` when no user message was inserted (regenerate), else `1`. */
+  sequenceOffset: number;
+}
+
 async function persistAllAssistants(
-  tx: Database,
+  tx: DatabaseClient,
   assistantMsgs: AssistantMessageInput[],
   sequences: number[],
-  context: Omit<PersistAssistantContext, 'sequenceNumber'>
+  context: PersistAllAssistantsContext
 ): Promise<AssistantResult[]> {
+  const { sequenceOffset, ...persistContextBase } = context;
   const results: AssistantResult[] = [];
 
   for (const [index, assistantMsg] of assistantMsgs.entries()) {
-    const aiSeq = sequences[1 + index];
-    if (aiSeq === undefined)
-      throw new Error(`invariant: expected sequence number at index ${String(1 + index)}`);
+    const aiSeq = sequences[sequenceOffset + index];
+    if (aiSeq === undefined) {
+      throw new Error(
+        `invariant: expected sequence number at index ${String(sequenceOffset + index)}`
+      );
+    }
 
-    const persistContext = { ...context, sequenceNumber: aiSeq };
+    const persistContext = { ...persistContextBase, sequenceNumber: aiSeq };
 
     const result =
       assistantMsg.modality === 'text'
@@ -405,93 +433,88 @@ async function persistAllAssistants(
 }
 
 /**
- * Atomically saves user + N assistant messages, assigns sequence numbers,
- * encrypts each under a wrap-once envelope, and charges the user's wallet per model.
- *
- * All steps run inside a single database transaction. If any step fails,
- * the entire operation rolls back -- no partial state.
+ * Atomically applies a {@link TreeAction}, assigns sequence numbers, persists
+ * each message under a wrap-once envelope, charges the user's wallet per
+ * assistant, and (when `forkId` is set) advances the fork tip with optimistic-
+ * concurrency guard. Single transaction: any step failing rolls everything
+ * back.
  */
 export async function saveChatTurn(
   db: Database,
   params: SaveChatTurnParams
 ): Promise<SaveChatTurnResult> {
-  const {
-    conversationId,
-    userId,
-    senderId,
-    userMessageId,
-    userContent,
-    groupBillingContext,
-    parentMessageId,
-    forkId,
-  } = params;
-
+  const { conversationId, userId, senderId, groupBillingContext, forkId } = params;
+  const treeAction = resolveTreeAction(params);
   const assistantMsgs = normalizeAssistantMessages(params);
   logNegativeCosts(assistantMsgs, conversationId, userId);
 
   return db.transaction(async (tx) => {
-    await validateParentMessageId(tx as unknown as Database, conversationId, parentMessageId);
+    const treeResult = await applyTreeAction(tx, conversationId, treeAction);
 
-    const { sequences, currentEpoch } = await assignSequenceNumbers(
-      tx as unknown as Database,
-      conversationId,
-      1 + assistantMsgs.length
-    );
-    const userSeq = sequences[0];
-    if (userSeq === undefined) throw new Error('invariant: expected at least one sequence number');
+    const userMsgCount = treeResult.userMessageInsert ? 1 : 0;
+    const totalCount = userMsgCount + assistantMsgs.length;
+    const { sequences, currentEpoch } = await assignSequenceNumbers(tx, conversationId, totalCount);
 
     const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
-      tx as unknown as Database,
+      tx,
       conversationId,
       currentEpoch
     );
 
-    const userPersisted = await insertEnvelopeTextMessage(tx as unknown as Database, {
-      id: userMessageId,
-      conversationId,
-      textContent: userContent,
-      epochPublicKey,
-      epochNumber,
-      sequenceNumber: userSeq,
-      senderType: 'user',
-      senderId,
-      parentMessageId,
-    });
-
-    const assistantResults = await persistAllAssistants(
-      tx as unknown as Database,
-      assistantMsgs,
-      sequences,
-      {
+    let userSequence: number | undefined;
+    let userEnvelope: PersistedEnvelope | undefined;
+    if (treeResult.userMessageInsert) {
+      const userSeq = sequences[0];
+      if (userSeq === undefined) {
+        throw new Error('invariant: expected sequence number for user message');
+      }
+      const userPersisted = await insertEnvelopeTextMessage(tx, {
+        id: treeResult.userMessageInsert.id,
         conversationId,
+        textContent: treeResult.userMessageInsert.content,
         epochPublicKey,
         epochNumber,
-        userMessageId,
-        userId,
-        ...(groupBillingContext !== undefined && { groupBillingContext }),
-      }
-    );
+        sequenceNumber: userSeq,
+        senderType: 'user',
+        senderId,
+        parentMessageId: treeResult.userMessageInsert.parentMessageId,
+      });
+      userSequence = userSeq;
+      userEnvelope = {
+        messageId: treeResult.userMessageInsert.id,
+        wrappedContentKey: userPersisted.wrappedContentKey,
+        contentItem: userPersisted.contentItem,
+      };
+    }
+
+    const assistantResults = await persistAllAssistants(tx, assistantMsgs, sequences, {
+      conversationId,
+      epochPublicKey,
+      epochNumber,
+      userMessageId: treeResult.parentMessageIdForAssistants,
+      userId,
+      sequenceOffset: userMsgCount,
+      ...(groupBillingContext !== undefined && { groupBillingContext }),
+    });
 
     if (forkId) {
       const lastAssistant = assistantMsgs.at(-1);
       if (!lastAssistant) throw new Error('invariant: assistantMsgs must not be empty');
-      await updateForkTip(tx as unknown as Database, forkId, lastAssistant.id);
+      // Conditional update: a concurrent writer that already advanced the tip
+      // surfaces ERROR_CODE_FORK_TIP_CONFLICT.
+      await updateForkTip(tx, forkId, lastAssistant.id, treeResult.forkTipExpectedMessageId);
     }
 
     const firstResult = assistantResults[0];
     if (!firstResult) throw new Error('invariant: assistantResults must not be empty');
 
     return {
-      userSequence: userSeq,
+      userSequence,
       aiSequence: firstResult.aiSequence,
       epochNumber,
       cost: firstResult.cost,
       usageRecordId: firstResult.usageRecordId,
-      userEnvelope: {
-        messageId: userMessageId,
-        wrappedContentKey: userPersisted.wrappedContentKey,
-        contentItem: userPersisted.contentItem,
-      },
+      userEnvelope,
       assistantResults,
     };
   });

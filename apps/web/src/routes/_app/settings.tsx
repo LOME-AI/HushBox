@@ -1,11 +1,11 @@
 import * as React from 'react';
 import { useState, useCallback } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@hushbox/ui';
 import { Shield, Key, FileText, Scale, ChevronRight, MessageSquare } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@hushbox/ui';
 import { PRIVACY_POLICY_META } from '@hushbox/shared/legal';
-import { requireAuth, changePassword, useAuthStore } from '@/lib/auth';
 import { ROUTES } from '@hushbox/shared';
+import { requireAuth, changePassword, useAuthStore } from '@/lib/auth';
 import { openExternalPage } from '@/capacitor';
 import { PageHeader } from '@/components/shared/page-header';
 import { PageBody } from '@/components/shared/page-body';

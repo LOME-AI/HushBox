@@ -119,7 +119,6 @@ test.describe('Document Panel', () => {
       // Scan list until Virtuoso renders the second card (mermaid)
       await documentPanel.scrollToNthCard(chatPage, 1, 45_000);
 
-      // Click the mermaid card (second card)
       await documentPanel.clickCard(1);
       await documentPanel.waitForPanelOpen();
 
@@ -184,7 +183,6 @@ test.describe('Document Panel', () => {
       const initialWidth = await documentPanel.getPanelWidth();
 
       await documentPanel.fullscreenButton().click();
-      // Wait for width transition to complete
       await expect(async () => {
         const w = await documentPanel.getPanelWidth();
         expect(w).toBeGreaterThan(initialWidth);
@@ -192,7 +190,6 @@ test.describe('Document Panel', () => {
       await expect(documentPanel.exitFullscreenButton()).toBeVisible();
 
       await documentPanel.exitFullscreenButton().click();
-      // Wait for width transition to restore
       await expect(async () => {
         const w = await documentPanel.getPanelWidth();
         expect(Math.abs(w - initialWidth)).toBeLessThan(10);

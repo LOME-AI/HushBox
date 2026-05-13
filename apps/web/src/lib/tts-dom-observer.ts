@@ -19,8 +19,8 @@
 // user has actually opted into chat-aloud.
 
 import { SentenceChunker } from '@hushbox/ui/accessibility/lib/sentence-chunker';
-import type { TtsService, TtsVoice } from '@hushbox/ui/accessibility/lib/tts-engine';
 import { useA11yStore } from '@hushbox/ui/accessibility/store';
+import type { TtsService, TtsVoice } from '@hushbox/ui/accessibility/lib/tts-engine';
 
 const TARGET_SELECTOR = '[data-tts-stream]';
 

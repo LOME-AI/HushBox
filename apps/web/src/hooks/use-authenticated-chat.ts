@@ -1,52 +1,12 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import type { PromptInputRef } from '@/components/chat/prompt-input';
-import {
-  createUserMessage,
-  createAssistantMessage,
-  appendTokenToMessage,
-} from '@/lib/chat-messages';
-import { processStartEvent } from '@/lib/multi-model-stream';
-import { buildMessagesForRegeneration } from '@/lib/chat-regeneration';
-import { useChatPageState } from '@/hooks/use-chat-page';
-import {
-  useChatStream,
-  BalanceReservedError,
-  BillingMismatchError,
-  ContextCapacityError,
-  type RegenerateStreamRequest,
-  type ModelResult,
-} from '@/hooks/use-chat-stream';
-import type { DoneEventData, StageDoneEventData, StartEventData } from '@/lib/sse-client';
-import type { StageErrorPayload, StageStartPayload } from '@hushbox/shared';
-import { useOptimisticMessages } from '@/hooks/use-optimistic-messages';
-import {
-  useConversation,
-  useMessages,
-  useCreateConversation,
-  chatKeys,
-  DECRYPTING_TITLE,
-} from '@/hooks/chat';
-
-import { usePendingChatStore } from '@/stores/pending-chat';
-import { useModelStore, getPrimaryModel } from '@/stores/model';
-import { useSearchStore } from '@/stores/search';
-import { useChatErrorStore, createChatError } from '@/stores/chat-error';
-import { useIsMobile } from '@hushbox/ui';
-import { billingKeys } from '@/hooks/billing';
 import {
   createFirstEpoch,
   getPublicKeyFromPrivate,
   encryptTextForEpoch,
   decryptTextFromEpoch,
 } from '@hushbox/crypto';
-import {
-  setEpochKey,
-  getEpochKey,
-  subscribe as epochCacheSubscribe,
-  getSnapshot as epochCacheSnapshot,
-} from '@/lib/epoch-key-cache';
 import {
   generateChatTitle,
   toBase64,
@@ -61,13 +21,59 @@ import {
   type VideoConfig,
   type AudioConfig,
 } from '@hushbox/shared';
-import type { Message, MessageMediaItem } from '@/lib/api';
+import { useIsMobile } from '@hushbox/ui';
+import {
+  createUserMessage,
+  createAssistantMessage,
+  appendTokenToMessage,
+} from '@/lib/chat-messages';
+import { processStartEvent } from '@/lib/multi-model-stream';
+import { buildMessagesForRegeneration, inferRegenerateModality } from '@/lib/chat-regeneration';
+import { useChatPageState } from '@/hooks/use-chat-page';
+import {
+  useChatStream,
+  BalanceReservedError,
+  BillingMismatchError,
+  ContextCapacityError,
+  type RegenerateStreamRequest,
+  type ModelResult,
+} from '@/hooks/use-chat-stream';
+import { useOptimisticMessages } from '@/hooks/use-optimistic-messages';
+import {
+  useConversation,
+  useMessages,
+  useCreateConversation,
+  chatKeys,
+  DECRYPTING_TITLE,
+} from '@/hooks/chat';
+
+import { usePendingChatStore } from '@/stores/pending-chat';
+import { useModelStore, getPrimaryModel } from '@/stores/model';
+import { useSearchStore } from '@/stores/search';
+import { useChatErrorStore, createChatError, MAIN_FORK_KEY } from '@/stores/chat-error';
+import { billingKeys } from '@/hooks/billing';
+import {
+  setEpochKey,
+  getEpochKey,
+  subscribe as epochCacheSubscribe,
+  getSnapshot as epochCacheSnapshot,
+} from '@/lib/epoch-key-cache';
 import { useAuthStore } from '@/lib/auth';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useDecryptedMessages } from '@/hooks/use-decrypted-messages';
 import { useForks } from '@/hooks/forks';
 import { useForkMessages } from '@/hooks/use-fork-messages';
 import { client, fetchJson } from '@/lib/api-client';
+import type { Message, MessageMediaItem } from '@/lib/api';
+import type { StageErrorPayload, StageStartPayload } from '@hushbox/shared';
+import type {
+  DoneEventData,
+  ModelMediaProgressData,
+  ModelMediaStartData,
+  StageDoneEventData,
+  StartEventData,
+} from '@/lib/sse-client';
+import type { PromptInputRef } from '@/components/chat/prompt-input';
 
 interface UseAuthenticatedChatInput {
   readonly routeConversationId: string;
@@ -324,6 +330,9 @@ function toMessageMediaItem(item: DoneContentItemShape): MessageMediaItem | null
     ...(item.width !== undefined && { width: item.width }),
     ...(item.height !== undefined && { height: item.height }),
     ...(item.durationMs !== undefined && { durationMs: item.durationMs }),
+    // Forward the SSE-provided presigned URL so `MediaContentItem` can skip
+    // the `/api/media/:id/download-url` round-trip for just-generated media.
+    ...(item.downloadUrl !== undefined && { downloadUrl: item.downloadUrl }),
   };
 }
 
@@ -429,10 +438,12 @@ function computeInputDisabled(
 function handleRegenerationError(
   error: unknown,
   failedContent: string,
+  forkKey: string,
   promptInputRef: React.RefObject<PromptInputRef | null>
 ): void {
   if (error instanceof BillingMismatchError || error instanceof BalanceReservedError) {
     useChatErrorStore.getState().setError(
+      forkKey,
       createChatError({
         content: friendlyErrorMessage(error.code),
         retryable: true,
@@ -441,6 +452,7 @@ function handleRegenerationError(
     );
   } else if (error instanceof ContextCapacityError) {
     useChatErrorStore.getState().setError(
+      forkKey,
       createChatError({
         content: friendlyErrorMessage(error.code),
         retryable: false,
@@ -450,6 +462,7 @@ function handleRegenerationError(
   } else {
     console.error('Regeneration failed:', error);
     useChatErrorStore.getState().setError(
+      forkKey,
       createChatError({
         content: friendlyErrorMessage(ERROR_CODE_CHAT_STREAM_FAILED),
         retryable: false,
@@ -501,6 +514,8 @@ export function useAuthenticatedChat({
     setOptimisticMessageStageStart,
     setOptimisticMessageStageDone,
     setOptimisticMessageStageError,
+    setOptimisticMessageMediaStart,
+    setOptimisticMessageMediaProgress,
     resetOptimisticMessages,
   } = useOptimisticMessages();
 
@@ -511,7 +526,11 @@ export function useAuthenticatedChat({
   const audioConfig = useModelStore((state) => state.audioConfig);
   const { webSearchEnabled } = useSearchStore();
   const { isStreaming, startStream, startRegenerateStream } = useChatStream('authenticated');
-  const chatError = useChatErrorStore((s) => s.error);
+  // Scope the error subscription to the currently-active fork (or 'main' for
+  // linear / no-fork conversations). Switching forks reads a different slot,
+  // so an error that occurred on Main no longer leaks onto Fork 1's view.
+  const errorForkKey = activeForkId ?? MAIN_FORK_KEY;
+  const chatError = useChatErrorStore((s) => s.errorsByFork[errorForkKey] ?? null);
   const createConversation = useCreateConversation();
   const createConversationRef = React.useRef(createConversation.mutateAsync);
   React.useEffect(() => {
@@ -554,12 +573,14 @@ export function useAuthenticatedChat({
     resetOptimisticMessages();
     setLocalMessages([]);
     setLocalTitle(null);
-    useChatErrorStore.getState().clearError();
+    // Conversation switch — drop every fork's error since none of them apply
+    // to the new conversation.
+    useChatErrorStore.getState().clearAll();
   }, [isCreateMode, routeConversationId, realConversationId, resetOptimisticMessages]);
 
   React.useEffect(() => {
     return () => {
-      useChatErrorStore.getState().clearError();
+      useChatErrorStore.getState().clearAll();
     };
   }, []);
 
@@ -597,6 +618,51 @@ export function useAuthenticatedChat({
     }
   }, []);
 
+  /**
+   * Stage events fire on the new-chat flow when a model has pre-inference
+   * stages (e.g. Smart Model's classifier). Without these handlers the
+   * classifier `stage:start` reaches the SSE parser but never updates UI
+   * state — the "Choosing the best model…" indicator stays hidden until
+   * `stage:done` arrives, by which point inference is already streaming.
+   * The handlers mutate `localMessages` (not optimistic) because the
+   * new-chat flow renders from `localMessages` during create-mode.
+   */
+  const handleStreamStageStart = React.useCallback((data: StageStartPayload) => {
+    setLocalMessages((previous) =>
+      previous.map((m) =>
+        m.id === data.assistantMessageId ? { ...m, classifyingStageId: data.stageId } : m
+      )
+    );
+  }, []);
+
+  const handleStreamStageDone = React.useCallback((data: StageDoneEventData) => {
+    setLocalMessages((previous) =>
+      previous.map((m) => {
+        if (m.id !== data.assistantMessageId) return m;
+        const next: Message = {
+          ...m,
+          classifyingStageId: undefined,
+          modelName: data.payload.resolvedModelId,
+          resolvedModelName: data.payload.resolvedModelName,
+        };
+        if ((data.payload.stageId as string) === 'smart-model') {
+          next.isSmartModel = true;
+        }
+        return next;
+      })
+    );
+  }, []);
+
+  const handleStreamStageError = React.useCallback((data: StageErrorPayload) => {
+    setLocalMessages((previous) =>
+      previous.map((m) =>
+        m.id === data.assistantMessageId
+          ? { ...m, classifyingStageId: undefined, errorCode: data.errorCode, content: '' }
+          : m
+      )
+    );
+  }, []);
+
   const optimisticModelMapRef = React.useRef(new Map<string, string>());
 
   const createOptimisticStreamCallbacks = React.useCallback(
@@ -625,6 +691,17 @@ export function useAuthenticatedChat({
           setOptimisticMessageError(msgId, data.code ?? 'STREAM_ERROR');
         }
       },
+      // `model:media:start` fires twice per media model: once pre-gateway with
+      // a placeholder mime, once post-gateway with the real mime. Both calls
+      // overwrite `mediaInFlight` so the placeholder progresses from
+      // "Generating image…" with placeholder mime to a precise mime ahead of
+      // the bytes landing.
+      onModelMediaStart: (data: ModelMediaStartData) => {
+        setOptimisticMessageMediaStart(data.assistantMessageId, data.mediaType, data.mimeType);
+      },
+      onModelMediaProgress: (data: ModelMediaProgressData) => {
+        setOptimisticMessageMediaProgress(data.assistantMessageId, data.percent);
+      },
       onStageStart: (data: StageStartPayload) => {
         setOptimisticMessageStageStart(data.assistantMessageId, data.stageId);
       },
@@ -640,6 +717,8 @@ export function useAuthenticatedChat({
       addOptimisticMessage,
       updateOptimisticMessageContent,
       setOptimisticMessageError,
+      setOptimisticMessageMediaStart,
+      setOptimisticMessageMediaProgress,
       setOptimisticMessageStageStart,
       setOptimisticMessageStageDone,
       setOptimisticMessageStageError,
@@ -785,6 +864,9 @@ export function useAuthenticatedChat({
             onStart: handleStreamStart,
             onToken: handleStreamToken,
             onModelError: handleStreamModelError,
+            onStageStart: handleStreamStageStart,
+            onStageDone: handleStreamStageDone,
+            onStageError: handleStreamStageError,
           }
         );
 
@@ -831,7 +913,9 @@ export function useAuthenticatedChat({
         console.error('Stream failed:', streamError);
         state.stopStreaming();
         useStreamingActivityStore.getState().endStream();
+        // New-chat flow has no fork yet — error belongs on the main slot.
         useChatErrorStore.getState().setError(
+          MAIN_FORK_KEY,
           createChatError({
             content: friendlyErrorMessage(ERROR_CODE_CHAT_STREAM_FAILED),
             retryable: false,
@@ -852,6 +936,9 @@ export function useAuthenticatedChat({
     handleStreamStart,
     handleStreamToken,
     handleStreamModelError,
+    handleStreamStageStart,
+    handleStreamStageDone,
+    handleStreamStageError,
     selectedModels,
     webSearchEnabled,
     customInstructions,
@@ -871,7 +958,9 @@ export function useAuthenticatedChat({
       return null;
     }
 
-    useChatErrorStore.getState().clearError();
+    // User typed a new message on the active fork — clear that fork's
+    // previous error tile (if any) before sending.
+    useChatErrorStore.getState().clearError(errorForkKey);
 
     state.clearInput();
     if (!isMobile) {
@@ -879,7 +968,7 @@ export function useAuthenticatedChat({
     }
 
     return { content, convId: realConversationId };
-  }, [state, realConversationId, isMobile, promptInputRef]);
+  }, [state, realConversationId, errorForkKey, isMobile, promptInputRef]);
 
   const handleSend = React.useCallback(
     (fundingSource: FundingSource) => {
@@ -938,7 +1027,7 @@ export function useAuthenticatedChat({
           if (error instanceof BillingMismatchError) {
             await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
           }
-          handleRegenerationError(error, content, promptInputRef);
+          handleRegenerationError(error, content, errorForkKey, promptInputRef);
 
           removeOptimisticMessage(optimisticUserMessage.id);
           state.stopStreaming();
@@ -954,6 +1043,7 @@ export function useAuthenticatedChat({
       forkFilteredDecrypted,
       optimisticMessages,
       activeForkId,
+      errorForkKey,
       state,
       realConversationId,
       promptInputRef,
@@ -1007,7 +1097,9 @@ export function useAuthenticatedChat({
     (targetMessageId: string, action: RegenerateAction, editedContent?: string) => {
       if (!realConversationId) return;
 
-      useChatErrorStore.getState().clearError();
+      // Regenerating on this fork — clear any prior error tile for this fork
+      // before kicking off the new request.
+      useChatErrorStore.getState().clearError(errorForkKey);
 
       // Build messagesForInference from fork-filtered decrypted messages up to the target
       const allMsgs = [...forkFilteredDecrypted, ...optimisticMessages];
@@ -1044,10 +1136,13 @@ export function useAuthenticatedChat({
         pruneMessagesAfterTarget(allMsgs, targetMessageId, setLocalMessages);
       }
 
+      const modality = inferRegenerateModality(targetMessageId, allMsgs);
+
       const request: RegenerateStreamRequest = {
         conversationId: realConversationId,
         targetMessageId,
         action,
+        modality,
         model: getPrimaryModel(selectedModels).id,
         userMessage: { id: userMessageId, content: userContent },
         messagesForInference,
@@ -1055,6 +1150,7 @@ export function useAuthenticatedChat({
         ...(activeForkId != null && { forkId: activeForkId }),
         ...(webSearchEnabled && { webSearchEnabled }),
         ...(customInstructions != null && { customInstructions }),
+        ...buildModalityConfigPayload(modality, imageConfig, videoConfig, audioConfig),
       };
 
       const assistantMsgId = crypto.randomUUID();
@@ -1076,7 +1172,7 @@ export function useAuthenticatedChat({
             onToken: (token) => {
               updateOptimisticMessageContent(assistantMsgId, token);
             },
-            // Smart Model regeneration re-routes through the classifier (Q3),
+            // Smart Model regeneration re-routes through the classifier,
             // so the same stage events fire here. Stage payloads carry
             // assistantMessageId — match it against this regeneration's slot.
             onStageStart: (data) => {
@@ -1112,7 +1208,7 @@ export function useAuthenticatedChat({
           if (error instanceof BillingMismatchError) {
             await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
           }
-          handleRegenerationError(error, userContent, promptInputRef);
+          handleRegenerationError(error, userContent, errorForkKey, promptInputRef);
 
           await queryClient.invalidateQueries({
             queryKey: chatKeys.conversation(realConversationId),
@@ -1127,11 +1223,15 @@ export function useAuthenticatedChat({
     [
       realConversationId,
       activeForkId,
+      errorForkKey,
       forkFilteredDecrypted,
       optimisticMessages,
       selectedModels,
       webSearchEnabled,
       customInstructions,
+      imageConfig,
+      videoConfig,
+      audioConfig,
       startRegenerateStream,
       addOptimisticMessage,
       removeOptimisticMessage,
@@ -1209,10 +1309,8 @@ export function useAuthenticatedChat({
     }
   }, [renderState.type, navigate]);
 
-  // Subscribe to epoch key cache for title decryption reactivity
   const epochCacheVersion = React.useSyncExternalStore(epochCacheSubscribe, epochCacheSnapshot);
 
-  // Decrypt conversation title from API (base64 ECIES blob) using cached epoch key
   const displayTitle = React.useMemo(
     () => computeDisplayTitle(localTitle, conversation, realConversationId),
     [conversation, realConversationId, localTitle, epochCacheVersion]

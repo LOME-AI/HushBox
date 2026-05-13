@@ -21,14 +21,12 @@ export function TypingAnimation({
   const [isComplete, setIsComplete] = React.useState(false);
 
   React.useEffect(() => {
-    // Reset when text changes
     setDisplayText('');
     setIsComplete(false);
   }, [text]);
 
   React.useEffect(() => {
     if (isComplete || displayText.length >= text.length) {
-      // Typing complete - set state if we just finished
       if (!isComplete && displayText.length >= text.length) {
         setIsComplete(true);
         onComplete?.();
@@ -52,7 +50,6 @@ export function TypingAnimation({
       <span className="invisible select-none" aria-hidden="true">
         {text}
       </span>
-      {/* Typed text overlaid at same position */}
       <span data-testid="typed-text" className="absolute top-0 left-0">
         {displayText}
         {showCursor && (

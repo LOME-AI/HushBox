@@ -200,7 +200,6 @@ describe('listLinks', () => {
 
     await listLinks(db as never, 'conv-1');
 
-    // Verify that select was called, and the chain was fully invoked
     expect(mockSelect).toHaveBeenCalledTimes(1);
     const firstResult = mockSelect.mock.results[0];
     if (!firstResult) throw new Error('Expected at least one select call');
@@ -228,12 +227,9 @@ describe('createLink', () => {
   });
 
   it('creates sharedLink, epochMember, and conversationMember atomically', async () => {
-    // Step 0: Lock + verify epoch
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-current-1' }]);
-    // Count existing links for default displayName
     mockSelectChainNoOrder(mockSelect, [{ count: 0 }]);
-    // Steps 1-3: sharedLinks → conversationMembers → epochMembers
     mockInsertUpsertChain(mockInsert, [{ id: 'link-new-1' }]);
     mockInsertUpsertChain(mockInsert, [{ id: 'member-new-1' }]);
     mockInsertUpsertChainNoReturn(mockInsert);
@@ -295,7 +291,6 @@ describe('createLink', () => {
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-1' }]);
     mockSelectChainNoOrder(mockSelect, [{ count: 0 }]);
-    // Upsert returns existing row (no-op update)
     mockInsertUpsertChain(mockInsert, [{ id: 'existing-link' }]);
     mockInsertUpsertChain(mockInsert, [{ id: 'existing-member' }]);
     mockInsertUpsertChainNoReturn(mockInsert);
@@ -330,7 +325,6 @@ describe('createLink', () => {
       displayName: 'Guest Reader',
     });
 
-    // First insert is sharedLinks — verify values() received displayName
     const firstInsertResult = mockInsert.mock.results[0];
     expect(firstInsertResult).toBeDefined();
     const valuesFunction = firstInsertResult!.value.values;
@@ -342,7 +336,6 @@ describe('createLink', () => {
   it('generates default displayName when not provided', async () => {
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-1' }]);
-    // Count existing links → 2 existing
     mockSelectChainNoOrder(mockSelect, [{ count: 2 }]);
     mockInsertUpsertChain(mockInsert, [{ id: 'link-auto-name' }]);
     mockInsertUpsertChain(mockInsert, [{ id: 'member-auto-name' }]);
@@ -357,7 +350,6 @@ describe('createLink', () => {
       currentEpochId: 'epoch-1',
     });
 
-    // First insert is sharedLinks — verify values() includes generated displayName
     const firstInsertResult = mockInsert.mock.results[0];
     expect(firstInsertResult).toBeDefined();
     const valuesFunction = firstInsertResult!.value.values;
@@ -367,9 +359,7 @@ describe('createLink', () => {
   });
 
   it('throws StaleEpochError when epoch has rotated between query and transaction', async () => {
-    // Lock query returns currentEpoch = 5 (rotated past expected)
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 5 }]);
-    // Epoch lookup returns a different epoch ID
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-rotated' }]);
 
     await expect(
@@ -387,12 +377,9 @@ describe('createLink', () => {
   });
 
   it('calls submitRotation instead of epochMembers insert when rotation is provided', async () => {
-    // Step 0: Lock + verify epoch
     mockSelectChainWithFor(mockSelect, [{ currentEpoch: 1 }]);
     mockSelectChainNoOrder(mockSelect, [{ id: 'epoch-current-1' }]);
-    // Count existing links for default displayName
     mockSelectChainNoOrder(mockSelect, [{ count: 0 }]);
-    // Steps 1-2: sharedLinks upsert + conversationMembers upsert (no epochMembers upsert)
     mockInsertUpsertChain(mockInsert, [{ id: 'link-rot-1' }]);
     mockInsertUpsertChain(mockInsert, [{ id: 'member-rot-1' }]);
 
@@ -420,7 +407,6 @@ describe('createLink', () => {
 
     expect(result.linkId).toBe('link-rot-1');
     expect(result.memberId).toBe('member-rot-1');
-    // submitRotation should be called instead of epochMembers insert
     expect(mockSubmitRotation).toHaveBeenCalledTimes(1);
     // Only 2 inserts (sharedLinks + conversationMembers), not 3
     expect(mockInsert).toHaveBeenCalledTimes(2);
@@ -456,13 +442,10 @@ describe('revokeLink', () => {
   });
 
   it('revokes link and calls submitRotation', async () => {
-    // Step 1: Atomic UPDATE sharedLinks SET revokedAt WHERE revokedAt IS NULL RETURNING
     mockUpdateChainReturning(mockUpdate, [
       { id: 'link-1', conversationId: 'conv-1', revokedAt: null },
     ]);
-    // Step 2: Find conversationMembers row
     mockSelectChainNoOrder(mockSelect, [{ id: 'member-1', linkId: 'link-1', leftAt: null }]);
-    // Step 3: Update conversationMembers leftAt
     mockUpdateChain(mockUpdate);
 
     const result = await revokeLink(db as never, 'link-1', 'conv-1', testRotationParams);
@@ -474,7 +457,6 @@ describe('revokeLink', () => {
   });
 
   it('returns { revoked: false, memberId: null } when link not found', async () => {
-    // Atomic UPDATE returns empty — link not found
     mockUpdateChainReturning(mockUpdate, []);
 
     const result = await revokeLink(db as never, 'nonexistent', 'conv-1', testRotationParams);
@@ -496,9 +478,7 @@ describe('revokeLink', () => {
   });
 
   it('returns { revoked: true, memberId: null } when link has no active member', async () => {
-    // Atomic UPDATE succeeds — link was active
     mockUpdateChainReturning(mockUpdate, [{ id: 'link-orphan' }]);
-    // No active conversation member found for this link
     mockSelectChainNoOrder(mockSelect, []);
 
     const result = await revokeLink(db as never, 'link-orphan', 'conv-1', testRotationParams);
@@ -547,9 +527,7 @@ describe('changeLinkPrivilege', () => {
   });
 
   it('updates conversationMembers privilege when link exists', async () => {
-    // Step 1: SELECT sharedLinks check → found
     mockSelectChainWithLimit(mockSelect, [{ id: 'link-1' }]);
-    // Step 2: UPDATE conversationMembers.privilege RETURNING
     mockUpdateChainReturning(mockUpdate, [{ id: 'member-1' }]);
 
     const result = await changeLinkPrivilege(db as never, {
@@ -562,7 +540,6 @@ describe('changeLinkPrivilege', () => {
   });
 
   it('returns { changed: false, memberId: null } when link not found', async () => {
-    // SELECT sharedLinks check → not found
     mockSelectChainWithLimit(mockSelect, []);
 
     const result = await changeLinkPrivilege(db as never, {
@@ -575,9 +552,7 @@ describe('changeLinkPrivilege', () => {
   });
 
   it('returns { changed: true, memberId: null } when link has no active member', async () => {
-    // Step 1: SELECT sharedLinks check → found
     mockSelectChainWithLimit(mockSelect, [{ id: 'link-orphan' }]);
-    // Step 2: UPDATE conversationMembers → no rows returned (no active member)
     mockUpdateChainReturning(mockUpdate, []);
 
     const result = await changeLinkPrivilege(db as never, {

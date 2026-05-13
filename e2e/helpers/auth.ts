@@ -1,9 +1,9 @@
-import type { Page, APIRequestContext } from '@playwright/test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { generateTotpCodeSync } from '@hushbox/crypto';
-import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
 import { isMobileWidth } from '@hushbox/shared';
+import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
 import { requireEnv } from './env.js';
+import type { Page, APIRequestContext } from '@playwright/test';
 
 const API_BASE = requireEnv('VITE_API_URL');
 
@@ -102,6 +102,16 @@ export function uniqueEmail(prefix: string): string {
  */
 export async function clearAuthRateLimits(request: APIRequestContext): Promise<void> {
   await request.delete(`${API_BASE}/api/dev/auth-rate-limits`);
+}
+
+/**
+ * Clears authenticated-user usage rate limits (chat stream, media download,
+ * share creation) so consecutive E2E tests sharing a user don't saturate the
+ * per-minute buckets. Excludes trial IP limits and IP-scoped anti-scraping
+ * limits, which `trial-chat.spec.ts` and friends legitimately exercise.
+ */
+export async function clearUsageRateLimits(request: APIRequestContext): Promise<void> {
+  await request.delete(`${API_BASE}/api/dev/usage-rate-limits`);
 }
 
 /**

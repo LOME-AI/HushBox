@@ -8,7 +8,6 @@ vi.mock('@ai-sdk/gateway', () => ({
 
 import { createApp } from './app.js';
 
-// Mock the database module for dev routes testing
 const mockDbFrom = {
   where: vi.fn(() => Promise.resolve([])),
   innerJoin: vi.fn(() => ({
@@ -65,9 +64,7 @@ describe('createApp', () => {
   describe('auth routes', () => {
     it('responds to /api/auth/* requests', async () => {
       const app = createApp();
-      // Without proper env vars, auth routes will error, but they're mounted
       const res = await app.request('/api/auth/me');
-      // OPAQUE auth should respond (even if with an error due to missing session)
       expect(res.status).toBeDefined();
     });
   });
@@ -332,18 +329,35 @@ describe('createApp', () => {
     };
 
     it('does not return 500 for POST /api/trial/stream with valid body', async () => {
-      // Mock fetch so AI Gateway model fetches return valid JSON each time
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
-        Promise.resolve(
-          Response.json(
-            { data: [] },
-            {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            }
-          )
-        )
-      );
+      // Mock fetch to satisfy two callers in this request lifecycle:
+      // 1. The Upstash Redis client (rate-limit middleware uses a pipeline,
+      //    which expects a top-level array with `{result, error}` per command).
+      // 2. The AI Gateway model fetcher (expects a `{data: []}` JSON shape).
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation((input: string | URL | Request) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (url.startsWith(trialEnv.UPSTASH_REDIS_REST_URL)) {
+            // Pipeline: array of `{result, error}`. We claim every rate-limit
+            // hit returns null (under cap) so the middleware lets the request
+            // through to the route handler.
+            return Promise.resolve(
+              Response.json([{ result: null }], {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              })
+            );
+          }
+          return Promise.resolve(
+            Response.json(
+              { data: [] },
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              }
+            )
+          );
+        });
 
       try {
         const app = createApp();
@@ -360,7 +374,6 @@ describe('createApp', () => {
           trialEnv
         );
 
-        // Should not crash with 500 due to missing redis middleware
         expect(res.status).not.toBe(500);
       } finally {
         fetchSpy.mockRestore();

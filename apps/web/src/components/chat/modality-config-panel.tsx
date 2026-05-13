@@ -10,10 +10,10 @@ import {
   MAX_AUDIO_DURATION_SECONDS,
   FEATURE_FLAGS,
 } from '@hushbox/shared';
-import type { Model } from '@hushbox/shared';
 import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
 import { useMediaCostEstimate } from '@/hooks/use-media-cost-estimate';
+import type { Model } from '@hushbox/shared';
 
 interface TogglePillProps {
   label: string;
@@ -106,7 +106,6 @@ function VideoConfigControls(): React.JSX.Element {
       ] ?? 0
   );
 
-  // If the current resolution isn't supported by the primary model, move to the first supported one.
   React.useEffect(() => {
     const first = supportedResolutions[0];
     if (first === undefined) return;
@@ -181,6 +180,7 @@ function VideoConfigControls(): React.JSX.Element {
             setVideoConfig({ durationSeconds: Number(e.target.value) });
           }}
           aria-label="Video duration in seconds"
+          aria-valuetext={`${String(videoConfig.durationSeconds)} seconds`}
           className="accent-primary h-1 w-full"
         />
       </div>
@@ -236,6 +236,7 @@ function AudioConfigControls(): React.JSX.Element {
             setAudioConfig({ maxDurationSeconds: Number(e.target.value) });
           }}
           aria-label="Audio max duration in seconds"
+          aria-valuetext={`${String(audioConfig.maxDurationSeconds)} seconds`}
           className="accent-primary h-1 w-full"
         />
       </div>

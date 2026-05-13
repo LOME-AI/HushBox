@@ -207,4 +207,76 @@ describe('useOptimisticMessages', () => {
       expect(explicit.isSmartModel).toBeUndefined();
     });
   });
+
+  describe('media-in-flight state', () => {
+    it('records mediaInFlight on the matching message when media generation starts', () => {
+      const { result } = renderHook(() => useOptimisticMessages());
+      act(() => {
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-image' }));
+      });
+
+      act(() => {
+        result.current.setOptimisticMessageMediaStart('msg-image', 'image', 'image/png');
+      });
+
+      const msg = result.current.optimisticMessages[0]!;
+      expect(msg.mediaInFlight).toEqual({ mediaType: 'image', mimeType: 'image/png' });
+    });
+
+    it('overwrites mediaInFlight on the second emit (real mime replaces placeholder)', () => {
+      const { result } = renderHook(() => useOptimisticMessages());
+      act(() => {
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-image' }));
+      });
+
+      act(() => {
+        result.current.setOptimisticMessageMediaStart(
+          'msg-image',
+          'image',
+          'application/octet-stream'
+        );
+      });
+      act(() => {
+        result.current.setOptimisticMessageMediaStart('msg-image', 'image', 'image/png');
+      });
+
+      const msg = result.current.optimisticMessages[0]!;
+      expect(msg.mediaInFlight).toEqual({ mediaType: 'image', mimeType: 'image/png' });
+    });
+
+    it('records mediaProgress.percent on the matching message', () => {
+      const { result } = renderHook(() => useOptimisticMessages());
+      act(() => {
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-video' }));
+      });
+
+      act(() => {
+        result.current.setOptimisticMessageMediaProgress('msg-video', 25);
+      });
+      act(() => {
+        result.current.setOptimisticMessageMediaProgress('msg-video', 50);
+      });
+
+      const msg = result.current.optimisticMessages[0]!;
+      expect(msg.mediaProgress).toEqual({ percent: 50 });
+    });
+
+    it('does not affect other messages', () => {
+      const { result } = renderHook(() => useOptimisticMessages());
+      act(() => {
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-text' }));
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-image' }));
+      });
+
+      act(() => {
+        result.current.setOptimisticMessageMediaStart('msg-image', 'image', 'image/png');
+        result.current.setOptimisticMessageMediaProgress('msg-image', 30);
+      });
+
+      expect(result.current.optimisticMessages[0]!.mediaInFlight).toBeUndefined();
+      expect(result.current.optimisticMessages[0]!.mediaProgress).toBeUndefined();
+      expect(result.current.optimisticMessages[1]!.mediaInFlight?.mediaType).toBe('image');
+      expect(result.current.optimisticMessages[1]!.mediaProgress?.percent).toBe(30);
+    });
+  });
 });

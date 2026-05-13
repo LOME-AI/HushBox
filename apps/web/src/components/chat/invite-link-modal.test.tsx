@@ -41,9 +41,9 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-import { useCreateLink } from '../../hooks/use-conversation-links.js';
 import { createSharedLink } from '@hushbox/crypto';
 import { toBase64, MAX_CONVERSATION_MEMBERS } from '@hushbox/shared';
+import { useCreateLink } from '../../hooks/use-conversation-links.js';
 import { InviteLinkModal } from './invite-link-modal.js';
 
 const mockUseCreateLink = vi.mocked(useCreateLink);
@@ -232,17 +232,14 @@ describe('InviteLinkModal', () => {
     const generateButton = screen.getByTestId('invite-link-generate-button');
     const cancelButton = screen.getByTestId('invite-link-cancel-button');
 
-    // Get parent container
     const container = generateButton.parentElement;
     expect(container).toHaveClass('flex');
     expect(container).toHaveClass('gap-2');
     expect(container).not.toHaveClass('flex-col');
 
-    // Both buttons should use flex-1
     expect(generateButton).toHaveClass('flex-1');
     expect(cancelButton).toHaveClass('flex-1');
 
-    // Cancel should come before Generate Link in DOM order
     const buttons = [...container!.children];
     expect(buttons.indexOf(cancelButton)).toBeLessThan(buttons.indexOf(generateButton));
   });
@@ -267,7 +264,6 @@ describe('InviteLinkModal', () => {
   it('uses executeWithRotation for no-history link creation', async () => {
     render(<InviteLinkModal {...defaultProps} />);
 
-    // Default: history unchecked (no history)
     await userEvent.click(screen.getByTestId('invite-link-generate-button'));
 
     expect(mockExecuteWithRotation).toHaveBeenCalledWith(
@@ -302,17 +298,14 @@ describe('InviteLinkModal', () => {
     const copyButton = screen.getByTestId('invite-link-copy-button');
     const doneButton = screen.getByText('Done');
 
-    // Get parent container
     const container = copyButton.parentElement;
     expect(container).toHaveClass('flex');
     expect(container).toHaveClass('gap-2');
     expect(container).not.toHaveClass('flex-col');
 
-    // Both buttons should use flex-1
     expect(copyButton).toHaveClass('flex-1');
     expect(doneButton).toHaveClass('flex-1');
 
-    // Done should come before Copy in DOM order
     const buttons = [...container!.children];
     expect(buttons.indexOf(doneButton)).toBeLessThan(buttons.indexOf(copyButton));
   });

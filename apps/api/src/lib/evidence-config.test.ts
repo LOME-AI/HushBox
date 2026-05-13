@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { Context } from 'hono';
 import { createEvidenceConfig } from './evidence-config.js';
+import type { Context } from 'hono';
 import type { AppEnv } from '../types.js';
 
 interface ContextStub {
@@ -31,5 +31,12 @@ describe('createEvidenceConfig', () => {
     const result = createEvidenceConfig(c);
     expect(result.db).toBe(dbSentinel);
     expect(result.isCI).toBe(false);
+  });
+
+  it('throws when envUtils is missing (test harness must call createEnvUtilities directly)', () => {
+    const dbSentinel = { sentinel: 'db' };
+    const map = new Map<string, unknown>([['db', dbSentinel]]);
+    const c = { get: (key: string) => map.get(key) } as unknown as Context<AppEnv>;
+    expect(() => createEvidenceConfig(c)).toThrow(/envUtils/);
   });
 });

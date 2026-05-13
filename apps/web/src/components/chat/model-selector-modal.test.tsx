@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ModelSelectorModal } from './model-selector-modal';
 import { TOTAL_FEE_RATE, formatPricePer1k, type Model } from '@hushbox/shared';
+import { ModelSelectorModal } from './model-selector-modal';
 
 // Mock the api module to break the import chain that requires VITE_API_URL
 vi.mock('@/lib/api', () => ({
@@ -24,7 +24,6 @@ vi.mock('@/lib/api-client', () => ({
   fetchJson: vi.fn(),
 }));
 
-// Mock Link component and useNavigate
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
@@ -203,10 +202,8 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Double-click toggles Claude into local selection
     await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
 
-    // Click confirm button to trigger onSelect
     await user.click(screen.getByRole('button', { name: /select.*model/i }));
 
     expect(onSelect).toHaveBeenCalledWith(
@@ -232,6 +229,25 @@ describe('ModelSelectorModal', () => {
     expect(screen.queryByText(/quick select model/i)).not.toBeInTheDocument();
   });
 
+  it('renders the model rows inside a container with role="listbox"', () => {
+    render(
+      <ModelSelectorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        models={mockModels}
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
+        onSelect={vi.fn()}
+      />
+    );
+
+    const listbox = screen.getByRole('listbox', { name: /models/i });
+    expect(listbox).toBeInTheDocument();
+    const options = screen.getAllByRole('option');
+    for (const option of options) {
+      expect(listbox.contains(option)).toBe(true);
+    }
+  });
+
   it('renders sections in order: Sort, Search', () => {
     render(
       <ModelSelectorModal
@@ -246,7 +262,6 @@ describe('ModelSelectorModal', () => {
     const sortLabel = first(screen.getAllByText('Sort:'));
     const searchInput = first(screen.getAllByPlaceholderText('Search models'));
 
-    // Sort should come before Search in the DOM
     expect(
       sortLabel.compareDocumentPosition(searchInput) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
@@ -410,6 +425,115 @@ describe('ModelSelectorModal', () => {
       expect(strongestItem).toHaveTextContent('Strongest');
 
       const valueItem = screen.getByTestId('model-item-openai/gpt-5-nano');
+      expect(valueItem).toHaveTextContent('Best value');
+    });
+  });
+
+  describe('per-modality pinned model labels', () => {
+    const imageModels: Model[] = [
+      {
+        id: 'google/imagen-4.0-ultra-generate-001',
+        name: 'Imagen 4 Ultra',
+        provider: 'Google',
+        modality: 'image' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0.06,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0,
+        capabilities: [],
+        description: 'Top quality image generation.',
+        supportedParameters: [],
+      },
+      {
+        id: 'google/imagen-4.0-fast-generate-001',
+        name: 'Imagen 4 Fast',
+        provider: 'Google',
+        modality: 'image' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0.02,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0,
+        capabilities: [],
+        description: 'Cheaper, faster image generation.',
+        supportedParameters: [],
+      },
+    ];
+    const videoModels: Model[] = [
+      {
+        id: 'google/veo-3.1-generate-001',
+        name: 'Veo 3.1',
+        provider: 'Google',
+        modality: 'video' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0.5,
+        capabilities: [],
+        description: 'Video generation.',
+        supportedParameters: [],
+      },
+      {
+        id: 'google/veo-3.1-fast-generate-001',
+        name: 'Veo 3.1 Fast',
+        provider: 'Google',
+        modality: 'video' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0.25,
+        capabilities: [],
+        description: 'Fast video generation.',
+        supportedParameters: [],
+      },
+    ];
+
+    it('shows "Strongest" and "Best value" pins on image models when activeModality is image', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={imageModels}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          canAccessPremium={true}
+          isAuthenticated={true}
+          activeModality="image"
+        />
+      );
+
+      const strongestItem = screen.getByTestId('model-item-google/imagen-4.0-ultra-generate-001');
+      expect(strongestItem).toHaveTextContent('Strongest');
+
+      const valueItem = screen.getByTestId('model-item-google/imagen-4.0-fast-generate-001');
+      expect(valueItem).toHaveTextContent('Best value');
+    });
+
+    it('shows "Strongest" and "Best value" pins on video models when activeModality is video', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={videoModels}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          canAccessPremium={true}
+          isAuthenticated={true}
+          activeModality="video"
+        />
+      );
+
+      const strongestItem = screen.getByTestId('model-item-google/veo-3.1-generate-001');
+      expect(strongestItem).toHaveTextContent('Strongest');
+
+      const valueItem = screen.getByTestId('model-item-google/veo-3.1-fast-generate-001');
       expect(valueItem).toHaveTextContent('Best value');
     });
   });
@@ -914,7 +1038,6 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Double-click toggles GPT-4 Turbo into selection
       await user.dblClick(screen.getByText('GPT-4 Turbo'));
       await user.click(screen.getByRole('button', { name: /select.*model/i }));
 
@@ -970,7 +1093,6 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Double-click toggles Claude into selection
       await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
       await user.click(screen.getByRole('button', { name: /select.*model/i }));
 
@@ -1043,11 +1165,9 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Double-click toggles GPT-4 Turbo into selection (canAccessPremium defaults to true)
       await user.dblClick(screen.getByText('GPT-4 Turbo'));
       await user.click(screen.getByRole('button', { name: /select.*model/i }));
 
-      // Should call onSelect since canAccessPremium defaults to true
       expect(onSelect).toHaveBeenCalledWith(
         expect.arrayContaining([
           { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
@@ -1304,8 +1424,8 @@ describe('ModelSelectorModal', () => {
     });
   });
 
-  describe('web search subtitle', () => {
-    it('shows "Web Search" in subtitle for models with web search capability', () => {
+  describe('web search removed (universal)', () => {
+    it('never shows a "Web Search" subtitle on a model row (universal across text models)', () => {
       render(
         <ModelSelectorModal
           open={true}
@@ -1317,27 +1437,12 @@ describe('ModelSelectorModal', () => {
       );
 
       const gptItem = screen.getByTestId('model-item-openai/gpt-4-turbo');
-      expect(gptItem).toHaveTextContent('Web Search');
-    });
-
-    it('does not show "Web Search" in subtitle for models without web search capability', () => {
-      render(
-        <ModelSelectorModal
-          open={true}
-          onOpenChange={vi.fn()}
-          models={mockModels}
-          selectedIds={new Set(['openai/gpt-4-turbo'])}
-          onSelect={vi.fn()}
-        />
-      );
-
+      expect(gptItem).not.toHaveTextContent('Web Search');
       const llamaItem = screen.getByTestId('model-item-meta-llama/llama-3.1-70b-instruct');
       expect(llamaItem).not.toHaveTextContent('Web Search');
     });
-  });
 
-  describe('web search filter', () => {
-    it('renders Web Search filter button', () => {
+    it('does not render a Web Search filter button', () => {
       render(
         <ModelSelectorModal
           open={true}
@@ -1348,26 +1453,7 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      expect(screen.getAllByRole('button', { name: /web search/i }).length).toBeGreaterThan(0);
-    });
-
-    it('filters to only web-search-capable models when active', async () => {
-      const user = userEvent.setup();
-      render(
-        <ModelSelectorModal
-          open={true}
-          onOpenChange={vi.fn()}
-          models={mockModels}
-          selectedIds={new Set(['openai/gpt-4-turbo'])}
-          onSelect={vi.fn()}
-        />
-      );
-
-      await user.click(first(screen.getAllByRole('button', { name: /web search/i })));
-
-      expect(screen.getByText('GPT-4 Turbo')).toBeInTheDocument();
-      expect(screen.getByText('Claude 3.5 Sonnet')).toBeInTheDocument();
-      expect(screen.queryByText('Llama 3.1 70B')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /web search/i })).not.toBeInTheDocument();
     });
   });
 
@@ -1614,12 +1700,10 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Click the checkbox on the unselected Claude model
       const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
       const checkbox = claudeItem.querySelector('[data-testid="model-checkbox"]')!;
       await user.click(checkbox);
 
-      // Verify Claude is now selected (aria-selected)
       expect(claudeItem).toHaveAttribute('data-selected', 'true');
     });
   });
@@ -1651,7 +1735,6 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Double-click Claude to add it
       await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
 
       expect(screen.getByRole('button', { name: 'Select 2 Models' })).toBeInTheDocument();
@@ -1702,14 +1785,11 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Select a second model
       await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
       expect(screen.getByRole('button', { name: /Select 2 Models/i })).toBeInTheDocument();
 
-      // Clear selection
       await user.click(screen.getByTestId('clear-selection-button'));
 
-      // Now toggle Llama — should be the ONLY selected model
       await user.dblClick(screen.getByText('Llama 3.1 70B'));
       expect(screen.getByRole('button', { name: 'Select Model' })).toBeInTheDocument();
     });
@@ -1797,7 +1877,6 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Cheap model is initially selected
       expect(screen.queryByTestId('expensive-model-warning')).not.toBeInTheDocument();
     });
 
@@ -1813,13 +1892,10 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Initially shows warning for expensive model
       expect(screen.getByTestId('expensive-model-warning')).toBeInTheDocument();
 
-      // Switch to cheap model
       await user.click(screen.getByText('Cheap Model'));
 
-      // Warning should disappear
       expect(screen.queryByTestId('expensive-model-warning')).not.toBeInTheDocument();
     });
   });
@@ -1857,16 +1933,13 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Deselect the only model
       const gptItem = screen.getByTestId('model-item-openai/gpt-4-turbo');
       const checkbox = gptItem.querySelector('[data-testid="model-checkbox"]');
       await user.click(checkbox!);
 
-      // "Select Model" button should be gone, replaced by "Close"
       expect(screen.queryByRole('button', { name: 'Select Model' })).not.toBeInTheDocument();
       // Find all buttons with text "Close" — there's the modal X close (sr-only) and the footer one
       const closeButtons = screen.getAllByRole('button', { name: /^Close$/i });
-      // At least one should be visible (the footer one)
       const visibleClose = closeButtons.find(
         (button) => !button.querySelector('.sr-only') && button.textContent === 'Close'
       );
@@ -1887,7 +1960,6 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Deselect the only model via Clear Selected
       await user.click(screen.getByTestId('clear-selection-button'));
 
       // Find the footer Close button (not the X button which has sr-only child)
@@ -1917,7 +1989,6 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Click checkbox on a different model
       const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
       const checkbox = claudeItem.querySelector('[data-testid="model-checkbox"]');
       await user.click(checkbox!);

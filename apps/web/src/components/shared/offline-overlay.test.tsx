@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
-import { OfflineOverlay } from './offline-overlay';
 import { useNetworkStore } from '@/stores/network';
+import { OfflineOverlay } from './offline-overlay';
 
 describe('OfflineOverlay', () => {
   beforeEach(() => {

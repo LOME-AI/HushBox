@@ -1,6 +1,6 @@
-import type { Page } from '@playwright/test';
 import { expect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
+import type { Page } from '@playwright/test';
 
 /**
  * Navigate as a removed member and verify they are redirected away.

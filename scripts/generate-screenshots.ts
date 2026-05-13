@@ -380,7 +380,6 @@ export async function generateSingleScreenshot(
   console.log(`Generated ${config.name} at ${String(resolutionConfigs.length)} resolutions`);
 }
 
-// CLI entry point
 /* v8 ignore next 2 */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) {

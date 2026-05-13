@@ -17,8 +17,8 @@ import {
   computeImageExactCents,
   computeVideoExactCents,
   computeAudioWorstCaseCents,
+  worstCaseSearchCost,
 } from './pricing.js';
-import type { MessageCostParams, MessageCostFromActualParams } from './pricing.js';
 import {
   TOTAL_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
@@ -29,7 +29,10 @@ import {
   ESTIMATED_IMAGE_BYTES,
   ESTIMATED_VIDEO_BYTES_PER_SECOND,
   ESTIMATED_AUDIO_BYTES_PER_SECOND,
+  MAX_SEARCH_TOOL_CALLS,
+  SEARCH_COST_PER_CALL,
 } from './constants.js';
+import type { MessageCostParams, MessageCostFromActualParams } from './pricing.js';
 
 describe('parseTokenPrice', () => {
   it('parses a valid positive price string', () => {
@@ -802,6 +805,21 @@ describe('calculateMediaGenerationCost', () => {
     });
   });
 
+  describe('exhaustiveness guard', () => {
+    it('throws on unrecognized pricing kind (assertNever)', () => {
+      expect(() =>
+        calculateMediaGenerationCost({
+          pricing: { kind: 'rogue', perSecond: 0 } as unknown as {
+            kind: 'audio';
+            perSecond: number;
+          },
+          sizeBytes: 0,
+          durationSeconds: 1,
+        })
+      ).toThrow(/exhaustiveness/i);
+    });
+  });
+
   describe('edge cases', () => {
     it('returns only storage cost when model cost is 0', () => {
       const result = calculateMediaGenerationCost({
@@ -1006,5 +1024,18 @@ describe('computeAudioWorstCaseCents', () => {
   it('treats a zero-price entry as only its storage cost', () => {
     const result = computeAudioWorstCaseCents([0], 30);
     expect(result).toBeCloseTo(mediaStorageCost(30 * ESTIMATED_AUDIO_BYTES_PER_SECOND) * 100, 5);
+  });
+});
+
+describe('worstCaseSearchCost', () => {
+  it('returns fee-inflated cost of MAX_SEARCH_TOOL_CALLS × SEARCH_COST_PER_CALL', () => {
+    expect(worstCaseSearchCost()).toBeCloseTo(
+      applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL),
+      9
+    );
+  });
+
+  it('is strictly greater than a single per-call cost (the old 1× estimate)', () => {
+    expect(worstCaseSearchCost()).toBeGreaterThan(applyFees(SEARCH_COST_PER_CALL));
   });
 });

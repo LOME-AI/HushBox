@@ -1,3 +1,19 @@
+/**
+ * Database seed script for local development.
+ *
+ * Limitation — media bytes are NOT seeded to MinIO.
+ *
+ * The seed populates `content_items` rows with `contentType: 'text'` only;
+ * media-typed content items (image, video, audio) are not generated. As a
+ * result, no encrypted media blobs are uploaded to the local MinIO bucket.
+ * Any dev flow that fetches a presigned URL for a seeded media row would get
+ * a missing-object response — but in practice there are no such rows because
+ * we don't seed media content items.
+ *
+ * To exercise media end-to-end in dev, run a real chat flow that triggers
+ * the media pipeline (which both encrypts the bytes and uploads them to
+ * MinIO via the same code path used in production).
+ */
 import { eq } from 'drizzle-orm';
 import { config } from 'dotenv';
 import path from 'node:path';
@@ -75,7 +91,6 @@ async function createOpaqueUserCrypto(
     process.env['OPAQUE_MASTER_SECRET'] ??
     (resolveRaw(envConfig.OPAQUE_MASTER_SECRET, Mode.Development) as string);
 
-  // 1. OPAQUE registration (client <-> server protocol)
   const masterSecretBytes = new TextEncoder().encode(masterSecret);
   const opaqueServer = await createOpaqueServer(masterSecretBytes, OPAQUE_SERVER_IDENTIFIER);
 
@@ -93,7 +108,6 @@ async function createOpaqueUserCrypto(
   );
   const opaqueRegistration = new Uint8Array(record);
 
-  // 2. Create account keys from OPAQUE export key
   const account = await createAccount(new Uint8Array(exportKey));
 
   return {
@@ -230,12 +244,11 @@ export const SEED_CONFIG = {
 } as const;
 
 export function seedUUID(name: string): string {
-  // Create a simple hash of the name and format as UUID
   let hash = 0;
   for (let index = 0; index < name.length; index++) {
     const char = name.codePointAt(index) ?? 0;
     hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32bit integer
+    hash = hash & hash;
   }
   const hex = Math.abs(hash).toString(16).padStart(12, '0').slice(0, 12);
   return `00000000-0000-4000-8000-${hex}`;
@@ -759,7 +772,6 @@ const USAGE_MODELS = [
  * appear on the same day, creating realistic overlapping chart areas.
  */
 function pickModel(index: number, daysAgo: number): (typeof USAGE_MODELS)[number] {
-  // Mix index and day so the same day gets different models across records
   const hash = ((index * 2_654_435_761) ^ (daysAgo * 40_503)) >>> 0;
   const picked = USAGE_MODELS[hash % USAGE_MODELS.length];
   if (!picked) throw new Error('USAGE_MODELS is empty');
@@ -786,7 +798,6 @@ function createPersonaUsageData(context: UsageDataContext): {
   const entries: LedgerEntryWithId[] = [];
   const convSpendingMap = new Map<string, number>();
 
-  // Start balance high (from payments), decrease with usage
   let runningBalance = 10_000;
   const recordCount = 200;
 
@@ -795,9 +806,8 @@ function createPersonaUsageData(context: UsageDataContext): {
     const completionId = seedUUID(`${personaName}-completion-${String(index)}`);
     const ledgerEntryId = seedUUID(`${personaName}-usage-le-${String(index)}`);
 
-    // Spread across 90 days, more recent = slightly more active
     const daysAgo = Math.floor(90 - (index / recordCount) * 90);
-    const hoursOffset = (index * 7) % 24; // Vary time of day
+    const hoursOffset = (index * 7) % 24;
     const usageDate = new Date(now);
     usageDate.setDate(usageDate.getDate() - daysAgo);
     usageDate.setHours(hoursOffset, (index * 13) % 60, 0, 0);
@@ -806,12 +816,10 @@ function createPersonaUsageData(context: UsageDataContext): {
     const convId = conversationIds[index % conversationIds.length];
     if (!convId) throw new Error('conversationIds is empty');
 
-    // Realistic token counts
     const inputTokens = 200 + ((index * 137) % 8000);
     const outputTokens = 100 + ((index * 89) % 4000);
     const cachedTokens = index % 4 === 0 ? 50 + ((index * 43) % 1500) : 0;
 
-    // Cost based on actual model pricing
     const cost =
       (inputTokens / 1000) * modelInfo.costPer1kInput +
       (outputTokens / 1000) * modelInfo.costPer1kOutput;
@@ -843,10 +851,8 @@ function createPersonaUsageData(context: UsageDataContext): {
       })
     );
 
-    // Accumulate per-conversation spending
     convSpendingMap.set(convId, (convSpendingMap.get(convId) ?? 0) + cost);
 
-    // Usage charge ledger entry
     runningBalance -= cost;
     entries.push(
       ledgerEntryFactory.build({
@@ -861,7 +867,6 @@ function createPersonaUsageData(context: UsageDataContext): {
     );
   }
 
-  // Build conversation spending rows
   const spending: ConversationSpendingWithId[] = [];
   for (const [convId, totalSpent] of convSpendingMap) {
     spending.push({
@@ -1070,7 +1075,6 @@ export function createScreenshotConversations(
   const allEpochMembers: EpochMemberWithId[] = [];
   const allConversationMembers: ConversationMemberWithId[] = [];
 
-  // --- Solo conversations (chat, code, mermaid, privacy) ---
   const soloConversations: { name: string; userMessage: string; aiMessage: string }[] = [
     {
       name: 'chat',
@@ -1149,7 +1153,6 @@ export function createScreenshotConversations(
     allContentItems.push(aiResult.contentItem);
   }
 
-  // --- Group chat conversation (alice, bob, charlie) ---
   const groupConvId = seedUUID('screenshot-conv-group-chat');
   const groupEpochResult = createFirstEpoch([
     params.alicePublicKey,
@@ -1308,7 +1311,6 @@ export async function generatePersonaData(): Promise<PersonaData> {
       personaPayments.push(...paymentData.payments);
       personaLedgerEntries.push(...paymentData.ledgerEntries);
 
-      // Usage analytics data (usage_records + llm_completions + conversation_spending)
       const conversationIds = sampleData.conversations.map((c) => c.id);
       const usageData = createPersonaUsageData({
         personaName: persona.name,
@@ -1582,7 +1584,6 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
       testPayments.push(paymentData.payment);
       testLedgerEntries.push(paymentData.ledgerEntry);
 
-      // Usage analytics data
       const conversationIds = sampleData.conversations.map((c) => c.id);
       const usageData = createPersonaUsageData({
         personaName: persona.name,
@@ -1740,7 +1741,6 @@ export async function seed(): Promise<void> {
   console.log(`  Content Items: ${String(data.contentItems.length)}`);
   console.log('');
 
-  // 1. Users
   const personaUserResult = await upsertEntities(db, users, [
     ...personaData.users,
     ...testPersonaData.users,
@@ -1757,7 +1757,6 @@ export async function seed(): Promise<void> {
   ]);
   logUpsertResult('Wallets', walletResult);
 
-  // 3. Projects
   const projectResult = await upsertEntities(db, projects, [
     ...personaData.projects,
     ...testPersonaData.projects,
@@ -1765,7 +1764,6 @@ export async function seed(): Promise<void> {
   ]);
   logUpsertResult('Projects', projectResult);
 
-  // 4. Conversations
   const conversationResult = await upsertEntities(db, conversations, [
     ...personaData.conversations,
     ...testPersonaData.conversations,

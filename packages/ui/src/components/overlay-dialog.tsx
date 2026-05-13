@@ -5,8 +5,8 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
 
 import { cn } from '../lib/utilities';
-import type { OverlayProps } from './overlay';
 import { OverlayNavButtons, CLOSE_BUTTON_CLASS } from './overlay-nav-buttons';
+import type { OverlayProps } from './overlay';
 
 /**
  * Dialog renderer for Overlay — centered modal with blur backdrop.

@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { z } from 'zod';
 
-// Will import from redis-registry once created
 import {
   REDIS_REGISTRY,
   redisGet,
@@ -82,6 +81,51 @@ describe('redis-registry', () => {
       expect(REDIS_REGISTRY.verifyIpRateLimit).toBeDefined();
       expect(REDIS_REGISTRY.resendVerifyEmailRateLimit).toBeDefined();
       expect(REDIS_REGISTRY.resendVerifyIpRateLimit).toBeDefined();
+    });
+
+    it('has cost-amplification rate limit keys for chat/media/share endpoints', () => {
+      // chat streaming — per-user cap on AI gateway calls
+      expect(REDIS_REGISTRY.chatStreamUserRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.chatStreamUserRateLimit.rateLimitConfig.maxAttempts).toBe(30);
+      expect(REDIS_REGISTRY.chatStreamUserRateLimit.rateLimitConfig.windowSeconds).toBe(60);
+
+      // media presign — per-user cap on download URL minting
+      expect(REDIS_REGISTRY.mediaDownloadUserRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.mediaDownloadUserRateLimit.rateLimitConfig.maxAttempts).toBe(60);
+      expect(REDIS_REGISTRY.mediaDownloadUserRateLimit.rateLimitConfig.windowSeconds).toBe(60);
+
+      // public share lookup — per-IP cap (UNAUTHENTICATED)
+      expect(REDIS_REGISTRY.shareGetIpRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.shareGetIpRateLimit.rateLimitConfig.maxAttempts).toBe(30);
+      expect(REDIS_REGISTRY.shareGetIpRateLimit.rateLimitConfig.windowSeconds).toBe(60);
+
+      // share creation — per-user cap (writes a row)
+      expect(REDIS_REGISTRY.shareCreateUserRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.shareCreateUserRateLimit.rateLimitConfig.maxAttempts).toBe(20);
+      expect(REDIS_REGISTRY.shareCreateUserRateLimit.rateLimitConfig.windowSeconds).toBe(60);
+
+      // trial chat stream — per-IP burst cap (UNAUTHENTICATED, daily cap separate)
+      expect(REDIS_REGISTRY.trialChatStreamIpRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.trialChatStreamIpRateLimit.rateLimitConfig.maxAttempts).toBe(20);
+      expect(REDIS_REGISTRY.trialChatStreamIpRateLimit.rateLimitConfig.windowSeconds).toBe(60);
+    });
+
+    it('builds correct keys for cost-amplification rate limits', () => {
+      expect(REDIS_REGISTRY.chatStreamUserRateLimit.buildKey('user-123')).toBe(
+        'chat:stream:user:ratelimit:user-123'
+      );
+      expect(REDIS_REGISTRY.mediaDownloadUserRateLimit.buildKey('user-123')).toBe(
+        'media:download:user:ratelimit:user-123'
+      );
+      expect(REDIS_REGISTRY.shareGetIpRateLimit.buildKey('ip-hash-123')).toBe(
+        'share:get:ip:ratelimit:ip-hash-123'
+      );
+      expect(REDIS_REGISTRY.shareCreateUserRateLimit.buildKey('user-123')).toBe(
+        'share:create:user:ratelimit:user-123'
+      );
+      expect(REDIS_REGISTRY.trialChatStreamIpRateLimit.buildKey('ip-hash-456')).toBe(
+        'trial:chat:stream:ip:ratelimit:ip-hash-456'
+      );
     });
 
     it('has all lockout keys defined', () => {

@@ -10,9 +10,9 @@ import {
 } from '@hushbox/crypto';
 import { createEnvUtilities } from '@hushbox/shared';
 import { opaqueAuthRoute } from './opaque-auth.js';
+import { createMockEmailClient, type MockEmailClient } from '../services/email/index.js';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
-import { createMockEmailClient, type MockEmailClient } from '../services/email/index.js';
 
 /** Type-safe JSON response parser for test assertions. */
 async function jsonBody<T = ApiResponse>(res: Response): Promise<T> {
@@ -86,6 +86,52 @@ vi.mock('../services/billing/wallet-provisioning.js', () => ({
   ensureWalletsExist: (...args: unknown[]) => mockEnsureWalletsExist(...args),
 }));
 
+/**
+ * iron-session mock backing object. Tests that exercise the `getIronSession`
+ * code path (login/finish, login/2fa/verify, logout) prime this fixture in
+ * `beforeEach`; everything else uses the default empty session, which
+ * matches the runtime behavior on a request with no decryptable cookie.
+ */
+interface MockIronSession {
+  sessionId?: string;
+  userId?: string;
+  email?: string;
+  username?: string;
+  emailVerified?: boolean;
+  totpEnabled?: boolean;
+  hasAcknowledgedPhrase?: boolean;
+  pending2FA?: boolean;
+  pending2FAExpiresAt?: number;
+  createdAt?: number;
+  save: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
+}
+
+let mockIronSessionData: MockIronSession;
+
+function createDefaultMockIronSession(): MockIronSession {
+  return {
+    save: vi.fn(() => Promise.resolve()),
+    destroy: vi.fn(() => {
+      // Reset all session fields on destroy, mirroring iron-session semantics.
+      // `delete` (not `= undefined`) keeps the assignment compatible with
+      // exactOptionalPropertyTypes.
+      delete mockIronSessionData.sessionId;
+      delete mockIronSessionData.userId;
+      delete mockIronSessionData.pending2FA;
+      delete mockIronSessionData.pending2FAExpiresAt;
+    }),
+  };
+}
+
+mockIronSessionData = createDefaultMockIronSession();
+
+vi.mock('iron-session', () => ({
+  // Returning the same singleton each call lets tests prime fields once and
+  // observe save() / destroy() across multiple requests in the same test.
+  getIronSession: vi.fn(() => Promise.resolve(mockIronSessionData)),
+}));
+
 // Mock database
 function createMockDb() {
   const users = new Map<string, Record<string, unknown>>();
@@ -137,6 +183,9 @@ describe('OPAQUE auth routes', () => {
     mockRedis = createMockRedis();
     mockEmailClient = createMockEmailClient();
     mockEnsureWalletsExist.mockClear();
+    // Reset the iron-session mock between tests so leftover state from a prior
+    // test (e.g. a primed pending2FA) doesn't leak into the next.
+    mockIronSessionData = createDefaultMockIronSession();
 
     const routes = opaqueAuthRoute;
     app = new Hono<AppEnv>();
@@ -433,7 +482,6 @@ describe('OPAQUE auth routes', () => {
       const client = createOpaqueClient();
       const { serialized } = await startRegistration(client, 'secure-password-123');
 
-      // Step 1: Init
       const initRes = await app.request('/api/auth/register/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -448,7 +496,6 @@ describe('OPAQUE auth routes', () => {
       const initBody = await jsonBody<RegistrationInitResponse>(initRes);
       expect(initBody.registrationResponse).toBeDefined();
 
-      // Step 2: Finish (client-side would derive keys here)
       const { record } = await finishRegistration(client, initBody.registrationResponse);
 
       const finishRes = await app.request('/api/auth/register/finish', {
@@ -474,7 +521,6 @@ describe('OPAQUE auth routes', () => {
     });
 
     it('returns 201 but does not create user when email already exists', async () => {
-      // Setup mock to return existing user in DB query
       mockDb.where = vi.fn().mockImplementation(() => [{ id: 'existing-user-id' }]);
       const insertSpy = vi.fn().mockReturnThis();
       mockDb.insert = insertSpy;
@@ -482,7 +528,6 @@ describe('OPAQUE auth routes', () => {
       const client = createOpaqueClient();
       const { serialized } = await startRegistration(client, 'secure-password-123');
 
-      // Step 1: Init (should succeed and set existing flag)
       const initRes = await app.request('/api/auth/register/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -497,7 +542,6 @@ describe('OPAQUE auth routes', () => {
       const initBody = await jsonBody<RegistrationInitResponse>(initRes);
       expect(initBody.registrationResponse).toBeDefined();
 
-      // Step 2: Finish (should return 201 but NOT insert into DB)
       const { record } = await finishRegistration(client, initBody.registrationResponse);
 
       const finishRes = await app.request('/api/auth/register/finish', {
@@ -674,7 +718,6 @@ describe('OPAQUE auth routes', () => {
       const email = 'unverified@example.com';
       const password = 'secure-password-123';
 
-      // === Step 1: Register user (full OPAQUE flow) ===
       const regClient = createOpaqueClient();
       const { serialized: regRequest } = await startRegistration(regClient, password);
 
@@ -714,7 +757,6 @@ describe('OPAQUE auth routes', () => {
       const storedOpaqueRegistration = valuesCall['opaqueRegistration'] as Uint8Array;
       const registeredUserId = valuesCall['id'] as string;
 
-      // === Step 2: Login init ===
       // Mock DB to return user with opaqueRegistration but emailVerified: false
       // Must use registeredUserId — OPAQUE credential identifier was bound to this ID during registration
       mockDb.where = vi.fn().mockImplementation(() => [
@@ -743,7 +785,6 @@ describe('OPAQUE auth routes', () => {
       expect(loginInitRes.status).toBe(200);
       const loginInitBody = await jsonBody<LoginInitResponse>(loginInitRes);
 
-      // === Step 3: Login finish - should be rejected ===
       const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, OPAQUE_SERVER_IDENTIFIER);
 
       const loginFinishRes = await app.request('/api/auth/login/finish', {
@@ -762,7 +803,6 @@ describe('OPAQUE auth routes', () => {
       const username = 'loginbyname';
       const password = 'secure-password-456';
 
-      // === Step 1: Register user ===
       const regClient = createOpaqueClient();
       const { serialized: regRequest } = await startRegistration(regClient, password);
 
@@ -802,7 +842,6 @@ describe('OPAQUE auth routes', () => {
       const storedOpaqueRegistration = valuesCall['opaqueRegistration'] as Uint8Array;
       const registeredUserId = valuesCall['id'] as string;
 
-      // === Step 2: Login init using username (not email) ===
       mockDb.where = vi.fn().mockImplementation(() => [
         {
           id: registeredUserId,
@@ -829,7 +868,6 @@ describe('OPAQUE auth routes', () => {
       expect(loginInitRes.status).toBe(200);
       const loginInitBody = await jsonBody<LoginInitResponse>(loginInitRes);
 
-      // === Step 3: Login finish - should succeed ===
       const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, OPAQUE_SERVER_IDENTIFIER);
 
       const loginFinishRes = await app.request('/api/auth/login/finish', {
@@ -848,7 +886,6 @@ describe('OPAQUE auth routes', () => {
       const email = 'noemail-reg@example.com';
       const password = 'secure-password-789';
 
-      // === Step 1: Register (using email for now, but simulate no-email at login) ===
       const regClient = createOpaqueClient();
       const { serialized: regRequest } = await startRegistration(regClient, password);
 
@@ -888,7 +925,6 @@ describe('OPAQUE auth routes', () => {
       const storedOpaqueRegistration = valuesCall['opaqueRegistration'] as Uint8Array;
       const registeredUserId = valuesCall['id'] as string;
 
-      // === Step 2: Login with email: null (simulates future no-email user) ===
       // emailVerified is false, but email is null — should skip verification
       mockDb.where = vi.fn().mockImplementation(() => [
         {
@@ -916,7 +952,6 @@ describe('OPAQUE auth routes', () => {
       expect(loginInitRes.status).toBe(200);
       const loginInitBody = await jsonBody<LoginInitResponse>(loginInitRes);
 
-      // === Step 3: Login finish - should succeed despite emailVerified: false ===
       const { ke3 } = await finishLogin(loginClient, loginInitBody.ke2, OPAQUE_SERVER_IDENTIFIER);
 
       const loginFinishRes = await app.request('/api/auth/login/finish', {
@@ -2115,12 +2150,102 @@ describe('OPAQUE auth routes', () => {
   });
 
   describe('POST /api/auth/login/2fa/verify - session rotation', () => {
-    it.skip('rotates session ID after successful 2FA verification - TODO: needs iron-session mocking', () => {
-      // NOTE: This test is skipped because it requires proper iron-session mocking
-      // which is complex for unit tests. The feature will be tested via integration tests.
-      // This prevents session fixation attacks where an attacker could use a session
-      // that was created before 2FA verification was complete.
-      expect(true).toBe(true);
+    /**
+     * Helper: prime the iron-session fixture for a pending-2FA login.
+     * Returns the original session ID so callers can compare against the
+     * post-verification ID assigned via session.save().
+     *
+     * Default secret is 32 base32 characters (≥16 bytes once decoded), which
+     * satisfies otplib's minimum-strength check.
+     */
+    async function setupPendingTotpSession(
+      totpSecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
+    ): Promise<{ originalSessionId: string; encryptedSecret: Uint8Array }> {
+      const { encryptTotpSecret, deriveTotpEncryptionKey } = await import('../lib/totp.js');
+      const totpKey = deriveTotpEncryptionKey(new TextEncoder().encode(TEST_MASTER_SECRET));
+      const encryptedSecret = encryptTotpSecret(totpSecret, totpKey);
+
+      const originalSessionId = 'session-id-before-rotation';
+      mockIronSessionData.sessionId = originalSessionId;
+      mockIronSessionData.userId = 'test-user-id';
+      mockIronSessionData.email = 'test@example.com';
+      mockIronSessionData.username = 'test_user';
+      mockIronSessionData.emailVerified = true;
+      mockIronSessionData.totpEnabled = true;
+      mockIronSessionData.hasAcknowledgedPhrase = true;
+      mockIronSessionData.pending2FA = true;
+      mockIronSessionData.pending2FAExpiresAt = Date.now() + 60_000;
+      mockIronSessionData.createdAt = Date.now();
+
+      // Stub the user row lookup the route needs.
+      mockDb.where = vi.fn().mockImplementation(() => [
+        {
+          id: 'test-user-id',
+          totpSecretEncrypted: encryptedSecret,
+          passwordWrappedPrivateKey: new Uint8Array(32),
+        },
+      ]);
+
+      return { originalSessionId, encryptedSecret };
+    }
+
+    it('rotates the session ID and clears pending2FA on successful TOTP verification', async () => {
+      const { generateTotpCodeSync } = await import('@hushbox/crypto');
+      const totpSecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+      const { originalSessionId } = await setupPendingTotpSession(totpSecret);
+
+      // Real TOTP code derived from the same secret the route will decrypt.
+      const validCode = generateTotpCodeSync(totpSecret);
+
+      const res = await app.request('/api/auth/login/2fa/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: 'hushbox_session=test-session-value',
+        },
+        body: JSON.stringify({ code: validCode }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ success: boolean; userId: string }>(res);
+      expect(body.success).toBe(true);
+      expect(body.userId).toBe('test-user-id');
+
+      // Session rotation: the new sessionId differs from what the request brought in.
+      expect(mockIronSessionData.sessionId).toBeDefined();
+      expect(mockIronSessionData.sessionId).not.toBe(originalSessionId);
+      // Pending flag is cleared post-verification.
+      expect(mockIronSessionData.pending2FA).toBe(false);
+      expect(mockIronSessionData.pending2FAExpiresAt).toBe(0);
+      // save() was called to persist the rotated session.
+      expect(mockIronSessionData.save).toHaveBeenCalled();
+    });
+
+    it('does NOT rotate the session ID when TOTP verification fails (wrong code)', async () => {
+      const totpSecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+      const { originalSessionId } = await setupPendingTotpSession(totpSecret);
+
+      // Submit an invalid code that won't match the secret.
+      const res = await app.request('/api/auth/login/2fa/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: 'hushbox_session=test-session-value',
+        },
+        body: JSON.stringify({ code: '000000' }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await jsonBody(res);
+      expect(body.code).toBe('INVALID_TOTP_CODE');
+
+      // Session ID is unchanged after a failed verification — the rotate
+      // happens only after successful TOTP. This is the critical security
+      // invariant: failed 2FA must never advance session state.
+      expect(mockIronSessionData.sessionId).toBe(originalSessionId);
+      expect(mockIronSessionData.pending2FA).toBe(true);
+      // save() must not have been called on the failure path.
+      expect(mockIronSessionData.save).not.toHaveBeenCalled();
     });
   });
 

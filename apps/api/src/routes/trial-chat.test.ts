@@ -10,10 +10,10 @@ vi.mock('@ai-sdk/gateway', () => ({
 }));
 
 import { Hono } from 'hono';
-import type { AppEnv } from '../types.js';
-import { trialChatRoute } from './trial-chat.js';
-import { createMockAIClient } from '../services/ai/mock.js';
 import { clearModelCache } from '@hushbox/shared/models';
+import { trialChatRoute } from './trial-chat.js';
+import { createMockAIClientWithGatewayCatalog } from '../services/ai/mock-with-gateway-catalog.js';
+import type { AppEnv } from '../types.js';
 
 interface MockFetchResponse {
   ok: boolean;
@@ -71,6 +71,33 @@ interface ErrorBody {
 function createMockRedis(nextIncrValue = 1) {
   return {
     get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
+    mget: vi.fn().mockResolvedValue([null, null]),
+    incr: vi.fn().mockResolvedValue(nextIncrValue),
+    expire: vi.fn().mockResolvedValue(true),
+  };
+}
+
+/**
+ * Stateful redis mock that tracks rate-limit get/set state across requests
+ * (so the per-IP middleware can correctly count subsequent calls). It still
+ * stubs `incr`/`expire`/`mget` to keep `consumeTrialMessage` happy with the
+ * configured trial count.
+ */
+function createStatefulMockRedis(nextIncrValue = 1) {
+  const store = new Map<string, unknown>();
+  return {
+    store,
+    get: vi.fn().mockImplementation((key: string) => Promise.resolve(store.get(key) ?? null)),
+    set: vi.fn().mockImplementation((key: string, value: unknown) => {
+      store.set(key, value);
+      return Promise.resolve('OK');
+    }),
+    del: vi.fn().mockImplementation((key: string) => {
+      store.delete(key);
+      return Promise.resolve(1);
+    }),
     mget: vi.fn().mockResolvedValue([null, null]),
     incr: vi.fn().mockResolvedValue(nextIncrValue),
     expire: vi.fn().mockResolvedValue(true),
@@ -80,6 +107,7 @@ function createMockRedis(nextIncrValue = 1) {
 function createTestApp(
   options: {
     trialMessageCount?: number;
+    redis?: ReturnType<typeof createMockRedis> | ReturnType<typeof createStatefulMockRedis>;
   } = {}
 ) {
   const app = new Hono<AppEnv>();
@@ -88,6 +116,7 @@ function createTestApp(
   // AFTER incrementing. So trialMessageCount=5 means 5 prior messages -> INCR returns 6 (over limit).
   // trialMessageCount=0 (default) means no prior messages -> INCR returns 1 (within limit).
   const nextIncrValue = (options.trialMessageCount ?? 0) + 1;
+  const redis = options.redis ?? createMockRedis(nextIncrValue);
 
   app.use('*', async (c, next) => {
     c.env = {
@@ -97,8 +126,8 @@ function createTestApp(
     } as AppEnv['Bindings'];
     c.set('user', null); // Trial user
     c.set('session', null);
-    c.set('aiClient', createMockAIClient());
-    c.set('redis', createMockRedis(nextIncrValue) as unknown as AppEnv['Variables']['redis']);
+    c.set('aiClient', createMockAIClientWithGatewayCatalog());
+    c.set('redis', redis as unknown as AppEnv['Variables']['redis']);
     c.set('db', {} as unknown as AppEnv['Variables']['db']);
     await next();
   });
@@ -218,6 +247,49 @@ describe('trial chat routes', () => {
       expect(body.code).toBe('PREMIUM_REQUIRES_ACCOUNT');
     });
 
+    it('returns 403 with FEATURE_REQUIRES_AUTH when trial requests webSearchEnabled=true', async () => {
+      const app = createTestApp();
+
+      const res = await app.request('/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Trial-Token': 'test-trial-token',
+          'X-Forwarded-For': '192.168.1.1',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Hello' }],
+          model: 'openai/gpt-4o-mini',
+          webSearchEnabled: true,
+        }),
+      });
+
+      expect(res.status).toBe(403);
+      const body: ErrorBody = await res.json();
+      expect(body.code).toBe('FEATURE_REQUIRES_AUTH');
+    });
+
+    it('still streams when webSearchEnabled is omitted or false on a trial request', async () => {
+      vi.useRealTimers();
+      const app = createTestApp();
+
+      const res = await app.request('/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Trial-Token': 'test-trial-token',
+          'X-Forwarded-For': '192.168.1.1',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Hello' }],
+          model: 'openai/gpt-4o-mini',
+          webSearchEnabled: false,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+    });
+
     it('returns 429 when trial user has exceeded daily limit', async () => {
       const app = createTestApp({
         trialMessageCount: 5, // At limit (TRIAL_MESSAGE_LIMIT)
@@ -332,7 +404,7 @@ describe('trial chat routes', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('aiClient', createMockAIClient());
+        c.set('aiClient', createMockAIClientWithGatewayCatalog());
         c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
         c.set('db', {} as unknown as AppEnv['Variables']['db']);
         await next();
@@ -522,6 +594,72 @@ describe('trial chat routes', () => {
       // Trial chat uses Redis for usage tracking, not the database
       // No database operations should occur for trial messages
       expect(res.status).toBe(200);
+    });
+
+    describe('per-IP rate limit (trialChatStreamIpRateLimit, 20/60s)', () => {
+      // Stateful redis is reused across requests so the rate-limit window
+      // accumulates correctly. Trial-quota incr is stubbed at 1 each call.
+      function buildRequest(): RequestInit {
+        return {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Trial-Token': 'rate-limit-token',
+            'X-Forwarded-For': '203.0.113.1',
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: 'Hello' }],
+            model: 'openai/gpt-4o-mini',
+          }),
+        };
+      }
+
+      it('returns 429 RATE_LIMITED on the 21st request from the same IP', async () => {
+        const redis = createStatefulMockRedis(1);
+        const app = createTestApp({ redis });
+
+        for (let index = 0; index < 20; index++) {
+          const res = await app.request('/stream', buildRequest());
+          await res.text(); // drain SSE stream
+          expect(res.status).toBe(200);
+        }
+
+        const blocked = await app.request('/stream', buildRequest());
+        expect(blocked.status).toBe(429);
+        const body: ErrorBody = await blocked.json();
+        expect(body.code).toBe('RATE_LIMITED');
+      });
+
+      it('allows requests again after the 60s window expires', async () => {
+        const redis = createStatefulMockRedis(1);
+        const app = createTestApp({ redis });
+
+        for (let index = 0; index < 20; index++) {
+          const res = await app.request('/stream', buildRequest());
+          await res.text();
+        }
+        const blocked = await app.request('/stream', buildRequest());
+        expect(blocked.status).toBe(429);
+
+        vi.advanceTimersByTime(61_000);
+
+        const allowed = await app.request('/stream', buildRequest());
+        await allowed.text();
+        expect(allowed.status).toBe(200);
+      });
+
+      it('still applies the daily cap (DAILY_LIMIT_EXCEEDED) independently of the IP burst limit', async () => {
+        // 6 = over the trial daily cap (TRIAL_MESSAGE_LIMIT=5). The per-IP
+        // rate limit is well under its 20/60s threshold for a single request,
+        // so the daily cap must still take effect.
+        const redis = createStatefulMockRedis(6);
+        const app = createTestApp({ redis });
+
+        const res = await app.request('/stream', buildRequest());
+        expect(res.status).toBe(429);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('DAILY_LIMIT_EXCEEDED');
+      });
     });
   });
 });

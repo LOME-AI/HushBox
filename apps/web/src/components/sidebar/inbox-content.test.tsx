@@ -25,7 +25,6 @@ vi.mock('@/hooks/use-conversation-members', () => ({
   }),
 }));
 
-// Mock router for navigation after accept
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));

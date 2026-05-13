@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createSSEEventWriter, type SSEStream } from './stream-handler.js';
 import { ERROR_CODE_CLASSIFIER_FAILED } from '@hushbox/shared';
+import { createSSEEventWriter, type SSEStream } from './stream-handler.js';
 
 function createMockStream(): SSEStream & {
   events: { event: string; data: string }[];
@@ -62,16 +62,16 @@ describe('createSSEEventWriter', () => {
       expect(parsed.models).toHaveLength(2);
     });
 
-    it('writes token event with content', async () => {
+    it('writes model-tagged token event with model id and content', async () => {
       const stream = createMockStream();
       const writer = createSSEEventWriter(stream);
 
-      await writer.writeToken('Hello');
+      await writer.writeModelToken({ modelId: 'openai/gpt-4o', content: 'Hello' });
 
       expect(stream.events).toHaveLength(1);
       expect(stream.events[0]).toEqual({
         event: 'token',
-        data: JSON.stringify({ content: 'Hello' }),
+        data: JSON.stringify({ modelId: 'openai/gpt-4o', content: 'Hello' }),
       });
     });
 
@@ -151,14 +151,13 @@ describe('createSSEEventWriter', () => {
       });
     });
 
-    it('writes model:done event per model', async () => {
+    it('writes model:done event per model without cost (cost only on final done)', async () => {
       const stream = createMockStream();
       const writer = createSSEEventWriter(stream);
 
       await writer.writeModelDone({
         modelId: 'openai/gpt-4o',
         assistantMessageId: 'asst-1',
-        cost: '0.00200000',
       });
 
       expect(stream.events).toHaveLength(1);
@@ -167,19 +166,62 @@ describe('createSSEEventWriter', () => {
         data: JSON.stringify({
           modelId: 'openai/gpt-4o',
           assistantMessageId: 'asst-1',
-          cost: '0.00200000',
         }),
       });
     });
 
-    it('writes model:error event per model', async () => {
+    it('writes model:media:start event with assistantMessageId so the UI can attach to a specific row', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeModelMediaStart({
+        modelId: 'google/imagen-4',
+        assistantMessageId: 'asst-1',
+        mediaType: 'image',
+        mimeType: 'image/png',
+      });
+
+      expect(stream.events).toHaveLength(1);
+      expect(stream.events[0]).toEqual({
+        event: 'model:media:start',
+        data: JSON.stringify({
+          modelId: 'google/imagen-4',
+          assistantMessageId: 'asst-1',
+          mediaType: 'image',
+          mimeType: 'image/png',
+        }),
+      });
+    });
+
+    it('writes model:media:progress event with percent in [0, 100]', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeModelMediaProgress({
+        modelId: 'google/veo-3.1',
+        assistantMessageId: 'asst-1',
+        percent: 30,
+      });
+
+      expect(stream.events).toHaveLength(1);
+      expect(stream.events[0]).toEqual({
+        event: 'model:media:progress',
+        data: JSON.stringify({
+          modelId: 'google/veo-3.1',
+          assistantMessageId: 'asst-1',
+          percent: 30,
+        }),
+      });
+    });
+
+    it('writes model:error event per model with required code', async () => {
       const stream = createMockStream();
       const writer = createSSEEventWriter(stream);
 
       await writer.writeModelError({
         modelId: 'anthropic/claude-3.5-sonnet',
         message: 'Model unavailable',
-        code: 'MODEL_ERROR',
+        code: 'STREAM_ERROR',
       });
 
       expect(stream.events).toHaveLength(1);
@@ -188,7 +230,7 @@ describe('createSSEEventWriter', () => {
         data: JSON.stringify({
           modelId: 'anthropic/claude-3.5-sonnet',
           message: 'Model unavailable',
-          code: 'MODEL_ERROR',
+          code: 'STREAM_ERROR',
         }),
       });
     });
@@ -317,8 +359,12 @@ describe('createSSEEventWriter', () => {
       stream.triggerAbort();
 
       await writer.writeModelToken({ modelId: 'openai/gpt-4o', content: 'Hello' });
-      await writer.writeModelDone({ modelId: 'openai/gpt-4o', assistantMessageId: 'a', cost: '0' });
-      await writer.writeModelError({ modelId: 'openai/gpt-4o', message: 'err' });
+      await writer.writeModelDone({ modelId: 'openai/gpt-4o', assistantMessageId: 'a' });
+      await writer.writeModelError({
+        modelId: 'openai/gpt-4o',
+        message: 'err',
+        code: 'STREAM_ERROR',
+      });
 
       expect(stream.events).toHaveLength(0);
     });
@@ -417,7 +463,7 @@ describe('createSSEEventWriter', () => {
       stream.writeSSE = vi.fn().mockRejectedValue(new Error('Connection closed'));
       const writer = createSSEEventWriter(stream);
 
-      await writer.writeToken('Hello');
+      await writer.writeModelToken({ modelId: 'openai/gpt-4o', content: 'Hello' });
 
       expect(writer.isConnected()).toBe(false);
     });
@@ -428,7 +474,7 @@ describe('createSSEEventWriter', () => {
 
       stream.triggerAbort();
 
-      await writer.writeToken('Should not send');
+      await writer.writeModelToken({ modelId: 'openai/gpt-4o', content: 'Should not send' });
 
       expect(stream.events).toHaveLength(0);
     });

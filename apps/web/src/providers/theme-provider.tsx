@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { useStatusBar } from '@/capacitor/hooks/use-status-bar';
 import { triggerViewTransition } from '@hushbox/ui';
+import { useStatusBar } from '@/capacitor/hooks/use-status-bar';
 
 type ThemeMode = 'light' | 'dark';
 
@@ -33,7 +33,6 @@ export function ThemeProvider({
   const [mounted, setMounted] = React.useState(false);
   const isTransitioning = React.useRef(false);
 
-  // Initialize theme from localStorage or system preference
   React.useEffect(() => {
     let initialMode: ThemeMode = 'light';
     try {
@@ -50,7 +49,6 @@ export function ThemeProvider({
     setMounted(true);
   }, []);
 
-  // Function to apply theme mode to DOM and localStorage
   const applyTheme = React.useCallback((newMode: ThemeMode) => {
     try {
       localStorage.setItem('themeMode', newMode);
@@ -78,7 +76,6 @@ export function ThemeProvider({
         applyTheme(newMode);
       });
 
-      // Reset transitioning flag after animation duration
       setTimeout(() => {
         isTransitioning.current = false;
       }, 1500);
@@ -86,7 +83,6 @@ export function ThemeProvider({
     [mode, applyTheme]
   );
 
-  // Set data-theme attribute on HTML element
   React.useEffect(() => {
     if (mounted) {
       document.documentElement.dataset['theme'] = mode;
@@ -96,7 +92,6 @@ export function ThemeProvider({
 
   useStatusBar(mode);
 
-  // Context value
   const contextValue = React.useMemo(
     () => ({
       mode,

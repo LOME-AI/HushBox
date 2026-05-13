@@ -1,6 +1,6 @@
-import type { MiddlewareHandler } from 'hono';
 import { createEnvUtilities, ERROR_CODE_NOT_FOUND } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
+import type { MiddlewareHandler } from 'hono';
 
 interface DevOnlyBindings {
   NODE_ENV?: string;

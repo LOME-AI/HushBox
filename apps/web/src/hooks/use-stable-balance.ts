@@ -1,5 +1,5 @@
-import { useBalance } from './billing';
 import { useStability } from '@/providers/stability-provider';
+import { useBalance } from './billing';
 
 /**
  * Enhanced balance hook with stability tracking.

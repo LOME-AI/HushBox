@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { SuggestionChips } from './suggestion-chips';
 import { promptSuggestions } from '@/lib/prompt-suggestions';
+import { SuggestionChips } from './suggestion-chips';
 
 describe('SuggestionChips', () => {
   const mockOnSelect = vi.fn();
@@ -39,7 +39,6 @@ describe('SuggestionChips', () => {
 
   it('renders chips with icons', () => {
     render(<SuggestionChips onSelect={mockOnSelect} />);
-    // Each chip should have an icon (SVG element)
     const chips = screen.getAllByRole('button');
     expect(chips.length).toBeGreaterThanOrEqual(promptSuggestions.length);
   });
@@ -65,7 +64,6 @@ describe('SuggestionChips', () => {
     await user.click(surpriseButton);
 
     expect(mockOnSelect).toHaveBeenCalled();
-    // Verify the prompt is one of the available prompts from any category
     const firstCall = mockOnSelect.mock.calls[0];
     if (!firstCall) throw new Error('No call recorded');
     const calledPrompt = firstCall[0] as string;

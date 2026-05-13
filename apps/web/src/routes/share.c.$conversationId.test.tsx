@@ -1,10 +1,6 @@
 import { render, screen, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 const mockDeriveKeysFromLinkSecret = vi.fn();
 const mockFromBase64 = vi.fn<(b64: string) => Uint8Array>();
 const mockToBase64 = vi.fn<(bytes: Uint8Array) => string>();
@@ -75,16 +71,8 @@ vi.mock('@tanstack/react-router', () => ({
 
 import { SharedConversationPage } from './share.c.$conversationId.js';
 
-// ---------------------------------------------------------------------------
-// Test Data
-// ---------------------------------------------------------------------------
-
 const FAKE_PUBLIC_KEY = new Uint8Array(32).fill(42);
 const FAKE_PRIVATE_KEY = new Uint8Array(32).fill(43);
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('SharedConversationPage', () => {
   beforeEach(() => {

@@ -82,7 +82,6 @@ export function AddMemberModal({
           </Alert>
         )}
 
-        {/* Search input + results */}
         <div className="relative">
           <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
           <Input
@@ -119,7 +118,6 @@ export function AddMemberModal({
           )}
         </div>
 
-        {/* Selected user display */}
         {selectedUser && (
           <div
             data-testid="add-member-selected"
@@ -129,7 +127,6 @@ export function AddMemberModal({
           </div>
         )}
 
-        {/* Privilege selector */}
         <div>
           <label
             htmlFor="privilege-select"
@@ -152,7 +149,6 @@ export function AddMemberModal({
           </select>
         </div>
 
-        {/* History access checkbox */}
         <div>
           <CheckboxField
             id="history-checkbox"
@@ -164,7 +160,6 @@ export function AddMemberModal({
           />
         </div>
 
-        {/* Action buttons */}
         <ModalActions
           cancel={{
             label: 'Cancel',

@@ -5,7 +5,6 @@ import { eq } from 'drizzle-orm';
 import { conversations } from '@hushbox/db';
 import { effectiveBudgetCents, ERROR_CODE_CONVERSATION_NOT_FOUND } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
-import type { AppEnv } from '../types.js';
 import { requirePrivilege } from '../middleware/index.js';
 import {
   getConversationBudgets,
@@ -15,6 +14,7 @@ import {
 } from '../services/billing/budgets.js';
 import { getUserTierInfo } from '../services/billing/balance.js';
 import { getGroupReservedTotals } from '../lib/speculative-balance.js';
+import type { AppEnv } from '../types.js';
 
 export const budgetsRoute = new Hono<AppEnv>()
   .get(
@@ -30,7 +30,6 @@ export const budgetsRoute = new Hono<AppEnv>()
 
       const result = await getConversationBudgets(db, conversationId);
 
-      // Query conversation owner
       const convRow = await db
         .select({ userId: conversations.userId })
         .from(conversations)
@@ -43,13 +42,11 @@ export const budgetsRoute = new Hono<AppEnv>()
       }
       const ownerId = convRow.userId;
 
-      // Get owner balance and Redis reservation totals
       const [ownerTierInfo, reserved] = await Promise.all([
         getUserTierInfo(db, ownerId),
         getGroupReservedTotals(redis, conversationId, member.id, ownerId),
       ]);
 
-      // Find the current member's budget
       const currentMemberBudget = result.memberBudgets.find((mb) => mb.memberId === member.id);
 
       // Exclude the conversation owner from the member budgets response —

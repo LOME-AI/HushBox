@@ -142,7 +142,6 @@ test.describe('Solo Regeneration', () => {
     });
 
     await test.step('retry first user message', async () => {
-      await chatPage.scrollToTop();
       await chatPage.clickRetry(0);
       await chatPage.waitForAIResponse();
       await chatPage.waitForStreamComplete();
@@ -170,7 +169,6 @@ test.describe('Solo Regeneration', () => {
       const userMessages = chatPage.messageList.locator('[data-role="user"]');
       await expect(userMessages.last()).toBeVisible();
 
-      // The send button is disabled during streaming
       await expect(chatPage.sendButton).toBeDisabled();
     });
 
@@ -205,7 +203,6 @@ test.describe('Group Chat Regeneration', () => {
       const lastUserMsg = userMessages.last();
       await lastUserMsg.hover();
 
-      // Retry button should be visible on own latest message
       const retryButton = lastUserMsg.getByRole('button', { name: 'Retry' });
       await expect(retryButton).toBeVisible();
       await retryButton.click();
@@ -236,7 +233,6 @@ test.describe('Group Chat Regeneration', () => {
       // First message is Alice's "Hello from Alice" — Bob replied after
       await chatPage.hoverMessage(0);
 
-      // Retry and Edit should NOT be visible (blocked by guard)
       await expect(chatPage.getRetryButton(0)).not.toBeVisible();
       await expect(chatPage.getEditButton(0)).not.toBeVisible();
     });
@@ -262,7 +258,6 @@ test.describe('Group Chat Regeneration', () => {
         .filter({ hasText: 'Hi from Bob' });
       await bobMessage.hover();
 
-      // No retry/edit buttons on other user's message
       await expect(bobMessage.getByRole('button', { name: 'Retry' })).not.toBeVisible();
       await expect(bobMessage.getByRole('button', { name: 'Edit' })).not.toBeVisible();
     });

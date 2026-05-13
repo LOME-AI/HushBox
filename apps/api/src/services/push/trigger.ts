@@ -22,7 +22,6 @@ export async function sendPushForNewMessage(params: SendPushParams): Promise<voi
   const { db, pushClient, conversationId, senderUserId, title, body } = params;
 
   try {
-    // 1. Get active members excluding sender, filtering out muted
     const members = await db
       .select({
         userId: conversationMembers.userId,
@@ -37,7 +36,6 @@ export async function sendPushForNewMessage(params: SendPushParams): Promise<voi
         )
       );
 
-    // Filter out muted members and extract user IDs
     const unmutedUserIds: string[] = [];
     for (const m of members) {
       if (!m.muted && m.userId !== null) {
@@ -49,7 +47,6 @@ export async function sendPushForNewMessage(params: SendPushParams): Promise<voi
       return;
     }
 
-    // 2. Get device tokens for unmuted members
     const tokens = await db
       .select({
         token: deviceTokens.token,
@@ -63,7 +60,6 @@ export async function sendPushForNewMessage(params: SendPushParams): Promise<voi
       return;
     }
 
-    // 3. Send push notification
     await pushClient.send({
       tokens: tokenStrings,
       title,

@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, index, integer } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, index, integer, uniqueIndex } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 import { bytea } from './bytea';
@@ -22,7 +22,10 @@ export const messages = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index('messages_conversation_sequence_idx').on(table.conversationId, table.sequenceNumber),
+    uniqueIndex('messages_conversation_sequence_idx').on(
+      table.conversationId,
+      table.sequenceNumber
+    ),
     index('messages_conversation_epoch_idx').on(table.conversationId, table.epochNumber),
     index('messages_parent_message_id_idx').on(table.parentMessageId),
   ]

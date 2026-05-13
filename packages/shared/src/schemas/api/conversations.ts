@@ -331,10 +331,6 @@ export const deleteConversationResponseSchema = z.object({
 
 export type DeleteConversationResponse = z.infer<typeof deleteConversationResponseSchema>;
 
-// ============================================================
-// Fork Request Schemas
-// ============================================================
-
 /**
  * Request schema for creating a fork.
  * Client provides fork ID for idempotency.
@@ -356,34 +352,52 @@ export const renameForkRequestSchema = z.object({
 
 export type RenameForkRequest = z.infer<typeof renameForkRequestSchema>;
 
-// ============================================================
-// Regeneration Schemas
-// ============================================================
-
 /**
  * Request schema for POST /chat/regenerate.
- * Supports retry (resend same user message), edit (new user message), and regenerate (re-run AI).
+ * Supports retry (resend same user message), edit (new user message), and
+ * regenerate (re-run AI). Modality matches the original message's content
+ * type so the same inference + persistence pipeline used for `/stream`
+ * handles regenerate / retry / edit uniformly.
  */
-export const regenerateRequestSchema = z.object({
-  targetMessageId: z.uuid(),
-  action: z.enum(['retry', 'edit', 'regenerate']),
-  model: z.string(),
-  userMessage: z.object({
-    id: z.uuid(),
-    content: z.string().min(1),
-  }),
-  messagesForInference: z
-    .array(
-      z.object({
-        role: z.enum(['user', 'assistant', 'system']),
-        content: z.string(),
-      })
-    )
-    .min(1),
-  fundingSource: fundingSourceSchema,
-  forkId: z.uuid().optional(),
-  webSearchEnabled: z.boolean().optional(),
-  customInstructions: z.string().max(5000).optional(),
-});
+export const regenerateRequestSchema = z
+  .object({
+    targetMessageId: z.uuid(),
+    action: z.enum(['retry', 'edit', 'regenerate']),
+    /**
+     * Modality of the regenerated turn. Must match the original
+     * assistant message's content type (image messages regenerate to
+     * images, etc.). Defaults to 'text' for back-compat with older
+     * clients that omit the field.
+     */
+    modality: z.enum(['text', 'image', 'video', 'audio']).default('text'),
+    model: z.string(),
+    userMessage: z.object({
+      id: z.uuid(),
+      content: z.string().min(1),
+    }),
+    messagesForInference: z
+      .array(
+        z.object({
+          role: z.enum(['user', 'assistant', 'system']),
+          content: z.string(),
+        })
+      )
+      .min(1),
+    fundingSource: fundingSourceSchema,
+    forkId: z.uuid().optional(),
+    webSearchEnabled: z.boolean().optional(),
+    customInstructions: z.string().max(5000).optional(),
+    imageConfig: imageConfigSchema.optional(),
+    videoConfig: videoConfigSchema.optional(),
+    audioConfig: audioConfigSchema.optional(),
+  })
+  .refine((data) => data.modality !== 'video' || data.videoConfig !== undefined, {
+    message: 'videoConfig is required when modality is "video"',
+    path: ['videoConfig'],
+  })
+  .refine((data) => data.modality !== 'audio' || data.audioConfig !== undefined, {
+    message: 'audioConfig is required when modality is "audio"',
+    path: ['audioConfig'],
+  });
 
 export type RegenerateRequest = z.infer<typeof regenerateRequestSchema>;

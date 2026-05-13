@@ -1,6 +1,6 @@
+import { fireAndForget } from './fire-and-forget.js';
 import type { RealtimeEvent } from '@hushbox/realtime/events';
 import type { Bindings } from '../types.js';
-import { fireAndForget } from './fire-and-forget.js';
 
 /**
  * Send a realtime event to all WebSocket connections in a conversation room.

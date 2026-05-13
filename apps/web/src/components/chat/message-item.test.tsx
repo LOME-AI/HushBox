@@ -6,7 +6,6 @@ import type { MessageGroup } from '@/lib/chat-sender';
 import type { Message } from '@/lib/api';
 import type { MessageAction } from '@/lib/message-actions';
 
-// Mock document store used by DocumentCard (rendered inside MarkdownRenderer)
 vi.mock('../../stores/document', () => ({
   useDocumentStore: () => ({
     activeDocumentId: null,
@@ -69,6 +68,24 @@ vi.mock('./media-content-item', () => ({
   ),
 }));
 
+// Stub the epoch key cache + crypto primitives to count ECIES unwraps.
+// We assert that openMessageEnvelope is called once per message regardless of
+// how many media items the message carries (Issue #1: hoist contentKey).
+const mockOpenMessageEnvelope = vi.fn(() => new Uint8Array([1, 2, 3]));
+vi.mock('@hushbox/crypto', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@hushbox/crypto')>();
+  return {
+    ...original,
+    openMessageEnvelope: (...args: unknown[]) => mockOpenMessageEnvelope(...(args as [])),
+  };
+});
+vi.mock('@/lib/epoch-key-cache', () => ({
+  getEpochKey: vi.fn(() => new Uint8Array([9, 9, 9])),
+  setEpochKey: vi.fn(),
+  subscribe: vi.fn(() => () => {}),
+  getSnapshot: vi.fn(() => 0),
+}));
+
 const ALL_USER_ACTIONS = new Set<MessageAction>(['copy', 'retry', 'edit', 'fork']);
 const ALL_AI_ACTIONS = new Set<MessageAction>(['copy', 'regenerate', 'fork', 'share']);
 const NO_ACTIONS = new Set<MessageAction>();
@@ -93,7 +110,6 @@ describe('MessageItem', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    // Mock clipboard API
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: vi.fn(() => Promise.resolve()) },
       writable: true,
@@ -168,18 +184,14 @@ describe('MessageItem', () => {
     it('copies message content to clipboard when clicked', async () => {
       render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
 
-      // Click the copy button
       fireEvent.click(screen.getByRole('button', { name: /copy/i }));
 
-      // Flush the async clipboard operation
       await act(async () => {
         await Promise.resolve();
       });
 
-      // The state change to "Copied" proves clipboard.writeText succeeded
       expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
 
-      // Verify the message content that was copied matches
       expect(assistantMessage.content).toBe('I am doing well, thank you!');
     });
 
@@ -188,7 +200,6 @@ describe('MessageItem', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /copy/i }));
 
-      // Flush the async clipboard operation
       await act(async () => {
         await Promise.resolve();
       });
@@ -201,15 +212,12 @@ describe('MessageItem', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /copy/i }));
 
-      // Flush the async clipboard operation
       await act(async () => {
         await Promise.resolve();
       });
 
-      // Should show "Copied"
       expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
 
-      // Wait for the 2 second timeout to reset
       act(() => {
         vi.advanceTimersByTime(2500);
       });
@@ -220,7 +228,6 @@ describe('MessageItem', () => {
     it('copy button has ghost variant styling', () => {
       render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
       const button = screen.getByRole('button', { name: /copy/i });
-      // Ghost buttons typically have these classes or no background
       expect(button).toHaveClass('h-6', 'w-6');
     });
   });
@@ -380,6 +387,18 @@ describe('MessageItem', () => {
       const props = spy.mock.calls[0]![0] as Record<string, unknown>;
       expect(props['isStreaming']).toBeUndefined();
       spy.mockRestore();
+    });
+
+    it('marks the streaming AI message container with aria-live="polite"', () => {
+      render(<MessageItem message={assistantMessage} isStreaming allowedActions={NO_ACTIONS} />);
+      const live = screen.getByTestId('ai-message-live-region');
+      expect(live).toHaveAttribute('aria-live', 'polite');
+    });
+
+    it('does not mark non-streaming AI message text with aria-live', () => {
+      render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
+      const region = screen.queryByTestId('ai-message-live-region');
+      if (region) expect(region.getAttribute('aria-live')).toBe('off');
     });
   });
 
@@ -636,7 +655,6 @@ describe('MessageItem', () => {
 
       expect(screen.getByText('First message')).toBeInTheDocument();
       expect(screen.getByText('Second message')).toBeInTheDocument();
-      // Only one sender label
       expect(screen.getAllByTestId('sender-label')).toHaveLength(1);
     });
 
@@ -819,7 +837,6 @@ describe('MessageItem', () => {
     });
 
     it('renders the Smart chip when isSmartModel is true', () => {
-      // Use a model that's in the mockModelsData fixture so its name resolves cleanly.
       const knownModel = mockModelsData.data.models[0];
       if (!knownModel) throw new Error('test fixture must include at least one model');
       const aiMsg = {
@@ -873,7 +890,6 @@ describe('MessageItem', () => {
       );
       const indicator = screen.getByTestId('thinking-indicator');
       expect(indicator).toHaveTextContent('Choosing the best model');
-      // Model name is suppressed during classifying.
       expect(indicator).not.toHaveTextContent('Smart Model is thinking');
     });
 
@@ -968,6 +984,31 @@ describe('MessageItem', () => {
           allowedActions={NO_ACTIONS}
         />
       );
+      expect(screen.getByTestId('model-nametag')).toBeInTheDocument();
+    });
+
+    it('shows nametag for image/video/audio messages whose body is empty but mediaItems carry media', () => {
+      // Media-only assistant messages have no text body — the bytes live in
+      // mediaItems. The nametag should still render so the user can see which
+      // model produced the image/video/audio.
+      const aiMsg = {
+        id: 'ai-image',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: '',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'google/imagen-4.0-generate-001',
+        mediaItems: [
+          {
+            id: 'ci-1',
+            position: 0,
+            contentType: 'image' as const,
+            mimeType: 'image/jpeg',
+            sizeBytes: 1024,
+          },
+        ],
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
       expect(screen.getByTestId('model-nametag')).toBeInTheDocument();
     });
 
@@ -1291,6 +1332,90 @@ describe('MessageItem', () => {
       const { epochNumber: _omitEpoch, ...rest } = messageWithMedia;
       render(<MessageItem message={rest} allowedActions={ALL_AI_ACTIONS} />);
       expect(screen.queryByTestId(/^mock-media-item-/)).not.toBeInTheDocument();
+    });
+
+    describe('media-in-flight placeholder', () => {
+      const inFlightMessage: Message = {
+        ...assistantMessage,
+        id: 'msg-in-flight',
+        content: '',
+      };
+
+      it('shows "Generating image…" when mediaInFlight.mediaType is image', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'image', mimeType: 'image/png' },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        expect(screen.getByRole('status', { name: /generating image/i })).toBeInTheDocument();
+      });
+
+      it('shows "Generating video…" when mediaInFlight.mediaType is video', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'video', mimeType: 'application/octet-stream' },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        expect(screen.getByRole('status', { name: /generating video/i })).toBeInTheDocument();
+      });
+
+      it('shows "Generating audio…" when mediaInFlight.mediaType is audio', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'audio', mimeType: 'audio/mpeg' },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        expect(screen.getByRole('status', { name: /generating audio/i })).toBeInTheDocument();
+      });
+
+      it('renders the progress bar when mediaProgress.percent is set', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'video', mimeType: 'application/octet-stream' },
+          mediaProgress: { percent: 42 },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        const bar = screen.getByTestId('media-progress-bar');
+        expect(bar).toBeInTheDocument();
+        const fill = bar.querySelector('div');
+        expect(fill?.getAttribute('style')).toContain('42%');
+      });
+    });
+
+    it('unwraps the message contentKey once even with multiple media items', () => {
+      // Issue #1 / Plan §15.5: the parent resolves contentKey once and passes
+      // it to each MediaContentItem, so an N-image message does ONE ECIES
+      // unwrap, not N. Asserts on `openMessageEnvelope` call count.
+      mockOpenMessageEnvelope.mockClear();
+      const msgWithThreeMedia: Message = {
+        ...messageWithMedia,
+        mediaItems: [
+          {
+            id: 'ci-a',
+            contentType: 'image',
+            position: 0,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+          {
+            id: 'ci-b',
+            contentType: 'image',
+            position: 1,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+          {
+            id: 'ci-c',
+            contentType: 'image',
+            position: 2,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+        ],
+      };
+      render(<MessageItem message={msgWithThreeMedia} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getAllByTestId(/^mock-media-item-/)).toHaveLength(3);
+      expect(mockOpenMessageEnvelope).toHaveBeenCalledTimes(1);
     });
   });
 });

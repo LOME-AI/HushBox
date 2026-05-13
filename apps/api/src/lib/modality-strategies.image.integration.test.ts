@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { contentItems, mediaGenerations, messages, usageRecords } from '@hushbox/db';
-import { saveChatTurn } from './message-persistence.js';
-import { CANNED_MP4 } from '../ai/mock.js';
+import { saveChatTurn } from '../services/chat/message-persistence.js';
+import { CANNED_IMAGE, CANNED_IMAGE_WIDTH, CANNED_IMAGE_HEIGHT } from '../services/ai/mock.js';
 import {
   cleanupMediaTest,
   cleanupTestUserData,
@@ -10,18 +10,16 @@ import {
   fetchAndDecryptMedia,
   setupMediaStrategyTest,
   type MediaStrategyTestContext,
-} from './media-strategy-test-helpers.js';
+} from '../services/chat/media-strategy-test-helpers.js';
 
-const VIDEO_MODEL = 'google/veo-3.1-fast-generate-001';
-const VIDEO_MIME = 'video/mp4';
-const VIDEO_WIDTH = 1280;
-const VIDEO_HEIGHT = 720;
-const VIDEO_DURATION_MS = 1000;
-const VIDEO_RESOLUTION = '720p';
-const VIDEO_COST_DOLLARS = 0.1;
-const VIDEO_COST_STRING = '0.10000000';
+const IMAGE_MODEL = 'google/imagen-4';
+const IMAGE_MIME = 'image/jpeg';
+const IMAGE_WIDTH = CANNED_IMAGE_WIDTH;
+const IMAGE_HEIGHT = CANNED_IMAGE_HEIGHT;
+const IMAGE_COST_DOLLARS = 0.046;
+const IMAGE_COST_STRING = '0.04600000';
 
-describe('video strategy integration (real DB + real MinIO)', () => {
+describe('image strategy integration (real DB + real MinIO)', () => {
   const contexts: MediaStrategyTestContext[] = [];
 
   afterEach(async () => {
@@ -32,7 +30,7 @@ describe('video strategy integration (real DB + real MinIO)', () => {
     contexts.length = 0;
   });
 
-  it('persists messages + content_items + media_generations rows for video', async () => {
+  it('persists messages + content_items + media_generations rows linked to a real R2 object', async () => {
     const ctx = await setupMediaStrategyTest();
     contexts.push(ctx);
 
@@ -42,52 +40,51 @@ describe('video strategy integration (real DB + real MinIO)', () => {
 
     const upload = await encryptAndUploadMedia({
       ctx,
-      cannedBytes: CANNED_MP4,
+      cannedBytes: CANNED_IMAGE,
       conversationId: ctx.setup.conversation.id,
       messageId: assistantMsgId,
       contentItemId,
-      mimeType: VIDEO_MIME,
+      mimeType: IMAGE_MIME,
     });
 
     await saveChatTurn(ctx.db, {
       userMessageId: userMsgId,
-      userContent: 'Generate a short video',
+      userContent: 'Generate an image',
       conversationId: ctx.setup.conversation.id,
       userId: ctx.setup.user.id,
       senderId: ctx.setup.user.id,
       parentMessageId: null,
       assistantMessages: [
         {
-          modality: 'video',
+          modality: 'image',
           id: assistantMsgId,
           wrappedContentKey: upload.wrappedContentKey,
           contentItems: [
             {
               id: contentItemId,
-              contentType: 'video',
+              contentType: 'image',
               position: 0,
               storageKey: upload.storageKey,
-              mimeType: VIDEO_MIME,
+              mimeType: IMAGE_MIME,
               sizeBytes: upload.ciphertext.byteLength,
-              width: VIDEO_WIDTH,
-              height: VIDEO_HEIGHT,
-              durationMs: VIDEO_DURATION_MS,
-              modelName: VIDEO_MODEL,
-              cost: VIDEO_COST_STRING,
+              width: IMAGE_WIDTH,
+              height: IMAGE_HEIGHT,
+              modelName: IMAGE_MODEL,
+              cost: IMAGE_COST_STRING,
               isSmartModel: false,
             },
           ],
-          model: VIDEO_MODEL,
-          cost: VIDEO_COST_DOLLARS,
-          mediaType: 'video',
-          durationMs: VIDEO_DURATION_MS,
-          resolution: VIDEO_RESOLUTION,
+          model: IMAGE_MODEL,
+          cost: IMAGE_COST_DOLLARS,
+          mediaType: 'image',
+          imageCount: 1,
         },
       ],
     });
 
     const [msgRow] = await ctx.db.select().from(messages).where(eq(messages.id, assistantMsgId));
     expect(msgRow).toBeDefined();
+    expect(msgRow!.wrappedContentKey).toBeDefined();
     expect([...msgRow!.wrappedContentKey]).toEqual([...upload.wrappedContentKey]);
 
     const items = await ctx.db
@@ -96,14 +93,13 @@ describe('video strategy integration (real DB + real MinIO)', () => {
       .where(eq(contentItems.messageId, assistantMsgId));
     expect(items).toHaveLength(1);
     const item = items[0]!;
-    expect(item.contentType).toBe('video');
+    expect(item.contentType).toBe('image');
     expect(item.storageKey).toBe(upload.storageKey);
-    expect(item.mimeType).toBe(VIDEO_MIME);
+    expect(item.mimeType).toBe(IMAGE_MIME);
     expect(item.sizeBytes).toBe(upload.ciphertext.byteLength);
-    expect(item.width).toBe(VIDEO_WIDTH);
-    expect(item.height).toBe(VIDEO_HEIGHT);
-    expect(item.durationMs).toBe(VIDEO_DURATION_MS);
-    expect(item.modelName).toBe(VIDEO_MODEL);
+    expect(item.width).toBe(IMAGE_WIDTH);
+    expect(item.height).toBe(IMAGE_HEIGHT);
+    expect(item.modelName).toBe(IMAGE_MODEL);
     expect(item.encryptedBlob).toBeNull();
 
     const [usageRow] = await ctx.db
@@ -118,13 +114,12 @@ describe('video strategy integration (real DB + real MinIO)', () => {
       .from(mediaGenerations)
       .where(eq(mediaGenerations.usageRecordId, usageRow!.id));
     expect(genRow).toBeDefined();
-    expect(genRow!.model).toBe(VIDEO_MODEL);
-    expect(genRow!.mediaType).toBe('video');
-    expect(genRow!.durationMs).toBe(VIDEO_DURATION_MS);
-    expect(genRow!.resolution).toBe(VIDEO_RESOLUTION);
+    expect(genRow!.model).toBe(IMAGE_MODEL);
+    expect(genRow!.mediaType).toBe('image');
+    expect(genRow!.imageCount).toBe(1);
   });
 
-  it('mintDownloadUrl + fetch + decrypt round-trips to original CANNED_MP4 bytes', async () => {
+  it('mintDownloadUrl + fetch + decrypt round-trips to original CANNED_IMAGE bytes', async () => {
     const ctx = await setupMediaStrategyTest();
     contexts.push(ctx);
 
@@ -134,46 +129,44 @@ describe('video strategy integration (real DB + real MinIO)', () => {
 
     const upload = await encryptAndUploadMedia({
       ctx,
-      cannedBytes: CANNED_MP4,
+      cannedBytes: CANNED_IMAGE,
       conversationId: ctx.setup.conversation.id,
       messageId: assistantMsgId,
       contentItemId,
-      mimeType: VIDEO_MIME,
+      mimeType: IMAGE_MIME,
     });
 
     await saveChatTurn(ctx.db, {
       userMessageId: userMsgId,
-      userContent: 'video',
+      userContent: 'image',
       conversationId: ctx.setup.conversation.id,
       userId: ctx.setup.user.id,
       senderId: ctx.setup.user.id,
       parentMessageId: null,
       assistantMessages: [
         {
-          modality: 'video',
+          modality: 'image',
           id: assistantMsgId,
           wrappedContentKey: upload.wrappedContentKey,
           contentItems: [
             {
               id: contentItemId,
-              contentType: 'video',
+              contentType: 'image',
               position: 0,
               storageKey: upload.storageKey,
-              mimeType: VIDEO_MIME,
+              mimeType: IMAGE_MIME,
               sizeBytes: upload.ciphertext.byteLength,
-              width: VIDEO_WIDTH,
-              height: VIDEO_HEIGHT,
-              durationMs: VIDEO_DURATION_MS,
-              modelName: VIDEO_MODEL,
-              cost: VIDEO_COST_STRING,
+              width: IMAGE_WIDTH,
+              height: IMAGE_HEIGHT,
+              modelName: IMAGE_MODEL,
+              cost: IMAGE_COST_STRING,
               isSmartModel: false,
             },
           ],
-          model: VIDEO_MODEL,
-          cost: VIDEO_COST_DOLLARS,
-          mediaType: 'video',
-          durationMs: VIDEO_DURATION_MS,
-          resolution: VIDEO_RESOLUTION,
+          model: IMAGE_MODEL,
+          cost: IMAGE_COST_DOLLARS,
+          mediaType: 'image',
+          imageCount: 1,
         },
       ],
     });
@@ -189,10 +182,10 @@ describe('video strategy integration (real DB + real MinIO)', () => {
       storageKey: item!.key!,
       contentKey: upload.contentKey,
     });
-    expect([...decrypted]).toEqual([...CANNED_MP4]);
+    expect([...decrypted]).toEqual([...CANNED_IMAGE]);
   });
 
-  it('content_items.size_bytes records the ciphertext length for video', async () => {
+  it('content_items.size_bytes records the ciphertext length, not plaintext length', async () => {
     const ctx = await setupMediaStrategyTest();
     contexts.push(ctx);
 
@@ -202,48 +195,47 @@ describe('video strategy integration (real DB + real MinIO)', () => {
 
     const upload = await encryptAndUploadMedia({
       ctx,
-      cannedBytes: CANNED_MP4,
+      cannedBytes: CANNED_IMAGE,
       conversationId: ctx.setup.conversation.id,
       messageId: assistantMsgId,
       contentItemId,
-      mimeType: VIDEO_MIME,
+      mimeType: IMAGE_MIME,
     });
 
-    expect(upload.ciphertext.byteLength).toBeGreaterThan(CANNED_MP4.byteLength);
+    // Sanity: ciphertext is strictly larger than plaintext (envelope+nonce+MAC overhead).
+    expect(upload.ciphertext.byteLength).toBeGreaterThan(CANNED_IMAGE.byteLength);
 
     await saveChatTurn(ctx.db, {
       userMessageId: userMsgId,
-      userContent: 'video',
+      userContent: 'image',
       conversationId: ctx.setup.conversation.id,
       userId: ctx.setup.user.id,
       senderId: ctx.setup.user.id,
       parentMessageId: null,
       assistantMessages: [
         {
-          modality: 'video',
+          modality: 'image',
           id: assistantMsgId,
           wrappedContentKey: upload.wrappedContentKey,
           contentItems: [
             {
               id: contentItemId,
-              contentType: 'video',
+              contentType: 'image',
               position: 0,
               storageKey: upload.storageKey,
-              mimeType: VIDEO_MIME,
+              mimeType: IMAGE_MIME,
               sizeBytes: upload.ciphertext.byteLength,
-              width: VIDEO_WIDTH,
-              height: VIDEO_HEIGHT,
-              durationMs: VIDEO_DURATION_MS,
-              modelName: VIDEO_MODEL,
-              cost: VIDEO_COST_STRING,
+              width: IMAGE_WIDTH,
+              height: IMAGE_HEIGHT,
+              modelName: IMAGE_MODEL,
+              cost: IMAGE_COST_STRING,
               isSmartModel: false,
             },
           ],
-          model: VIDEO_MODEL,
-          cost: VIDEO_COST_DOLLARS,
-          mediaType: 'video',
-          durationMs: VIDEO_DURATION_MS,
-          resolution: VIDEO_RESOLUTION,
+          model: IMAGE_MODEL,
+          cost: IMAGE_COST_DOLLARS,
+          mediaType: 'image',
+          imageCount: 1,
         },
       ],
     });
@@ -253,6 +245,6 @@ describe('video strategy integration (real DB + real MinIO)', () => {
       .from(contentItems)
       .where(eq(contentItems.messageId, assistantMsgId));
     expect(item!.size).toBe(upload.ciphertext.byteLength);
-    expect(item!.size).not.toBe(CANNED_MP4.byteLength);
+    expect(item!.size).not.toBe(CANNED_IMAGE.byteLength);
   });
 });

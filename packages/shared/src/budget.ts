@@ -19,10 +19,6 @@ import { applyFees } from './pricing.js';
 import type { UserTier } from './tiers.js';
 import type { FundingSource, ResolveBillingResult, DenialReason } from './resolve-billing.js';
 
-// ============================================================================
-// Types
-// ============================================================================
-
 export interface NotificationInput {
   billingResult: ResolveBillingResult;
   capacityPercent: number;
@@ -49,6 +45,13 @@ export interface BudgetCalculationInput {
   models: ModelPricingWithContext[];
   /** Per-search cost in USD (with fees applied). 0 or omitted if search disabled. */
   webSearchCost?: number;
+  /**
+   * Worst-case cents reserved for pre-inference stages (e.g., Smart Model
+   * classifier) that bill separately. The inference budget is sized against
+   * `balance - preReservedCents` so the sum `inferenceWorstCase +
+   * preReservedCents` fits within the user's effective balance.
+   */
+  preReservedCents?: number;
 }
 
 export interface BudgetCalculationResult {
@@ -69,6 +72,12 @@ export interface BudgetCalculationResult {
   currentUsage: number;
   /** Capacity percentage (currentUsage / modelContextLength * 100) */
   capacityPercent: number;
+  /**
+   * Pre-reserved cents (e.g., Smart Model classifier) deducted from balance
+   * before sizing inference. Echoed back from input — callers reading
+   * `totalWorstCaseCents` rely on this for the sum.
+   */
+  preReservedCents: number;
 }
 
 /**
@@ -91,10 +100,6 @@ export interface BudgetError {
   /** Structured message with optional links for rendering */
   segments?: MessageSegment[];
 }
-
-// ============================================================================
-// Cost Manifest Types
-// ============================================================================
 
 /**
  * A fixed cost item known before generation starts.
@@ -138,10 +143,6 @@ export interface CostManifest {
   variableItems: VariableCostItem[];
 }
 
-// ============================================================================
-// Token Estimation
-// ============================================================================
-
 /**
  * Characters-per-token ratio for a given tier.
  * Single source of truth for token↔character conversion.
@@ -161,10 +162,6 @@ export function estimateTokensForTier(tier: UserTier, characterCount: number): n
   if (characterCount === 0) return 0;
   return Math.ceil(characterCount / charsPerTokenForTier(tier));
 }
-
-// ============================================================================
-// Effective Balance
-// ============================================================================
 
 /**
  * Negative-balance cushion by tier. Only paid users get the $0.50 cushion.
@@ -201,10 +198,6 @@ export function getEffectiveBalance(
     }
   }
 }
-
-// ============================================================================
-// Notification Generation (new — driven by resolveBilling() result)
-// ============================================================================
 
 const DENIAL_NOTIFICATIONS: Record<DenialReason, BudgetError> = {
   premium_requires_balance: {
@@ -406,10 +399,6 @@ export function generateNotifications(input: NotificationInput): BudgetError[] {
   return notifications;
 }
 
-// ============================================================================
-// Cost Manifest Builder
-// ============================================================================
-
 export interface ManifestModelPricing {
   /** Model's input price per token (with fees already applied) */
   modelInputPricePerToken: number;
@@ -493,10 +482,6 @@ export function buildCostManifest(input: BuildCostManifestInput): CostManifest {
   return { fixedItems, variableItems };
 }
 
-// ============================================================================
-// Cost Manifest Calculator
-// ============================================================================
-
 export interface ManifestBudgetResult {
   /** Total fixed cost (input tokens + storage + search) in dollars */
   totalFixedCost: number;
@@ -545,10 +530,6 @@ export function calculateBudgetFromManifest(
   return { totalFixedCost, variableCostPerToken, estimatedMinimumCost, maxOutputTokens };
 }
 
-// ============================================================================
-// Can Afford Model
-// ============================================================================
-
 export interface CanAffordModelInput {
   /** User's tier */
   tier: UserTier;
@@ -580,8 +561,8 @@ export interface CanAffordModelResult {
 /**
  * Single function answering "can this user send a message with this model?"
  *
- * Combines premium gating + budget calculation. Used by the auto-router
- * to build the allowed models list and by validateBilling for affordability checks.
+ * Combines premium gating + budget calculation. Used by `validateBilling`
+ * for affordability checks.
  */
 export function canAffordModel(input: CanAffordModelInput): CanAffordModelResult {
   const {
@@ -620,10 +601,6 @@ export function canAffordModel(input: CanAffordModelInput): CanAffordModelResult
   };
 }
 
-// ============================================================================
-// Main Calculation
-// ============================================================================
-
 /**
  * Calculate budget math for a message.
  * Pure math only — no billing decisions or notifications.
@@ -646,7 +623,16 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
     promptCharacterCount,
     models,
     webSearchCost = 0,
+    preReservedCents = 0,
   } = input;
+
+  // Stage reservations (e.g., Smart Model classifier) get deducted FIRST so
+  // the inference budget below can never sum past the user's balance when
+  // worst-case is added back: `worstCase = inferenceWorstCase +
+  // preReservedCents ≤ balance`. Without this, the post-reservation cushion
+  // guard fails by exactly `preReservedCents`.
+  const stageBalanceCents = Math.max(0, balanceCents - preReservedCents);
+  const stageFreeAllowanceCents = Math.max(0, freeAllowanceCents - preReservedCents);
 
   // 1. Build manifest and calculate
   const manifest = buildCostManifest({
@@ -656,7 +642,7 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
     webSearchCost,
   });
 
-  const effectiveBalance = getEffectiveBalance(tier, balanceCents, freeAllowanceCents);
+  const effectiveBalance = getEffectiveBalance(tier, stageBalanceCents, stageFreeAllowanceCents);
   const manifestResult = calculateBudgetFromManifest(manifest, effectiveBalance);
 
   // 2. Extract estimatedInputTokens from the manifest's text-input-tokens item
@@ -678,12 +664,9 @@ export function calculateBudget(input: BudgetCalculationInput): BudgetCalculatio
     outputCostPerToken: manifestResult.variableCostPerToken,
     currentUsage,
     capacityPercent,
+    preReservedCents,
   };
 }
-
-// ============================================================================
-// Safe Max Tokens
-// ============================================================================
 
 export interface ComputeMaxTokensParams {
   /** Max output tokens based on user's budget */
@@ -712,10 +695,6 @@ export function computeSafeMaxTokens(params: ComputeMaxTokensParams): number | u
 
   return params.budgetMaxTokens;
 }
-
-// ============================================================================
-// Effective Budget (multi-constraint)
-// ============================================================================
 
 export interface EffectiveBudgetParams {
   /** conversationBudget - conversationSpent - conversationReserved. */

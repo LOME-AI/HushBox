@@ -5,6 +5,7 @@ import {
   cleanupTestData,
   resetTrialUsage,
   resetAuthRateLimits,
+  resetUsageRateLimits,
   createDevGroupChat,
   createDevConversation,
   setWalletBalance,
@@ -70,7 +71,6 @@ describe('dev service', () => {
     });
 
     it('returns personas with stats for dev users', async () => {
-      // First call: get users (no longer includes balance - uses wallet-based checkUserBalance)
       mockDb.select
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
@@ -84,13 +84,11 @@ describe('dev service', () => {
             ]),
           }),
         })
-        // Conversation count
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue([{ count: 5 }]),
           }),
         })
-        // Message count
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
             innerJoin: vi.fn().mockReturnValue({
@@ -98,7 +96,6 @@ describe('dev service', () => {
             }),
           }),
         })
-        // Project count
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue([{ count: 2 }]),
@@ -143,26 +140,22 @@ describe('dev service', () => {
     });
 
     it('deletes messages and conversations for test users', async () => {
-      // Get test users
       mockDb.select
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue([{ id: 'test-user-1' }]),
           }),
         })
-        // Get conversations for test users
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue([{ id: 'conv-1' }, { id: 'conv-2' }]),
           }),
         });
 
-      // Delete messages returns rowCount
       mockDb.delete
         .mockReturnValueOnce({
           where: vi.fn().mockResolvedValue({ rowCount: 10 }),
         })
-        // Delete conversations
         .mockReturnValueOnce({
           where: vi.fn().mockResolvedValue({ rowCount: 2 }),
         });
@@ -276,6 +269,65 @@ describe('dev service', () => {
         .mockResolvedValue(['0', []]);
 
       const result = await resetAuthRateLimits(mockRedis as never);
+
+      expect(result).toEqual({ deleted: 2 });
+      expect(mockRedis.del).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('resetUsageRateLimits', () => {
+    let mockRedis: {
+      scan: ReturnType<typeof vi.fn>;
+      del: ReturnType<typeof vi.fn>;
+    };
+
+    beforeEach(() => {
+      mockRedis = {
+        scan: vi.fn(),
+        del: vi.fn().mockResolvedValue(0),
+      };
+    });
+
+    it('deletes usage rate limit keys across all three per-user prefixes', async () => {
+      mockRedis.scan
+        .mockResolvedValueOnce(['0', ['chat:stream:user:ratelimit:alice']]) // chat stream
+        .mockResolvedValueOnce(['0', ['media:download:user:ratelimit:bob']]) // media download
+        .mockResolvedValueOnce(['0', ['share:create:user:ratelimit:carol']]); // share create
+
+      const result = await resetUsageRateLimits(mockRedis as never);
+
+      expect(result).toEqual({ deleted: 3 });
+      expect(mockRedis.del).toHaveBeenCalledTimes(3);
+    });
+
+    it('returns zero when no usage rate limit keys exist', async () => {
+      mockRedis.scan.mockResolvedValue(['0', []]);
+
+      const result = await resetUsageRateLimits(mockRedis as never);
+
+      expect(result).toEqual({ deleted: 0 });
+      expect(mockRedis.del).not.toHaveBeenCalled();
+    });
+
+    it('does not scan trial or IP-scoped buckets that other tests depend on', async () => {
+      mockRedis.scan.mockResolvedValue(['0', []]);
+
+      await resetUsageRateLimits(mockRedis as never);
+
+      const matchedPatterns = mockRedis.scan.mock.calls.map(
+        (call: unknown[]) => (call[1] as { match: string }).match
+      );
+      expect(matchedPatterns).not.toContain('trial:chat:stream:ip:ratelimit:*');
+      expect(matchedPatterns).not.toContain('share:get:ip:ratelimit:*');
+    });
+
+    it('handles multi-page scan results within a single prefix', async () => {
+      mockRedis.scan
+        .mockResolvedValueOnce(['99', ['chat:stream:user:ratelimit:alice']])
+        .mockResolvedValueOnce(['0', ['chat:stream:user:ratelimit:bob']])
+        .mockResolvedValue(['0', []]);
+
+      const result = await resetUsageRateLimits(mockRedis as never);
 
       expect(result).toEqual({ deleted: 2 });
       expect(mockRedis.del).toHaveBeenCalledTimes(2);
@@ -478,11 +530,9 @@ describe('dev service', () => {
         ],
       });
 
-      // Title encryption still uses encryptTextForEpoch (1 call for the empty title)
       expect(mockEncryptMessageForStorage).toHaveBeenCalledTimes(1);
       expect(mockEncryptMessageForStorage).toHaveBeenCalledWith(EPOCH_PUBLIC_KEY, '');
 
-      // Messages are now persisted via insertEnvelopeTextMessage (one call per message)
       expect(mockInsertEnvelopeTextMessage).toHaveBeenCalledTimes(2);
 
       const call0 = mockInsertEnvelopeTextMessage.mock.calls[0]![1] as Record<string, unknown>;
@@ -733,7 +783,6 @@ describe('dev service', () => {
         ],
       });
 
-      // User messages use saveUserOnlyMessage
       expect(mockSaveUserOnlyMessage).toHaveBeenCalledWith(
         mockDb,
         expect.objectContaining({

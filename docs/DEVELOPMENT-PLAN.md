@@ -772,6 +772,33 @@ After Phase 22, the product has all MVP features:
 2. Create a new bucket named `hushbox-files`
 3. Generate R2 API tokens
 4. Add `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` to `.env.local`
+5. Apply CORS to the production media bucket so browsers can fetch presigned
+   download URLs from `*.r2.cloudflarestorage.com`. Two options:
+
+   **Option A — Cloudflare dashboard.** R2 → bucket → Settings → CORS Policy →
+   paste the JSON form of the rule. Quickest for first-time setup or one-off
+   tweaks.
+
+   **Option B — `ops/r2/configure-cors.ts` script.** Code-reviewed via
+   CODEOWNERS, idempotent, replays cleanly across environments. Can be
+   triggered via the `run-script:configure-r2-cors` PR label (runs in CI
+   under `production` environment approval) or invoked locally:
+   ```bash
+   R2_S3_ENDPOINT=... \
+   R2_ACCESS_KEY_ID=... \
+   R2_SECRET_ACCESS_KEY=... \
+   R2_BUCKET_MEDIA=hushbox-media \
+     pnpm tsx ops/r2/configure-cors.ts
+   ```
+
+   The script sets a single read-only rule allowing `https://hushbox.ai` and
+   `https://*.hushbox.pages.dev` over GET with `MaxAgeSeconds=3600`.
+   `PutBucketCors` replaces the rule set wholesale, so re-runs are safe.
+   Re-run whenever the production frontend allow-list changes (edit
+   `PRODUCTION_ALLOWED_ORIGINS` in `ops/r2/configure-cors.ts`,
+   CODEOWNERS-approved PR, then merge with the label).
+
+   See `ops/README.md` for the full label-driven flow and trust model.
 
 ---
 

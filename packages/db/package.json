@@ -10,10 +10,10 @@
     "./factories": "./src/factories/index.ts"
   },
   "scripts": {
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
+    "db:generate": "../../scripts/with-env drizzle-kit generate",
+    "db:migrate": "../../scripts/with-env drizzle-kit migrate",
+    "db:push": "../../scripts/with-env drizzle-kit push",
+    "db:studio": "../../scripts/with-env drizzle-kit studio",
     "test": "../../scripts/with-env vitest run",
     "test:watch": "../../scripts/with-env vitest",
     "test:coverage": "../../scripts/with-env vitest run --coverage",
@@ -31,6 +31,7 @@
   "devDependencies": {
     "@faker-js/faker": "^10.3.0",
     "@hushbox/config": "workspace:*",
+    "@hushbox/crypto": "workspace:*",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.9",
     "fishery": "^2.4.0",

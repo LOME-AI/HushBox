@@ -38,10 +38,6 @@ import { canUseModel, type UserTier, type UserTierInfo } from './tiers.js';
  */
 const FREE_TIER_FLOAT_TOLERANCE_CENTS = 1e-6;
 
-// ============================================================================
-// Types
-// ============================================================================
-
 export type FundingSource = 'owner_balance' | 'personal_balance' | 'free_allowance' | 'trial_fixed';
 
 export type DenialReason =
@@ -68,10 +64,6 @@ export interface ResolveBillingInput {
   };
 }
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 /** Attempt group billing: owner pays if group has budget and owner can use the model. */
 function resolveGroupBilling(
   group: ResolveBillingInput['group'],
@@ -89,10 +81,6 @@ function resolveGroupBilling(
   }
   return undefined;
 }
-
-// ============================================================================
-// Core Function
-// ============================================================================
 
 /**
  * Resolve billing for a message: determines WHO pays or WHY it's denied.

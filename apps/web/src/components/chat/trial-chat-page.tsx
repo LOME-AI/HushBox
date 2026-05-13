@@ -1,20 +1,20 @@
 import * as React from 'react';
 import { Navigate } from '@tanstack/react-router';
+import { ROUTES, friendlyErrorMessage, customUserMessage } from '@hushbox/shared';
+import { useIsMobile } from '@hushbox/ui';
 import { ChatLayout } from '@/components/chat/chat-layout';
-import type { PromptInputRef } from '@/components/chat/prompt-input';
 import { createTrialMessage } from '@/lib/chat-messages';
 import { buildMessagesForRegeneration } from '@/lib/chat-regeneration';
 import { useChatPageState } from '@/hooks/use-chat-page';
 import { useChatStream, TrialRateLimitError } from '@/hooks/use-chat-stream';
 import { useTrialChatStore } from '@/stores/trial-chat';
 import { useModelStore, getPrimaryModel } from '@/stores/model';
-import { useChatErrorStore, createChatError } from '@/stores/chat-error';
+import { useChatErrorStore, createChatError, MAIN_FORK_KEY } from '@/stores/chat-error';
 import { useChatEditStore } from '@/stores/chat-edit';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useSession } from '@/lib/auth';
-import { useIsMobile } from '@hushbox/ui';
+import type { PromptInputRef } from '@/components/chat/prompt-input';
 import type { Message } from '@/lib/api';
-import { ROUTES, friendlyErrorMessage, customUserMessage } from '@hushbox/shared';
 
 /**
  * Trial messages lack parentMessageId, so resolve assistant targets to
@@ -62,12 +62,14 @@ export function TrialChatPage(): React.JSX.Element {
     removeMessagesAfter,
   } = useTrialChatStore();
 
-  const chatError = useChatErrorStore((s) => s.error);
+  // Trial chats are linear (no forks), so every read/write keys off
+  // MAIN_FORK_KEY. Same store, single slot in practice.
+  const chatError = useChatErrorStore((s) => s.errorsByFork[MAIN_FORK_KEY] ?? null);
 
   React.useEffect(() => {
-    useChatErrorStore.getState().clearError();
+    useChatErrorStore.getState().clearAll();
     return () => {
-      useChatErrorStore.getState().clearError();
+      useChatErrorStore.getState().clearAll();
     };
   }, []);
 
@@ -76,6 +78,7 @@ export function TrialChatPage(): React.JSX.Element {
       const lastUserMsg = trialMessages.findLast((m) => m.role === 'user');
       if (error instanceof TrialRateLimitError) {
         useChatErrorStore.getState().setError(
+          MAIN_FORK_KEY,
           createChatError({
             content: customUserMessage(
               `You've used all 5 free messages today. [Sign up](${ROUTES.SIGNUP}) to continue chatting!`
@@ -88,6 +91,7 @@ export function TrialChatPage(): React.JSX.Element {
       } else {
         console.error('Trial chat error:', error);
         useChatErrorStore.getState().setError(
+          MAIN_FORK_KEY,
           createChatError({
             content: friendlyErrorMessage('INTERNAL'),
             retryable: false,
@@ -143,7 +147,7 @@ export function TrialChatPage(): React.JSX.Element {
   const handleTrialFirstMessage = React.useCallback(
     async (content: string): Promise<void> => {
       clearTrialPendingMessage();
-      useChatErrorStore.getState().clearError();
+      useChatErrorStore.getState().clearError(MAIN_FORK_KEY);
 
       const userMessage = createTrialMessage('user', content);
       addTrialMessage(userMessage);
@@ -168,7 +172,7 @@ export function TrialChatPage(): React.JSX.Element {
 
       const { resolvedId, targetRole } = resolveTrialTarget(trialMessages, targetMessageId);
 
-      useChatErrorStore.getState().clearError();
+      useChatErrorStore.getState().clearError(MAIN_FORK_KEY);
 
       const effectiveAction = editedContent ? ('edit' as const) : ('retry' as const);
       const inferenceMessages = buildMessagesForRegeneration(
@@ -202,14 +206,13 @@ export function TrialChatPage(): React.JSX.Element {
     const content = state.inputValue.trim();
     if (!content || isStreaming || isRateLimited) return;
 
-    // Handle edit submission
     if (editingMessageId) {
       void handleTrialRegenerate(editingMessageId, content);
       clearEditing();
       return;
     }
 
-    useChatErrorStore.getState().clearError();
+    useChatErrorStore.getState().clearError(MAIN_FORK_KEY);
     state.clearInput();
     if (!isMobile) {
       promptInputRef.current?.focus();

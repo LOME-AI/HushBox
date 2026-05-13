@@ -1,9 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
+import { useDecryptedMedia, useMessageContentKey } from './use-decrypted-media';
+import type { ContentKey } from '@hushbox/crypto';
 
 const mockUseMediaDownloadUrl = vi.fn<
   (contentItemId: string | null) => {
@@ -44,27 +42,17 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-// Stub URL.createObjectURL and URL.revokeObjectURL
 const mockCreateObjectURL = vi.fn<(blob: Blob) => string>();
 const mockRevokeObjectURL = vi.fn<(url: string) => void>();
 
-// Stub global fetch
 const mockFetch = vi.fn<(input: RequestInfo | URL) => Promise<Response>>();
-
-import { useDecryptedMedia } from './use-decrypted-media';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function defaultParams(
   overrides: Partial<Parameters<typeof useDecryptedMedia>[0]> = {}
 ): Parameters<typeof useDecryptedMedia>[0] {
   return {
     contentItemId: 'content-item-1',
-    conversationId: 'conv-1',
-    epochNumber: 1,
-    wrappedContentKey: 'wrapped-content-key-b64',
+    contentKey: new Uint8Array([4, 5, 6]) as ContentKey,
     mimeType: 'image/png',
     ...overrides,
   };
@@ -77,10 +65,6 @@ function createFetchResponse(bytes: Uint8Array, ok = true, status = 200): Respon
     arrayBuffer: () => Promise.resolve(bytes.buffer as ArrayBuffer),
   } as Response;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useDecryptedMedia', () => {
   let urlCounter: number;
@@ -110,12 +94,13 @@ describe('useDecryptedMedia', () => {
       isLoading: false,
       error: null,
     });
-    mockGetEpochKey.mockReturnValue(new Uint8Array([1, 2, 3]));
-    mockOpenMessageEnvelope.mockReturnValue(new Uint8Array([4, 5, 6]));
     mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([9, 9, 9]));
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([7, 8])));
 
-    const { result } = renderHook(() => useDecryptedMedia(defaultParams()));
+    // Stable params (single object identity across rerenders) so useDecryptBlob's
+    // effect dep array doesn't see a new contentKey reference each render.
+    const stableParams = defaultParams();
+    const { result } = renderHook(() => useDecryptedMedia(stableParams));
 
     await waitFor(() => {
       expect(result.current.blobUrl).not.toBeNull();
@@ -125,7 +110,7 @@ describe('useDecryptedMedia', () => {
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBeNull();
     expect(mockFetch).toHaveBeenCalledWith('https://r2.example.com/encrypted-bytes');
-    expect(mockOpenMessageEnvelope).toHaveBeenCalledTimes(1);
+    expect(mockOpenMessageEnvelope).not.toHaveBeenCalled();
     expect(mockDecryptBinaryWithContentKey).toHaveBeenCalledTimes(1);
     expect(mockCreateObjectURL).toHaveBeenCalledTimes(1);
   });
@@ -157,23 +142,17 @@ describe('useDecryptedMedia', () => {
     expect(result.current.blobUrl).toBeNull();
   });
 
-  it('error path: missing epoch key returns an error', async () => {
+  it('returns loading when contentKey is null', () => {
     mockUseMediaDownloadUrl.mockReturnValue({
-      downloadUrl: 'https://r2.example.com/encrypted-bytes',
+      downloadUrl: 'https://r2.example.com/x',
       isLoading: false,
       error: null,
     });
-    mockGetEpochKey.mockReset();
 
-    const { result } = renderHook(() => useDecryptedMedia(defaultParams()));
+    const { result } = renderHook(() => useDecryptedMedia(defaultParams({ contentKey: null })));
 
-    await waitFor(() => {
-      expect(result.current.error).not.toBeNull();
-    });
-
-    expect(result.current.error?.message).toContain('Epoch key not available');
-    expect(result.current.blobUrl).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
+    expect(result.current.blobUrl).toBeNull();
   });
 
   it('error path: fetch returns non-ok status', async () => {
@@ -182,8 +161,6 @@ describe('useDecryptedMedia', () => {
       isLoading: false,
       error: null,
     });
-    mockGetEpochKey.mockReturnValue(new Uint8Array([1, 2, 3]));
-    mockOpenMessageEnvelope.mockReturnValue(new Uint8Array([4, 5, 6]));
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array(), false, 403));
 
     const { result } = renderHook(() => useDecryptedMedia(defaultParams()));
@@ -203,8 +180,6 @@ describe('useDecryptedMedia', () => {
       isLoading: false,
       error: null,
     });
-    mockGetEpochKey.mockReturnValue(new Uint8Array([1, 2, 3]));
-    mockOpenMessageEnvelope.mockReturnValue(new Uint8Array([4, 5, 6]));
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([7, 8])));
     mockDecryptBinaryWithContentKey.mockImplementation(() => {
       throw new Error('AEAD tag mismatch');
@@ -226,12 +201,11 @@ describe('useDecryptedMedia', () => {
       isLoading: false,
       error: null,
     });
-    mockGetEpochKey.mockReturnValue(new Uint8Array([1, 2, 3]));
-    mockOpenMessageEnvelope.mockReturnValue(new Uint8Array([4, 5, 6]));
     mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([9, 9, 9]));
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([7, 8])));
 
-    const { result, unmount } = renderHook(() => useDecryptedMedia(defaultParams()));
+    const stableParams = defaultParams();
+    const { result, unmount } = renderHook(() => useDecryptedMedia(stableParams));
 
     await waitFor(() => {
       expect(result.current.blobUrl).toBe('blob:mock-1');
@@ -241,52 +215,64 @@ describe('useDecryptedMedia', () => {
 
     expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:mock-1');
   });
+});
 
-  it('does not set state from a stale fetch when params change mid-fetch', async () => {
-    mockUseMediaDownloadUrl.mockReturnValue({
-      downloadUrl: 'https://r2.example.com/first',
-      isLoading: false,
-      error: null,
-    });
+describe('useMessageContentKey', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('unwraps the content key once when epoch key is available', () => {
     mockGetEpochKey.mockReturnValue(new Uint8Array([1, 2, 3]));
     mockOpenMessageEnvelope.mockReturnValue(new Uint8Array([4, 5, 6]));
-    mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([9, 9, 9]));
 
-    // Hold the first fetch pending, resolve the second immediately
-    let resolveFirstFetch: ((response: Response) => void) | undefined;
-    const firstFetchPromise = new Promise<Response>((resolve) => {
-      resolveFirstFetch = resolve;
-    });
-    mockFetch.mockReturnValueOnce(firstFetchPromise);
-    mockFetch.mockResolvedValueOnce(createFetchResponse(new Uint8Array([7, 8])));
-
-    const { result, rerender } = renderHook(
-      (params: Parameters<typeof useDecryptedMedia>[0]) => useDecryptedMedia(params),
-      {
-        initialProps: defaultParams(),
-      }
+    const { result } = renderHook(() =>
+      useMessageContentKey('conv-1', 1, 'wrapped-content-key-b64')
     );
 
-    // Change the params so the effect re-runs before the first fetch resolves
-    mockUseMediaDownloadUrl.mockReturnValue({
-      downloadUrl: 'https://r2.example.com/second',
-      isLoading: false,
-      error: null,
+    expect(result.current.contentKey).not.toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(mockOpenMessageEnvelope).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an error when the epoch key is missing', () => {
+    mockGetEpochKey.mockReset();
+
+    const { result } = renderHook(() =>
+      useMessageContentKey('conv-1', 1, 'wrapped-content-key-b64')
+    );
+
+    expect(result.current.contentKey).toBeNull();
+    expect(result.current.error?.message).toContain('Epoch key not available');
+  });
+
+  it('returns an error when openMessageEnvelope throws', () => {
+    mockGetEpochKey.mockReturnValue(new Uint8Array([1, 2, 3]));
+    mockOpenMessageEnvelope.mockImplementation(() => {
+      throw new Error('ECIES open failed');
     });
-    rerender(defaultParams({ wrappedContentKey: 'different-key-b64' }));
 
-    // Second render resolves first, setting blobUrl
-    await waitFor(() => {
-      expect(result.current.blobUrl).toBe('blob:mock-1');
-    });
+    const { result } = renderHook(() =>
+      useMessageContentKey('conv-1', 1, 'wrapped-content-key-b64')
+    );
 
-    const blobUrlAfterRerender = result.current.blobUrl;
+    expect(result.current.contentKey).toBeNull();
+    expect(result.current.error?.message).toBe('ECIES open failed');
+  });
 
-    // Now resolve the first (stale) fetch — its state update should be a no-op
-    resolveFirstFetch?.(createFetchResponse(new Uint8Array([5, 5])));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  it('memoizes by inputs — does not re-unwrap on rerender with same inputs', () => {
+    mockGetEpochKey.mockReturnValue(new Uint8Array([1, 2, 3]));
+    mockOpenMessageEnvelope.mockReturnValue(new Uint8Array([4, 5, 6]));
 
-    // blobUrl should not change from the second render's blob URL
-    expect(result.current.blobUrl).toBe(blobUrlAfterRerender);
+    const { rerender } = renderHook(
+      (props: { conv: string; epoch: number; wrapped: string }) =>
+        useMessageContentKey(props.conv, props.epoch, props.wrapped),
+      { initialProps: { conv: 'conv-1', epoch: 1, wrapped: 'wrapped-b64' } }
+    );
+
+    rerender({ conv: 'conv-1', epoch: 1, wrapped: 'wrapped-b64' });
+    rerender({ conv: 'conv-1', epoch: 1, wrapped: 'wrapped-b64' });
+
+    expect(mockOpenMessageEnvelope).toHaveBeenCalledTimes(1);
   });
 });

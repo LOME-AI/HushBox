@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { openMessageEnvelope, decryptTextWithContentKey } from '@hushbox/crypto';
-import { useAuthStore } from '@/lib/auth';
-import type { Message, MessageMediaItem } from '@/lib/api';
+import {
+  openMessageEnvelope,
+  decryptTextWithContentKey,
+  type WrappedContentKey,
+} from '@hushbox/crypto';
 import { fromBase64 } from '@hushbox/shared';
-import type { MessageResponse, ContentItemResponse } from '@hushbox/shared';
+import { useAuthStore } from '@/lib/auth';
 import { getEpochKey, processKeyChain } from '@/lib/epoch-key-cache';
 import { useDecryptionActivityStore } from '@/stores/decryption-activity';
 import { keyChainQueryOptions } from '@/hooks/keys';
+import type { MessageResponse, ContentItemResponse } from '@hushbox/shared';
+import type { Message, MessageMediaItem } from '@/lib/api';
 
 function mapSenderTypeToRole(senderType: 'user' | 'ai'): 'user' | 'assistant' {
   return senderType === 'ai' ? 'assistant' : 'user';
@@ -145,7 +149,10 @@ export function useDecryptedMessages(
       }
 
       try {
-        const contentKey = openMessageEnvelope(epochKey, fromBase64(msg.wrappedContentKey));
+        const contentKey = openMessageEnvelope(
+          epochKey,
+          fromBase64(msg.wrappedContentKey) as WrappedContentKey
+        );
         const parts: string[] = [];
         for (const item of msg.contentItems) {
           if (item.contentType === 'text' && item.encryptedBlob != null) {

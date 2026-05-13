@@ -1,5 +1,5 @@
-import { z } from 'zod';
 import { wrapInBaseTemplate } from './base.js';
+import type { z } from 'zod';
 
 export interface EmailContent {
   html: string;

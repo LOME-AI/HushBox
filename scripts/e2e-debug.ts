@@ -121,6 +121,7 @@ export interface FailedTestArtifacts {
   screenshot: string | undefined;
   video: string | undefined;
   consoleErrors: string | undefined;
+  apiErrors: string | undefined;
   pageSnapshot: string | undefined;
   harFiles: string[];
 }
@@ -171,6 +172,7 @@ export interface JsonTestEntry {
     trace: string | undefined;
     video: string | undefined;
     consoleErrors: string | undefined;
+    apiErrors: string | undefined;
     pageSnapshot: string | undefined;
     harFiles: string[];
   };
@@ -338,6 +340,7 @@ export function extractArtifactPaths(test: FlattenedTestResult): FailedTestArtif
     screenshot: findPath('screenshot'),
     video: findPath('video'),
     consoleErrors: collectLabeledBodies('console-errors'),
+    apiErrors: collectLabeledBodies('api-errors'),
     pageSnapshot: collectLabeledBodies('page-snapshot'),
     harFiles: collectLabeledPaths('har'),
   };
@@ -501,6 +504,10 @@ function renderSingleTest(test: RenderableTest, artifactDir: 'failed' | 'flaky')
     lines.push('', `**Console Errors:** See \`${artifactDir}/${slug}/console-errors.txt\``);
   }
 
+  if (test.artifacts.apiErrors) {
+    lines.push(`**API Errors:** See \`${artifactDir}/${slug}/api-errors.txt\``);
+  }
+
   if (test.artifacts.pageSnapshot) {
     lines.push(`**Page Snapshot:** See \`${artifactDir}/${slug}/page-snapshot.txt\``);
   }
@@ -615,6 +622,7 @@ export function generateJsonReport(report: DebugReport): JsonReport {
         trace: test.artifacts.trace,
         video: test.artifacts.video,
         consoleErrors: test.artifacts.consoleErrors,
+        apiErrors: test.artifacts.apiErrors,
         pageSnapshot: test.artifacts.pageSnapshot,
         harFiles: test.artifacts.harFiles,
       },
@@ -633,6 +641,7 @@ export function generateJsonReport(report: DebugReport): JsonReport {
         trace: test.artifacts.trace,
         video: test.artifacts.video,
         consoleErrors: test.artifacts.consoleErrors,
+        apiErrors: test.artifacts.apiErrors,
         pageSnapshot: test.artifacts.pageSnapshot,
         harFiles: test.artifacts.harFiles,
       },
@@ -672,6 +681,10 @@ export function writePerTestArtifacts(test: FailedTest, testDir: string): void {
 
   if (test.artifacts.consoleErrors) {
     writeFileSync(path.join(testDir, 'console-errors.txt'), test.artifacts.consoleErrors, 'utf8');
+  }
+
+  if (test.artifacts.apiErrors) {
+    writeFileSync(path.join(testDir, 'api-errors.txt'), test.artifacts.apiErrors, 'utf8');
   }
 
   if (test.artifacts.pageSnapshot) {

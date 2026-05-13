@@ -132,12 +132,10 @@ export function startServer(port: number): ReturnType<typeof createServer> {
       }
     }
 
-    // Default: render the README
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(renderReadme());
   });
 
-  // Reload browsers when README changes
   watch(path.join(ROOT, 'README.md'), () => {
     for (const client of clients) {
       client.write('data: reload\n\n');
@@ -151,7 +149,6 @@ export function startServer(port: number): ReturnType<typeof createServer> {
   return server;
 }
 
-// CLI entry point
 /* v8 ignore next 2 */
 const isMain = import.meta.url === `file://${String(process.argv[1])}`;
 if (isMain) startServer(resolvePort());

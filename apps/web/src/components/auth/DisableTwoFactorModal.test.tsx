@@ -233,7 +233,6 @@ describe('DisableTwoFactorModal', () => {
       });
       const user = await goToCodeStep();
 
-      // Enter OTP (auto-submits on 6 digits)
       const otpInput = screen.getByTestId('otp-input');
       await user.click(otpInput);
       await user.keyboard('123456');
@@ -261,7 +260,6 @@ describe('DisableTwoFactorModal', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Should auto-submit without clicking the button
       await waitFor(() => {
         expect(mockDisable2FAFinish).toHaveBeenCalledWith([4, 5, 6], '123456');
         expect(onSuccess).toHaveBeenCalledTimes(1);
@@ -276,7 +274,6 @@ describe('DisableTwoFactorModal', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Should show loading without clicking the button
       await waitFor(() => {
         expect(screen.getByText(/disabling/i)).toBeInTheDocument();
       });
@@ -293,7 +290,6 @@ describe('DisableTwoFactorModal', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Should show error without clicking the button
       await waitFor(() => {
         expect(
           screen.getByText('Invalid verification code. Please try again.')
@@ -307,16 +303,12 @@ describe('DisableTwoFactorModal', () => {
       const user = userEvent.setup();
       const { rerender } = render(<DisableTwoFactorModal {...defaultProps} />);
 
-      // Type a password
       await user.type(screen.getByLabelText(/current password/i), 'mypassword');
 
-      // Close modal
       rerender(<DisableTwoFactorModal {...defaultProps} open={false} />);
 
-      // Reopen modal
       rerender(<DisableTwoFactorModal {...defaultProps} open={true} />);
 
-      // Password should be cleared and we should be back on step 1
       expect(screen.getByLabelText(/current password/i)).toHaveValue('');
       expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled();
     });

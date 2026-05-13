@@ -30,7 +30,6 @@ describe('Index route beforeLoad', () => {
     // On web, it sets location.href (we can't fully test this in jsdom
     // but we verify redirect was NOT called)
     expect(redirect).not.toHaveBeenCalled();
-    // Restore
     globalThis.location.href = original;
   });
 

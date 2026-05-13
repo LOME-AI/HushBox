@@ -7,12 +7,12 @@ import {
   ERROR_CODE_FORK_NAME_TAKEN,
   ERROR_CODE_FORK_LIMIT_REACHED,
 } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
+import { createEvent } from '@hushbox/realtime/events';
 import { requirePrivilege } from '../middleware/index.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createFork, deleteFork, renameFork, ForkError } from '../services/forks/forks.js';
 import { broadcastFireAndForget } from '../lib/broadcast.js';
-import { createEvent } from '@hushbox/realtime/events';
+import type { AppEnv } from '../types.js';
 
 function mapForkError(error: ForkError): { status: 409 | 400; code: string } {
   switch (error.code) {

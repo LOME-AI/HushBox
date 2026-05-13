@@ -4,9 +4,9 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { users } from '@hushbox/db';
 import { fromBase64, ERROR_CODE_UNAUTHORIZED, ERROR_CODE_INVALID_BASE64 } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
 import { searchUsers } from '../services/users/user-search.js';
 import { createErrorResponse } from '../lib/error-response.js';
+import type { AppEnv } from '../types.js';
 
 export const usersRoute = new Hono<AppEnv>()
   .post(

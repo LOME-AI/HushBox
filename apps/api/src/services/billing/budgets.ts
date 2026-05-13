@@ -5,6 +5,7 @@ import {
   memberBudgets,
   conversationSpending,
   type Database,
+  type DatabaseClient,
 } from '@hushbox/db';
 import type { EffectiveBudgetParams } from '@hushbox/shared';
 import type { GroupReservedTotals } from '../../lib/speculative-balance.js';
@@ -150,7 +151,7 @@ export interface UpdateGroupSpendingParams {
  * - member_budgets: upserts spent += cost (budget defaults to 0 on insert)
  */
 export async function updateGroupSpending(
-  tx: Database,
+  tx: DatabaseClient,
   params: UpdateGroupSpendingParams
 ): Promise<void> {
   const { conversationId, memberId, costDollars } = params;

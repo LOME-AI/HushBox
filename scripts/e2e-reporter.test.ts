@@ -242,7 +242,6 @@ describe('e2e-reporter', () => {
         { status: 'passed', startTime: new Date(), duration: 1000 }
       );
 
-      // The nested test should still be found
       expect(result.suites[0]!.suites!).toBeDefined();
     });
 
@@ -282,7 +281,6 @@ describe('e2e-reporter', () => {
       const test = createStubTest({
         file: `${process.cwd()}/e2e/chat/chat.spec.ts`,
       });
-      // Override line to a specific value
       test.location.line = 42;
       const fileSuite = createStubSuite({
         type: 'file',

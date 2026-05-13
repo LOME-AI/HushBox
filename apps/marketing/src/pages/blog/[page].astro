@@ -1,11 +1,11 @@
 ---
-import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
 import BlogLayout from '../../layouts/BlogLayout.astro';
 import PageHeader from '../../components/PageHeader.astro';
 import BlogPostCard from '../../components/blog/BlogPostCard.astro';
 import Pagination from '../../components/blog/Pagination.astro';
 import { BlogSearch } from '../../components/blog/BlogSearch';
 import { getPublishedPosts, getAllTags, POSTS_PER_PAGE, BLOG_DESCRIPTION } from '../../lib/blog';
+import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
 
 export const getStaticPaths = (async () => {
   const allPosts = await getPublishedPosts();
