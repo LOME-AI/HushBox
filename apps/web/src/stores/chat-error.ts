@@ -44,9 +44,9 @@ export const useChatErrorStore = create<ChatErrorState>()((set, get) => ({
   clearError: (forkKey) => {
     set((state) => {
       if (!(forkKey in state.errorsByFork)) return state;
-      const next = { ...state.errorsByFork };
-      delete next[forkKey];
-      return { errorsByFork: next };
+      // eslint-disable-next-line sonarjs/no-unused-vars -- rest-spread requires naming the omitted key to drop it from the new object
+      const { [forkKey]: _removed, ...rest } = state.errorsByFork;
+      return { errorsByFork: rest };
     });
   },
 
@@ -54,15 +54,6 @@ export const useChatErrorStore = create<ChatErrorState>()((set, get) => ({
     set({ errorsByFork: {} });
   },
 }));
-
-/**
- * React selector that subscribes to the error for a specific fork. Re-renders
- * only when that fork's error changes — not when an error on another fork
- * is set or cleared.
- */
-export function useChatErrorForFork(forkKey: string): ChatErrorMessage | null {
-  return useChatErrorStore((s) => s.errorsByFork[forkKey] ?? null);
-}
 
 export function createChatError(params: {
   content: UserFacingMessage;

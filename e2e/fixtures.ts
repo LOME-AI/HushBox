@@ -46,20 +46,21 @@ const API_ERROR_BODY_CAP = 2000;
  */
 function attachApiErrors(page: Page): { errors: string[]; cleanup: () => void } {
   const errors: string[] = [];
-  const onResponse = (response: Response): void => {
+  const recordResponse = async (response: Response): Promise<void> => {
     const url = response.url();
     if (!url.includes('/api/')) return;
     const status = response.status();
     if (status < 400) return;
     const time = new Date().toISOString();
     const method = response.request().method();
-    void response
-      .text()
-      .catch(() => '')
-      .then((body) => {
-        const trimmed = body ? `\n  body: ${body.slice(0, API_ERROR_BODY_CAP)}` : '';
-        errors.push(`${time} ${String(status)} ${response.statusText()} ${method} ${url}${trimmed}`);
-      });
+    // Streaming responses (SSE) can't be re-read after the fact and
+    // `response.text()` rejects; swallow that into an empty body.
+    const body = await response.text().catch(() => '');
+    const trimmed = body ? `\n  body: ${body.slice(0, API_ERROR_BODY_CAP)}` : '';
+    errors.push(`${time} ${String(status)} ${response.statusText()} ${method} ${url}${trimmed}`);
+  };
+  const onResponse = (response: Response): void => {
+    void recordResponse(response);
   };
   const onRequestFailed = (request: Request): void => {
     const url = request.url();
@@ -78,6 +79,35 @@ function attachApiErrors(page: Page): { errors: string[]; cleanup: () => void } 
       page.off('requestfailed', onRequestFailed);
     },
   };
+}
+
+/**
+ * Joiner per labeled-artifact prefix. `api-errors` uses a blank line between
+ * entries because each entry can include a multi-line response body that
+ * would visually merge into the next entry under a single `\n`.
+ */
+const ARTIFACT_JOINER: Record<'console-errors' | 'api-errors', string> = {
+  'console-errors': '\n',
+  'api-errors': '\n\n',
+};
+
+/**
+ * Attach a labeled text artifact (`console-errors-<label>`, `api-errors-<label>`)
+ * to the failing test. Skips attachment when there are no errors — Playwright
+ * shows empty attachments which clutter the report. Used by every page-creating
+ * fixture so the attach shape stays uniform across labels.
+ */
+async function attachLabeledArtifact(
+  testInfo: TestInfo,
+  prefix: 'console-errors' | 'api-errors',
+  label: string,
+  errors: string[]
+): Promise<void> {
+  if (errors.length === 0) return;
+  await testInfo.attach(`${prefix}-${label}`, {
+    body: errors.join(ARTIFACT_JOINER[prefix]),
+    contentType: 'text/plain',
+  });
 }
 
 type StorageState = string | { cookies: []; origins: [] };
@@ -110,21 +140,9 @@ function createPageFixture(
 
     const failed = testInfo.status !== testInfo.expectedStatus;
 
-    if (failed && errors.length > 0) {
-      await testInfo.attach(`console-errors-${label}`, {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-
-    if (failed && apiErrors.length > 0) {
-      await testInfo.attach(`api-errors-${label}`, {
-        body: apiErrors.join('\n\n'),
-        contentType: 'text/plain',
-      });
-    }
-
     if (failed) {
+      await attachLabeledArtifact(testInfo, 'console-errors', label, errors);
+      await attachLabeledArtifact(testInfo, 'api-errors', label, apiErrors);
       const snapshot = await page.locator(':root').ariaSnapshot();
       if (snapshot) {
         await testInfo.attach(`page-snapshot-${label}`, {
@@ -219,19 +237,9 @@ async function teardownPage(
   failed: boolean,
   testInfo: TestInfo
 ): Promise<void> {
-  if (failed && entry.errors.length > 0) {
-    await testInfo.attach(`console-errors-${entry.label}`, {
-      body: entry.errors.join('\n'),
-      contentType: 'text/plain',
-    });
-  }
-  if (failed && entry.apiErrors.length > 0) {
-    await testInfo.attach(`api-errors-${entry.label}`, {
-      body: entry.apiErrors.join('\n\n'),
-      contentType: 'text/plain',
-    });
-  }
   if (failed) {
+    await attachLabeledArtifact(testInfo, 'console-errors', entry.label, entry.errors);
+    await attachLabeledArtifact(testInfo, 'api-errors', entry.label, entry.apiErrors);
     const snapshot = await entry.page
       .locator(':root')
       .ariaSnapshot()
@@ -520,19 +528,9 @@ export const test = base.extend<CustomFixtures>({
     await use(page);
 
     const failed = testInfo.status !== testInfo.expectedStatus;
-    if (failed && errors.length > 0) {
-      await testInfo.attach(`console-errors-lowBalancePage`, {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-    if (failed && apiErrors.length > 0) {
-      await testInfo.attach(`api-errors-lowBalancePage`, {
-        body: apiErrors.join('\n\n'),
-        contentType: 'text/plain',
-      });
-    }
     if (failed) {
+      await attachLabeledArtifact(testInfo, 'console-errors', 'lowBalancePage', errors);
+      await attachLabeledArtifact(testInfo, 'api-errors', 'lowBalancePage', apiErrors);
       const snapshot = await page
         .locator(':root')
         .ariaSnapshot()

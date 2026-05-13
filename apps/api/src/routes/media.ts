@@ -62,6 +62,7 @@ function callerRateLimitId(caller: CallerIdentity): string {
  * item id.
  */
 function requireMediaCaller(): MiddlewareHandler<AppEnv> {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
     const caller = await resolveCaller(c);
     if (!caller) {

@@ -252,6 +252,20 @@ describe('MessageList', () => {
     });
   });
 
+  describe('initial scroll position', () => {
+    beforeEach(() => {
+      capturedVirtuosoProps = {};
+    });
+
+    it('mounts Virtuoso with initialTopMostItemIndex pointing at the last row', () => {
+      render(<MessageList messages={messages} />);
+      expect(capturedVirtuosoProps['initialTopMostItemIndex']).toEqual({
+        index: 'LAST',
+        align: 'end',
+      });
+    });
+  });
+
   describe('forwardRef', () => {
     it('exposes MessageListHandle via ref', () => {
       const ref = React.createRef<MessageListHandle>();

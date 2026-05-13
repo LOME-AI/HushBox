@@ -163,12 +163,12 @@ vi.mock('@/stores/ui-modals', () => ({
 const mockSetError = vi.fn();
 const mockClearError = vi.fn();
 const mockClearAll = vi.fn();
-type MockChatError = {
+interface MockChatError {
   id: string;
   content: string;
   retryable: boolean;
   failedUserMessage: { id: string; content: string };
-};
+}
 const mockChatErrorState: { errorsByFork: Record<string, MockChatError | null> } = {
   errorsByFork: {},
 };

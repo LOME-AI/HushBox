@@ -41,10 +41,9 @@ test.describe('Shared Content', () => {
         timeout: 15_000,
       });
 
-      await expect(unauthenticatedPage.getByText('Hello from Alice').first()).toBeVisible({
-        timeout: 10_000,
-      });
-      await expect(unauthenticatedPage.getByText('Hi from Bob').first()).toBeVisible();
+      const guestChatPage = new ChatPage(unauthenticatedPage);
+      await guestChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
+      await guestChatPage.assertMessageVisible('Hi from Bob');
 
       await expect(unauthenticatedPage.getByTestId('shared-conversation-error')).not.toBeVisible();
     });
@@ -481,16 +480,20 @@ test.describe('Shared Content', () => {
       });
       await expect(guest.getByTestId('shared-conversation-error')).not.toBeVisible();
 
-      const imageElement = guest.locator('img').first();
-      await expect(imageElement).toBeVisible({ timeout: 15_000 });
+      // expectImageVisible / expectVideoVisible park the relevant row in view
+      // first, so iPhone-15 virtualization doesn't drop the tile from the DOM
+      // before the assertion runs.
+      const guestChatPage = new ChatPage(guest);
+      await guestChatPage.expectImageVisible(15_000);
+      const imageElement = guestChatPage.messageList.locator('img').first();
       await expect
         .poll(async () => imageElement.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
           timeout: 10_000,
         })
         .toBeGreaterThan(0);
 
-      const videoElement = guest.locator('video').first();
-      await expect(videoElement).toBeVisible({ timeout: 15_000 });
+      await guestChatPage.expectVideoVisible(15_000);
+      const videoElement = guestChatPage.messageList.locator('video').first();
       // Wait until the video reports a parseable duration (metadata loaded).
       await expect
         .poll(

@@ -623,6 +623,47 @@ async function resolveForkTipMessageId(
   return fork.tipMessageId ?? undefined;
 }
 
+interface BuildRegenerateTreeActionInput {
+  action: 'retry' | 'regenerate' | 'edit';
+  targetMessageId: string;
+  userMessage: { id: string; content: string };
+  forkId: string | undefined;
+  forkTipMessageId: string | undefined;
+}
+
+/**
+ * 'retry' and 'regenerate' map to the same backend kind — both keep the
+ * anchor user message and swap the AI reply. 'edit' replaces the user
+ * message too.
+ *
+ * Passing `forkId` makes `applyTreeAction` lock the fork row up-front
+ * (SELECT FOR UPDATE) and validate the expected tip atomically. Without
+ * this, our own delete cascade would null the tip mid-transaction and
+ * the downstream optimistic UPDATE in `updateForkTip` would mismatch and
+ * throw `ForkTipConflictError` on every regenerate that targets a fork
+ * tip message.
+ */
+function buildRegenerateTreeAction(input: BuildRegenerateTreeActionInput): TreeAction {
+  const { action, targetMessageId, userMessage, forkId, forkTipMessageId } = input;
+  const forkSpread = {
+    ...(forkId !== undefined && { forkId }),
+    ...(forkTipMessageId !== undefined && { forkTipMessageId }),
+  };
+  if (action === 'edit') {
+    return {
+      kind: 'edit',
+      anchorUserMessageId: targetMessageId,
+      newUserMessage: userMessage,
+      ...forkSpread,
+    };
+  }
+  return {
+    kind: 'regenerate',
+    anchorUserMessageId: targetMessageId,
+    ...forkSpread,
+  };
+}
+
 interface DispatchModalityInput {
   modality: Modality;
   c: Context<AppEnv>;
@@ -1003,30 +1044,13 @@ export const chatRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER), 403);
       }
 
-      // 'retry' and 'regenerate' map to the same backend kind — both keep the
-      // anchor user message and swap the AI reply. 'edit' replaces the user
-      // message too.
-      // Passing `forkId` makes applyTreeAction lock the fork row up-front
-      // (SELECT FOR UPDATE) and validate the expected tip atomically. Without
-      // this, our own delete cascade would null the tip mid-transaction and
-      // the downstream optimistic UPDATE in updateForkTip would mismatch and
-      // throw ForkTipConflictError on every regenerate that targets a fork
-      // tip message.
-      const treeAction: TreeAction =
-        action === 'edit'
-          ? {
-              kind: 'edit',
-              anchorUserMessageId: targetMessageId,
-              newUserMessage: userMessage,
-              ...(forkId !== undefined && { forkId }),
-              ...(forkTipMessageId !== undefined && { forkTipMessageId }),
-            }
-          : {
-              kind: 'regenerate',
-              anchorUserMessageId: targetMessageId,
-              ...(forkId !== undefined && { forkId }),
-              ...(forkTipMessageId !== undefined && { forkTipMessageId }),
-            };
+      const treeAction = buildRegenerateTreeAction({
+        action,
+        targetMessageId,
+        userMessage,
+        forkId,
+        forkTipMessageId,
+      });
 
       const billingContext = await resolveUserBillingContext(db, redis, {
         callerId: user.id,

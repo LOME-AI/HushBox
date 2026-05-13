@@ -87,9 +87,7 @@ export async function resolveLinkGuestByKey(
   const [link] = await db
     .select({ id: sharedLinks.id, conversationId: sharedLinks.conversationId })
     .from(sharedLinks)
-    .where(
-      and(eq(sharedLinks.linkPublicKey, linkPublicKeyBytes), isNull(sharedLinks.revokedAt))
-    )
+    .where(and(eq(sharedLinks.linkPublicKey, linkPublicKeyBytes), isNull(sharedLinks.revokedAt)))
     .limit(1);
 
   if (!link) return null;

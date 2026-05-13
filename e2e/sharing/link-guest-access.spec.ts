@@ -1,6 +1,6 @@
 import { test, expect } from '../fixtures.js';
 import { unsettledExpect } from '../helpers/settled-expect.js';
-import { MemberSidebarPage } from '../pages/index.js';
+import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import {
   setupConversationWithSidebar,
   setupGroupConversationWithSidebar,
@@ -48,11 +48,12 @@ test.describe('Link Guest Access', () => {
 
       await expectSharedConversationLoaded(unauthenticatedPage);
 
-      // Sees pre-existing messages (with-history)
-      await expect(unauthenticatedPage.getByText('Hello from Alice').first()).toBeVisible({
-        timeout: 10_000,
-      });
-      await expect(unauthenticatedPage.getByText('Hi from Bob').first()).toBeVisible();
+      // Sees pre-existing messages (with-history). Use ChatPage helpers so
+      // virtualization (chat now mounts at the latest message) doesn't hide
+      // first-seed rows from the assertion.
+      const guestChatPage = new ChatPage(unauthenticatedPage);
+      await guestChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
+      await guestChatPage.assertMessageVisible('Hi from Bob');
 
       await expectSendInputDisabled(unauthenticatedPage);
       await expectReadOnlyNotice(unauthenticatedPage);
@@ -75,9 +76,8 @@ test.describe('Link Guest Access', () => {
 
       await expectSharedConversationLoaded(freshPage);
 
-      await expect(freshPage.getByText('Hello from Alice').first()).toBeVisible({
-        timeout: 10_000,
-      });
+      const freshChatPage = new ChatPage(freshPage);
+      await freshChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
 
       await expectDelegatedBudgetNotice(freshPage);
 

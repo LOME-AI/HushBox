@@ -309,6 +309,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       <Virtuoso<MessageRow>
         ref={virtuosoRef}
         data={rows}
+        initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
         computeItemKey={computeItemKey}
         isScrolling={handleIsScrolling}
         followOutput={followOutput}
