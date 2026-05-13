@@ -60,8 +60,19 @@ function toKebabCase(name: string): string {
     .toLowerCase();
 }
 
-function iconPath(lucideIcon: string): string {
-  return `@hushbox/ui/assets/icons/${toKebabCase(lucideIcon)}.svg`;
+const iconUrls = import.meta.glob<string>('../../../../packages/ui/src/assets/icons/*.svg', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+});
+
+function iconUrl(lucideIcon: string): string {
+  const key = `../../../../packages/ui/src/assets/icons/${toKebabCase(lucideIcon)}.svg`;
+  const url = iconUrls[key];
+  if (!url) {
+    throw new Error(`Generated icon missing for "${lucideIcon}" (expected ${key}). Run \`pnpm readme:generate\` to regenerate.`);
+  }
+  return url;
 }
 ---
 
@@ -268,7 +279,7 @@ function iconPath(lucideIcon: string): string {
           {
             SHIPPED_FEATURES.map((f) => (
               <FeatureCard name={f.name} description={f.description}>
-                <img slot="icon" src={iconPath(f.lucideIcon)} width="16" height="16" alt="" />
+                <img slot="icon" src={iconUrl(f.lucideIcon)} width="16" height="16" alt="" />
               </FeatureCard>
             ))
           }
@@ -278,7 +289,7 @@ function iconPath(lucideIcon: string): string {
           {
             COMING_SOON_FEATURES.map((f) => (
               <FeatureCard name={f.name} comingSoon>
-                <img slot="icon" src={iconPath(f.lucideIcon)} width="16" height="16" alt="" />
+                <img slot="icon" src={iconUrl(f.lucideIcon)} width="16" height="16" alt="" />
               </FeatureCard>
             ))
           }
