@@ -359,12 +359,12 @@ describe('ChatWelcome', () => {
     expect(screen.getByText('Need inspiration? Try these:')).toBeInTheDocument();
   });
 
-  it('renders image-modality inspiration label when active modality is image', () => {
+  it('renders generic inspiration label when active modality is image', () => {
     modelStoreStubRef.current.activeModality = 'image';
     render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
       wrapper: createWrapper(),
     });
 
-    expect(screen.getByText('Need inspiration? Try these image ideas:')).toBeInTheDocument();
+    expect(screen.getByText('Need inspiration? Try these:')).toBeInTheDocument();
   });
 });

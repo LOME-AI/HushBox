@@ -40,10 +40,7 @@ export function getTaglineSubtitle(modality: Modality | undefined, fallback: str
   return fallback;
 }
 
-export function getInspirationLabel(modality: Modality | undefined): string {
-  if (modality === 'image') return 'Need inspiration? Try these image ideas:';
-  if (modality === 'video') return 'Need inspiration? Try these video ideas:';
-  if (modality === 'audio') return 'Need inspiration? Try these audio ideas:';
+export function getInspirationLabel(_modality: Modality | undefined): string {
   return 'Need inspiration? Try these:';
 }
 

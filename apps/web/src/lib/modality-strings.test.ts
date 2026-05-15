@@ -132,16 +132,16 @@ describe('getInspirationLabel', () => {
     expect(getInspirationLabel(noModality)).toBe('Need inspiration? Try these:');
   });
 
-  it('returns image-specific inspiration label for image modality', () => {
-    expect(getInspirationLabel('image')).toBe('Need inspiration? Try these image ideas:');
+  it('returns generic inspiration label for image modality', () => {
+    expect(getInspirationLabel('image')).toBe('Need inspiration? Try these:');
   });
 
-  it('returns video-specific inspiration label for video modality', () => {
-    expect(getInspirationLabel('video')).toBe('Need inspiration? Try these video ideas:');
+  it('returns generic inspiration label for video modality', () => {
+    expect(getInspirationLabel('video')).toBe('Need inspiration? Try these:');
   });
 
-  it('returns audio-specific inspiration label for audio modality', () => {
-    expect(getInspirationLabel('audio')).toBe('Need inspiration? Try these audio ideas:');
+  it('returns generic inspiration label for audio modality', () => {
+    expect(getInspirationLabel('audio')).toBe('Need inspiration? Try these:');
   });
 });
 
