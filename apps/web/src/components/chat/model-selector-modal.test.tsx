@@ -63,9 +63,9 @@ const mockModels: Model[] = [
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
-    capabilities: ['internet-search'],
+    capabilities: [],
     description: 'A powerful language model from OpenAI.',
-    supportedParameters: ['web_search_options'],
+    supportedParameters: [],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -78,9 +78,9 @@ const mockModels: Model[] = [
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
-    capabilities: ['internet-search'],
+    capabilities: [],
     description: 'Anthropic most intelligent model.',
-    supportedParameters: ['web_search_options'],
+    supportedParameters: [],
   },
   {
     id: 'meta-llama/llama-3.1-70b-instruct',
@@ -295,9 +295,9 @@ describe('ModelSelectorModal', () => {
         pricePerImage: 0,
         pricePerSecondByResolution: {},
         pricePerSecond: 0,
-        capabilities: ['internet-search'],
+        capabilities: [],
         description: 'Most capable model.',
-        supportedParameters: ['web_search_options'],
+        supportedParameters: [],
       },
       {
         id: 'openai/gpt-5-nano',
@@ -325,9 +325,9 @@ describe('ModelSelectorModal', () => {
         pricePerImage: 0,
         pricePerSecondByResolution: {},
         pricePerSecond: 0,
-        capabilities: ['internet-search'],
+        capabilities: [],
         description: 'Fast and capable model.',
-        supportedParameters: ['web_search_options'],
+        supportedParameters: [],
       },
     ];
 
@@ -566,20 +566,6 @@ describe('ModelSelectorModal', () => {
 
     expect(screen.getByText('OpenAI')).toBeInTheDocument();
     expect(screen.getByText(/A powerful language model/)).toBeInTheDocument();
-  });
-
-  it('displays capability badges', () => {
-    render(
-      <ModelSelectorModal
-        open={true}
-        onOpenChange={vi.fn()}
-        models={mockModels}
-        selectedIds={new Set(['openai/gpt-4-turbo'])}
-        onSelect={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText('Internet Search')).toBeInTheDocument();
   });
 
   it('formats context length correctly', () => {
@@ -1994,6 +1980,453 @@ describe('ModelSelectorModal', () => {
       await user.click(checkbox!);
 
       expect(screen.getByTestId('multi-model-signup-modal')).toBeInTheDocument();
+    });
+  });
+
+  describe('per-modality row subtitle', () => {
+    const textRowModel: Model = {
+      id: 'openai/gpt-text',
+      name: 'Text Row Model',
+      provider: 'OpenAI',
+      modality: 'text' as const,
+      contextLength: 128_000,
+      pricePerInputToken: 0.000_01,
+      pricePerOutputToken: 0.000_03,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'Text row model.',
+      supportedParameters: [],
+    };
+    const imageRowModel: Model = {
+      id: 'google/imagen-row',
+      name: 'Imagen Row Model',
+      provider: 'Google',
+      modality: 'image' as const,
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0.04,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'Image row model.',
+      supportedParameters: [],
+    };
+    const videoRowModel: Model = {
+      id: 'google/veo-row',
+      name: 'Veo Row Model',
+      provider: 'Google',
+      modality: 'video' as const,
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: { '720p': 0.2, '1080p': 0.4, '4k': 0.8 },
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'Video row model.',
+      supportedParameters: [],
+    };
+    const audioRowModel: Model = {
+      id: 'openai/tts-row',
+      name: 'TTS Row Model',
+      provider: 'OpenAI',
+      modality: 'audio' as const,
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0.015,
+      capabilities: [],
+      description: 'Audio row model.',
+      supportedParameters: [],
+    };
+
+    it('text row shows provider and capacity', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[textRowModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="text"
+        />
+      );
+      const row = screen.getByTestId('model-item-openai/gpt-text');
+      expect(row).toHaveTextContent('OpenAI');
+      expect(row).toHaveTextContent('Capacity: 128k');
+    });
+
+    it('image row shows provider and price-per-image, no capacity', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[imageRowModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="image"
+        />
+      );
+      const row = screen.getByTestId('model-item-google/imagen-row');
+      expect(row).toHaveTextContent('Google');
+      expect(row).toHaveTextContent('$0.040/image');
+      expect(row).not.toHaveTextContent('Capacity:');
+    });
+
+    it('video row shows provider and cheapest resolution price-per-second, no capacity', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[videoRowModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="video"
+        />
+      );
+      const row = screen.getByTestId('model-item-google/veo-row');
+      expect(row).toHaveTextContent('Google');
+      expect(row).toHaveTextContent('$0.20/s');
+      expect(row).not.toHaveTextContent('Capacity:');
+    });
+
+    it('audio row shows provider and price-per-second, no capacity', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[audioRowModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="audio"
+        />
+      );
+      const row = screen.getByTestId('model-item-openai/tts-row');
+      expect(row).toHaveTextContent('OpenAI');
+      expect(row).toHaveTextContent('$0.015/s');
+      expect(row).not.toHaveTextContent('Capacity:');
+    });
+
+    it('Smart Model keeps "Auto-picks the best model" subtitle regardless of modality changes', () => {
+      const smart: Model = {
+        ...textRowModel,
+        id: 'smart-model',
+        name: 'Smart Model',
+        isSmartModel: true,
+      };
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[smart]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="text"
+        />
+      );
+      const row = screen.getByTestId('model-item-smart-model');
+      expect(row).toHaveTextContent('Auto-picks the best model');
+    });
+  });
+
+  describe('per-modality price sort', () => {
+    const imageSortModels: Model[] = [
+      {
+        id: 'image-cheap',
+        name: 'Image Cheap',
+        provider: 'Provider A',
+        modality: 'image' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0.01,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0,
+        capabilities: [],
+        description: 'Cheapest image model',
+        supportedParameters: [],
+      },
+      {
+        id: 'image-mid',
+        name: 'Image Mid',
+        provider: 'Provider B',
+        modality: 'image' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0.05,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0,
+        capabilities: [],
+        description: 'Mid image model',
+        supportedParameters: [],
+      },
+      {
+        id: 'image-pricey',
+        name: 'Image Pricey',
+        provider: 'Provider C',
+        modality: 'image' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0.2,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0,
+        capabilities: [],
+        description: 'Pricey image model',
+        supportedParameters: [],
+      },
+    ];
+
+    const videoSortModels: Model[] = [
+      {
+        id: 'video-cheap',
+        name: 'Video Cheap',
+        provider: 'Provider A',
+        modality: 'video' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0,
+        pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.3 },
+        pricePerSecond: 0,
+        capabilities: [],
+        description: 'Cheapest video model',
+        supportedParameters: [],
+      },
+      {
+        id: 'video-mid',
+        name: 'Video Mid',
+        provider: 'Provider B',
+        modality: 'video' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0,
+        pricePerSecondByResolution: { '720p': 0.25, '1080p': 0.5 },
+        pricePerSecond: 0,
+        capabilities: [],
+        description: 'Mid video model',
+        supportedParameters: [],
+      },
+      {
+        id: 'video-pricey',
+        name: 'Video Pricey',
+        provider: 'Provider C',
+        modality: 'video' as const,
+        contextLength: 0,
+        pricePerInputToken: 0,
+        pricePerOutputToken: 0,
+        pricePerImage: 0,
+        pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.9 },
+        pricePerSecond: 0,
+        capabilities: [],
+        description: 'Pricey video model',
+        supportedParameters: [],
+      },
+    ];
+
+    it('sorts image models by pricePerImage ascending when Price clicked', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={imageSortModels}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="image"
+        />
+      );
+
+      await user.click(first(screen.getAllByRole('button', { name: /price/i })));
+
+      const modelItems = screen.getAllByRole('option');
+      expect(modelItems[0]).toHaveTextContent('Image Cheap');
+      expect(modelItems[1]).toHaveTextContent('Image Mid');
+      expect(modelItems[2]).toHaveTextContent('Image Pricey');
+    });
+
+    it('sorts image models by pricePerImage descending on second click', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={imageSortModels}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="image"
+        />
+      );
+
+      const priceButton = first(screen.getAllByRole('button', { name: /price/i }));
+      await user.click(priceButton);
+      await user.click(priceButton);
+
+      const modelItems = screen.getAllByRole('option');
+      expect(modelItems[0]).toHaveTextContent('Image Pricey');
+      expect(modelItems[1]).toHaveTextContent('Image Mid');
+      expect(modelItems[2]).toHaveTextContent('Image Cheap');
+    });
+
+    it('sorts video models by cheapest-resolution pricePerSecond ascending when Price clicked', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={videoSortModels}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="video"
+        />
+      );
+
+      await user.click(first(screen.getAllByRole('button', { name: /price/i })));
+
+      const modelItems = screen.getAllByRole('option');
+      expect(modelItems[0]).toHaveTextContent('Video Cheap');
+      expect(modelItems[1]).toHaveTextContent('Video Mid');
+      expect(modelItems[2]).toHaveTextContent('Video Pricey');
+    });
+  });
+
+  describe('per-modality Capacity sort button', () => {
+    const textModel: Model = {
+      id: 'text-only',
+      name: 'Text Only',
+      provider: 'OpenAI',
+      modality: 'text' as const,
+      contextLength: 128_000,
+      pricePerInputToken: 0.000_01,
+      pricePerOutputToken: 0.000_03,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'Text model.',
+      supportedParameters: [],
+    };
+    const imageModel: Model = {
+      id: 'image-only',
+      name: 'Image Only',
+      provider: 'Google',
+      modality: 'image' as const,
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0.04,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'Image model.',
+      supportedParameters: [],
+    };
+    const videoModel: Model = {
+      id: 'video-only',
+      name: 'Video Only',
+      provider: 'Google',
+      modality: 'video' as const,
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: { '720p': 0.2 },
+      pricePerSecond: 0,
+      capabilities: [],
+      description: 'Video model.',
+      supportedParameters: [],
+    };
+    const audioModel: Model = {
+      id: 'audio-only',
+      name: 'Audio Only',
+      provider: 'OpenAI',
+      modality: 'audio' as const,
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0.01,
+      capabilities: [],
+      description: 'Audio model.',
+      supportedParameters: [],
+    };
+
+    it('renders Capacity sort button when activeModality is text', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[textModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="text"
+        />
+      );
+      expect(screen.getAllByRole('button', { name: /capacity/i }).length).toBeGreaterThan(0);
+    });
+
+    it('hides Capacity sort button when activeModality is image', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[imageModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="image"
+        />
+      );
+      expect(screen.queryByRole('button', { name: /capacity/i })).not.toBeInTheDocument();
+    });
+
+    it('hides Capacity sort button when activeModality is video', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[videoModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="video"
+        />
+      );
+      expect(screen.queryByRole('button', { name: /capacity/i })).not.toBeInTheDocument();
+    });
+
+    it('hides Capacity sort button when activeModality is audio', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[audioModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="audio"
+        />
+      );
+      expect(screen.queryByRole('button', { name: /capacity/i })).not.toBeInTheDocument();
+    });
+
+    it('still renders Price sort button for non-text modalities', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={[imageModel]}
+          selectedIds={new Set()}
+          onSelect={vi.fn()}
+          activeModality="image"
+        />
+      );
+      expect(screen.getAllByRole('button', { name: /price/i }).length).toBeGreaterThan(0);
     });
   });
 });

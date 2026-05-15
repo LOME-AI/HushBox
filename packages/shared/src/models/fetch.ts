@@ -1,20 +1,18 @@
-import { createGateway } from '@ai-sdk/gateway';
 import { z } from 'zod';
 import type { Modality, RawModel } from './types.js';
 
-// ============================================================================
-// Cache — 1-hour TTL. Key includes the API key to prevent cross-tenant leaks
-// if the cache instance ever serves multiple keys (defensive; in production
-// there's one key per Worker).
-// ============================================================================
-
 interface CacheEntry {
-  apiKey: string;
+  publicModelsUrl: string;
   data: RawModel[];
   expiresAt: number;
 }
 
 const MODEL_CACHE_TTL_MS = 3_600_000;
+
+// 10s matches the watchdog's FETCH_TIMEOUT_MS in live-catalog-drift.test.ts;
+// production runs inside a Cloudflare Worker whose own request budget makes a
+// longer wait pointless — better to fail fast and surface the upstream stall.
+const FETCH_TIMEOUT_MS = 10_000;
 
 let modelsCache: CacheEntry | null = null;
 
@@ -24,43 +22,6 @@ export function clearModelCache(): void {
 }
 
 const DEFAULT_CONTEXT_LENGTH = 128_000;
-
-// ============================================================================
-// SDK `/config` response (strongly typed via @ai-sdk/gateway, but we still
-// parse defensively at the boundary — the SDK declares many fields as
-// `unknown` and a shape change should fail loud, not slip through unnoticed).
-// ============================================================================
-
-const gatewayModelEntrySchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string().nullish(),
-  pricing: z
-    .object({
-      input: z.string(),
-      output: z.string(),
-    })
-    .nullish(),
-  modelType: z.enum(['language', 'embedding', 'image', 'video']).nullish(),
-  specification: z
-    .object({
-      provider: z.string(),
-      modelId: z.string(),
-    })
-    .optional(),
-});
-
-const gatewayModelsResponseSchema = z.object({
-  models: z.array(gatewayModelEntrySchema),
-});
-
-type GatewayModelEntry = z.infer<typeof gatewayModelEntrySchema>;
-
-// ============================================================================
-// Public `/v1/models` response (not SDK-typed — source of media pricing).
-// Zod-validated at parse time so schema drift at Vercel fails loudly rather
-// than silently emitting `undefined` into the pricing pipeline.
-// ============================================================================
 
 const videoDurationPricingEntrySchema = z.object({
   resolution: z.string(),
@@ -74,36 +35,53 @@ const videoDurationPricingEntrySchema = z.object({
  * downstream in `processModels` via the `has flat pricing` check — no need
  * to fail the whole batch over a single unknown pricing variant.
  */
-const publicModelEntrySchema = z.object({
+export const publicModelEntrySchema = z.object({
   id: z.string(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  created: z.number().optional(),
+  context_window: z.number().optional(),
   type: z.string().optional(),
   pricing: z.record(z.string(), z.unknown()).optional(),
 });
 
-type PublicModelEntry = z.infer<typeof publicModelEntrySchema>;
+export type PublicModelEntry = z.infer<typeof publicModelEntrySchema>;
 
 const publicModelsResponseSchema = z.object({
   data: z.array(publicModelEntrySchema),
 });
 
 /**
- * Classifies a model's modality from the SDK `modelType` field.
- * The SDK enum is `'language' | 'embedding' | 'image' | 'video'`; we collapse
- * embedding and anything unknown to `'text'` (embeddings aren't user-selectable
- * in our UI and won't pass ZDR filters anyway).
+ * Classifies a model's modality from the public `type` field.
+ * Anything outside the explicit `image | video | audio` set collapses to
+ * `text` (embeddings aren't user-selectable in our UI and won't pass ZDR
+ * filters anyway).
  */
-function classifyModality(modelType: string | null | undefined): Modality {
-  switch (modelType) {
+function classifyModality(type: string | null | undefined): Modality {
+  switch (type) {
     case 'image': {
       return 'image';
     }
     case 'video': {
       return 'video';
     }
+    case 'audio': {
+      return 'audio';
+    }
     default: {
       return 'text';
     }
   }
+}
+
+function extractStringPricing(
+  pricing: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  if (!pricing) return undefined;
+  const value = pricing[key];
+  if (typeof value === 'string') return value;
+  return undefined;
 }
 
 /**
@@ -137,7 +115,6 @@ function extractVideoPricing(
   const byResolution: Record<string, string> = {};
   for (const entry of parsed.data) {
     const existing = byResolution[entry.resolution];
-    // Set if empty OR upgrade from audio:false to audio:true
     if (existing === undefined || entry.audio) {
       byResolution[entry.resolution] = entry.cost_per_second;
     }
@@ -145,113 +122,100 @@ function extractVideoPricing(
   return byResolution;
 }
 
-/**
- * Fetch the unauthenticated public `/v1/models` endpoint for media pricing.
- * Never throws — any failure (network error, non-2xx, malformed body, schema
- * drift) is logged and returns an empty map. Downstream `processModels` filters
- * out media entries without pricing, so a degraded public endpoint leaves text
- * models working while media models silently drop off the catalog.
- */
-async function fetchPublicModels(url: string): Promise<Map<string, PublicModelEntry>> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      console.warn(`Public models endpoint returned ${String(response.status)}`);
-      return new Map();
-    }
-    const body = (await response.json()) as unknown;
-    const parsed = publicModelsResponseSchema.safeParse(body);
-    if (!parsed.success) {
-      console.warn('Public models response shape changed:', parsed.error.issues);
-      return new Map();
-    }
-    return new Map(parsed.data.data.map((entry) => [entry.id, entry]));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn('Public models fetch failed:', message);
-    return new Map();
-  }
-}
-
-function mergeMediaPricing(
-  modality: Modality,
-  publicEntry: PublicModelEntry | undefined
-): Partial<RawModel['pricing']> {
-  if (publicEntry === undefined) return {};
+function buildPricing(modality: Modality, entry: PublicModelEntry): RawModel['pricing'] {
+  const base = {
+    prompt: extractStringPricing(entry.pricing, 'input') ?? '0',
+    completion: extractStringPricing(entry.pricing, 'output') ?? '0',
+  };
   if (modality === 'image') {
-    const perImage = extractImagePricing(publicEntry.pricing);
-    return perImage === undefined ? {} : { per_image: perImage };
+    const perImage = extractImagePricing(entry.pricing);
+    return perImage === undefined ? base : { ...base, per_image: perImage };
   }
   if (modality === 'video') {
-    const byRes = extractVideoPricing(publicEntry.pricing);
-    return byRes === undefined ? {} : { per_second_by_resolution: byRes };
+    const perSecondByResolution = extractVideoPricing(entry.pricing);
+    return perSecondByResolution === undefined
+      ? base
+      : { ...base, per_second_by_resolution: perSecondByResolution };
   }
-  return {};
+  return base;
 }
 
-function toRawModel(entry: GatewayModelEntry, publicEntry: PublicModelEntry | undefined): RawModel {
-  const modality = classifyModality(entry.modelType);
-  const isText = modality === 'text';
+function buildArchitecture(modality: Modality): RawModel['architecture'] {
+  const modalities = modality === 'text' ? ['text'] : [modality];
+  return { input_modalities: modalities, output_modalities: modalities };
+}
 
+export function toRawModel(entry: PublicModelEntry): RawModel {
+  const modality = classifyModality(entry.type);
   return {
     id: entry.id,
-    name: entry.name,
+    name: entry.name ?? entry.id,
     description: entry.description ?? '',
     modality,
-    context_length: DEFAULT_CONTEXT_LENGTH,
-    pricing: {
-      prompt: entry.pricing?.input ?? '0',
-      completion: entry.pricing?.output ?? '0',
-      ...mergeMediaPricing(modality, publicEntry),
-    },
+    context_length: entry.context_window ?? DEFAULT_CONTEXT_LENGTH,
+    pricing: buildPricing(modality, entry),
     supported_parameters: [],
-    created: 0,
-    architecture: {
-      input_modalities: isText ? ['text'] : [modality],
-      output_modalities: isText ? ['text'] : [modality],
-    },
+    created: entry.created ?? 0,
+    architecture: buildArchitecture(modality),
   };
 }
 
 export interface FetchModelsOptions {
-  apiKey: string;
   /**
-   * URL of the unauthenticated `/v1/models` endpoint (source of media pricing).
-   * Configurable per environment via `envConfig.PUBLIC_MODELS_URL` so tests can
-   * point at a fixture and production can be retargeted without a code change.
+   * URL of the unauthenticated `/v1/models` endpoint. Production points at
+   * `https://ai-gateway.vercel.sh/v1/models`; tests stub `globalThis.fetch`.
    */
   publicModelsUrl: string;
 }
 
 /**
- * Fetch available models from the Vercel AI Gateway.
- * Merges two sources: the SDK's authenticated `/config` endpoint (authoritative
- * catalog for our API key) and the unauthenticated public `/v1/models` endpoint
- * (source of per-image / per-second media pricing — neither field is exposed
- * via the SDK's typed response).
+ * Fetch available models from the AI Gateway's unauthenticated `/v1/models`
+ * endpoint. The catalog is a public list — no API key required.
  *
- * Results are cached in memory for 1 hour per API key.
+ * Results are cached in memory for 1 hour per URL. On HTTP error, network
+ * failure, or schema drift, throws a clear error rather than returning empty.
  */
 export async function fetchModels(options: FetchModelsOptions): Promise<RawModel[]> {
-  const { apiKey, publicModelsUrl } = options;
-  if (modelsCache?.apiKey === apiKey && Date.now() < modelsCache.expiresAt) {
-    return modelsCache.data;
+  const { publicModelsUrl } = options;
+  if (modelsCache?.publicModelsUrl === publicModelsUrl && Date.now() < modelsCache.expiresAt) {
+    // structuredClone isolates the cached array from caller mutation
+    // (push/sort/splice would otherwise corrupt the cache for the remaining TTL).
+    return structuredClone(modelsCache.data);
   }
 
-  const gateway = createGateway({ apiKey });
-  const [sdkResponse, publicMap] = await Promise.all([
-    gateway.getAvailableModels(),
-    fetchPublicModels(publicModelsUrl),
-  ]);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, FETCH_TIMEOUT_MS);
 
-  const parsed = gatewayModelsResponseSchema.parse(sdkResponse);
-  const merged = parsed.models.map((entry) => toRawModel(entry, publicMap.get(entry.id)));
+  let response: Response;
+  try {
+    response = await fetch(publicModelsUrl, { signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(
+        `Public models endpoint fetch timed out after ${String(FETCH_TIMEOUT_MS)}ms (${publicModelsUrl})`
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Public models endpoint returned HTTP ${String(response.status)} ${response.statusText}`
+    );
+  }
+  const body = (await response.json()) as unknown;
+  const parsed = publicModelsResponseSchema.parse(body);
+  const data = parsed.data.map((entry) => toRawModel(entry));
 
   modelsCache = {
-    apiKey,
-    data: merged,
+    publicModelsUrl,
+    data,
     expiresAt: Date.now() + MODEL_CACHE_TTL_MS,
   };
 
-  return merged;
+  return structuredClone(data);
 }

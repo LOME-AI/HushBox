@@ -494,15 +494,11 @@ describe('processModels', () => {
       expect(result.models[0]?.provider).toBe('OpenAI');
     });
 
-    it('derives internet-search capability from web_search_options parameter', () => {
+    it('assigns no capabilities to text models (Perplexity tool runs model-agnostically)', () => {
       const modelsData = [
         createModel({
-          id: 'with-search/model',
+          id: 'with-tools/model',
           supported_parameters: ['tools', 'web_search_options'],
-        }),
-        createModel({
-          id: 'without-search/model',
-          supported_parameters: ['tools', 'temperature'],
         }),
         createModel({
           id: 'basic/model',
@@ -512,42 +508,9 @@ describe('processModels', () => {
 
       const result = processModels(modelsData);
 
-      const withSearch = result.models.find((m) => m.id === 'with-search/model');
-      const withoutSearch = result.models.find((m) => m.id === 'without-search/model');
-      const basic = result.models.find((m) => m.id === 'basic/model');
-
-      expect(withSearch?.capabilities).toEqual(['internet-search']);
-      expect(withoutSearch?.capabilities).toEqual([]);
-      expect(basic?.capabilities).toEqual([]);
-    });
-
-    it('extracts webSearchPrice from pricing.web_search', () => {
-      const modelsData = [
-        createModel({
-          id: 'search/model',
-          pricing: { prompt: '0.001', completion: '0.002', web_search: '0.005' },
-          supported_parameters: ['web_search_options'],
-        }),
-      ];
-
-      const result = processModels(modelsData);
-      const model = result.models.find((m) => m.id === 'search/model');
-
-      expect(model?.webSearchPrice).toBe(0.005);
-    });
-
-    it('omits webSearchPrice when pricing.web_search is absent', () => {
-      const modelsData = [
-        createModel({
-          id: 'no-search/model',
-          pricing: { prompt: '0.001', completion: '0.002' },
-        }),
-      ];
-
-      const result = processModels(modelsData);
-      const model = result.models.find((m) => m.id === 'no-search/model');
-
-      expect(model?.webSearchPrice).toBeUndefined();
+      for (const model of result.models) {
+        expect(model.capabilities).toEqual([]);
+      }
     });
   });
 

@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle, Info, X } from 'lucide-react';
-import { cn, IconButton } from '@hushbox/ui';
+import { cn, IconButton, useReducedMotion } from '@hushbox/ui';
 import type { BudgetError, MessageSegment } from '@hushbox/shared';
 
 interface BudgetMessagesProps {
@@ -77,10 +77,56 @@ function renderMessageContent(error: BudgetError): React.JSX.Element {
   );
 }
 
+function renderBudgetIcon(error: BudgetError): React.JSX.Element {
+  const Icon = getIcon(error.type);
+  return (
+    <Icon
+      data-testid={`budget-message-icon-${error.id}`}
+      className={cn('h-4 w-4 shrink-0', getIconColor(error.type))}
+    />
+  );
+}
+
+function BudgetMessageBody({
+  error,
+  onDismiss,
+}: Readonly<{
+  error: BudgetError;
+  onDismiss: (id: string) => void;
+}>): React.JSX.Element {
+  const canDismiss = isDismissible(error.type);
+  return (
+    <div
+      data-testid={`budget-message-${error.id}`}
+      role="alert"
+      className={cn(
+        'flex items-center gap-2 rounded px-3 py-2 text-sm',
+        'bg-muted/50 text-foreground border-l-3',
+        getBorderColor(error.type)
+      )}
+    >
+      {renderBudgetIcon(error)}
+      <span className="flex-1">{renderMessageContent(error)}</span>
+      {canDismiss && (
+        <IconButton
+          data-testid={`budget-dismiss-${error.id}`}
+          aria-label="Dismiss notification"
+          onClick={() => {
+            onDismiss(error.id);
+          }}
+        >
+          <X className="h-3 w-3" aria-hidden="true" />
+        </IconButton>
+      )}
+    </div>
+  );
+}
+
 export function BudgetMessages({
   errors,
   className,
 }: Readonly<BudgetMessagesProps>): React.JSX.Element {
+  const reducedMotion = useReducedMotion();
   const [dismissedIds, setDismissedIds] = React.useState<Set<string>>(new Set());
   const previousErrorIds = React.useRef<Set<string>>(new Set());
 
@@ -116,11 +162,13 @@ export function BudgetMessages({
       role="region"
       aria-live="polite"
     >
-      <AnimatePresence>
-        {visibleErrors.map((error) => {
-          const Icon = getIcon(error.type);
-          const canDismiss = isDismissible(error.type);
-          return (
+      {reducedMotion ? (
+        visibleErrors.map((error) => (
+          <BudgetMessageBody key={error.id} error={error} onDismiss={handleDismiss} />
+        ))
+      ) : (
+        <AnimatePresence>
+          {visibleErrors.map((error) => (
             <motion.div
               key={error.id}
               initial={{ height: 0, opacity: 0 }}
@@ -129,36 +177,11 @@ export function BudgetMessages({
               transition={{ duration: 0.3, ease: 'easeOut' }}
               className="overflow-hidden"
             >
-              <div
-                data-testid={`budget-message-${error.id}`}
-                role="alert"
-                className={cn(
-                  'flex items-center gap-2 rounded px-3 py-2 text-sm',
-                  'bg-muted/50 text-foreground border-l-3',
-                  getBorderColor(error.type)
-                )}
-              >
-                <Icon
-                  data-testid={`budget-message-icon-${error.id}`}
-                  className={cn('h-4 w-4 shrink-0', getIconColor(error.type))}
-                />
-                <span className="flex-1">{renderMessageContent(error)}</span>
-                {canDismiss && (
-                  <IconButton
-                    data-testid={`budget-dismiss-${error.id}`}
-                    aria-label="Dismiss notification"
-                    onClick={() => {
-                      handleDismiss(error.id);
-                    }}
-                  >
-                    <X className="h-3 w-3" aria-hidden="true" />
-                  </IconButton>
-                )}
-              </div>
+              <BudgetMessageBody error={error} onDismiss={handleDismiss} />
             </motion.div>
-          );
-        })}
-      </AnimatePresence>
+          ))}
+        </AnimatePresence>
+      )}
     </div>
   );
 }

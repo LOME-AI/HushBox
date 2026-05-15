@@ -113,6 +113,7 @@ export {
 
 export { useVisualViewportHeight } from './hooks/use-visual-viewport-height';
 export { useIsTouchDevice, TOUCH_QUERY } from './hooks/use-is-touch-device';
+export { useReducedMotion } from './hooks/use-reduced-motion';
 export {
   TouchDeviceOverrideContext,
   useTouchDeviceOverride,

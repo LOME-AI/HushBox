@@ -1,6 +1,9 @@
 import * as React from 'react';
 import { displayUsername } from '@hushbox/shared';
+import { useModelStore } from '@/stores/model';
+import { getTypingActivityLabel } from '@/lib/modality-strings';
 import { DotPulseIndicator } from './dot-pulse-indicator';
+import type { Modality } from '@hushbox/shared';
 
 interface TypingIndicatorProps {
   typingUserIds: Set<string>;
@@ -15,33 +18,44 @@ function resolveUsername(
   return member ? displayUsername(member.username) : 'Someone';
 }
 
-function formatTypingLabel(
+function buildSubject(
   typingUserIds: Set<string>,
   members: readonly { userId: string; username: string }[]
-): string {
+): { subject: string; plural: boolean } {
   const count = typingUserIds.size;
   if (count >= 3) {
-    return `${String(count)} people are typing...`;
+    return { subject: `${String(count)} people`, plural: true };
   }
   const names = [...typingUserIds].map((id) => resolveUsername(id, members));
   if (count === 2) {
     const first = names[0] ?? 'Someone';
     const second = names[1] ?? 'Someone';
-    return `${first} and ${second} are typing...`;
+    return { subject: `${first} and ${second}`, plural: true };
   }
   const first = names[0] ?? 'Someone';
-  return `${first} is typing...`;
+  return { subject: first, plural: false };
+}
+
+function formatTypingLabel(
+  typingUserIds: Set<string>,
+  members: readonly { userId: string; username: string }[],
+  modality: Modality
+): string {
+  const { subject, plural } = buildSubject(typingUserIds, members);
+  return getTypingActivityLabel(modality, subject, plural);
 }
 
 export function TypingIndicator({
   typingUserIds,
   members,
 }: Readonly<TypingIndicatorProps>): React.JSX.Element | null {
+  const activeModality = useModelStore((state) => state.activeModality);
+
   if (typingUserIds.size === 0) {
     return null;
   }
 
-  const label = formatTypingLabel(typingUserIds, members);
+  const label = formatTypingLabel(typingUserIds, members, activeModality);
 
   return (
     <div

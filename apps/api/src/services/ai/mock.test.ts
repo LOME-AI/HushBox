@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
+import { clearModelCache } from '@hushbox/shared/models';
 import { createMockAIClient, CANNED_IMAGE, CANNED_VIDEO } from './mock.js';
 import type {
   MockAIClient,
@@ -18,11 +19,109 @@ async function collectEvents(stream: AsyncIterable<InferenceEvent>): Promise<Inf
   return events;
 }
 
+/**
+ * Inline catalog fixture used by mock.test.ts. The mock client routes
+ * `listRawModels` through `fetchModels`, so tests need to stub the public
+ * `/v1/models` fetch with a deterministic catalog. Models mirror the real
+ * ZDR allow-list so `processModels` keeps them after filtering.
+ */
+const MOCK_CATALOG_FIXTURE = {
+  object: 'list',
+  data: [
+    {
+      id: 'anthropic/claude-sonnet-4.6',
+      name: 'Claude Sonnet 4.6',
+      description: 'Fast text model',
+      type: 'language',
+      pricing: { input: '0.000003', output: '0.000015' },
+      context_window: 200_000,
+      created: 0,
+    },
+    {
+      id: 'anthropic/claude-opus-4.6',
+      name: 'Claude Opus 4.6',
+      description: 'Most capable text model',
+      type: 'language',
+      pricing: { input: '0.000015', output: '0.000075' },
+      context_window: 200_000,
+      created: 0,
+    },
+    {
+      id: 'anthropic/claude-haiku-4.5',
+      name: 'Claude Haiku 4.5',
+      description: 'Cheap text model',
+      type: 'language',
+      pricing: { input: '0.0000003', output: '0.0000015' },
+      context_window: 200_000,
+      created: 0,
+    },
+    {
+      id: 'openai/gpt-5-nano',
+      name: 'GPT-5 Nano',
+      description: 'Cheap general-purpose model',
+      type: 'language',
+      pricing: { input: '0.0000004', output: '0.0000016' },
+      context_window: 200_000,
+      created: 0,
+    },
+    {
+      id: 'google/gemini-2.5-flash-lite',
+      name: 'Gemini 2.5 Flash Lite',
+      description: 'Lightweight, low-cost model',
+      type: 'language',
+      pricing: { input: '0.00000025', output: '0.0000012' },
+      context_window: 200_000,
+      created: 0,
+    },
+    {
+      id: 'openai/gpt-5-mini',
+      name: 'GPT-5 Mini',
+      description: 'Balanced cost-quality model',
+      type: 'language',
+      pricing: { input: '0.0000005', output: '0.0000018' },
+      context_window: 200_000,
+      created: 0,
+    },
+    {
+      id: 'google/imagen-4.0-generate-001',
+      name: 'Imagen 4',
+      description: 'High-quality image generation',
+      type: 'image',
+      pricing: { image: '0.04' },
+    },
+    {
+      id: 'google/imagen-4.0-fast-generate-001',
+      name: 'Imagen 4 Fast',
+      description: 'Fast image generation',
+      type: 'image',
+      pricing: { image: '0.04' },
+    },
+  ],
+};
+
+function stubCatalog(fixture: unknown = MOCK_CATALOG_FIXTURE): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(fixture),
+      } as Response)
+    )
+  );
+}
+
 describe('createMockAIClient', () => {
   let client: MockAIClient;
 
   beforeEach(() => {
+    clearModelCache();
+    stubCatalog();
     client = createMockAIClient();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   describe('factory', () => {

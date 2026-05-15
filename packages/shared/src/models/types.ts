@@ -2,9 +2,11 @@
 export type Modality = 'text' | 'image' | 'audio' | 'video';
 
 /**
- * Raw model data merged from the AI Gateway's authenticated `/config` endpoint
- * (typed by `@ai-sdk/gateway`) and its unauthenticated public `/v1/models`
- * endpoint (not SDK-typed, source of media pricing).
+ * Raw model data sourced from the AI Gateway's unauthenticated public
+ * `/v1/models` endpoint. Single source of truth for the catalog — production
+ * and tests both read from the same path. Schema parsing happens at the
+ * boundary in `fetch.ts`; shape drift fails loudly rather than silently
+ * emitting `undefined`.
  */
 export interface RawModel {
   id: string;

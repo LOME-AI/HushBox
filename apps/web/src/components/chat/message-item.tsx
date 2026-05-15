@@ -110,7 +110,7 @@ function TooltipIconButton({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+          className="h-11 w-11 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 md:h-8 md:w-8"
           onClick={onClick}
           aria-label={label}
         >

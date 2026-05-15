@@ -73,6 +73,19 @@ export function useModelValidation(): void {
   const { data: modelsData } = useModels();
   const selections = useModelStore((state) => state.selections);
   const setSelectedModels = useModelStore((state) => state.setSelectedModels);
+  const activeModality = useModelStore((state) => state.activeModality);
+  const setActiveModality = useModelStore((state) => state.setActiveModality);
+
+  // Trial users (unauthenticated) cannot access media modalities. Force them
+  // into text when a persisted non-text modality survives a logout or arrives
+  // from an earlier authenticated session in localStorage.
+  React.useEffect(() => {
+    if (isSessionPending) return;
+    const isAuthenticated = Boolean(session?.user);
+    if (!isAuthenticated && activeModality !== 'text') {
+      setActiveModality('text');
+    }
+  }, [session?.user, isSessionPending, activeModality, setActiveModality]);
 
   React.useEffect(() => {
     const isAuthenticated = Boolean(session?.user);
@@ -90,9 +103,14 @@ export function useModelValidation(): void {
 
     const { strongestId } = getAccessibleModelIds(models, premiumIds, canAccessPremium);
     const strongestModel = models.find((m) => m.id === strongestId);
-    const textFallback: SelectedModelEntry | undefined = strongestModel
-      ? { id: strongestModel.id, name: strongestModel.name }
-      : undefined;
+    // Guard against `findStrongestAndValueTextModels`' withFallback branch
+    // (models.ts:69-73) returning a premium id when no basic-tier text models
+    // exist; substituting an inaccessible model would re-trigger the filter on
+    // the next pass and loop forever.
+    const textFallback: SelectedModelEntry | undefined =
+      strongestModel && (canAccessPremium || !premiumIds.has(strongestModel.id))
+        ? { id: strongestModel.id, name: strongestModel.name }
+        : undefined;
 
     for (const modality of MODALITIES) {
       const modalityModels = models.filter((m) => m.modality === modality);

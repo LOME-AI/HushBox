@@ -174,7 +174,6 @@ interface MockPromptInputProps {
   onTypingChange?: (isTyping: boolean) => void;
   searchProps?: {
     webSearchEnabled: boolean;
-    modelSupportsSearch: boolean;
     onToggleWebSearch: () => void;
   };
   isAuthenticated?: boolean;
@@ -186,9 +185,6 @@ function buildPromptInputDataAttributes(props: MockPromptInputProps): Record<str
   const attributes: Record<string, string> = {};
   if (props.searchProps?.webSearchEnabled !== undefined) {
     attributes['data-web-search-enabled'] = String(props.searchProps.webSearchEnabled);
-  }
-  if (props.searchProps?.modelSupportsSearch !== undefined) {
-    attributes['data-model-supports-search'] = String(props.searchProps.modelSupportsSearch);
   }
   if (props.searchProps?.onToggleWebSearch !== undefined) {
     attributes['data-has-toggle-web-search'] = 'true';
@@ -1036,7 +1032,6 @@ describe('ChatLayout', () => {
 
       const input = screen.getByTestId('prompt-input');
       expect(input).toHaveAttribute('data-web-search-enabled', 'false');
-      expect(input).toHaveAttribute('data-model-supports-search');
       expect(input).toHaveAttribute('data-is-authenticated', 'true');
       expect(input).toHaveAttribute('data-has-toggle-web-search', 'true');
     });

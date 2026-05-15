@@ -1,14 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('@ai-sdk/gateway', () => ({
-  createGateway: () => ({
-    getAvailableModels: () =>
-      Promise.resolve({
-        models: (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ ?? [],
-      }),
-  }),
-}));
-
 import { Hono } from 'hono';
 import { clearModelCache } from '@hushbox/shared/models';
 import { modelsRoute } from './models.js';
@@ -18,42 +9,44 @@ import type { AIClient, RawModel } from '../services/ai/types.js';
 import type { ModelsListResponse } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 
-interface MockGatewayModel {
+interface PublicModelFixture {
   id: string;
-  name: string;
-  description: string;
-  modelType: 'language' | 'image' | 'video' | 'embedding';
-  pricing: { input: string; output: string };
+  name?: string;
+  description?: string;
+  type?: 'language' | 'image' | 'video' | 'embedding' | 'audio';
+  pricing?: Record<string, unknown>;
 }
 
-/** Use known ZDR-compliant models so processModels() includes them. */
-const MOCK_MODELS: MockGatewayModel[] = [
+/** Public `/v1/models` fixture — ZDR-compliant text models so processModels() keeps them. */
+const MOCK_MODELS: PublicModelFixture[] = [
   {
     id: 'openai/gpt-5',
     name: 'GPT-5',
     description: 'Most capable model',
-    modelType: 'language',
+    type: 'language',
     pricing: { input: '0.00001', output: '0.00003' },
   },
   {
     id: 'openai/gpt-4o-mini',
     name: 'GPT-4o Mini',
     description: 'Cheaper model',
-    modelType: 'language',
+    type: 'language',
     pricing: { input: '0.0000005', output: '0.0000015' },
   },
 ];
 
-function setMockModels(models: MockGatewayModel[]): void {
-  (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = models;
+let currentFixture: PublicModelFixture[] = MOCK_MODELS;
+
+function setMockModels(models: PublicModelFixture[]): void {
+  currentFixture = models;
 }
 
 function createTestApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use('*', async (c, next) => {
     // Production-mode env so getAIClient constructs the real client, which
-    // consumes the mocked @ai-sdk/gateway above. Local dev / E2E modes would
-    // return the in-memory mock and ignore __TEST_MOCK_MODELS__.
+    // calls `fetchModels` against the (stubbed) public `/v1/models` endpoint.
+    // Local dev / E2E modes would return the in-memory mock instead.
     c.env = {
       NODE_ENV: 'production',
       AI_GATEWAY_API_KEY: 'test-key',
@@ -72,17 +65,15 @@ describe('Models Routes', () => {
     clearModelCache();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
-    // The route's `fetchModels` call also hits the unauthenticated public
-    // `/v1/models` endpoint via raw `fetch`. Stub it so the test never
-    // attempts a real DNS lookup against `test.example`, which times out
-    // under coverage instrumentation. Empty `data` is the contract for
-    // "no media pricing" — text-only fixtures don't depend on it.
+    currentFixture = MOCK_MODELS;
+    // `fetchModels` hits the public `/v1/models` endpoint via raw `fetch`.
+    // The stub serves the current fixture without touching the network.
     vi.stubGlobal(
       'fetch',
       vi.fn(() =>
         Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ data: [] }),
+          json: () => Promise.resolve({ data: currentFixture }),
         })
       )
     );
@@ -91,7 +82,7 @@ describe('Models Routes', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
-    delete (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__;
+    currentFixture = MOCK_MODELS;
   });
 
   describe('GET /models', () => {
@@ -138,7 +129,7 @@ describe('Models Routes', () => {
           id: 'fake/non-zdr-model',
           name: 'Fake Non-ZDR',
           description: 'Should be filtered',
-          modelType: 'language',
+          type: 'language',
           pricing: { input: '0.00001', output: '0.00003' },
         },
       ]);
@@ -168,7 +159,7 @@ describe('Models Routes', () => {
           id: 'fake/not-zdr',
           name: 'Fake',
           description: 'Not on allow-list',
-          modelType: 'language',
+          type: 'language',
           pricing: { input: '0.00001', output: '0.00003' },
         },
       ]);

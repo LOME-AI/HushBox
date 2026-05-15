@@ -76,11 +76,21 @@ export function getPrimaryModel(
   return modality === 'text' ? DEFAULT_TEXT_ENTRY : BLANK_ENTRY;
 }
 
+function entriesEqual(a: SelectedModelEntry[], b: SelectedModelEntry[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((entry, index) => entry.id === b[index]?.id);
+}
+
+// Returning the same `state` reference when the next entries are structurally
+// equal short-circuits Zustand's subscriber broadcast; this is the bottom-layer
+// defense against effect loops in callers like `useModelValidation` that may
+// re-derive a structurally identical replacement on every render.
 function updateModalitySelection(
   state: ModelStoreState,
   modality: Modality,
   next: SelectedModelEntry[]
-): Pick<ModelStoreState, 'selections'> {
+): ModelStoreState | Pick<ModelStoreState, 'selections'> {
+  if (entriesEqual(state.selections[modality], next)) return state;
   return { selections: { ...state.selections, [modality]: next } };
 }
 

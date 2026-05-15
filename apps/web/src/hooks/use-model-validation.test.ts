@@ -388,4 +388,130 @@ describe('useModelValidation', () => {
 
     expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [{ id: 'imagen', name: 'Imagen' }]);
   });
+
+  describe('trial-user modality lock', () => {
+    it('forces activeModality to text when the user is unauthenticated', () => {
+      const mockSetActiveModality = vi.fn();
+      mockedUseSession.mockReturnValue({ data: null, isPending: false } as ReturnType<
+        typeof useSession
+      >);
+      mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
+      mockedUseModels.mockReturnValue({
+        data: { models: testModels, premiumIds: new Set(['premium-model']) },
+      } as ReturnType<typeof useModels>);
+      stubStore(
+        createModelStoreStub({
+          activeModality: 'image',
+          selections: {
+            text: [{ id: 'basic-model', name: 'Basic Model' }],
+            image: [],
+            audio: [],
+            video: [],
+          },
+          setSelectedModels: mockSetSelectedModels,
+          setActiveModality: mockSetActiveModality,
+        })
+      );
+
+      renderHook(() => {
+        useModelValidation();
+      });
+
+      expect(mockSetActiveModality).toHaveBeenCalledWith('text');
+    });
+
+    it('does not touch activeModality when already text for unauthenticated user', () => {
+      const mockSetActiveModality = vi.fn();
+      mockedUseSession.mockReturnValue({ data: null, isPending: false } as ReturnType<
+        typeof useSession
+      >);
+      mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
+      mockedUseModels.mockReturnValue({
+        data: { models: testModels, premiumIds: new Set(['premium-model']) },
+      } as ReturnType<typeof useModels>);
+      stubStore(
+        createModelStoreStub({
+          activeModality: 'text',
+          selections: {
+            text: [{ id: 'basic-model', name: 'Basic Model' }],
+            image: [],
+            audio: [],
+            video: [],
+          },
+          setSelectedModels: mockSetSelectedModels,
+          setActiveModality: mockSetActiveModality,
+        })
+      );
+
+      renderHook(() => {
+        useModelValidation();
+      });
+
+      expect(mockSetActiveModality).not.toHaveBeenCalled();
+    });
+
+    it('does not touch activeModality for authenticated users on non-text modality', () => {
+      const mockSetActiveModality = vi.fn();
+      mockedUseSession.mockReturnValue({
+        data: { user: { id: 'user-123' } },
+        isPending: false,
+      } as ReturnType<typeof useSession>);
+      mockedUseBalance.mockReturnValue({
+        data: { balance: '10.00', freeAllowanceCents: 0 },
+      } as ReturnType<typeof useBalance>);
+      mockedUseModels.mockReturnValue({
+        data: { models: testModels, premiumIds: new Set(['premium-model']) },
+      } as ReturnType<typeof useModels>);
+      stubStore(
+        createModelStoreStub({
+          activeModality: 'image',
+          selections: {
+            text: [{ id: 'basic-model', name: 'Basic Model' }],
+            image: [{ id: 'imagen', name: 'Imagen' }],
+            audio: [],
+            video: [],
+          },
+          setSelectedModels: mockSetSelectedModels,
+          setActiveModality: mockSetActiveModality,
+        })
+      );
+
+      renderHook(() => {
+        useModelValidation();
+      });
+
+      expect(mockSetActiveModality).not.toHaveBeenCalled();
+    });
+
+    it('does not run while session is still loading', () => {
+      const mockSetActiveModality = vi.fn();
+      mockedUseSession.mockReturnValue({
+        data: undefined,
+        isPending: true,
+      } as unknown as ReturnType<typeof useSession>);
+      mockedUseBalance.mockReturnValue({ data: undefined } as ReturnType<typeof useBalance>);
+      mockedUseModels.mockReturnValue({
+        data: { models: testModels, premiumIds: new Set(['premium-model']) },
+      } as ReturnType<typeof useModels>);
+      stubStore(
+        createModelStoreStub({
+          activeModality: 'image',
+          selections: {
+            text: [{ id: 'basic-model', name: 'Basic Model' }],
+            image: [],
+            audio: [],
+            video: [],
+          },
+          setSelectedModels: mockSetSelectedModels,
+          setActiveModality: mockSetActiveModality,
+        })
+      );
+
+      renderHook(() => {
+        useModelValidation();
+      });
+
+      expect(mockSetActiveModality).not.toHaveBeenCalled();
+    });
+  });
 });

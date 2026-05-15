@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+// No code currently produces 'internet-search'; search runs via a Perplexity tool
+// universally, not as a per-model capability. The enum is kept as a placeholder
+// so adding future image/video capabilities doesn't require widening an empty enum.
 export const modelCapabilitySchema = z.enum(['internet-search']);
 
 export type ModelCapability = z.infer<typeof modelCapabilitySchema>;
@@ -202,9 +205,6 @@ export const modelSchema = z
      * Example: ['tools', 'temperature', 'top_p', 'max_tokens']
      */
     supportedParameters: z.array(z.string()).default([]),
-
-    /** Per-search cost in USD from AI Gateway model metadata */
-    webSearchPrice: z.number().nonnegative().optional(),
 
     /** Unix timestamp when the model was created */
     created: z.number().optional(),

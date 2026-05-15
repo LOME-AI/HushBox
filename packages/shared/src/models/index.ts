@@ -1,5 +1,5 @@
 export type { RawModel, ProcessedModels, Modality } from './types.js';
-export { fetchModels, clearModelCache } from './fetch.js';
+export { fetchModels, clearModelCache, toRawModel, publicModelEntrySchema } from './fetch.js';
 export { processModels, PROVIDER_MAP } from './process-models.js';
 export { isPremiumModel, PREMIUM_PRICE_PERCENTILE, PREMIUM_RECENCY_MS } from './premium-check.js';
 export {

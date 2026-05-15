@@ -3,16 +3,17 @@ import { motion } from 'framer-motion';
 import { cn } from '@hushbox/ui';
 import { useVisualViewportHeight } from '@hushbox/ui';
 import { getGreeting } from '@/lib/greetings';
+import { getTaglineSubtitle } from '@/lib/modality-strings';
 import { useModelStore, type SelectedModelEntry } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
 import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabilities';
 import { useResolveDefaultModel } from '@/hooks/use-resolve-default-model';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useIsMobile } from '@/hooks/use-is-mobile';
+import { getInspirationLabel, getPromptPlaceholder } from '@/lib/modality-strings';
 import { ComparisonBar } from './comparison-bar';
 import { ChatHeader } from './chat-header';
 import { SuggestionChips } from './suggestion-chips';
-import { getPromptPlaceholder } from './prompt-placeholder';
 import { PromptInput } from './prompt-input';
 import { TypingAnimation } from './typing-animation';
 import type { FundingSource, Modality } from '@hushbox/shared';
@@ -94,12 +95,11 @@ export function ChatWelcome({
     [setActiveModality]
   );
 
-  const { models, premiumIds, supportsSearch } = useSelectedModelCapabilities();
+  const { models, premiumIds } = useSelectedModelCapabilities();
   const searchProps: ChatSearchProps | undefined =
     activeModality === 'text'
       ? {
           webSearchEnabled,
-          modelSupportsSearch: supportsSearch,
           onToggleWebSearch: toggleWebSearch,
         }
       : undefined;
@@ -118,13 +118,22 @@ export function ChatWelcome({
   const balance = Number.parseFloat(displayBalance);
   const canAccessPremium = isAuthenticated && balance > 0;
 
-  // Get a greeting once auth state is settled (prevents flash when isAuthenticated changes)
-  // Use null while loading, generate greeting only after isLoading becomes false
-  const greeting = React.useMemo(() => {
+  // Pick a stable base greeting once auth state settles (prevents title flash
+  // on auth changes). Subtitle is re-derived per modality below so the tagline
+  // can swap without re-rolling the title.
+  const baseGreeting = React.useMemo(() => {
     if (isLoading) return null;
     return getGreeting(isAuthenticated);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading]); // Intentionally exclude isAuthenticated - we only want to compute once after loading
+
+  const greeting = React.useMemo(() => {
+    if (!baseGreeting) return null;
+    return {
+      title: baseGreeting.title,
+      subtitle: getTaglineSubtitle(activeModality, baseGreeting.subtitle),
+    };
+  }, [baseGreeting, activeModality]);
 
   // Auto-focus input when page finishes loading (desktop only)
   // Skip on mobile to avoid triggering keyboard unexpectedly
@@ -200,7 +209,7 @@ export function ChatWelcome({
 
           <div className="space-y-4">
             <p className="text-muted-foreground text-center text-sm">
-              Need inspiration? Try these:
+              {getInspirationLabel(activeModality)}
             </p>
             <SuggestionChips onSelect={handleSuggestionSelect} showSurpriseMe />
           </div>

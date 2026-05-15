@@ -11,7 +11,7 @@ import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 
 import { isPremiumModel, PREMIUM_PRICE_PERCENTILE, exceedsTrialBudget } from './premium-check.js';
 import { isZdrModel } from './zdr.js';
-import type { Model, ModelCapability } from '../schemas/api/models.js';
+import type { Model } from '../schemas/api/models.js';
 
 import type { Modality, RawModel, ProcessedModels } from './types.js';
 
@@ -61,12 +61,6 @@ function extractProvider(model: RawModel): { provider: string; displayName: stri
   return { provider: PROVIDER_MAP[prefix] ?? 'Unknown', displayName: model.name };
 }
 
-function deriveCapabilities(params: string[]): ModelCapability[] {
-  const caps: ModelCapability[] = [];
-  if (params.includes('web_search_options')) caps.push('internet-search');
-  return caps;
-}
-
 function isExcludedAlways(model: RawModel): boolean {
   if (getCombinedPrice(model) === 0) return true;
   if (EXCLUDED_TEXT_NAME_PATTERNS.some((p) => p.test(model.name))) return true;
@@ -96,11 +90,8 @@ function transformText(model: RawModel): Model {
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
-    capabilities: deriveCapabilities(model.supported_parameters),
+    capabilities: [],
     supportedParameters: model.supported_parameters,
-    webSearchPrice: model.pricing.web_search
-      ? Number.parseFloat(model.pricing.web_search) || undefined
-      : undefined,
     created: model.created,
   };
 }

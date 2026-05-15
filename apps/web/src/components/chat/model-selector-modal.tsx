@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare } from 'lucide-react';
 import { Overlay, Input, Button, ModalActions, ScrollArea, cn } from '@hushbox/ui';
-import { ROUTES, MAX_SELECTED_MODELS, getModelCostPer1k, shortenModelName } from '@hushbox/shared';
+import { ROUTES, MAX_SELECTED_MODELS, shortenModelName } from '@hushbox/shared';
 import { formatContextLength } from '../../lib/format';
 import { getAccessibleModelIds } from '../../hooks/models';
 import { useIsMobile } from '../../hooks/use-is-mobile';
@@ -27,16 +27,41 @@ function filterBySearch(models: Model[], query: string): Model[] {
   );
 }
 
-function sortModels(models: Model[], sortField: SortField, sortDirection: SortDirection): Model[] {
+function resolveModality(activeModality: Modality | undefined): Modality {
+  return activeModality ?? 'text';
+}
+
+function priceSortKey(model: Model, modality: Modality): number {
+  switch (modality) {
+    case 'text': {
+      return model.pricePerInputToken;
+    }
+    case 'image': {
+      return model.pricePerImage;
+    }
+    case 'video': {
+      const values = Object.values(model.pricePerSecondByResolution);
+      return values.length > 0 ? Math.min(...values) : 0;
+    }
+    case 'audio': {
+      return model.pricePerSecond;
+    }
+  }
+}
+
+function sortModels(
+  models: Model[],
+  sortField: SortField,
+  sortDirection: SortDirection,
+  activeModality: Modality
+): Model[] {
   if (!sortField) {
     return models;
   }
   return [...models].toSorted((a, b) => {
     let comparison = 0;
     if (sortField === 'price') {
-      const priceA = getModelCostPer1k(a.pricePerInputToken, a.pricePerOutputToken);
-      const priceB = getModelCostPer1k(b.pricePerInputToken, b.pricePerOutputToken);
-      comparison = priceA - priceB;
+      comparison = priceSortKey(a, activeModality) - priceSortKey(b, activeModality);
     } else {
       comparison = a.contextLength - b.contextLength;
     }
@@ -147,6 +172,30 @@ interface ModelItemDetailsProps {
   pinnedLabel?: string | undefined;
 }
 
+function modelSubtitle(model: Model): string {
+  if (model.isSmartModel === true) {
+    return 'Auto-picks the best model';
+  }
+  switch (model.modality) {
+    case 'text': {
+      return `${model.provider} • Capacity: ${formatContextLength(model.contextLength)}`;
+    }
+    case 'image': {
+      return `${model.provider} • $${model.pricePerImage.toFixed(3)}/image`;
+    }
+    case 'video': {
+      const values = Object.values(model.pricePerSecondByResolution);
+      if (values.length === 0) {
+        return model.provider;
+      }
+      return `${model.provider} • $${Math.min(...values).toFixed(2)}/s`;
+    }
+    case 'audio': {
+      return `${model.provider} • $${model.pricePerSecond.toFixed(3)}/s`;
+    }
+  }
+}
+
 function ModelItemDetails({
   model,
   showOverlay,
@@ -157,11 +206,7 @@ function ModelItemDetails({
   // across text models now (per gateway plan §9.2); per-model badges are noise.
   return (
     <div className="text-muted-foreground relative flex items-center justify-between text-xs">
-      <span className="truncate">
-        {model.isSmartModel
-          ? 'Auto-picks the best model'
-          : `${model.provider} • Capacity: ${formatContextLength(model.contextLength)}`}
-      </span>
+      <span className="truncate">{modelSubtitle(model)}</span>
       {showOverlay && <ModelItemOverlay isAuthenticated={isAuthenticated} />}
       {!showOverlay && pinnedLabel && (
         <span className="text-muted-foreground shrink-0 text-xs">{pinnedLabel}</span>
@@ -307,6 +352,7 @@ interface SearchAndSortSectionProps {
   sortField: SortField;
   sortDirection: SortDirection;
   onSortClick: (field: 'price' | 'context') => void;
+  activeModality: Modality;
 }
 
 function SearchAndSortSection({
@@ -315,10 +361,17 @@ function SearchAndSortSection({
   sortField,
   sortDirection,
   onSortClick,
+  activeModality,
 }: Readonly<SearchAndSortSectionProps>): React.JSX.Element {
+  const showCapacityButton = activeModality === 'text';
   return (
     <div className="border-border-strong space-y-2 border-b px-4 py-2">
-      <div className="grid grid-cols-[auto_1fr_1fr] items-center gap-2 pr-8 sm:pr-0">
+      <div
+        className={cn(
+          'items-center gap-2 pr-8 sm:pr-0',
+          showCapacityButton ? 'grid grid-cols-[auto_1fr_1fr]' : 'grid grid-cols-[auto_1fr]'
+        )}
+      >
         <span className="text-muted-foreground text-xs font-medium">Sort:</span>
         <SortButton
           field="price"
@@ -327,13 +380,15 @@ function SearchAndSortSection({
           direction={sortDirection}
           onClick={onSortClick}
         />
-        <SortButton
-          field="context"
-          label="Capacity"
-          activeField={sortField}
-          direction={sortDirection}
-          onClick={onSortClick}
-        />
+        {showCapacityButton && (
+          <SortButton
+            field="context"
+            label="Capacity"
+            activeField={sortField}
+            direction={sortDirection}
+            onClick={onSortClick}
+          />
+        )}
       </div>
       <div className="relative">
         <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
@@ -410,7 +465,7 @@ function useFilteredModels({
     const nonSmartModels = modalityFiltered.filter((m) => m.isSmartModel !== true);
 
     const result = filterBySearch(nonSmartModels, searchQuery);
-    const sorted = sortModels(result, sortField, sortDirection);
+    const sorted = sortModels(result, sortField, sortDirection, activeModality);
     const interlaced = interlaceModels(sorted, premiumIds, canAccessPremium);
 
     return buildModelResultList({ interlaced, smartModel, strongestId, valueId, isDefault });
@@ -549,6 +604,8 @@ export function ModelSelectorModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- models is a fallback; re-running on models change would reset user's selection
   }, [open, selectedIds]);
 
+  const resolvedModality = resolveModality(activeModality);
+
   // Calculate quick select model IDs based on user tier and active modality.
   // Without `activeModality`, the helper defaults to 'text' and returns text-
   // model IDs that don't match the modality-filtered list, so Strongest/Value
@@ -655,6 +712,7 @@ export function ModelSelectorModal({
                 sortField={sortField}
                 sortDirection={sortDirection}
                 onSortClick={handleSortClick}
+                activeModality={resolvedModality}
               />
             </div>
 
@@ -670,6 +728,7 @@ export function ModelSelectorModal({
                     sortField={sortField}
                     sortDirection={sortDirection}
                     onSortClick={handleSortClick}
+                    activeModality={resolvedModality}
                   />
                 </div>
 

@@ -6,7 +6,6 @@ import {
   Mic,
   Pencil,
   Search,
-  SearchX,
   Send,
   Square,
   Type,
@@ -20,9 +19,18 @@ import { FEATURE_FLAGS } from '@hushbox/shared';
 import { usePromptBudget } from '@/hooks/use-prompt-budget';
 import { useStability } from '@/providers/stability-provider';
 import { StableContent } from '@/components/shared/stable-content';
+import { AnimatedHeight } from '@/components/shared/animated-height';
 import { CapacityBar } from './capacity-bar';
 import { BudgetMessages } from './budget-messages';
-import { ModalityConfigPanel } from './modality-config-panel';
+import {
+  ImageAspectRatioControl,
+  VideoAspectRatioControl,
+  VideoResolutionControl,
+  VideoDurationControl,
+  AudioFormatControl,
+  AudioDurationControl,
+  MediaCostLine,
+} from './modality-config-panel';
 import type { CapabilityId, FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
 
 export interface PromptInputRef {
@@ -151,14 +159,12 @@ function SubmitButtonIcon({ isProcessing }: Readonly<SubmitButtonIconProps>): Re
 
 /**
  * Props controlling the web-search toggle. Grouped into one object because
- * the three fields are only meaningful together — absent means "this prompt
+ * the fields are only meaningful together — absent means "this prompt
  * has no search feature" (e.g. image modality).
  */
 export interface ChatSearchProps {
   /** Whether web search is currently enabled. */
   webSearchEnabled: boolean;
-  /** Whether the selected model supports native web search. */
-  modelSupportsSearch: boolean;
   /** Called when the user toggles web search. */
   onToggleWebSearch: () => void;
 }
@@ -235,10 +241,6 @@ const PROMPT_INPUT_DEFAULTS: Pick<
   isGroupChat: false,
 };
 
-/**
- * Large prompt input with budget calculation, capacity bar, and keyboard handling.
- * Self-contained: calculates budget internally using model and balance data.
- */
 function AIToggleButton({
   aiEnabled,
   onToggle,
@@ -257,21 +259,13 @@ function AIToggleButton({
 
 interface SearchToggleButtonProps {
   webSearchEnabled: boolean;
-  modelSupportsSearch: boolean;
   isAuthenticated: boolean;
   onToggle?: (() => void) | undefined;
 }
 
-function getSearchTooltipText(
-  isAuthenticated: boolean,
-  modelSupportsSearch: boolean,
-  webSearchEnabled: boolean
-): string {
+function getSearchTooltipText(isAuthenticated: boolean, webSearchEnabled: boolean): string {
   if (!isAuthenticated) {
     return 'Sign up to access internet search';
-  }
-  if (!modelSupportsSearch) {
-    return "This model doesn't support internet search";
   }
   return webSearchEnabled ? 'Internet search on' : 'Internet search off';
 }
@@ -370,14 +364,13 @@ function ModalityIcons({
 
 function SearchToggleButton({
   webSearchEnabled,
-  modelSupportsSearch,
   isAuthenticated,
   onToggle,
 }: Readonly<SearchToggleButtonProps>): React.JSX.Element {
-  const isDisabled = !isAuthenticated || !modelSupportsSearch;
+  const isDisabled = !isAuthenticated;
   const searchState = webSearchEnabled ? 'Internet search on' : 'Internet search off';
   const ariaLabel = isDisabled ? 'Internet search unavailable' : searchState;
-  const tooltipText = getSearchTooltipText(isAuthenticated, modelSupportsSearch, webSearchEnabled);
+  const tooltipText = getSearchTooltipText(isAuthenticated, webSearchEnabled);
 
   return (
     <ToggleButtonWithTooltip
@@ -386,11 +379,7 @@ function SearchToggleButton({
       disabled={isDisabled}
       ariaLabel={ariaLabel}
     >
-      {webSearchEnabled && !isDisabled ? (
-        <Search className="h-4 w-4" aria-hidden="true" />
-      ) : (
-        <SearchX className="h-4 w-4 opacity-50" aria-hidden="true" />
-      )}
+      <Search className="h-4 w-4" aria-hidden="true" />
     </ToggleButtonWithTooltip>
   );
 }
@@ -422,7 +411,14 @@ function PromptToolbar({
   const showSearch = searchProps !== undefined && isAuthenticated !== undefined;
 
   return (
-    <>
+    <div className="flex items-center gap-1">
+      {showSearch && (
+        <SearchToggleButton
+          webSearchEnabled={searchProps.webSearchEnabled}
+          isAuthenticated={isAuthenticated}
+          onToggle={searchProps.onToggleWebSearch}
+        />
+      )}
       {showModality && (
         <ModalityIcons
           activeModality={activeModality}
@@ -430,16 +426,144 @@ function PromptToolbar({
           isAuthenticated={isAuthenticated}
         />
       )}
-      {showSearch && (
-        <SearchToggleButton
-          webSearchEnabled={searchProps.webSearchEnabled}
-          modelSupportsSearch={searchProps.modelSupportsSearch}
-          isAuthenticated={isAuthenticated}
-          onToggle={searchProps.onToggleWebSearch}
-        />
-      )}
       {isGroupChat && <AIToggleButton aiEnabled={aiEnabled} onToggle={onToggleAi} />}
-    </>
+    </div>
+  );
+}
+
+interface BottomRowsProps {
+  readonly activeModality: Modality | undefined;
+  readonly capacity: { currentUsage: number; maxCapacity: number };
+  readonly toolbar: React.ReactNode;
+  readonly sendButton: React.ReactNode;
+}
+
+function TextBottomRow({
+  capacity,
+  toolbar,
+  sendButton,
+}: Readonly<Omit<BottomRowsProps, 'activeModality'>>): React.JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-4 px-3 py-2">
+      <CapacityBar
+        currentUsage={capacity.currentUsage}
+        maxCapacity={capacity.maxCapacity}
+        className="flex-1"
+        data-testid="capacity-bar"
+      />
+      <div className="flex items-center gap-2">
+        {toolbar}
+        {sendButton}
+      </div>
+    </div>
+  );
+}
+
+function ImageBottomRow({
+  toolbar,
+  sendButton,
+}: Readonly<Pick<BottomRowsProps, 'toolbar' | 'sendButton'>>): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <ImageAspectRatioControl />
+      <div className="mr-2 ml-auto">
+        <MediaCostLine modality="image" />
+      </div>
+      <div className="flex items-center gap-2">
+        {toolbar}
+        {sendButton}
+      </div>
+    </div>
+  );
+}
+
+function VideoBottomRow({
+  toolbar,
+  sendButton,
+}: Readonly<Pick<BottomRowsProps, 'toolbar' | 'sendButton'>>): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-2 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <VideoDurationControl />
+        <div className="mr-2 ml-auto">
+          <MediaCostLine modality="video" />
+        </div>
+        <div className="flex items-center gap-2">
+          {toolbar}
+          {sendButton}
+        </div>
+      </div>
+      <div className="flex items-center justify-center gap-3">
+        <VideoAspectRatioControl />
+        <div className="bg-border h-6 w-px" aria-hidden />
+        <VideoResolutionControl />
+      </div>
+    </div>
+  );
+}
+
+function AudioBottomRow({
+  toolbar,
+  sendButton,
+}: Readonly<Pick<BottomRowsProps, 'toolbar' | 'sendButton'>>): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <AudioFormatControl />
+      <AudioDurationControl />
+      <div className="mr-2 ml-auto">
+        <MediaCostLine modality="audio" />
+      </div>
+      <div className="flex items-center gap-2">
+        {toolbar}
+        {sendButton}
+      </div>
+    </div>
+  );
+}
+
+function BottomRows({
+  activeModality,
+  capacity,
+  toolbar,
+  sendButton,
+}: Readonly<BottomRowsProps>): React.JSX.Element {
+  // Pass a per-modality key so AnimatePresence in <AnimatedHeight> sees a new
+  // child on modality switch and runs the height transition. Without the key,
+  // sibling text-mode/image-mode trees would merge into a single child node
+  // and skip the enter/exit animation.
+  const key = activeModality ?? 'text';
+  if (activeModality === undefined || activeModality === 'text') {
+    return (
+      <div key={key}>
+        <TextBottomRow capacity={capacity} toolbar={toolbar} sendButton={sendButton} />
+      </div>
+    );
+  }
+  if (activeModality === 'image') {
+    return (
+      <div key={key}>
+        <ImageBottomRow toolbar={toolbar} sendButton={sendButton} />
+      </div>
+    );
+  }
+  if (activeModality === 'video') {
+    return (
+      <div key={key}>
+        <VideoBottomRow toolbar={toolbar} sendButton={sendButton} />
+      </div>
+    );
+  }
+  if (FEATURE_FLAGS.AUDIO_ENABLED) {
+    return (
+      <div key={key}>
+        <AudioBottomRow toolbar={toolbar} sendButton={sendButton} />
+      </div>
+    );
+  }
+  return (
+    <div key={key}>
+      <TextBottomRow capacity={capacity} toolbar={toolbar} sendButton={sendButton} />
+    </div>
   );
 }
 
@@ -543,28 +667,57 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
       }
     };
 
+    const toolbar = (
+      <PromptToolbar
+        activeModality={activeModality}
+        isAuthenticated={isAuthenticated}
+        onSelectModality={onSelectModality}
+        searchProps={searchProps}
+        isGroupChat={isGroupChat}
+        aiEnabled={aiEnabled}
+        onToggleAi={() => {
+          setAiEnabled((previous) => !previous);
+        }}
+      />
+    );
+
+    const sendButton = (
+      <Button
+        id="send-button"
+        type="button"
+        size="icon"
+        onClick={handleSubmit}
+        disabled={!canSubmit}
+        aria-label={BUTTON_ARIA_LABELS[String(canSubmit) as 'true' | 'false']}
+        data-testid="send-button"
+      >
+        <SubmitButtonIcon isProcessing={isProcessing} />
+      </Button>
+    );
+
     return (
       <div className={cn('w-full', className)}>
         <div className="border-border-strong bg-background dark:border-input flex flex-col rounded-md border">
-          {isEditing && (
-            <div className="border-border flex items-center justify-between border-b px-3 py-2">
-              <div className="flex items-center gap-1.5 text-sm">
-                <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>Editing message</span>
+          <AnimatedHeight>
+            {isEditing ? (
+              <div className="border-border flex items-center justify-between border-b px-3 py-2">
+                <div className="flex items-center gap-1.5 text-sm">
+                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Editing message</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={onCancelEdit}
+                  aria-label="Cancel"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  Cancel
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={onCancelEdit}
-                aria-label="Cancel"
-              >
-                <X className="h-3.5 w-3.5" aria-hidden="true" />
-                Cancel
-              </Button>
-            </div>
-          )}
-          {activeModality !== undefined && activeModality !== 'text' && <ModalityConfigPanel />}
+            ) : null}
+          </AnimatedHeight>
           <Textarea
             ref={textareaRef}
             id="prompt-input"
@@ -579,43 +732,18 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
             className={`max-h-[${maxHeight}] min-h-[${minHeight}] resize-none overflow-y-auto border-0 text-base focus-visible:ring-0`}
           />
 
-          <div className="border-border flex items-center justify-between gap-4 border-t px-3 py-2">
-            {activeModality === undefined || activeModality === 'text' ? (
-              <CapacityBar
-                currentUsage={budget.capacityCurrentUsage}
-                maxCapacity={budget.capacityMaxCapacity}
-                className="flex-1"
-                data-testid="capacity-bar"
-              />
-            ) : (
-              <div className="flex-1" />
-            )}
-
-            <div className="flex items-center gap-1">
-              <PromptToolbar
+          <div className="border-border border-t">
+            <AnimatedHeight>
+              <BottomRows
                 activeModality={activeModality}
-                isAuthenticated={isAuthenticated}
-                onSelectModality={onSelectModality}
-                searchProps={searchProps}
-                isGroupChat={isGroupChat}
-                aiEnabled={aiEnabled}
-                onToggleAi={() => {
-                  setAiEnabled((previous) => !previous);
+                capacity={{
+                  currentUsage: budget.capacityCurrentUsage,
+                  maxCapacity: budget.capacityMaxCapacity,
                 }}
+                toolbar={toolbar}
+                sendButton={sendButton}
               />
-
-              <Button
-                id="send-button"
-                type="button"
-                size="icon"
-                onClick={handleSubmit}
-                disabled={!canSubmit}
-                aria-label={BUTTON_ARIA_LABELS[String(canSubmit) as 'true' | 'false']}
-                data-testid="send-button"
-              >
-                <SubmitButtonIcon isProcessing={isProcessing} />
-              </Button>
-            </div>
+            </AnimatedHeight>
           </div>
         </div>
 

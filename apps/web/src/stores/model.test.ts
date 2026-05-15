@@ -106,6 +106,52 @@ describe('useModelStore', () => {
       expect(state.selections.text).toEqual([defaultTextEntry]);
       expect(state.selections.image).toEqual([{ id: 'imagen', name: 'Imagen' }]);
     });
+
+    it('preserves the selections reference when next entries are structurally equal', () => {
+      useModelStore.setState({
+        selections: {
+          text: [{ id: 'a', name: 'A' }],
+          image: [],
+          audio: [],
+          video: [],
+        },
+      });
+      const before = useModelStore.getState().selections;
+      useModelStore.getState().setSelectedModels('text', [{ id: 'a', name: 'NewName' }]);
+      expect(useModelStore.getState().selections).toBe(before);
+    });
+
+    it('updates the selections reference when ids change', () => {
+      useModelStore.setState({
+        selections: {
+          text: [{ id: 'a', name: 'A' }],
+          image: [],
+          audio: [],
+          video: [],
+        },
+      });
+      const before = useModelStore.getState().selections;
+      useModelStore.getState().setSelectedModels('text', [{ id: 'b', name: 'B' }]);
+      expect(useModelStore.getState().selections).not.toBe(before);
+      expect(useModelStore.getState().selections.text).toEqual([{ id: 'b', name: 'B' }]);
+    });
+
+    it('updates the selections reference when length differs', () => {
+      useModelStore.setState({
+        selections: {
+          text: [{ id: 'a', name: 'A' }],
+          image: [],
+          audio: [],
+          video: [],
+        },
+      });
+      const before = useModelStore.getState().selections;
+      useModelStore.getState().setSelectedModels('text', [
+        { id: 'a', name: 'A' },
+        { id: 'b', name: 'B' },
+      ]);
+      expect(useModelStore.getState().selections).not.toBe(before);
+    });
   });
 
   describe('toggleModel', () => {

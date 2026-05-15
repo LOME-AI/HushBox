@@ -228,7 +228,13 @@ describe('MessageItem', () => {
     it('copy button has ghost variant styling', () => {
       render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
       const button = screen.getByRole('button', { name: /copy/i });
-      expect(button).toHaveClass('h-6', 'w-6');
+      expect(button).toHaveClass('h-11', 'w-11');
+    });
+
+    it('action button frame meets 44px touch target on mobile and shrinks on desktop', () => {
+      render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
+      const button = screen.getByRole('button', { name: /copy/i });
+      expect(button).toHaveClass('h-11', 'w-11', 'md:h-8', 'md:w-8');
     });
   });
 

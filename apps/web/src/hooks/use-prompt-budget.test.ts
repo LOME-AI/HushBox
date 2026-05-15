@@ -28,7 +28,6 @@ const {
     contextLength: number;
     pricePerInputToken: number;
     pricePerOutputToken: number;
-    webSearchPrice?: number;
     pricePerImage?: number;
     pricePerSecondByResolution?: Record<string, number>;
     pricePerSecond?: number;
@@ -49,7 +48,7 @@ const {
     mockImageConfig: { current: { aspectRatio: '1:1' as const } },
     mockVideoConfig: {
       current: {
-        aspectRatio: '16:9' as '1:1' | '16:9' | '9:16' | '4:3',
+        aspectRatio: '16:9' as '16:9' | '9:16',
         durationSeconds: 4,
         resolution: '720p' as '720p' | '1080p',
       },
@@ -573,18 +572,6 @@ describe('usePromptBudget', () => {
 
     it('passes worst-case search cost (MAX × per-call, with fees) to useBudgetCalculation when web search is enabled', () => {
       mockSearchStore.current = { webSearchEnabled: true };
-      mockModelsData.current = {
-        models: [
-          {
-            id: 'test-model',
-            contextLength: 128_000,
-            pricePerInputToken: 0.000_01,
-            pricePerOutputToken: 0.000_03,
-            webSearchPrice: 0.005,
-          },
-        ],
-        premiumIds: new Set<string>(),
-      };
 
       renderHook(() => usePromptBudget(defaultInput));
 
@@ -596,23 +583,23 @@ describe('usePromptBudget', () => {
 
     it('passes 0 web search cost when web search is disabled', () => {
       mockSearchStore.current = { webSearchEnabled: false };
-      mockModelsData.current = {
-        models: [
-          {
-            id: 'test-model',
-            contextLength: 128_000,
-            pricePerInputToken: 0.000_01,
-            pricePerOutputToken: 0.000_03,
-            webSearchPrice: 0.005,
-          },
-        ],
-        premiumIds: new Set<string>(),
-      };
 
       renderHook(() => usePromptBudget(defaultInput));
 
       const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as { webSearchCost: number };
       expect(budgetInput.webSearchCost).toBe(0);
+    });
+
+    it('passes worst-case search cost regardless of model (Perplexity tool runs against any text model)', () => {
+      // Perplexity tool runs against any text model that supports tool calling.
+      // The frontend budget preview must match the backend reservation in
+      // stream-pipeline (worstCaseSearchCost), not gate on per-model pricing.
+      mockSearchStore.current = { webSearchEnabled: true };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as { webSearchCost: number };
+      expect(budgetInput.webSearchCost).toBeCloseTo(worstCaseSearchCost(), 10);
     });
   });
 

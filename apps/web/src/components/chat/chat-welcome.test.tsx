@@ -107,6 +107,16 @@ vi.mock('@/components/shared/stable-content', () => ({
 }));
 
 // Mock framer-motion to avoid animation issues in tests
+vi.mock('./modality-config-panel', () => ({
+  ImageAspectRatioControl: () => null,
+  VideoAspectRatioControl: () => null,
+  VideoResolutionControl: () => null,
+  VideoDurationControl: () => null,
+  AudioFormatControl: () => null,
+  AudioDurationControl: () => null,
+  MediaCostLine: () => null,
+}));
+
 vi.mock('framer-motion', async () => {
   const react = await import('react');
 
@@ -321,5 +331,40 @@ describe('ChatWelcome', () => {
     });
 
     expect(screen.queryByTestId('selected-models-bar')).not.toBeInTheDocument();
+  });
+
+  it('renders image-tagline subtitle when active modality is image', () => {
+    modelStoreStubRef.current.activeModality = 'image';
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.getByText('What should we create?')).toBeInTheDocument();
+  });
+
+  it('renders video-tagline subtitle when active modality is video', () => {
+    modelStoreStubRef.current.activeModality = 'video';
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.getByText('What scene should we make?')).toBeInTheDocument();
+  });
+
+  it('renders text-modality inspiration label by default', () => {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.getByText('Need inspiration? Try these:')).toBeInTheDocument();
+  });
+
+  it('renders image-modality inspiration label when active modality is image', () => {
+    modelStoreStubRef.current.activeModality = 'image';
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.getByText('Need inspiration? Try these image ideas:')).toBeInTheDocument();
   });
 });

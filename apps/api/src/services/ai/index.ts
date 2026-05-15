@@ -1,7 +1,7 @@
 import { createEnvUtilities, type EnvContext } from '@hushbox/shared';
 import { createMockAIClient } from './mock.js';
 import { createRealAIClient } from './real.js';
-import { requireGatewayConfig } from '../../lib/gateway-config.js';
+import { requireCatalogConfig, requireInferenceConfig } from '../../lib/gateway-config.js';
 import type { AIClient, MockAIClientConfig } from './types.js';
 import type { Database } from '@hushbox/db';
 import type { Bindings } from '../../types.js';
@@ -65,14 +65,12 @@ export function getAIClient(env: AIClientEnv, options: AIClientOptions = {}): AI
     return createMockAIClient(options.mockConfig);
   }
 
-  const { apiKey, publicModelsUrl } = requireGatewayConfig(env as Bindings);
-
   const evidence =
     options.db && options.isCI !== undefined ? { db: options.db, isCI: options.isCI } : undefined;
 
   return createRealAIClient({
-    apiKey,
-    publicModelsUrl,
+    ...requireInferenceConfig(env as Bindings),
+    ...requireCatalogConfig(env as Bindings),
     ...(evidence !== undefined && { evidence }),
   });
 }

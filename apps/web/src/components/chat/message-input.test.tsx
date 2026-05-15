@@ -1,13 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { Modality } from '@hushbox/shared';
 import { MessageInput } from './message-input';
+
+const activeModalityRef = { current: 'text' as Modality };
+
+vi.mock('@/stores/model', () => ({
+  useModelStore: <T,>(selector: (state: { activeModality: Modality }) => T): T =>
+    selector({ activeModality: activeModalityRef.current }),
+}));
 
 describe('MessageInput', () => {
   const mockOnSend = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    activeModalityRef.current = 'text';
   });
 
   it('renders textarea', () => {
@@ -127,6 +136,56 @@ describe('MessageInput', () => {
 
       const stopButton = screen.getByRole('button', { name: /stop/i });
       expect(stopButton).not.toBeDisabled();
+    });
+  });
+
+  describe('modality-aware copy', () => {
+    it('uses text placeholder when modality is text', () => {
+      activeModalityRef.current = 'text';
+      render(<MessageInput onSend={mockOnSend} />);
+      expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument();
+    });
+
+    it('uses image placeholder when modality is image', () => {
+      activeModalityRef.current = 'image';
+      render(<MessageInput onSend={mockOnSend} />);
+      expect(screen.getByPlaceholderText('Describe the image you want...')).toBeInTheDocument();
+    });
+
+    it('uses video placeholder when modality is video', () => {
+      activeModalityRef.current = 'video';
+      render(<MessageInput onSend={mockOnSend} />);
+      expect(screen.getByPlaceholderText('Describe the video you want...')).toBeInTheDocument();
+    });
+
+    it('uses audio placeholder when modality is audio', () => {
+      activeModalityRef.current = 'audio';
+      render(<MessageInput onSend={mockOnSend} />);
+      expect(screen.getByPlaceholderText('Describe the audio you want...')).toBeInTheDocument();
+    });
+
+    it('uses "Send message" aria-label when modality is text', () => {
+      activeModalityRef.current = 'text';
+      render(<MessageInput onSend={mockOnSend} />);
+      expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument();
+    });
+
+    it('uses "Generate image" aria-label when modality is image', () => {
+      activeModalityRef.current = 'image';
+      render(<MessageInput onSend={mockOnSend} />);
+      expect(screen.getByRole('button', { name: 'Generate image' })).toBeInTheDocument();
+    });
+
+    it('uses "Generate video" aria-label when modality is video', () => {
+      activeModalityRef.current = 'video';
+      render(<MessageInput onSend={mockOnSend} />);
+      expect(screen.getByRole('button', { name: 'Generate video' })).toBeInTheDocument();
+    });
+
+    it('uses "Generate audio" aria-label when modality is audio', () => {
+      activeModalityRef.current = 'audio';
+      render(<MessageInput onSend={mockOnSend} />);
+      expect(screen.getByRole('button', { name: 'Generate audio' })).toBeInTheDocument();
     });
   });
 });

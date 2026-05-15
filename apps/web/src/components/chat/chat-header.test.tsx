@@ -53,9 +53,9 @@ const mockModels: Model[] = [
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
-    capabilities: ['internet-search'],
+    capabilities: [],
     description: 'Test description for GPT-4 Turbo.',
-    supportedParameters: ['web_search_options'],
+    supportedParameters: [],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',

@@ -401,7 +401,7 @@ describe('Smart Model full DB persistence integration', () => {
         'Help me write a single short greeting.',
         ''
       );
-      const classifier = await consumeStream(smartClient.stream(classifierRequest));
+      const classifier = await consumeStream(harness.client.stream(classifierRequest));
       const resolvedId = resolveClassifierOutput(classifier.textContent, harness.eligibleIds);
       expect(resolvedId).not.toBeNull();
       expect(classifier.generationId).toBeDefined();
@@ -414,7 +414,7 @@ describe('Smart Model full DB persistence integration', () => {
         messages: [{ role: 'user', content: 'Reply with one short word.' }],
         maxOutputTokens: inferenceSpec.parameters.maxOutputTokens,
       };
-      const inference = await consumeStream(smartClient.stream(inferenceRequest));
+      const inference = await consumeStream(harness.client.stream(inferenceRequest));
       expect(inference.textContent.length).toBeGreaterThan(0);
       expect(inference.generationId).toBeDefined();
 

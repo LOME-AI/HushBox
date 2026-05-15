@@ -1,4 +1,14 @@
-import { Code, FileText, Lightbulb, MessageSquare, type LucideIcon } from 'lucide-react';
+import {
+  Code,
+  FileText,
+  Image as ImageIcon,
+  Lightbulb,
+  MessageSquare,
+  Music as MusicIcon,
+  Video as VideoIcon,
+  type LucideIcon,
+} from 'lucide-react';
+import type { Modality } from '@hushbox/shared';
 
 export interface PromptSuggestion {
   id: string;
@@ -7,7 +17,7 @@ export interface PromptSuggestion {
   prompts: string[];
 }
 
-export const promptSuggestions: PromptSuggestion[] = [
+export const textSuggestions: PromptSuggestion[] = [
   {
     id: 'code',
     icon: Code,
@@ -85,3 +95,58 @@ export const promptSuggestions: PromptSuggestion[] = [
     ],
   },
 ];
+
+export const imageSuggestions: PromptSuggestion[] = [
+  {
+    id: 'image-inspiration',
+    icon: ImageIcon,
+    label: 'Image ideas',
+    prompts: [
+      'A neon-lit cyberpunk alley at dusk, rain reflecting signs',
+      'Renaissance oil painting of a scholar at a writing desk, candlelight',
+      'Aerial drone shot of coastal cliffs at golden hour',
+      'Cozy bookshop interior in autumn, warm lamp lighting',
+      'Watercolor botanical illustration of wildflowers in a meadow',
+      'Isometric pixel art of a tiny floating island with a waterfall',
+    ],
+  },
+];
+
+export const videoSuggestions: PromptSuggestion[] = [
+  {
+    id: 'video-inspiration',
+    icon: VideoIcon,
+    label: 'Video ideas',
+    prompts: [
+      'Timelapse of a flower blooming, cinematic close-up',
+      'Drone shot of waves crashing on a coastline at sunset',
+      'Slow-motion coffee pouring into a glass mug, steam rising',
+      'Aurora borealis dancing over a pine forest, time-lapse',
+      'A paper airplane gliding through a sunlit office in slow motion',
+      'Hummingbird hovering by a flower, ultra-slow motion',
+    ],
+  },
+];
+
+export const audioSuggestions: PromptSuggestion[] = [
+  {
+    id: 'audio-inspiration',
+    icon: MusicIcon,
+    label: 'Audio ideas',
+    prompts: [
+      'Lo-fi hip-hop beat with vinyl crackle, mellow',
+      'Cinematic orchestral piece building to a heroic climax',
+      'Calm female narration explaining quantum entanglement',
+      'Forest ambience: birdsong, rustling leaves, distant stream',
+      'Upbeat electronic dance track with a synth lead',
+      'Confident male voice-over for a tech product launch',
+    ],
+  },
+];
+
+export function getSuggestionsForModality(modality?: Modality): PromptSuggestion[] {
+  if (modality === 'image') return imageSuggestions;
+  if (modality === 'video') return videoSuggestions;
+  if (modality === 'audio') return audioSuggestions;
+  return textSuggestions;
+}

@@ -811,7 +811,7 @@ describe('streamChatRequestSchema', () => {
       messagesForInference: [{ role: 'user', content: 'Hello' }],
       fundingSource: 'personal_balance',
       modality: 'video',
-      videoConfig: { aspectRatio: '1:1', durationSeconds: 8, resolution: '1080p' },
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 8, resolution: '1080p' },
     });
     expect(result.videoConfig?.durationSeconds).toBe(8);
   });

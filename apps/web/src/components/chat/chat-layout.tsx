@@ -8,7 +8,7 @@ import { ComparisonBar } from '@/components/chat/comparison-bar';
 import { ForkTabs } from '@/components/chat/fork-tabs';
 import { MessageList, type MessageListHandle } from '@/components/chat/message-list';
 import { PromptInput } from '@/components/chat/prompt-input';
-import { getPromptPlaceholder } from '@/components/chat/prompt-placeholder';
+import { getPromptPlaceholder } from '@/lib/modality-strings';
 import { DocumentPanel } from '@/components/document-panel/document-panel';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
@@ -827,14 +827,13 @@ export function ChatLayout({
     },
     [setActiveModality]
   );
-  const { models, premiumIds: modelPremiumIds, supportsSearch } = useSelectedModelCapabilities();
+  const { models, premiumIds: modelPremiumIds } = useSelectedModelCapabilities();
   // Search is a text-mode feature. Omit searchProps entirely in image mode
   // so the toggle disappears at the structural level, not a render-time check.
   const searchProps: ChatSearchProps | undefined =
     activeModality === 'text'
       ? {
           webSearchEnabled,
-          modelSupportsSearch: supportsSearch,
           onToggleWebSearch: toggleWebSearch,
         }
       : undefined;
