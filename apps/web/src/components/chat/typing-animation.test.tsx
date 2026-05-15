@@ -27,13 +27,19 @@ describe('TypingAnimation', () => {
     expect(screen.getByTestId('typing-animation')).toBeInTheDocument();
   });
 
-  it('renders full text invisibly as layout spacer', () => {
+  it('renders full text in an invisible layout spacer that is announced (not aria-hidden)', () => {
     render(<TypingAnimation text="Hello World" />);
     const container = screen.getByTestId('typing-animation');
-    const spacer = container.querySelector('[aria-hidden="true"]');
+    const spacer = container.querySelector('.invisible');
     expect(spacer).toBeInTheDocument();
     expect(spacer).toHaveTextContent('Hello World');
-    expect(spacer).toHaveClass('invisible');
+    expect(spacer).not.toHaveAttribute('aria-hidden');
+  });
+
+  it('marks the live typed-text span aria-hidden so screen readers do not announce partials', () => {
+    render(<TypingAnimation text="Hello World" />);
+    const typed = screen.getByTestId('typed-text');
+    expect(typed).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('displays cursor', () => {
@@ -99,6 +105,57 @@ describe('TypingAnimation', () => {
       vi.advanceTimersByTime(75);
     });
     expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  describe('skipInitialTyping (no first-mount animation)', () => {
+    it('renders the full text immediately on initial mount', () => {
+      render(<TypingAnimation text="Hello" typingSpeed={75} skipInitialTyping />);
+      expect(screen.getByTestId('typed-text').textContent).toBe('Hello');
+    });
+
+    it('hides the cursor on initial mount when loop is false', () => {
+      render(<TypingAnimation text="Hello" typingSpeed={75} loop={false} skipInitialTyping />);
+      expect(screen.queryByTestId('typing-cursor')).not.toBeInTheDocument();
+    });
+
+    it('does not call onStateChange("typing") on initial mount', () => {
+      const onStateChange = vi.fn();
+      render(
+        <TypingAnimation
+          text="Hello"
+          typingSpeed={75}
+          loop={false}
+          skipInitialTyping
+          onStateChange={onStateChange}
+        />
+      );
+      expect(onStateChange).not.toHaveBeenCalledWith('typing');
+    });
+
+    it('still runs delete-then-type when text prop changes after mount', () => {
+      const { rerender } = render(
+        <TypingAnimation text="hello" typingSpeed={75} deletionSpeed={45} skipInitialTyping />
+      );
+      expect(screen.getByTestId('typed-text').textContent).toBe('hello');
+
+      rerender(
+        <TypingAnimation text="world" typingSpeed={75} deletionSpeed={45} skipInitialTyping />
+      );
+
+      for (let index = 0; index < 5; index++) {
+        act(() => {
+          vi.advanceTimersByTime(45);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('');
+
+      for (let index = 0; index < 5; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('world');
+    });
   });
 
   describe('delete-then-retype state machine', () => {

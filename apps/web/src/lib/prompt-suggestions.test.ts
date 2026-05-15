@@ -111,58 +111,48 @@ describe('PromptSuggestion type', () => {
   });
 });
 
+function assertCategoryShape(suggestions: PromptSuggestion[], label: string): void {
+  describe(`${label} shape`, () => {
+    it('has 4 categories', () => {
+      expect(suggestions).toHaveLength(4);
+    });
+
+    it('each suggestion has id, label, prompts, icon', () => {
+      for (const suggestion of suggestions) {
+        expect(typeof suggestion.id).toBe('string');
+        expect(typeof suggestion.label).toBe('string');
+        expect(Array.isArray(suggestion.prompts)).toBe(true);
+        expect(suggestion.icon).toBeDefined();
+      }
+    });
+
+    it('each category has at least 10 prompts and all are non-empty strings', () => {
+      for (const suggestion of suggestions) {
+        expect(suggestion.prompts.length).toBeGreaterThanOrEqual(10);
+        for (const prompt of suggestion.prompts) {
+          expect(typeof prompt).toBe('string');
+          expect(prompt.length).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it('all suggestion ids are unique', () => {
+      const ids = suggestions.map((s) => s.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    });
+  });
+}
+
 describe('imageSuggestions', () => {
-  it('exports a non-empty array', () => {
-    expect(Array.isArray(imageSuggestions)).toBe(true);
-    expect(imageSuggestions.length).toBeGreaterThan(0);
-  });
-
-  it('has a single category with image label', () => {
-    expect(imageSuggestions).toHaveLength(1);
-    const category = imageSuggestions[0];
-    expect(category?.label).toBe('Image ideas');
-  });
-
-  it('category has at least 6 prompts', () => {
-    const category = imageSuggestions[0];
-    expect(category?.prompts.length).toBeGreaterThanOrEqual(6);
-  });
+  assertCategoryShape(imageSuggestions, 'imageSuggestions');
 });
 
 describe('videoSuggestions', () => {
-  it('exports a non-empty array', () => {
-    expect(Array.isArray(videoSuggestions)).toBe(true);
-    expect(videoSuggestions.length).toBeGreaterThan(0);
-  });
-
-  it('has a single category with video label', () => {
-    expect(videoSuggestions).toHaveLength(1);
-    const category = videoSuggestions[0];
-    expect(category?.label).toBe('Video ideas');
-  });
-
-  it('category has at least 6 prompts', () => {
-    const category = videoSuggestions[0];
-    expect(category?.prompts.length).toBeGreaterThanOrEqual(6);
-  });
+  assertCategoryShape(videoSuggestions, 'videoSuggestions');
 });
 
 describe('audioSuggestions', () => {
-  it('exports a non-empty array', () => {
-    expect(Array.isArray(audioSuggestions)).toBe(true);
-    expect(audioSuggestions.length).toBeGreaterThan(0);
-  });
-
-  it('has a single category with audio label', () => {
-    expect(audioSuggestions).toHaveLength(1);
-    const category = audioSuggestions[0];
-    expect(category?.label).toBe('Audio ideas');
-  });
-
-  it('category has at least 6 prompts', () => {
-    const category = audioSuggestions[0];
-    expect(category?.prompts.length).toBeGreaterThanOrEqual(6);
-  });
+  assertCategoryShape(audioSuggestions, 'audioSuggestions');
 });
 
 describe('getSuggestionsForModality', () => {

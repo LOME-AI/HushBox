@@ -989,6 +989,38 @@ describe('ModelSelectorModal', () => {
       expect(gpt4Item.querySelector('[data-testid="premium-overlay"]')).not.toBeInTheDocument();
     });
 
+    it('link guests select a premium model without triggering onPremiumClick', async () => {
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      const onOpenChange = vi.fn();
+      const onPremiumClick = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={onOpenChange}
+          models={mockModels}
+          selectedIds={new Set(['anthropic/claude-3.5-sonnet'])}
+          onSelect={onSelect}
+          premiumIds={premiumIds}
+          canAccessPremium={false}
+          isAuthenticated={false}
+          isLinkGuest={true}
+          onPremiumClick={onPremiumClick}
+        />
+      );
+
+      await user.dblClick(screen.getByText('GPT-4 Turbo'));
+      await user.click(screen.getByRole('button', { name: /select.*model/i }));
+
+      expect(onPremiumClick).not.toHaveBeenCalled();
+      expect(onSelect).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+          { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+        ])
+      );
+    });
+
     it('does not show overlay for link guests on premium models', () => {
       render(
         <ModelSelectorModal
@@ -1980,6 +2012,29 @@ describe('ModelSelectorModal', () => {
       await user.click(checkbox!);
 
       expect(screen.getByTestId('multi-model-signup-modal')).toBeInTheDocument();
+    });
+
+    it('link guests add a second model without the signup modal', async () => {
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={onSelect}
+          isAuthenticated={false}
+          isLinkGuest={true}
+        />
+      );
+
+      const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
+      const checkbox = claudeItem.querySelector('[data-testid="model-checkbox"]');
+      await user.click(checkbox!);
+
+      expect(screen.queryByTestId('multi-model-signup-modal')).not.toBeInTheDocument();
+      expect(claudeItem).toHaveAttribute('data-selected', 'true');
     });
   });
 

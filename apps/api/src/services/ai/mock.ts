@@ -54,6 +54,14 @@ const MOCK_GENERATION_STATS_COST = 0.001;
  */
 const DEFAULT_CLASSIFIER_RESOLUTION = 'anthropic/claude-haiku-4.5';
 
+/**
+ * Default delay before the first classifier event so the pre-inference
+ * stage's `stage:start` and `stage:done` events land in separate render
+ * ticks; without it the loading indicator never paints. Explicit `0`
+ * opts out for unit tests that care about microsecond timing.
+ */
+const DEFAULT_CLASSIFIER_DELAY_MS = 500;
+
 export {
   TEST_IMAGE_BYTES as CANNED_IMAGE,
   TEST_VIDEO_BYTES as CANNED_VIDEO,
@@ -276,7 +284,7 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
   const classifierResolution = config.classifierResolution ?? DEFAULT_CLASSIFIER_RESOLUTION;
   const classifierFailure =
     config.classifierFailure === true ? new Error('Classifier unavailable (test)') : null;
-  const classifierDelayMs = Math.max(0, config.classifierDelayMs ?? 0);
+  const classifierDelayMs = Math.max(0, config.classifierDelayMs ?? DEFAULT_CLASSIFIER_DELAY_MS);
 
   const publicModelsUrl = config.publicModelsUrl ?? DEFAULT_PUBLIC_MODELS_URL;
 

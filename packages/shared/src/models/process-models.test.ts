@@ -891,4 +891,48 @@ describe('processModels', () => {
       expect(audio?.modality).toBe('audio');
     });
   });
+
+  describe('per-model capability annotations', () => {
+    it('annotates Imagen 4 with the 5 standard aspect ratios', () => {
+      const models = [createImageModel({ id: 'google/imagen-4.0-generate-001' })];
+      const result = processModels(models);
+      const imagen = result.models.find((m) => m.id === 'google/imagen-4.0-generate-001');
+      expect(imagen?.supportedAspectRatios).toEqual(['1:1', '4:3', '3:4', '16:9', '9:16']);
+    });
+
+    it('annotates Veo 3.1 with 4-6-8s durations and 720p/1080p/4k resolutions', () => {
+      const models = [
+        createVideoModel({
+          id: 'google/veo-3.1-generate-001',
+          pricing: {
+            prompt: '0',
+            completion: '0',
+            per_second_by_resolution: { '720p': '0.4', '1080p': '0.4', '4k': '0.6' },
+          },
+        }),
+      ];
+      const result = processModels(models);
+      const veo = result.models.find((m) => m.id === 'google/veo-3.1-generate-001');
+      expect(veo?.supportedAspectRatios).toEqual(['16:9', '9:16']);
+      expect(veo?.supportedVideoResolutions).toEqual(['720p', '1080p', '4k']);
+      expect(veo?.supportedVideoDurationsSeconds).toEqual([4, 6, 8]);
+    });
+
+    it('annotates Veo 3.0 with 5-6-7-8s durations and 720p/1080p only (no 4k)', () => {
+      const models = [createVideoModel({ id: 'google/veo-3.0-generate-001' })];
+      const result = processModels(models);
+      const veo30 = result.models.find((m) => m.id === 'google/veo-3.0-generate-001');
+      expect(veo30?.supportedVideoResolutions).toEqual(['720p', '1080p']);
+      expect(veo30?.supportedVideoDurationsSeconds).toEqual([5, 6, 7, 8]);
+    });
+
+    it('leaves capability fields undefined for non-Veo, non-Imagen models', () => {
+      const models = [createModel({ id: 'openai/gpt-5' })];
+      const result = processModels(models);
+      const gpt = result.models.find((m) => m.id === 'openai/gpt-5');
+      expect(gpt?.supportedAspectRatios).toBeUndefined();
+      expect(gpt?.supportedVideoResolutions).toBeUndefined();
+      expect(gpt?.supportedVideoDurationsSeconds).toBeUndefined();
+    });
+  });
 });

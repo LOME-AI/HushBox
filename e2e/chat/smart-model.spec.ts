@@ -340,12 +340,6 @@ test.describe('Smart Model', () => {
   }) => {
     test.slow();
 
-    // Mock classifier streams resolve on the microtask queue — without an
-    // artificial delay the stage:start → stage:done round-trip is faster than
-    // Playwright's polling window and the indicator is unobservable. Real
-    // production timing is ~1-3s; 500ms is enough for `toBeVisible` to catch.
-    await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-classifier-delay-ms': '500' });
-
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.goto();
     await chatPage.waitForAppStable();

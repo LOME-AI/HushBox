@@ -298,6 +298,26 @@ describe('fetchModels', () => {
     expect(result[0]?.created).toBe(1_700_000_000);
   });
 
+  it('prefers `released` over `created` when both are present', async () => {
+    // The public catalog stamps `created` as the catalog-import date (flat
+    // across the batch); `released` carries the actual model release date,
+    // which is what the premium recency check is meant to evaluate.
+    mockPublicModels([
+      {
+        id: 'openai/gpt-5',
+        name: 'GPT-5',
+        type: 'language',
+        pricing: { input: '0.00001', output: '0.00003' },
+        created: 1_755_815_280,
+        released: 1_700_000_000,
+      },
+    ]);
+
+    const result = await fetchModels({ publicModelsUrl: 'https://test.example/v1/models' });
+
+    expect(result[0]?.created).toBe(1_700_000_000);
+  });
+
   it('builds text architecture for text models', async () => {
     mockPublicModels([
       {

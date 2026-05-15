@@ -220,9 +220,23 @@ describe('createMockAIClient', () => {
       expect(elapsed).toBeGreaterThanOrEqual(delayMs);
     });
 
-    it('does not delay when classifierDelayMs is zero or unset', async () => {
+    it('applies a default delay when classifierDelayMs is unset (observability in dev + E2E)', async () => {
+      const defaulted = createMockAIClient({
+        classifierResolution: 'anthropic/claude-haiku-4.5',
+      });
+      const start = Date.now();
+      await collectEvents(defaulted.stream(classifierRequest()));
+      const elapsed = Date.now() - start;
+      // Default is large enough to make the "Choosing the best model…"
+      // indicator observable without per-test header plumbing. Floor at 250ms
+      // (well under the actual default) to absorb CI scheduler jitter.
+      expect(elapsed).toBeGreaterThanOrEqual(250);
+    });
+
+    it('does not delay when classifierDelayMs is explicitly 0', async () => {
       const noDelay = createMockAIClient({
         classifierResolution: 'anthropic/claude-haiku-4.5',
+        classifierDelayMs: 0,
       });
       const start = Date.now();
       await collectEvents(noDelay.stream(classifierRequest()));

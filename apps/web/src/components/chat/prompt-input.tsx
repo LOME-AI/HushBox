@@ -6,6 +6,7 @@ import {
   Mic,
   Pencil,
   Search,
+  SearchX,
   Send,
   Square,
   Type,
@@ -20,6 +21,7 @@ import { usePromptBudget } from '@/hooks/use-prompt-budget';
 import { useStability } from '@/providers/stability-provider';
 import { StableContent } from '@/components/shared/stable-content';
 import { AnimatedHeight } from '@/components/shared/animated-height';
+import { MorphHeight } from '@/components/shared/morph-height';
 import { CapacityBar } from './capacity-bar';
 import { BudgetMessages } from './budget-messages';
 import {
@@ -267,7 +269,7 @@ function getSearchTooltipText(isAuthenticated: boolean, webSearchEnabled: boolea
   if (!isAuthenticated) {
     return 'Sign up to access internet search';
   }
-  return webSearchEnabled ? 'Internet search on' : 'Internet search off';
+  return webSearchEnabled ? 'Turn off internet search' : 'Turn on internet search';
 }
 
 interface ModalityIconsProps {
@@ -368,9 +370,8 @@ function SearchToggleButton({
   onToggle,
 }: Readonly<SearchToggleButtonProps>): React.JSX.Element {
   const isDisabled = !isAuthenticated;
-  const searchState = webSearchEnabled ? 'Internet search on' : 'Internet search off';
-  const ariaLabel = isDisabled ? 'Internet search unavailable' : searchState;
   const tooltipText = getSearchTooltipText(isAuthenticated, webSearchEnabled);
+  const ariaLabel = isDisabled ? 'Internet search unavailable' : tooltipText;
 
   return (
     <ToggleButtonWithTooltip
@@ -379,7 +380,11 @@ function SearchToggleButton({
       disabled={isDisabled}
       ariaLabel={ariaLabel}
     >
-      <Search className="h-4 w-4" aria-hidden="true" />
+      {webSearchEnabled ? (
+        <Search className="h-4 w-4" aria-hidden="true" />
+      ) : (
+        <SearchX className="h-4 w-4 opacity-50" aria-hidden="true" />
+      )}
     </ToggleButtonWithTooltip>
   );
 }
@@ -527,44 +532,19 @@ function BottomRows({
   toolbar,
   sendButton,
 }: Readonly<BottomRowsProps>): React.JSX.Element {
-  // Pass a per-modality key so AnimatePresence in <AnimatedHeight> sees a new
-  // child on modality switch and runs the height transition. Without the key,
-  // sibling text-mode/image-mode trees would merge into a single child node
-  // and skip the enter/exit animation.
-  const key = activeModality ?? 'text';
   if (activeModality === undefined || activeModality === 'text') {
-    return (
-      <div key={key}>
-        <TextBottomRow capacity={capacity} toolbar={toolbar} sendButton={sendButton} />
-      </div>
-    );
+    return <TextBottomRow capacity={capacity} toolbar={toolbar} sendButton={sendButton} />;
   }
   if (activeModality === 'image') {
-    return (
-      <div key={key}>
-        <ImageBottomRow toolbar={toolbar} sendButton={sendButton} />
-      </div>
-    );
+    return <ImageBottomRow toolbar={toolbar} sendButton={sendButton} />;
   }
   if (activeModality === 'video') {
-    return (
-      <div key={key}>
-        <VideoBottomRow toolbar={toolbar} sendButton={sendButton} />
-      </div>
-    );
+    return <VideoBottomRow toolbar={toolbar} sendButton={sendButton} />;
   }
   if (FEATURE_FLAGS.AUDIO_ENABLED) {
-    return (
-      <div key={key}>
-        <AudioBottomRow toolbar={toolbar} sendButton={sendButton} />
-      </div>
-    );
+    return <AudioBottomRow toolbar={toolbar} sendButton={sendButton} />;
   }
-  return (
-    <div key={key}>
-      <TextBottomRow capacity={capacity} toolbar={toolbar} sendButton={sendButton} />
-    </div>
-  );
+  return <TextBottomRow capacity={capacity} toolbar={toolbar} sendButton={sendButton} />;
 }
 
 export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
@@ -733,7 +713,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
           />
 
           <div className="border-border border-t">
-            <AnimatedHeight>
+            <MorphHeight>
               <BottomRows
                 activeModality={activeModality}
                 capacity={{
@@ -743,7 +723,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
                 toolbar={toolbar}
                 sendButton={sendButton}
               />
-            </AnimatedHeight>
+            </MorphHeight>
           </div>
         </div>
 

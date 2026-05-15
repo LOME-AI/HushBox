@@ -657,12 +657,21 @@ export function ModelSelectorModal({
 
   const handleToggleModel = React.useCallback(
     (modelId: string): void => {
-      if (!canAccessPremium && premiumIds?.has(modelId)) {
+      // Link guests inherit the conversation owner's model access; both the
+      // premium-tier gate and the unauthenticated multi-model gate yield to
+      // that delegation. Matches the visual lock-icon/overlay suppression in
+      // ModelListItem so the click behavior tracks the rendered state.
+      if (!isLinkGuest && !canAccessPremium && premiumIds?.has(modelId)) {
         onPremiumClick?.(modelId);
         return;
       }
 
-      if (!isAuthenticated && !localSelectedIds.has(modelId) && localSelectedIds.size > 0) {
+      if (
+        !isLinkGuest &&
+        !isAuthenticated &&
+        !localSelectedIds.has(modelId) &&
+        localSelectedIds.size > 0
+      ) {
         setShowMultiModelSignup(true);
         return;
       }
@@ -670,7 +679,7 @@ export function ModelSelectorModal({
       setFocusedModelId(modelId);
       setLocalSelectedIds((previous) => updateSelectedIds(previous, modelId));
     },
-    [canAccessPremium, premiumIds, onPremiumClick, isAuthenticated, localSelectedIds]
+    [canAccessPremium, premiumIds, onPremiumClick, isAuthenticated, isLinkGuest, localSelectedIds]
   );
 
   const handleConfirmSelection = React.useCallback((): void => {

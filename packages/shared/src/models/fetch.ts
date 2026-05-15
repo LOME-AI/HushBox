@@ -40,6 +40,7 @@ export const publicModelEntrySchema = z.object({
   name: z.string().optional(),
   description: z.string().optional(),
   created: z.number().optional(),
+  released: z.number().optional(),
   context_window: z.number().optional(),
   type: z.string().optional(),
   pricing: z.record(z.string(), z.unknown()).optional(),
@@ -155,7 +156,11 @@ export function toRawModel(entry: PublicModelEntry): RawModel {
     context_length: entry.context_window ?? DEFAULT_CONTEXT_LENGTH,
     pricing: buildPricing(modality, entry),
     supported_parameters: [],
-    created: entry.created ?? 0,
+    // `released` is the actual model release date; `created` is the gateway's
+    // catalog-import stamp (flat across the batch) and would mark every entry
+    // as recent. Prefer `released` so the premium-by-recency check evaluates
+    // the model's real age.
+    created: entry.released ?? entry.created ?? 0,
     architecture: buildArchitecture(modality),
   };
 }

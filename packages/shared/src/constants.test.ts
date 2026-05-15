@@ -390,13 +390,13 @@ describe('VIDEO_ASPECT_RATIOS', () => {
 });
 
 describe('VIDEO_RESOLUTIONS', () => {
-  it('includes 720p and 1080p', () => {
-    expect(VIDEO_RESOLUTIONS).toEqual(['720p', '1080p']);
+  it('includes 720p, 1080p, and 4k', () => {
+    expect(VIDEO_RESOLUTIONS).toEqual(['720p', '1080p', '4k']);
   });
 
-  it('every entry ends with p', () => {
+  it('every entry is a recognised resolution token', () => {
     for (const res of VIDEO_RESOLUTIONS) {
-      expect(res).toMatch(/^\d+p$/);
+      expect(res).toMatch(/^(\d+p|4k)$/);
     }
   });
 });

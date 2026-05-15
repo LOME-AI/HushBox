@@ -768,7 +768,7 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps()}
         />
       );
-      expect(screen.getByRole('button', { name: /internet search off/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /turn on internet search/i })).toBeInTheDocument();
     });
 
     it('shows search on state when webSearchEnabled is true', () => {
@@ -781,7 +781,42 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps({ webSearchEnabled: true })}
         />
       );
-      expect(screen.getByRole('button', { name: /internet search on/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /turn off internet search/i })).toBeInTheDocument();
+    });
+
+    it('renders the off state with a crossed-out, dimmed icon', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          searchProps={makeSearchProps()}
+        />
+      );
+      const button = screen.getByRole('button', { name: /turn on internet search/i });
+      const icon = button.querySelector('svg');
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveClass('lucide-search-x');
+      expect(icon).toHaveClass('opacity-50');
+    });
+
+    it('renders the on state with the plain search icon at full opacity', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          searchProps={makeSearchProps({ webSearchEnabled: true })}
+        />
+      );
+      const button = screen.getByRole('button', { name: /turn off internet search/i });
+      const icon = button.querySelector('svg');
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveClass('lucide-search');
+      expect(icon).not.toHaveClass('lucide-search-x');
+      expect(icon).not.toHaveClass('opacity-50');
     });
 
     it('calls onToggleWebSearch when clicked', async () => {
@@ -797,7 +832,7 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps({ onToggleWebSearch: mockToggle })}
         />
       );
-      await user.click(screen.getByRole('button', { name: /internet search off/i }));
+      await user.click(screen.getByRole('button', { name: /turn on internet search/i }));
       expect(mockToggle).toHaveBeenCalled();
     });
 
@@ -874,7 +909,7 @@ describe('PromptInput', () => {
         />
       );
 
-      const button = screen.getByRole('button', { name: /internet search on/i });
+      const button = screen.getByRole('button', { name: /turn off internet search/i });
       const wrapper = button.closest('span[data-slot="tooltip-trigger"]');
       expect(wrapper).not.toBeNull();
     });
@@ -902,11 +937,11 @@ describe('PromptInput', () => {
         />
       );
 
-      const button = screen.getByRole('button', { name: /internet search on/i });
+      const button = screen.getByRole('button', { name: /turn off internet search/i });
       await user.hover(button);
 
       const tooltip = await screen.findByRole('tooltip');
-      expect(tooltip).toHaveTextContent('Internet search on');
+      expect(tooltip).toHaveTextContent('Turn off internet search');
     });
 
     it('shows tooltip content when hovering AI toggle', async () => {
@@ -952,17 +987,17 @@ describe('PromptInput', () => {
         </QueryClientProvider>
       );
 
-      const button = screen.getByRole('button', { name: /internet search off/i });
+      const button = screen.getByRole('button', { name: /turn on internet search/i });
       await user.hover(button);
 
       const tooltip = await screen.findByRole('tooltip');
-      expect(tooltip).toHaveTextContent('Internet search off');
+      expect(tooltip).toHaveTextContent('Turn on internet search');
 
       await user.click(button);
 
-      expect(screen.getByRole('button', { name: /internet search on/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /turn off internet search/i })).toBeInTheDocument();
       const updatedTooltip = screen.getByRole('tooltip');
-      expect(updatedTooltip).toHaveTextContent('Internet search on');
+      expect(updatedTooltip).toHaveTextContent('Turn off internet search');
     });
   });
 
@@ -1448,7 +1483,7 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps()}
         />
       );
-      const search = screen.getByRole('button', { name: /internet search off/i });
+      const search = screen.getByRole('button', { name: /turn on internet search/i });
       const imageIcon = screen.getByRole('button', { name: /switch to image/i });
       // DOM order: search element should precede the image modality icon.
       const position = search.compareDocumentPosition(imageIcon);

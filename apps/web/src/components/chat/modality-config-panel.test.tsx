@@ -92,11 +92,40 @@ describe('ImageAspectRatioControl', () => {
     expect(screen.getByText(/aspect ratio/i)).toBeInTheDocument();
   });
 
-  it('renders all pills at a uniform fixed width', () => {
+  it('renders all image ratio pills at the half-width size (w-14)', () => {
     render(<ImageAspectRatioControl />);
     for (const ratio of ['1:1', '4:3', '3:4', '16:9', '9:16']) {
-      expect(screen.getByRole('button', { name: ratio }).className).toContain('w-28');
+      expect(screen.getByRole('button', { name: ratio }).className).toContain('w-14');
     }
+  });
+
+  it('narrows ratios to the intersection across selected models', () => {
+    mockModels({
+      models: [
+        {
+          id: 'fictional/narrow-image',
+          modality: 'image',
+          pricePerImage: 0.04,
+          supportedAspectRatios: ['1:1', '16:9'],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'image',
+      imageConfig: { aspectRatio: '1:1' },
+      selections: {
+        text: [],
+        image: [{ id: 'fictional/narrow-image', name: 'Narrow' }],
+        audio: [],
+        video: [],
+      },
+    });
+    render(<ImageAspectRatioControl />);
+    expect(screen.getByRole('button', { name: '1:1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '4:3' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '3:4' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '9:16' })).not.toBeInTheDocument();
   });
 });
 
@@ -136,6 +165,39 @@ describe('VideoAspectRatioControl', () => {
     expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
       aspectRatio: '9:16',
     });
+  });
+
+  it('renders all video ratio pills at the same width as image ratio pills (w-14)', () => {
+    render(<VideoAspectRatioControl />);
+    for (const ratio of ['16:9', '9:16']) {
+      expect(screen.getByRole('button', { name: ratio }).className).toContain('w-14');
+    }
+  });
+
+  it('narrows ratios to the intersection across selected video models', () => {
+    mockModels({
+      models: [
+        {
+          id: 'fictional/landscape-only',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedAspectRatios: ['16:9'],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'fictional/landscape-only', name: 'Landscape Only' }],
+      },
+    });
+    render(<VideoAspectRatioControl />);
+    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '9:16' })).not.toBeInTheDocument();
   });
 });
 
@@ -268,7 +330,7 @@ describe('VideoDurationControl', () => {
     });
   });
 
-  it('renders the slider with min=1, max=8, current=4', () => {
+  it('falls back to the 1-8s legacy bounds when no model is selected', () => {
     render(<VideoDurationControl />);
     const slider = screen.getByRole('slider');
     expect(slider).toHaveAttribute('min', '1');
@@ -276,7 +338,7 @@ describe('VideoDurationControl', () => {
     expect(slider).toHaveValue('4');
   });
 
-  it('writes setVideoConfig when duration changes', () => {
+  it('writes setVideoConfig when duration changes (no model — no snap)', () => {
     render(<VideoDurationControl />);
     const slider = screen.getByRole('slider');
     fireEvent.change(slider, { target: { value: '6' } });
@@ -294,6 +356,168 @@ describe('VideoDurationControl', () => {
     render(<VideoDurationControl />);
     const slider = screen.getByRole('slider');
     expect(slider).toHaveAttribute('aria-valuetext', '4 seconds');
+  });
+
+  it('clamps min and max to the selected Veo 3.1 model durations (4-8)', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedVideoDurationsSeconds: [4, 6, 8],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoDurationControl />);
+    const slider = screen.getByRole('slider');
+    expect(slider).toHaveAttribute('min', '4');
+    expect(slider).toHaveAttribute('max', '8');
+  });
+
+  it('snaps a raw 5 to the nearest supported value (4) when Veo 3.1 is selected', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedVideoDurationsSeconds: [4, 6, 8],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoDurationControl />);
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '5' } });
+    expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
+      durationSeconds: 4,
+    });
+  });
+
+  it('intersects durations across multiple selected models (Veo 3.0 ∩ 3.1 = {6, 8})', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.0-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedVideoDurationsSeconds: [5, 6, 7, 8],
+        } as never,
+        {
+          id: 'google/veo-3.1-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedVideoDurationsSeconds: [4, 6, 8],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 6, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [
+          { id: 'google/veo-3.0-generate-001', name: 'Veo 3.0' },
+          { id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' },
+        ],
+      },
+    });
+    render(<VideoDurationControl />);
+    const slider = screen.getByRole('slider');
+    expect(slider).toHaveAttribute('min', '6');
+    expect(slider).toHaveAttribute('max', '8');
+  });
+});
+
+describe('VideoResolutionControl + 4K', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows a 4K button when the selected Veo 3.1 model lists it', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.4, '4k': 0.6 },
+          supportedVideoResolutions: ['720p', '1080p', '4k'],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoResolutionControl />);
+    expect(screen.getByRole('button', { name: /4k \$0\.60\/s/i })).toBeInTheDocument();
+  });
+
+  it('drops 4K from the intersection when Veo 3.0 (no 4K) is co-selected — primary is Veo 3.1', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.0-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.4 },
+          supportedVideoResolutions: ['720p', '1080p'],
+        } as never,
+        {
+          id: 'google/veo-3.1-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.4, '4k': 0.6 },
+          supportedVideoResolutions: ['720p', '1080p', '4k'],
+        } as never,
+      ],
+    });
+    // Order matters: Veo 3.1 is primary (has 4K). Without cross-model
+    // agreement, the picker would expose 4K despite Veo 3.0 not supporting it,
+    // which is the exact bug the agreement helper exists to prevent.
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [
+          { id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' },
+          { id: 'google/veo-3.0-generate-001', name: 'Veo 3.0' },
+        ],
+      },
+    });
+    render(<VideoResolutionControl />);
+    expect(screen.queryByRole('button', { name: /4k/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /720p/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /1080p/i })).toBeInTheDocument();
   });
 });
 

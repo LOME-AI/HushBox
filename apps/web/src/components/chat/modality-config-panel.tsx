@@ -12,15 +12,23 @@ import {
 import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
 import { useMediaCostEstimate } from '@/hooks/use-media-cost-estimate';
+import { agreedOptions, snapToNearest } from '@/lib/multi-model-agreement';
 import type { Model } from '@hushbox/shared';
 
 interface TogglePillProps {
   label: string;
   isActive: boolean;
   onClick: () => void;
+  /** Tailwind width class; defaults to `w-28` for long labels (e.g., "720p $0.10/s"). */
+  widthClass?: string;
 }
 
-function TogglePill({ label, isActive, onClick }: Readonly<TogglePillProps>): React.JSX.Element {
+function TogglePill({
+  label,
+  isActive,
+  onClick,
+  widthClass = 'w-28',
+}: Readonly<TogglePillProps>): React.JSX.Element {
   return (
     <Button
       type="button"
@@ -28,27 +36,52 @@ function TogglePill({ label, isActive, onClick }: Readonly<TogglePillProps>): Re
       variant={isActive ? 'default' : 'outline'}
       aria-pressed={isActive}
       onClick={onClick}
-      className="w-28 whitespace-nowrap"
+      className={`${widthClass} whitespace-nowrap`}
     >
       {label}
     </Button>
   );
 }
 
+/**
+ * Intersect each selected model's supported aspect ratios. When the intersection
+ * is empty (no models selected, or no model declares the capability) fall back
+ * to the canonical list so the UX stays functional for unannotated catalogs.
+ * For today's ZDR set every Imagen model shares the same 5 ratios and every Veo
+ * shares the same 2, so the fallback is the common path.
+ */
+function aspectRatiosFor(
+  selectedModels: readonly { id: string }[],
+  catalog: readonly Model[] | undefined,
+  fallback: readonly string[]
+): readonly string[] {
+  const intersection = agreedOptions<Model, string>(
+    selectedModels,
+    catalog,
+    (model) => model.supportedAspectRatios
+  );
+  if (intersection.length === 0) return fallback;
+  return fallback.filter((r) => intersection.includes(r));
+}
+
 export function ImageAspectRatioControl(): React.JSX.Element {
   const aspectRatio = useModelStore((s) => s.imageConfig.aspectRatio);
   const setImageConfig = useModelStore((s) => s.setImageConfig);
+  const selectedModels = useModelStore((s) => s.selections.image);
+  const { data } = useModels();
+  const supportedRatios = aspectRatiosFor(selectedModels, data?.models, IMAGE_ASPECT_RATIOS);
 
   return (
     <fieldset className="flex flex-wrap gap-1.5 border-0 p-0">
       <legend className="sr-only">Aspect ratio</legend>
-      {IMAGE_ASPECT_RATIOS.map((ratio) => (
+      {supportedRatios.map((ratio) => (
         <TogglePill
           key={ratio}
           label={ratio}
           isActive={aspectRatio === ratio}
+          widthClass="w-14"
           onClick={() => {
-            setImageConfig({ aspectRatio: ratio });
+            setImageConfig({ aspectRatio: ratio as (typeof IMAGE_ASPECT_RATIOS)[number] });
           }}
         />
       ))}
@@ -59,17 +92,21 @@ export function ImageAspectRatioControl(): React.JSX.Element {
 export function VideoAspectRatioControl(): React.JSX.Element {
   const aspectRatio = useModelStore((s) => s.videoConfig.aspectRatio);
   const setVideoConfig = useModelStore((s) => s.setVideoConfig);
+  const selectedModels = useModelStore((s) => s.selections.video);
+  const { data } = useModels();
+  const supportedRatios = aspectRatiosFor(selectedModels, data?.models, VIDEO_ASPECT_RATIOS);
 
   return (
     <fieldset className="flex flex-wrap gap-1.5 border-0 p-0">
       <legend className="sr-only">Aspect ratio</legend>
-      {VIDEO_ASPECT_RATIOS.map((ratio) => (
+      {supportedRatios.map((ratio) => (
         <TogglePill
           key={ratio}
           label={ratio}
           isActive={aspectRatio === ratio}
+          widthClass="w-14"
           onClick={() => {
-            setVideoConfig({ aspectRatio: ratio });
+            setVideoConfig({ aspectRatio: ratio as (typeof VIDEO_ASPECT_RATIOS)[number] });
           }}
         />
       ))}
@@ -80,16 +117,23 @@ export function VideoAspectRatioControl(): React.JSX.Element {
 type SupportedResolution = (typeof VIDEO_RESOLUTIONS)[number];
 
 /**
- * Resolutions the primary selected video model supports, in canonical order.
- * Returns an empty list when no model is selected or the selected model has no
- * per-resolution pricing; the control then shows a hint instead of toggle buttons
- * so users don't see resolutions the backend will reject.
+ * Intersect each selected model's supported resolutions, falling back to the
+ * pricing-key view when a model doesn't declare `supportedVideoResolutions`
+ * explicitly. Keeps multi-model dispatches honest — the backend rejects any
+ * resolution that any selected model doesn't price, so the picker mirrors the
+ * intersection rather than the primary's view.
  */
-function supportedResolutionsFor(model: Model | undefined): readonly SupportedResolution[] {
-  if (!model) return [];
-  const keys = Object.keys(model.pricePerSecondByResolution);
-  if (keys.length === 0) return [];
-  return VIDEO_RESOLUTIONS.filter((r) => keys.includes(r));
+function videoResolutionsFor(
+  selectedModels: readonly { id: string }[],
+  catalog: readonly Model[] | undefined
+): readonly SupportedResolution[] {
+  const intersection = agreedOptions<Model, string>(selectedModels, catalog, (model) => {
+    if (model.supportedVideoResolutions !== undefined) return model.supportedVideoResolutions;
+    const keys = Object.keys(model.pricePerSecondByResolution);
+    if (keys.length === 0) return;
+    return keys;
+  });
+  return VIDEO_RESOLUTIONS.filter((r) => intersection.includes(r));
 }
 
 export function VideoResolutionControl(): React.JSX.Element {
@@ -97,8 +141,8 @@ export function VideoResolutionControl(): React.JSX.Element {
   const setVideoConfig = useModelStore((s) => s.setVideoConfig);
   const selectedModels = useModelStore((s) => s.selections.video);
   const { data } = useModels();
+  const supportedResolutions = videoResolutionsFor(selectedModels, data?.models);
   const primaryModel = data?.models.find((m) => m.id === selectedModels[0]?.id);
-  const supportedResolutions = supportedResolutionsFor(primaryModel);
   const priceByRes = primaryModel?.pricePerSecondByResolution ?? {};
 
   React.useEffect(() => {
@@ -138,21 +182,63 @@ export function VideoResolutionControl(): React.JSX.Element {
   );
 }
 
+/**
+ * Discrete duration set agreed across all selected video models, or
+ * `undefined` when no constraint can be derived (no model selected, or none
+ * declare `supportedVideoDurationsSeconds`). When undefined the slider falls
+ * back to the global MIN/MAX range with no snap, preserving legacy behavior.
+ */
+function videoDurationsFor(
+  selectedModels: readonly { id: string }[],
+  catalog: readonly Model[] | undefined
+): readonly number[] | undefined {
+  if (selectedModels.length === 0) return undefined;
+  const intersection = agreedOptions<Model, number>(
+    selectedModels,
+    catalog,
+    (model) => model.supportedVideoDurationsSeconds
+  );
+  return intersection.length === 0 ? undefined : intersection;
+}
+
 export function VideoDurationControl(): React.JSX.Element {
   const durationSeconds = useModelStore((s) => s.videoConfig.durationSeconds);
   const setVideoConfig = useModelStore((s) => s.setVideoConfig);
+  const selectedModels = useModelStore((s) => s.selections.video);
+  const { data } = useModels();
+  const supportedDurations = videoDurationsFor(selectedModels, data?.models);
+
+  const min = supportedDurations?.[0] ?? MIN_VIDEO_DURATION_SECONDS;
+  const max = supportedDurations?.at(-1) ?? MAX_VIDEO_DURATION_SECONDS;
+
+  // Snap onto the supported set when one exists so the user can't ship a
+  // duration value the backend would reject. Without a set, the slider runs
+  // freely between MIN/MAX_VIDEO_DURATION_SECONDS as before.
+  React.useEffect(() => {
+    if (supportedDurations === undefined) return;
+    if (supportedDurations.includes(durationSeconds)) return;
+    const snapped = snapToNearest(supportedDurations, durationSeconds);
+    if (snapped !== undefined && snapped !== durationSeconds) {
+      setVideoConfig({ durationSeconds: snapped });
+    }
+  }, [supportedDurations, durationSeconds, setVideoConfig]);
+
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    const raw = Number(event.target.value);
+    const value =
+      supportedDurations === undefined ? raw : (snapToNearest(supportedDurations, raw) ?? raw);
+    setVideoConfig({ durationSeconds: value });
+  };
 
   return (
     <div className="flex flex-1 items-center gap-2">
       <span className="text-muted-foreground text-xs">Duration</span>
       <input
         type="range"
-        min={MIN_VIDEO_DURATION_SECONDS}
-        max={MAX_VIDEO_DURATION_SECONDS}
+        min={min}
+        max={max}
         value={durationSeconds}
-        onChange={(e) => {
-          setVideoConfig({ durationSeconds: Number(e.target.value) });
-        }}
+        onChange={handleChange}
         aria-label="Video duration in seconds"
         aria-valuetext={`${String(durationSeconds)} seconds`}
         className="accent-primary h-1 flex-1"

@@ -2840,6 +2840,56 @@ describe('chat routes', () => {
           expect(data).toHaveProperty('modelId');
         }
       });
+
+      // Regression for the N² web-search over-reservation: web search is a
+      // per-request feature (one Perplexity call shared across all N models),
+      // not per-model. `buildCostManifest` multiplies the caller's
+      // `webSearchCost` by `modelCount` internally, so the caller MUST pass
+      // the per-request cost. Passing `worstCaseSearchCost() * models.length`
+      // (the pre-fix call site) inflated reservations by N² instead of N.
+      it('reserves web-search cost as N × base, not N² × base, for N selected models', async () => {
+        vi.useRealTimers();
+        const { worstCaseSearchCost } = await import('@hushbox/shared');
+
+        stubMultiModels(fetchMock);
+        const redisWithSearch = createMockRedis();
+        const appWithSearch = createTestApp(undefined, redisWithSearch);
+        const resWithSearch = await appWithSearch.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            models: ['openai/gpt-5', SECOND_MODEL_ID],
+            webSearchEnabled: true,
+          }),
+        });
+        await resWithSearch.text();
+
+        stubMultiModels(fetchMock);
+        const redisWithoutSearch = createMockRedis();
+        const appWithoutSearch = createTestApp(undefined, redisWithoutSearch);
+        const resWithoutSearch = await appWithoutSearch.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            models: ['openai/gpt-5', SECOND_MODEL_ID],
+            webSearchEnabled: false,
+          }),
+        });
+        await resWithoutSearch.text();
+
+        // redis.eval call shape: (script, [key], [incrementStr, ttlStr])
+        const withSearchReservation = Number(redisWithSearch.eval.mock.calls[0]?.[2]?.[0]);
+        const withoutSearchReservation = Number(redisWithoutSearch.eval.mock.calls[0]?.[2]?.[0]);
+        const searchDeltaCents = withSearchReservation - withoutSearchReservation;
+
+        // Expected: 2 models × base search cost (in cents).
+        const expectedDeltaCents = 2 * worstCaseSearchCost() * 100;
+        expect(searchDeltaCents).toBeCloseTo(expectedDeltaCents, 5);
+
+        // Regression guard: must NOT be 4× base (the N² bug).
+        const buggyDeltaCents = 4 * worstCaseSearchCost() * 100;
+        expect(searchDeltaCents).not.toBeCloseTo(buggyDeltaCents, 5);
+      });
     });
 
     describe('image modality', () => {
@@ -3073,6 +3123,31 @@ describe('chat routes', () => {
         expect(body.code).toBe('MODALITY_MISMATCH');
         const invalidModels = body.details?.['invalidModels'] as string[] | undefined;
         expect(invalidModels).toContain(TEXT_MODEL_ID);
+      });
+
+      it('returns 400 UNSUPPORTED_DURATION when the duration is not in the model supported set', async () => {
+        vi.useRealTimers();
+        const app = createTestApp();
+
+        // Veo 3.1 supports {4, 6, 8}. `5` is in the legacy 1-8 range but not in
+        // the discrete set — the request should reject before reaching the
+        // gateway so the user sees a clear error instead of a silent clamp.
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: [VIDEO_MODEL_ID],
+            videoConfig: { aspectRatio: '16:9', durationSeconds: 5, resolution: '720p' },
+          }),
+        });
+
+        expect(res.status).toBe(400);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('UNSUPPORTED_DURATION');
+        expect(body.details?.['durationSeconds']).toBe(5);
+        const invalidModels = body.details?.['invalidModels'] as string[] | undefined;
+        expect(invalidModels).toContain(VIDEO_MODEL_ID);
       });
 
       it('returns 400 UNSUPPORTED_RESOLUTION when the selected model does not price the requested resolution', async () => {

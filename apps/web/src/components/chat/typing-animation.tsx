@@ -10,6 +10,14 @@ interface TypingAnimationProps {
   deletionSpeed?: number;
   className?: string;
   loop?: boolean;
+  /**
+   * When true, the initial render shows the full `text` immediately with no
+   * typewriter animation. Subsequent `text` prop changes still trigger the
+   * delete-then-retype animation. Use this for pieces that load already
+   * "settled" (e.g. suggestion pills) but should animate on later changes
+   * (modality switches).
+   */
+  skipInitialTyping?: boolean;
   onComplete?: () => void;
   onDeleteComplete?: () => void;
   onStateChange?: (state: TypingState) => void;
@@ -21,14 +29,16 @@ export function TypingAnimation({
   deletionSpeed = 45,
   className,
   loop = true,
+  skipInitialTyping = false,
   onComplete,
   onDeleteComplete,
   onStateChange,
 }: Readonly<TypingAnimationProps>): React.JSX.Element {
   const reducedMotion = useReducedMotion();
-  const [displayText, setDisplayText] = React.useState(reducedMotion ? text : '');
+  const startSettled = reducedMotion || skipInitialTyping;
+  const [displayText, setDisplayText] = React.useState(startSettled ? text : '');
   const [state, setStateRaw] = React.useState<TypingState>(() => {
-    if (reducedMotion) return 'idle';
+    if (startSettled) return 'idle';
     return text.length > 0 ? 'typing' : 'idle';
   });
 
@@ -55,11 +65,11 @@ export function TypingAnimation({
   React.useEffect(() => {
     if (didMountRef.current) return;
     didMountRef.current = true;
-    if (reducedMotion) return;
+    if (startSettled) return;
     if (text.length > 0) {
       onStateChangeRef.current?.('typing');
     }
-  }, [reducedMotion, text]);
+  }, [startSettled, text]);
 
   // Latest displayText accessible from the text-change effect without re-running it
   // each character. We need to read displayText here to decide between typing/deleting
@@ -123,11 +133,11 @@ export function TypingAnimation({
 
   return (
     <span data-testid="typing-animation" className={cn('relative inline-block', className)}>
-      {/* Full text reserves layout space — prevents CLS as characters appear */}
-      <span className="invisible select-none" aria-hidden="true">
-        {text}
-      </span>
-      <span data-testid="typed-text" className="absolute top-0 left-0">
+      {/* Full text reserves layout space *and* is the accessible name — screen
+          readers announce the complete string immediately rather than the
+          partial typed letters as they appear. */}
+      <span className="invisible select-none">{text}</span>
+      <span data-testid="typed-text" aria-hidden="true" className="absolute top-0 left-0">
         {displayText}
         {showCursor && (
           <motion.span

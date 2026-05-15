@@ -220,7 +220,7 @@ describe('ChatWelcome', () => {
       wrapper: createWrapper(),
     });
 
-    const codeChip = screen.getByText(/help me write code/i);
+    const codeChip = screen.getByRole('button', { name: /help me write code/i });
     await user.click(codeChip);
 
     const textarea = screen.getByRole('textbox');

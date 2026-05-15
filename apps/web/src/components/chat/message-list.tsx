@@ -237,6 +237,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         role="log"
         aria-label="Chat messages"
         data-testid="message-list-empty"
+        data-message-count={0}
+        data-decrypted-count={0}
         className="flex flex-1 items-center justify-center"
       >
         <p className="text-muted-foreground">No messages yet</p>
@@ -293,6 +295,10 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
 
   const assistantCount = messages.filter((m) => m.role === 'assistant').length;
   const costCount = messages.filter((m) => m.cost != null).length;
+  // `useDecryptedMessages` writes a sentinel content prefix when the wrap-
+  // once envelope can't be opened; exclude those so the count reflects
+  // text-ready messages.
+  const decryptedCount = messages.filter((m) => !m.content.startsWith('[decryption failed')).length;
 
   return (
     <div
@@ -302,6 +308,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       data-assistant-count={assistantCount}
       data-cost-count={costCount}
       data-message-count={messages.length}
+      data-decrypted-count={decryptedCount}
       data-rows-count={rows.length}
       data-virtuoso-scrolling={String(isVirtuosoScrolling)}
       className="h-full min-h-0 flex-1"

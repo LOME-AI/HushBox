@@ -213,6 +213,29 @@ export function pruneMessagesAfterTarget(
   setLocalMessages((previous) => previous.filter((m) => idsToKeep.has(m.id)));
 }
 
+/**
+ * Pick the model id to use when regenerating a specific assistant message.
+ *
+ * Multi-model sends spawn one assistant tile per selected model, each tagged
+ * with its `modelName`. Retry on a failed tile must re-run that *same* model,
+ * not the current primary — otherwise a user who clicks retry on a Claude
+ * failure ends up regenerating with GPT (the first model in the selection).
+ *
+ * Falls back to `fallbackModelId` (current primary) for non-assistant targets,
+ * missing messages, or messages without a recorded modelName (older rows
+ * before the multi-model write path tagged them).
+ */
+export function resolveRegenerateModelId(
+  targetMessageId: string,
+  allMessages: readonly Message[],
+  fallbackModelId: string
+): string {
+  const target = allMessages.find((m) => m.id === targetMessageId);
+  if (target?.role !== 'assistant') return fallbackModelId;
+  if (target.modelName == null || target.modelName === '') return fallbackModelId;
+  return target.modelName;
+}
+
 interface ChatError {
   id: string;
   content: string;
@@ -1137,13 +1160,18 @@ export function useAuthenticatedChat({
       }
 
       const modality = inferRegenerateModality(targetMessageId, allMsgs);
+      const regenerateModelId = resolveRegenerateModelId(
+        targetMessageId,
+        allMsgs,
+        getPrimaryModel(selectedModels).id
+      );
 
       const request: RegenerateStreamRequest = {
         conversationId: realConversationId,
         targetMessageId,
         action,
         modality,
-        model: getPrimaryModel(selectedModels).id,
+        model: regenerateModelId,
         userMessage: { id: userMessageId, content: userContent },
         messagesForInference,
         fundingSource: 'personal_balance',
@@ -1157,7 +1185,7 @@ export function useAuthenticatedChat({
       const assistantMsg = createAssistantMessage(
         realConversationId,
         assistantMsgId,
-        getPrimaryModel(selectedModels).id,
+        regenerateModelId,
         targetMessageId
       );
       addOptimisticMessage(assistantMsg);

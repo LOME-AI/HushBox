@@ -223,6 +223,31 @@ export const modelSchema = z
 
     /** Maximum output price per token across the Smart Model's pool (for price range display) */
     maxPricePerOutputToken: z.number().nonnegative().optional(),
+
+    /**
+     * Aspect ratios this model accepts (e.g., `['1:1', '16:9']` for images,
+     * `['16:9', '9:16']` for Veo videos). Populated per-modality from
+     * provider-side capability data — the public gateway catalog doesn't
+     * expose this consistently, so values are pinned in `process-models.ts`
+     * against each ZDR-allowlisted provider's docs.
+     */
+    supportedAspectRatios: z.array(z.string()).optional(),
+
+    /**
+     * Video resolutions this model accepts (e.g., `['720p', '1080p']` for
+     * Veo 3.0, `['720p', '1080p', '4k']` for Veo 3.1). Distinct from
+     * `pricePerSecondByResolution` keys because some entries are
+     * billing-only (a price exists but the SDK rejects the value) or vice
+     * versa. Set explicitly so the UI can compute multi-model agreement.
+     */
+    supportedVideoResolutions: z.array(z.string()).optional(),
+
+    /**
+     * Discrete supported video durations in seconds (e.g., `[4, 6, 8]` for
+     * Veo 3.1, `[5, 6, 7, 8]` for Veo 3.0). Non-uniform sets — the UI's
+     * snap-to-nearest slider reads this list directly.
+     */
+    supportedVideoDurationsSeconds: z.array(z.number().int().positive()).optional(),
   })
   .refine((model) => (model.modality === 'text' ? model.contextLength > 0 : true), {
     message: 'Text models must have a positive contextLength',

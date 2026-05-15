@@ -15,13 +15,14 @@ import {
   ERROR_CODE_MODALITY_MISMATCH,
   ERROR_CODE_MODEL_TIER_LOCKED,
   ERROR_CODE_UNSUPPORTED_RESOLUTION,
+  ERROR_CODE_UNSUPPORTED_DURATION,
   ERROR_CODE_AUDIO_DISABLED,
   ERROR_CODE_DUPLICATE_MESSAGE,
   ERROR_CODE_FORK_TIP_CONFLICT,
   FEATURE_FLAGS,
   assertNever,
 } from '@hushbox/shared';
-import { processModels, type Modality } from '@hushbox/shared/models';
+import { processModels, getSupportedVideoDurations, type Modality } from '@hushbox/shared/models';
 import { createEvent } from '@hushbox/realtime/events';
 import { validateLastMessageIsFromUser, saveUserOnlyMessage } from '../services/chat/index.js';
 import { canRegenerate } from '../services/chat/regeneration-guard.js';
@@ -372,7 +373,12 @@ async function handleVideoStreamRequest(input: VideoBranchInput): Promise<Respon
   const { memberContext, billingUserId, clientFundingSource, billingResult } = input.billingContext;
   return runMediaBranch({
     input,
-    lookup: await lookupVideoBranch(input.c, input.models, input.videoConfig.resolution),
+    lookup: await lookupVideoBranch(
+      input.c,
+      input.models,
+      input.videoConfig.resolution,
+      input.videoConfig.durationSeconds
+    ),
     reserveBilling: async (perSecondByModel) =>
       resolveAndReserveVideoBilling(input.c, {
         billingResult,
@@ -405,7 +411,8 @@ async function handleVideoStreamRequest(input: VideoBranchInput): Promise<Respon
 async function lookupVideoBranch(
   c: Context<AppEnv>,
   models: string[],
-  resolution: string
+  resolution: string,
+  durationSeconds: number
 ): Promise<LookupResult<Map<string, number>>> {
   const { perModelByModel, mismatches, notFound, unsupportedResolutions } = await lookupMediaModels(
     c.get('aiClient'),
@@ -426,6 +433,28 @@ async function lookupVideoBranch(
       ),
     };
   }
+
+  // Per-model discrete-duration check. Models without declared capability
+  // data (`undefined` from the lookup) are allowed through — they're newer
+  // entries the catalog hasn't pinned yet; the gateway is then the
+  // authoritative gate. Veo entries always have data so this matches today.
+  const invalidDurationModels = models.filter((id) => {
+    const supported = getSupportedVideoDurations(id);
+    return supported !== undefined && !supported.includes(durationSeconds);
+  });
+  if (invalidDurationModels.length > 0) {
+    return {
+      ok: false,
+      response: c.json(
+        createErrorResponse(ERROR_CODE_UNSUPPORTED_DURATION, {
+          invalidModels: invalidDurationModels,
+          durationSeconds,
+        }),
+        400
+      ),
+    };
+  }
+
   return { ok: true, perModel: perModelByModel };
 }
 

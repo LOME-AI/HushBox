@@ -4,7 +4,7 @@
  * Handles filtering, classification, and transformation of AI Gateway models.
  */
 
-import { SMART_MODEL_ID } from '../constants.js';
+import { SMART_MODEL_ID, IMAGE_ASPECT_RATIOS } from '../constants.js';
 import { parseTokenPrice } from '../pricing.js';
 
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
@@ -14,6 +14,62 @@ import { isZdrModel } from './zdr.js';
 import type { Model } from '../schemas/api/models.js';
 
 import type { Modality, RawModel, ProcessedModels } from './types.js';
+
+interface VideoCapability {
+  readonly aspectRatios: readonly string[];
+  readonly resolutions: readonly string[];
+  readonly durationsSeconds: readonly number[];
+}
+
+/**
+ * Provider-side capability data — these axes aren't exposed in the public
+ * `/v1/models` catalog (or are exposed inconsistently across providers), so
+ * we pin them per model against the provider's own documentation. Adding a
+ * new ZDR-allowlisted media model means appending an entry here.
+ *
+ * Veo 3.1 supports `[4, 6, 8]s` and 4K; Veo 3.0 supports `[5, 6, 7, 8]s`
+ * and only 720p/1080p (no 4K). Veo 3.1 reference-image variants are 8-only
+ * but we don't surface that mode today.
+ */
+const VEO_CAPABILITY: Record<string, VideoCapability> = {
+  'google/veo-3.0-generate-001': {
+    aspectRatios: ['16:9', '9:16'],
+    resolutions: ['720p', '1080p'],
+    durationsSeconds: [5, 6, 7, 8],
+  },
+  'google/veo-3.0-fast-generate-001': {
+    aspectRatios: ['16:9', '9:16'],
+    resolutions: ['720p', '1080p'],
+    durationsSeconds: [5, 6, 7, 8],
+  },
+  'google/veo-3.1-generate-001': {
+    aspectRatios: ['16:9', '9:16'],
+    resolutions: ['720p', '1080p', '4k'],
+    durationsSeconds: [4, 6, 8],
+  },
+  'google/veo-3.1-fast-generate-001': {
+    aspectRatios: ['16:9', '9:16'],
+    resolutions: ['720p', '1080p', '4k'],
+    durationsSeconds: [4, 6, 8],
+  },
+};
+
+const IMAGEN_MODEL_IDS: ReadonlySet<string> = new Set([
+  'google/imagen-4.0-generate-001',
+  'google/imagen-4.0-fast-generate-001',
+  'google/imagen-4.0-ultra-generate-001',
+]);
+
+/**
+ * Discrete supported video durations for a given model id, or `undefined` if
+ * the model has no declared capability data. The route layer uses this to
+ * reject requests whose duration isn't in the supported set BEFORE reaching
+ * the gateway — the slider's snap is the happy-path guard, this is the
+ * server-side enforcement against persisted or tampered values.
+ */
+export function getSupportedVideoDurations(modelId: string): readonly number[] | undefined {
+  return VEO_CAPABILITY[modelId]?.durationsSeconds;
+}
 
 /** Percentile threshold for top context (0.95 = top 5%) */
 const TOP_CONTEXT_PERCENTILE = 0.95;
@@ -177,6 +233,12 @@ function buildSmartModelEntry(pool: RawModel[]): Model {
 function transformImage(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
   const perImageRaw = model.pricing.per_image;
+  // Imagen models accept the full 5-ratio set; for now no other ZDR image
+  // provider ships, so this branches on Imagen alone. Future image providers
+  // get their own entry next to `IMAGEN_MODEL_IDS`.
+  const supportedAspectRatios = IMAGEN_MODEL_IDS.has(model.id)
+    ? [...IMAGE_ASPECT_RATIOS]
+    : undefined;
   return {
     id: model.id,
     name: displayName,
@@ -192,6 +254,7 @@ function transformImage(model: RawModel): Model {
     capabilities: [],
     supportedParameters: model.supported_parameters,
     created: model.created,
+    ...(supportedAspectRatios !== undefined && { supportedAspectRatios }),
   };
 }
 
@@ -219,6 +282,10 @@ function transformVideo(model: RawModel): Model {
   const pricePerSecondByResolution = Object.fromEntries(
     Object.entries(rawByResolution).map(([res, price]) => [res, parseTokenPrice(price)])
   );
+  // Per-Veo-version capability — durations and resolutions are non-overlapping
+  // across 3.0 vs 3.1. Models not in the lookup omit the fields entirely so
+  // the UI's agreement helper falls back to the price-key derived view.
+  const veoCapability = VEO_CAPABILITY[model.id];
   return {
     id: model.id,
     name: displayName,
@@ -234,6 +301,11 @@ function transformVideo(model: RawModel): Model {
     capabilities: [],
     supportedParameters: model.supported_parameters,
     created: model.created,
+    ...(veoCapability !== undefined && {
+      supportedAspectRatios: [...veoCapability.aspectRatios],
+      supportedVideoResolutions: [...veoCapability.resolutions],
+      supportedVideoDurationsSeconds: [...veoCapability.durationsSeconds],
+    }),
   };
 }
 

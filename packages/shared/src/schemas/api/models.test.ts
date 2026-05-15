@@ -56,6 +56,52 @@ describe('modelSchema', () => {
     }
   });
 
+  it('preserves optional per-model capability sets when provided', () => {
+    const veo31 = {
+      id: 'google/veo-3.1-generate-001',
+      name: 'Veo 3.1',
+      provider: 'Google',
+      modality: 'video',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.4, '4k': 0.6 },
+      capabilities: [],
+      description: 'Veo 3.1',
+      supportedAspectRatios: ['16:9', '9:16'],
+      supportedVideoResolutions: ['720p', '1080p', '4k'],
+      supportedVideoDurationsSeconds: [4, 6, 8],
+    };
+    const result = modelSchema.safeParse(veo31);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.supportedAspectRatios).toEqual(['16:9', '9:16']);
+      expect(result.data.supportedVideoResolutions).toEqual(['720p', '1080p', '4k']);
+      expect(result.data.supportedVideoDurationsSeconds).toEqual([4, 6, 8]);
+    }
+  });
+
+  it('omits the capability fields when not declared (default-undefined)', () => {
+    const minimal = {
+      id: 'openai/gpt-5',
+      name: 'GPT-5',
+      provider: 'OpenAI',
+      contextLength: 128_000,
+      pricePerInputToken: 0.000_01,
+      pricePerOutputToken: 0.000_03,
+      capabilities: [],
+      description: 'Test model.',
+    };
+    const result = modelSchema.safeParse(minimal);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.supportedAspectRatios).toBeUndefined();
+      expect(result.data.supportedVideoResolutions).toBeUndefined();
+      expect(result.data.supportedVideoDurationsSeconds).toBeUndefined();
+    }
+  });
+
   it('defaults pricePerSecondByResolution to empty object when absent', () => {
     const imageModel = {
       id: 'google/imagen-4.0-generate-001',

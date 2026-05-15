@@ -1,8 +1,22 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
 import { requireEnv } from '../helpers/env.js';
+import { BudgetHelper } from '../helpers/budget.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
+
+/** Sum the dollar values shown in the per-message cost badges, in cents. */
+async function sumDisplayedMessageCostCents(chatPage: ChatPage): Promise<number> {
+  const costElements = chatPage.messageList.locator('[data-testid="message-cost"]');
+  const count = await costElements.count();
+  let totalCents = 0;
+  for (let index = 0; index < count; index++) {
+    const text = (await costElements.nth(index).textContent()) ?? '';
+    const match = /\$?([\d.]+)/.exec(text);
+    if (match) totalCents += Math.round(Number.parseFloat(match[1] ?? '0') * 100);
+  }
+  return totalCents;
+}
 
 test.describe('Multi-Model Chat', () => {
   test.describe('Model Selection', () => {
@@ -250,6 +264,83 @@ test.describe('Multi-Model Chat', () => {
         });
       });
     });
+
+    // 10.2 — balance debit equals the sum of displayed per-message costs for N
+    // models. Catches reservation/charge skew at the wallet boundary, not just
+    // at the API.
+    test('wallet debit equals the sum of per-model displayed costs for N=2', async ({
+      authenticatedPage,
+    }) => {
+      test.slow();
+      const chatPage = new ChatPage(authenticatedPage);
+      const budgetHelper = new BudgetHelper(authenticatedPage.request);
+
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+      await chatPage.selectModels(2);
+
+      const beforeData = await budgetHelper.getBalance();
+      const balanceBefore = Number.parseFloat(beforeData.balance);
+
+      const msg = `Wallet debit ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(msg);
+      await chatPage.waitForConversation();
+      await chatPage.waitForStreamComplete(20_000);
+      await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+        timeout: 20_000,
+      });
+
+      const afterData = await budgetHelper.getBalance();
+      const balanceAfter = Number.parseFloat(afterData.balance);
+      const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
+      const displayedCents = await sumDisplayedMessageCostCents(chatPage);
+
+      // Allow a 1-cent rounding window in either direction — billing snaps to
+      // cents but the UI shows up to 3 decimal places of dollars.
+      expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
+    });
+
+    // 10.1 — web-search × multi-model reservation: regression for the N² bug
+    // (stream-pipeline.ts:581). Pre-fix the debit included N² × search cost;
+    // post-fix it tracks the displayed (correct) sum.
+    test('wallet debit matches displayed cost when web search runs with N=2 models', async ({
+      authenticatedPage,
+    }) => {
+      test.slow();
+      const chatPage = new ChatPage(authenticatedPage);
+      const budgetHelper = new BudgetHelper(authenticatedPage.request);
+
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+      await chatPage.selectModels(2);
+
+      // Flip web search on via the toolbar toggle.
+      const searchToggle = authenticatedPage.getByRole('button', {
+        name: /Turn on internet search/i,
+      });
+      await searchToggle.click();
+      await expect(
+        authenticatedPage.getByRole('button', { name: /Turn off internet search/i })
+      ).toBeVisible();
+
+      const beforeData = await budgetHelper.getBalance();
+      const balanceBefore = Number.parseFloat(beforeData.balance);
+
+      const msg = `Search debit ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(msg);
+      await chatPage.waitForConversation();
+      await chatPage.waitForStreamComplete(30_000);
+      await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+        timeout: 20_000,
+      });
+
+      const afterData = await budgetHelper.getBalance();
+      const balanceAfter = Number.parseFloat(afterData.balance);
+      const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
+      const displayedCents = await sumDisplayedMessageCostCents(chatPage);
+
+      expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
+    });
   });
 
   test.describe('Multi-Model on Fork', () => {
@@ -402,6 +493,44 @@ test.describe('Multi-Model Chat', () => {
         expect(failedItems.length).toBe(0);
 
         await expect(chatPage.messageInput).toBeVisible();
+      } finally {
+        await authenticatedPage.setExtraHTTPHeaders({});
+      }
+    });
+
+    // 10.3 — partial-failure releases the failed slot's reservation: the user
+    // is charged only for the successful model's actual cost, not for the
+    // worst-case pre-reservation of the failing slot.
+    test('wallet debit excludes the failed model on partial failure', async ({
+      authenticatedPage,
+    }) => {
+      test.slow();
+      const chatPage = new ChatPage(authenticatedPage);
+      const budgetHelper = new BudgetHelper(authenticatedPage.request);
+
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+
+      const { failModelId } = await chatPage.selectModelsWithFailTarget();
+      await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModelId });
+      try {
+        const beforeData = await budgetHelper.getBalance();
+        const balanceBefore = Number.parseFloat(beforeData.balance);
+        await chatPage.sendNewChatMessage(`Refund test ${String(Date.now())}`);
+        await chatPage.waitForConversation();
+        await chatPage.waitForStreamComplete(30_000);
+
+        const errorTile = authenticatedPage.getByTestId('model-error-message');
+        await unsettledExpect(errorTile).toBeVisible({ timeout: 10_000 });
+
+        const afterData = await budgetHelper.getBalance();
+        const balanceAfter = Number.parseFloat(afterData.balance);
+        const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
+        // Only the successful response has a cost badge — the failed tile
+        // emits an error-message instead of a cost row.
+        const displayedCents = await sumDisplayedMessageCostCents(chatPage);
+
+        expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
       } finally {
         await authenticatedPage.setExtraHTTPHeaders({});
       }

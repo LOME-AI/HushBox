@@ -70,13 +70,16 @@ function computeContainerClasses(
   isGroupedUser: boolean,
   ownMessage: boolean
 ): string {
+  // Bottom padding reserves space for the absolute-positioned action button
+  // row (`translate-y-full` from the bubble) so the row's measured height
+  // includes the buttons and the next item doesn't overlap them.
   if (!isUser) {
-    return cn('pt-1.5 pb-3', 'w-full px-4 pb-7');
+    return cn('pt-1.5 pb-8', 'w-full px-4');
   }
   if (isGroupedUser && !ownMessage) {
-    return cn('pt-1.5 pb-3', 'mr-auto ml-4 w-fit max-w-[82%]');
+    return cn('pt-1.5 pb-8', 'mr-auto ml-4 w-fit max-w-[82%]');
   }
-  return cn('pt-1.5 pb-3', 'mr-4 ml-auto w-fit max-w-[82%]');
+  return cn('pt-1.5 pb-8', 'mr-4 ml-auto w-fit max-w-[82%]');
 }
 
 function computeBubbleClasses(
@@ -110,7 +113,7 @@ function TooltipIconButton({
         <Button
           variant="ghost"
           size="icon"
-          className="h-11 w-11 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 md:h-8 md:w-8"
+          className="h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
           onClick={onClick}
           aria-label={label}
         >

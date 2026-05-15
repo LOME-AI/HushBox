@@ -207,6 +207,31 @@ describe('buildEligibleModels', () => {
     expect(result?.eligibleInferenceIds).toEqual(['only/c']);
   });
 
+  it('agrees with resolveBilling: free-tier user with 5¢ free allowance gets an eligible cheap model', () => {
+    // resolveBilling step-4 approves the request when the free allowance
+    // covers the cheapest model's minimum cost; eligibility must produce
+    // at least that model so the two paths agree.
+    const models = [
+      makeTextModel({
+        id: 'cheap/haiku-like',
+        name: 'Haiku-like',
+        // Cheapest tier in the real catalog: ~$0.25/M input, $1.25/M output.
+        pricePerInputToken: 0.000_000_25,
+        pricePerOutputToken: 0.000_001_25,
+      }),
+    ];
+    const result = buildEligibleModels({
+      textModels: models,
+      premiumIds: new Set(),
+      payerTier: 'free',
+      payerBalanceCents: 0,
+      payerFreeAllowanceCents: 5,
+      promptCharacterCount: 200,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.eligibleInferenceIds).toContain('cheap/haiku-like');
+  });
+
   it('reports a positive classifier worst-case cents', () => {
     const result = buildEligibleModels({
       textModels: [

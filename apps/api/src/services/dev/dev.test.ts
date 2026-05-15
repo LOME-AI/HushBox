@@ -288,16 +288,19 @@ describe('dev service', () => {
       };
     });
 
-    it('deletes usage rate limit keys across all three per-user prefixes', async () => {
+    it('deletes usage rate limit keys plus reservation buckets across every cleared prefix', async () => {
       mockRedis.scan
         .mockResolvedValueOnce(['0', ['chat:stream:user:ratelimit:alice']]) // chat stream
         .mockResolvedValueOnce(['0', ['media:download:user:ratelimit:bob']]) // media download
-        .mockResolvedValueOnce(['0', ['share:create:user:ratelimit:carol']]); // share create
+        .mockResolvedValueOnce(['0', ['share:create:user:ratelimit:carol']]) // share create
+        .mockResolvedValueOnce(['0', ['chat:reserved:alice']]) // personal reservation
+        .mockResolvedValueOnce(['0', ['chat:group-reserved:conv-1:member-1']]) // group member
+        .mockResolvedValueOnce(['0', ['chat:conversation-reserved:conv-1']]); // group conversation
 
       const result = await resetUsageRateLimits(mockRedis as never);
 
-      expect(result).toEqual({ deleted: 3 });
-      expect(mockRedis.del).toHaveBeenCalledTimes(3);
+      expect(result).toEqual({ deleted: 6 });
+      expect(mockRedis.del).toHaveBeenCalledTimes(6);
     });
 
     it('returns zero when no usage rate limit keys exist', async () => {
@@ -331,6 +334,19 @@ describe('dev service', () => {
 
       expect(result).toEqual({ deleted: 2 });
       expect(mockRedis.del).toHaveBeenCalledTimes(2);
+    });
+
+    it('clears speculative reservation buckets so a fresh setWalletBalance reflects the actual available balance', async () => {
+      mockRedis.scan.mockResolvedValue(['0', []]);
+
+      await resetUsageRateLimits(mockRedis as never);
+
+      const matchedPatterns = mockRedis.scan.mock.calls.map(
+        (call: unknown[]) => (call[1] as { match: string }).match
+      );
+      expect(matchedPatterns).toContain('chat:reserved:*');
+      expect(matchedPatterns).toContain('chat:group-reserved:*');
+      expect(matchedPatterns).toContain('chat:conversation-reserved:*');
     });
   });
 

@@ -1,11 +1,12 @@
 import * as React from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { Dices } from 'lucide-react';
-import { cn, useReducedMotion } from '@hushbox/ui';
-import { Button } from '@hushbox/ui';
+import { Dices, type LucideIcon } from 'lucide-react';
+import { Button, cn } from '@hushbox/ui';
 import { getSecureRandomIndex } from '@hushbox/shared';
-import { getSuggestionsForModality, type PromptSuggestion } from '@/lib/prompt-suggestions';
+import { getSuggestionsForModality } from '@/lib/prompt-suggestions';
 import { useModelStore } from '@/stores/model';
+import { IconMorph } from '@/components/shared/icon-morph';
+import { MorphWidth } from '@/components/shared/morph-width';
+import { TypingAnimation } from './typing-animation';
 
 interface SuggestionChipsProps {
   onSelect: (prompt: string) => void;
@@ -13,71 +14,45 @@ interface SuggestionChipsProps {
   className?: string;
 }
 
-interface ChipContentProps {
-  suggestions: readonly PromptSuggestion[];
-  onSelect: (prompt: string) => void;
-  showSurpriseMe: boolean;
-  onSurpriseMe: () => void;
-  reducedMotion: boolean;
+interface SlotData {
+  iconKey: string;
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+  variant: 'outline' | 'secondary';
 }
 
-function ChipContent({
-  suggestions,
-  onSelect,
-  showSurpriseMe,
-  onSurpriseMe,
-  reducedMotion,
-}: Readonly<ChipContentProps>): React.JSX.Element {
+interface ChipSlotProps {
+  index: number;
+  slot: SlotData;
+}
+
+function ChipSlot({ index, slot }: Readonly<ChipSlotProps>): React.JSX.Element {
   return (
-    <>
-      {suggestions.map((suggestion, index) => {
-        const Icon = suggestion.icon;
-        const button = (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const randomIndex = getSecureRandomIndex(suggestion.prompts.length);
-              const prompt = suggestion.prompts[randomIndex];
-              if (prompt) {
-                onSelect(prompt);
-              }
-            }}
-            className="gap-2 rounded-full"
-          >
-            <Icon className="h-4 w-4" aria-hidden="true" />
-            {suggestion.label}
-          </Button>
-        );
-
-        if (reducedMotion) {
-          return <div key={suggestion.id}>{button}</div>;
-        }
-        return (
-          <motion.div
-            key={suggestion.id}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: index * 0.03, duration: 0.2 }}
-          >
-            {button}
-          </motion.div>
-        );
-      })}
-
-      {showSurpriseMe && (
-        <Button variant="secondary" size="sm" onClick={onSurpriseMe} className="gap-2 rounded-full">
-          <Dices className="h-4 w-4" aria-hidden="true" />
-          Surprise Me
-        </Button>
-      )}
-    </>
+    <Button
+      variant={slot.variant}
+      size="sm"
+      onClick={slot.onClick}
+      className="gap-2 rounded-full"
+      data-testid={`suggestion-slot-${String(index)}`}
+      aria-label={slot.label}
+    >
+      <IconMorph icon={slot.icon} iconKey={slot.iconKey} data-testid="icon-morph" />
+      <MorphWidth duration={0.7} data-testid="morph-width">
+        <TypingAnimation text={slot.label} loop={false} skipInitialTyping />
+      </MorphWidth>
+    </Button>
   );
 }
 
 /**
- * Chip-style buttons for quick prompt suggestions.
- * Used on the new chat page to help users get started.
+ * Chip-style quick-prompt buttons rendered below the new-chat input.
+ *
+ * Slot positions are stable across modality switches: when the active modality
+ * changes, the same five button DOM nodes persist; only their inner icon
+ * (via [[IconMorph]]) and label (via [[TypingAnimation]]) cross-fade and
+ * type-and-delete into the new content. The outer container does not wrap the
+ * row in AnimatePresence, so the buttons themselves never unmount and remount.
  */
 export function SuggestionChips({
   onSelect,
@@ -85,51 +60,77 @@ export function SuggestionChips({
   className,
 }: Readonly<SuggestionChipsProps>): React.JSX.Element {
   const activeModality = useModelStore((state) => state.activeModality);
-  const reducedMotion = useReducedMotion();
   const suggestions = getSuggestionsForModality(activeModality);
 
-  const handleSurpriseMe = (): void => {
+  const handleCategoryClick = React.useCallback(
+    (prompts: readonly string[]) => {
+      if (prompts.length === 0) return;
+      const index = getSecureRandomIndex(prompts.length);
+      const prompt = prompts[index];
+      if (prompt) onSelect(prompt);
+    },
+    [onSelect]
+  );
+
+  const handleSurpriseMe = React.useCallback(() => {
     const pool = suggestions.flatMap((s) => s.prompts);
     if (pool.length === 0) return;
-    const randomIndex = getSecureRandomIndex(pool.length);
-    const prompt = pool[randomIndex];
-    if (prompt) {
-      onSelect(prompt);
+    const index = getSecureRandomIndex(pool.length);
+    const prompt = pool[index];
+    if (prompt) onSelect(prompt);
+  }, [suggestions, onSelect]);
+
+  const slots: SlotData[] = React.useMemo(() => {
+    const built: SlotData[] = suggestions.map((s) => ({
+      iconKey: s.id,
+      icon: s.icon,
+      label: s.label,
+      onClick: () => {
+        handleCategoryClick(s.prompts);
+      },
+      variant: 'outline' as const,
+    }));
+    if (showSurpriseMe) {
+      built.push({
+        iconKey: 'surprise-me',
+        icon: Dices,
+        label: 'Surprise Me',
+        onClick: handleSurpriseMe,
+        variant: 'secondary' as const,
+      });
     }
-  };
+    return built;
+  }, [suggestions, showSurpriseMe, handleCategoryClick, handleSurpriseMe]);
+
+  const firstRowSlots = slots.slice(0, 3);
+  const secondRowSlots = slots.slice(3);
 
   return (
     <div
       data-testid="suggestion-chips"
-      className={cn('flex flex-wrap items-center justify-center gap-2', className)}
+      className={cn('flex flex-col items-center gap-2', className)}
     >
-      {reducedMotion ? (
-        <ChipContent
-          suggestions={suggestions}
-          onSelect={onSelect}
-          showSurpriseMe={showSurpriseMe}
-          onSurpriseMe={handleSurpriseMe}
-          reducedMotion
-        />
-      ) : (
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={activeModality}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3, ease: 'easeOut' }}
-            className="flex flex-wrap items-center justify-center gap-2"
-          >
-            <ChipContent
-              suggestions={suggestions}
-              onSelect={onSelect}
-              showSurpriseMe={showSurpriseMe}
-              onSurpriseMe={handleSurpriseMe}
-              reducedMotion={false}
-            />
-          </motion.div>
-        </AnimatePresence>
+      <div
+        data-testid="suggestion-chips-row"
+        className="flex flex-wrap items-center justify-center gap-2"
+      >
+        {firstRowSlots.map((slot, index) => (
+          // Slot identity is positional, not content-based: slot N must be the
+          // same DOM node across modality switches so IconMorph and the label
+          // animations run instead of an unmount/remount.
+          <ChipSlot key={index} index={index} slot={slot} />
+        ))}
+      </div>
+      {secondRowSlots.length > 0 && (
+        <div
+          data-testid="suggestion-chips-row"
+          className="flex flex-wrap items-center justify-center gap-2"
+        >
+          {secondRowSlots.map((slot, offset) => {
+            const index = offset + 3;
+            return <ChipSlot key={index} index={index} slot={slot} />;
+          })}
+        </div>
       )}
     </div>
   );

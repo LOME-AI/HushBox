@@ -54,16 +54,43 @@ export class ChatPage {
       .waitFor({ state: 'attached', timeout });
   }
 
-  /** Wait for a conversation page to load (message list visible and content rendered). Use instead of waitForAppStable on conversation pages. */
+  /**
+   * Wait for a conversation page to load. Use instead of waitForAppStable on
+   * conversation pages. Waits for the message list to mount, for either a
+   * message-item or the empty state to render, and for every message to
+   * finish decrypting (so a follow-up assertion can scroll to any message
+   * without racing the decrypt result).
+   */
   async waitForConversationLoaded(timeout = 15_000): Promise<void> {
     await this.messageList.waitFor({ state: 'visible', timeout });
-    // Wait for at least one message to render OR the "No messages yet" empty
-    // state. Uses .or() so a single locator resolves for either case.
     await this.messageList
       .locator('[data-testid="message-item"]')
       .first()
       .or(this.messageList.getByText('No messages yet'))
       .waitFor({ state: 'visible', timeout });
+    await this.waitForDecryptionComplete(timeout);
+  }
+
+  /**
+   * Wait until every message in the conversation has been decrypted, using
+   * the `data-decrypted-count` attribute exposed by `MessageList`. Resolves
+   * immediately when the conversation is empty.
+   */
+  async waitForDecryptionComplete(timeout = 15_000): Promise<void> {
+    await this.page.waitForFunction(
+      () => {
+        const list = document.querySelector<HTMLElement>(
+          '[data-testid="message-list"], [data-testid="message-list-empty"]'
+        );
+        if (!list) return false;
+        const messageCount = Number(list.dataset['messageCount']);
+        const decryptedCount = Number(list.dataset['decryptedCount']);
+        if (Number.isNaN(messageCount) || Number.isNaN(decryptedCount)) return false;
+        return decryptedCount >= messageCount;
+      },
+      undefined,
+      { timeout }
+    );
   }
 
   async gotoTrialChat(): Promise<void> {
@@ -384,28 +411,33 @@ export class ChatPage {
   }
 
   /**
-   * Park the last row in view and wait for an inline `<img>` to render.
-   * The scroll-to-last guards against Virtuoso virtualizing the bottommost
-   * media tile out of the DOM after several prior messages in the same
-   * conversation push it below the rendered window.
+   * Wait for an inline media element to render anywhere in the message list.
+   * Walks virtuoso rows bottom→top, mounting each via
+   * `__virtuosoScrollToIndex`, and returns as soon as a matching element
+   * becomes visible. Covers the multi-media case (image at one row, video
+   * at another) where scrolling only to the last row would virtualize the
+   * earlier tile out of the DOM.
    */
-  async expectImageVisible(timeout = 30_000): Promise<void> {
-    await this.scrollLastMessageIntoView();
-    const imageElement = this.messageList.locator('img').first();
-    await expect(imageElement).toBeVisible({ timeout });
-  }
-
-  /** Wait for an inline `<video>` element to render in the assistant message list. */
-  async expectVideoVisible(timeout = 30_000): Promise<void> {
-    await this.scrollLastMessageIntoView();
-    const videoElement = this.messageList.locator('video').first();
-    await expect(videoElement).toBeVisible({ timeout });
-  }
-
-  private async scrollLastMessageIntoView(): Promise<void> {
+  async expectMediaVisible(kind: 'img' | 'video', timeout = 30_000): Promise<void> {
     const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
-    if (Number.isNaN(rowsCount) || rowsCount <= 0) return;
-    await this.scrollMessageIntoView(rowsCount - 1);
+    const media = this.messageList.locator(kind).first();
+    if (Number.isNaN(rowsCount) || rowsCount <= 0) {
+      await expect(media).toBeVisible({ timeout });
+      return;
+    }
+    for (let index = rowsCount - 1; index >= 0; index--) {
+      await this.scrollMessageIntoView(index);
+      if (await media.isVisible().catch(() => false)) return;
+    }
+    await expect(media).toBeVisible({ timeout });
+  }
+
+  async expectImageVisible(timeout = 30_000): Promise<void> {
+    await this.expectMediaVisible('img', timeout);
+  }
+
+  async expectVideoVisible(timeout = 30_000): Promise<void> {
+    await this.expectMediaVisible('video', timeout);
   }
 
   /** Confirm the "Download media" link is rendered alongside the inline media element. */

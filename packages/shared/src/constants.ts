@@ -142,7 +142,7 @@ export const ESTIMATED_VIDEO_BYTES_PER_SECOND = 5_000_000;
 export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16'] as const;
 
 /** Resolutions offered in the video config picker. Single source of truth — request schema derives from this. */
-export const VIDEO_RESOLUTIONS = ['720p', '1080p'] as const;
+export const VIDEO_RESOLUTIONS = ['720p', '1080p', '4k'] as const;
 
 /** Aspect ratios offered in the image config picker. Single source of truth — request schema derives from this. */
 export const IMAGE_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16'] as const;
