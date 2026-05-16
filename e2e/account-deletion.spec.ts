@@ -9,18 +9,17 @@ import {
   waitForNextTOTPCode,
 } from './helpers/auth.js';
 import { requireEnv } from './helpers/env.js';
-import { MARKETING_BASE_URL } from '@hushbox/shared';
+import { ROUTES } from '@hushbox/shared';
 import type { Page, APIRequestContext, Locator } from '@playwright/test';
 
 const apiUrl = requireEnv('VITE_API_URL');
 const FRESH_PASSWORD = 'TestPassword123!';
 
-// E2E doesn't start the marketing app, so the post-delete redirect may fail to
-// load. Assert on the URL bar (polled), not on a completed navigation.
+// Post-delete redirect is a same-origin navigation to ROUTES.MARKETING.
+// The Astro page may 404 in the E2E preview (only the Vite app is served)
+// but the URL bar still commits to the path, which is what we assert.
 async function expectRedirectedToMarketing(page: Page): Promise<void> {
-  await expect
-    .poll(() => page.url(), { timeout: 15_000 })
-    .toContain(new URL(MARKETING_BASE_URL).host);
+  await expect.poll(() => page.url(), { timeout: 15_000 }).toContain(ROUTES.MARKETING);
 }
 
 interface FreshUser {
@@ -219,8 +218,13 @@ test.describe('Account deletion', () => {
       await seedWalletBalance(request, user.email, '3.00');
       await unauthenticatedPage.reload({ waitUntil: 'domcontentloaded' });
 
-      const modal = await openDeleteAccountModal(unauthenticatedPage);
-      const backButton = modal.getByRole('button', { name: 'Back' });
+      await openDeleteAccountModal(unauthenticatedPage);
+      // The Back button is rendered by OverlayNavButtons as a sibling of
+      // OverlayContent (which carries the `delete-account-modal` testid),
+      // so we scope to the dialog itself, not the modal's content wrapper.
+      const backButton = unauthenticatedPage
+        .getByRole('dialog', { name: 'Delete account' })
+        .getByRole('button', { name: 'Back' });
 
       await expect(backButton).toHaveCount(0);
 

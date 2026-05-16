@@ -20,7 +20,7 @@ import {
   DELETE_ACCOUNT_CONFIRMATION_PHRASE,
   formatLockoutMessage,
   friendlyErrorMessage,
-  MARKETING_BASE_URL,
+  ROUTES,
   type UserFacingMessage,
 } from '@hushbox/shared';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
@@ -443,7 +443,11 @@ export function DeleteAccountModal({
       if (totpEnabled) body.totpCode = otpValue;
       await finishMutation.mutateAsync(body);
       clearLocalAuthState();
-      globalThis.location.href = MARKETING_BASE_URL;
+      // Same-origin redirect to the marketing root. Web app and Astro
+      // marketing share a Cloudflare Pages deployment so a relative path
+      // works in every environment (dev, E2E preview, prod) without needing
+      // to know the marketing base URL.
+      globalThis.location.href = ROUTES.MARKETING;
     } catch (error) {
       handleFinishError(error);
     }

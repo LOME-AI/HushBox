@@ -494,6 +494,77 @@ describe('SidebarFooter', () => {
     });
   });
 
+  describe('closes mobile sidebar on menu item click', () => {
+    // Defends against an iOS Sheet-overlay bug: when the user clicks a
+    // menu item that navigates to the route they're already on, the
+    // sidebar's pathname-diff effect doesn't fire and the Sheet keeps
+    // intercepting pointer events on the page beneath it. Closing the
+    // mobile sidebar from the item's onClick guarantees this regardless
+    // of whether navigation actually changes the route.
+    beforeEach(() => {
+      useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: true });
+    });
+
+    it('closes mobile sidebar when Settings is clicked', async () => {
+      mockFeatureFlags.SETTINGS_ENABLED = true;
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-settings'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Accessibility is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-accessibility'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Usage is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-usage'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Add Credits is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-add-credits'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Log Out is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-logout'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Log In is clicked (unauthenticated)', async () => {
+      mockUseSession.mockReturnValue({ data: null });
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-login'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Sign Up is clicked (unauthenticated)', async () => {
+      mockUseSession.mockReturnValue({ data: null });
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-signup'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+  });
+
   describe('SETTINGS_ENABLED feature flag', () => {
     beforeEach(() => {
       mockUseSession.mockReturnValue({

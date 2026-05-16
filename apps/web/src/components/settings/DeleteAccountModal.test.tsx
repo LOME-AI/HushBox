@@ -3,8 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactElement, type ReactNode } from 'react';
-import { MARKETING_BASE_URL } from '@hushbox/shared';
-
 // Mirror of the production ApiError shape — avoid importing from @/lib/api so
 // the test doesn't depend on VITE_API_URL being set in the test env.
 const { ApiError } = vi.hoisted(() => {
@@ -521,7 +519,7 @@ describe('DeleteAccountModal', () => {
       ).not.toBeDisabled();
     });
 
-    it('submits, redirects via env-aware MARKETING_BASE_URL, and clears local state on 204', async () => {
+    it('submits, redirects to /welcome, and clears local state on 204', async () => {
       const user = await advanceToFinalStep();
       await user.type(screen.getByLabelText(/confirmation/i), 'delete my account');
       await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
@@ -534,7 +532,7 @@ describe('DeleteAccountModal', () => {
       });
 
       await waitFor(() => {
-        expect(globalThis.location.href).toBe(MARKETING_BASE_URL);
+        expect(globalThis.location.href).toBe('/welcome');
       });
       expect(mockClearLocalAuthState).toHaveBeenCalled();
     });

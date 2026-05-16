@@ -128,8 +128,8 @@ describe('FOOTER_LINKS', () => {
 });
 
 describe('MARKETING_BASE_URL', () => {
-  it('resolves to the local Astro dev server in vitest (DEV=true)', () => {
-    expect(MARKETING_BASE_URL).toBe('http://localhost:4321');
+  it('is the production hushbox.ai URL', () => {
+    expect(MARKETING_BASE_URL).toBe('https://hushbox.ai');
   });
 
   it('has no trailing slash', () => {

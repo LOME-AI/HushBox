@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures.js';
+import { ACCESSIBILITY_PREFERENCES_DEFAULTS } from '@hushbox/shared';
 import { expectNoA11yViolations } from './helpers/axe.js';
 import { expectAllTogglesPersisted, walkAccessibilityToggles } from './helpers/accessibility.js';
 
@@ -12,6 +13,21 @@ import { expectAllTogglesPersisted, walkAccessibilityToggles } from './helpers/a
  */
 
 test.describe('Authenticated /accessibility page', () => {
+  // Reset Alice's server-side prefs each run — accessibility-db-sync.spec.ts
+  // and prior failed runs of this spec persist non-default state via LWW,
+  // and the page rehydrates from the server (useAccessibilitySync) regardless
+  // of localStorage. Without this reset the walkthrough starts from polluted
+  // state and the cycle assertions are off by one.
+  test.beforeEach(async ({ authenticatedRequest }) => {
+    const response = await authenticatedRequest.put('/api/user-preferences/accessibility', {
+      data: {
+        preferences: ACCESSIBILITY_PREFERENCES_DEFAULTS,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    expect(response.ok()).toBe(true);
+  });
+
   test('walkthrough toggles persist and stay axe-clean', async ({
     authenticatedPage,
   }, testInfo) => {
