@@ -18,10 +18,9 @@ vi.mock('../../lib/chat-tts-stream', () => ({
 // Uses vi.importActual so the gating mirrors what MessageItem will see in
 // production; only the Link-rendering DOM is swapped for a marker div.
 vi.mock('./tts-stopped-notice', async () => {
-  const { useTtsPlaybackStore } =
-    await vi.importActual<typeof import('@hushbox/ui/accessibility/store')>(
-      '@hushbox/ui/accessibility/store'
-    );
+  const { useTtsPlaybackStore } = await vi.importActual<
+    typeof import('@hushbox/ui/accessibility/store')
+  >('@hushbox/ui/accessibility/store');
   return {
     TtsStoppedNotice: ({ messageId }: { messageId: string }) => {
       const stopped = useTtsPlaybackStore((s) => s.stoppedStreamIds.has(messageId));

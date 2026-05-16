@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   accessibilityPreferencesSchema,
   ACCESSIBILITY_PREFERENCES_DEFAULTS,
+  reconcileAccessibilityPreferences,
   type AccessibilityPreferences,
 } from './accessibility-preferences.js';
 
@@ -248,6 +249,75 @@ describe('accessibilityPreferencesSchema — enum field rejections', () => {
     expect(() =>
       accessibilityPreferencesSchema.parse({ version: 1, focusColor: 'orange' })
     ).toThrow();
+  });
+});
+
+describe('reconcileAccessibilityPreferences', () => {
+  it('returns full defaults when given an empty object', () => {
+    expect(reconcileAccessibilityPreferences({})).toEqual(ACCESSIBILITY_PREFERENCES_DEFAULTS);
+  });
+
+  it('returns full defaults when given null', () => {
+    expect(reconcileAccessibilityPreferences(null)).toEqual(ACCESSIBILITY_PREFERENCES_DEFAULTS);
+  });
+
+  it('returns full defaults when called with no argument', () => {
+    expect(reconcileAccessibilityPreferences()).toEqual(ACCESSIBILITY_PREFERENCES_DEFAULTS);
+  });
+
+  it('returns full defaults when given a non-object (string, number, array)', () => {
+    expect(reconcileAccessibilityPreferences('hello')).toEqual(ACCESSIBILITY_PREFERENCES_DEFAULTS);
+    expect(reconcileAccessibilityPreferences(42)).toEqual(ACCESSIBILITY_PREFERENCES_DEFAULTS);
+    expect(reconcileAccessibilityPreferences([])).toEqual(ACCESSIBILITY_PREFERENCES_DEFAULTS);
+  });
+
+  it('keeps valid fields and defaults invalid ones independently', () => {
+    const result = reconcileAccessibilityPreferences({
+      contrast: 'high',
+      fontSize: 'huge',
+      magnifier: true,
+      saturation: 'rainbow',
+      fontFamily: 'atkinson',
+    });
+    expect(result.contrast).toBe('high');
+    expect(result.magnifier).toBe(true);
+    expect(result.fontFamily).toBe('atkinson');
+    expect(result.fontSize).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.fontSize);
+    expect(result.saturation).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.saturation);
+  });
+
+  it('defaults missing fields without affecting present ones', () => {
+    const result = reconcileAccessibilityPreferences({ contrast: 'low' });
+    expect(result.contrast).toBe('low');
+    expect(result.fontSize).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.fontSize);
+    expect(result.fontFamily).toBe(ACCESSIBILITY_PREFERENCES_DEFAULTS.fontFamily);
+  });
+
+  it('drops unknown / removed legacy keys', () => {
+    const result = reconcileAccessibilityPreferences({
+      contrast: 'high',
+      legacyDeprecated: 'something',
+      invert: true,
+    }) as AccessibilityPreferences & Record<string, unknown>;
+    expect(result.contrast).toBe('high');
+    expect(result['legacyDeprecated']).toBeUndefined();
+    expect(result['invert']).toBeUndefined();
+  });
+
+  it('output always satisfies the full schema', () => {
+    const result = reconcileAccessibilityPreferences({
+      contrast: 'high',
+      fontSize: 'huge',
+      garbage: true,
+    });
+    expect(() => accessibilityPreferencesSchema.parse(result)).not.toThrow();
+  });
+
+  it('produces every expected key on output', () => {
+    const localeSort = (a: string, b: string): number => a.localeCompare(b);
+    const result = reconcileAccessibilityPreferences({});
+    const expectedKeys = Object.keys(ACCESSIBILITY_PREFERENCES_DEFAULTS).toSorted(localeSort);
+    expect(Object.keys(result).toSorted(localeSort)).toEqual(expectedKeys);
   });
 });
 

@@ -1555,13 +1555,13 @@ describe('useChatStream', () => {
       });
 
       expect(startChatTtsStreamMock).toHaveBeenCalledTimes(1);
-      const calls = startChatTtsStreamMock.mock.calls as unknown as Array<
-        [{ messageId: () => string | null } | undefined]
-      >;
-      const callArg = calls[0]?.[0];
-      expect(callArg).toBeDefined();
-      expect(typeof callArg?.messageId).toBe('function');
-      expect(callArg?.messageId()).toBe('assistant-xyz');
+      const calls = startChatTtsStreamMock.mock.calls as unknown as [
+        { messageId: () => string | null } | undefined,
+      ][];
+      const callArgument = calls[0]?.[0];
+      expect(callArgument).toBeDefined();
+      expect(typeof callArgument?.messageId).toBe('function');
+      expect(callArgument?.messageId()).toBe('assistant-xyz');
     });
 
     it('calls feeder.end() exactly once even when both onDone and finally fire', async () => {

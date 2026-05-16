@@ -3,6 +3,7 @@ export { createWebStorageAdapter, type A11yStorageAdapter } from './storage-adap
 export {
   accessibilityPreferencesSchema,
   ACCESSIBILITY_PREFERENCES_DEFAULTS,
+  reconcileAccessibilityPreferences,
   type AccessibilityPreferences,
 } from './schema';
 export {

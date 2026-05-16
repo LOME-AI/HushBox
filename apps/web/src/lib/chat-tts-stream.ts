@@ -70,8 +70,12 @@ export async function startChatTtsStream(
       const id = getMessageId();
       return id !== null && useTtsPlaybackStore.getState().stoppedStreamIds.has(id);
     },
-    onStreamStart: withId((id) => useTtsPlaybackStore.getState().setSpeakingStream(id)),
-    onStreamEnd: withId((id) => useTtsPlaybackStore.getState().clearSpeakingStreamIfMatches(id)),
+    onStreamStart: withId((id) => {
+      useTtsPlaybackStore.getState().setSpeakingStream(id);
+    }),
+    onStreamEnd: withId((id) => {
+      useTtsPlaybackStore.getState().clearSpeakingStreamIfMatches(id);
+    }),
   });
 }
 

@@ -52,9 +52,11 @@ function enableTts(): void {
 
 // MutationObserver fires async, and the speak path goes through `await import()`
 // + `await getOrLoadTtsService()` + an inner `void (async () => ...)`. Vitest's
-// dynamic-import resolver also takes a few extra ticks. Drain generously.
+// dynamic-import resolver also takes a few extra ticks. Drain generously —
+// under parallel test load the chain can take many more macrotasks than the
+// happy path.
 const flush = async (): Promise<void> => {
-  for (let index = 0; index < 20; index++) {
+  for (let index = 0; index < 200; index++) {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 };

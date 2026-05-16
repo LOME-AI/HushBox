@@ -45,3 +45,27 @@ export type AccessibilityPreferences = z.infer<typeof accessibilityPreferencesSc
 export const ACCESSIBILITY_PREFERENCES_DEFAULTS = accessibilityPreferencesSchema.parse({
   version: 1,
 });
+
+/**
+ * Schema-driven per-field reconcile. Iterates the schema's own `.shape`, parsing
+ * each field independently: valid persisted values are kept, invalid or missing
+ * values fall back to that field's `.default()`. Unknown keys in the input are
+ * dropped. Non-object inputs (null, primitives) collapse to full defaults.
+ *
+ * Adding or removing a field in `accessibilityPreferencesSchema` flows through
+ * without touching this function — the shape iteration is the contract.
+ */
+export function reconcileAccessibilityPreferences(input?: unknown): AccessibilityPreferences {
+  const blob =
+    input !== null && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
+  const result: Record<string, unknown> = {};
+  for (const [key, fieldSchema] of Object.entries(accessibilityPreferencesSchema.shape)) {
+    const parsed = (fieldSchema as z.ZodType).safeParse(blob[key]);
+    result[key] = parsed.success
+      ? parsed.data
+      : ACCESSIBILITY_PREFERENCES_DEFAULTS[key as keyof AccessibilityPreferences];
+  }
+  return result as AccessibilityPreferences;
+}

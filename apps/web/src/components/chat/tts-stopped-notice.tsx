@@ -8,9 +8,7 @@ export interface TtsStoppedNoticeProps {
   readonly messageId: string;
 }
 
-export function TtsStoppedNotice({
-  messageId,
-}: TtsStoppedNoticeProps): React.JSX.Element | null {
+export function TtsStoppedNotice({ messageId }: TtsStoppedNoticeProps): React.JSX.Element | null {
   const stopped = useTtsPlaybackStore((s) => s.stoppedStreamIds.has(messageId));
   if (!stopped) return null;
   return (

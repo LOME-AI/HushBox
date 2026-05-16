@@ -23,10 +23,7 @@ interface MotionProviderProps {
 export function MotionProvider({ children }: MotionProviderProps): React.JSX.Element {
   const reducedMotion = useReducedMotion();
   return (
-    <MotionConfig
-      reducedMotion={reducedMotion ? 'always' : 'never'}
-      skipAnimations={reducedMotion}
-    >
+    <MotionConfig reducedMotion={reducedMotion ? 'always' : 'never'} skipAnimations={reducedMotion}>
       {children}
     </MotionConfig>
   );

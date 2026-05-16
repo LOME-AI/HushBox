@@ -65,7 +65,7 @@ describe('MotionProvider', () => {
     expect(motionConfigCalls.at(-1)?.reducedMotion).toBe('always');
   });
 
-  it('passes skipAnimations=true when reduced motion is on (Framer\'s reducedMotion only zeros positional keys — opacity/margin etc. still animate without skipAnimations)', () => {
+  it("passes skipAnimations=true when reduced motion is on (Framer's reducedMotion only zeros positional keys — opacity/margin etc. still animate without skipAnimations)", () => {
     stopAnimationsRef.current = true;
     render(
       <MotionProvider>
