@@ -5,7 +5,6 @@ import {
   getSendAriaLabel,
   getGeneratingLabel,
   getMediaLoadingLabel,
-  getTaglineSubtitle,
   getInspirationLabel,
   getCostUnit,
   getTypingActivityLabel,
@@ -98,28 +97,6 @@ describe('getMediaLoadingLabel', () => {
 
   it('returns generic loading label for undefined modality', () => {
     expect(getMediaLoadingLabel(noModality)).toBe('Loading...');
-  });
-});
-
-describe('getTaglineSubtitle', () => {
-  it('returns caller fallback for text modality', () => {
-    expect(getTaglineSubtitle('text', 'Good morning')).toBe('Good morning');
-  });
-
-  it('returns caller fallback for undefined modality', () => {
-    expect(getTaglineSubtitle(undefined, 'Good morning')).toBe('Good morning');
-  });
-
-  it('returns image tagline for image modality', () => {
-    expect(getTaglineSubtitle('image', 'fallback')).toBe('What should we create?');
-  });
-
-  it('returns video tagline for video modality', () => {
-    expect(getTaglineSubtitle('video', 'fallback')).toBe('What scene should we make?');
-  });
-
-  it('returns audio tagline for audio modality', () => {
-    expect(getTaglineSubtitle('audio', 'fallback')).toBe('What should we listen to?');
   });
 });
 

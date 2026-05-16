@@ -153,16 +153,83 @@ describe('PromptInput', () => {
     expect(screen.getByRole('textbox')).toBeInTheDocument();
   });
 
-  it('displays placeholder text', () => {
-    renderWithProviders(
-      <PromptInput
-        value=""
-        onChange={mockOnChange}
-        onSubmit={mockOnSubmit}
-        placeholder="Ask me anything..."
-      />
-    );
-    expect(screen.getByPlaceholderText('Ask me anything...')).toBeInTheDocument();
+  describe('animated placeholder overlay', () => {
+    it('renders the AnimatedPlaceholder with the given placeholder text when value is empty', () => {
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          placeholder="Ask me anything..."
+        />
+      );
+      const overlay = screen.getByTestId('animated-placeholder');
+      expect(overlay).toBeInTheDocument();
+      expect(overlay).toHaveTextContent('Ask me anything...');
+    });
+
+    it('does not render the AnimatedPlaceholder while the textarea has content (no-op when typing)', () => {
+      renderWithProviders(
+        <PromptInput
+          value="hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          placeholder="Ask me anything..."
+        />
+      );
+      expect(screen.queryByTestId('animated-placeholder')).not.toBeInTheDocument();
+    });
+
+    it('does not set a native placeholder attribute (the overlay drives the visual)', () => {
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          placeholder="Ask me anything..."
+        />
+      );
+      const textarea = screen.getByRole('textbox');
+      expect(textarea.getAttribute('placeholder') ?? '').toBe('');
+    });
+
+    it('keeps aria-label on the textarea so the placeholder is still the accessible name', () => {
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          placeholder="Ask me anything..."
+        />
+      );
+      expect(screen.getByRole('textbox')).toHaveAttribute('aria-label', 'Ask me anything...');
+    });
+
+    it('updates the overlay text when the placeholder prop changes (modality switch)', () => {
+      const { rerender } = renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          placeholder="Ask me anything..."
+        />
+      );
+      expect(screen.getByTestId('animated-placeholder')).toHaveTextContent('Ask me anything...');
+
+      rerender(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <PromptInput
+            value=""
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            placeholder="Describe the image you want..."
+          />
+        </QueryClientProvider>
+      );
+      expect(screen.getByTestId('animated-placeholder')).toHaveTextContent(
+        'Describe the image you want...'
+      );
+    });
   });
 
   it('displays the current value', () => {

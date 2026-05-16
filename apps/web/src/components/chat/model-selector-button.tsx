@@ -12,7 +12,7 @@ function getModelDisplayText(
   firstEntry: { id: string; name: string } | undefined
 ): string {
   if (selectedModels.length > 1) {
-    return 'Multiple Models';
+    return `${String(selectedModels.length)} models`;
   }
   const rawName = selectedModel?.name ?? firstEntry?.name ?? DEFAULT_MODEL_NAME;
   return shortenModelName(rawName);
@@ -24,12 +24,31 @@ export interface ModelSelectorButtonProps extends ModelSelectorGatingProps {
   onSelect: (models: { id: string; name: string }[]) => void;
   disabled?: boolean | undefined;
   activeModality?: Modality;
+  /** Controlled open state. When provided with `onOpenChange`, drives the modal externally. */
+  open?: boolean | undefined;
+  /** Called when the modal wants to open or close. Required for controlled mode. */
+  onOpenChange?: ((open: boolean) => void) | undefined;
 }
 
 /**
  * Button that opens the model selector modal.
- * Displays the selected model name, or "Multiple Models" when 2+ are selected.
+ * Displays the selected model name, or "N models" when 2+ are selected.
+ *
+ * Supports both uncontrolled (internal state) and controlled (`open`/`onOpenChange`)
+ * modes — controlled mode lets sibling components (e.g. ComparisonBar's +Add chip)
+ * trigger the picker.
  */
+function usePickerOpenState(
+  controlledOpen: boolean | undefined,
+  onOpenChange: ((open: boolean) => void) | undefined
+): readonly [boolean, (open: boolean) => void] {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false);
+  const isControlled = controlledOpen !== undefined && onOpenChange !== undefined;
+  const isOpen = isControlled ? controlledOpen : uncontrolledOpen;
+  const setIsOpen = isControlled ? onOpenChange : setUncontrolledOpen;
+  return [isOpen, setIsOpen] as const;
+}
+
 export function ModelSelectorButton({
   models,
   selectedModels,
@@ -41,8 +60,10 @@ export function ModelSelectorButton({
   isLinkGuest = false,
   onPremiumClick,
   activeModality = 'text',
+  open: controlledOpen,
+  onOpenChange,
 }: Readonly<ModelSelectorButtonProps>): React.JSX.Element {
-  const [isOpen, setIsOpen] = React.useState(false);
+  const [isOpen, setIsOpen] = usePickerOpenState(controlledOpen, onOpenChange);
 
   const firstEntry = selectedModels[0];
   const selectedId = firstEntry?.id ?? '';

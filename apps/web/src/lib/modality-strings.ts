@@ -33,13 +33,6 @@ export function getMediaLoadingLabel(modality: Modality | undefined): string {
   return 'Loading...';
 }
 
-export function getTaglineSubtitle(modality: Modality | undefined, fallback: string): string {
-  if (modality === 'image') return 'What should we create?';
-  if (modality === 'video') return 'What scene should we make?';
-  if (modality === 'audio') return 'What should we listen to?';
-  return fallback;
-}
-
 export function getInspirationLabel(_modality: Modality | undefined): string {
   return 'Need inspiration? Try these:';
 }

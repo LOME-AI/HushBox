@@ -1,8 +1,30 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import * as React from 'react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TOTAL_FEE_RATE, formatPricePer1k, type Model } from '@hushbox/shared';
+import { TouchDeviceOverrideContext } from '@hushbox/ui';
+import { useModelStore } from '@/stores/model';
 import { ModelSelectorModal } from './model-selector-modal';
+
+function withTouchOverride(
+  override: boolean | null,
+  children: React.ReactNode
+): React.JSX.Element {
+  return <TouchDeviceOverrideContext value={override}>{children}</TouchDeviceOverrideContext>;
+}
+
+/**
+ * Force the model store into a known picker mode for the active text modality
+ * before each test. Tests start in 'single' unless they call switchToMulti().
+ */
+function switchToMulti(): void {
+  useModelStore.getState().setPickerMode('text', 'multi');
+}
+
+function switchToSingle(): void {
+  useModelStore.getState().setPickerMode('text', 'single');
+}
 
 // Mock the api module to break the import chain that requires VITE_API_URL
 vi.mock('@/lib/api', () => ({
@@ -42,6 +64,15 @@ vi.mock('@tanstack/react-router', () => ({
   ),
   useNavigate: () => vi.fn(),
 }));
+
+vi.mock('@/hooks/use-is-mobile', () => ({
+  useIsMobile: vi.fn(() => false),
+}));
+
+async function setIsMobile(value: boolean): Promise<void> {
+  const module_ = await import('@/hooks/use-is-mobile');
+  vi.mocked(module_.useIsMobile).mockReturnValue(value);
+}
 
 function first<T>(array: T[]): T {
   const item = array[0];
@@ -100,6 +131,14 @@ const mockModels: Model[] = [
 ];
 
 describe('ModelSelectorModal', () => {
+  beforeEach(async () => {
+    // Reset picker mode to default 'single' between tests so mode preference
+    // doesn't leak via the persisted model store.
+    switchToSingle();
+    // Reset isMobile to desktop default so per-test overrides don't bleed.
+    await setIsMobile(false);
+  });
+
   it('renders all models when open', () => {
     render(
       <ModelSelectorModal
@@ -181,14 +220,14 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    await user.click(screen.getByText('Claude 3.5 Sonnet'));
+    await user.hover(screen.getByText('Claude 3.5 Sonnet'));
 
     expect(screen.getByText('Anthropic')).toBeInTheDocument();
     expect(screen.getByText(/200,000 tokens/)).toBeInTheDocument();
     expect(screen.getByText(/Anthropic most intelligent model/)).toBeInTheDocument();
   });
 
-  it('calls onSelect and closes when model is double-clicked then confirmed', async () => {
+  it('single-mode click commits + closes immediately with the picked model', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     const onOpenChange = vi.fn();
@@ -202,9 +241,31 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+    await user.click(screen.getByText('Claude 3.5 Sonnet'));
 
-    await user.click(screen.getByRole('button', { name: /select.*model/i }));
+    expect(onSelect).toHaveBeenCalledWith([
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+    ]);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('multi-mode click toggles + Use confirms with both old + new model', async () => {
+    switchToMulti();
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onOpenChange = vi.fn();
+    render(
+      <ModelSelectorModal
+        open={true}
+        onOpenChange={onOpenChange}
+        models={mockModels}
+        selectedIds={new Set(['openai/gpt-4-turbo'])}
+        onSelect={onSelect}
+      />
+    );
+
+    await user.click(screen.getByText('Claude 3.5 Sonnet'));
+    await user.click(screen.getByTestId('use-models-button'));
 
     expect(onSelect).toHaveBeenCalledWith(
       expect.arrayContaining([
@@ -619,7 +680,7 @@ describe('ModelSelectorModal', () => {
     });
   });
 
-  it('renders Select model button at bottom', () => {
+  it('does not render any footer button in single mode (row click commits)', () => {
     render(
       <ModelSelectorModal
         open={true}
@@ -630,10 +691,12 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: /select model/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('use-models-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cancel-button')).not.toBeInTheDocument();
   });
 
-  it('confirms current selection and closes when Select model button is clicked', async () => {
+  it('multi-mode confirms local pending selection and closes when Use button is clicked', async () => {
+    switchToMulti();
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
     const onSelect = vi.fn();
@@ -647,11 +710,8 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    // Click to focus Claude (does not change selection)
     await user.click(screen.getByText('Claude 3.5 Sonnet'));
-    // Double-click to toggle Claude into selection
-    await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
-    await user.click(screen.getByRole('button', { name: /select.*model/i }));
+    await user.click(screen.getByTestId('use-models-button'));
 
     expect(onSelect).toHaveBeenCalledWith(
       expect.arrayContaining([
@@ -772,7 +832,8 @@ describe('ModelSelectorModal', () => {
   });
 
   describe('mobile layout split', () => {
-    it('model list panel has flex-[9] for 45% of remaining space on mobile', () => {
+    it('model list panel uses flex-[9] when mobile', async () => {
+      await setIsMobile(true);
       render(
         <ModelSelectorModal
           open={true}
@@ -787,7 +848,8 @@ describe('ModelSelectorModal', () => {
       expect(modelListPanel).toHaveClass('flex-[9]');
     });
 
-    it('info panel has flex-[11] for 55% of remaining space on mobile', () => {
+    it('mobile does not render the side info panel (info moves into row inline expansion)', async () => {
+      await setIsMobile(true);
       render(
         <ModelSelectorModal
           open={true}
@@ -798,8 +860,249 @@ describe('ModelSelectorModal', () => {
         />
       );
 
+      expect(screen.queryByTestId('model-details-panel')).not.toBeInTheDocument();
+    });
+
+    it('desktop renders the side info panel', async () => {
+      await setIsMobile(false);
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('model-details-panel')).toBeInTheDocument();
+    });
+
+    it('renders a row chevron for each row on mobile, no info icon', async () => {
+      await setIsMobile(true);
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.getAllByTestId('row-expand-chevron')).toHaveLength(mockModels.length);
+      expect(screen.queryByTestId('row-info-icon')).not.toBeInTheDocument();
+    });
+
+    it('expands the row info panel inline when the chevron is clicked on mobile', async () => {
+      await setIsMobile(true);
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByTestId('row-expanded-info')).not.toBeInTheDocument();
+
+      const chevrons = screen.getAllByTestId('row-expand-chevron');
+      await user.click(first(chevrons));
+
+      const expanded = screen.getByTestId('row-expanded-info');
+      expect(expanded).toBeInTheDocument();
+      expect(screen.getByTestId('row-expanded-use-button')).toBeInTheDocument();
+    });
+
+    it('commits the model via the expanded Use button on mobile in single mode', async () => {
+      await setIsMobile(true);
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      const onOpenChange = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={onOpenChange}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={onSelect}
+        />
+      );
+
+      const row = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
+      await user.click(row.querySelector('[data-testid="row-expand-chevron"]')!);
+
+      await user.click(screen.getByTestId('row-expanded-use-button'));
+
+      expect(onSelect).toHaveBeenCalledWith([
+        { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+      ]);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it('renders the touch-desktop info icon when the touch override is true', async () => {
+      await setIsMobile(false);
+      render(
+        withTouchOverride(
+          true,
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={vi.fn()}
+            models={mockModels}
+            selectedIds={new Set(['openai/gpt-4-turbo'])}
+            onSelect={vi.fn()}
+          />
+        )
+      );
+
+      const icons = screen.getAllByTestId('row-info-icon');
+      expect(icons).toHaveLength(mockModels.length);
+    });
+
+    it('does not render the info icon when the touch override is false', async () => {
+      await setIsMobile(false);
+      render(
+        withTouchOverride(
+          false,
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={vi.fn()}
+            models={mockModels}
+            selectedIds={new Set(['openai/gpt-4-turbo'])}
+            onSelect={vi.fn()}
+          />
+        )
+      );
+
+      expect(screen.queryByTestId('row-info-icon')).not.toBeInTheDocument();
+    });
+
+    it('does not render the info icon on a non-touch desktop (no override, jsdom matchMedia false)', async () => {
+      await setIsMobile(false);
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByTestId('row-info-icon')).not.toBeInTheDocument();
+    });
+
+    it('does not render the info icon on mobile (the chevron replaces it)', async () => {
+      await setIsMobile(true);
+      render(
+        withTouchOverride(
+          true,
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={vi.fn()}
+            models={mockModels}
+            selectedIds={new Set(['openai/gpt-4-turbo'])}
+            onSelect={vi.fn()}
+          />
+        )
+      );
+
+      expect(screen.queryByTestId('row-info-icon')).not.toBeInTheDocument();
+    });
+
+    it('clicking the touch-desktop info icon focuses that model in the side panel', async () => {
+      await setIsMobile(false);
+      render(
+        withTouchOverride(
+          true,
+          <ModelSelectorModal
+            open={true}
+            onOpenChange={vi.fn()}
+            models={mockModels}
+            selectedIds={new Set(['openai/gpt-4-turbo'])}
+            onSelect={vi.fn()}
+          />
+        )
+      );
+
+      const claudeRow = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
+      const infoIcon = claudeRow.querySelector('[data-testid="row-info-icon"]')!;
+      // fireEvent.click avoids the pointer-event chain that Vaul (used when
+      // isTouchDevice is true) intercepts and crashes on in jsdom.
+      fireEvent.click(infoIcon);
+
       const detailsPanel = screen.getByTestId('model-details-panel');
-      expect(detailsPanel).toHaveClass('flex-[11]');
+      expect(detailsPanel).toHaveTextContent('Anthropic');
+      expect(detailsPanel).toHaveTextContent(/Anthropic most intelligent model/);
+    });
+
+    it('collapses the expanded row when the chevron is clicked again on mobile', async () => {
+      await setIsMobile(true);
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const chevrons = screen.getAllByTestId('row-expand-chevron');
+      await user.click(first(chevrons));
+      expect(screen.getByTestId('row-expanded-info')).toBeInTheDocument();
+
+      await user.click(first(screen.getAllByTestId('row-expand-chevron')));
+      expect(screen.queryByTestId('row-expanded-info')).not.toBeInTheDocument();
+    });
+
+    it('renders a border-b on both desktop top-quadrants for the divider line', async () => {
+      await setIsMobile(false);
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const quadrants = screen.getAllByTestId('desktop-top-quadrant');
+      expect(quadrants).toHaveLength(2);
+      for (const quadrant of quadrants) {
+        expect(quadrant.className).toMatch(/\bborder-b\b/);
+      }
+    });
+
+    it('desktop left-top and right-top quadrants enforce the same fixed height', async () => {
+      await setIsMobile(false);
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const quadrants = screen.getAllByTestId('desktop-top-quadrant');
+      expect(quadrants).toHaveLength(2);
+
+      const heightOf = (element: HTMLElement): string | undefined =>
+        /h-\[[^\]]+\]/.exec(element.className)?.[0];
+
+      const leftHeight = heightOf(first(quadrants));
+      const rightHeight = heightOf(quadrants[1]!);
+
+      expect(leftHeight).toBeDefined();
+      expect(rightHeight).toBeDefined();
+      expect(leftHeight).toBe(rightHeight);
     });
   });
 
@@ -990,6 +1293,7 @@ describe('ModelSelectorModal', () => {
     });
 
     it('link guests select a premium model without triggering onPremiumClick', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       const onSelect = vi.fn();
       const onOpenChange = vi.fn();
@@ -1009,8 +1313,8 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.dblClick(screen.getByText('GPT-4 Turbo'));
-      await user.click(screen.getByRole('button', { name: /select.*model/i }));
+      await user.click(screen.getByText('GPT-4 Turbo'));
+      await user.click(screen.getByTestId('use-models-button'));
 
       expect(onPremiumClick).not.toHaveBeenCalled();
       expect(onSelect).toHaveBeenCalledWith(
@@ -1040,7 +1344,8 @@ describe('ModelSelectorModal', () => {
       expect(gpt4Item.querySelector('[data-testid="premium-overlay"]')).not.toBeInTheDocument();
     });
 
-    it('calls onSelect for premium model when canAccessPremium is true', async () => {
+    it('multi-mode: paid user can add a premium model alongside their existing pick', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       const onSelect = vi.fn();
       const onOpenChange = vi.fn();
@@ -1056,8 +1361,8 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.dblClick(screen.getByText('GPT-4 Turbo'));
-      await user.click(screen.getByRole('button', { name: /select.*model/i }));
+      await user.click(screen.getByText('GPT-4 Turbo'));
+      await user.click(screen.getByTestId('use-models-button'));
 
       expect(onSelect).toHaveBeenCalledWith(
         expect.arrayContaining([
@@ -1086,14 +1391,15 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.dblClick(screen.getByText('GPT-4 Turbo'));
+      await user.click(screen.getByText('GPT-4 Turbo'));
 
       expect(onPremiumClick).toHaveBeenCalledWith('openai/gpt-4-turbo');
       expect(onSelect).not.toHaveBeenCalled();
       expect(onOpenChange).not.toHaveBeenCalled();
     });
 
-    it('allows selecting basic models when canAccessPremium is false', async () => {
+    it('multi-mode: free user can still add basic models alongside their existing pick', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       const onSelect = vi.fn();
       const onOpenChange = vi.fn();
@@ -1111,8 +1417,8 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
-      await user.click(screen.getByRole('button', { name: /select.*model/i }));
+      await user.click(screen.getByText('Claude 3.5 Sonnet'));
+      await user.click(screen.getByTestId('use-models-button'));
 
       expect(onSelect).toHaveBeenCalledWith(
         expect.arrayContaining([
@@ -1124,7 +1430,7 @@ describe('ModelSelectorModal', () => {
       expect(onPremiumClick).not.toHaveBeenCalled();
     });
 
-    it('calls onPremiumClick when premium model is double-clicked by non-paid user', async () => {
+    it('calls onPremiumClick when premium model is single-clicked by non-paid user', async () => {
       const user = userEvent.setup();
       const onSelect = vi.fn();
       const onOpenChange = vi.fn();
@@ -1142,8 +1448,8 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      // Double-click on premium model triggers onPremiumClick instead of toggling
-      await user.dblClick(screen.getByText('GPT-4 Turbo'));
+      // Single click on premium model triggers onPremiumClick instead of committing
+      await user.click(screen.getByText('GPT-4 Turbo'));
 
       expect(onPremiumClick).toHaveBeenCalledWith('openai/gpt-4-turbo');
       expect(onSelect).not.toHaveBeenCalled();
@@ -1169,6 +1475,7 @@ describe('ModelSelectorModal', () => {
     });
 
     it('defaults canAccessPremium to true for backward compatibility', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       const onSelect = vi.fn();
       const onOpenChange = vi.fn();
@@ -1183,8 +1490,8 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.dblClick(screen.getByText('GPT-4 Turbo'));
-      await user.click(screen.getByRole('button', { name: /select.*model/i }));
+      await user.click(screen.getByText('GPT-4 Turbo'));
+      await user.click(screen.getByTestId('use-models-button'));
 
       expect(onSelect).toHaveBeenCalledWith(
         expect.arrayContaining([
@@ -1673,7 +1980,25 @@ describe('ModelSelectorModal', () => {
   });
 
   describe('modal sizing', () => {
-    it('uses dvh units for modal height', () => {
+    it('uses desktop dvh height when not mobile', async () => {
+      await setIsMobile(false);
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const modal = screen.getByTestId('model-selector-modal');
+      expect(modal.className).toMatch(/h-\[85dvh\]/);
+      expect(modal.className).not.toMatch(/h-\[92dvh\]/);
+    });
+
+    it('uses mobile dvh height when mobile', async () => {
+      await setIsMobile(true);
       render(
         <ModelSelectorModal
           open={true}
@@ -1686,12 +2011,27 @@ describe('ModelSelectorModal', () => {
 
       const modal = screen.getByTestId('model-selector-modal');
       expect(modal.className).toMatch(/h-\[92dvh\]/);
-      expect(modal.className).toMatch(/sm:h-\[85dvh\]/);
+      expect(modal.className).not.toMatch(/h-\[85dvh\]/);
     });
   });
 
   describe('checkbox toggle', () => {
-    it('renders a checkbox button for each model', () => {
+    it('does not render checkboxes in single mode', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.queryAllByTestId('model-checkbox')).toHaveLength(0);
+    });
+
+    it('renders a checkbox icon for each model in multi mode', () => {
+      switchToMulti();
       render(
         <ModelSelectorModal
           open={true}
@@ -1706,7 +2046,8 @@ describe('ModelSelectorModal', () => {
       expect(checkboxes.length).toBeGreaterThan(0);
     });
 
-    it('toggles model selection when checkbox is clicked', async () => {
+    it('toggles model selection when row body is clicked in multi mode', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       render(
         <ModelSelectorModal
@@ -1718,16 +2059,15 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
-      const checkbox = claudeItem.querySelector('[data-testid="model-checkbox"]')!;
-      await user.click(checkbox);
+      await user.click(screen.getByText('Claude 3.5 Sonnet'));
 
+      const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
       expect(claudeItem).toHaveAttribute('data-selected', 'true');
     });
   });
 
   describe('footer buttons', () => {
-    it('uses Title Case for single model button', () => {
+    it('does not render any footer in single mode', () => {
       render(
         <ModelSelectorModal
           open={true}
@@ -1738,10 +2078,27 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      expect(screen.getByRole('button', { name: 'Select Model' })).toBeInTheDocument();
+      expect(screen.queryByTestId('use-models-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('cancel-button')).not.toBeInTheDocument();
     });
 
-    it('uses Title Case for multi-model button', async () => {
+    it('renders Use 1 model button in multi mode with one selection', () => {
+      switchToMulti();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('use-models-button')).toHaveTextContent('Use 1 model');
+    });
+
+    it('renders Use 2 models button in multi mode with two selections', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       render(
         <ModelSelectorModal
@@ -1753,12 +2110,13 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+      await user.click(screen.getByText('Claude 3.5 Sonnet'));
 
-      expect(screen.getByRole('button', { name: 'Select 2 Models' })).toBeInTheDocument();
+      expect(screen.getByTestId('use-models-button')).toHaveTextContent('Use 2 models');
     });
 
-    it('shows Clear Selected button when a single model is selected', () => {
+    it('shows Clear button in multi mode header when ≥1 model is selected', () => {
+      switchToMulti();
       render(
         <ModelSelectorModal
           open={true}
@@ -1769,11 +2127,62 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      expect(screen.getByTestId('clear-selection-button')).toBeInTheDocument();
-      expect(screen.getByTestId('clear-selection-button')).toHaveTextContent('Clear Selected');
+      expect(screen.getByTestId('clear-selection-button')).toHaveTextContent('Clear');
     });
 
-    it('shows Clear Selected button when multiple models are selected', async () => {
+    it('renders the count chip OUTSIDE the picker-mode-toggle (no button-in-button)', () => {
+      switchToMulti();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const toggle = screen.getByTestId('picker-mode-toggle');
+      expect(toggle).not.toContainElement(screen.queryByTestId('picker-mode-counter'));
+      expect(toggle).not.toContainElement(screen.queryByTestId('clear-selection-button'));
+    });
+
+    it('renders the count chip inside the search-and-sort section', () => {
+      switchToMulti();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const counter = screen.getByTestId('picker-mode-counter');
+      const searchInput = screen.getByPlaceholderText('Search models');
+      const searchRow = searchInput.closest('[data-testid="search-and-sort-row"]');
+      expect(searchRow).not.toBeNull();
+      expect(searchRow).toContainElement(counter);
+    });
+
+    it('does not render the count chip in single mode', () => {
+      switchToSingle();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByTestId('picker-mode-counter')).not.toBeInTheDocument();
+    });
+
+    it('Clear button empties local selection so next toggle results in single model', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       render(
         <ModelSelectorModal
@@ -1785,14 +2194,17 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+      await user.click(screen.getByText('Claude 3.5 Sonnet'));
+      expect(screen.getByTestId('use-models-button')).toHaveTextContent('Use 2 models');
 
-      expect(screen.getByTestId('clear-selection-button')).toBeInTheDocument();
-      expect(screen.getByTestId('clear-selection-button')).toHaveTextContent('Clear Selected');
+      await user.click(first(screen.getAllByTestId('clear-selection-button')));
+
+      await user.click(screen.getByText('Llama 3.1 70B'));
+      expect(screen.getByTestId('use-models-button')).toHaveTextContent('Use 1 model');
     });
 
-    it('clears all selections so next toggle results in single model', async () => {
-      const user = userEvent.setup();
+    it('renders selection counter "· N of 5" in multi mode', () => {
+      switchToMulti();
       render(
         <ModelSelectorModal
           open={true}
@@ -1803,30 +2215,8 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
-      expect(screen.getByRole('button', { name: /Select 2 Models/i })).toBeInTheDocument();
-
-      await user.click(screen.getByTestId('clear-selection-button'));
-
-      await user.dblClick(screen.getByText('Llama 3.1 70B'));
-      expect(screen.getByRole('button', { name: 'Select Model' })).toBeInTheDocument();
-    });
-
-    it('does not render selection counter', async () => {
-      const user = userEvent.setup();
-      render(
-        <ModelSelectorModal
-          open={true}
-          onOpenChange={vi.fn()}
-          models={mockModels}
-          selectedIds={new Set(['openai/gpt-4-turbo'])}
-          onSelect={vi.fn()}
-        />
-      );
-
-      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
-
-      expect(screen.queryByTestId('selection-counter')).not.toBeInTheDocument();
+      const counters = screen.getAllByTestId('picker-mode-counter');
+      expect(first(counters)).toHaveTextContent('1 of 5');
     });
   });
 
@@ -1918,8 +2308,9 @@ describe('ModelSelectorModal', () => {
     });
   });
 
-  describe('deselecting last model', () => {
-    it('allows deselecting the last model via checkbox toggle', async () => {
+  describe('deselecting last model in multi mode', () => {
+    it('allows deselecting the last model via row click', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       render(
         <ModelSelectorModal
@@ -1931,40 +2322,15 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      const gptItem = screen.getByTestId('model-item-openai/gpt-4-turbo');
-      const checkbox = gptItem.querySelector('[data-testid="model-checkbox"]');
-      expect(checkbox).not.toBeNull();
-      await user.click(checkbox!);
+      // Row body click toggles in multi mode
+      await user.click(screen.getByText('GPT-4 Turbo'));
 
+      const gptItem = screen.getByTestId('model-item-openai/gpt-4-turbo');
       expect(gptItem).toHaveAttribute('data-selected', 'false');
     });
 
-    it('shows Close as primary button text when no models are selected', async () => {
-      const user = userEvent.setup();
-      render(
-        <ModelSelectorModal
-          open={true}
-          onOpenChange={vi.fn()}
-          models={mockModels}
-          selectedIds={new Set(['openai/gpt-4-turbo'])}
-          onSelect={vi.fn()}
-        />
-      );
-
-      const gptItem = screen.getByTestId('model-item-openai/gpt-4-turbo');
-      const checkbox = gptItem.querySelector('[data-testid="model-checkbox"]');
-      await user.click(checkbox!);
-
-      expect(screen.queryByRole('button', { name: 'Select Model' })).not.toBeInTheDocument();
-      // Find all buttons with text "Close" — there's the modal X close (sr-only) and the footer one
-      const closeButtons = screen.getAllByRole('button', { name: /^Close$/i });
-      const visibleClose = closeButtons.find(
-        (button) => !button.querySelector('.sr-only') && button.textContent === 'Close'
-      );
-      expect(visibleClose).toBeDefined();
-    });
-
-    it('Close primary button closes modal without calling onSelect', async () => {
+    it('Cancel button closes modal without calling onSelect when local selection is empty', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       const onSelect = vi.fn();
       const onOpenChange = vi.fn();
@@ -1978,15 +2344,31 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      await user.click(screen.getByTestId('clear-selection-button'));
+      await user.click(first(screen.getAllByTestId('clear-selection-button')));
+      await user.click(screen.getByTestId('cancel-button'));
 
-      // Find the footer Close button (not the X button which has sr-only child)
-      const closeButtons = screen.getAllByRole('button', { name: /^Close$/i });
-      const footerClose = closeButtons.find(
-        (button) => !button.querySelector('.sr-only') && button.textContent === 'Close'
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it('Cancel button discards local changes (does not call onSelect)', async () => {
+      switchToMulti();
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      const onOpenChange = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={onOpenChange}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={onSelect}
+        />
       );
-      expect(footerClose).toBeDefined();
-      await user.click(footerClose!);
+
+      // Add Claude to local selection then cancel — should not commit to store
+      await user.click(screen.getByText('Claude 3.5 Sonnet'));
+      await user.click(screen.getByTestId('cancel-button'));
 
       expect(onSelect).not.toHaveBeenCalled();
       expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -1995,6 +2377,7 @@ describe('ModelSelectorModal', () => {
 
   describe('multi-model gating', () => {
     it('shows signup modal for unauthenticated user selecting second non-premium model', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       render(
         <ModelSelectorModal
@@ -2007,14 +2390,13 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
-      const checkbox = claudeItem.querySelector('[data-testid="model-checkbox"]');
-      await user.click(checkbox!);
+      await user.click(screen.getByText('Claude 3.5 Sonnet'));
 
       expect(screen.getByTestId('multi-model-signup-modal')).toBeInTheDocument();
     });
 
     it('link guests add a second model without the signup modal', async () => {
+      switchToMulti();
       const user = userEvent.setup();
       const onSelect = vi.fn();
       render(
@@ -2029,10 +2411,9 @@ describe('ModelSelectorModal', () => {
         />
       );
 
-      const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
-      const checkbox = claudeItem.querySelector('[data-testid="model-checkbox"]');
-      await user.click(checkbox!);
+      await user.click(screen.getByText('Claude 3.5 Sonnet'));
 
+      const claudeItem = screen.getByTestId('model-item-anthropic/claude-3.5-sonnet');
       expect(screen.queryByTestId('multi-model-signup-modal')).not.toBeInTheDocument();
       expect(claudeItem).toHaveAttribute('data-selected', 'true');
     });
@@ -2482,6 +2863,340 @@ describe('ModelSelectorModal', () => {
         />
       );
       expect(screen.getAllByRole('button', { name: /price/i }).length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('checkbox cascade animation', () => {
+    it('does not render any checkboxes in single mode', () => {
+      switchToSingle();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.queryAllByTestId('model-checkbox')).toHaveLength(0);
+    });
+
+    it('renders one checkbox per row in multi mode with incrementing cascade indices', () => {
+      switchToMulti();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const checkboxes = screen.getAllByTestId('model-checkbox');
+      expect(checkboxes).toHaveLength(mockModels.length);
+      // Cascade indices are 0, 1, 2... — they drive the stagger delay.
+      checkboxes.forEach((checkbox, index) => {
+        expect(checkbox).toHaveAttribute('data-cascade-index', String(index));
+      });
+    });
+  });
+
+  describe('mobile chevron tap target', () => {
+    it('uses a full-row-height tap target wide enough for thumbs', async () => {
+      await setIsMobile(true);
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const chevron = first(screen.getAllByTestId('row-expand-chevron'));
+      // Width: at least w-12 (48px) — Apple's 44px minimum + padding
+      expect(chevron.className).toMatch(/\bw-12\b/);
+      // Height: stretches to fill the row, not a fixed 24px square
+      expect(chevron.className).toMatch(/\bself-stretch\b/);
+      expect(chevron.className).not.toMatch(/\bh-6\b/);
+    });
+  });
+
+  describe('list scrollbar clearance', () => {
+    it('reserves right padding inside the model list so rows do not overlap the scrollbar', () => {
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const list = screen.getByRole('listbox', { name: /models/i });
+      expect(list.className).toMatch(/\bpr-(?:3|4)\b/);
+    });
+  });
+
+  describe('footer animation', () => {
+    it('wraps the footer in a motion container that slides up from below', () => {
+      switchToMulti();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const footer = screen.getByTestId('model-selector-footer-motion');
+      expect(footer).toBeInTheDocument();
+    });
+  });
+
+  describe('mode transitions', () => {
+    it('auto-collapses to first selection when switching multi → single with >1 selected', async () => {
+      switchToMulti();
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo', 'anthropic/claude-3.5-sonnet'])}
+          onSelect={onSelect}
+        />
+      );
+
+      await user.click(screen.getByTestId('picker-mode-single'));
+
+      expect(onSelect).toHaveBeenCalledWith([{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]);
+    });
+
+    it('does not commit when switching multi → single with 1 selected', async () => {
+      switchToMulti();
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={onSelect}
+        />
+      );
+
+      await user.click(screen.getByTestId('picker-mode-single'));
+
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('does not commit when switching multi → single with 0 selected', async () => {
+      switchToMulti();
+      const user = userEvent.setup();
+      const onSelect = vi.fn();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set()}
+          onSelect={onSelect}
+        />
+      );
+
+      await user.click(screen.getByTestId('picker-mode-single'));
+
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('pulses the previously-committed row when switching from single to multi', async () => {
+      switchToSingle();
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTestId('picker-mode-multi'));
+
+      const row = screen.getByTestId('model-item-openai/gpt-4-turbo');
+      expect(row).toHaveAttribute('data-pulsing', 'true');
+    });
+
+    it('does not pulse any row when opening the modal in multi mode (no transition)', () => {
+      switchToMulti();
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('model-item-openai/gpt-4-turbo')).not.toHaveAttribute(
+        'data-pulsing',
+        'true'
+      );
+    });
+
+    it('clears the pulse data attribute after the 600ms animation completes', async () => {
+      switchToSingle();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTestId('picker-mode-multi'));
+      vi.advanceTimersByTime(800);
+      await waitFor(() => {
+        expect(screen.getByTestId('model-item-openai/gpt-4-turbo')).not.toHaveAttribute(
+          'data-pulsing',
+          'true'
+        );
+      });
+
+      vi.useRealTimers();
+    });
+
+    it('does not pulse on reopen-in-multi after a close-then-reopen cycle', async () => {
+      // Start in single mode so the upcoming switch is a real single → multi
+      // transition that should pulse.
+      switchToSingle();
+      const user = userEvent.setup();
+      const selectedIds = new Set(['openai/gpt-4-turbo']);
+      const { rerender } = render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={selectedIds}
+          onSelect={vi.fn()}
+        />
+      );
+
+      // Sanity check: switching to multi pulses the carryover row.
+      await user.click(screen.getByTestId('picker-mode-multi'));
+      expect(screen.getByTestId('model-item-openai/gpt-4-turbo')).toHaveAttribute(
+        'data-pulsing',
+        'true'
+      );
+
+      // Close the modal — the hook should reset its previous-mode reference.
+      rerender(
+        <ModelSelectorModal
+          open={false}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={selectedIds}
+          onSelect={vi.fn()}
+        />
+      );
+
+      // Reopen in multi mode (no transition this time).
+      rerender(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={selectedIds}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('model-item-openai/gpt-4-turbo')).not.toHaveAttribute(
+        'data-pulsing',
+        'true'
+      );
+    });
+  });
+
+  describe('breakpoint behavior', () => {
+    afterEach(async () => {
+      await setIsMobile(false);
+    });
+
+    it('renders exactly one picker-mode-toggle (vertical) when isMobile is false', async () => {
+      await setIsMobile(false);
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const toggles = screen.getAllByTestId('picker-mode-toggle');
+      expect(toggles).toHaveLength(1);
+      expect(first(toggles)).toHaveAttribute('aria-orientation', 'vertical');
+    });
+
+    it('renders exactly one picker-mode-toggle (horizontal) when isMobile is true', async () => {
+      await setIsMobile(true);
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+
+      const toggles = screen.getAllByTestId('picker-mode-toggle');
+      expect(toggles).toHaveLength(1);
+      expect(first(toggles)).toHaveAttribute('aria-orientation', 'horizontal');
+    });
+
+    it('renders exactly one Search models input regardless of breakpoint', async () => {
+      await setIsMobile(true);
+      const { unmount } = render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+      expect(screen.getAllByPlaceholderText('Search models')).toHaveLength(1);
+      unmount();
+
+      await setIsMobile(false);
+      render(
+        <ModelSelectorModal
+          open={true}
+          onOpenChange={vi.fn()}
+          models={mockModels}
+          selectedIds={new Set(['openai/gpt-4-turbo'])}
+          onSelect={vi.fn()}
+        />
+      );
+      expect(screen.getAllByPlaceholderText('Search models')).toHaveLength(1);
     });
   });
 });

@@ -1,6 +1,12 @@
 import { vi } from 'vitest';
 import type { Modality } from '@hushbox/shared';
-import type { AudioConfig, ImageConfig, SelectedModelEntry, VideoConfig } from '@/stores/model';
+import type {
+  AudioConfig,
+  ImageConfig,
+  PickerMode,
+  SelectedModelEntry,
+  VideoConfig,
+} from '@/stores/model';
 
 /**
  * A shape-compatible stand-in for the real `useModelStore` state. Every action
@@ -9,6 +15,7 @@ import type { AudioConfig, ImageConfig, SelectedModelEntry, VideoConfig } from '
 export interface ModelStoreStub {
   activeModality: Modality;
   selections: Record<Modality, SelectedModelEntry[]>;
+  pickerMode: Record<Modality, PickerMode>;
   imageConfig: ImageConfig;
   videoConfig: VideoConfig;
   audioConfig: AudioConfig;
@@ -17,6 +24,7 @@ export interface ModelStoreStub {
   toggleModel: ReturnType<typeof vi.fn>;
   removeModel: ReturnType<typeof vi.fn>;
   clearSelection: ReturnType<typeof vi.fn>;
+  setPickerMode: ReturnType<typeof vi.fn>;
   setImageConfig: ReturnType<typeof vi.fn>;
   setVideoConfig: ReturnType<typeof vi.fn>;
   setAudioConfig: ReturnType<typeof vi.fn>;
@@ -36,6 +44,7 @@ export function createModelStoreStub(overrides: Partial<ModelStoreStub> = {}): M
       audio: [],
       video: [],
     },
+    pickerMode: { text: 'single', image: 'single', audio: 'single', video: 'single' },
     imageConfig: { aspectRatio: '1:1' },
     videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
     audioConfig: { format: 'mp3', maxDurationSeconds: 600 },
@@ -44,6 +53,7 @@ export function createModelStoreStub(overrides: Partial<ModelStoreStub> = {}): M
     toggleModel: vi.fn(),
     removeModel: vi.fn(),
     clearSelection: vi.fn(),
+    setPickerMode: vi.fn(),
     setImageConfig: vi.fn(),
     setVideoConfig: vi.fn(),
     setAudioConfig: vi.fn(),

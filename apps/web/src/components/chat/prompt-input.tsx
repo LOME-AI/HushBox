@@ -22,6 +22,7 @@ import { useStability } from '@/providers/stability-provider';
 import { StableContent } from '@/components/shared/stable-content';
 import { AnimatedHeight } from '@/components/shared/animated-height';
 import { MorphHeight } from '@/components/shared/morph-height';
+import { AnimatedPlaceholder } from './animated-placeholder';
 import { CapacityBar } from './capacity-bar';
 import { BudgetMessages } from './budget-messages';
 import {
@@ -698,19 +699,22 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
               </div>
             ) : null}
           </AnimatedHeight>
-          <Textarea
-            ref={textareaRef}
-            id="prompt-input"
-            data-testid="prompt-input"
-            value={value}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            aria-label={placeholder}
-            rows={rows}
-            disabled={disabled}
-            className={`max-h-[${maxHeight}] min-h-[${minHeight}] resize-none overflow-y-auto border-0 text-base focus-visible:ring-0`}
-          />
+          <div className="relative">
+            <Textarea
+              ref={textareaRef}
+              id="prompt-input"
+              data-testid="prompt-input"
+              value={value}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              placeholder=""
+              aria-label={placeholder}
+              rows={rows}
+              disabled={disabled}
+              className={`max-h-[${maxHeight}] min-h-[${minHeight}] resize-none overflow-y-auto border-0 text-base focus-visible:ring-0`}
+            />
+            {value.length === 0 && <AnimatedPlaceholder text={placeholder} />}
+          </div>
 
           <div className="border-border border-t">
             <MorphHeight>

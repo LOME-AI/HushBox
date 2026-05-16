@@ -756,40 +756,82 @@ export class ChatPage {
     await expect(this.page.getByTestId('model-selector-modal')).toBeVisible();
   }
 
-  /** Toggle a model in the open modal by clicking its checkbox. */
-  async toggleModelInModal(modelId: string): Promise<void> {
-    const item = this.page.getByTestId(`model-item-${modelId}`);
-    await item.getByTestId('model-checkbox').click();
+  /**
+   * Switch the picker between single and multi modes by clicking the
+   * appropriate option in the segmented PickerModeToggle. The toggle renders
+   * twice (once per responsive layout); click the first visible option.
+   */
+  async switchPickerMode(mode: 'single' | 'multi'): Promise<void> {
+    const modal = this.page.getByTestId('model-selector-modal');
+    const targetTestId = mode === 'single' ? 'picker-mode-single' : 'picker-mode-multi';
+    await modal.getByTestId(targetTestId).first().click();
+    await expect(modal).toHaveAttribute('data-picker-mode', mode);
   }
 
-  /** Click the confirm button in the model selector modal footer. */
+  /**
+   * Toggle a model in the picker. In single mode this commits + closes; in
+   * multi mode it toggles a checkbox in the local pending selection. Either
+   * way, the row body is the click target now (no more checkbox-only zone).
+   */
+  async toggleModelInModal(modelId: string): Promise<void> {
+    const item = this.page.getByTestId(`model-item-${modelId}`);
+    // Click the row's main button (the part that holds the model name + checkbox).
+    await item.locator('button').first().click();
+  }
+
+  /**
+   * Confirm the multi-mode pending selection via the footer Use button. In
+   * single mode, row clicks commit + close immediately so this helper is
+   * unnecessary — it falls through to closing via X if the modal is still
+   * open with no Use button.
+   */
   async confirmModelSelection(): Promise<void> {
     const modal = this.page.getByTestId('model-selector-modal');
-    const selectButton = modal.getByRole('button', { name: /Select\b/ });
-    const isSelectVisible = await selectButton.isVisible().catch(() => false);
-    if (isSelectVisible) {
-      await selectButton.click();
-    } else {
-      await modal.getByRole('button', { name: 'Close' }).click();
+    const useButton = modal.getByTestId('use-models-button');
+    const isUseVisible = await useButton.isVisible().catch(() => false);
+    if (isUseVisible) {
+      await useButton.click();
+    } else if (await modal.isVisible().catch(() => false)) {
+      // Single mode after a row click already closed the modal; nothing to do.
+      // If it's still open (no row was clicked), close via X.
+      const closeButton = modal.getByRole('button', { name: 'Close' }).first();
+      if (await closeButton.isVisible().catch(() => false)) {
+        await closeButton.click();
+      }
     }
     await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
   }
 
   /**
-   * Select N non-premium models via the modal.
-   * Opens modal, toggles checkboxes on the first N non-premium models, confirms.
+   * Select a single model by name in single mode. Opens the picker, makes
+   * sure single mode is active, clicks the row → commits + closes.
+   */
+  async selectSingleModel(modelId: string): Promise<void> {
+    await this.openModelSelector();
+    await this.switchPickerMode('single');
+    const item = this.page.getByTestId(`model-item-${modelId}`);
+    await item.locator('button').first().click();
+    const modal = this.page.getByTestId('model-selector-modal');
+    await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
+  }
+
+  /**
+   * Select N non-premium models via the modal in multi mode. Opens, switches
+   * to multi mode, clears any pending state, clicks the first N non-premium
+   * rows, and confirms via Use.
    */
   async selectModels(count: number): Promise<void> {
     await this.openModelSelector();
+    await this.switchPickerMode('multi');
     const modal = this.page.getByTestId('model-selector-modal');
 
     const nonPremiumItems = modal.locator(
       '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
     );
 
-    // Clear all selections using the UI button (bypasses the min-1 checkbox guard)
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
+    // Clear all pending selections to start from a known state.
+    const clearButton = modal.getByTestId('clear-selection-button').first();
+    if (await clearButton.isVisible().catch(() => false)) {
       await clearButton.click();
       await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
     }
@@ -800,9 +842,36 @@ export class ChatPage {
       const item = nonPremiumItems.nth(index);
       const isSelected = (await item.getAttribute('data-selected')) === 'true';
       if (!isSelected) {
-        await item.getByTestId('model-checkbox').click();
+        await item.locator('button').first().click();
         await expect(item).toHaveAttribute('data-selected', 'true');
       }
+    }
+
+    await this.confirmModelSelection();
+  }
+
+  /**
+   * Select an explicit list of models by id in multi mode (used by tests that
+   * need a specific model combination, e.g. multi-model media). Opens the
+   * picker, switches to multi mode, clears any pending selection, clicks each
+   * model id, then confirms via Use.
+   */
+  async selectModelsByIds(ids: readonly string[]): Promise<void> {
+    await this.openModelSelector();
+    await this.switchPickerMode('multi');
+    const modal = this.page.getByTestId('model-selector-modal');
+
+    const clearButton = modal.getByTestId('clear-selection-button').first();
+    if (await clearButton.isVisible().catch(() => false)) {
+      await clearButton.click();
+      await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
+    }
+
+    for (const id of ids) {
+      const item = modal.getByTestId(`model-item-${id}`);
+      await expect(item).toBeVisible();
+      await item.locator('button').first().click();
+      await expect(item).toHaveAttribute('data-selected', 'true');
     }
 
     await this.confirmModelSelection();
@@ -817,13 +886,14 @@ export class ChatPage {
    */
   async selectModelsWithFailTarget(): Promise<{ successModelId: string; failModelId: string }> {
     await this.openModelSelector();
+    await this.switchPickerMode('multi');
     const modal = this.page.getByTestId('model-selector-modal');
     const nonPremiumItems = modal.locator(
       '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
     );
 
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
+    const clearButton = modal.getByTestId('clear-selection-button').first();
+    if (await clearButton.isVisible().catch(() => false)) {
       await clearButton.click();
       await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
     }
@@ -831,14 +901,14 @@ export class ChatPage {
     const available = await nonPremiumItems.count();
 
     const firstItem = nonPremiumItems.nth(0);
-    await firstItem.getByTestId('model-checkbox').click();
+    await firstItem.locator('button').first().click();
     await expect(firstItem).toHaveAttribute('data-selected', 'true');
     const firstTestId = await firstItem.getAttribute('data-testid');
     const successModelId = (firstTestId ?? '').replace('model-item-', '');
 
     // Select LAST model (fail target) — never picked by selectModels(N)
     const lastItem = nonPremiumItems.nth(available - 1);
-    await lastItem.getByTestId('model-checkbox').click();
+    await lastItem.locator('button').first().click();
     await expect(lastItem).toHaveAttribute('data-selected', 'true');
     const lastTestId = await lastItem.getAttribute('data-testid');
     const failModelId = (lastTestId ?? '').replace('model-item-', '');

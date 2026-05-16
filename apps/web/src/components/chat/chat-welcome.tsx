@@ -3,7 +3,6 @@ import { motion } from 'framer-motion';
 import { cn } from '@hushbox/ui';
 import { useVisualViewportHeight } from '@hushbox/ui';
 import { getGreeting } from '@/lib/greetings';
-import { getTaglineSubtitle } from '@/lib/modality-strings';
 import { useModelStore, type SelectedModelEntry } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
 import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabilities';
@@ -114,26 +113,24 @@ export function ChatWelcome({
     removeModel(current, modelId);
   }, []);
 
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const handleAddViaComparisonBar = React.useCallback((): void => {
+    const { activeModality: current, setPickerMode } = useModelStore.getState();
+    setPickerMode(current, 'multi');
+    setPickerOpen(true);
+  }, []);
+
   const { displayBalance } = useStableBalance();
   const balance = Number.parseFloat(displayBalance);
   const canAccessPremium = isAuthenticated && balance > 0;
 
-  // Pick a stable base greeting once auth state settles (prevents title flash
-  // on auth changes). Subtitle is re-derived per modality below so the tagline
-  // can swap without re-rolling the title.
-  const baseGreeting = React.useMemo(() => {
+  // Pick a stable greeting once auth state settles (prevents title flash on
+  // auth changes).
+  const greeting = React.useMemo(() => {
     if (isLoading) return null;
     return getGreeting(isAuthenticated);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading]); // Intentionally exclude isAuthenticated - we only want to compute once after loading
-
-  const greeting = React.useMemo(() => {
-    if (!baseGreeting) return null;
-    return {
-      title: baseGreeting.title,
-      subtitle: getTaglineSubtitle(activeModality, baseGreeting.subtitle),
-    };
-  }, [baseGreeting, activeModality]);
 
   // Auto-focus input when page finishes loading (desktop only)
   // Skip on mobile to avoid triggering keyboard unexpectedly
@@ -176,11 +173,14 @@ export function ChatWelcome({
         isAuthenticated={isAuthenticated}
         onPremiumClick={onPremiumClick}
         activeModality={activeModality}
+        pickerOpen={pickerOpen}
+        onPickerOpenChange={setPickerOpen}
       />
       <ComparisonBar
         models={models}
         selectedModels={selectedModels}
         onRemoveModel={handleRemoveModel}
+        onAddClick={handleAddViaComparisonBar}
       />
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-4 py-8">

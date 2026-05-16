@@ -11,9 +11,17 @@ export interface SelectedModelEntry {
   name: string;
 }
 
+export type PickerMode = 'single' | 'multi';
+
 export interface ModelStoreState {
   activeModality: Modality;
   selections: Record<Modality, SelectedModelEntry[]>;
+  /**
+   * Per-modality picker mode preference. Stored per-modality so a user can
+   * prefer single-select for text (fast swap) and multi-select for image
+   * (compare visual styles). Persisted via the model store's persist middleware.
+   */
+  pickerMode: Record<Modality, PickerMode>;
   imageConfig: ImageConfig;
   videoConfig: VideoConfig;
   audioConfig: AudioConfig;
@@ -23,10 +31,12 @@ export interface ModelStoreState {
   toggleModel: (modality: Modality, entry: SelectedModelEntry) => void;
   removeModel: (modality: Modality, modelId: string) => void;
   clearSelection: (modality: Modality) => void;
+  setPickerMode: (modality: Modality, mode: PickerMode) => void;
   /**
    * Resets state for an unauthenticated user: forces text modality (so the
    * trial chat page never lands with image/video/audio active and all icons
-   * disabled) and clears every modality selection.
+   * disabled), clears every modality selection, and resets pickerMode to
+   * single across modalities so the next picker open is in the simpler mode.
    */
   resetForUnauthenticated: () => void;
   setImageConfig: (config: Partial<ImageConfig>) => void;
@@ -53,6 +63,10 @@ const DEFAULT_AUDIO_CONFIG: AudioConfig = {
 
 function defaultSelections(): Record<Modality, SelectedModelEntry[]> {
   return { text: [DEFAULT_TEXT_ENTRY], image: [], audio: [], video: [] };
+}
+
+function defaultPickerMode(): Record<Modality, PickerMode> {
+  return { text: 'single', image: 'single', audio: 'single', video: 'single' };
 }
 
 /**
@@ -99,6 +113,7 @@ export const useModelStore = create<ModelStoreState>()(
     (set) => ({
       activeModality: 'text',
       selections: defaultSelections(),
+      pickerMode: defaultPickerMode(),
       imageConfig: { ...DEFAULT_IMAGE_CONFIG },
       videoConfig: { ...DEFAULT_VIDEO_CONFIG },
       audioConfig: { ...DEFAULT_AUDIO_CONFIG },
@@ -148,10 +163,17 @@ export const useModelStore = create<ModelStoreState>()(
           return updateModalitySelection(state, modality, []);
         }),
 
+      setPickerMode: (modality, mode) =>
+        set((state) => {
+          if (state.pickerMode[modality] === mode) return state;
+          return { pickerMode: { ...state.pickerMode, [modality]: mode } };
+        }),
+
       resetForUnauthenticated: () =>
         set(() => ({
           activeModality: 'text',
           selections: defaultSelections(),
+          pickerMode: defaultPickerMode(),
         })),
 
       setImageConfig: (config) =>
@@ -165,45 +187,10 @@ export const useModelStore = create<ModelStoreState>()(
     }),
     {
       name: 'hushbox-model-storage',
-      version: 2,
-      migrate: (persisted, version) => {
-        let state = persisted;
-        if (version === 0) {
-          const old = state as { selectedModelId?: string; selectedModelName?: string };
-          state = {
-            selectedModels: [
-              {
-                id: old.selectedModelId ?? DEFAULT_MODEL_ID,
-                name: old.selectedModelName ?? DEFAULT_MODEL_NAME,
-              },
-            ],
-            activeModality: 'text',
-          };
-        }
-        // v0 was normalized to v1 shape above; this branch then applies v1 → v2.
-        if (version <= 1) {
-          const old = state as {
-            selectedModels?: SelectedModelEntry[];
-            activeModality?: 'text' | 'image';
-          };
-          const previousModality = old.activeModality ?? 'text';
-          const previousSelections = old.selectedModels ?? [];
-          const selections: Record<Modality, SelectedModelEntry[]> = {
-            text: previousModality === 'text' ? previousSelections : [DEFAULT_TEXT_ENTRY],
-            image: previousModality === 'image' ? previousSelections : [],
-            audio: [],
-            video: [],
-          };
-          return {
-            activeModality: previousModality,
-            selections,
-          };
-        }
-        return state;
-      },
       partialize: (state) => ({
         activeModality: state.activeModality,
         selections: state.selections,
+        pickerMode: state.pickerMode,
       }),
       merge: (persisted, current) => {
         const merged: ModelStoreState = {

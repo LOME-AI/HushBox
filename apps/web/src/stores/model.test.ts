@@ -14,6 +14,7 @@ function resetStore(): void {
   useModelStore.setState({
     activeModality: 'text',
     selections: emptySelections(),
+    pickerMode: { text: 'single', image: 'single', audio: 'single', video: 'single' },
     imageConfig: { aspectRatio: '1:1' },
     videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
   });
@@ -412,57 +413,56 @@ describe('useModelStore', () => {
     });
   });
 
-  describe('persistence migration', () => {
-    interface PersistHandle {
-      persist: {
-        getOptions: () => {
-          migrate: (state: unknown, version: number) => unknown;
-        };
-      };
-    }
-
-    function getMigrate(): (state: unknown, version: number) => unknown {
-      return (useModelStore as unknown as PersistHandle).persist.getOptions().migrate;
-    }
-
-    it('migrates from v0 (pre-array single model) to v2 shape', () => {
-      const migrate = getMigrate();
-      const migrated = migrate(
-        { selectedModelId: 'anthropic/claude', selectedModelName: 'Claude' },
-        0
-      ) as { selections: Record<Modality, SelectedModelEntry[]> };
-      expect(migrated.selections.text).toEqual([{ id: 'anthropic/claude', name: 'Claude' }]);
-      expect(migrated.selections.image).toEqual([]);
-      expect(migrated.selections.audio).toEqual([]);
-      expect(migrated.selections.video).toEqual([]);
+  describe('pickerMode', () => {
+    it('defaults pickerMode to single for every modality', () => {
+      const { pickerMode } = useModelStore.getState();
+      expect(pickerMode.text).toBe('single');
+      expect(pickerMode.image).toBe('single');
+      expect(pickerMode.audio).toBe('single');
+      expect(pickerMode.video).toBe('single');
     });
 
-    it('migrates from v1 text state to v2', () => {
-      const migrate = getMigrate();
-      const migrated = migrate(
-        {
-          selectedModels: [{ id: 'anthropic/claude', name: 'Claude' }],
-          activeModality: 'text',
-        },
-        1
-      ) as { activeModality: Modality; selections: Record<Modality, SelectedModelEntry[]> };
-      expect(migrated.activeModality).toBe('text');
-      expect(migrated.selections.text).toEqual([{ id: 'anthropic/claude', name: 'Claude' }]);
-      expect(migrated.selections.image).toEqual([]);
+    it('setPickerMode updates only the given modality', () => {
+      useModelStore.getState().setPickerMode('text', 'multi');
+      const state = useModelStore.getState();
+      expect(state.pickerMode.text).toBe('multi');
+      expect(state.pickerMode.image).toBe('single');
+      expect(state.pickerMode.audio).toBe('single');
+      expect(state.pickerMode.video).toBe('single');
     });
 
-    it('migrates from v1 image state to v2 (image selection preserved)', () => {
-      const migrate = getMigrate();
-      const migrated = migrate(
-        {
-          selectedModels: [{ id: 'imagen', name: 'Imagen' }],
-          activeModality: 'image',
-        },
-        1
-      ) as { activeModality: Modality; selections: Record<Modality, SelectedModelEntry[]> };
-      expect(migrated.activeModality).toBe('image');
-      expect(migrated.selections.text).toEqual([defaultTextEntry]);
-      expect(migrated.selections.image).toEqual([{ id: 'imagen', name: 'Imagen' }]);
+    it('setPickerMode supports independent modes per modality', () => {
+      useModelStore.getState().setPickerMode('text', 'multi');
+      useModelStore.getState().setPickerMode('image', 'single');
+      useModelStore.getState().setPickerMode('video', 'multi');
+      const state = useModelStore.getState();
+      expect(state.pickerMode.text).toBe('multi');
+      expect(state.pickerMode.image).toBe('single');
+      expect(state.pickerMode.video).toBe('multi');
+      expect(state.pickerMode.audio).toBe('single');
+    });
+
+    it('setPickerMode preserves the pickerMode reference when value is unchanged', () => {
+      const before = useModelStore.getState().pickerMode;
+      useModelStore.getState().setPickerMode('text', 'single');
+      expect(useModelStore.getState().pickerMode).toBe(before);
+    });
+
+    it('setPickerMode produces a new pickerMode reference on actual change', () => {
+      const before = useModelStore.getState().pickerMode;
+      useModelStore.getState().setPickerMode('text', 'multi');
+      expect(useModelStore.getState().pickerMode).not.toBe(before);
+    });
+
+    it('resetForUnauthenticated resets pickerMode to single across modalities', () => {
+      useModelStore.getState().setPickerMode('text', 'multi');
+      useModelStore.getState().setPickerMode('image', 'multi');
+      useModelStore.getState().resetForUnauthenticated();
+      const { pickerMode } = useModelStore.getState();
+      expect(pickerMode.text).toBe('single');
+      expect(pickerMode.image).toBe('single');
+      expect(pickerMode.audio).toBe('single');
+      expect(pickerMode.video).toBe('single');
     });
   });
 

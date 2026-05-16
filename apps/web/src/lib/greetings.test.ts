@@ -148,45 +148,6 @@ describe('getGreeting', () => {
     });
   });
 
-  describe('modality-aware subtitle', () => {
-    it('with undefined modality returns the time-of-day subtitle', () => {
-      vi.setSystemTime(new Date('2024-01-01T14:00:00'));
-      const legacy = getGreeting(true);
-      const explicit = getGreeting(true);
-      expect(explicit.subtitle).toBe(legacy.subtitle);
-    });
-
-    it('with text modality returns the time-of-day subtitle', () => {
-      vi.setSystemTime(new Date('2024-01-01T14:00:00'));
-      const legacy = getGreeting(true);
-      const text = getGreeting(true, 'text');
-      expect(text.subtitle).toBe(legacy.subtitle);
-    });
-
-    it('with image modality returns the image tagline', () => {
-      vi.setSystemTime(new Date('2024-01-01T14:00:00'));
-      const greeting = getGreeting(true, 'image');
-      expect(greeting.subtitle).toBe('What should we create?');
-    });
-
-    it('with video modality returns the video tagline', () => {
-      vi.setSystemTime(new Date('2024-01-01T14:00:00'));
-      const greeting = getGreeting(true, 'video');
-      expect(greeting.subtitle).toBe('What scene should we make?');
-    });
-
-    it('with audio modality returns the audio tagline', () => {
-      vi.setSystemTime(new Date('2024-01-01T14:00:00'));
-      const greeting = getGreeting(true, 'audio');
-      expect(greeting.subtitle).toBe('What should we listen to?');
-    });
-
-    it('unauthenticated with image modality still returns the image tagline', () => {
-      const greeting = getGreeting(false, 'image');
-      expect(greeting.subtitle).toBe('What should we create?');
-    });
-  });
-
   describe('boundary conditions', () => {
     it('5 AM is morning', () => {
       vi.setSystemTime(new Date('2024-01-01T05:00:00'));

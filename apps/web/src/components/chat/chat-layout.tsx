@@ -845,6 +845,12 @@ export function ChatLayout({
     const { activeModality: current, removeModel } = useModelStore.getState();
     removeModel(current, modelId);
   }, []);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const handleAddViaComparisonBar = React.useCallback((): void => {
+    const { activeModality: current, setPickerMode } = useModelStore.getState();
+    setPickerMode(current, 'multi');
+    setPickerOpen(true);
+  }, []);
   const tierInfo = useTierInfo();
   const tierInfoOrUndefined = tierInfo ?? undefined;
   const handlePremiumClick = usePremiumModelClick(models, isAuthenticated);
@@ -940,6 +946,8 @@ export function ChatLayout({
           isLinkGuest={isLinkGuest ?? false}
           onPremiumClick={handlePremiumClick}
           activeModality={activeModality}
+          pickerOpen={pickerOpen}
+          onPickerOpenChange={setPickerOpen}
           {...buildChatHeaderGroupProps(groupChat, handleFacepileClick)}
         />
       </div>
@@ -947,6 +955,7 @@ export function ChatLayout({
         models={models}
         selectedModels={selectedModels}
         onRemoveModel={handleRemoveModel}
+        onAddClick={handleAddViaComparisonBar}
       />
       <ForkTabs
         {...resolveForkTabsProps({ forks, activeForkId, onForkSelect, onForkRename, onForkDelete })}

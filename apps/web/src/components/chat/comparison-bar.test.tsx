@@ -148,4 +148,38 @@ describe('ComparisonBar', () => {
     expect(screen.getByText('Model A')).toBeInTheDocument();
     expect(screen.getByText('Model B')).toBeInTheDocument();
   });
+
+  it('does not render the +Add chip when onAddClick is not provided', () => {
+    render(
+      <ComparisonBar models={fullModels} selectedModels={twoModels} onRemoveModel={vi.fn()} />
+    );
+    expect(screen.queryByTestId('comparison-bar-add-button')).not.toBeInTheDocument();
+  });
+
+  it('renders the +Add chip when onAddClick is provided', () => {
+    render(
+      <ComparisonBar
+        models={fullModels}
+        selectedModels={twoModels}
+        onRemoveModel={vi.fn()}
+        onAddClick={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId('comparison-bar-add-button')).toBeInTheDocument();
+  });
+
+  it('calls onAddClick when the +Add chip is clicked', async () => {
+    const user = userEvent.setup();
+    const onAddClick = vi.fn();
+    render(
+      <ComparisonBar
+        models={fullModels}
+        selectedModels={twoModels}
+        onRemoveModel={vi.fn()}
+        onAddClick={onAddClick}
+      />
+    );
+    await user.click(screen.getByTestId('comparison-bar-add-button'));
+    expect(onAddClick).toHaveBeenCalledTimes(1);
+  });
 });

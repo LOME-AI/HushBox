@@ -20,6 +20,14 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+vi.mock('@hushbox/shared', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@hushbox/shared')>();
+  return {
+    ...original,
+    getSecureRandomElement: <T,>(array: readonly T[]): T => array[0] as T,
+  };
+});
+
 import { createModelStoreStub, type ModelStoreStub } from '@/test-utils/model-store-mock';
 
 const modelStoreStubRef: { current: ModelStoreStub } = { current: createModelStoreStub() };
@@ -139,6 +147,7 @@ vi.mock('framer-motion', async () => {
       p: createMotionComponent('p'),
     },
     AnimatePresence,
+    useReducedMotion: () => false,
   };
 });
 
@@ -333,22 +342,34 @@ describe('ChatWelcome', () => {
     expect(screen.queryByTestId('selected-models-bar')).not.toBeInTheDocument();
   });
 
-  it('renders image-tagline subtitle when active modality is image', () => {
+  it('uses the standard subtitle when active modality is image', () => {
     modelStoreStubRef.current.activeModality = 'image';
-    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
 
-    expect(screen.getByText('What should we create?')).toBeInTheDocument();
+    expect(screen.queryByText('What should we create?')).not.toBeInTheDocument();
+    expect(screen.getByText('Every model. One conversation.')).toBeInTheDocument();
   });
 
-  it('renders video-tagline subtitle when active modality is video', () => {
+  it('uses the standard subtitle when active modality is video', () => {
     modelStoreStubRef.current.activeModality = 'video';
-    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
 
-    expect(screen.getByText('What scene should we make?')).toBeInTheDocument();
+    expect(screen.queryByText('What scene should we make?')).not.toBeInTheDocument();
+    expect(screen.getByText('Every model. One conversation.')).toBeInTheDocument();
+  });
+
+  it('uses the standard subtitle when active modality is audio', () => {
+    modelStoreStubRef.current.activeModality = 'audio';
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.queryByText('What should we listen to?')).not.toBeInTheDocument();
+    expect(screen.getByText('Every model. One conversation.')).toBeInTheDocument();
   });
 
   it('renders text-modality inspiration label by default', () => {
@@ -366,5 +387,23 @@ describe('ChatWelcome', () => {
     });
 
     expect(screen.getByText('Need inspiration? Try these:')).toBeInTheDocument();
+  });
+
+  describe('+Add chip integration', () => {
+    it('sets picker mode to multi when the +Add chip is clicked', async () => {
+      modelStoreStubRef.current.selections.text = [
+        { id: 'model-1', name: 'Model One' },
+        { id: 'model-2', name: 'Model Two' },
+      ];
+      const user = userEvent.setup();
+
+      render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+        wrapper: createWrapper(),
+      });
+
+      await user.click(screen.getByTestId('comparison-bar-add-button'));
+
+      expect(modelStoreStubRef.current.setPickerMode).toHaveBeenCalledWith('text', 'multi');
+    });
   });
 });

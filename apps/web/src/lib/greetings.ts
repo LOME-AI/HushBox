@@ -1,6 +1,4 @@
 import { getSecureRandomElement } from '@hushbox/shared';
-import { getTaglineSubtitle } from './modality-strings';
-import type { Modality } from '@hushbox/shared';
 
 export interface Greeting {
   title: string;
@@ -72,10 +70,6 @@ function getBaseGreeting(isAuthenticated: boolean): Greeting {
   }
 }
 
-export function getGreeting(isAuthenticated: boolean, modality?: Modality): Greeting {
-  const base = getBaseGreeting(isAuthenticated);
-  return {
-    title: base.title,
-    subtitle: getTaglineSubtitle(modality, base.subtitle),
-  };
+export function getGreeting(isAuthenticated: boolean): Greeting {
+  return getBaseGreeting(isAuthenticated);
 }

@@ -29,9 +29,9 @@ test.describe('Multi-Model Chat', () => {
         await chatPage.selectModels(3);
       });
 
-      await test.step('verify header shows "Multiple Models"', async () => {
+      await test.step('verify header shows "3 models"', async () => {
         const button = authenticatedPage.getByTestId('model-selector-button');
-        await expect(button).toContainText('Multiple Models');
+        await expect(button).toContainText('3 models');
       });
 
       await test.step('verify comparison bar shows 3 pills', async () => {
@@ -67,7 +67,8 @@ test.describe('Multi-Model Chat', () => {
 
         await chatPage.expectComparisonBarHidden();
         const button = authenticatedPage.getByTestId('model-selector-button');
-        await expect(button).not.toContainText('Multiple Models');
+        // Header shows "N models" only when ≥2 selected; with 1, it shows the model name.
+        await expect(button).not.toContainText(/\d+ models/);
       });
     });
 
@@ -101,7 +102,8 @@ test.describe('Multi-Model Chat', () => {
       await test.step('deselect one model — dimming lifts', async () => {
         const modal = authenticatedPage.getByTestId('model-selector-modal');
         const selectedItems = modal.locator('[data-testid^="model-item-"][data-selected="true"]');
-        await selectedItems.last().getByTestId('model-checkbox').click();
+        // Click the row body to toggle (no separate checkbox zone in the new design).
+        await selectedItems.last().locator('button').first().click();
 
         const unselected = modal.locator(
           '[data-testid^="model-item-"][data-selected="false"]:not(:has([data-testid="lock-icon"]))'
@@ -145,20 +147,22 @@ test.describe('Multi-Model Chat', () => {
       await test.step('reopen modal, clear, select 1 model, confirm', async () => {
         await chatPage.openModelSelector();
         const modal = authenticatedPage.getByTestId('model-selector-modal');
-        await authenticatedPage.getByTestId('clear-selection-button').click();
+        // Picker remembers per-modality mode; tests selecting 3 left it in multi.
+        await authenticatedPage.getByTestId('clear-selection-button').first().click();
         await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
-        // With 0 selected, Close reverts — select 1 model in the already-open modal
+        // Click row body to add the first non-premium back in.
         const firstNonPremium = modal.locator(
           '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
         );
-        await firstNonPremium.first().getByTestId('model-checkbox').click();
+        await firstNonPremium.first().locator('button').first().click();
         await chatPage.confirmModelSelection();
       });
 
       await test.step('verify single model in header, no comparison bar', async () => {
         await chatPage.expectComparisonBarHidden();
         const button = authenticatedPage.getByTestId('model-selector-button');
-        await expect(button).not.toContainText('Multiple Models');
+        // Header now shows "N models" instead of the old "Multiple Models" label.
+        await expect(button).not.toContainText(/\d+ models/);
       });
     });
 
@@ -182,6 +186,92 @@ test.describe('Multi-Model Chat', () => {
         const count = await chatPage.getComparisonBarModelCount();
         expect(count).toBe(2);
       });
+    });
+
+    test('picker mode (single/multi) persists across page reload', async ({
+      authenticatedPage,
+    }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+
+      await test.step('switch picker to multi mode and close', async () => {
+        await chatPage.openModelSelector();
+        await chatPage.switchPickerMode('multi');
+        // Close via Cancel — mode persists even when no selection committed.
+        await authenticatedPage
+          .getByTestId('model-selector-modal')
+          .getByTestId('cancel-button')
+          .click();
+      });
+
+      await test.step('reload, reopen — mode is still multi', async () => {
+        await authenticatedPage.reload();
+        await chatPage.waitForAppStable();
+        await chatPage.openModelSelector();
+        await expect(authenticatedPage.getByTestId('model-selector-modal')).toHaveAttribute(
+          'data-picker-mode',
+          'multi'
+        );
+      });
+    });
+
+    test('single mode: clicking a row commits + closes the modal immediately', async ({
+      authenticatedPage,
+    }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+
+      await chatPage.openModelSelector();
+      await chatPage.switchPickerMode('single');
+
+      const modal = authenticatedPage.getByTestId('model-selector-modal');
+      const firstNonPremium = modal
+        .locator(
+          '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
+        )
+        .first();
+      const targetId = (await firstNonPremium.getAttribute('data-testid')) ?? '';
+
+      await firstNonPremium.locator('button').first().click();
+
+      // Modal closed without needing a Use button click
+      await expect(modal).not.toBeVisible();
+
+      // Header reflects the new pick — should NOT show "N models" since this is single mode
+      const button = authenticatedPage.getByTestId('model-selector-button');
+      await expect(button).not.toContainText(/\d+ models/);
+      // The picked model id was the one whose row we clicked
+      expect(targetId).toContain('model-item-');
+    });
+
+    test('multi mode: Cancel discards local changes (does not commit)', async ({
+      authenticatedPage,
+    }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+
+      // Start with one committed model (default Smart Model).
+      await chatPage.selectSingleModel('smart-model');
+
+      // Open picker, switch to multi, add another model, then Cancel
+      await chatPage.openModelSelector();
+      await chatPage.switchPickerMode('multi');
+      const modal = authenticatedPage.getByTestId('model-selector-modal');
+      const firstNonPremium = modal
+        .locator(
+          '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
+        )
+        .first();
+      await firstNonPremium.locator('button').first().click();
+
+      await modal.getByTestId('cancel-button').click();
+      await expect(modal).not.toBeVisible();
+
+      // Comparison bar should NOT appear because we discarded the second model
+      await chatPage.expectComparisonBarHidden();
     });
   });
 
