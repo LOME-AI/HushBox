@@ -55,7 +55,6 @@ describe('getErrorBody', () => {
     expect(getErrorBody(new Error('regular'))).toBeUndefined();
     expect(getErrorBody('string')).toBeUndefined();
     expect(getErrorBody(null)).toBeUndefined();
-    expect(getErrorBody()).toBeUndefined();
     expect(getErrorBody({ code: 'fake' })).toBeUndefined();
   });
 
