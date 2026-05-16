@@ -816,6 +816,7 @@ function ModelSelectorFooter({
       data-testid="model-selector-footer-motion"
       initial={reduceMotion ? false : { y: 24, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
+      exit={reduceMotion ? { opacity: 0 } : { y: 24, opacity: 0 }}
       transition={reduceMotion ? { duration: 0 } : { duration: 0.22, ease: 'easeOut' }}
       className="border-t p-4"
     >
@@ -1478,13 +1479,16 @@ export function ModelSelectorModal({
             onToggleExpand: handleToggleExpand,
           }}
           footer={
-            showFooter ? (
-              <ModelSelectorFooter
-                selectedCount={multiSelectionCount}
-                onCancel={handleCancel}
-                onConfirm={handleConfirmSelection}
-              />
-            ) : null
+            <AnimatePresence initial={false}>
+              {showFooter && (
+                <ModelSelectorFooter
+                  key="model-selector-footer"
+                  selectedCount={multiSelectionCount}
+                  onCancel={handleCancel}
+                  onConfirm={handleConfirmSelection}
+                />
+              )}
+            </AnimatePresence>
           }
         />
       </Overlay>

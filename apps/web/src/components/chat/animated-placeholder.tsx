@@ -27,11 +27,11 @@ export function AnimatedPlaceholder({
       data-testid="animated-placeholder"
       aria-hidden="true"
       className={cn(
-        'text-muted-foreground pointer-events-none absolute top-2 left-3 text-base select-none md:text-sm',
+        'text-muted-foreground pointer-events-none absolute top-2 left-3 text-base whitespace-nowrap select-none md:text-sm',
         className
       )}
     >
-      <TypingAnimation text={text} loop skipInitialTyping />
+      <TypingAnimation text={text} loop={false} skipInitialTyping />
     </span>
   );
 }

@@ -39,12 +39,12 @@ describe('AnimatedPlaceholder', () => {
     expect(screen.getByTestId('typed-text').textContent).toBe('Ask me anything...');
   });
 
-  it('keeps the cursor visible at idle so it reads as a typing caret (loop)', () => {
+  it('does not render a blinking caret at idle (loop is off)', () => {
     render(<AnimatedPlaceholder text="Ask me anything..." />);
     act(() => {
       vi.advanceTimersByTime(500);
     });
-    expect(screen.getByTestId('typing-cursor')).toBeInTheDocument();
+    expect(screen.queryByTestId('typing-cursor')).not.toBeInTheDocument();
   });
 
   it('marks the wrapper aria-hidden so it is not double-announced beside the textarea aria-label', () => {
@@ -67,29 +67,40 @@ describe('AnimatedPlaceholder', () => {
     expect(screen.getByTestId('animated-placeholder')).toHaveClass('text-muted-foreground');
   });
 
+  it('locks to a single line so mid-animation transitions never wrap', () => {
+    render(<AnimatedPlaceholder text="Describe the image you want..." />);
+    expect(screen.getByTestId('animated-placeholder')).toHaveClass('whitespace-nowrap');
+  });
+
   it('merges a custom className onto the wrapper', () => {
     render(<AnimatedPlaceholder text="Ask me anything..." className="custom-offset" />);
     expect(screen.getByTestId('animated-placeholder')).toHaveClass('custom-offset');
   });
 
   it('delete-then-types when text prop changes (modality switch)', () => {
-    const { rerender } = render(<AnimatedPlaceholder text="Ask me anything..." />);
-    expect(screen.getByTestId('typed-text').textContent).toBe('Ask me anything...');
+    const before = 'Ask me anything...';
+    const after = 'Describe the image you want...';
+    const { rerender } = render(<AnimatedPlaceholder text={before} />);
+    expect(screen.getByTestId('typed-text').textContent).toBe(before);
 
-    rerender(<AnimatedPlaceholder text="Describe the image you want..." />);
+    rerender(<AnimatedPlaceholder text={after} />);
 
-    for (let index = 0; index < 'Ask me anything...'.length; index++) {
+    let remainingDeletes = before.length;
+    while (remainingDeletes > 0) {
       act(() => {
         vi.advanceTimersByTime(45);
       });
+      remainingDeletes -= 1;
     }
     expect(screen.getByTestId('typed-text').textContent).toBe('');
 
-    for (let index = 0; index < 'Describe the image you want...'.length; index++) {
+    let remainingTypes = after.length;
+    while (remainingTypes > 0) {
       act(() => {
         vi.advanceTimersByTime(75);
       });
+      remainingTypes -= 1;
     }
-    expect(screen.getByTestId('typed-text').textContent).toBe('Describe the image you want...');
+    expect(screen.getByTestId('typed-text').textContent).toBe(after);
   });
 });
