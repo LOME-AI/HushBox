@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MARKETING_BASE_URL, ROUTES } from '@hushbox/shared';
 
 const { mockFetchJson, mockOpenExternalUrl } = vi.hoisted(() => ({
   mockFetchJson: vi.fn(),
@@ -49,7 +50,7 @@ describe('ManageOnlineButton', () => {
       expect(mockFetchJson).toHaveBeenCalled();
     });
     expect(mockOpenExternalUrl).toHaveBeenCalledWith(
-      'https://hushbox.ai/billing?token=test-token-123'
+      `${MARKETING_BASE_URL}${ROUTES.BILLING}?token=test-token-123`
     );
   });
 
