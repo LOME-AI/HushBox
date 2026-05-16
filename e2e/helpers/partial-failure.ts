@@ -37,9 +37,9 @@ export async function assertPartialFailurePersistence(
   params: AssertParams
 ): Promise<void> {
   const conversationId = page.url().split('/chat/')[1]?.split('?')[0];
-  expect(conversationId, 'conversation id should be in URL').toBeTruthy();
+  if (!conversationId) throw new Error('conversation id should be in URL');
 
-  const response = await page.request.get(`${apiUrl}/api/conversations/${conversationId!}`);
+  const response = await page.request.get(`${apiUrl}/api/conversations/${conversationId}`);
   expect(response.ok()).toBe(true);
   const { messages } = (await response.json()) as ConversationApiResponse;
 

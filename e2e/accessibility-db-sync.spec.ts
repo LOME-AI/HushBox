@@ -31,9 +31,7 @@ test.describe('Authenticated DB sync for accessibility preferences', () => {
     expect(response.ok()).toBe(true);
   });
 
-  test('a toggle PUTs the new state and the server accepts it', async ({
-    authenticatedPage,
-  }) => {
+  test('a toggle PUTs the new state and the server accepts it', async ({ authenticatedPage }) => {
     const page = authenticatedPage;
 
     await page.goto('/chat', { waitUntil: 'domcontentloaded' });
