@@ -850,6 +850,24 @@ describe('MessageItem', () => {
       expect(screen.queryByTestId('model-nametag')).not.toBeInTheDocument();
     });
 
+    // The a11y "Easier to read" preset applies `line-height: 2 !important` to
+    // <p> elements via `html.a11y-line-height-double p`. If the nametag is a
+    // <p>, it gets distorted relative to the inline Smart chip (a <span>),
+    // breaking the visual centering of the two badges.
+    it('does not render the nametag as a <p> element', () => {
+      const aiMsg = {
+        id: 'ai-tag',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: 'Hello!',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'GPT-4o',
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      const nametag = screen.getByTestId('model-nametag');
+      expect(nametag.tagName).not.toBe('P');
+    });
+
     it('renders the Smart chip when isSmartModel is true', () => {
       const knownModel = mockModelsData.data.models[0];
       if (!knownModel) throw new Error('test fixture must include at least one model');

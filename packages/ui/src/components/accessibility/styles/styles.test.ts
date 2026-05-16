@@ -90,6 +90,16 @@ describe('accessibility styles bundle', () => {
     expect(contents).toMatch(/html\.a11y-font-scale-200\s*{\s*font-size:\s*32px/);
   });
 
+  it('typography.css scopes paragraph spacing to non-trailing paragraphs', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    // :not(:last-child) is load-bearing — without it the trailing <p> in every
+    // message bubble (user text rendered as a <p>; AI markdown's final prose
+    // <p>) carries 2em margin-bottom, painting empty space inside the bubble.
+    expect(contents).toMatch(
+      /html\.a11y-para-spacing-double p:not\(:last-child\)\s*{\s*margin-bottom:\s*2em/
+    );
+  });
+
   it('motion.css forces 0.01ms duration and !important to beat Framer inline styles', () => {
     const contents = readFileSync(path.join(stylesDir, 'motion.css'), 'utf8');
     expect(contents).toMatch(/animation-duration:\s*0\.01ms\s*!important/);

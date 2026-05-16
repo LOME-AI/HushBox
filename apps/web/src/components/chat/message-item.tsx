@@ -588,7 +588,7 @@ function AIMessageNametag({
 
   return (
     <span data-testid="model-nametag-container" className="mb-0.5 inline-flex items-center gap-1">
-      <p
+      <span
         data-testid="model-nametag"
         className="inline-block rounded bg-[var(--nametag-bg)] px-1.5 py-0.5 text-xs text-[var(--nametag-fg)] dark:bg-[var(--nametag-bg-dark)] dark:text-[var(--nametag-fg-dark)]"
         style={
@@ -601,7 +601,7 @@ function AIMessageNametag({
         }
       >
         {nametagText}
-      </p>
+      </span>
       {primaryMessage.isSmartModel && (
         <span
           data-testid="smart-model-chip"

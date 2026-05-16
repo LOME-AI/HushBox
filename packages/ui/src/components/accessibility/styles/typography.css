@@ -37,7 +37,7 @@ html.a11y-line-height-double td {
   line-height: 2 !important;
 }
 
-html.a11y-para-spacing-double p {
+html.a11y-para-spacing-double p:not(:last-child) {
   margin-bottom: 2em;
 }
 
