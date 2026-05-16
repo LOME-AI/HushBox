@@ -28,6 +28,7 @@ vi.mock('@hushbox/ui/accessibility/lib/tts-engine', () => ({
   getTtsService: () => ({
     load: vi.fn((): Promise<void> => Promise.resolve()),
     isLoaded: isLoadedMock,
+    preloadVoice: vi.fn((): Promise<void> => Promise.resolve()),
     speak: speakMock,
     stop: vi.fn(),
     unlockAudio: vi.fn(),

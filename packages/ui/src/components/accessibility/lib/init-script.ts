@@ -2,28 +2,47 @@
  * Inline `<head>` accessibility-bootstrap script.
  *
  * Runs synchronously before bundles load and before first paint. Mirrors the
- * essentials of `applySettings()` and `font-loader` so the chosen contrast,
- * font, motion, etc. are present on `<html>` before any pixels are committed.
+ * essentials of `applySettings()`, the reduced-motion broadcaster, and the
+ * font loader so the chosen contrast, font, motion, etc. are present on
+ * `<html>` before any pixels are committed.
+ *
+ * The `reduced-motion` class is set from the OR of two sources — the
+ * stored `stopAnimations` flag and the OS `prefers-reduced-motion: reduce`
+ * media query — so the class shows up pre-paint even when the OS alone is
+ * driving it and no stored a11y prefs exist.
  *
  * Constraints:
  *  - Must be a self-contained string (no imports).
  *  - Must never throw.
- *  - Keep this in sync with `apply-settings.ts`.
+ *  - Keep this in sync with `apply-settings.ts` + `reduced-motion-broadcaster.ts`.
  */
 export const A11Y_INIT_SCRIPT: string = String.raw`
 (function () {
   try {
     var KEY = 'hushbox.a11y.v1';
-    var raw;
-    try { raw = window.localStorage.getItem(KEY); } catch (e) { return; }
-    if (!raw) return;
-    var parsed;
-    try { parsed = JSON.parse(raw); } catch (e) { return; }
-    var s = parsed && parsed.state;
-    if (!s || typeof s !== 'object') return;
-
     var html = document.documentElement;
     var add = function (name, on) { if (on) html.classList.add(name); };
+
+    var osReducedMotion = false;
+    try {
+      osReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (e) {}
+
+    var raw;
+    try { raw = window.localStorage.getItem(KEY); } catch (e) { raw = null; }
+
+    var s = null;
+    if (raw) {
+      try {
+        var parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.state === 'object' && parsed.state !== null) s = parsed.state;
+      } catch (e) {}
+    }
+
+    var storedStopAnimations = s !== null && s.stopAnimations === true;
+    add('reduced-motion', osReducedMotion || storedStopAnimations);
+
+    if (s === null) return;
 
     add('a11y-contrast-increased', s.contrast === 'increased');
     add('a11y-contrast-high', s.contrast === 'high');
@@ -54,8 +73,6 @@ export const A11Y_INIT_SCRIPT: string = String.raw`
     add('a11y-cursor-xlarge', s.cursorSize === 'xlarge');
     add('a11y-cursor-white', s.cursorColor === 'white');
 
-    add('a11y-stop-animations', s.stopAnimations === true);
-
     add('a11y-focus-strong', s.focusWidth !== '0');
     add('a11y-focus-halo', s.focusHalo === true);
 
@@ -76,8 +93,12 @@ export const A11Y_INIT_SCRIPT: string = String.raw`
       link.setAttribute('href', fontUrl);
       document.head.appendChild(link);
 
+      // OpenDyslexic's intrinsic metrics render ~15% larger than the other
+      // a11y fonts at the same point size; shrink it via the @font-face
+      // size-adjust descriptor so it visually matches when applied.
+      var sizeAdjust = fontId === 'open-dyslexic' ? " size-adjust: 85%;" : "";
       var faceStyle = document.createElement('style');
-      faceStyle.textContent = "@font-face { font-family: '" + fontId + "'; src: url('" + fontUrl + "') format('woff2'); font-display: block; }";
+      faceStyle.textContent = "@font-face { font-family: '" + fontId + "'; src: url('" + fontUrl + "') format('woff2'); font-display: block;" + sizeAdjust + " }";
       document.head.appendChild(faceStyle);
 
       var overrideStyle = document.createElement('style');

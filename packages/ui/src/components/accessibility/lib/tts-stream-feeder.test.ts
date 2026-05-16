@@ -7,6 +7,7 @@ function makeFakeTts(): { service: TtsService; spoken: { text: string; voice: Tt
   const service: TtsService = {
     load: vi.fn(() => Promise.resolve()),
     isLoaded: vi.fn(() => true),
+    preloadVoice: vi.fn(() => Promise.resolve()),
     speak: vi.fn((text: string, voice: TtsVoice) => {
       spoken.push({ text, voice });
       return Promise.resolve();

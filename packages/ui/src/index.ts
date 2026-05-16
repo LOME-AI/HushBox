@@ -122,7 +122,11 @@ export { useVisualViewportHeight } from './hooks/use-visual-viewport-height';
 export { useIsTouchDevice, TOUCH_QUERY } from './hooks/use-is-touch-device';
 export { useIsMobile } from './hooks/use-is-mobile';
 export { useAnimationFrame } from './hooks/use-animation-frame';
-export { useReducedMotion } from './hooks/use-reduced-motion';
+export {
+  useReducedMotion,
+  shouldReduceMotion,
+  subscribeReducedMotion,
+} from './hooks/use-reduced-motion';
 export {
   TouchDeviceOverrideContext,
   useTouchDeviceOverride,

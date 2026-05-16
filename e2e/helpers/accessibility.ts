@@ -21,10 +21,10 @@ export async function walkAccessibilityToggles(page: Page): Promise<void> {
   });
 
   await test.step('toggle Animations off', async () => {
-    // Default 'Allow' → 'Stop' applies the stop-animations class.
+    // Default 'Allow' → 'Stop' applies the reduced-motion class.
     await page.getByRole('button', { name: /^Animations: / }).click();
     const cls = await getHtmlClass(page);
-    expect.soft(cls).toContain('a11y-stop-animations');
+    expect.soft(cls).toContain('reduced-motion');
   });
 
   await test.step('cycle Text size', async () => {
@@ -46,7 +46,7 @@ export async function walkAccessibilityToggles(page: Page): Promise<void> {
 export async function expectAllTogglesPersisted(page: Page): Promise<void> {
   const cls = await getHtmlClass(page);
   expect.soft(cls).toContain('a11y-contrast-increased');
-  expect.soft(cls).toContain('a11y-stop-animations');
+  expect.soft(cls).toContain('reduced-motion');
   expect.soft(cls).toContain('a11y-font-scale-125');
   expect.soft(cls).toContain('a11y-focus-strong');
 }

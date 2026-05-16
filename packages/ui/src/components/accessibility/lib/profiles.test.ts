@@ -66,6 +66,12 @@ describe('ACCESSIBILITY_PROFILES', () => {
     expect(profile?.preset.stopAnimations).toBe(true);
   });
 
+  it('reading-focus description does not claim "dyslexia" — the preset picks atkinson, not open-dyslexic', () => {
+    const profile = getProfile('reading-focus');
+    expect(profile?.preset.fontFamily).toBe('atkinson');
+    expect(profile?.description.toLowerCase()).not.toContain('dyslexia');
+  });
+
   it('motion-sensitive preset stops animations and softens colors', () => {
     const profile = getProfile('motion-sensitive');
     expect(profile?.preset.stopAnimations).toBe(true);

@@ -1,24 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SidebarActionButton } from './sidebar-action-button';
 
-const useReducedMotionMock = vi.fn<() => boolean>();
-
-vi.mock('@hushbox/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@hushbox/ui')>();
-  return {
-    ...actual,
-    useReducedMotion: (): boolean => useReducedMotionMock(),
-  };
-});
-
 describe('SidebarActionButton', () => {
-  beforeEach(() => {
-    useReducedMotionMock.mockReset();
-    useReducedMotionMock.mockReturnValue(false);
-  });
-
   describe('expanded mode', () => {
     it('renders button with label and icon', () => {
       render(
@@ -165,9 +150,8 @@ describe('SidebarActionButton', () => {
     });
   });
 
-  describe('shine animation with reduced motion', () => {
-    it('applies shine animation style by default (expanded)', () => {
-      useReducedMotionMock.mockReturnValue(false);
+  describe('shine animation', () => {
+    it('applies shine animation style (expanded)', () => {
       render(<SidebarActionButton icon={<span>+</span>} label="Action" onClick={vi.fn()} />);
 
       const button = screen.getByRole('button');
@@ -175,8 +159,7 @@ describe('SidebarActionButton', () => {
       expect(shineDiv.style.animation).toContain('shine');
     });
 
-    it('applies shine animation style by default (collapsed)', () => {
-      useReducedMotionMock.mockReturnValue(false);
+    it('applies shine animation style (collapsed)', () => {
       render(
         <SidebarActionButton
           icon={<span>+</span>}
@@ -189,31 +172,6 @@ describe('SidebarActionButton', () => {
       const button = screen.getByRole('button');
       const shineDiv = button.querySelector<HTMLElement>('[aria-hidden="true"]')!;
       expect(shineDiv.style.animation).toContain('shine');
-    });
-
-    it('omits shine animation style when reduced motion is preferred (expanded)', () => {
-      useReducedMotionMock.mockReturnValue(true);
-      render(<SidebarActionButton icon={<span>+</span>} label="Action" onClick={vi.fn()} />);
-
-      const button = screen.getByRole('button');
-      const shineDiv = button.querySelector<HTMLElement>('[aria-hidden="true"]')!;
-      expect(shineDiv.style.animation).toBe('');
-    });
-
-    it('omits shine animation style when reduced motion is preferred (collapsed)', () => {
-      useReducedMotionMock.mockReturnValue(true);
-      render(
-        <SidebarActionButton
-          icon={<span>+</span>}
-          label="Action"
-          onClick={vi.fn()}
-          collapsed={true}
-        />
-      );
-
-      const button = screen.getByRole('button');
-      const shineDiv = button.querySelector<HTMLElement>('[aria-hidden="true"]')!;
-      expect(shineDiv.style.animation).toBe('');
     });
   });
 });

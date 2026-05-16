@@ -6,6 +6,7 @@ vi.mock('./lib/tts-engine', () => ({
   getTtsService: () => ({
     load: vi.fn(),
     isLoaded: vi.fn().mockReturnValue(false),
+    preloadVoice: vi.fn(),
     speak: vi.fn(),
     stop: vi.fn(),
     unlockAudio: vi.fn(),

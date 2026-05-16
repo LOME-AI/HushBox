@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import { ACCESSIBILITY_PREFERENCES_DEFAULTS, type AccessibilityPreferences } from '@hushbox/shared';
@@ -37,12 +37,25 @@ vi.mock('../lib/font-loader', () => ({
   activateFont: vi.fn().mockResolvedValue(true),
 }));
 
+const { ttsLoadMock, ttsPreloadVoiceMock } = vi.hoisted(() => ({
+  ttsLoadMock: vi.fn(
+    (_voice: string, _onProgress?: (l: number, t: number) => void): Promise<void> =>
+      Promise.resolve()
+  ),
+  ttsPreloadVoiceMock: vi.fn((_voice: string): Promise<void> => Promise.resolve()),
+}));
+
 vi.mock('../lib/tts-engine', () => ({
-  TTS_VOICES: [{ id: 'af_heart', displayName: 'Heart', accent: 'American', gender: 'female' }],
-  getTtsService: (): { load: () => Promise<void> } => ({
-    load: async () => {
-      await Promise.resolve();
-    },
+  TTS_VOICES: [
+    { id: 'af_heart', displayName: 'Heart', accent: 'American', gender: 'female' },
+    { id: 'am_michael', displayName: 'Michael', accent: 'American', gender: 'male' },
+  ],
+  getTtsService: (): {
+    load: typeof ttsLoadMock;
+    preloadVoice: typeof ttsPreloadVoiceMock;
+  } => ({
+    load: ttsLoadMock,
+    preloadVoice: ttsPreloadVoiceMock,
   }),
 }));
 
@@ -59,6 +72,10 @@ beforeEach(() => {
   storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS };
   (storeState.update as ReturnType<typeof vi.fn>).mockReset();
   (storeState.reset as ReturnType<typeof vi.fn>).mockReset();
+  ttsLoadMock.mockReset();
+  ttsLoadMock.mockImplementation(() => Promise.resolve());
+  ttsPreloadVoiceMock.mockReset();
+  ttsPreloadVoiceMock.mockImplementation(() => Promise.resolve());
 });
 
 function clickCard(title: string): void {
@@ -246,6 +263,96 @@ describe('AudioSection', () => {
     const trigger = container.querySelector('[aria-labelledby="a11y-voice-label"]');
     expect(trigger).not.toBeNull();
     expect(trigger?.className).toContain('w-[22rem]');
+  });
+
+  it('first-time enable: loads the model with the currently selected voice so its embedding warms up', async () => {
+    storeState.prefs = {
+      ...ACCESSIBILITY_PREFERENCES_DEFAULTS,
+      ttsEnabled: false,
+      ttsVoice: 'am_michael',
+    };
+    render(<AudioSection />);
+    fireEvent.click(screen.getByRole('button', { name: /^Read chat replies aloud: / }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ttsLoadMock).toHaveBeenCalledTimes(1);
+    expect(ttsLoadMock.mock.calls[0]![0]).toBe('am_michael');
+  });
+
+  it('voice change after TTS is enabled triggers preloadVoice() so the new embedding is fetched up front', async () => {
+    storeState.prefs = {
+      ...ACCESSIBILITY_PREFERENCES_DEFAULTS,
+      ttsEnabled: true,
+      ttsVoice: 'af_heart',
+    };
+    const { rerender } = render(<AudioSection />);
+    expect(ttsPreloadVoiceMock).not.toHaveBeenCalled();
+    storeState.prefs = {
+      ...ACCESSIBILITY_PREFERENCES_DEFAULTS,
+      ttsEnabled: true,
+      ttsVoice: 'am_michael',
+    };
+    rerender(<AudioSection />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ttsPreloadVoiceMock).toHaveBeenCalledTimes(1);
+    expect(ttsPreloadVoiceMock).toHaveBeenLastCalledWith('am_michael');
+  });
+
+  it('voice change before TTS is enabled does NOT call preloadVoice()', async () => {
+    storeState.prefs = {
+      ...ACCESSIBILITY_PREFERENCES_DEFAULTS,
+      ttsEnabled: false,
+      ttsVoice: 'af_heart',
+    };
+    const { rerender } = render(<AudioSection />);
+    storeState.prefs = {
+      ...ACCESSIBILITY_PREFERENCES_DEFAULTS,
+      ttsEnabled: false,
+      ttsVoice: 'am_michael',
+    };
+    rerender(<AudioSection />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ttsPreloadVoiceMock).not.toHaveBeenCalled();
+  });
+
+  describe('download-size disclosure varies with detected device', () => {
+    type WindowWithCapacitor = Window & {
+      Capacitor?: { isNativePlatform?: () => boolean };
+    };
+    let originalGpu: unknown;
+
+    beforeEach(() => {
+      originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
+      delete (globalThis.window as WindowWithCapacitor).Capacitor;
+    });
+
+    afterEach(() => {
+      if (originalGpu === undefined) {
+        delete (navigator as unknown as { gpu?: unknown }).gpu;
+      } else {
+        (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
+      }
+    });
+
+    it('no WebGPU adapter: shows the q8/WASM size (~80 MB)', async () => {
+      delete (navigator as unknown as { gpu?: unknown }).gpu;
+      render(<AudioSection />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(screen.getByText(/80 MB, one-time download/)).not.toBeNull();
+      expect(screen.queryByText(/330 MB/)).toBeNull();
+    });
+
+    it('WebGPU adapter available: shows the fp32 size (~330 MB) after detection resolves', async () => {
+      (navigator as unknown as { gpu?: unknown }).gpu = {
+        requestAdapter: () => Promise.resolve({}),
+      };
+      render(<AudioSection />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(screen.getByText(/330 MB, one-time download/)).not.toBeNull();
+      expect(screen.queryByText(/80 MB/)).toBeNull();
+    });
   });
 });
 

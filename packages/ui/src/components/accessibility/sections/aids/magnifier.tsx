@@ -100,7 +100,7 @@ function syncScrollPositions(live: Element, clone: Element): void {
 export function Magnifier({
   enabled,
   zoom = 2,
-  size = 200,
+  size = 320,
 }: Readonly<MagnifierProps>): React.JSX.Element | null {
   const [cursor, setCursor] = React.useState<{ x: number; y: number }>(() => ({
     x: Math.floor(globalThis.innerWidth / 2),

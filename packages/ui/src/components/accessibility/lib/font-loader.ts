@@ -21,7 +21,14 @@ export async function activateFont(id: AccessibilityFontId): Promise<void> {
 
   const url = FONT_URLS[id];
   if (!loadedFonts.has(id)) {
-    const face = new FontFace(id, `url(${url}) format('woff2')`, { display: 'block' });
+    // OpenDyslexic's intrinsic metrics render ~15% larger than the other a11y
+    // fonts at the same point size; shrink via the font-face size-adjust
+    // descriptor so the user's chosen text-size step stays the visual reference.
+    const descriptors: FontFaceDescriptors & { sizeAdjust?: string } = { display: 'block' };
+    if (id === 'open-dyslexic') {
+      descriptors.sizeAdjust = '85%';
+    }
+    const face = new FontFace(id, `url(${url}) format('woff2')`, descriptors);
     await face.load();
     document.fonts.add(face);
     loadedFonts.add(id);

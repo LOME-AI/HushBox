@@ -41,7 +41,7 @@ export const ACCESSIBILITY_PROFILES: readonly AccessibilityProfile[] = [
   {
     id: 'reading-focus',
     label: 'Easier to read',
-    description: 'Dyslexia-friendly font, looser spacing, animations off.',
+    description: 'Hyperlegible font, looser spacing, animations off.',
     preset: {
       ...BASE,
       contrast: 'normal',

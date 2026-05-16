@@ -1,9 +1,11 @@
 import * as React from 'react';
 
+import { useReducedMotion } from '../../hooks/use-reduced-motion';
 import { activateFont } from './lib/font-loader';
 import { applySettings } from './lib/apply-settings';
 import { installMediaPauser } from './lib/media-pauser';
 import { installMutePauser } from './lib/mute';
+import { installReducedMotionClass } from './lib/reduced-motion-broadcaster';
 import { SvgColorblindDefs } from './lib/svg-colorblind-defs';
 import { Magnifier } from './sections/aids/magnifier';
 import { ReadingGuide } from './sections/aids/reading-guide';
@@ -25,6 +27,7 @@ interface A11yProviderProps {
  */
 export function A11yProvider({ children }: Readonly<A11yProviderProps>): React.JSX.Element {
   const prefs = useA11yStore();
+  const reducedMotion = useReducedMotion();
 
   React.useEffect(() => {
     applySettings(prefs);
@@ -38,10 +41,12 @@ export function A11yProvider({ children }: Readonly<A11yProviderProps>): React.J
     }
   }, [prefs.fontFamily]);
 
+  React.useEffect(() => installReducedMotionClass(), []);
+
   React.useEffect(() => {
-    if (!prefs.stopAnimations) return;
+    if (!reducedMotion) return;
     return installMediaPauser();
-  }, [prefs.stopAnimations]);
+  }, [reducedMotion]);
 
   React.useEffect(() => {
     if (!prefs.muteSounds) return;

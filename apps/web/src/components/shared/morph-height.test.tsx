@@ -3,16 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { MorphHeight } from './morph-height';
 
-const useReducedMotionMock = vi.fn<() => boolean>();
-
-vi.mock('@hushbox/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@hushbox/ui')>();
-  return {
-    ...actual,
-    useReducedMotion: (): boolean => useReducedMotionMock(),
-  };
-});
-
 interface MockMotionDivProps extends React.HTMLAttributes<HTMLDivElement> {
   initial?: unknown;
   animate?: unknown;
@@ -67,8 +57,6 @@ beforeEach(() => {
   ResizeObserverMock.instances.length = 0;
   (globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver =
     ResizeObserverMock;
-  useReducedMotionMock.mockReset();
-  useReducedMotionMock.mockReturnValue(false);
 });
 
 describe('MorphHeight', () => {
@@ -81,101 +69,75 @@ describe('MorphHeight', () => {
     expect(screen.getByTestId('child')).toBeInTheDocument();
   });
 
-  describe('with motion enabled', () => {
-    it('wraps content in a motion.div with overflow-hidden', () => {
-      render(
-        <MorphHeight>
-          <div data-testid="child">content</div>
-        </MorphHeight>
-      );
-      const wrapper = screen.getByTestId('child').closest('[data-motion="true"]');
-      expect(wrapper).not.toBeNull();
-      expect(wrapper).toHaveClass('overflow-hidden');
-    });
-
-    it('uses an easeInOut transition on height with a finite duration', () => {
-      render(
-        <MorphHeight>
-          <div data-testid="child">content</div>
-        </MorphHeight>
-      );
-      const wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
-      const transition = JSON.parse(wrapper?.dataset['transition'] ?? '{}') as {
-        duration?: number;
-        ease?: string;
-      };
-      expect(transition.ease).toBe('easeInOut');
-      expect(typeof transition.duration).toBe('number');
-      expect(transition.duration).toBeGreaterThan(0);
-    });
-
-    it('does not animate from height: 0 (no slam-shut between modality swaps)', () => {
-      render(
-        <MorphHeight>
-          <div data-testid="child">content</div>
-        </MorphHeight>
-      );
-      const wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
-      const initial = wrapper?.dataset['initial'] ?? '';
-      expect(initial).not.toContain('"height":0');
-    });
-
-    it('animates outer height to match measured inner content height', () => {
-      const { rerender } = render(
-        <MorphHeight>
-          <div data-testid="child">content</div>
-        </MorphHeight>
-      );
-      const observerInstance = ResizeObserverMock.instances[0];
-      expect(observerInstance).toBeDefined();
-      const observed = observerInstance?.observed[0];
-      expect(observed).toBeDefined();
-      if (!observerInstance || !observed) return;
-
-      act(() => {
-        observerInstance.trigger(observed, 80);
-      });
-
-      let wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
-      let animate = JSON.parse(wrapper?.dataset['animate'] ?? '{}') as { height?: number };
-      expect(animate.height).toBe(80);
-
-      rerender(
-        <MorphHeight>
-          <div data-testid="child">taller content here</div>
-        </MorphHeight>
-      );
-      act(() => {
-        observerInstance.trigger(observed, 140);
-      });
-
-      wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
-      animate = JSON.parse(wrapper?.dataset['animate'] ?? '{}') as { height?: number };
-      expect(animate.height).toBe(140);
-    });
+  it('wraps content in a motion.div with overflow-hidden', () => {
+    render(
+      <MorphHeight>
+        <div data-testid="child">content</div>
+      </MorphHeight>
+    );
+    const wrapper = screen.getByTestId('child').closest('[data-motion="true"]');
+    expect(wrapper).not.toBeNull();
+    expect(wrapper).toHaveClass('overflow-hidden');
   });
 
-  describe('with reduced motion enabled', () => {
-    beforeEach(() => {
-      useReducedMotionMock.mockReturnValue(true);
+  it('uses an easeInOut transition on height with a finite duration', () => {
+    render(
+      <MorphHeight>
+        <div data-testid="child">content</div>
+      </MorphHeight>
+    );
+    const wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
+    const transition = JSON.parse(wrapper?.dataset['transition'] ?? '{}') as {
+      duration?: number;
+      ease?: string;
+    };
+    expect(transition.ease).toBe('easeInOut');
+    expect(typeof transition.duration).toBe('number');
+    expect(transition.duration).toBeGreaterThan(0);
+  });
+
+  it('does not animate from height: 0 (no slam-shut between modality swaps)', () => {
+    render(
+      <MorphHeight>
+        <div data-testid="child">content</div>
+      </MorphHeight>
+    );
+    const wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
+    const initial = wrapper?.dataset['initial'] ?? '';
+    expect(initial).not.toContain('"height":0');
+  });
+
+  it('animates outer height to match measured inner content height', () => {
+    const { rerender } = render(
+      <MorphHeight>
+        <div data-testid="child">content</div>
+      </MorphHeight>
+    );
+    const observerInstance = ResizeObserverMock.instances[0];
+    expect(observerInstance).toBeDefined();
+    const observed = observerInstance?.observed[0];
+    expect(observed).toBeDefined();
+    if (!observerInstance || !observed) return;
+
+    act(() => {
+      observerInstance.trigger(observed, 80);
     });
 
-    it('does not render a motion.div wrapper', () => {
-      render(
-        <MorphHeight>
-          <div data-testid="child">content</div>
-        </MorphHeight>
-      );
-      expect(screen.getByTestId('child').closest('[data-motion="true"]')).toBeNull();
+    let wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
+    let animate = JSON.parse(wrapper?.dataset['animate'] ?? '{}') as { height?: number };
+    expect(animate.height).toBe(80);
+
+    rerender(
+      <MorphHeight>
+        <div data-testid="child">taller content here</div>
+      </MorphHeight>
+    );
+    act(() => {
+      observerInstance.trigger(observed, 140);
     });
 
-    it('still renders children', () => {
-      render(
-        <MorphHeight>
-          <div data-testid="child">content</div>
-        </MorphHeight>
-      );
-      expect(screen.getByTestId('child')).toBeInTheDocument();
-    });
+    wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
+    animate = JSON.parse(wrapper?.dataset['animate'] ?? '{}') as { height?: number };
+    expect(animate.height).toBe(140);
   });
 });

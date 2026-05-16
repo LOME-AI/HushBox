@@ -1,16 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { activateFont, _resetFontLoaderForTesting } from './font-loader';
 
+type CapturedDescriptors = { display?: string; sizeAdjust?: string } | undefined;
+
 interface FontFaceCall {
   family: string;
   source: string;
-  descriptors: { display?: string } | undefined;
+  descriptors: CapturedDescriptors;
 }
 
 interface MockFontFaceInstance {
   family: string;
   source: string;
-  descriptors: { display?: string } | undefined;
+  descriptors: CapturedDescriptors;
   load: ReturnType<typeof vi.fn>;
 }
 
@@ -20,10 +22,10 @@ const fontFaceInstances: MockFontFaceInstance[] = [];
 class MockFontFace {
   family: string;
   source: string;
-  descriptors: { display?: string } | undefined;
+  descriptors: CapturedDescriptors;
   load: ReturnType<typeof vi.fn>;
 
-  constructor(family: string, source: string, descriptors?: { display?: string }) {
+  constructor(family: string, source: string, descriptors?: CapturedDescriptors) {
     this.family = family;
     this.source = source;
     this.descriptors = descriptors;
@@ -115,6 +117,19 @@ describe('activateFont — load branch', () => {
     expect(fontFaceCalls.at(-1)?.family).toBe('lexend');
     expect(document.documentElement.style.getPropertyValue('--a11y-font-family')).toBe('"lexend"');
   });
+
+  it('shrinks OpenDyslexic via the size-adjust descriptor (it renders enormous otherwise)', async () => {
+    await activateFont('open-dyslexic');
+    expect(fontFaceCalls.at(-1)?.descriptors?.sizeAdjust).toBe('85%');
+  });
+
+  it.each([['atkinson'], ['lexend']] as const)(
+    'does not apply size-adjust to %s (only open-dyslexic needs the metric correction)',
+    async (id) => {
+      await activateFont(id);
+      expect(fontFaceCalls.at(-1)?.descriptors?.sizeAdjust).toBeUndefined();
+    }
+  );
 });
 
 describe('activateFont — idempotency', () => {

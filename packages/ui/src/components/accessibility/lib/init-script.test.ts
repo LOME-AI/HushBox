@@ -31,12 +31,31 @@ function a11yClasses(): string[] {
     .toSorted((a, b) => a.localeCompare(b));
 }
 
+/** Stub `window.matchMedia` to return the given prefers-reduced-motion value. */
+function stubReducedMotionMediaQuery(matches: boolean): void {
+  Object.defineProperty(globalThis.window, 'matchMedia', {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)' ? matches : false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
 /** Reset documentElement, head, and localStorage between tests. */
 function resetEnvironment(): void {
   document.documentElement.className = '';
   document.documentElement.removeAttribute('style');
   document.head.innerHTML = '';
   globalThis.window.localStorage.clear();
+  stubReducedMotionMediaQuery(false);
 }
 
 describe('A11Y_INIT_SCRIPT', () => {
@@ -263,17 +282,58 @@ describe('A11Y_INIT_SCRIPT', () => {
     });
   });
 
-  describe('class application — motion (boolean)', () => {
-    it('true applies a11y-stop-animations', () => {
+  describe('class application — reduced motion (merged from two inputs)', () => {
+    it('does not write the legacy a11y-stop-animations class', () => {
       setStoredPrefs({ stopAnimations: true });
       runInitScript();
-      expect(document.documentElement.classList.contains('a11y-stop-animations')).toBe(true);
+      expect(document.documentElement.classList.contains('a11y-stop-animations')).toBe(false);
     });
 
-    it('false skips a11y-stop-animations', () => {
+    it('applies reduced-motion class when stored stopAnimations is true', () => {
+      stubReducedMotionMediaQuery(false);
+      setStoredPrefs({ stopAnimations: true });
+      runInitScript();
+      expect(document.documentElement.classList.contains('reduced-motion')).toBe(true);
+    });
+
+    it('applies reduced-motion class when the OS prefers-reduced-motion media query matches', () => {
+      stubReducedMotionMediaQuery(true);
       setStoredPrefs({ stopAnimations: false });
       runInitScript();
-      expect(document.documentElement.classList.contains('a11y-stop-animations')).toBe(false);
+      expect(document.documentElement.classList.contains('reduced-motion')).toBe(true);
+    });
+
+    it('applies reduced-motion class when OS pref matches even with empty localStorage', () => {
+      stubReducedMotionMediaQuery(true);
+      runInitScript();
+      expect(document.documentElement.classList.contains('reduced-motion')).toBe(true);
+    });
+
+    it('applies reduced-motion class when both inputs are on', () => {
+      stubReducedMotionMediaQuery(true);
+      setStoredPrefs({ stopAnimations: true });
+      runInitScript();
+      expect(document.documentElement.classList.contains('reduced-motion')).toBe(true);
+    });
+
+    it('does not apply reduced-motion class when both inputs are off', () => {
+      stubReducedMotionMediaQuery(false);
+      setStoredPrefs({ stopAnimations: false });
+      runInitScript();
+      expect(document.documentElement.classList.contains('reduced-motion')).toBe(false);
+    });
+
+    it('does not apply reduced-motion class when matchMedia throws (private mode / minimal envs)', () => {
+      Object.defineProperty(globalThis.window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: () => {
+          throw new Error('blocked');
+        },
+      });
+      setStoredPrefs({ stopAnimations: false });
+      runInitScript();
+      expect(document.documentElement.classList.contains('reduced-motion')).toBe(false);
     });
   });
 
@@ -328,6 +388,25 @@ describe('A11Y_INIT_SCRIPT', () => {
       }
     );
 
+    it('injects size-adjust: 85% in the @font-face block for open-dyslexic (otherwise it renders enormous)', () => {
+      setStoredPrefs({ fontFamily: 'open-dyslexic' });
+      runInitScript();
+      const styles = [...document.head.querySelectorAll('style')];
+      const fontFaceStyle = styles.find((s) => s.textContent.includes('@font-face'));
+      expect(fontFaceStyle?.textContent).toContain('size-adjust: 85%');
+    });
+
+    it.each([['atkinson'], ['lexend']] as const)(
+      'does not inject size-adjust for %s (only open-dyslexic needs the metric correction)',
+      (fontFamily) => {
+        setStoredPrefs({ fontFamily });
+        runInitScript();
+        const styles = [...document.head.querySelectorAll('style')];
+        const fontFaceStyle = styles.find((s) => s.textContent.includes('@font-face'));
+        expect(fontFaceStyle?.textContent).not.toContain('size-adjust');
+      }
+    );
+
     it('does not inject any font preload tags when fontFamily is system', () => {
       setStoredPrefs({ fontFamily: 'system' });
       runInitScript();
@@ -377,9 +456,9 @@ describe('A11Y_INIT_SCRIPT', () => {
         'a11y-line-height-double',
         'a11y-para-spacing-double',
         'a11y-saturate-50',
-        'a11y-stop-animations',
       ];
       expect(a11yClasses()).toEqual(expected);
+      expect(document.documentElement.classList.contains('reduced-motion')).toBe(true);
     });
   });
 });

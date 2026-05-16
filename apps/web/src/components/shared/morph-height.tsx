@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { useReducedMotion } from '@hushbox/ui';
 import { useMeasuredSize } from '@/hooks/use-measured-size';
 
 interface MorphHeightProps {
@@ -12,18 +11,11 @@ interface MorphHeightProps {
  * Unlike a mount/unmount transition, the inner content is always rendered
  * and the outer wrapper animates its height directly via ResizeObserver — so
  * swapping sibling trees does not collapse the box to zero between states.
- * Reduced-motion users get an unanimated plain div.
+ * The root MotionConfig globally collapses the morph to instant under
+ * reduced motion.
  */
 export function MorphHeight({ children }: Readonly<MorphHeightProps>): React.JSX.Element {
-  const reducedMotion = useReducedMotion();
-  const { ref: contentRef, size: height } = useMeasuredSize<HTMLDivElement>(
-    'height',
-    !reducedMotion
-  );
-
-  if (reducedMotion) {
-    return <div>{children}</div>;
-  }
+  const { ref: contentRef, size: height } = useMeasuredSize<HTMLDivElement>('height', true);
 
   return (
     <motion.div

@@ -73,18 +73,43 @@ describe('SentenceChunker.feed', () => {
   it('strips fenced code blocks entirely', () => {
     const chunker = new SentenceChunker();
     expect(chunker.feed('Here is code: ```js\nconsole.log("hi");\n``` and more text. ')).toEqual([
-      'Here is code:  and more text.',
+      'Here is code: and more text.',
     ]);
   });
 
-  it('strips inline code spans', () => {
+  it('keeps the inner text of inline code spans', () => {
     const chunker = new SentenceChunker();
-    expect(chunker.feed('Use `npm install` to install. ')).toEqual(['Use  to install.']);
+    expect(chunker.feed('Use `npm install` to install. ')).toEqual(['Use npm install to install.']);
   });
 
   it('keeps the label only for markdown links', () => {
     const chunker = new SentenceChunker();
     expect(chunker.feed('Visit [hello](http://example.com) now. ')).toEqual(['Visit hello now.']);
+  });
+
+  it('strips bold markers from emitted sentences', () => {
+    const chunker = new SentenceChunker();
+    expect(chunker.feed('This is **important** today. ')).toEqual(['This is important today.']);
+  });
+
+  it('strips italic markers from emitted sentences', () => {
+    const chunker = new SentenceChunker();
+    expect(chunker.feed('She said *hello* loudly. ')).toEqual(['She said hello loudly.']);
+  });
+
+  it('strips heading markers from a single-line heading sentence', () => {
+    const chunker = new SentenceChunker();
+    expect(chunker.feed('# Title. ')).toEqual(['Title.']);
+  });
+
+  it('strips bullet markers from a list item sentence', () => {
+    const chunker = new SentenceChunker();
+    expect(chunker.feed('- An item. ')).toEqual(['An item.']);
+  });
+
+  it('replaces raw urls with the word link', () => {
+    const chunker = new SentenceChunker();
+    expect(chunker.feed('Visit https://example.com today. ')).toEqual(['Visit link today.']);
   });
 
   it('handles unbalanced brackets without consuming text', () => {
@@ -104,7 +129,7 @@ describe('SentenceChunker.feed', () => {
   it('handles markdown link with an unclosed url paren by passing through', () => {
     const chunker = new SentenceChunker();
     expect(chunker.feed('See [label](http://broken without close. ')).toEqual([
-      'See [label](http://broken without close.',
+      'See [label](link without close.',
     ]);
   });
 

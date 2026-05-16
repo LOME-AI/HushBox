@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
+import { shouldReduceMotion, subscribeReducedMotion } from './use-reduced-motion';
 
 interface UseAnimationFrameOptions {
-  /** When true, respect prefers-reduced-motion / accessibility settings. Default true. */
+  /** When true, respect the merged reduced-motion signal. Default true. */
   respectMotion?: boolean;
   /** When true, hook is paused (no rAF callbacks). Default false. */
   paused?: boolean;
@@ -10,7 +11,10 @@ interface UseAnimationFrameOptions {
 /**
  * useAnimationFrame — accessibility-aware wrapper around requestAnimationFrame.
  * Use this instead of raw window.requestAnimationFrame for any JS-driven animation.
- * It auto-pauses when prefers-reduced-motion is set or when paused=true.
+ *
+ * When respectMotion is true (default), the loop pauses whenever the merged
+ * reduced-motion signal is on and resumes when it turns off — same single
+ * source of truth as `useReducedMotion()` and the `html.reduced-motion` class.
  */
 export function useAnimationFrame(
   callback: (timestamp: number) => void,
@@ -23,20 +27,38 @@ export function useAnimationFrame(
   useEffect(() => {
     if (paused) return;
 
-    if (respectMotion && 'window' in globalThis && 'matchMedia' in globalThis) {
-      const mq = globalThis.matchMedia('(prefers-reduced-motion: reduce)');
-      if (mq.matches) return; // reduced motion: don't tick
+    let rafId: number | null = null;
+
+    const start = (): void => {
+      if (rafId !== null) return;
+      const tick = (timestamp: number): void => {
+        callbackRef.current(timestamp);
+        rafId = globalThis.requestAnimationFrame(tick);
+      };
+      rafId = globalThis.requestAnimationFrame(tick);
+    };
+
+    const stop = (): void => {
+      if (rafId === null) return;
+      globalThis.cancelAnimationFrame(rafId);
+      rafId = null;
+    };
+
+    if (!respectMotion) {
+      start();
+      return stop;
     }
 
-    let rafId: number;
-    function tick(timestamp: number): void {
-      callbackRef.current(timestamp);
-      rafId = globalThis.requestAnimationFrame(tick);
-    }
-    rafId = globalThis.requestAnimationFrame(tick);
+    if (!shouldReduceMotion()) start();
+
+    const unsubscribe = subscribeReducedMotion((reduced) => {
+      if (reduced) stop();
+      else start();
+    });
 
     return () => {
-      globalThis.cancelAnimationFrame(rafId);
+      stop();
+      unsubscribe();
     };
   }, [paused, respectMotion]);
 }

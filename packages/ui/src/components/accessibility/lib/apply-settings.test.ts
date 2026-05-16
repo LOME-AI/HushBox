@@ -200,23 +200,16 @@ describe('applySettings', () => {
   });
 
   describe('stopAnimations', () => {
-    it('applies a11y-stop-animations when true', () => {
+    it('does not write the legacy a11y-stop-animations class (broadcaster owns reduced-motion now)', () => {
       const root = createRoot();
       applySettings(makePrefs({ stopAnimations: true }), root);
-      expect(root.classList.contains('a11y-stop-animations')).toBe(true);
-    });
-
-    it('skips a11y-stop-animations when false', () => {
-      const root = createRoot();
-      applySettings(makePrefs({ stopAnimations: false }), root);
       expect(root.classList.contains('a11y-stop-animations')).toBe(false);
     });
 
-    it('removes a11y-stop-animations when toggled off', () => {
+    it('does not write the reduced-motion class (broadcaster owns it, not apply-settings)', () => {
       const root = createRoot();
-      root.classList.add('a11y-stop-animations');
-      applySettings(makePrefs({ stopAnimations: false }), root);
-      expect(root.classList.contains('a11y-stop-animations')).toBe(false);
+      applySettings(makePrefs({ stopAnimations: true }), root);
+      expect(root.classList.contains('reduced-motion')).toBe(false);
     });
   });
 

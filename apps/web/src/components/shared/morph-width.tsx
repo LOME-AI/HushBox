@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { useReducedMotion } from '@hushbox/ui';
 import { useMeasuredSize } from '@/hooks/use-measured-size';
 
 interface MorphWidthProps {
@@ -14,6 +13,8 @@ interface MorphWidthProps {
  * natural width, the outer wrapper tweens its width from the previous value
  * to the new measured value rather than snapping. Used for label text that
  * cycles between strings of different lengths (e.g. modality-aware pills).
+ * The root MotionConfig globally collapses the tween to instant under
+ * reduced motion.
  */
 // 0.5s default: roughly matches typewriter deletion for short labels.
 // Callers (e.g. SuggestionChips) override upward to track longer labels.
@@ -22,15 +23,7 @@ export function MorphWidth({
   duration = 0.5,
   'data-testid': testId,
 }: Readonly<MorphWidthProps>): React.JSX.Element {
-  const reducedMotion = useReducedMotion();
-  const { ref: contentRef, size: width } = useMeasuredSize<HTMLSpanElement>(
-    'width',
-    !reducedMotion
-  );
-
-  if (reducedMotion) {
-    return <span data-testid={testId}>{children}</span>;
-  }
+  const { ref: contentRef, size: width } = useMeasuredSize<HTMLSpanElement>('width', true);
 
   return (
     <motion.span

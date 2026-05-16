@@ -1,18 +1,8 @@
 import type * as React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { Code, FileText, Lightbulb, type LucideIcon } from 'lucide-react';
+import { Code, FileText, type LucideIcon } from 'lucide-react';
 import { IconMorph } from './icon-morph';
-
-const useReducedMotionMock = vi.fn<() => boolean>();
-
-vi.mock('@hushbox/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@hushbox/ui')>();
-  return {
-    ...actual,
-    useReducedMotion: (): boolean => useReducedMotionMock(),
-  };
-});
 
 interface MockMotionProps extends React.HTMLAttributes<HTMLSpanElement> {
   initial?: unknown;
@@ -52,11 +42,6 @@ vi.mock('framer-motion', async () => {
   };
 });
 
-beforeEach(() => {
-  useReducedMotionMock.mockReset();
-  useReducedMotionMock.mockReturnValue(false);
-});
-
 describe('IconMorph', () => {
   it('renders the supplied icon', () => {
     render(<IconMorph icon={Code} iconKey="code" data-testid="icon-morph" />);
@@ -76,78 +61,57 @@ describe('IconMorph', () => {
     expect(afterSvg).not.toBeNull();
   });
 
-  describe('with motion enabled', () => {
-    it('wraps the icon in a motion span with cross-fade props', () => {
-      render(<IconMorph icon={Code} iconKey="code" data-testid="icon-morph" />);
-      const wrapper = screen.getByTestId('icon-morph');
-      const motion = wrapper.querySelector<HTMLElement>('[data-motion="true"]');
-      expect(motion).not.toBeNull();
-      const initial = JSON.parse(motion?.dataset['initial'] ?? '{}') as { opacity?: number };
-      const animate = JSON.parse(motion?.dataset['animate'] ?? '{}') as { opacity?: number };
-      const exit = JSON.parse(motion?.dataset['exit'] ?? '{}') as { opacity?: number };
-      expect(initial.opacity).toBe(0);
-      expect(animate.opacity).toBe(1);
-      expect(exit.opacity).toBe(0);
-    });
-
-    it('defaults the transition duration to 1 second', () => {
-      render(<IconMorph icon={Code} iconKey="code" data-testid="icon-morph" />);
-      const motion = screen
-        .getByTestId('icon-morph')
-        .querySelector<HTMLElement>('[data-motion="true"]');
-      const transition = JSON.parse(motion?.dataset['transition'] ?? '{}') as {
-        duration?: number;
-      };
-      expect(transition.duration).toBe(1);
-    });
-
-    it('allows the duration to be overridden via prop', () => {
-      render(<IconMorph icon={Code} iconKey="code" data-testid="icon-morph" duration={0.4} />);
-      const motion = screen
-        .getByTestId('icon-morph')
-        .querySelector<HTMLElement>('[data-motion="true"]');
-      const transition = JSON.parse(motion?.dataset['transition'] ?? '{}') as {
-        duration?: number;
-      };
-      expect(transition.duration).toBe(0.4);
-    });
-
-    it('reserves a fixed-size icon slot so layout does not jump', () => {
-      render(
-        <IconMorph icon={Code} iconKey="code" data-testid="icon-morph" sizeClassName="h-5 w-5" />
-      );
-      const wrapper = screen.getByTestId('icon-morph');
-      expect(wrapper).toHaveClass('h-5');
-      expect(wrapper).toHaveClass('w-5');
-    });
-
-    it('applies size classes to the rendered icon', () => {
-      const SpyIcon: LucideIcon = vi.fn((props: React.SVGProps<SVGSVGElement>) => (
-        <svg data-testid="spy-icon" {...props} />
-      )) as unknown as LucideIcon;
-      render(<IconMorph icon={SpyIcon} iconKey="spy" sizeClassName="h-6 w-6" />);
-      const svg = screen.getByTestId('spy-icon');
-      expect(svg.getAttribute('class') ?? '').toContain('h-6');
-      expect(svg.getAttribute('class') ?? '').toContain('w-6');
-    });
+  it('wraps the icon in a motion span with cross-fade props', () => {
+    render(<IconMorph icon={Code} iconKey="code" data-testid="icon-morph" />);
+    const wrapper = screen.getByTestId('icon-morph');
+    const motion = wrapper.querySelector<HTMLElement>('[data-motion="true"]');
+    expect(motion).not.toBeNull();
+    const initial = JSON.parse(motion?.dataset['initial'] ?? '{}') as { opacity?: number };
+    const animate = JSON.parse(motion?.dataset['animate'] ?? '{}') as { opacity?: number };
+    const exit = JSON.parse(motion?.dataset['exit'] ?? '{}') as { opacity?: number };
+    expect(initial.opacity).toBe(0);
+    expect(animate.opacity).toBe(1);
+    expect(exit.opacity).toBe(0);
   });
 
-  describe('with reduced motion enabled', () => {
-    beforeEach(() => {
-      useReducedMotionMock.mockReturnValue(true);
-    });
+  it('defaults the transition duration to 1 second', () => {
+    render(<IconMorph icon={Code} iconKey="code" data-testid="icon-morph" />);
+    const motion = screen
+      .getByTestId('icon-morph')
+      .querySelector<HTMLElement>('[data-motion="true"]');
+    const transition = JSON.parse(motion?.dataset['transition'] ?? '{}') as {
+      duration?: number;
+    };
+    expect(transition.duration).toBe(1);
+  });
 
-    it('does not render a motion wrapper', () => {
-      render(<IconMorph icon={Lightbulb} iconKey="brainstorm" data-testid="icon-morph" />);
-      const wrapper = screen.getByTestId('icon-morph');
-      expect(wrapper.querySelector('[data-motion="true"]')).toBeNull();
-    });
+  it('allows the duration to be overridden via prop', () => {
+    render(<IconMorph icon={Code} iconKey="code" data-testid="icon-morph" duration={0.4} />);
+    const motion = screen
+      .getByTestId('icon-morph')
+      .querySelector<HTMLElement>('[data-motion="true"]');
+    const transition = JSON.parse(motion?.dataset['transition'] ?? '{}') as {
+      duration?: number;
+    };
+    expect(transition.duration).toBe(0.4);
+  });
 
-    it('still renders the icon', () => {
-      const { container } = render(
-        <IconMorph icon={Lightbulb} iconKey="brainstorm" data-testid="icon-morph" />
-      );
-      expect(container.querySelector('svg')).not.toBeNull();
-    });
+  it('reserves a fixed-size icon slot so layout does not jump', () => {
+    render(
+      <IconMorph icon={Code} iconKey="code" data-testid="icon-morph" sizeClassName="h-5 w-5" />
+    );
+    const wrapper = screen.getByTestId('icon-morph');
+    expect(wrapper).toHaveClass('h-5');
+    expect(wrapper).toHaveClass('w-5');
+  });
+
+  it('applies size classes to the rendered icon', () => {
+    const SpyIcon: LucideIcon = vi.fn((props: React.SVGProps<SVGSVGElement>) => (
+      <svg data-testid="spy-icon" {...props} />
+    )) as unknown as LucideIcon;
+    render(<IconMorph icon={SpyIcon} iconKey="spy" sizeClassName="h-6 w-6" />);
+    const svg = screen.getByTestId('spy-icon');
+    expect(svg.getAttribute('class') ?? '').toContain('h-6');
+    expect(svg.getAttribute('class') ?? '').toContain('w-6');
   });
 });

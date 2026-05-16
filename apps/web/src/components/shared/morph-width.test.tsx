@@ -3,16 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { MorphWidth } from './morph-width';
 
-const useReducedMotionMock = vi.fn<() => boolean>();
-
-vi.mock('@hushbox/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@hushbox/ui')>();
-  return {
-    ...actual,
-    useReducedMotion: (): boolean => useReducedMotionMock(),
-  };
-});
-
 interface MockMotionSpanProps extends React.HTMLAttributes<HTMLSpanElement> {
   initial?: unknown;
   animate?: unknown;
@@ -67,8 +57,6 @@ beforeEach(() => {
   ResizeObserverMock.instances.length = 0;
   (globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver =
     ResizeObserverMock;
-  useReducedMotionMock.mockReset();
-  useReducedMotionMock.mockReturnValue(false);
 });
 
 describe('MorphWidth', () => {
@@ -81,87 +69,61 @@ describe('MorphWidth', () => {
     expect(screen.getByTestId('child')).toBeInTheDocument();
   });
 
-  describe('with motion enabled', () => {
-    it('wraps content in a motion.span with overflow-hidden', () => {
-      render(
-        <MorphWidth>
-          <span data-testid="child">x</span>
-        </MorphWidth>
-      );
-      const wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
-      expect(wrapper).not.toBeNull();
-      expect(wrapper?.style.overflow).toBe('hidden');
-    });
-
-    it('uses an easeInOut transition with the supplied duration', () => {
-      render(
-        <MorphWidth duration={0.6}>
-          <span data-testid="child">x</span>
-        </MorphWidth>
-      );
-      const wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
-      const transition = JSON.parse(wrapper?.dataset['transition'] ?? '{}') as {
-        duration?: number;
-        ease?: string;
-      };
-      expect(transition.ease).toBe('easeInOut');
-      expect(transition.duration).toBe(0.6);
-    });
-
-    it('animates outer width to match measured inner content width', () => {
-      const { rerender } = render(
-        <MorphWidth>
-          <span data-testid="child">short</span>
-        </MorphWidth>
-      );
-      const observerInstance = ResizeObserverMock.instances[0];
-      expect(observerInstance).toBeDefined();
-      const observed = observerInstance?.observed[0];
-      expect(observed).toBeDefined();
-      if (!observerInstance || !observed) return;
-
-      act(() => {
-        observerInstance.trigger(observed, 60);
-      });
-      let wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
-      let animate = JSON.parse(wrapper?.dataset['animate'] ?? '{}') as { width?: number };
-      expect(animate.width).toBe(60);
-
-      rerender(
-        <MorphWidth>
-          <span data-testid="child">a much longer label</span>
-        </MorphWidth>
-      );
-      act(() => {
-        observerInstance.trigger(observed, 220);
-      });
-      wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
-      animate = JSON.parse(wrapper?.dataset['animate'] ?? '{}') as { width?: number };
-      expect(animate.width).toBe(220);
-    });
+  it('wraps content in a motion.span with overflow-hidden', () => {
+    render(
+      <MorphWidth>
+        <span data-testid="child">x</span>
+      </MorphWidth>
+    );
+    const wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.style.overflow).toBe('hidden');
   });
 
-  describe('with reduced motion enabled', () => {
-    beforeEach(() => {
-      useReducedMotionMock.mockReturnValue(true);
-    });
+  it('uses an easeInOut transition with the supplied duration', () => {
+    render(
+      <MorphWidth duration={0.6}>
+        <span data-testid="child">x</span>
+      </MorphWidth>
+    );
+    const wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
+    const transition = JSON.parse(wrapper?.dataset['transition'] ?? '{}') as {
+      duration?: number;
+      ease?: string;
+    };
+    expect(transition.ease).toBe('easeInOut');
+    expect(transition.duration).toBe(0.6);
+  });
 
-    it('does not render a motion wrapper', () => {
-      render(
-        <MorphWidth>
-          <span data-testid="child">x</span>
-        </MorphWidth>
-      );
-      expect(screen.getByTestId('child').closest('[data-motion="true"]')).toBeNull();
-    });
+  it('animates outer width to match measured inner content width', () => {
+    const { rerender } = render(
+      <MorphWidth>
+        <span data-testid="child">short</span>
+      </MorphWidth>
+    );
+    const observerInstance = ResizeObserverMock.instances[0];
+    expect(observerInstance).toBeDefined();
+    const observed = observerInstance?.observed[0];
+    expect(observed).toBeDefined();
+    if (!observerInstance || !observed) return;
 
-    it('still renders children', () => {
-      render(
-        <MorphWidth>
-          <span data-testid="child">x</span>
-        </MorphWidth>
-      );
-      expect(screen.getByTestId('child')).toBeInTheDocument();
+    act(() => {
+      observerInstance.trigger(observed, 60);
     });
+    let wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
+    let animate = JSON.parse(wrapper?.dataset['animate'] ?? '{}') as { width?: number };
+    expect(animate.width).toBe(60);
+
+    rerender(
+      <MorphWidth>
+        <span data-testid="child">a much longer label</span>
+      </MorphWidth>
+    );
+    act(() => {
+      observerInstance.trigger(observed, 220);
+    });
+    wrapper = screen.getByTestId('child').closest<HTMLElement>('[data-motion="true"]');
+    animate = JSON.parse(wrapper?.dataset['animate'] ?? '{}') as { width?: number };
+    expect(animate.width).toBe(220);
   });
 });

@@ -1761,8 +1761,7 @@ describe('PromptInput', () => {
   });
 
   describe('modality switch animation', () => {
-    it('wraps bottom-row content in framer-motion (reduced-motion off)', () => {
-      useReducedMotionMock.mockReturnValue(false);
+    it('wraps bottom-row content in a height-animation wrapper', () => {
       renderWithProviders(
         <PromptInput
           value="Hello"
@@ -1774,33 +1773,15 @@ describe('PromptInput', () => {
         />
       );
       const sendButton = screen.getByTestId('send-button');
-      // When reduced motion is OFF, there should be a framer-motion wrapper
-      // somewhere above the send button so modality height transitions animate.
+      // AnimatedHeight always renders the wrapper now — MotionConfig at the
+      // root collapses the animation to instant under reduced motion.
       const motionWrapper = sendButton.closest('.overflow-hidden');
       expect(motionWrapper).not.toBeNull();
-    });
-
-    it('skips the motion wrapper when reduced motion is preferred', () => {
-      useReducedMotionMock.mockReturnValue(true);
-      renderWithProviders(
-        <PromptInput
-          value="Hello"
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          isAuthenticated
-          activeModality="text"
-          onSelectModality={vi.fn()}
-        />
-      );
-      // The send button is still present, but the height-animation wrapper is
-      // not — the reduced-motion fallback in AnimatedHeight uses a plain div.
-      expect(screen.getByTestId('send-button')).toBeInTheDocument();
     });
   });
 
   describe('edit banner animation', () => {
-    it('renders the edit banner via the animated wrapper (reduced-motion off)', () => {
-      useReducedMotionMock.mockReturnValue(false);
+    it('renders the edit banner inside the height-animation wrapper', () => {
       renderWithProviders(
         <PromptInput
           value="Hello"
@@ -1811,25 +1792,8 @@ describe('PromptInput', () => {
         />
       );
       const banner = screen.getByText(/editing/i);
-      // When animated, the banner sits inside a motion.div wrapper that adds
-      // overflow-hidden for the height transition.
       const motionWrapper = banner.closest('.overflow-hidden');
       expect(motionWrapper).not.toBeNull();
-    });
-
-    it('renders the edit banner without motion wrapper when reduced-motion is on', () => {
-      useReducedMotionMock.mockReturnValue(true);
-      renderWithProviders(
-        <PromptInput
-          value="Hello"
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          isEditing
-          onCancelEdit={vi.fn()}
-        />
-      );
-      // Banner still renders; just no animation wrapper.
-      expect(screen.getByText(/editing/i)).toBeInTheDocument();
     });
   });
 });

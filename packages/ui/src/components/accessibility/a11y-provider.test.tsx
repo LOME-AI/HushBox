@@ -23,11 +23,15 @@ vi.mock('./lib/apply-settings', () => ({
 
 const installMediaPauserSpy = vi.fn().mockReturnValue(() => {});
 const installMutePauserSpy = vi.fn().mockReturnValue(() => {});
+const installReducedMotionClassSpy = vi.fn().mockReturnValue(() => {});
 vi.mock('./lib/media-pauser', () => ({
   installMediaPauser: (): (() => void) => installMediaPauserSpy(),
 }));
 vi.mock('./lib/mute', () => ({
   installMutePauser: (): (() => void) => installMutePauserSpy(),
+}));
+vi.mock('./lib/reduced-motion-broadcaster', () => ({
+  installReducedMotionClass: (): (() => void) => installReducedMotionClassSpy(),
 }));
 
 const activateFontSpy = vi.fn().mockResolvedValue(true);
@@ -58,6 +62,7 @@ beforeEach(() => {
   applySettingsSpy.mockReset();
   installMediaPauserSpy.mockClear();
   installMutePauserSpy.mockClear();
+  installReducedMotionClassSpy.mockClear();
   activateFontSpy.mockReset();
 });
 
@@ -99,13 +104,18 @@ describe('A11yProvider', () => {
     expect(screen.getByTestId('reading-guide')).not.toBeNull();
   });
 
-  it('installs the media pauser when stopAnimations is true', () => {
+  it('installs the reduced-motion class broadcaster on mount', () => {
+    render(<A11yProvider />);
+    expect(installReducedMotionClassSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('installs the media pauser when reduced motion is on (store flag)', () => {
     storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, stopAnimations: true };
     render(<A11yProvider />);
     expect(installMediaPauserSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('does not install the media pauser when stopAnimations is false', () => {
+  it('does not install the media pauser when reduced motion is off', () => {
     render(<A11yProvider />);
     expect(installMediaPauserSpy).not.toHaveBeenCalled();
   });

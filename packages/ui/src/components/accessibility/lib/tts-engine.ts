@@ -1,12 +1,20 @@
-// Kokoro TTS engine wrapper. Lazy-loads ~97MB model on first use.
-// Same code path on web AND Capacitor — onnxruntime-web in WASM mode.
-// WebGPU opportunistic on supported desktop browsers (10x faster).
+// Kokoro TTS engine proxy. Spawns a dedicated Web Worker on first use so
+// model inference never blocks the main thread. The worker hosts the
+// kokoro-js KokoroTTS instance and its ONNX Runtime WASM/WebGPU runtime;
+// this module owns AudioContext playback and the playback queue.
 //
-// IMPORTANT: kokoro-js is dynamically imported inside `load()` rather than
-// statically at module top. The static import would force kokoro-js +
-// phonemizer + the espeak-ng WASM blob to load whenever this module is
-// touched (even by transitive type imports), which crashes vitest worker
-// threads. Keep the import lazy.
+// Generation and playback are pipelined: speak() enqueues a generate call
+// in the worker immediately (returning a promise that resolves whenever
+// audio comes back), and a separate `playbackChain` plays audio buffers
+// in enqueue order. Sentence N+1's inference therefore runs while
+// sentence N is playing, hiding inference latency for all but the first
+// sentence in a stream.
+
+import { isWorkerOutbound } from './tts-worker-protocol';
+import type { WorkerInbound, WorkerOutbound } from './tts-worker-protocol';
+
+/** Test-only export; do not consume in production code. */
+export { detectDevice as _detectDeviceForTesting } from './device-detect';
 
 export type TtsVoice = 'af_heart' | 'am_michael' | 'bf_emma' | 'bm_george' | 'af_nicole';
 
@@ -26,157 +34,149 @@ export const TTS_VOICES: readonly TtsVoiceMeta[] = [
 ];
 
 export interface TtsService {
-  /** Lazy-load the model. Resolves when ready to speak. Idempotent and safe to call concurrently. */
-  load(onProgress?: (loaded: number, total: number) => void): Promise<void>;
+  /**
+   * Lazy-load the model. Resolves when ready to speak (after warmup with
+   * the supplied voice — preloads that voice's embedding so the first real
+   * speak() doesn't pay an extra network fetch). Idempotent and safe to
+   * call concurrently.
+   */
+  load(voice: TtsVoice, onProgress?: (loaded: number, total: number) => void): Promise<void>;
   /** True after load() resolved successfully. */
   isLoaded(): boolean;
-  /** Speak a single utterance. Resolves when audio finishes (or is stopped). */
+  /**
+   * Re-warm with a different voice so its embedding is fetched up front.
+   * Call after the user changes voices. Rejects if the model is not loaded.
+   */
+  preloadVoice(voice: TtsVoice): Promise<void>;
+  /** Enqueue a sentence. Resolves when audio finishes (or is stopped). Concurrent speak() calls are pipelined. */
   speak(text: string, voice: TtsVoice): Promise<void>;
-  /** Stop any in-flight audio. */
+  /** Stop any in-flight audio and clear the pipeline. */
   stop(): void;
   /**
-   * Required: must be called inside a user gesture (click) on iOS to unlock the
-   * AudioContext. Subsequent calls are no-ops.
+   * Required: must be called inside a user gesture (click) on iOS to unlock
+   * the AudioContext. Subsequent calls are no-ops.
    */
   unlockAudio(): void;
 }
 
-const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
-// q8 is universally supported by onnxruntime-web. `q8f16` (mixed precision 8-bit
-// weights + fp16 activations) was removed from the supported dtype list, which
-// caused "Invalid dtype" errors at load time.
-const MODEL_DTYPE = 'q8';
-
-interface WindowWithCapacitor extends Window {
-  Capacitor?: { isNativePlatform?: () => boolean };
+let fallbackCounter = 0;
+function newRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  fallbackCounter += 1;
+  return `req-${Date.now().toString(36)}-${fallbackCounter.toString(36)}`;
 }
 
-interface NavigatorGpu {
-  requestAdapter: () => Promise<unknown>;
+type WorkerFactory = () => Worker;
+
+let workerFactoryOverride: WorkerFactory | null = null;
+
+/** Test-only: override the factory used by new WorkerKokoroTtsService instances. */
+export function _setWorkerFactoryForTesting(factory: WorkerFactory | null): void {
+  workerFactoryOverride = factory;
 }
 
-function isCapacitorNative(): boolean {
-  if (!('window' in globalThis)) return false;
-  const cap = (globalThis.window as WindowWithCapacitor).Capacitor;
-  return cap?.isNativePlatform?.() === true;
+function defaultWorkerFactory(): Worker {
+  // Vite bundles workers referenced via `new URL(..., import.meta.url)` as
+  // a separate chunk. `type: 'module'` matches the worker's ES module
+  // source — Vite's default `iife` format would break the static imports
+  // (kokoro-js, device-detect) at the top of tts.worker.ts.
+  return new Worker(new URL('tts.worker.ts', import.meta.url), { type: 'module' });
 }
 
-function getNavigatorGpu(): NavigatorGpu | undefined {
-  if (!('navigator' in globalThis) || !('gpu' in globalThis.navigator)) return undefined;
-  return (globalThis.navigator as Navigator & { gpu?: NavigatorGpu }).gpu;
-}
-
-/**
- * Async device detection. Returns `'webgpu'` only when an adapter is actually
- * available — `'gpu' in navigator` alone is insufficient because some browsers
- * (e.g. Chrome on Linux without the unsafe-webgpu flag) expose the API surface
- * but fail to produce an adapter at runtime. Falls back to `'wasm'` on any
- * failure or absence.
- */
-async function detectDevice(): Promise<'webgpu' | 'wasm'> {
-  if (isCapacitorNative()) return 'wasm';
-  const gpu = getNavigatorGpu();
-  if (!gpu) return 'wasm';
-  try {
-    const adapter = await gpu.requestAdapter();
-    return adapter == null ? 'wasm' : 'webgpu';
-  } catch {
-    return 'wasm';
+/** Thrown when stop() cancels a pending speak() before audio finishes. */
+class CancelledError extends Error {
+  constructor() {
+    super('TTS speak was cancelled');
+    this.name = 'CancelledError';
   }
 }
 
-/** Test-only export; do not consume in production code. */
-export const _detectDeviceForTesting = detectDevice;
-
-interface KokoroTtsInstance {
-  generate(
-    text: string,
-    options: { voice: string }
-  ): Promise<{
-    audio: Float32Array;
-    sampling_rate: number;
-  }>;
+interface PendingLoad {
+  resolve: () => void;
+  reject: (error: Error) => void;
+  onProgress: ((loaded: number, total: number) => void) | undefined;
+  loadDone: boolean;
+  warmupSettled: boolean;
+  loadRequestId: string;
+  warmupRequestId: string | null;
+  voice: TtsVoice;
 }
 
-interface KokoroProgressEvent {
-  status?: string;
-  loaded?: number;
-  total?: number;
+interface PendingPreload {
+  resolve: () => void;
+  reject: (error: Error) => void;
 }
 
-class KokoroTtsService implements TtsService {
-  private tts: KokoroTtsInstance | null = null;
+interface PendingSpeak {
+  resolveAudio: (data: { audio: Float32Array; samplingRate: number }) => void;
+  rejectAudio: (error: Error) => void;
+}
+
+class WorkerKokoroTtsService implements TtsService {
+  private worker: Worker | null = null;
+  private loaded = false;
+  private pendingLoad: PendingLoad | null = null;
   private loadPromise: Promise<void> | null = null;
+  private pendingPreloads = new Map<string, PendingPreload>();
+  private pendingSpeaks = new Map<string, PendingSpeak>();
   private audioCtx: AudioContext | null = null;
-  private currentSource: AudioBufferSourceNode | null = null;
-  private currentResolve: (() => void) | null = null;
+  // Sample-accurate playback scheduling: nextStartTime tracks the absolute
+  // AudioContext time at which the *next* buffer should begin, so back-to-
+  // back sentences play with zero gap (the 5-30ms `'ended'`-event jitter is
+  // eliminated). scheduledSources holds every buffer that has been
+  // `start()`ed but not yet `'ended'`; stop() walks the set so pre-scheduled
+  // future buffers are cancelled too.
+  private nextStartTime = 0;
+  private scheduledSources = new Set<AudioBufferSourceNode>();
+  private playbackChain: Promise<void> = Promise.resolve();
 
-  async load(onProgress?: (loaded: number, total: number) => void): Promise<void> {
-    if (this.tts !== null) return;
+  constructor(private readonly factory: WorkerFactory = defaultWorkerFactory) {}
+
+  load(voice: TtsVoice, onProgress?: (loaded: number, total: number) => void): Promise<void> {
+    if (this.loaded) return Promise.resolve();
     if (this.loadPromise !== null) return this.loadPromise;
 
-    const progressCallback = (event: KokoroProgressEvent): void => {
-      if (onProgress === undefined) return;
-      if (typeof event.loaded === 'number' && typeof event.total === 'number') {
-        onProgress(event.loaded, event.total);
-      }
-    };
+    this.worker ??= this.spawnWorker();
+    const loadRequestId = newRequestId();
 
-    const promise = (async (): Promise<void> => {
-      // Dynamic import keeps kokoro-js (and its phonemizer + espeak-ng WASM)
-      // out of the module-init graph. See file header for why this matters.
-      const { KokoroTTS } = await import('kokoro-js');
-      const preferred = await detectDevice();
-      const tryLoad = (device: 'wasm' | 'webgpu'): Promise<KokoroTtsInstance> =>
-        // Cast: kokoro-js' from_pretrained uses HF Transformers types we don't
-        // import here. The static method doesn't use `this`, so calling it
-        // directly through KokoroTTS preserves binding while the cast erases
-        // only the parameter typing.
-        (
-          KokoroTTS.from_pretrained as unknown as (
-            modelId: string,
-            options: {
-              dtype: string;
-              device: 'wasm' | 'webgpu';
-              progress_callback: (event: KokoroProgressEvent) => void;
-            }
-          ) => Promise<KokoroTtsInstance>
-        )(MODEL_ID, {
-          dtype: MODEL_DTYPE,
-          device,
-          progress_callback: progressCallback,
-        });
+    this.loadPromise = new Promise<void>((resolve, reject) => {
+      this.pendingLoad = {
+        resolve,
+        reject,
+        onProgress,
+        loadDone: false,
+        warmupSettled: false,
+        loadRequestId,
+        warmupRequestId: null,
+        voice,
+      };
+    });
 
-      try {
-        this.tts = await tryLoad(preferred);
-      } catch (error) {
-        // WebGPU can advertise an adapter but still fail at load time (driver,
-        // browser flag, runtime backend). Fall back to WASM, which works
-        // everywhere onnxruntime-web is supported. Re-throw if we were already
-        // on WASM — nothing else to try.
-        if (preferred !== 'webgpu') throw error;
-        this.tts = await tryLoad('wasm');
-      }
-    })();
+    this.postToWorker({ type: 'load', requestId: loadRequestId });
+    return this.loadPromise;
+  }
 
-    this.loadPromise = promise;
-    try {
-      await promise;
-    } catch (error) {
-      this.loadPromise = null;
-      throw error;
+  preloadVoice(voice: TtsVoice): Promise<void> {
+    if (!this.loaded) {
+      return Promise.reject(new Error('TTS engine is not loaded — call load() first'));
     }
+    const requestId = newRequestId();
+    return new Promise<void>((resolve, reject) => {
+      this.pendingPreloads.set(requestId, { resolve, reject });
+      this.postToWorker({ type: 'warmup', requestId, voice });
+    });
   }
 
   isLoaded(): boolean {
-    return this.tts !== null;
+    return this.loaded;
   }
 
   unlockAudio(): void {
     if (this.audioCtx !== null) return;
     const ctx = new AudioContext();
     this.audioCtx = ctx;
-    // 1-sample silent buffer — the canonical iOS audio-unlock incantation.
     const buffer = ctx.createBuffer(1, 1, 22_050);
     const source = ctx.createBufferSource();
     source.buffer = buffer;
@@ -184,72 +184,249 @@ class KokoroTtsService implements TtsService {
     source.start(0);
   }
 
-  async speak(text: string, voice: TtsVoice): Promise<void> {
-    if (this.tts === null) {
-      throw new Error('TTS engine is not loaded — call load() first');
+  speak(text: string, voice: TtsVoice): Promise<void> {
+    if (!this.loaded) {
+      return Promise.reject(new Error('TTS engine is not loaded — call load() first'));
     }
-    // Cancel any in-flight playback first so the resolve channel is free.
-    this.stop();
+    const requestId = newRequestId();
+    const audioPromise = new Promise<{ audio: Float32Array; samplingRate: number }>(
+      (resolve, reject) => {
+        this.pendingSpeaks.set(requestId, { resolveAudio: resolve, rejectAudio: reject });
+      }
+    );
+    this.postToWorker({ type: 'speak', requestId, text, voice });
 
-    const tts = this.tts;
-    const audio = await tts.generate(text, { voice });
+    // Two-stage chain: `playbackChain` serializes the *scheduling* step (so
+    // nextStartTime is computed in order), and advances as soon as the
+    // current sentence's source has been `start()`ed — not after `'ended'`.
+    // That lets sentence N+1's source be scheduled at sentence N's end-time
+    // while N is still playing, eliminating the inter-buffer gap.
+    const prevChain = this.playbackChain;
+    let signalScheduled!: () => void;
+    const scheduled = new Promise<void>((resolve) => {
+      signalScheduled = resolve;
+    });
+    // eslint-disable-next-line promise/prefer-await-to-then -- chain advances on scheduled regardless of success/failure so a single failed sentence doesn't deadlock subsequent ones
+    this.playbackChain = scheduled.then(
+      () => {
+        // Intentional no-op.
+      },
+      () => {
+        // Intentional no-op.
+      }
+    );
+    return (async () => {
+      await prevChain;
+      let audio: { audio: Float32Array; samplingRate: number };
+      try {
+        audio = await audioPromise;
+      } catch (error: unknown) {
+        signalScheduled();
+        throw error;
+      }
+      let scheduled: { endedPromise: Promise<void> };
+      try {
+        scheduled = await this.scheduleAudio(audio.audio, audio.samplingRate);
+      } catch (error: unknown) {
+        signalScheduled();
+        throw error;
+      }
+      signalScheduled();
+      await scheduled.endedPromise;
+    })();
+  }
 
-    // unlockAudio() may not have been called (e.g. desktop without iOS gesture
-    // requirements). Create the context lazily so callers don't have to.
+  stop(): void {
+    this.playbackChain = Promise.resolve();
+    for (const [requestId, entry] of this.pendingSpeaks) {
+      this.postToWorker({ type: 'cancel', requestId });
+      entry.rejectAudio(new CancelledError());
+    }
+    this.pendingSpeaks.clear();
+    // Multiple sources may be pre-scheduled at once (sample-accurate
+    // pipeline). Stop all of them — the second sentence might already be
+    // queued to start at a future AudioContext.currentTime.
+    for (const source of this.scheduledSources) {
+      try {
+        source.stop();
+      } catch {
+        // Already stopped or never started — inert either way.
+      }
+    }
+    this.scheduledSources.clear();
+    this.nextStartTime = 0;
+  }
+
+  terminate(): void {
+    this.worker?.terminate();
+    this.worker = null;
+    this.loaded = false;
+    this.pendingLoad = null;
+    this.loadPromise = null;
+    this.pendingPreloads.clear();
+    this.pendingSpeaks.clear();
+  }
+
+  private spawnWorker(): Worker {
+    const worker = this.factory();
+    worker.addEventListener('message', (event: MessageEvent) => {
+      const data = (event as MessageEvent<unknown>).data;
+      if (!isWorkerOutbound(data)) return;
+      this.handleWorkerMessage(data);
+    });
+    return worker;
+  }
+
+  private postToWorker(msg: WorkerInbound): void {
+    this.worker?.postMessage(msg);
+  }
+
+  private handleWorkerMessage(msg: WorkerOutbound): void {
+    switch (msg.type) {
+      case 'loadProgress': {
+        this.onLoadProgress(msg.requestId, msg.loaded, msg.total);
+        return;
+      }
+      case 'loadDone': {
+        this.onLoadDone(msg.requestId);
+        return;
+      }
+      case 'loadError': {
+        this.onLoadError(msg.requestId, msg.message);
+        return;
+      }
+      case 'warmupDone': {
+        this.onWarmupSettled(msg.requestId, null);
+        return;
+      }
+      case 'warmupError': {
+        this.onWarmupSettled(msg.requestId, msg.message);
+        return;
+      }
+      case 'speakReady': {
+        this.onSpeakReady(msg.requestId, msg.audio, msg.samplingRate);
+        return;
+      }
+      case 'speakError': {
+        this.onSpeakError(msg.requestId, msg.message);
+        return;
+      }
+    }
+  }
+
+  private onLoadProgress(requestId: string, loaded: number, total: number): void {
+    const pending = this.pendingLoad;
+    if (pending === null) return;
+    if (pending.loadRequestId !== requestId) return;
+    pending.onProgress?.(loaded, total);
+  }
+
+  private onLoadDone(requestId: string): void {
+    const pending = this.pendingLoad;
+    if (pending === null) return;
+    if (pending.loadRequestId !== requestId) return;
+    if (pending.loadDone) return;
+    pending.loadDone = true;
+    const warmupRequestId = newRequestId();
+    pending.warmupRequestId = warmupRequestId;
+    this.postToWorker({ type: 'warmup', requestId: warmupRequestId, voice: pending.voice });
+  }
+
+  private onLoadError(requestId: string, message: string): void {
+    const pending = this.pendingLoad;
+    if (pending === null) return;
+    if (pending.loadRequestId !== requestId) return;
+    this.pendingLoad = null;
+    this.loadPromise = null;
+    pending.reject(new Error(message));
+  }
+
+  private onWarmupSettled(requestId: string, errorMessage: string | null): void {
+    const preload = this.pendingPreloads.get(requestId);
+    if (preload !== undefined) {
+      this.pendingPreloads.delete(requestId);
+      if (errorMessage === null) {
+        preload.resolve();
+      } else {
+        preload.reject(new Error(errorMessage));
+      }
+      return;
+    }
+    const pending = this.pendingLoad;
+    if (pending === null) return;
+    if (pending.warmupRequestId !== requestId) return;
+    pending.warmupSettled = true;
+    if (!pending.loadDone) return;
+    this.pendingLoad = null;
+    this.loaded = true;
+    pending.resolve();
+  }
+
+  private onSpeakReady(requestId: string, audio: Float32Array, samplingRate: number): void {
+    const entry = this.pendingSpeaks.get(requestId);
+    if (entry === undefined) return;
+    this.pendingSpeaks.delete(requestId);
+    entry.resolveAudio({ audio, samplingRate });
+  }
+
+  private onSpeakError(requestId: string, message: string): void {
+    const entry = this.pendingSpeaks.get(requestId);
+    if (entry === undefined) return;
+    this.pendingSpeaks.delete(requestId);
+    entry.rejectAudio(new Error(message));
+  }
+
+  /**
+   * Schedule a buffer for playback and return an object holding the `'ended'`
+   * promise. The OUTER awaitable resolves once the source has been
+   * `.start()`ed — that's the moment the chain can advance. The ended
+   * promise is wrapped in an object so async/await's Promise unwrapping
+   * doesn't accidentally flatten it into the outer resolution.
+   */
+  private async scheduleAudio(
+    audio: Float32Array,
+    samplingRate: number
+  ): Promise<{ endedPromise: Promise<void> }> {
     this.audioCtx ??= new AudioContext();
     const ctx = this.audioCtx;
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
-
-    const buffer = ctx.createBuffer(1, audio.audio.length, audio.sampling_rate);
-    // copyToChannel typing requires Float32Array<ArrayBuffer>; kokoro returns
-    // Float32Array<ArrayBufferLike>. The runtime bytes are the same.
-    buffer.copyToChannel(audio.audio as Float32Array<ArrayBuffer>, 0);
+    const buffer = ctx.createBuffer(1, audio.length, samplingRate);
+    buffer.copyToChannel(audio as Float32Array<ArrayBuffer>, 0);
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(ctx.destination);
 
-    return new Promise<void>((resolve) => {
-      this.currentSource = source;
-      this.currentResolve = resolve;
-      source.addEventListener('ended', () => {
-        if (this.currentSource === source) {
-          this.currentSource = null;
-          this.currentResolve = null;
-        }
-        resolve();
-      });
-      source.start(0);
-    });
-  }
+    // Schedule at the previous buffer's end, or at the current playback clock
+    // if inference has fallen behind playback (gap). Web Audio guarantees
+    // sample-accurate playback when start() is called with a future time;
+    // passing a past time is also valid — it plays immediately.
+    const startTime = Math.max(this.nextStartTime, ctx.currentTime);
+    this.nextStartTime = startTime + buffer.duration;
+    this.scheduledSources.add(source);
 
-  stop(): void {
-    const source = this.currentSource;
-    const resolve = this.currentResolve;
-    this.currentSource = null;
-    this.currentResolve = null;
-    if (source !== null) {
-      try {
-        source.stop();
-      } catch {
-        // start() may not have been called yet, or stop() may have been called twice.
-        // Either way the source is already inert; nothing to do.
-      }
-    }
-    if (resolve !== null) {
-      resolve();
-    }
+    const endedPromise = new Promise<void>((resolve) => {
+      const onEnded = (): void => {
+        this.scheduledSources.delete(source);
+        source.removeEventListener('ended', onEnded);
+        resolve();
+      };
+      source.addEventListener('ended', onEnded);
+      source.start(startTime);
+    });
+    return { endedPromise };
   }
 }
 
-let singletonService: TtsService | null = null;
+let singletonService: WorkerKokoroTtsService | null = null;
 
 export function getTtsService(): TtsService {
-  singletonService ??= new KokoroTtsService();
+  singletonService ??= new WorkerKokoroTtsService(workerFactoryOverride ?? defaultWorkerFactory);
   return singletonService;
 }
 
 export function _resetTtsServiceForTesting(): void {
+  singletonService?.terminate();
   singletonService = null;
 }

@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { router } from './router';
+import { prewarmTtsIfEnabled } from './lib/prewarm-tts';
 import './app.css';
 
 // Streamdown rendering styles (animation keyframes for streaming cursor)
@@ -23,3 +24,8 @@ createRoot(rootElement).render(
     <RouterProvider router={router} />
   </StrictMode>
 );
+
+// Fire-and-forget: returning users who already opted into read-aloud get
+// the worker/model warming in the background while they navigate. By the
+// time they send a chat, the first sentence's inference is ready to go.
+void prewarmTtsIfEnabled();

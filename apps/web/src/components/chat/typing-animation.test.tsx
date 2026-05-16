@@ -285,6 +285,26 @@ describe('TypingAnimation', () => {
       expect(screen.getByTestId('typed-text').textContent).toBe('foo');
     });
 
+    it('fires onComplete on mount when useReducedMotion is true (text is already settled)', () => {
+      reducedMotionRef.current = true;
+      const onComplete = vi.fn();
+
+      render(<TypingAnimation text="hello" onComplete={onComplete} />);
+
+      expect(onComplete).toHaveBeenCalled();
+    });
+
+    it('fires onComplete when text changes while useReducedMotion is true', () => {
+      reducedMotionRef.current = true;
+      const onComplete = vi.fn();
+      const { rerender } = render(<TypingAnimation text="hello" onComplete={onComplete} />);
+
+      const callsAfterMount = onComplete.mock.calls.length;
+      rerender(<TypingAnimation text="world" onComplete={onComplete} />);
+
+      expect(onComplete.mock.calls.length).toBeGreaterThan(callsAfterMount);
+    });
+
     it('snaps instantly to new text when useReducedMotion is true', () => {
       reducedMotionRef.current = true;
       const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');

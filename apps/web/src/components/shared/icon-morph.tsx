@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { cn, useReducedMotion } from '@hushbox/ui';
+import { cn } from '@hushbox/ui';
 import type { LucideIcon } from 'lucide-react';
 
 interface IconMorphProps {
@@ -15,7 +15,8 @@ interface IconMorphProps {
 /**
  * Cross-fades between Lucide icons as the `iconKey` prop changes. The slot
  * size is fixed via `sizeClassName` so the surrounding layout does not jump
- * during the swap. Reduced-motion users get an instant icon swap.
+ * during the swap. The root MotionConfig globally collapses the swap to
+ * instant under reduced motion.
  */
 export function IconMorph({
   icon: Icon,
@@ -25,20 +26,6 @@ export function IconMorph({
   duration = 1,
   'data-testid': testId,
 }: Readonly<IconMorphProps>): React.JSX.Element {
-  const reducedMotion = useReducedMotion();
-
-  if (reducedMotion) {
-    return (
-      <span
-        data-testid={testId}
-        aria-hidden="true"
-        className={cn('relative inline-flex items-center justify-center', sizeClassName, className)}
-      >
-        <Icon className={sizeClassName} aria-hidden="true" />
-      </span>
-    );
-  }
-
   return (
     <span
       data-testid={testId}

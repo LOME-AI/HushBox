@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { cn } from '@hushbox/ui';
 import type { PickerMode } from '@/stores/model';
 
@@ -21,7 +21,6 @@ interface OptionProps {
   onSelect: (value: PickerMode) => void;
   onArrowToOther: () => void;
   arrowKeyToOther: 'ArrowRight' | 'ArrowDown' | 'ArrowLeft' | 'ArrowUp';
-  reduceMotion: boolean;
   children: React.ReactNode;
 }
 
@@ -32,7 +31,6 @@ function PickerModeOption({
   onSelect,
   onArrowToOther,
   arrowKeyToOther,
-  reduceMotion,
   children,
 }: Readonly<OptionProps>): React.JSX.Element {
   const handleClick = (): void => {
@@ -67,9 +65,7 @@ function PickerModeOption({
           layoutId={PILL_LAYOUT_ID}
           className="bg-background absolute inset-0 rounded-md shadow-sm"
           aria-hidden
-          transition={
-            reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 280, damping: 26 }
-          }
+          transition={{ type: 'spring', stiffness: 280, damping: 26 }}
         />
       )}
       <span className="relative z-10 flex items-center gap-2">{children}</span>
@@ -82,8 +78,9 @@ function PickerModeOption({
  * single-select and multi-select modes. Renders horizontally on mobile
  * (top of bottom sheet) and vertically on desktop (right-top of modal).
  *
- * The active-state pill slides between options via shared layoutId.
- * Honors prefers-reduced-motion by collapsing the slide to instant.
+ * The active-state pill slides between options via shared layoutId. Reduced
+ * motion is handled globally by the root MotionConfig — no per-component
+ * check needed.
  */
 export function PickerModeToggle({
   mode,
@@ -93,7 +90,6 @@ export function PickerModeToggle({
   multiLabel,
   className,
 }: Readonly<PickerModeToggleProps>): React.JSX.Element {
-  const reduceMotion = useReducedMotion() ?? false;
   const isHorizontal = orientation === 'horizontal';
   // Per option, the arrow key is the one that points TOWARDS the other option:
   // single (leftmost / topmost) → right/down. multi (rightmost / bottommost) → left/up.
@@ -126,7 +122,6 @@ export function PickerModeToggle({
         onSelect={onChange}
         onArrowToOther={handleSelectFromSingle}
         arrowKeyToOther={singleArrowKey}
-        reduceMotion={reduceMotion}
       >
         {singleLabel}
       </PickerModeOption>
@@ -137,7 +132,6 @@ export function PickerModeToggle({
         onSelect={onChange}
         onArrowToOther={handleSelectFromMulti}
         arrowKeyToOther={multiArrowKey}
-        reduceMotion={reduceMotion}
       >
         {multiLabel}
       </PickerModeOption>

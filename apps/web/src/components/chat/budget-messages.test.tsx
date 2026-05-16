@@ -1,18 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BudgetMessages } from './budget-messages';
 import type { BudgetError } from '@hushbox/shared';
-
-const useReducedMotionMock = vi.fn<() => boolean>();
-
-vi.mock('@hushbox/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@hushbox/ui')>();
-  return {
-    ...actual,
-    useReducedMotion: (): boolean => useReducedMotionMock(),
-  };
-});
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
@@ -29,11 +19,6 @@ vi.mock('@tanstack/react-router', () => ({
     </a>
   ),
 }));
-
-beforeEach(() => {
-  useReducedMotionMock.mockReset();
-  useReducedMotionMock.mockReturnValue(false);
-});
 
 describe('BudgetMessages', () => {
   describe('rendering', () => {
@@ -287,49 +272,6 @@ describe('BudgetMessages', () => {
       await waitFor(() => {
         expect(screen.queryByTestId('budget-message-second')).not.toBeInTheDocument();
       });
-    });
-  });
-
-  describe('reduced motion', () => {
-    it('renders messages without motion wrapper when reduced motion is preferred', () => {
-      useReducedMotionMock.mockReturnValue(true);
-      const errors: BudgetError[] = [{ id: 'test', type: 'error', message: 'Test' }];
-      render(<BudgetMessages errors={errors} />);
-
-      const message = screen.getByTestId('budget-message-test');
-      const wrapper = message.parentElement;
-      expect(wrapper).not.toHaveClass('overflow-hidden');
-    });
-
-    it('does not apply motion height styles when reduced motion is preferred', () => {
-      useReducedMotionMock.mockReturnValue(true);
-      const errors: BudgetError[] = [{ id: 'test', type: 'error', message: 'Test' }];
-      render(<BudgetMessages errors={errors} />);
-
-      const message = screen.getByTestId('budget-message-test');
-      const wrapper = message.parentElement!;
-      expect(wrapper.style.height).toBe('');
-      expect(wrapper.style.opacity).toBe('');
-    });
-
-    it('still renders message content under reduced motion', () => {
-      useReducedMotionMock.mockReturnValue(true);
-      const errors: BudgetError[] = [{ id: 'test', type: 'error', message: 'Test error content' }];
-      render(<BudgetMessages errors={errors} />);
-
-      expect(screen.getByText('Test error content')).toBeInTheDocument();
-    });
-
-    it('renders multiple messages under reduced motion', () => {
-      useReducedMotionMock.mockReturnValue(true);
-      const errors: BudgetError[] = [
-        { id: 'first', type: 'error', message: 'First' },
-        { id: 'second', type: 'warning', message: 'Second' },
-      ];
-      render(<BudgetMessages errors={errors} />);
-
-      expect(screen.getByTestId('budget-message-first')).toBeInTheDocument();
-      expect(screen.getByTestId('budget-message-second')).toBeInTheDocument();
     });
   });
 

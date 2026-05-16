@@ -262,21 +262,25 @@ body {
   animation: picker-pulse 600ms ease-out 1;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-picker-pulse {
-    animation: none;
-  }
+/* Reduced motion — keyed on `html.reduced-motion` (set by the broadcaster
+   when either the OS pref or the a11y widget toggles reduce-motion on). The
+   global `motion.css` rule already crushes durations to 0.01ms, but these
+   animations have a final keyframe that isn't the desired resting state
+   (blink ends invisible; dot-pulse ends low-opacity) — so they need explicit
+   `animation: none` to land on the natural element styles. */
+html.reduced-motion .animate-picker-pulse {
+  animation: none;
+}
 
-  .animate-dot-pulse {
-    animation: none;
-    opacity: 0.6;
-  }
+html.reduced-motion .animate-dot-pulse {
+  animation: none;
+  opacity: 0.6;
+}
 
-  .animate-blink,
-  .animate-slide-up,
-  .animate-shake {
-    animation: none;
-  }
+html.reduced-motion .animate-blink,
+html.reduced-motion .animate-slide-up,
+html.reduced-motion .animate-shake {
+  animation: none;
 }
 
 /* E2E: disable all CSS transitions and animations to eliminate timing races.

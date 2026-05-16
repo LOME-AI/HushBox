@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Link } from '@tanstack/react-router';
 import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare, Info } from 'lucide-react';
 import {
@@ -295,20 +295,17 @@ function ModelCheckboxIcon({
   isSelected,
   cascadeIndex,
 }: Readonly<{ isSelected: boolean; cascadeIndex: number }>): React.JSX.Element {
-  const reduceMotion = useReducedMotion() ?? false;
-  const delay = reduceMotion ? 0 : (cascadeIndex * CHECKBOX_CASCADE_STAGGER_MS) / 1000;
+  const delay = (cascadeIndex * CHECKBOX_CASCADE_STAGGER_MS) / 1000;
   return (
     <motion.span
       data-testid="model-checkbox"
       data-cascade-index={cascadeIndex}
       className="relative flex shrink-0 items-center justify-center overflow-hidden"
       aria-hidden
-      initial={reduceMotion ? false : { opacity: 0, scale: 0.5, width: 0, marginLeft: 0 }}
+      initial={{ opacity: 0, scale: 0.5, width: 0, marginLeft: 0 }}
       animate={{ opacity: 1, scale: 1, width: 24, marginLeft: 8 }}
-      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.5, width: 0, marginLeft: 0 }}
-      transition={
-        reduceMotion ? { duration: 0 } : { delay, duration: 0.18, ease: [0.34, 1.56, 0.64, 1] }
-      }
+      exit={{ opacity: 0, scale: 0.5, width: 0, marginLeft: 0 }}
+      transition={{ delay, duration: 0.18, ease: [0.34, 1.56, 0.64, 1] }}
     >
       {isSelected ? (
         <CheckSquare className="text-primary h-4 w-4" />
@@ -798,23 +795,22 @@ interface ModelSelectorFooterProps {
  * closes, so there's no pending state to confirm or discard).
  *
  * Slides up from below when entering — gives the visual cue that the user has
- * a pending state to confirm. The slide collapses to instant under
- * `prefers-reduced-motion`.
+ * a pending state to confirm. The root MotionConfig globally collapses this
+ * to instant when reduced motion is on.
  */
 function ModelSelectorFooter({
   selectedCount,
   onCancel,
   onConfirm,
 }: Readonly<ModelSelectorFooterProps>): React.JSX.Element {
-  const reduceMotion = useReducedMotion() ?? false;
   const useLabel = selectedCount === 1 ? 'Use 1 model' : `Use ${String(selectedCount)} models`;
   return (
     <motion.div
       data-testid="model-selector-footer-motion"
-      initial={reduceMotion ? false : { y: 24, opacity: 0 }}
+      initial={{ y: 24, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      exit={reduceMotion ? { opacity: 0 } : { y: 24, opacity: 0 }}
-      transition={reduceMotion ? { duration: 0 } : { duration: 0.22, ease: 'easeOut' }}
+      exit={{ y: 24, opacity: 0 }}
+      transition={{ duration: 0.22, ease: 'easeOut' }}
       className="border-t p-4"
     >
       <ModalActions

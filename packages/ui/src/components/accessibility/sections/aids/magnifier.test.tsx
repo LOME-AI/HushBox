@@ -71,12 +71,12 @@ describe('Magnifier', () => {
     expect(lens?.style.pointerEvents).toBe('none');
   });
 
-  it('renders the lens as a fixed-position circle with default size 200', () => {
+  it('renders the lens as a fixed-position circle with default size 320', () => {
     const { container } = render(<Magnifier enabled />);
     const lens = container.querySelector<HTMLElement>('[data-a11y-magnifier]');
     expect(lens?.style.position).toBe('fixed');
-    expect(lens?.style.width).toBe('200px');
-    expect(lens?.style.height).toBe('200px');
+    expect(lens?.style.width).toBe('320px');
+    expect(lens?.style.height).toBe('320px');
     expect(lens?.style.borderRadius).toBe('50%');
     expect(lens?.style.overflow).toBe('hidden');
   });

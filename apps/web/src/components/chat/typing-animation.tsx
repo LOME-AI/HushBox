@@ -84,6 +84,10 @@ export function TypingAnimation({
     if (reducedMotion) {
       setDisplayText(text);
       setState('idle');
+      // Reduced motion settles on the full text immediately — fire onComplete
+      // so callers gated on typing-finish (e.g. chat-welcome's subtitle reveal)
+      // don't get stranded waiting for an animation that never ran.
+      onCompleteRef.current?.();
       return;
     }
     const current = displayTextRef.current;

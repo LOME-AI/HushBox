@@ -33,8 +33,6 @@ function buildToggles(prefs: AccessibilityPreferences): ClassToggle[] {
 
     ['a11y-font-override', prefs.fontFamily !== 'system'],
 
-    ['a11y-stop-animations', prefs.stopAnimations],
-
     ['a11y-cursor-large', prefs.cursorSize === 'large'],
     ['a11y-cursor-xlarge', prefs.cursorSize === 'xlarge'],
 

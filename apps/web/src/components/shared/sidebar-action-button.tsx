@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cn, useReducedMotion } from '@hushbox/ui';
+import { cn } from '@hushbox/ui';
 
 interface SidebarActionButtonProps {
   icon: React.ReactNode;
@@ -16,7 +16,6 @@ export function SidebarActionButton({
   collapsed,
   testId,
 }: Readonly<SidebarActionButtonProps>): React.JSX.Element {
-  const reducedMotion = useReducedMotion();
   const slashButtonStyles = {
     clipPath: 'polygon(0 0, 100% 0, 95% 100%, 0 100%)',
   };
@@ -40,7 +39,7 @@ export function SidebarActionButton({
           aria-hidden="true"
           style={{
             background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
-            ...(reducedMotion ? {} : { animation: 'shine 2s infinite' }),
+            animation: 'shine 2s infinite',
           }}
         />
         <span className="relative z-10">{icon}</span>
@@ -66,7 +65,7 @@ export function SidebarActionButton({
         aria-hidden="true"
         style={{
           background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)',
-          ...(reducedMotion ? {} : { animation: 'shine 3s infinite' }),
+          animation: 'shine 3s infinite',
         }}
       />
       <span className="relative z-10">{icon}</span>

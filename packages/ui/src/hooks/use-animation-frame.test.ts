@@ -1,5 +1,6 @@
-import { renderHook } from '@testing-library/react';
-import { describe, expect, it, afterEach, vi } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
+import { useA11yStore } from '../components/accessibility/store';
 import { useAnimationFrame } from './use-animation-frame';
 
 describe('useAnimationFrame', () => {
@@ -7,20 +8,24 @@ describe('useAnimationFrame', () => {
   const originalCAF = globalThis.cancelAnimationFrame;
   const originalMatchMedia = globalThis.matchMedia;
 
-  let rafCallbacks: FrameRequestCallback[];
+  let rafQueue: { id: number; callback: FrameRequestCallback }[];
   let nextRafId: number;
 
   function setupRAF(): {
     requestSpy: ReturnType<typeof vi.fn>;
     cancelSpy: ReturnType<typeof vi.fn>;
   } {
-    rafCallbacks = [];
+    rafQueue = [];
     nextRafId = 1;
     const requestSpy = vi.fn((callback: FrameRequestCallback) => {
-      rafCallbacks.push(callback);
-      return nextRafId++;
+      const id = nextRafId++;
+      rafQueue.push({ id, callback });
+      return id;
     });
-    const cancelSpy = vi.fn();
+    const cancelSpy = vi.fn((id: number) => {
+      const index = rafQueue.findIndex((entry) => entry.id === id);
+      if (index !== -1) rafQueue.splice(index, 1);
+    });
     Object.defineProperty(globalThis, 'requestAnimationFrame', {
       writable: true,
       configurable: true,
@@ -34,15 +39,26 @@ describe('useAnimationFrame', () => {
     return { requestSpy, cancelSpy };
   }
 
-  function setupMatchMedia(matches: boolean): ReturnType<typeof vi.fn> {
+  function setupMatchMedia(initialMatches: boolean): {
+    mockMatchMedia: ReturnType<typeof vi.fn>;
+    setMatches: (next: boolean) => void;
+  } {
+    const listeners = new Set<(e: MediaQueryListEvent) => void>();
+    let currentMatches = initialMatches;
     const mockMatchMedia = vi.fn().mockImplementation((query: string) => ({
-      matches,
+      get matches() {
+        return currentMatches;
+      },
       media: query,
       onchange: null,
       addListener: vi.fn(),
       removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
+      addEventListener: vi.fn((event: string, callback: (e: MediaQueryListEvent) => void) => {
+        if (event === 'change') listeners.add(callback);
+      }),
+      removeEventListener: vi.fn((event: string, callback: (e: MediaQueryListEvent) => void) => {
+        if (event === 'change') listeners.delete(callback);
+      }),
       dispatchEvent: vi.fn(),
     }));
     Object.defineProperty(globalThis, 'matchMedia', {
@@ -50,13 +66,23 @@ describe('useAnimationFrame', () => {
       configurable: true,
       value: mockMatchMedia,
     });
-    return mockMatchMedia;
+    return {
+      mockMatchMedia,
+      setMatches: (next: boolean) => {
+        currentMatches = next;
+        for (const callback of listeners) callback({ matches: next } as MediaQueryListEvent);
+      },
+    };
   }
 
   function tickFrame(timestamp: number): void {
-    const callback = rafCallbacks.shift();
-    if (callback) callback(timestamp);
+    const entry = rafQueue.shift();
+    if (entry) entry.callback(timestamp);
   }
+
+  beforeEach(() => {
+    useA11yStore.getState().reset();
+  });
 
   afterEach(() => {
     Object.defineProperty(globalThis, 'requestAnimationFrame', {
@@ -74,6 +100,7 @@ describe('useAnimationFrame', () => {
       configurable: true,
       value: originalMatchMedia,
     });
+    useA11yStore.getState().reset();
     vi.restoreAllMocks();
   });
 
@@ -128,14 +155,27 @@ describe('useAnimationFrame', () => {
 
   it('does not tick when respectMotion=true and prefers-reduced-motion matches', () => {
     const { requestSpy } = setupRAF();
-    const mockMatchMedia = setupMatchMedia(true);
+    setupMatchMedia(true);
     const callback = vi.fn();
 
     renderHook(() => {
       useAnimationFrame(callback, { respectMotion: true });
     });
 
-    expect(mockMatchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
+    expect(requestSpy).not.toHaveBeenCalled();
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('does not tick when respectMotion=true and the a11y store stopAnimations flag is on', () => {
+    const { requestSpy } = setupRAF();
+    setupMatchMedia(false);
+    useA11yStore.getState().update({ stopAnimations: true });
+    const callback = vi.fn();
+
+    renderHook(() => {
+      useAnimationFrame(callback, { respectMotion: true });
+    });
+
     expect(requestSpy).not.toHaveBeenCalled();
     expect(callback).not.toHaveBeenCalled();
   });
@@ -153,9 +193,10 @@ describe('useAnimationFrame', () => {
     expect(callback).not.toHaveBeenCalled();
   });
 
-  it('still ticks when respectMotion=false even if prefers-reduced-motion matches', () => {
+  it('still ticks when respectMotion=false even if reduced-motion sources are on', () => {
     const { requestSpy } = setupRAF();
     setupMatchMedia(true);
+    useA11yStore.getState().update({ stopAnimations: true });
     const callback = vi.fn();
 
     renderHook(() => {
@@ -202,7 +243,6 @@ describe('useAnimationFrame', () => {
 
     rerender({ cb: second });
 
-    // Effect should not re-subscribe just because callback identity changed.
     expect(requestSpy).toHaveBeenCalledTimes(1);
 
     tickFrame(123);
@@ -229,10 +269,53 @@ describe('useAnimationFrame', () => {
     expect(requestSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('pauses ticks when the a11y store toggles stopAnimations on mid-loop', () => {
+    const { requestSpy, cancelSpy } = setupRAF();
+    setupMatchMedia(false);
+    const callback = vi.fn();
+
+    renderHook(() => {
+      useAnimationFrame(callback);
+    });
+
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+    tickFrame(10);
+    expect(callback).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useA11yStore.getState().update({ stopAnimations: true });
+    });
+
+    // The next scheduled frame should be cancelled and no further frames scheduled.
+    expect(cancelSpy).toHaveBeenCalled();
+    const requestCountAfterToggle = requestSpy.mock.calls.length;
+    tickFrame(20);
+    expect(requestSpy.mock.calls.length).toBe(requestCountAfterToggle);
+  });
+
+  it('resumes ticks when reduced-motion turns off mid-session', () => {
+    const { requestSpy } = setupRAF();
+    setupMatchMedia(false);
+    useA11yStore.getState().update({ stopAnimations: true });
+    const callback = vi.fn();
+
+    renderHook(() => {
+      useAnimationFrame(callback);
+    });
+
+    expect(requestSpy).not.toHaveBeenCalled();
+
+    act(() => {
+      useA11yStore.getState().update({ stopAnimations: false });
+    });
+
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+    tickFrame(40);
+    expect(callback).toHaveBeenCalledWith(40);
+  });
+
   it('does not crash when window.matchMedia is unavailable', () => {
     const { requestSpy } = setupRAF();
-    // Simulate environment where matchMedia API is missing entirely.
-    // Use `delete` so the `'matchMedia' in window` guard returns false.
     // @ts-expect-error — intentionally removing for test
     delete globalThis.matchMedia;
 
@@ -244,7 +327,6 @@ describe('useAnimationFrame', () => {
       });
     }).not.toThrow();
 
-    // No matchMedia means we can't detect reduced motion → tick anyway.
     expect(requestSpy).toHaveBeenCalledTimes(1);
 
     tickFrame(10);

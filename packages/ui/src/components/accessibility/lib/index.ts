@@ -5,6 +5,7 @@ export { A11Y_INIT_SCRIPT } from './init-script';
 export { activateFont, _resetFontLoaderForTesting } from './font-loader';
 export { installMutePauser } from './mute';
 export { installMediaPauser } from './media-pauser';
+export { installReducedMotionClass } from './reduced-motion-broadcaster';
 export { MotionProvider } from './motion-provider';
 export {
   ACCESSIBILITY_PROFILES,

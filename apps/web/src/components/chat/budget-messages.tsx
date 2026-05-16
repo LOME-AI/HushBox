@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle, Info, X } from 'lucide-react';
-import { cn, IconButton, useReducedMotion } from '@hushbox/ui';
+import { cn, IconButton } from '@hushbox/ui';
 import type { BudgetError, MessageSegment } from '@hushbox/shared';
 
 interface BudgetMessagesProps {
@@ -126,7 +126,6 @@ export function BudgetMessages({
   errors,
   className,
 }: Readonly<BudgetMessagesProps>): React.JSX.Element {
-  const reducedMotion = useReducedMotion();
   const [dismissedIds, setDismissedIds] = React.useState<Set<string>>(new Set());
   const previousErrorIds = React.useRef<Set<string>>(new Set());
 
@@ -162,26 +161,20 @@ export function BudgetMessages({
       role="region"
       aria-live="polite"
     >
-      {reducedMotion ? (
-        visibleErrors.map((error) => (
-          <BudgetMessageBody key={error.id} error={error} onDismiss={handleDismiss} />
-        ))
-      ) : (
-        <AnimatePresence>
-          {visibleErrors.map((error) => (
-            <motion.div
-              key={error.id}
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-              className="overflow-hidden"
-            >
-              <BudgetMessageBody error={error} onDismiss={handleDismiss} />
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      )}
+      <AnimatePresence>
+        {visibleErrors.map((error) => (
+          <motion.div
+            key={error.id}
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+            className="overflow-hidden"
+          >
+            <BudgetMessageBody error={error} onDismiss={handleDismiss} />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }
