@@ -7,10 +7,7 @@ import { TouchDeviceOverrideContext } from '@hushbox/ui';
 import { useModelStore } from '@/stores/model';
 import { ModelSelectorModal } from './model-selector-modal';
 
-function withTouchOverride(
-  override: boolean | null,
-  children: React.ReactNode
-): React.JSX.Element {
+function withTouchOverride(override: boolean | null, children: React.ReactNode): React.JSX.Element {
   return <TouchDeviceOverrideContext value={override}>{children}</TouchDeviceOverrideContext>;
 }
 
@@ -2897,9 +2894,9 @@ describe('ModelSelectorModal', () => {
       const checkboxes = screen.getAllByTestId('model-checkbox');
       expect(checkboxes).toHaveLength(mockModels.length);
       // Cascade indices are 0, 1, 2... — they drive the stagger delay.
-      checkboxes.forEach((checkbox, index) => {
+      for (const [index, checkbox] of checkboxes.entries()) {
         expect(checkbox).toHaveAttribute('data-cascade-index', String(index));
-      });
+      }
     });
   });
 
@@ -2938,7 +2935,7 @@ describe('ModelSelectorModal', () => {
       );
 
       const list = screen.getByRole('listbox', { name: /models/i });
-      expect(list.className).toMatch(/\bpr-(?:3|4)\b/);
+      expect(list.className).toMatch(/\bpr-[34]\b/);
     });
   });
 

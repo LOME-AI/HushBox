@@ -2,7 +2,15 @@ import * as React from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Link } from '@tanstack/react-router';
 import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare, Info } from 'lucide-react';
-import { Overlay, Input, Button, ModalActions, ScrollArea, cn, useIsTouchDevice } from '@hushbox/ui';
+import {
+  Overlay,
+  Input,
+  Button,
+  ModalActions,
+  ScrollArea,
+  cn,
+  useIsTouchDevice,
+} from '@hushbox/ui';
 import { ROUTES, MAX_SELECTED_MODELS, shortenModelName } from '@hushbox/shared';
 import { useModelStore, type PickerMode } from '@/stores/model';
 import { formatContextLength } from '../../lib/format';
@@ -299,9 +307,7 @@ function ModelCheckboxIcon({
       animate={{ opacity: 1, scale: 1, width: 24, marginLeft: 8 }}
       exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.5, width: 0, marginLeft: 0 }}
       transition={
-        reduceMotion
-          ? { duration: 0 }
-          : { delay, duration: 0.18, ease: [0.34, 1.56, 0.64, 1] }
+        reduceMotion ? { duration: 0 } : { delay, duration: 0.18, ease: [0.34, 1.56, 0.64, 1] }
       }
     >
       {isSelected ? (
@@ -357,11 +363,7 @@ function RowMainButton({
     >
       <AnimatePresence initial={false}>
         {pickerMode === 'multi' && (
-          <ModelCheckboxIcon
-            key="checkbox"
-            isSelected={isSelected}
-            cascadeIndex={cascadeIndex}
-          />
+          <ModelCheckboxIcon key="checkbox" isSelected={isSelected} cascadeIndex={cascadeIndex} />
         )}
       </AnimatePresence>
       <ModelItemContent
@@ -628,12 +630,7 @@ function SearchAndSortSection({
 }: Readonly<SearchAndSortSectionProps>): React.JSX.Element {
   const showCapacityButton = activeModality === 'text';
   return (
-    <div
-      className={cn(
-        'border-border-strong space-y-2 px-4 py-2',
-        withBottomBorder && 'border-b'
-      )}
-    >
+    <div className={cn('border-border-strong space-y-2 px-4 py-2', withBottomBorder && 'border-b')}>
       <div
         className={cn(
           'items-center gap-2 pr-8 sm:pr-0',
