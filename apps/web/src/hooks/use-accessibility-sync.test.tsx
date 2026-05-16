@@ -195,7 +195,7 @@ describe('useAccessibilitySync', () => {
         expect(mockedFetchJson).toHaveBeenCalled();
       });
       await act(async () => {
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
       });
       expect(mockedClient.api['user-preferences'].accessibility.$put).not.toHaveBeenCalled();
       expect(useA11yStore.getState().contrast).toBe('high');
@@ -221,6 +221,38 @@ describe('useAccessibilitySync', () => {
         expect(useA11yStore.getState().fontSize).toBe('175');
       });
       expect(useA11yStore.getState().updatedAt).toBe(serverTs);
+      expect(mockedClient.api['user-preferences'].accessibility.$put).not.toHaveBeenCalled();
+    });
+
+    it('does not echo a PUT after pulling server state (debounce window)', async () => {
+      authed();
+      vi.useFakeTimers();
+      const serverTs = '2026-05-16T12:00:00.000Z';
+      mockedFetchJson.mockResolvedValueOnce({
+        preferences: { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, contrast: 'high' },
+        updatedAt: serverTs,
+      });
+      resetStore();
+
+      renderHook(
+        () => {
+          useAccessibilitySync();
+        },
+        { wrapper: makeWrapper() }
+      );
+
+      // Drain GET + boot reconcile.
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+      expect(useA11yStore.getState().contrast).toBe('high');
+      expect(useA11yStore.getState().updatedAt).toBe(serverTs);
+
+      // Boot's setState must be deduped — no PUT should fire even after the
+      // 750ms debounce window has elapsed.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
       expect(mockedClient.api['user-preferences'].accessibility.$put).not.toHaveBeenCalled();
     });
   });
@@ -368,10 +400,10 @@ describe('useAccessibilitySync', () => {
       });
       // Let the GET resolution settle into React state before flipping visibility.
       await act(async () => {
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
       });
 
-      await act(async () => {
+      act(() => {
         setVisibility('hidden');
       });
       expect(mockedClient.api['user-preferences'].accessibility.$put).not.toHaveBeenCalled();
@@ -426,7 +458,7 @@ describe('useAccessibilitySync', () => {
       await waitFor(() => {
         expect(mockedFetchJson).toHaveBeenCalled();
       });
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
       // Store still has whatever the user had
       expect(useA11yStore.getState().contrast).toBe('high');
     });

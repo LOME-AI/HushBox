@@ -72,13 +72,15 @@ export function useAccessibilitySync(): void {
     const localMs = localTs === null ? -Infinity : Date.parse(localTs);
 
     if (serverMs > localMs) {
-      // Server wins: overwrite local with server state.
-      useA11yStore.setState({ ...serverPrefs.preferences, updatedAt: serverTs });
+      // Server wins: stamp the dedup gate BEFORE applying server state so the
+      // subscribe handler sees `state.updatedAt === lastSyncedTsRef.current`
+      // and skips queuing an echo PUT.
       lastSyncedTsRef.current = serverTs;
-    } else if (localMs > serverMs) {
+      useA11yStore.setState({ ...serverPrefs.preferences, updatedAt: serverTs });
+    } else if (localTs !== null && localMs > serverMs) {
       // Local wins: push to server.
       lastSyncedTsRef.current = localTs;
-      putMutation.mutate({ preferences: extractPrefs(local), updatedAt: localTs! });
+      putMutation.mutate({ preferences: extractPrefs(local), updatedAt: localTs });
     } else {
       // Equal: nothing to do.
       lastSyncedTsRef.current = serverTs;

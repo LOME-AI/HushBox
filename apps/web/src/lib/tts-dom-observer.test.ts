@@ -50,16 +50,20 @@ function enableTts(): void {
   });
 }
 
-// MutationObserver fires async, and the speak path goes through `await import()`
-// + `await getOrLoadTtsService()` + an inner `void (async () => ...)`. Vitest's
-// dynamic-import resolver also takes a few extra ticks. Drain generously —
-// under parallel test load the chain can take many more macrotasks than the
-// happy path.
-const flush = async (): Promise<void> => {
-  for (let index = 0; index < 200; index++) {
+// Fixed-iteration drain — enough for MutationObserver callbacks to fire so
+// the chunker observes the appended text. Used for intermediate steps and for
+// "should NOT have been called" assertions where there's no positive condition
+// to poll on. Positive assertions use `vi.waitFor` directly so they wait only
+// as long as the dynamic-import + speak chain actually takes.
+const drain = async (): Promise<void> => {
+  for (let index = 0; index < 30; index++) {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 };
+
+async function waitForSpeak(predicate: () => void): Promise<void> {
+  await vi.waitFor(predicate, { timeout: 5000, interval: 5 });
+}
 
 describe('installTtsDomObserver', () => {
   it('returns a cleanup function', () => {
@@ -74,7 +78,7 @@ describe('installTtsDomObserver', () => {
     container.dataset['ttsStream'] = '';
     document.body.append(container);
     container.append(document.createTextNode('Hello world. This is a test.'));
-    await flush();
+    await drain();
     expect(speakMock).not.toHaveBeenCalled();
     cleanup();
   });
@@ -85,10 +89,11 @@ describe('installTtsDomObserver', () => {
     const container = document.createElement('div');
     container.dataset['ttsStream'] = '';
     document.body.append(container);
-    await flush();
+    await drain();
     container.append(document.createTextNode('Hello world. '));
-    await flush();
-    expect(speakMock).toHaveBeenCalledWith('Hello world.', 'af_heart');
+    await waitForSpeak(() => {
+      expect(speakMock).toHaveBeenCalledWith('Hello world.', 'af_heart');
+    });
     cleanup();
   });
 
@@ -99,8 +104,9 @@ describe('installTtsDomObserver', () => {
     document.body.append(container);
     const cleanup = installTtsDomObserver();
     container.append(document.createTextNode('First sentence. '));
-    await flush();
-    expect(speakMock).toHaveBeenCalledWith('First sentence.', 'af_heart');
+    await waitForSpeak(() => {
+      expect(speakMock).toHaveBeenCalledWith('First sentence.', 'af_heart');
+    });
     cleanup();
   });
 
@@ -110,16 +116,17 @@ describe('installTtsDomObserver', () => {
     const container = document.createElement('div');
     container.dataset['ttsStream'] = '';
     document.body.append(container);
-    await flush();
+    await drain();
     container.append(document.createTextNode('Hello'));
-    await flush();
+    await drain();
     container.append(document.createTextNode(' world'));
-    await flush();
+    await drain();
     expect(speakMock).not.toHaveBeenCalled();
     container.append(document.createTextNode('. Done.'));
-    await flush();
-    expect(speakMock).toHaveBeenCalledWith('Hello world.', 'af_heart');
-    expect(speakMock).toHaveBeenCalledWith('Done.', 'af_heart');
+    await waitForSpeak(() => {
+      expect(speakMock).toHaveBeenCalledWith('Hello world.', 'af_heart');
+      expect(speakMock).toHaveBeenCalledWith('Done.', 'af_heart');
+    });
     cleanup();
   });
 
@@ -131,12 +138,13 @@ describe('installTtsDomObserver', () => {
     const b = document.createElement('div');
     b.dataset['ttsStream'] = '';
     document.body.append(a, b);
-    await flush();
+    await drain();
     a.append(document.createTextNode('From A. '));
     b.append(document.createTextNode('From B. '));
-    await flush();
-    expect(speakMock).toHaveBeenCalledWith('From A.', 'af_heart');
-    expect(speakMock).toHaveBeenCalledWith('From B.', 'af_heart');
+    await waitForSpeak(() => {
+      expect(speakMock).toHaveBeenCalledWith('From A.', 'af_heart');
+      expect(speakMock).toHaveBeenCalledWith('From B.', 'af_heart');
+    });
     cleanup();
   });
 
@@ -147,17 +155,18 @@ describe('installTtsDomObserver', () => {
       const container = document.createElement('div');
       container.dataset['ttsStream'] = '';
       document.body.append(container);
-      await flush();
+      await drain();
       container.append(document.createTextNode('First. '));
-      await flush();
-      expect(speakMock).toHaveBeenCalledTimes(1);
+      await waitForSpeak(() => {
+        expect(speakMock).toHaveBeenCalledTimes(1);
+      });
 
       container.remove();
-      await flush();
+      await drain();
       speakMock.mockClear();
       // After removal, no sentences emit even if the (detached) node gets text.
       container.append(document.createTextNode('Second. '));
-      await flush();
+      await drain();
       expect(speakMock).not.toHaveBeenCalled();
     } finally {
       cleanup();
@@ -170,14 +179,15 @@ describe('installTtsDomObserver', () => {
     const container = document.createElement('div');
     container.dataset['ttsStream'] = '';
     document.body.append(container);
-    await flush();
+    await drain();
     container.append(document.createTextNode('First. '));
-    await flush();
-    expect(speakMock).toHaveBeenCalledTimes(1);
+    await waitForSpeak(() => {
+      expect(speakMock).toHaveBeenCalledTimes(1);
+    });
 
     useA11yStore.getState().update({ streamChatAloud: false });
     container.append(document.createTextNode('Second. '));
-    await flush();
+    await drain();
     // Second sentence is buffered but not spoken because the gate flipped off.
     expect(speakMock).toHaveBeenCalledTimes(1);
     cleanup();
@@ -190,9 +200,9 @@ describe('installTtsDomObserver', () => {
     const container = document.createElement('div');
     container.dataset['ttsStream'] = '';
     document.body.append(container);
-    await flush();
+    await drain();
     container.append(document.createTextNode('Should not speak. '));
-    await flush();
+    await drain();
     expect(speakMock).not.toHaveBeenCalled();
   });
 });
