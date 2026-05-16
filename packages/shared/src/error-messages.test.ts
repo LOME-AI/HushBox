@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { friendlyErrorMessage, customUserMessage } from './error-messages.js';
+import { friendlyErrorMessage, customUserMessage, formatLockoutMessage } from './error-messages.js';
 import * as errorCodes from './schemas/api/error.js';
 
 describe('friendlyErrorMessage', () => {
@@ -637,9 +637,15 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
-  it('maps DELETE_ACCOUNT_LOCKED to user-facing message', () => {
+  it('maps DELETE_ACCOUNT_LOCKED to a duration-agnostic fallback', () => {
     expect(friendlyErrorMessage('DELETE_ACCOUNT_LOCKED')).toBe(
-      'Too many deletion attempts. Try again in 24 hours.'
+      'Too many deletion attempts. Try again later.'
+    );
+  });
+
+  it('maps TOTP_CODE_REQUIRED to user-facing message', () => {
+    expect(friendlyErrorMessage('TOTP_CODE_REQUIRED')).toBe(
+      'Enter your 6-digit verification code to continue.'
     );
   });
 
@@ -663,6 +669,40 @@ describe('friendlyErrorMessage', () => {
 
   it('returns generic fallback for empty string', () => {
     expect(friendlyErrorMessage('')).toBe('Something went wrong. Please try again.');
+  });
+});
+
+describe('formatLockoutMessage', () => {
+  it('formats sub-minute lockouts as seconds', () => {
+    expect(formatLockoutMessage(1)).toBe('Too many attempts. Try again in 1 second.');
+    expect(formatLockoutMessage(45)).toBe('Too many attempts. Try again in 45 seconds.');
+    expect(formatLockoutMessage(59)).toBe('Too many attempts. Try again in 59 seconds.');
+  });
+
+  it('formats sub-hour lockouts as minutes, rounding up', () => {
+    expect(formatLockoutMessage(60)).toBe('Too many attempts. Try again in 1 minute.');
+    expect(formatLockoutMessage(61)).toBe('Too many attempts. Try again in 2 minutes.');
+    expect(formatLockoutMessage(120)).toBe('Too many attempts. Try again in 2 minutes.');
+    expect(formatLockoutMessage(3599)).toBe('Too many attempts. Try again in 60 minutes.');
+  });
+
+  it('formats >=1h lockouts as hours, rounding up', () => {
+    expect(formatLockoutMessage(3600)).toBe('Too many attempts. Try again in 1 hour.');
+    expect(formatLockoutMessage(3601)).toBe('Too many attempts. Try again in 2 hours.');
+    expect(formatLockoutMessage(7200)).toBe('Too many attempts. Try again in 2 hours.');
+    expect(formatLockoutMessage(24 * 60 * 60)).toBe('Too many attempts. Try again in 24 hours.');
+  });
+
+  it('falls back for non-positive inputs', () => {
+    expect(formatLockoutMessage(0)).toBe('Too many attempts. Try again in a moment.');
+    expect(formatLockoutMessage(-5)).toBe('Too many attempts. Try again in a moment.');
+  });
+
+  it('falls back for non-finite inputs', () => {
+    expect(formatLockoutMessage(Number.NaN)).toBe('Too many attempts. Try again in a moment.');
+    expect(formatLockoutMessage(Number.POSITIVE_INFINITY)).toBe(
+      'Too many attempts. Try again in a moment.'
+    );
   });
 });
 

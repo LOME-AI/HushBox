@@ -606,19 +606,25 @@ export async function disable2FAFinish(
   }
 }
 
+// Local-only side of sign-out — used after server-side destruction has already
+// happened (e.g. account deletion's 204 response).
+export function clearLocalAuthState(): void {
+  clearStoredAuth();
+  clearEpochKeyCache();
+  useAuthStore.getState().clear();
+  // Force text modality active so the trial page never lands on a non-text
+  // modality (which would disable every icon for trial users).
+  useModelStore.getState().resetForUnauthenticated();
+  queryClient.clear();
+  initPromise = null;
+}
+
 export async function signOutAndClearCache(): Promise<void> {
   await fetch(`${getApiUrl()}/api/auth/logout`, {
     method: 'POST',
     credentials: 'include',
   });
-  clearStoredAuth();
-  clearEpochKeyCache();
-  useAuthStore.getState().clear();
-  // Reset every modality and force text active so the trial page never lands
-  // with a non-text modality (which disables every icon for trial users).
-  useModelStore.getState().resetForUnauthenticated();
-  queryClient.clear();
-  initPromise = null;
+  clearLocalAuthState();
 }
 
 async function simpleAuthPost(

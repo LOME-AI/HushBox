@@ -1,5 +1,5 @@
 import { pgTable, text, timestamp, index, integer, uniqueIndex } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
+import { isNotNull, sql } from 'drizzle-orm';
 
 import { bytea } from './bytea';
 import { conversations } from './conversations';
@@ -28,5 +28,8 @@ export const messages = pgTable(
     ),
     index('messages_conversation_epoch_idx').on(table.conversationId, table.epochNumber),
     index('messages_parent_message_id_idx').on(table.parentMessageId),
+    // Backs the account-deletion saga's `UPDATE messages SET sender_id = NULL
+    // WHERE sender_id = $userId` so the saga cannot seq-scan the table.
+    index('messages_sender_id_idx').on(table.senderId).where(isNotNull(table.senderId)),
   ]
 );

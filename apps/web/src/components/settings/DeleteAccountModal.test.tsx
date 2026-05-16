@@ -3,6 +3,53 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactElement, type ReactNode } from 'react';
+import { MARKETING_BASE_URL } from '@hushbox/shared';
+
+// Mirror of the production ApiError shape — avoid importing from @/lib/api so
+// the test doesn't depend on VITE_API_URL being set in the test env.
+const { ApiError } = vi.hoisted(() => {
+  class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public data?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  }
+  return { ApiError };
+});
+
+vi.mock('@/lib/api', () => ({
+  ApiError,
+  getErrorBody: (
+    error: unknown
+  ): { code: string; details?: Record<string, unknown> } | undefined => {
+    if (!(error instanceof ApiError)) return undefined;
+    const data = error.data;
+    if (data !== null && typeof data === 'object') {
+      const record = data as Record<string, unknown>;
+      const code = typeof record['code'] === 'string' ? record['code'] : error.message;
+      const rawDetails = record['details'];
+      const details =
+        rawDetails !== null && typeof rawDetails === 'object'
+          ? (rawDetails as Record<string, unknown>)
+          : undefined;
+      return details === undefined ? { code } : { code, details };
+    }
+    return { code: error.message };
+  },
+}));
+
+function apiError(
+  code: string,
+  status = 400,
+  details?: Record<string, unknown>
+): InstanceType<typeof ApiError> {
+  return new ApiError(code, status, details === undefined ? { code } : { code, details });
+}
+
 import { DeleteAccountModal } from './DeleteAccountModal';
 
 vi.mock('@/hooks/use-is-mobile', () => ({
@@ -61,14 +108,11 @@ vi.mock('@/lib/auth', () => ({
       }),
     }
   ),
+  clearLocalAuthState: mockClearLocalAuthState,
 }));
 
-const { mockQueryClientClear } = vi.hoisted(() => ({
-  mockQueryClientClear: vi.fn(),
-}));
-
-vi.mock('@/providers/query-provider', () => ({
-  queryClient: { clear: mockQueryClientClear },
+const { mockClearLocalAuthState } = vi.hoisted(() => ({
+  mockClearLocalAuthState: vi.fn(),
 }));
 
 document.elementFromPoint = vi.fn(() => null);
@@ -297,9 +341,7 @@ describe('DeleteAccountModal', () => {
     });
 
     it('shows friendly error on init failure', async () => {
-      mockInitMutateAsync.mockRejectedValueOnce(
-        Object.assign(new Error('init failed'), { code: 'INCORRECT_PASSWORD' })
-      );
+      mockInitMutateAsync.mockRejectedValueOnce(apiError('INCORRECT_PASSWORD'));
       const user = await advanceToPasswordStep();
 
       await user.type(screen.getByLabelText('Password'), 'wrongpw');
@@ -307,6 +349,19 @@ describe('DeleteAccountModal', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/incorrect password/i)).toBeInTheDocument();
+      });
+    });
+
+    it('formats a server-provided lockout countdown on the password step', async () => {
+      mockInitMutateAsync.mockRejectedValueOnce(
+        apiError('DELETE_ACCOUNT_LOCKED', 403, { retryAfterSeconds: 7200 })
+      );
+      const user = await advanceToPasswordStep();
+      await user.type(screen.getByLabelText('Password'), 'pw');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/try again in 2 hours/i)).toBeInTheDocument();
       });
     });
 
@@ -466,7 +521,7 @@ describe('DeleteAccountModal', () => {
       ).not.toBeDisabled();
     });
 
-    it('submits, redirects, and clears state on 204', async () => {
+    it('submits, redirects via env-aware MARKETING_BASE_URL, and clears local state on 204', async () => {
       const user = await advanceToFinalStep();
       await user.type(screen.getByLabelText(/confirmation/i), 'delete my account');
       await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
@@ -479,8 +534,9 @@ describe('DeleteAccountModal', () => {
       });
 
       await waitFor(() => {
-        expect(globalThis.location.href).toContain('hushbox.ai');
+        expect(globalThis.location.href).toBe(MARKETING_BASE_URL);
       });
+      expect(mockClearLocalAuthState).toHaveBeenCalled();
     });
 
     it('includes totpCode when user has 2FA', async () => {
@@ -497,23 +553,45 @@ describe('DeleteAccountModal', () => {
       });
     });
 
-    it('shows friendly error on finish failure', async () => {
-      mockFinishMutateAsync.mockRejectedValueOnce(
-        Object.assign(new Error('finish failed'), { code: 'INVALID_TOTP_CODE' })
-      );
+    it('routes INVALID_TOTP_CODE back to the TOTP step with the error visible there', async () => {
+      mockFinishMutateAsync.mockRejectedValueOnce(apiError('INVALID_TOTP_CODE'));
       const user = await advanceToFinalStep({ withTotp: true });
       await user.type(screen.getByLabelText(/confirmation/i), 'delete my account');
       await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/verification code/i)).toBeInTheDocument();
+        expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+      });
+      expect(screen.getByText(/invalid verification code/i)).toBeInTheDocument();
+    });
+
+    it('routes TOTP_CODE_REQUIRED back to the TOTP step (client forgot to send the code)', async () => {
+      mockFinishMutateAsync.mockRejectedValueOnce(apiError('TOTP_CODE_REQUIRED'));
+      const user = await advanceToFinalStep({ withTotp: true });
+      await user.type(screen.getByLabelText(/confirmation/i), 'delete my account');
+      await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+      });
+      expect(screen.getByText(/6-digit verification code/i)).toBeInTheDocument();
+    });
+
+    it('formats lockout countdown using server-provided retryAfterSeconds on the final step', async () => {
+      mockFinishMutateAsync.mockRejectedValueOnce(
+        apiError('DELETE_ACCOUNT_LOCKED', 403, { retryAfterSeconds: 600 })
+      );
+      const user = await advanceToFinalStep();
+      await user.type(screen.getByLabelText(/confirmation/i), 'delete my account');
+      await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/try again in 10 minutes/i)).toBeInTheDocument();
       });
     });
 
     it('offers "Start over" when error is NO_PENDING_DELETE_ACCOUNT', async () => {
-      mockFinishMutateAsync.mockRejectedValueOnce(
-        Object.assign(new Error('expired'), { code: 'NO_PENDING_DELETE_ACCOUNT' })
-      );
+      mockFinishMutateAsync.mockRejectedValueOnce(apiError('NO_PENDING_DELETE_ACCOUNT'));
       const user = await advanceToFinalStep();
       await user.type(screen.getByLabelText(/confirmation/i), 'delete my account');
       await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
@@ -567,6 +645,67 @@ describe('DeleteAccountModal', () => {
       await waitFor(() => {
         expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('balance loading guard', () => {
+    it('disables the intro Continue button while balance is still loading', () => {
+      mockUseBalance.mockReturnValue({ data: undefined, isPending: true });
+      renderModal();
+      expect(screen.getByTestId('delete-account-intro-continue')).toBeDisabled();
+    });
+
+    it('enables Continue once balance has loaded (zero balance, skip wallet step)', () => {
+      mockUseBalance.mockReturnValue({
+        data: { balance: '0.00000000', freeAllowanceCents: 0 },
+        isPending: false,
+      });
+      renderModal();
+      expect(screen.getByTestId('delete-account-intro-continue')).not.toBeDisabled();
+    });
+  });
+
+  describe('accessibility', () => {
+    it('links the password input to its alert via aria-describedby on error', async () => {
+      mockInitMutateAsync.mockRejectedValueOnce(apiError('INCORRECT_PASSWORD'));
+      const user = renderModal();
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+      await user.type(screen.getByLabelText('Password'), 'wrongpw');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/incorrect password/i)).toBeInTheDocument();
+      });
+      const input = screen.getByLabelText('Password');
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      const describedBy = input.getAttribute('aria-describedby');
+      expect(describedBy).toBeTruthy();
+      const errorNode = describedBy ? document.querySelector(`#${describedBy}`) : null;
+      expect(errorNode?.textContent).toMatch(/incorrect password/i);
+    });
+
+    it('links the confirmation input to its alert via aria-describedby on error', async () => {
+      mockFinishMutateAsync.mockRejectedValueOnce(apiError('NO_PENDING_DELETE_ACCOUNT'));
+      // Inline the advanceToFinalStep flow here so this test stays self-contained.
+      mockUseAuthUser.mockReturnValue({ totpEnabled: false });
+      const user = renderModal();
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+      await user.type(screen.getByLabelText('Password'), 'pw');
+      await user.click(screen.getByRole('button', { name: /continue/i }));
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { name: /type delete my account/i })
+        ).toBeInTheDocument();
+      });
+      await user.type(screen.getByLabelText(/confirmation/i), 'delete my account');
+      await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/start again|deletion session/i)).toBeInTheDocument();
+      });
+      const input = screen.getByLabelText(/confirmation/i);
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(input.getAttribute('aria-describedby')).toBeTruthy();
     });
   });
 

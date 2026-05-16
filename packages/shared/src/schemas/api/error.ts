@@ -429,6 +429,9 @@ export const ERROR_CODE_INVALID_CONFIRMATION_PHRASE = 'INVALID_CONFIRMATION_PHRA
 /** No pending delete-account OPAQUE state — the /init Redis entry expired. */
 export const ERROR_CODE_NO_PENDING_DELETE_ACCOUNT = 'NO_PENDING_DELETE_ACCOUNT';
 
+/** TOTP required but missing — shape error, no lockout counter increment. */
+export const ERROR_CODE_TOTP_CODE_REQUIRED = 'TOTP_CODE_REQUIRED';
+
 /**
  * Standard error response schema.
  *

@@ -19,6 +19,28 @@ export class ApiError extends Error {
   }
 }
 
+export interface ApiErrorBody {
+  code: string;
+  details?: Record<string, unknown>;
+}
+
+// `code` lives in error.message; `details` lives in error.data when present.
+export function getErrorBody(error: unknown): ApiErrorBody | undefined {
+  if (!(error instanceof ApiError)) return undefined;
+  const data = error.data;
+  if (data !== null && typeof data === 'object') {
+    const record = data as Record<string, unknown>;
+    const code = typeof record['code'] === 'string' ? record['code'] : error.message;
+    const rawDetails = record['details'];
+    const details =
+      rawDetails !== null && typeof rawDetails === 'object'
+        ? (rawDetails as Record<string, unknown>)
+        : undefined;
+    return details === undefined ? { code } : { code, details };
+  }
+  return { code: error.message };
+}
+
 /**
  * Display-oriented message type used throughout the frontend UI.
  * Components render messages using role/content fields.

@@ -294,9 +294,11 @@ async function cleanupTestUsers(
         // best effort
       }
     }
-    await db.delete(payments).where(eq(payments.userId, handle.user.id));
-    await db.delete(wallets).where(eq(wallets.userId, handle.user.id));
-    await db.delete(usageRecords).where(eq(usageRecords.userId, handle.user.id));
+    // Saga nulls these tables' userId via FK; delete by primary key so the
+    // CI database doesn't accumulate orphans across runs.
+    await db.delete(payments).where(eq(payments.id, handle.paymentId));
+    await db.delete(wallets).where(eq(wallets.id, handle.walletId));
+    await db.delete(usageRecords).where(eq(usageRecords.id, handle.usageRecordId));
     await db.delete(conversations).where(eq(conversations.userId, handle.user.id));
     await db.delete(conversations).where(eq(conversations.userId, handle.otherUser.id));
     await db.delete(users).where(eq(users.id, handle.user.id));
@@ -495,5 +497,52 @@ describe('deleteUser integration (real Postgres + MinIO)', () => {
 
     const totalSent = emailA.getSentEmails().length + emailB.getSentEmails().length;
     expect(totalSent).toBe(1);
+  });
+
+  // Two separate Database instances (separate pools/connections) so the
+  // serialization comes from Postgres's row lock, not from a single-slot pool
+  // queuing the second saga behind the first.
+  it('FOR UPDATE serializes parallel sagas across distinct DB connections', async () => {
+    testStart = new Date(Date.now() - 1000);
+    const handle = await seedDeletableUser(db, storage);
+    handles.push(handle);
+
+    const dbA = createDb({ connectionString: DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG });
+    const dbB = createDb({ connectionString: DATABASE_URL, neonDev: LOCAL_NEON_DEV_CONFIG });
+    const emailA = createMockEmailClient();
+    const emailB = createMockEmailClient();
+    const now = new Date();
+
+    const settled = await Promise.allSettled([
+      deleteUser({
+        db: dbA,
+        storage,
+        email: emailA,
+        userId: handle.user.id,
+        ipAddress: null,
+        userAgent: null,
+        now,
+      }),
+      deleteUser({
+        db: dbB,
+        storage,
+        email: emailB,
+        userId: handle.user.id,
+        ipAddress: null,
+        userAgent: null,
+        now,
+      }),
+    ]);
+
+    const okCount = settled.filter((s) => s.status === 'fulfilled' && s.value.ok).length;
+    const notFoundCount = settled.filter((s) => s.status === 'fulfilled' && !s.value.ok).length;
+    expect(okCount).toBe(1);
+    expect(notFoundCount).toBe(1);
+
+    const events = await db
+      .select()
+      .from(accountDeletionEvents)
+      .where(gte(accountDeletionEvents.deletedAt, testStart));
+    expect(events).toHaveLength(1);
   });
 });

@@ -25,6 +25,7 @@ import {
   disable2FAInit,
   disable2FAFinish,
   signOutAndClearCache,
+  clearLocalAuthState,
   authClient,
   initAuth,
   requireAuth,
@@ -1526,6 +1527,40 @@ describe('auth', () => {
       expect(selections.text[0]?.id).toBe(SMART_MODEL_ID);
       expect(selections.image).toEqual([]);
       expect(selections.video).toEqual([]);
+    });
+  });
+
+  describe('clearLocalAuthState', () => {
+    it('clears auth, query, and model state without calling the logout endpoint', async () => {
+      const mockPrivateKey = new Uint8Array([1, 2, 3, 4]);
+      useAuthStore.setState({
+        user: testUser,
+        privateKey: mockPrivateKey,
+        isAuthenticated: true,
+      });
+      const { useModelStore } = await import('@/stores/model');
+      useModelStore.setState({
+        selections: {
+          text: [{ id: 'model-a', name: 'Model A' }],
+          image: [{ id: 'imagen', name: 'Imagen' }],
+          audio: [],
+          video: [],
+        },
+      });
+
+      clearLocalAuthState();
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(clearStoredAuth).toHaveBeenCalled();
+      expect(mockQueryClientClear).toHaveBeenCalled();
+      const auth = useAuthStore.getState();
+      expect(auth.user).toBeNull();
+      expect(auth.privateKey).toBeNull();
+      expect(auth.isAuthenticated).toBe(false);
+      expect(mockPrivateKey[0]).toBe(0);
+      const { selections } = useModelStore.getState();
+      expect(selections.text[0]?.id).toBe(SMART_MODEL_ID);
+      expect(selections.image).toEqual([]);
     });
   });
 

@@ -16,12 +16,9 @@ export type VerifyTotpSetupCodeResult =
   | { ok: true }
   | { ok: false; reason: Extract<CryptoFailureReason, 'invalid-code'> | 'replay' };
 
-/**
- * Replay check runs BEFORE crypto verify to preserve the timing profile of
- * the previous inline implementation. Changing the order would alter the
- * observable latency for the replay-rejection path.
- */
-async function _verifyWithReplayProtection<R extends CryptoFailureReason>(args: {
+// Replay check runs BEFORE crypto verify to preserve the prior inline impl's
+// timing profile. Reordering would change observable latency on the replay path.
+async function verifyWithReplayProtection<R extends CryptoFailureReason>(args: {
   redis: Redis;
   userId: string;
   code: string;
@@ -56,7 +53,7 @@ export async function verifyTotpStepUp(args: {
   now: Date;
   window?: number;
 }): Promise<VerifyTotpStepUpResult> {
-  return _verifyWithReplayProtection({
+  return verifyWithReplayProtection({
     redis: args.redis,
     userId: args.userId,
     code: args.code,
@@ -86,7 +83,7 @@ export async function verifyTotpSetupCode(args: {
   now: Date;
   window?: number;
 }): Promise<VerifyTotpSetupCodeResult> {
-  return _verifyWithReplayProtection({
+  return verifyWithReplayProtection({
     redis: args.redis,
     userId: args.userId,
     code: args.code,

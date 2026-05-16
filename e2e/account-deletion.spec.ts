@@ -9,10 +9,19 @@ import {
   waitForNextTOTPCode,
 } from './helpers/auth.js';
 import { requireEnv } from './helpers/env.js';
+import { MARKETING_BASE_URL } from '@hushbox/shared';
 import type { Page, APIRequestContext, Locator } from '@playwright/test';
 
 const apiUrl = requireEnv('VITE_API_URL');
 const FRESH_PASSWORD = 'TestPassword123!';
+
+// E2E doesn't start the marketing app, so the post-delete redirect may fail to
+// load. Assert on the URL bar (polled), not on a completed navigation.
+async function expectRedirectedToMarketing(page: Page): Promise<void> {
+  await expect
+    .poll(() => page.url(), { timeout: 15_000 })
+    .toContain(new URL(MARKETING_BASE_URL).host);
+}
 
 interface FreshUser {
   email: string;
@@ -134,7 +143,7 @@ test.describe('Account deletion', () => {
       await submitPasswordStep(unauthenticatedPage, user.password);
       await typeConfirmationAndDelete(unauthenticatedPage);
 
-      await unauthenticatedPage.waitForURL(/hushbox\.ai/, { timeout: 15_000 });
+      await expectRedirectedToMarketing(unauthenticatedPage);
 
       await unauthenticatedPage.goto('/login', { waitUntil: 'domcontentloaded' });
       const loginPage = new LoginPage(unauthenticatedPage);
@@ -163,7 +172,7 @@ test.describe('Account deletion', () => {
       await unauthenticatedPage.getByTestId('delete-account-totp-continue').click();
 
       await typeConfirmationAndDelete(unauthenticatedPage);
-      await unauthenticatedPage.waitForURL(/hushbox\.ai/, { timeout: 15_000 });
+      await expectRedirectedToMarketing(unauthenticatedPage);
 
       await unauthenticatedPage.goto('/login', { waitUntil: 'domcontentloaded' });
       const loginPage = new LoginPage(unauthenticatedPage);
@@ -283,7 +292,7 @@ test.describe('Account deletion', () => {
       await advanceThroughIntroAndWallet(unauthenticatedPage);
       await submitPasswordStep(unauthenticatedPage, user.password);
       await typeConfirmationAndDelete(unauthenticatedPage);
-      await unauthenticatedPage.waitForURL(/hushbox\.ai/, { timeout: 15_000 });
+      await expectRedirectedToMarketing(unauthenticatedPage);
 
       const guestAfterDelete = await createPage();
       await guestAfterDelete.goto(shareUrl, { waitUntil: 'domcontentloaded' });
@@ -359,7 +368,7 @@ test.describe('Account deletion', () => {
   });
 
   test.describe('Wrong TOTP rejected', () => {
-    test('invalid TOTP keeps modal on TOTP step with friendly error', async ({
+    test('invalid TOTP from final-step submit routes back to TOTP step with friendly error', async ({
       unauthenticatedPage,
       request,
     }) => {
@@ -371,19 +380,30 @@ test.describe('Account deletion', () => {
       await advanceThroughIntroAndWallet(unauthenticatedPage);
       await submitPasswordStep(unauthenticatedPage, user.password);
 
+      // Enter a wrong TOTP code and advance past the TOTP step — the server
+      // doesn't see the code until /finish, so we have to reach the final step
+      // and submit the phrase to exercise the wrong-TOTP path.
       const otpInput = unauthenticatedPage.getByTestId('otp-input');
       await expect(otpInput).toBeVisible({ timeout: 10_000 });
       await otpInput.pressSequentially('000000');
+      await unauthenticatedPage.getByTestId('delete-account-totp-continue').click();
+
+      // Final step — type phrase and submit
+      await unauthenticatedPage
+        .getByTestId('delete-account-confirmation-input')
+        .fill('delete my account');
       const finishWait = unauthenticatedPage.waitForResponse(
         (response) =>
           response.url().includes('/api/auth/delete-account/finish') &&
           response.request().method() === 'POST'
       );
-      await unauthenticatedPage.getByTestId('delete-account-totp-continue').click();
+      await unauthenticatedPage.getByTestId('delete-account-final-submit').click();
       const finishResponse = await finishWait;
       expect(finishResponse.status()).toBe(400);
 
+      // After my fix: modal auto-navigates back to TOTP step with the error visible there.
       await expect(modal.getByTestId('otp-input')).toBeVisible();
+      await expect(modal.getByText(/invalid verification code/i)).toBeVisible();
     });
   });
 
@@ -455,7 +475,7 @@ test.describe('Account deletion', () => {
       // a second request.
       await expect(submit).toBeDisabled();
 
-      await unauthenticatedPage.waitForURL(/hushbox\.ai/, { timeout: 30_000 });
+      await expectRedirectedToMarketing(unauthenticatedPage);
       expect(finishCount).toBe(1);
     });
   });

@@ -93,6 +93,11 @@ vi.mock('@/components/settings/CustomInstructionsModal', () => ({
     ) : null,
 }));
 
+vi.mock('@/components/settings/DeleteAccountModal', () => ({
+  DeleteAccountModal: ({ open }: { open: boolean; onOpenChange: (open: boolean) => void }) =>
+    open ? <div data-testid="delete-account-modal-stub">Delete account flow</div> : null,
+}));
+
 vi.mock('@hushbox/crypto', () => ({
   regenerateRecoveryPhrase: vi.fn(() =>
     Promise.resolve({
@@ -483,6 +488,34 @@ describe('SettingsPage', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('custom-instructions-modal')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('danger zone', () => {
+    it('renders the Danger zone card with destructive styling', () => {
+      render(<SettingsPage />);
+      expect(screen.getByText('Danger zone')).toBeInTheDocument();
+      expect(
+        screen.getByText(/permanently delete your account and all associated data/i)
+      ).toBeInTheDocument();
+    });
+
+    it('renders a Delete account button under the Danger zone card', () => {
+      render(<SettingsPage />);
+      expect(screen.getByTestId('delete-account-trigger')).toBeInTheDocument();
+      expect(screen.getByTestId('delete-account-trigger')).toHaveTextContent(/delete account/i);
+    });
+
+    it('opens the DeleteAccountModal when the Delete account button is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SettingsPage />);
+      expect(screen.queryByTestId('delete-account-modal-stub')).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId('delete-account-trigger'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('delete-account-modal-stub')).toBeInTheDocument();
       });
     });
   });

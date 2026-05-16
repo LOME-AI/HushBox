@@ -6,7 +6,7 @@ vi.mock('@hushbox/shared', () => ({
   },
 }));
 
-import { ApiError, getApiUrl } from './api';
+import { ApiError, getApiUrl, getErrorBody } from './api';
 
 describe('getApiUrl', () => {
   it('returns the API URL from environment', () => {
@@ -26,5 +26,44 @@ describe('ApiError', () => {
   it('extends Error', () => {
     const error = new ApiError('fail', 500);
     expect(error).toBeInstanceOf(Error);
+  });
+});
+
+describe('getErrorBody', () => {
+  it('extracts code and details from an ApiError with a response body', () => {
+    const error = new ApiError('DELETE_ACCOUNT_LOCKED', 403, {
+      code: 'DELETE_ACCOUNT_LOCKED',
+      details: { retryAfterSeconds: 600 },
+    });
+    expect(getErrorBody(error)).toEqual({
+      code: 'DELETE_ACCOUNT_LOCKED',
+      details: { retryAfterSeconds: 600 },
+    });
+  });
+
+  it('falls back to error.message when data lacks a code field', () => {
+    const error = new ApiError('INTERNAL', 500);
+    expect(getErrorBody(error)).toEqual({ code: 'INTERNAL' });
+  });
+
+  it('falls back to error.message when data is not a record', () => {
+    const error = new ApiError('INVALID_JSON', 400, 'plain string body');
+    expect(getErrorBody(error)).toEqual({ code: 'INVALID_JSON' });
+  });
+
+  it('returns undefined for non-ApiError values', () => {
+    expect(getErrorBody(new Error('regular'))).toBeUndefined();
+    expect(getErrorBody('string')).toBeUndefined();
+    expect(getErrorBody(null)).toBeUndefined();
+    expect(getErrorBody()).toBeUndefined();
+    expect(getErrorBody({ code: 'fake' })).toBeUndefined();
+  });
+
+  it('drops a non-record details field', () => {
+    const error = new ApiError('VALIDATION', 422, {
+      code: 'VALIDATION',
+      details: 'not an object',
+    });
+    expect(getErrorBody(error)).toEqual({ code: 'VALIDATION' });
   });
 });

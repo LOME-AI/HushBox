@@ -125,7 +125,7 @@ describe('fetchJson', () => {
     const { fetchJson } = await import('./api-client.js');
     const response = Promise.resolve(new Response(null, { status: 204 }));
 
-    const result = await fetchJson<void>(response);
+    const result = await fetchJson(response);
 
     expect(result).toBeUndefined();
   });

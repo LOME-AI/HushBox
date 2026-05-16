@@ -285,3 +285,6 @@ export const BILLING_CONTACT_EMAIL = 'billing@hushbox.ai';
 
 /** Contact email for privacy-related inquiries */
 export const PRIVACY_CONTACT_EMAIL = 'privacy@hushbox.ai';
+
+/** Phrase typed by the user to confirm account deletion (compared trim+lowercased, no NFKC). */
+export const DELETE_ACCOUNT_CONFIRMATION_PHRASE = 'delete my account';

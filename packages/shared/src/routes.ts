@@ -1,5 +1,10 @@
-/** Production marketing site base URL (used for native deep links and external page opens). */
-export const MARKETING_BASE_URL = 'https://hushbox.ai';
+function detectMarketingBaseUrl(): string {
+  const env = (import.meta as { env?: { DEV?: boolean } }).env;
+  return env?.DEV === true ? 'http://localhost:4321' : 'https://hushbox.ai';
+}
+
+/** Marketing site base URL — local Astro in dev, canonical hostname in prod builds. */
+export const MARKETING_BASE_URL = detectMarketingBaseUrl();
 
 /**
  * Centralized route constants.

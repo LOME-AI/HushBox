@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { COLORS } from './base.js';
 import { defineEmailTemplate } from './builder.js';
 
+// Generic by design — the user record is gone by the time this sends.
 const schema = z.object({});
 
 export const accountDeletedEmail = defineEmailTemplate({

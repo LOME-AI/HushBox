@@ -467,7 +467,7 @@ describe('delete-account routes', () => {
       expect(mockRedis.store.get('delete-account:user:ratelimit:test-user-id')).toBeUndefined();
     });
 
-    it('requires totpCode when the user has TOTP enabled', async () => {
+    it('returns TOTP_CODE_REQUIRED (not INVALID_TOTP_CODE) when totpCode is missing — no failed-attempt recorded', async () => {
       sessionOverrides.totpEnabled = true;
       stubUserRow({ totpEnabled: true, totpSecretEncrypted: new Uint8Array([5, 5]) });
       finishOpaqueStepUpMock.mockResolvedValue({ ok: true });
@@ -479,9 +479,9 @@ describe('delete-account routes', () => {
       });
       expect(res.status).toBe(400);
       const body = await jsonBody(res);
-      expect(body.code).toBe('INVALID_TOTP_CODE');
+      expect(body.code).toBe('TOTP_CODE_REQUIRED');
       expect(verifyTotpStepUpMock).not.toHaveBeenCalled();
-      expect(mockRedis.store.get('delete-account:user:ratelimit:test-user-id')).toBeDefined();
+      expect(mockRedis.store.get('delete-account:user:ratelimit:test-user-id')).toBeUndefined();
     });
 
     it('rejects bad TOTP code with INVALID_TOTP_CODE and records a failed attempt', async () => {
@@ -552,6 +552,110 @@ describe('delete-account routes', () => {
       expect(res.status).toBe(403);
       const body = await jsonBody(res);
       expect(body.code).toBe('DELETE_ACCOUNT_LOCKED');
+    });
+
+    it('the triggering failed attempt itself surfaces DELETE_ACCOUNT_LOCKED with retryAfterSeconds', async () => {
+      stubUserRow();
+      finishOpaqueStepUpMock.mockResolvedValue({ ok: false, reason: 'bad-proof' });
+
+      // First two failures return INCORRECT_PASSWORD (under cap).
+      for (let index = 0; index < 2; index++) {
+        const res = await app.request('/api/auth/delete-account/finish', {
+          method: 'POST',
+          headers: withCookie(),
+          body: happyPathBody(),
+        });
+        expect(res.status).toBe(400);
+        const body = await jsonBody(res);
+        expect(body.code).toBe('INCORRECT_PASSWORD');
+      }
+
+      // The 3rd failure triggers the lockout, so it should surface DELETE_ACCOUNT_LOCKED
+      // immediately (not INCORRECT_PASSWORD — otherwise the user must retry once to learn).
+      const trigger = await app.request('/api/auth/delete-account/finish', {
+        method: 'POST',
+        headers: withCookie(),
+        body: happyPathBody(),
+      });
+      expect(trigger.status).toBe(403);
+      const triggerBody = await jsonBody(trigger);
+      expect(triggerBody.code).toBe('DELETE_ACCOUNT_LOCKED');
+      expect(triggerBody.details?.retryAfterSeconds).toBeGreaterThan(0);
+    });
+
+    it('the triggering bad-TOTP attempt surfaces DELETE_ACCOUNT_LOCKED with retryAfterSeconds', async () => {
+      sessionOverrides.totpEnabled = true;
+      stubUserRow({ totpEnabled: true, totpSecretEncrypted: new Uint8Array([5, 5]) });
+      finishOpaqueStepUpMock.mockResolvedValue({ ok: true });
+      verifyTotpStepUpMock.mockResolvedValue({ ok: false, reason: 'invalid-code' });
+
+      for (let index = 0; index < 2; index++) {
+        await app.request('/api/auth/delete-account/finish', {
+          method: 'POST',
+          headers: withCookie(),
+          body: happyPathBody({ totpCode: '000000' }),
+        });
+      }
+      const trigger = await app.request('/api/auth/delete-account/finish', {
+        method: 'POST',
+        headers: withCookie(),
+        body: happyPathBody({ totpCode: '000000' }),
+      });
+      expect(trigger.status).toBe(403);
+      const body = await jsonBody(trigger);
+      expect(body.code).toBe('DELETE_ACCOUNT_LOCKED');
+      expect(body.details?.retryAfterSeconds).toBeGreaterThan(0);
+    });
+
+    it('rejects ke3 array exceeding the max length cap', async () => {
+      const oversizedKe3 = Array.from({ length: 2000 }, (_, index) => index);
+      const res = await app.request('/api/auth/delete-account/finish', {
+        method: 'POST',
+        headers: withCookie(),
+        body: JSON.stringify({
+          ke3: oversizedKe3,
+          confirmationPhrase: 'delete my account',
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects confirmationPhrase exceeding the max length cap at validation (before phrase check)', async () => {
+      stubUserRow();
+      // Build an over-cap input that would otherwise PASS the phrase check
+      // (so a missing cap would surface as INVALID_CONFIRMATION_PHRASE+400 — wrong-reason 400).
+      const padded = ' '.repeat(300) + 'delete my account' + ' '.repeat(300);
+      const res = await app.request('/api/auth/delete-account/finish', {
+        method: 'POST',
+        headers: withCookie(),
+        body: JSON.stringify({ ke3: [1, 2, 3], confirmationPhrase: padded }),
+      });
+      expect(res.status).toBe(400);
+      const body = await jsonBody(res);
+      expect(body.code).not.toBe('INVALID_CONFIRMATION_PHRASE');
+      expect(finishOpaqueStepUpMock).not.toHaveBeenCalled();
+    });
+
+    it('logs the saga error via console.error when the saga throws', async () => {
+      stubUserRow();
+      finishOpaqueStepUpMock.mockResolvedValue({ ok: true });
+      const sagaError = new Error('db blew up');
+      deleteUserMock.mockRejectedValue(sagaError);
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {
+        // suppress
+      });
+
+      const res = await app.request('/api/auth/delete-account/finish', {
+        method: 'POST',
+        headers: withCookie(),
+        body: happyPathBody(),
+      });
+      expect(res.status).toBe(500);
+      expect(errSpy).toHaveBeenCalled();
+      const call = errSpy.mock.calls.find((c) =>
+        typeof c[0] === 'string' ? c[0].includes('delete-account') : false
+      );
+      expect(call).toBeDefined();
     });
 
     it('happy path: calls the saga, clears the session, returns 204', async () => {

@@ -16,13 +16,19 @@ import {
   finishLogin,
   OPAQUE_SERVER_IDENTIFIER,
 } from '@hushbox/crypto';
-import { friendlyErrorMessage, MARKETING_BASE_URL } from '@hushbox/shared';
+import {
+  DELETE_ACCOUNT_CONFIRMATION_PHRASE,
+  formatLockoutMessage,
+  friendlyErrorMessage,
+  MARKETING_BASE_URL,
+  type UserFacingMessage,
+} from '@hushbox/shared';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { useDeleteAccountInit, useDeleteAccountFinish } from '@/hooks/useDeleteAccount';
 import { useBalance } from '@/hooks/billing';
-import { useAuthStore } from '@/lib/auth';
-import { queryClient } from '@/providers/query-provider';
+import { useAuthStore, clearLocalAuthState } from '@/lib/auth';
+import { getErrorBody } from '@/lib/api';
 import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
 import { OtpInput } from '@/components/auth/otp-input';
 
@@ -33,14 +39,16 @@ interface DeleteAccountModalProps {
 
 type Step = 'intro' | 'wallet' | 'password' | 'totp' | 'final';
 
-const CONFIRMATION_PHRASE = 'delete my account';
+// eslint-disable-next-line sonarjs/no-hardcoded-passwords -- DOM id for aria-describedby, not a credential
+const PASSWORD_ERROR_ID = 'delete-account-password-error';
+const CONFIRMATION_ERROR_ID = 'delete-account-confirmation-error';
 
-function extractErrorCode(error: unknown): string | undefined {
-  if (error && typeof error === 'object' && 'code' in error) {
-    const code = (error as { code: unknown }).code;
-    if (typeof code === 'string') return code;
+// Returns a duration-aware lockout message when the server included retryAfterSeconds.
+function messageFor(code: string, details?: Record<string, unknown>): UserFacingMessage {
+  if (code === 'DELETE_ACCOUNT_LOCKED' && typeof details?.['retryAfterSeconds'] === 'number') {
+    return formatLockoutMessage(details['retryAfterSeconds']);
   }
-  return undefined;
+  return friendlyErrorMessage(code);
 }
 
 function formatBalanceDollars(raw: string): string {
@@ -61,7 +69,12 @@ function computeStepNumber(step: Step, hasBalance: boolean, totpEnabled: boolean
 function IntroStep({
   onContinue,
   onCancel,
-}: Readonly<{ onContinue: () => void; onCancel: () => void }>): React.JSX.Element {
+  balanceLoading,
+}: Readonly<{
+  onContinue: () => void;
+  onCancel: () => void;
+  balanceLoading: boolean;
+}>): React.JSX.Element {
   return (
     <>
       <OverlayHeader title="Delete your account" />
@@ -82,6 +95,11 @@ function IntroStep({
         primary={{
           label: 'Continue',
           onClick: onContinue,
+          // Block advancing until balance is known — otherwise we'd silently
+          // skip the forfeit step for a user with credits.
+          disabled: balanceLoading,
+          loading: balanceLoading,
+          loadingLabel: 'Loading...',
           testId: 'delete-account-intro-continue',
         }}
       />
@@ -152,6 +170,7 @@ function PasswordStep({
   onCancel: () => void;
   formRef: React.RefObject<HTMLFormElement | null>;
 }>): React.JSX.Element {
+  const hasError = error !== null;
   return (
     <>
       <OverlayHeader title="Enter your password to continue" />
@@ -170,9 +189,11 @@ function PasswordStep({
           onChange={(e) => {
             onPasswordChange(e.target.value);
           }}
+          aria-invalid={hasError}
+          aria-describedby={hasError ? PASSWORD_ERROR_ID : undefined}
         />
       </form>
-      {error && <Alert>{error}</Alert>}
+      {hasError && <Alert id={PASSWORD_ERROR_ID}>{error}</Alert>}
       <ModalActions
         cancel={{ label: 'Cancel', onClick: onCancel }}
         primary={{
@@ -197,11 +218,13 @@ function TotpStep({
   onOtpChange,
   onContinue,
   onCancel,
+  error,
 }: Readonly<{
   otpValue: string;
   onOtpChange: (value: string) => void;
   onContinue: () => void;
   onCancel: () => void;
+  error: string | null;
 }>): React.JSX.Element {
   return (
     <>
@@ -209,7 +232,7 @@ function TotpStep({
         title="Enter your verification code"
         description="Enter the 6-digit code from your authenticator app."
       />
-      <OtpInput value={otpValue} onChange={onOtpChange} />
+      <OtpInput value={otpValue} onChange={onOtpChange} error={error} />
       <ModalActions
         cancel={{ label: 'Cancel', onClick: onCancel }}
         primary={{
@@ -246,6 +269,7 @@ function FinalStep({
   onCancel,
   onStartOver,
 }: Readonly<FinalStepProps>): React.JSX.Element {
+  const hasError = error !== null;
   const primary = {
     label: 'Delete account permanently',
     variant: 'destructive' as const,
@@ -263,7 +287,7 @@ function FinalStep({
         <p className="text-sm">
           Type the phrase{' '}
           <code className="bg-muted rounded px-1 py-0.5 text-sm font-medium">
-            delete my account
+            {DELETE_ACCOUNT_CONFIRMATION_PHRASE}
           </code>{' '}
           exactly to enable the delete button.
         </p>
@@ -277,11 +301,13 @@ function FinalStep({
             onConfirmationChange(e.target.value);
           }}
           aria-label="Confirmation"
+          aria-invalid={hasError}
+          aria-describedby={hasError ? CONFIRMATION_ERROR_ID : undefined}
           data-testid="delete-account-confirmation-input"
           autoComplete="off"
         />
       </div>
-      {error && <Alert>{error}</Alert>}
+      {hasError && <Alert id={CONFIRMATION_ERROR_ID}>{error}</Alert>}
       {showStartOver ? (
         <ModalActions
           cancel={{
@@ -314,6 +340,7 @@ export function DeleteAccountModal({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [isPasswordSubmitting, setIsPasswordSubmitting] = useState(false);
   const [otpValue, setOtpValue] = useState('');
+  const [totpError, setTotpError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState('');
   const [finishError, setFinishError] = useState<string | null>(null);
   const [showStartOver, setShowStartOver] = useState(false);
@@ -323,6 +350,7 @@ export function DeleteAccountModal({
   const balanceNumber = balanceRaw ? Number.parseFloat(balanceRaw) : 0;
   const hasBalance = Number.isFinite(balanceNumber) && balanceNumber > 0;
   const balanceDisplay = balanceRaw ? formatBalanceDollars(balanceRaw) : '$0.00';
+  const balanceLoading = balanceQuery.isPending;
 
   const resetState = useCallback(() => {
     setStep('intro');
@@ -331,6 +359,7 @@ export function DeleteAccountModal({
     setPasswordError(null);
     setIsPasswordSubmitting(false);
     setOtpValue('');
+    setTotpError(null);
     setConfirmation('');
     setFinishError(null);
     setShowStartOver(false);
@@ -351,14 +380,17 @@ export function DeleteAccountModal({
     if (password.length === 0) return;
     setIsPasswordSubmitting(true);
     setPasswordError(null);
+    // Mirrors the disable-2FA / change-password defense-in-depth pattern:
+    // the encoded byte copy is zeroed on every exit path so a heap inspection
+    // after the modal closes can't recover it. JS strings stay un-zeroable.
+    const passwordBytes = new TextEncoder().encode(password);
     try {
       const opaqueClient = createOpaqueClient();
       const { ke1 } = await startLogin(opaqueClient, password);
       const { ke2 } = await initMutation.mutateAsync({ ke1: [...ke1] });
-      // OPAQUE is constant-time: `/init` always succeeds and returns ke2 even
-      // when the password is wrong. The mismatch surfaces here as a thrown
-      // crypto error with no `code`. Map that to INCORRECT_PASSWORD so the user
-      // sees a meaningful message instead of the INTERNAL fallback.
+      // OPAQUE is constant-time: `/init` always succeeds, so wrong-password
+      // surfaces as a thrown crypto error in `finishLogin`. Map that to
+      // INCORRECT_PASSWORD instead of the generic INTERNAL fallback.
       let loginResult;
       try {
         loginResult = await finishLogin(opaqueClient, ke2, OPAQUE_SERVER_IDENTIFIER);
@@ -369,21 +401,39 @@ export function DeleteAccountModal({
       setKe3([...loginResult.ke3]);
       setStep(totpEnabled ? 'totp' : 'final');
     } catch (error) {
-      const code = extractErrorCode(error);
-      setPasswordError(code ? friendlyErrorMessage(code) : friendlyErrorMessage('INTERNAL'));
+      const body = getErrorBody(error);
+      setPasswordError(
+        body ? messageFor(body.code, body.details) : friendlyErrorMessage('INTERNAL')
+      );
     } finally {
+      passwordBytes.fill(0);
       setIsPasswordSubmitting(false);
     }
   }, [password, initMutation, totpEnabled]);
 
   const phraseMatches = useMemo(
-    () => confirmation.trim().toLowerCase() === CONFIRMATION_PHRASE,
+    () => confirmation.trim().toLowerCase() === DELETE_ACCOUNT_CONFIRMATION_PHRASE,
     [confirmation]
   );
+
+  const handleFinishError = useCallback((error: unknown) => {
+    const body = getErrorBody(error);
+    const code = body?.code;
+    // Route TOTP-shape errors back to the TOTP step so the user sees the
+    // error next to the offending input, not on the unrelated final step.
+    if (code === 'INVALID_TOTP_CODE' || code === 'TOTP_CODE_REQUIRED') {
+      setTotpError(messageFor(code));
+      setStep('totp');
+      return;
+    }
+    setFinishError(body ? messageFor(body.code, body.details) : friendlyErrorMessage('INTERNAL'));
+    if (code === 'NO_PENDING_DELETE_ACCOUNT') setShowStartOver(true);
+  }, []);
 
   const handleFinishSubmit = useCallback(async () => {
     if (!phraseMatches || ke3 === null) return;
     setFinishError(null);
+    setTotpError(null);
     setShowStartOver(false);
     try {
       const body: { ke3: number[]; totpCode?: string; confirmationPhrase: string } = {
@@ -392,17 +442,12 @@ export function DeleteAccountModal({
       };
       if (totpEnabled) body.totpCode = otpValue;
       await finishMutation.mutateAsync(body);
-      useAuthStore.getState().clear();
-      queryClient.clear();
+      clearLocalAuthState();
       globalThis.location.href = MARKETING_BASE_URL;
     } catch (error) {
-      const code = extractErrorCode(error);
-      setFinishError(code ? friendlyErrorMessage(code) : friendlyErrorMessage('INTERNAL'));
-      if (code === 'NO_PENDING_DELETE_ACCOUNT') {
-        setShowStartOver(true);
-      }
+      handleFinishError(error);
     }
-  }, [phraseMatches, ke3, confirmation, totpEnabled, otpValue, finishMutation]);
+  }, [phraseMatches, ke3, confirmation, totpEnabled, otpValue, finishMutation, handleFinishError]);
 
   const previousStep = useCallback(
     (current: Step): Step => {
@@ -432,6 +477,7 @@ export function DeleteAccountModal({
   const stepBody = renderStepBody({
     step,
     hasBalance,
+    balanceLoading,
     balanceDisplay,
     walletAcknowledged,
     setWalletAcknowledged,
@@ -443,6 +489,7 @@ export function DeleteAccountModal({
     formRef,
     otpValue,
     setOtpValue,
+    totpError,
     setStep,
     confirmation,
     setConfirmation,
@@ -474,6 +521,7 @@ export function DeleteAccountModal({
 interface StepBodyArgs {
   step: Step;
   hasBalance: boolean;
+  balanceLoading: boolean;
   balanceDisplay: string;
   walletAcknowledged: boolean;
   setWalletAcknowledged: (value: boolean) => void;
@@ -485,6 +533,7 @@ interface StepBodyArgs {
   formRef: React.RefObject<HTMLFormElement | null>;
   otpValue: string;
   setOtpValue: (value: string) => void;
+  totpError: string | null;
   setStep: React.Dispatch<React.SetStateAction<Step>>;
   confirmation: string;
   setConfirmation: (value: string) => void;
@@ -505,6 +554,7 @@ function renderStepBody(args: Readonly<StepBodyArgs>): React.JSX.Element | null 
           args.setStep(args.hasBalance ? 'wallet' : 'password');
         }}
         onCancel={args.handleCancel}
+        balanceLoading={args.balanceLoading}
       />
     );
   }
@@ -545,6 +595,7 @@ function renderStepBody(args: Readonly<StepBodyArgs>): React.JSX.Element | null 
           args.setStep('final');
         }}
         onCancel={args.handleCancel}
+        error={args.totpError}
       />
     );
   }

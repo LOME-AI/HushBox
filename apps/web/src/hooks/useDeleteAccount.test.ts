@@ -142,4 +142,43 @@ describe('useDeleteAccountFinish', () => {
 
     expect(result.current.error).toBeInstanceOf(Error);
   });
+
+  // Production throws ApiError(code, status, body) — not generic Error — and the
+  // modal extracts code from error.message + details from error.data.details.
+  // This test pins the contract so a future hook refactor that swallows or
+  // re-wraps ApiError fails loudly.
+  it('preserves the ApiError shape (message=code, data.details) from fetchJson', async () => {
+    class TestApiError extends Error {
+      constructor(
+        message: string,
+        public status: number,
+        public data?: unknown
+      ) {
+        super(message);
+        this.name = 'ApiError';
+      }
+    }
+    const thrown = new TestApiError('DELETE_ACCOUNT_LOCKED', 403, {
+      code: 'DELETE_ACCOUNT_LOCKED',
+      details: { retryAfterSeconds: 3600 },
+    });
+    mockFetchJson.mockRejectedValueOnce(thrown);
+
+    const { result } = renderHook(() => useDeleteAccountFinish(), { wrapper: createWrapper() });
+    act(() => {
+      result.current.mutate({ ke3: [4, 5, 6], confirmationPhrase: 'delete my account' });
+    });
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
+
+    const err = result.current.error as TestApiError | null;
+    expect(err).toBe(thrown);
+    expect(err?.message).toBe('DELETE_ACCOUNT_LOCKED');
+    expect(err?.status).toBe(403);
+    expect(err?.data).toEqual({
+      code: 'DELETE_ACCOUNT_LOCKED',
+      details: { retryAfterSeconds: 3600 },
+    });
+  });
 });

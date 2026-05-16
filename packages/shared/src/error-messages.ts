@@ -162,9 +162,10 @@ const ERROR_MESSAGES = {
   CLASSIFIER_FAILED:
     'Smart Model could not pick the best model for your message. Please try again.',
 
-  DELETE_ACCOUNT_LOCKED: 'Too many deletion attempts. Try again in 24 hours.',
+  DELETE_ACCOUNT_LOCKED: 'Too many deletion attempts. Try again later.',
   INVALID_CONFIRMATION_PHRASE: "Confirmation text didn't match.",
   NO_PENDING_DELETE_ACCOUNT: 'Your deletion session expired. Start again.',
+  TOTP_CODE_REQUIRED: 'Enter your 6-digit verification code to continue.',
 } as const satisfies Record<string, string>;
 
 /** Known error code — union of all keys in the error message map. */
@@ -192,4 +193,24 @@ export function friendlyErrorMessage(code: ErrorCode | (string & {})): UserFacin
  */
 export function customUserMessage(message: string): UserFacingMessage {
   return message as UserFacingMessage;
+}
+
+const SECONDS_PER_MINUTE = 60;
+const SECONDS_PER_HOUR = 60 * 60;
+
+// Always rounds up so the displayed wait is never shorter than the real one.
+export function formatLockoutMessage(retryAfterSeconds: number): UserFacingMessage {
+  if (!Number.isFinite(retryAfterSeconds) || retryAfterSeconds <= 0) {
+    return 'Too many attempts. Try again in a moment.' as UserFacingMessage;
+  }
+  if (retryAfterSeconds < SECONDS_PER_MINUTE) {
+    const seconds = Math.ceil(retryAfterSeconds);
+    return `Too many attempts. Try again in ${String(seconds)} ${seconds === 1 ? 'second' : 'seconds'}.` as UserFacingMessage;
+  }
+  if (retryAfterSeconds < SECONDS_PER_HOUR) {
+    const minutes = Math.ceil(retryAfterSeconds / SECONDS_PER_MINUTE);
+    return `Too many attempts. Try again in ${String(minutes)} ${minutes === 1 ? 'minute' : 'minutes'}.` as UserFacingMessage;
+  }
+  const hours = Math.ceil(retryAfterSeconds / SECONDS_PER_HOUR);
+  return `Too many attempts. Try again in ${String(hours)} ${hours === 1 ? 'hour' : 'hours'}.` as UserFacingMessage;
 }

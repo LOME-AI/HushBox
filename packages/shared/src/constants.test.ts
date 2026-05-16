@@ -37,6 +37,7 @@ import {
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
   IMAGE_ASPECT_RATIOS,
+  DELETE_ACCOUNT_CONFIRMATION_PHRASE,
 } from './constants.js';
 
 describe('MESSAGE_ROLES', () => {
@@ -410,5 +411,17 @@ describe('IMAGE_ASPECT_RATIOS', () => {
     for (const ratio of IMAGE_ASPECT_RATIOS) {
       expect(ratio).toMatch(/^\d+:\d+$/);
     }
+  });
+});
+
+describe('DELETE_ACCOUNT_CONFIRMATION_PHRASE', () => {
+  it('is "delete my account"', () => {
+    expect(DELETE_ACCOUNT_CONFIRMATION_PHRASE).toBe('delete my account');
+  });
+
+  it('is already lowercase and trimmed', () => {
+    expect(DELETE_ACCOUNT_CONFIRMATION_PHRASE).toBe(
+      DELETE_ACCOUNT_CONFIRMATION_PHRASE.trim().toLowerCase()
+    );
   });
 });

@@ -61,6 +61,12 @@ export function createApp() {
   base.use('/api/auth/*', redisMiddleware());
   base.use('/api/auth/*', ironSessionMiddleware());
 
+  // Highest-stakes mutating route — enforce sessionActive + passwordChangedAt
+  // revocation, same envelope as /api/conversations/*. Other /api/auth/* routes
+  // intentionally skip sessionMiddleware because they run during pending-2FA;
+  // delete-account rejects pending-2FA in its preflight so the mount is safe.
+  base.use('/api/auth/delete-account/*', sessionMiddleware());
+
   base.use('/api/conversations/*', csrfProtection());
   base.use('/api/conversations/*', dbMiddleware());
   base.use('/api/conversations/*', redisMiddleware());

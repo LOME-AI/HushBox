@@ -381,6 +381,75 @@ describe('deleteUser', () => {
     expect(commitIndex).toBeLessThan(sendIndex);
   });
 
+  it('sends the deletion email BEFORE starting R2 cleanup', async () => {
+    const { deleteUser } = await import('./delete-user.js');
+    const order: MockOrder = { log: [] };
+    const { db } = createMockDb(
+      defaultBuilders([[{ email: 'user@example.com' }]], [[{ key: 'media/x.enc' }]]),
+      order
+    );
+    const { storage } = createMockStorage();
+    storage.delete = vi.fn(async (_key: string) => {
+      order.log.push('storage:delete');
+      await Promise.resolve();
+    });
+    const { email } = createMockEmail();
+    email.sendEmail = vi.fn(async () => {
+      order.log.push('email:send');
+      await Promise.resolve();
+    });
+
+    await deleteUser({
+      db,
+      storage,
+      email,
+      userId: 'user-1',
+      ipAddress: null,
+      userAgent: null,
+      now: FIXED_NOW,
+    });
+
+    const sendIndex = order.log.indexOf('email:send');
+    const storageDeleteIndex = order.log.indexOf('storage:delete');
+    expect(sendIndex).toBeGreaterThan(-1);
+    expect(storageDeleteIndex).toBeGreaterThan(-1);
+    expect(sendIndex).toBeLessThan(storageDeleteIndex);
+  });
+
+  it('caps R2 deletes at maxR2Deletes; remainder is left to the GC and a warn is logged', async () => {
+    const { deleteUser } = await import('./delete-user.js');
+    const keys = Array.from({ length: 60 }, (_v, index) => ({
+      key: `media/${String(index)}.enc`,
+    }));
+    const order: MockOrder = { log: [] };
+    const { db } = createMockDb(defaultBuilders([[{ email: 'user@example.com' }]], [keys]), order);
+    const { storage, deleteSpy } = createMockStorage();
+    const { email } = createMockEmail();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {
+      // suppress
+    });
+
+    const result = await deleteUser({
+      db,
+      storage,
+      email,
+      userId: 'user-1',
+      ipAddress: null,
+      userAgent: null,
+      now: FIXED_NOW,
+      maxR2Deletes: 25,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(deleteSpy).toHaveBeenCalledTimes(25);
+    expect(
+      warnSpy.mock.calls.some(
+        (call) =>
+          typeof call[0] === 'string' && call[0].includes('delete-user') && call[0].includes('cap')
+      )
+    ).toBe(true);
+  });
+
   it('logs and swallows R2 storage failures, still returning ok and sending email', async () => {
     const { deleteUser } = await import('./delete-user.js');
     const order: MockOrder = { log: [] };
@@ -433,6 +502,60 @@ describe('deleteUser', () => {
 
     expect(result).toEqual({ ok: true });
     expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('runs all DB ops via the tx handle — never the outer db — inside the transaction', async () => {
+    const { deleteUser } = await import('./delete-user.js');
+    const order: MockOrder = { log: [] };
+    const builders = defaultBuilders([[{ email: 'user@example.com' }]], [[]]);
+    const txSelect = vi.fn(() => builders.selectImpl());
+    const txSelectDistinct = vi.fn(() => builders.selectDistinctImpl());
+    const txInsert = vi.fn(() => builders.insertImpl());
+    const txUpdate = vi.fn(() => builders.updateImpl());
+    const txDelete = vi.fn(() => builders.deleteImpl());
+    const tx = {
+      select: txSelect,
+      selectDistinct: txSelectDistinct,
+      insert: txInsert,
+      update: txUpdate,
+      delete: txDelete,
+    };
+    const forbid = (name: string) =>
+      vi.fn(() => {
+        throw new Error(`outer db.${name} called inside tx`);
+      });
+    const outerDb: Record<string, unknown> = {
+      select: forbid('select'),
+      selectDistinct: forbid('selectDistinct'),
+      insert: forbid('insert'),
+      update: forbid('update'),
+      delete: forbid('delete'),
+      transaction: vi.fn(async (callback: (txArgument: unknown) => Promise<unknown>) => {
+        order.log.push('transaction:begin');
+        const result = await callback(tx);
+        order.log.push('transaction:commit');
+        return result;
+      }),
+    };
+    const { storage } = createMockStorage();
+    const { email } = createMockEmail();
+
+    const result = await deleteUser({
+      db: outerDb as unknown as never,
+      storage,
+      email,
+      userId: 'user-1',
+      ipAddress: null,
+      userAgent: null,
+      now: FIXED_NOW,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(txSelect).toHaveBeenCalled();
+    expect(txSelectDistinct).toHaveBeenCalled();
+    expect(txUpdate).toHaveBeenCalled();
+    expect(txInsert).toHaveBeenCalled();
+    expect(txDelete).toHaveBeenCalled();
   });
 
   it('propagates DB transaction failures without touching R2 or email', async () => {

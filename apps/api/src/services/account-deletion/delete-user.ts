@@ -22,6 +22,8 @@ export interface DeleteUserArgs {
   ipAddress: string | null;
   userAgent: string | null;
   now: Date;
+  /** Hard cap on R2 deletes per invocation; remainder is left to runR2Gc. */
+  maxR2Deletes?: number;
 }
 
 export type DeleteUserResult = { ok: true } | { ok: false; reason: 'user-not-found' };
@@ -31,8 +33,22 @@ interface SagaCapture {
   storageKeys: string[];
 }
 
+// Matches r2-gc.ts: fans deletes out in parallel while staying under the
+// Cloudflare Workers concurrent-fetch ceiling.
 const R2_DELETE_BATCH_SIZE = 50;
 
+// Worst-case ceiling on R2 subrequests in one /delete-account/finish invocation.
+// The Workers paid plan caps subrequests at 1000; we leave headroom for the
+// DB transaction, email send, and saga overhead. Anything above this gets
+// picked up by the daily runR2Gc orphan sweep.
+const DEFAULT_MAX_R2_DELETES = 900;
+
+// Ordering invariants enforced inside the transaction:
+//   1. Capture user.email + content_items.storageKey BEFORE the cascade nukes them.
+//   2. Set conversation_members.leftAt BEFORE deleting users so the FK cascade
+//      to userId=null satisfies the `userId OR linkId OR leftAt` check constraint.
+//   3. Null messages.senderId for non-owned conversations BEFORE deleting users
+//      so no row violates downstream invariants after the user vanishes.
 async function runSaga(
   args: DeleteUserArgs
 ): Promise<{ found: true; capture: SagaCapture } | { found: false }> {
@@ -91,9 +107,14 @@ async function runSaga(
   });
 }
 
-async function deleteStorageObjects(storage: MediaStorage, keys: string[]): Promise<void> {
-  for (let index = 0; index < keys.length; index += R2_DELETE_BATCH_SIZE) {
-    const chunk = keys.slice(index, index + R2_DELETE_BATCH_SIZE);
+async function deleteStorageObjects(
+  storage: MediaStorage,
+  keys: string[],
+  maxDeletes: number
+): Promise<void> {
+  const target = keys.slice(0, maxDeletes);
+  for (let index = 0; index < target.length; index += R2_DELETE_BATCH_SIZE) {
+    const chunk = target.slice(index, index + R2_DELETE_BATCH_SIZE);
     const results = await Promise.allSettled(chunk.map((key) => storage.delete(key)));
     for (const [chunkIndex, result] of results.entries()) {
       if (result.status === 'rejected') {
@@ -104,6 +125,14 @@ async function deleteStorageObjects(storage: MediaStorage, keys: string[]): Prom
         });
       }
     }
+  }
+  if (keys.length > maxDeletes) {
+    // Remaining orphans are picked up by the daily runR2Gc sweep.
+    console.warn('delete-user R2 delete cap reached; remainder deferred to GC', {
+      total: keys.length,
+      deleted: target.length,
+      deferred: keys.length - target.length,
+    });
   }
 }
 
@@ -128,8 +157,15 @@ export async function deleteUser(args: DeleteUserArgs): Promise<DeleteUserResult
     return { ok: false, reason: 'user-not-found' };
   }
 
-  await deleteStorageObjects(args.storage, sagaResult.capture.storageKeys);
+  // Email first: the R2 loop can exhaust the Workers subrequest budget, so
+  // sending the notification first guarantees the user is told the account is
+  // gone even if cleanup later trips the cap (the GC sweep handles the tail).
   await sendDeletionEmail(args.email, sagaResult.capture.email);
+  await deleteStorageObjects(
+    args.storage,
+    sagaResult.capture.storageKeys,
+    args.maxR2Deletes ?? DEFAULT_MAX_R2_DELETES
+  );
 
   return { ok: true };
 }
