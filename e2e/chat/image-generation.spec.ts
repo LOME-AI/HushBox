@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage } from '../pages';
+import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
 
 /**
  * Image generation flow end-to-end.
@@ -71,18 +72,7 @@ test.describe('Image Generation', () => {
     await chatPage.goto();
     await chatPage.expectNewChatPageVisible();
 
-    await chatPage.switchToImageMode();
-    const prompt = `Cost+nametag check ${String(Date.now())}`;
-    await chatPage.sendNewChatMessage(prompt);
-    await chatPage.waitForConversation();
-    await chatPage.expectImageVisible();
-    await chatPage.waitForStreamComplete();
-
-    const costBadge = chatPage.messageList.locator('[data-testid="message-cost"]').first();
-    await expect(costBadge).toBeVisible();
-    await expect(costBadge).toContainText(/\$/);
-
-    await chatPage.expectAllAIMessagesHaveNametag();
+    await assertCostAndNametagForFreshGeneration(chatPage, 'image');
   });
 
   /**

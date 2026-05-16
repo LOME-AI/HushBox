@@ -6,6 +6,12 @@
 // Decoupled from React/Zustand so it can be unit-tested in isolation.
 // Wire-up uses callbacks (`isEnabled`, `voice`) so the caller can pull
 // reactive state from any source (Zustand store, React state, etc.).
+//
+// Stream lifecycle hooks (`onStreamStart` / `onStreamEnd`) and the
+// per-stream `isStreamMuted` gate exist so callers can drive an in-UI
+// "Stop reading" affordance: mark a stream as muted to suppress any
+// further sentences mid-flight, and observe start/end to track which
+// message's audio is currently active.
 
 import { SentenceChunker } from './sentence-chunker';
 import type { TtsService, TtsVoice } from './tts-engine';
@@ -26,22 +32,19 @@ export interface CreateTtsStreamFeederOptions {
    * sentence boundary so the user can flip the toggle mid-stream.
    */
   readonly isEnabled: () => boolean;
-}
-
-function speakSentence(
-  tts: TtsService,
-  sentence: string,
-  voice: TtsVoice | (() => TtsVoice)
-): void {
-  const resolvedVoice = typeof voice === 'function' ? voice() : voice;
-  // Speak failures must not break the chat stream — surface to console only.
-  void (async (): Promise<void> => {
-    try {
-      await tts.speak(sentence, resolvedVoice);
-    } catch (error: unknown) {
-      console.error('TTS speak failed:', error);
-    }
-  })();
+  /**
+   * Optional per-stream short-circuit. Returning true suppresses speaking
+   * without disabling the global toggle. Used by the chat-aloud Stop
+   * button to silence a single message while leaving auto-read on.
+   */
+  readonly isStreamMuted?: () => boolean;
+  /** Fires once, just before the first speak() of the stream. */
+  readonly onStreamStart?: () => void;
+  /**
+   * Fires from end() after every issued speak() promise has settled
+   * (or synchronously from end() if none were ever issued).
+   */
+  readonly onStreamEnd?: () => void;
 }
 
 /**
@@ -49,23 +52,53 @@ function speakSentence(
  * Caller is responsible for invoking feed() and end() at the right moments.
  */
 export function createTtsStreamFeeder(options: CreateTtsStreamFeederOptions): TtsStreamFeeder {
-  const { tts, voice, isEnabled } = options;
+  const { tts, voice, isEnabled, isStreamMuted, onStreamStart, onStreamEnd } = options;
   const chunker = new SentenceChunker();
+  let started = false;
+  let endCalled = false;
+  let pendingSpeaks = 0;
+
+  function tryFinish(): void {
+    if (endCalled && pendingSpeaks === 0) {
+      onStreamEnd?.();
+    }
+  }
+
+  function attemptSpeak(text: string): void {
+    if (!isEnabled() || !tts.isLoaded()) return;
+    if (isStreamMuted?.()) return;
+    if (!started) {
+      started = true;
+      onStreamStart?.();
+    }
+    const resolvedVoice = typeof voice === 'function' ? voice() : voice;
+    pendingSpeaks += 1;
+    // Speak failures must not break the chat stream — surface to console only.
+    void (async (): Promise<void> => {
+      try {
+        await tts.speak(text, resolvedVoice);
+      } catch (error: unknown) {
+        console.error('TTS speak failed:', error);
+      } finally {
+        pendingSpeaks -= 1;
+        tryFinish();
+      }
+    })();
+  }
 
   return {
     feed(chunk: string): void {
       // Always feed so the chunker stays in sync, but only speak when active.
       const sentences = chunker.feed(chunk);
-      if (!isEnabled() || !tts.isLoaded()) return;
       for (const sentence of sentences) {
-        speakSentence(tts, sentence, voice);
+        attemptSpeak(sentence);
       }
     },
     end(): void {
       const remainder = chunker.flush();
-      if (remainder === null) return;
-      if (!isEnabled() || !tts.isLoaded()) return;
-      speakSentence(tts, remainder, voice);
+      if (remainder !== null) attemptSpeak(remainder);
+      endCalled = true;
+      tryFinish();
     },
   };
 }

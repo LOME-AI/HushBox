@@ -40,12 +40,17 @@ function ReadAloudControls(): React.JSX.Element {
   // acceptable: the user only sees this panel, not a loading-critical path.
   const [detectedDevice, setDetectedDevice] = React.useState<'webgpu' | 'wasm'>('wasm');
   React.useEffect(() => {
-    let cancelled = false;
-    void detectDevice().then((device) => {
-      if (!cancelled) setDetectedDevice(device);
-    });
+    // Wrapped in an object so TypeScript doesn't narrow the cancel flag to
+    // its initial literal value (a plain `let cancelled = false` would be
+    // narrowed to `false` for the `if (!cancelled)` check, even though the
+    // cleanup callback below mutates it asynchronously).
+    const lifecycle = { cancelled: false };
+    void (async (): Promise<void> => {
+      const device = await detectDevice();
+      if (!lifecycle.cancelled) setDetectedDevice(device);
+    })();
     return () => {
-      cancelled = true;
+      lifecycle.cancelled = true;
     };
   }, []);
   const downloadSizeText =
@@ -96,11 +101,13 @@ function ReadAloudControls(): React.JSX.Element {
     if (!ttsEnabled) return;
     if (previousVoice === null) return;
     if (previousVoice === ttsVoice) return;
-    void getTtsService()
-      .preloadVoice(ttsVoice)
-      .catch((preloadError: unknown) => {
+    void (async (): Promise<void> => {
+      try {
+        await getTtsService().preloadVoice(ttsVoice);
+      } catch (preloadError: unknown) {
         console.error('TTS voice preload failed:', preloadError);
-      });
+      }
+    })();
   }, [ttsEnabled, ttsVoice]);
 
   return (

@@ -5,3 +5,8 @@ export {
   ACCESSIBILITY_PREFERENCES_DEFAULTS,
   type AccessibilityPreferences,
 } from './schema';
+export {
+  createTtsPlaybackStore,
+  useTtsPlaybackStore,
+  type TtsPlaybackStore,
+} from './playback-store';

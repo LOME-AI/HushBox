@@ -253,7 +253,7 @@ describe('createWorkerHandler', () => {
       generateMock.mockClear();
       await handler({ type: 'warmup', requestId: 'W1', voice: 'af_heart' });
       expect(generateMock).toHaveBeenCalledTimes(1);
-      const [warmupText, warmupOpts] = generateMock.mock.calls[0]!;
+      const [warmupText, warmupOptions] = generateMock.mock.calls[0]!;
       // Multi-word sentence with mixed punctuation: forces ORT/WebGPU to compile
       // more kernel-shape variants up front so the first real generation
       // doesn't pay a graph/shader-compilation tax.
@@ -261,7 +261,7 @@ describe('createWorkerHandler', () => {
       expect((warmupText as string).split(/\s+/).length).toBeGreaterThanOrEqual(5);
       expect(warmupText as string).toMatch(/[,;:]/);
       expect(warmupText as string).toMatch(/[.!?]$/);
-      expect(warmupOpts).toEqual({ voice: 'af_heart' });
+      expect(warmupOptions).toEqual({ voice: 'af_heart' });
       const done = posts.find((p) => p.msg.type === 'warmupDone');
       expect(done?.msg.requestId).toBe('W1');
       const ready = posts.find((p) => p.msg.type === 'speakReady');
@@ -275,8 +275,8 @@ describe('createWorkerHandler', () => {
       generateMock.mockClear();
       await handler({ type: 'warmup', requestId: 'W2', voice: 'am_michael' });
       expect(generateMock).toHaveBeenCalledTimes(1);
-      const [, warmupOpts] = generateMock.mock.calls[0]!;
-      expect(warmupOpts).toEqual({ voice: 'am_michael' });
+      const [, warmupOptions] = generateMock.mock.calls[0]!;
+      expect(warmupOptions).toEqual({ voice: 'am_michael' });
     });
 
     it('posts warmupError if generate throws', async () => {

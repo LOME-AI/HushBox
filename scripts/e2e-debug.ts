@@ -604,48 +604,34 @@ export function generateMarkdownReport(report: DebugReport): string {
   return lines.join('\n');
 }
 
+export function serializeTestForJson(test: FailedTest | FlakyTest): JsonTestEntry {
+  return {
+    title: test.title,
+    file: test.file,
+    line: test.line,
+    project: test.project,
+    duration: test.duration,
+    error: stripAnsi(test.error),
+    rerunCommand: buildRerunCommand(test),
+    steps: test.steps,
+    artifacts: {
+      screenshot: test.artifacts.screenshot,
+      trace: test.artifacts.trace,
+      video: test.artifacts.video,
+      consoleErrors: test.artifacts.consoleErrors,
+      apiErrors: test.artifacts.apiErrors,
+      pageSnapshot: test.artifacts.pageSnapshot,
+      harFiles: test.artifacts.harFiles,
+    },
+  };
+}
+
 export function generateJsonReport(report: DebugReport): JsonReport {
   return {
     timestamp: new Date().toISOString(),
     summary: report.summary,
-    failed: report.failed.map((test) => ({
-      title: test.title,
-      file: test.file,
-      line: test.line,
-      project: test.project,
-      duration: test.duration,
-      error: stripAnsi(test.error),
-      rerunCommand: buildRerunCommand(test),
-      steps: test.steps,
-      artifacts: {
-        screenshot: test.artifacts.screenshot,
-        trace: test.artifacts.trace,
-        video: test.artifacts.video,
-        consoleErrors: test.artifacts.consoleErrors,
-        apiErrors: test.artifacts.apiErrors,
-        pageSnapshot: test.artifacts.pageSnapshot,
-        harFiles: test.artifacts.harFiles,
-      },
-    })),
-    flaky: report.flaky.map((test) => ({
-      title: test.title,
-      file: test.file,
-      line: test.line,
-      project: test.project,
-      duration: test.duration,
-      error: stripAnsi(test.error),
-      rerunCommand: buildRerunCommand(test),
-      steps: test.steps,
-      artifacts: {
-        screenshot: test.artifacts.screenshot,
-        trace: test.artifacts.trace,
-        video: test.artifacts.video,
-        consoleErrors: test.artifacts.consoleErrors,
-        apiErrors: test.artifacts.apiErrors,
-        pageSnapshot: test.artifacts.pageSnapshot,
-        harFiles: test.artifacts.harFiles,
-      },
-    })),
+    failed: report.failed.map(serializeTestForJson),
+    flaky: report.flaky.map(serializeTestForJson),
     passed: report.passed.map((test) => ({
       title: test.title,
       file: test.file,

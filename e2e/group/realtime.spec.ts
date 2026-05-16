@@ -1,31 +1,6 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages';
-import type { Page } from '@playwright/test';
-
-async function setupRealtimePair(
-  alicePage: Page,
-  bobPage: Page,
-  conversationId: string
-): Promise<{ aliceChatPage: ChatPage; bobChatPage: ChatPage }> {
-  const aliceChatPage = new ChatPage(alicePage);
-  const bobChatPage = new ChatPage(bobPage);
-
-  await aliceChatPage.gotoConversation(conversationId);
-  await bobChatPage.gotoConversation(conversationId);
-
-  await aliceChatPage.waitForConversationLoaded();
-  await bobChatPage.waitForConversationLoaded();
-
-  await aliceChatPage.waitForWebSocketConnected();
-  await bobChatPage.waitForWebSocketConnected();
-
-  // Wait for server-side Durable Object to finish registering both connections.
-  // The DO sends { type: 'ready' } after handleSession() + broadcastPresence().
-  await aliceChatPage.waitForWebSocketReady();
-  await bobChatPage.waitForWebSocketReady();
-
-  return { aliceChatPage, bobChatPage };
-}
+import { setupRealtimePair } from '../helpers/realtime.js';
 
 test.describe('Real-time WebSocket events', () => {
   test('user-only message appears for other member in real time', async ({

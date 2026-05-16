@@ -174,14 +174,7 @@ test.describe('Smart Model', () => {
     await chatPage.goto();
     await chatPage.waitForAppStable();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) await clearButton.click();
-    const smartItem = modal.getByTestId('model-item-smart-model');
-    await expect(smartItem).toBeVisible({ timeout: 10_000 });
-    await smartItem.getByTestId('model-checkbox').click();
-    await chatPage.confirmModelSelection();
+    await chatPage.selectSingleModel('smart-model');
 
     await chatPage.sendNewChatMessage(`Smart fallback ${String(Date.now())}`);
     await chatPage.waitForConversation();
@@ -212,14 +205,7 @@ test.describe('Smart Model', () => {
     await chatPage.goto();
     await chatPage.waitForAppStable();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) await clearButton.click();
-    const smartItem = modal.getByTestId('model-item-smart-model');
-    await expect(smartItem).toBeVisible({ timeout: 10_000 });
-    await smartItem.getByTestId('model-checkbox').click();
-    await chatPage.confirmModelSelection();
+    await chatPage.selectSingleModel('smart-model');
 
     await chatPage.sendNewChatMessage(`Smart usage rows ${String(Date.now())}`);
     await chatPage.waitForConversation();
@@ -261,16 +247,7 @@ test.describe('Smart Model', () => {
     await chatPage.waitForAppStable();
 
     await test.step('select Smart Model on a low-balance account', async () => {
-      await chatPage.openModelSelector();
-      const modal = lowBalancePage.getByTestId('model-selector-modal');
-      const clearButton = modal.getByTestId('clear-selection-button');
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-      }
-      const smartItem = modal.getByTestId('model-item-smart-model');
-      await expect(smartItem).toBeVisible({ timeout: 10_000 });
-      await smartItem.getByTestId('model-checkbox').click();
-      await chatPage.confirmModelSelection();
+      await chatPage.selectSingleModel('smart-model');
     });
 
     await chatPage.promptInput.fill(`Smart Model insufficient ${String(Date.now())}`);
@@ -307,14 +284,7 @@ test.describe('Smart Model', () => {
     await chatPage.goto();
     await chatPage.waitForAppStable();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) await clearButton.click();
-    const smartItem = modal.getByTestId('model-item-smart-model');
-    await expect(smartItem).toBeVisible({ timeout: 10_000 });
-    await smartItem.getByTestId('model-checkbox').click();
-    await chatPage.confirmModelSelection();
+    await chatPage.selectSingleModel('smart-model');
 
     // Send the message — don't await waitForAIResponse before we start polling
     // for the loading text, because the indicator window is brief.

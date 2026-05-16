@@ -190,7 +190,7 @@ export function BillingContent({ billingOnly }: { billingOnly?: boolean } = {}):
 
   return (
     <>
-      <PageBody className="space-y-6">
+      <PageBody testId="billing-content" className="space-y-6">
         <BalanceCard
           displayBalance={displayBalance}
           isStable={isBalanceStable}

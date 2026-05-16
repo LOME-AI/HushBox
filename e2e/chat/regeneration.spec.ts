@@ -16,13 +16,13 @@ test.describe('Solo Regeneration', () => {
     });
 
     await test.step('hover user message and verify action buttons', async () => {
-      await chatPage.hoverMessage(0);
+      await chatPage.prepareMessage(0);
       await expect(chatPage.getRetryButton(0)).toBeVisible();
       await expect(chatPage.getEditButton(0)).toBeVisible();
     });
 
     await test.step('hover AI message and verify fork button', async () => {
-      await chatPage.hoverMessage(1);
+      await chatPage.prepareMessage(1);
       await expect(chatPage.getForkButton(1)).toBeVisible();
     });
 
@@ -50,7 +50,7 @@ test.describe('Solo Regeneration', () => {
     const userText = await userMessage.textContent();
 
     await test.step('hover AI message and verify regenerate button', async () => {
-      await chatPage.hoverMessage(1);
+      await chatPage.prepareMessage(1);
       await expect(chatPage.getRegenerateButton(1)).toBeVisible();
     });
 
@@ -174,7 +174,7 @@ test.describe('Solo Regeneration', () => {
 
     await test.step('after streaming, buttons appear on hover', async () => {
       await chatPage.waitForAIResponse();
-      await chatPage.hoverMessage(0);
+      await chatPage.prepareMessage(0);
       await expect(chatPage.getRetryButton(0)).toBeVisible();
     });
   });
@@ -277,14 +277,14 @@ test.describe('Group Chat Regeneration', () => {
 
     await test.step('hover Alice first message — no retry/edit (blocked by guard)', async () => {
       // First message is Alice's "Hello from Alice" — Bob replied after
-      await chatPage.hoverMessage(0);
+      await chatPage.prepareMessage(0);
 
       await expect(chatPage.getRetryButton(0)).not.toBeVisible();
       await expect(chatPage.getEditButton(0)).not.toBeVisible();
     });
 
     await test.step('hover first AI message — fork visible', async () => {
-      await chatPage.hoverMessage(1);
+      await chatPage.prepareMessage(1);
       await expect(chatPage.getForkButton(1)).toBeVisible();
     });
   });

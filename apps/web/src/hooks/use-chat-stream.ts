@@ -384,13 +384,22 @@ async function executeStream(
   //
   // Note: only the primary model's tokens are routed to TTS. With multi-model
   // fan-out, speaking every model's text in parallel would be cacophony.
+  //
+  // The assistant message id is needed to scope the per-message Stop button
+  // and the muted-stream gate, but it only arrives in the SSE `start` event
+  // — after the feeder has been built. Pass a getter so the feeder reads
+  // the id at callback time, not at construction.
   let primaryModelId: string | null = null;
-  const ttsFeeder = await startChatTtsStream();
+  let primaryAssistantMessageId: string | null = null;
+  const ttsFeeder = await startChatTtsStream({
+    messageId: () => primaryAssistantMessageId,
+  });
 
   const parser = createSSEParser({
     onStart: (data) => {
       streamState.startData = data;
       primaryModelId = data.models[0]?.modelId ?? null;
+      primaryAssistantMessageId = data.models[0]?.assistantMessageId ?? null;
       options?.onStart?.(data);
     },
     onToken: (tokenData) => {

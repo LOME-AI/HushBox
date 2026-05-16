@@ -58,7 +58,7 @@ export function UsageContent(): React.JSX.Element {
   const balanceHistory = useBalanceHistory(dateRange);
 
   return (
-    <PageBody className="space-y-6">
+    <PageBody testId="usage-content" className="space-y-6">
       <UsageFilters
         range={range}
         onRangeChange={setRange}

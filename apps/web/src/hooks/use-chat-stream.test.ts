@@ -1527,6 +1527,43 @@ describe('useChatStream', () => {
       expect(ttsFeederMock.end).toHaveBeenCalled();
     });
 
+    it('passes a messageId getter that resolves to the primary assistant message id after onStart', async () => {
+      startChatTtsStreamMock.mockResolvedValueOnce(ttsFeederMock);
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"assistant-xyz"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hi."}',
+        'event: done',
+        'data: {}',
+      ];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4'],
+          userMessage: { id: 'u', content: 'Hi' },
+          messagesForInference: [{ role: 'user', content: 'Hi' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      expect(startChatTtsStreamMock).toHaveBeenCalledTimes(1);
+      const calls = startChatTtsStreamMock.mock.calls as unknown as Array<
+        [{ messageId: () => string | null } | undefined]
+      >;
+      const callArg = calls[0]?.[0];
+      expect(callArg).toBeDefined();
+      expect(typeof callArg?.messageId).toBe('function');
+      expect(callArg?.messageId()).toBe('assistant-xyz');
+    });
+
     it('calls feeder.end() exactly once even when both onDone and finally fire', async () => {
       startChatTtsStreamMock.mockResolvedValueOnce(ttsFeederMock);
       const sseEvents = [

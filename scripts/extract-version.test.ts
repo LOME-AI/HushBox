@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { extractVersion, semverToCode } from './extract-version.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { appendFileSync } from 'node:fs';
+import { extractVersion, semverToCode, writeGithubOutput } from './extract-version.js';
+
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  return { ...actual, appendFileSync: vi.fn() };
+});
 
 describe('semverToCode', () => {
   it('converts 1.0.0 to 10000', () => {
@@ -89,5 +95,62 @@ describe('extractVersion', () => {
 
     expect(result.versionName).toBe('1.0.0-beta.1');
     expect(result.versionCode).toBe(10_000);
+  });
+});
+
+describe('writeGithubOutput', () => {
+  const appendMock = vi.mocked(appendFileSync);
+  const originalOutput = process.env['GITHUB_OUTPUT'];
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    appendMock.mockClear();
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    if (originalOutput === undefined) delete process.env['GITHUB_OUTPUT'];
+    else process.env['GITHUB_OUTPUT'] = originalOutput;
+    logSpy.mockRestore();
+  });
+
+  it('appends each line + trailing newline to $GITHUB_OUTPUT when set', () => {
+    process.env['GITHUB_OUTPUT'] = '/tmp/github-output-file';
+
+    writeGithubOutput(['version=1.2.3', 'version_name=1.2.3', 'version_code=10203']);
+
+    expect(appendMock).toHaveBeenCalledTimes(3);
+    expect(appendMock).toHaveBeenNthCalledWith(1, '/tmp/github-output-file', 'version=1.2.3\n');
+    expect(appendMock).toHaveBeenNthCalledWith(2, '/tmp/github-output-file', 'version_name=1.2.3\n');
+    expect(appendMock).toHaveBeenNthCalledWith(3, '/tmp/github-output-file', 'version_code=10203\n');
+  });
+
+  it('prints each line to stdout via console.log', () => {
+    delete process.env['GITHUB_OUTPUT'];
+
+    writeGithubOutput(['version=1.0.0', 'version_name=1.0.0', 'version_code=10000']);
+
+    expect(logSpy).toHaveBeenCalledTimes(3);
+    expect(logSpy).toHaveBeenNthCalledWith(1, 'version=1.0.0');
+    expect(logSpy).toHaveBeenNthCalledWith(2, 'version_name=1.0.0');
+    expect(logSpy).toHaveBeenNthCalledWith(3, 'version_code=10000');
+  });
+
+  it('skips appending when GITHUB_OUTPUT is unset (still logs)', () => {
+    delete process.env['GITHUB_OUTPUT'];
+
+    writeGithubOutput(['version=2.0.0']);
+
+    expect(appendMock).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith('version=2.0.0');
+  });
+
+  it('is a no-op for both branches with an empty lines array', () => {
+    process.env['GITHUB_OUTPUT'] = '/tmp/github-output-file';
+
+    writeGithubOutput([]);
+
+    expect(appendMock).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
   });
 });

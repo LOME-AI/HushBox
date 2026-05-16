@@ -11,6 +11,8 @@ import { MediaContentItem } from './media-content-item';
 import { MediaPlaceholder } from './media-preview';
 import { MessageCost } from './message-cost';
 import { ThinkingIndicator } from './thinking-indicator';
+import { TtsStopButton } from './tts-stop-button';
+import { TtsStoppedNotice } from './tts-stopped-notice';
 import type { MessageGroup, LinkInfo } from '@/lib/chat-sender';
 import type { Message } from '@/lib/api';
 import type { MessageAction } from '@/lib/message-actions';
@@ -113,7 +115,7 @@ function TooltipIconButton({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+          className="h-7 w-7"
           onClick={onClick}
           aria-label={label}
         >
@@ -265,10 +267,8 @@ function MessageActions({
   const showCopy = allowedActions.has('copy');
 
   return (
-    <div className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-center justify-between px-1">
-      {primaryMessage.cost && <MessageCost cost={primaryMessage.cost} />}
-
-      <div className="ml-auto flex items-center gap-0.5">
+    <div className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-end gap-2 px-1">
+      <div className="flex items-center gap-0.5">
         {showRegenerate && (
           <TooltipIconButton
             label="Regenerate"
@@ -298,6 +298,12 @@ function MessageActions({
         )}
         {showCopy && <CopyButton copied={copied} onCopy={onCopy} />}
       </div>
+
+      {primaryMessage.cost && (
+        <span className="inline-flex h-7 items-center">
+          <MessageCost cost={primaryMessage.cost} />
+        </span>
+      )}
     </div>
   );
 }
@@ -611,6 +617,7 @@ function AIMessageNametag({
           Smart
         </span>
       )}
+      <TtsStopButton messageId={primaryMessage.id} />
     </span>
   );
 }
@@ -754,7 +761,7 @@ export function MessageItem({
         {...(isError ? { 'data-error': 'true' } : {})}
         className={containerClasses}
       >
-        <div className="group relative">
+        <div className="relative">
           <div className={bubbleClasses}>
             {isUser ? (
               <>
@@ -767,6 +774,7 @@ export function MessageItem({
               </>
             ) : (
               <>
+                <TtsStoppedNotice messageId={primaryMessage.id} />
                 {shouldRenderAIMessageNametag(primaryMessage, isStreaming) && (
                   <AIMessageNametag primaryMessage={primaryMessage} modelName={modelName} />
                 )}

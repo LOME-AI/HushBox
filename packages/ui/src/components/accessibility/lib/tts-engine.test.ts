@@ -828,8 +828,8 @@ describe('WorkerKokoroTtsService', () => {
     ctx.currentTime = 0;
     const sourcesBefore = createdSources.length;
 
-    const firstPromise = service.speak('first', 'af_heart').catch(() => {});
-    const secondPromise = service.speak('second', 'af_heart').catch(() => {});
+    const firstPromise = service.speak('first', 'af_heart');
+    const secondPromise = service.speak('second', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
     const worker = currentWorker();
     const speaks = worker.postMessage.mock.calls.filter(([m]) => m.type === 'speak');

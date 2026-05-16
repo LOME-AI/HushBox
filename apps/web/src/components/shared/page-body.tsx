@@ -5,6 +5,8 @@ interface PageBodyProps {
   children: React.ReactNode;
   /** Optional Tailwind classes appended to the inner content wrapper (e.g. `space-y-6`). */
   className?: string;
+  /** Optional `data-testid` on the outer scroll container. Defaults to `'page-body'`. */
+  testId?: string;
 }
 
 /**
@@ -19,9 +21,13 @@ interface PageBodyProps {
  * pattern — that combination puts the scroll container on the content-width
  * div, so scroll only activates over the centered content.
  */
-export function PageBody({ children, className }: Readonly<PageBodyProps>): React.JSX.Element {
+export function PageBody({
+  children,
+  className,
+  testId = 'page-body',
+}: Readonly<PageBodyProps>): React.JSX.Element {
   return (
-    <div data-testid="page-body" className="min-h-0 flex-1 overflow-y-auto">
+    <div data-testid={testId} className="min-h-0 flex-1 overflow-y-auto">
       <div className={cn('container mx-auto max-w-4xl p-4', className)}>{children}</div>
     </div>
   );

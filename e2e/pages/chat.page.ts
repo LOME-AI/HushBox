@@ -1,6 +1,5 @@
 import { type Page, type Locator } from '@playwright/test';
 import { expect, unsettledExpect } from '../helpers/settled-expect.js';
-import { isTouchDevice } from '../helpers/overlay.js';
 import { requireEnv } from '../helpers/env.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
@@ -380,8 +379,8 @@ export class ChatPage {
     await expect(pill).toHaveAttribute('aria-pressed', 'true');
   }
 
-  /** Click a video resolution toggle pill (label starts with '720p' or '1080p' followed by inline price). */
-  async selectResolution(resolution: '720p' | '1080p'): Promise<void> {
+  /** Click a video resolution toggle pill (label starts with the resolution followed by inline price). */
+  async selectResolution(resolution: '720p' | '1080p' | '4k'): Promise<void> {
     const pill = this.page.getByRole('button', {
       name: new RegExp(String.raw`^${resolution}\s+\$`, 'i'),
     });
@@ -411,25 +410,71 @@ export class ChatPage {
   }
 
   /**
+   * Wait until the matched media element has decoded bytes — `naturalWidth > 0`
+   * for `<img>`, a finite positive `duration` for `<video>`. `toBeVisible()`
+   * alone is insufficient on iPhone-15: a freshly-mounted lazy `<img>` with
+   * no `width`/`height` attributes can be in the DOM with a 0×0 bounding box
+   * and report as "hidden" until the bytes actually decode.
+   */
+  private async expectMediaLoaded(media: Locator, timeout = 15_000): Promise<void> {
+    await expect
+      .poll(
+        async () =>
+          media.evaluate((el) => {
+            if (el instanceof HTMLImageElement) return el.naturalWidth;
+            if (el instanceof HTMLVideoElement) {
+              return Number.isFinite(el.duration) && el.duration > 0 ? 1 : 0;
+            }
+            return 0;
+          }),
+        { timeout }
+      )
+      .toBeGreaterThan(0);
+  }
+
+  /**
    * Wait for an inline media element to render anywhere in the message list.
    * Walks virtuoso rows bottom→top, mounting each via
    * `__virtuosoScrollToIndex`, and returns as soon as a matching element
-   * becomes visible. Covers the multi-media case (image at one row, video
-   * at another) where scrolling only to the last row would virtualize the
-   * earlier tile out of the DOM.
+   * becomes visible AND its bytes have decoded. Covers the multi-media case
+   * (image at one row, video at another) where scrolling only to the last
+   * row would virtualize the earlier tile out of the DOM.
    */
   async expectMediaVisible(kind: 'img' | 'video', timeout = 30_000): Promise<void> {
     const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
     const media = this.messageList.locator(kind).first();
     if (Number.isNaN(rowsCount) || rowsCount <= 0) {
       await expect(media).toBeVisible({ timeout });
+      await this.expectMediaLoaded(media);
       return;
     }
     for (let index = rowsCount - 1; index >= 0; index--) {
       await this.scrollMessageIntoView(index);
-      if (await media.isVisible().catch(() => false)) return;
+      if (await media.isVisible().catch(() => false)) {
+        await this.expectMediaLoaded(media);
+        return;
+      }
     }
     await expect(media).toBeVisible({ timeout });
+    await this.expectMediaLoaded(media);
+  }
+
+  /**
+   * Park the message at `index` in Virtuoso's mounted window and assert
+   * that an `<img>` (or `<video>`) inside that row is both visible and
+   * dimensionally settled. Use for tests that need to verify media at a
+   * specific row (e.g. multi-model sibling tiles, fork branches), not
+   * "anywhere in the conversation" — for the latter, use `expectImageVisible`.
+   */
+  async expectMediaVisibleAt(
+    index: number,
+    kind: 'img' | 'video',
+    timeout = 30_000
+  ): Promise<void> {
+    await this.scrollMessageIntoView(index);
+    const media = this.getMessage(index).locator(kind).first();
+    await expect(media).toBeVisible({ timeout });
+    await this.expectMediaLoaded(media);
   }
 
   async expectImageVisible(timeout = 30_000): Promise<void> {
@@ -573,6 +618,22 @@ export class ChatPage {
   }
 
   /**
+   * Read the current Virtuoso row count from `data-rows-count` and return
+   * the index of the last row. Throws if no rows exist — callers that
+   * capture an index for later use should fail loudly here rather than
+   * silently propagate a sentinel.
+   */
+  async getLastRowIndex(): Promise<number> {
+    const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
+    if (!Number.isFinite(rowsCount) || rowsCount <= 0) {
+      throw new Error(
+        `getLastRowIndex: data-rows-count is ${String(rowsCount)}; expected at least one row`
+      );
+    }
+    return rowsCount - 1;
+  }
+
+  /**
    * Deterministically park a virtualized row in view. Uses Virtuoso's native
    * `scrollIntoView({ index, done })` via the dev/E2E-gated window backdoor in
    * `MessageList`. Resolves when the target row is measured and mounted —
@@ -607,29 +668,17 @@ export class ChatPage {
   }
 
   /**
-   * Hover the nth message to reveal action buttons. Scrolls the target into
-   * Virtuoso's mounted window first. On touch devices the click target is the
-   * `message-cost` row when present — clicking the media tile would open the
-   * lightbox dialog instead of revealing the action menu.
+   * Park the row at `index` in Virtuoso's mounted window so its action buttons
+   * are reachable. Action buttons are always-rendered now (no hover gating),
+   * so callers only need the row mounted before they can click.
    */
-  async hoverMessage(index: number): Promise<void> {
+  async prepareMessage(index: number): Promise<void> {
     await this.scrollMessageIntoView(index);
-    const item = this.getMessage(index);
-    if (await isTouchDevice(this.page)) {
-      await touchActivateMessage(item);
-    } else {
-      await item.hover();
-    }
   }
 
-  /** Hover over the last message (click on touch devices to trigger sticky hover). */
-  async hoverLastMessage(): Promise<void> {
-    const target = this.getLastMessage();
-    if (await isTouchDevice(this.page)) {
-      await touchActivateMessage(target);
-    } else {
-      await target.hover();
-    }
+  /** Park the last row in the mounted window. */
+  async prepareLastMessage(): Promise<void> {
+    await this.scrollMessageIntoView(await this.getLastRowIndex());
   }
 
   /** Get action button on a specific message by aria-label. */
@@ -659,27 +708,27 @@ export class ChatPage {
   }
 
   async clickRetry(index: number): Promise<void> {
-    await this.hoverMessage(index);
+    await this.prepareMessage(index);
     await this.getRetryButton(index).click();
   }
 
   async clickEdit(index: number): Promise<void> {
-    await this.hoverMessage(index);
+    await this.prepareMessage(index);
     await this.getEditButton(index).click();
   }
 
   async clickRegenerate(index: number): Promise<void> {
-    await this.hoverMessage(index);
+    await this.prepareMessage(index);
     await this.getRegenerateButton(index).click();
   }
 
   async clickFork(index: number): Promise<void> {
-    await this.hoverMessage(index);
+    await this.prepareMessage(index);
     await this.getForkButton(index).click();
   }
 
   async clickForkOnLastMessage(): Promise<void> {
-    await this.hoverLastMessage();
+    await this.prepareLastMessage();
     await this.getLastMessageActionButton('Fork').click();
   }
 
@@ -1018,20 +1067,4 @@ export class ChatPage {
     }
     return id;
   }
-}
-
-/**
- * Activate the touch-equivalent of hover on a message-item. The action menu
- * uses `group-hover:opacity-100`, so we need the browser to set `:hover` on
- * the inner `.group` wrapper. Clicking the outer row container doesn't work
- * for right-aligned user messages (the click lands in empty margin outside
- * `.group`) and clicking the row center for media AI messages opens the
- * lightbox (the `<img>`/`<video>` is wrapped in a button). Targeting the
- * direct child div — Virtuoso's row container's only child — lands inside
- * `.group` for both alignments and skips the media tile via top-left
- * positioning.
- */
-async function touchActivateMessage(item: Locator): Promise<void> {
-  const groupWrapper = item.locator(':scope > div').first();
-  await groupWrapper.click({ position: { x: 5, y: 5 } });
 }

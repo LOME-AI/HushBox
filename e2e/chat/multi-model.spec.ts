@@ -1,9 +1,7 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
-import { requireEnv } from '../helpers/env.js';
 import { BudgetHelper } from '../helpers/budget.js';
-
-const apiUrl = requireEnv('VITE_API_URL');
+import { assertPartialFailurePersistence } from '../helpers/partial-failure.js';
 
 /** Sum the dollar values shown in the per-message cost badges, in cents. */
 async function sumDisplayedMessageCostCents(chatPage: ChatPage): Promise<number> {
@@ -555,32 +553,11 @@ test.describe('Multi-Model Chat', () => {
         await unsettledExpect(errorMessage).toBeVisible({ timeout: 10_000 });
         await unsettledExpect(errorMessage).toContainText(/something went wrong/i);
 
-        const conversationUrl = authenticatedPage.url();
-        const conversationId = conversationUrl.split('/chat/')[1]?.split('?')[0];
-        expect(conversationId).toBeTruthy();
-
-        const apiResponse = await authenticatedPage.request.get(
-          `${apiUrl}/api/conversations/${conversationId!}`
-        );
-        expect(apiResponse.ok()).toBe(true);
-        const { messages } = (await apiResponse.json()) as {
-          messages: {
-            senderType: string;
-            contentItems: { modelName: string | null; cost: string | null }[];
-          }[];
-        };
-
-        const aiContentItems = messages
-          .filter((m) => m.senderType === 'ai')
-          .flatMap((m) => m.contentItems);
-
-        const succeededItems = aiContentItems.filter((ci) => ci.modelName === successModelId);
-        expect(succeededItems.length).toBe(1);
-        expect(succeededItems[0]!.cost).not.toBeNull();
-        expect(Number.parseFloat(succeededItems[0]!.cost ?? '0')).toBeGreaterThan(0);
-
-        const failedItems = aiContentItems.filter((ci) => ci.modelName === failModelId);
-        expect(failedItems.length).toBe(0);
+        await assertPartialFailurePersistence(authenticatedPage, {
+          succeededModelId: successModelId,
+          failedModelId: failModelId,
+          expectedSucceededCount: 1,
+        });
 
         await expect(chatPage.messageInput).toBeVisible();
       } finally {

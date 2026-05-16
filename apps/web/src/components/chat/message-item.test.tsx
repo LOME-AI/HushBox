@@ -1,10 +1,39 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { MessageItem } from './message-item';
 import * as MarkdownRendererModule from './markdown-renderer';
 import type { MessageGroup } from '@/lib/chat-sender';
 import type { Message } from '@/lib/api';
 import type { MessageAction } from '@/lib/message-actions';
+import { useTtsPlaybackStore } from '@hushbox/ui/accessibility/store';
+
+vi.mock('../../lib/chat-tts-stream', () => ({
+  stopTtsForMessage: vi.fn(),
+}));
+
+// The notice's link uses TanStack Router which requires Router context. Mock
+// to a marker element here — the real link behavior is exercised in
+// tts-stopped-notice.test.tsx with a full router setup. This test asserts
+// only that the notice is mounted in the right slot when the store flags it.
+// Uses vi.importActual so the gating mirrors what MessageItem will see in
+// production; only the Link-rendering DOM is swapped for a marker div.
+vi.mock('./tts-stopped-notice', async () => {
+  const { useTtsPlaybackStore } =
+    await vi.importActual<typeof import('@hushbox/ui/accessibility/store')>(
+      '@hushbox/ui/accessibility/store'
+    );
+  return {
+    TtsStoppedNotice: ({ messageId }: { messageId: string }) => {
+      const stopped = useTtsPlaybackStore((s) => s.stoppedStreamIds.has(messageId));
+      if (!stopped) return null;
+      return (
+        <div data-testid="mock-tts-stopped-notice" data-message-id={messageId}>
+          You can disable auto-read in Accessibility settings
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock('../../stores/document', () => ({
   useDocumentStore: () => ({
@@ -380,6 +409,49 @@ describe('MessageItem', () => {
         />
       );
       expect(screen.queryByRole('button', { name: /share/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('assistant action row layout', () => {
+    const assistantMessageWithCost = {
+      ...assistantMessage,
+      cost: '0.00136000',
+    };
+
+    it('left-justifies the action buttons (buttons container has no ml-auto)', () => {
+      render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
+      const copyButton = screen.getByRole('button', { name: /copy/i });
+      const buttonsContainer = copyButton.parentElement;
+      expect(buttonsContainer).not.toHaveClass('ml-auto');
+    });
+
+    it('renders the price indicator to the right of the buttons (after them in DOM order)', () => {
+      render(<MessageItem message={assistantMessageWithCost} allowedActions={ALL_AI_ACTIONS} />);
+      const cost = screen.getByTestId('message-cost');
+      const copyButton = screen.getByRole('button', { name: /copy/i });
+      expect(copyButton.compareDocumentPosition(cost) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      );
+    });
+
+    it('bottom-aligns the action row (items-end, not items-center)', () => {
+      render(<MessageItem message={assistantMessageWithCost} allowedActions={ALL_AI_ACTIONS} />);
+      const copyButton = screen.getByRole('button', { name: /copy/i });
+      const buttonsContainer = copyButton.parentElement;
+      const row = buttonsContainer?.parentElement;
+      expect(row).toHaveClass('items-end');
+      expect(row).not.toHaveClass('items-center');
+    });
+
+    it('places the cost in a button-height wrapper that centers it (mirrors how the icon sits in the button)', () => {
+      // Both children of the row become 28px-tall containers centering a 12px
+      // glyph: the icon is centered in its h-7 button by <Button size="icon">,
+      // and the cost is centered in this h-7 wrapper. Bottoms line up at the
+      // same y without any magic margin offset.
+      render(<MessageItem message={assistantMessageWithCost} allowedActions={ALL_AI_ACTIONS} />);
+      const cost = screen.getByTestId('message-cost');
+      expect(cost.parentElement).toHaveClass('h-7');
+      expect(cost.parentElement).toHaveClass('items-center');
     });
   });
 
@@ -898,6 +970,142 @@ describe('MessageItem', () => {
       };
       render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
       expect(screen.queryByTestId('smart-model-chip')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('TTS stop button slot', () => {
+    beforeEach(() => {
+      useTtsPlaybackStore.setState({
+        speakingStreamId: null,
+        stoppedStreamIds: new Set<string>(),
+      });
+    });
+
+    afterEach(() => {
+      useTtsPlaybackStore.setState({
+        speakingStreamId: null,
+        stoppedStreamIds: new Set<string>(),
+      });
+    });
+
+    it('renders the Stop button inside model-nametag-container when this message is being read', () => {
+      const aiMsg: Message = {
+        id: 'speaking-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      useTtsPlaybackStore.getState().setSpeakingStream('speaking-msg');
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      const container = screen.getByTestId('model-nametag-container');
+      expect(within(container).getByRole('button', { name: /stop reading/i })).toBeInTheDocument();
+    });
+
+    it('does not render the Stop button when no message is being read', () => {
+      const aiMsg: Message = {
+        id: 'idle-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByRole('button', { name: /stop reading/i })).not.toBeInTheDocument();
+    });
+
+    it('does not render the Stop button when a different message is being read', () => {
+      const aiMsg: Message = {
+        id: 'this-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      useTtsPlaybackStore.getState().setSpeakingStream('other-msg');
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByRole('button', { name: /stop reading/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('TTS stopped notice slot', () => {
+    beforeEach(() => {
+      useTtsPlaybackStore.setState({
+        speakingStreamId: null,
+        stoppedStreamIds: new Set<string>(),
+      });
+    });
+
+    afterEach(() => {
+      useTtsPlaybackStore.setState({
+        speakingStreamId: null,
+        stoppedStreamIds: new Set<string>(),
+      });
+    });
+
+    it('renders the stopped notice when the user stopped this message', () => {
+      const aiMsg: Message = {
+        id: 'stopped-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      useTtsPlaybackStore.getState().markStreamStopped('stopped-msg');
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getByTestId('mock-tts-stopped-notice')).toHaveAttribute(
+        'data-message-id',
+        'stopped-msg'
+      );
+    });
+
+    it('positions the notice above the message body so the body is pushed down', () => {
+      const aiMsg: Message = {
+        id: 'stopped-msg-pos',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello body',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      useTtsPlaybackStore.getState().markStreamStopped('stopped-msg-pos');
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      const notice = screen.getByTestId('mock-tts-stopped-notice');
+      const liveRegion = screen.getByTestId('ai-message-live-region');
+      const position = notice.compareDocumentPosition(liveRegion);
+      // DOCUMENT_POSITION_FOLLOWING (4) means liveRegion comes after the notice.
+      expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('does not render the notice when the user has not stopped this message', () => {
+      const aiMsg: Message = {
+        id: 'untouched-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId('mock-tts-stopped-notice')).not.toBeInTheDocument();
+    });
+
+    it('does not render the notice for other messages stopped by the user', () => {
+      const aiMsg: Message = {
+        id: 'innocent-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      useTtsPlaybackStore.getState().markStreamStopped('some-other-msg');
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId('mock-tts-stopped-notice')).not.toBeInTheDocument();
     });
   });
 

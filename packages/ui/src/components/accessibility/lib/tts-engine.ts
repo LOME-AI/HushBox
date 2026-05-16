@@ -201,22 +201,23 @@ class WorkerKokoroTtsService implements TtsService {
     // current sentence's source has been `start()`ed — not after `'ended'`.
     // That lets sentence N+1's source be scheduled at sentence N's end-time
     // while N is still playing, eliminating the inter-buffer gap.
-    const prevChain = this.playbackChain;
+    const previousChain = this.playbackChain;
     let signalScheduled!: () => void;
     const scheduled = new Promise<void>((resolve) => {
       signalScheduled = resolve;
     });
-    // eslint-disable-next-line promise/prefer-await-to-then -- chain advances on scheduled regardless of success/failure so a single failed sentence doesn't deadlock subsequent ones
-    this.playbackChain = scheduled.then(
-      () => {
-        // Intentional no-op.
-      },
-      () => {
-        // Intentional no-op.
+    // Chain advances regardless of success/failure so a single failed
+    // sentence doesn't deadlock subsequent ones.
+    this.playbackChain = (async (): Promise<void> => {
+      try {
+        await scheduled;
+      } catch {
+        // Both success and failure of `scheduled` are acceptable triggers
+        // for the next sentence to begin its own scheduling.
       }
-    );
+    })();
     return (async () => {
-      await prevChain;
+      await previousChain;
       let audio: { audio: Float32Array; samplingRate: number };
       try {
         audio = await audioPromise;
@@ -224,15 +225,15 @@ class WorkerKokoroTtsService implements TtsService {
         signalScheduled();
         throw error;
       }
-      let scheduled: { endedPromise: Promise<void> };
+      let scheduleResult: { endedPromise: Promise<void> };
       try {
-        scheduled = await this.scheduleAudio(audio.audio, audio.samplingRate);
+        scheduleResult = await this.scheduleAudio(audio.audio, audio.samplingRate);
       } catch (error: unknown) {
         signalScheduled();
         throw error;
       }
       signalScheduled();
-      await scheduled.endedPromise;
+      await scheduleResult.endedPromise;
     })();
   }
 

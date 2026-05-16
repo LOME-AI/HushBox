@@ -9,7 +9,7 @@ function AccessibilityRoute(): React.JSX.Element {
   return (
     <div className="flex h-full flex-col">
       <PageHeader title="Accessibility" right={<ThemeToggle />} />
-      <PageBody>
+      <PageBody testId="accessibility-content">
         <AccessibilityPanel />
       </PageBody>
     </div>

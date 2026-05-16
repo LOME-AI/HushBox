@@ -12,9 +12,12 @@ import {
   buildRerunCommand,
   generateMarkdownReport,
   renderSteps,
+  serializeTestForJson,
   writeReport,
   enforceRetentionLimit,
   type DebugReport,
+  type FailedTest,
+  type FlakyTest,
   type FlattenedTestResult,
   type JsonReport,
   type PlaywrightReport,
@@ -1363,6 +1366,90 @@ describe('e2e-debug', () => {
       const md = generateMarkdownReport(report);
 
       expect(md).toContain('**Duration:** 2m 34s');
+    });
+  });
+
+  describe('serializeTestForJson', () => {
+    const baseArtifacts = {
+      trace: 'trace.zip',
+      screenshot: 'screenshot.png',
+      video: 'video.webm',
+      consoleErrors: 'console.txt',
+      apiErrors: 'api.txt',
+      pageSnapshot: 'snapshot.txt',
+      harFiles: ['network.har'],
+    };
+
+    const failedSample: FailedTest = {
+      title: 'sample fails',
+      file: 'e2e/sample.spec.ts',
+      line: 42,
+      project: 'chromium',
+      error: '[31mBoom[0m',
+      duration: 1234,
+      steps: [],
+      artifacts: baseArtifacts,
+    };
+
+    it('strips ANSI from the error', () => {
+      const entry = serializeTestForJson(failedSample);
+
+      expect(entry.error).toBe('Boom');
+    });
+
+    it('attaches a rerun command derived from the test', () => {
+      const entry = serializeTestForJson(failedSample);
+
+      expect(entry.rerunCommand).toBe(buildRerunCommand(failedSample));
+    });
+
+    it('builds a fresh artifacts object holding the same field values', () => {
+      const entry = serializeTestForJson(failedSample);
+
+      expect(entry.artifacts).toEqual(baseArtifacts);
+      expect(entry.artifacts).not.toBe(baseArtifacts);
+      // harFiles is forwarded by reference — the previous generateJsonReport
+      // shape did the same, so preserve identity to keep behavior identical.
+      expect(entry.artifacts.harFiles).toBe(baseArtifacts.harFiles);
+    });
+
+    it('preserves the title, file, line, project, duration, and steps', () => {
+      const entry = serializeTestForJson(failedSample);
+
+      expect(entry.title).toBe(failedSample.title);
+      expect(entry.file).toBe(failedSample.file);
+      expect(entry.line).toBe(failedSample.line);
+      expect(entry.project).toBe(failedSample.project);
+      expect(entry.duration).toBe(failedSample.duration);
+      expect(entry.steps).toBe(failedSample.steps);
+    });
+
+    it('serializes a flaky test with the same shape as a failed test', () => {
+      const flakySample: FlakyTest = {
+        title: 'sample flakes',
+        file: 'e2e/flake.spec.ts',
+        line: 7,
+        project: 'webkit',
+        attempts: 2,
+        error: 'transient timeout',
+        duration: 500,
+        steps: [],
+        artifacts: baseArtifacts,
+      };
+
+      const entry = serializeTestForJson(flakySample);
+
+      expect(entry).toEqual({
+        title: 'sample flakes',
+        file: 'e2e/flake.spec.ts',
+        line: 7,
+        project: 'webkit',
+        duration: 500,
+        error: 'transient timeout',
+        rerunCommand: buildRerunCommand(flakySample),
+        steps: flakySample.steps,
+        artifacts: baseArtifacts,
+      });
     });
   });
 

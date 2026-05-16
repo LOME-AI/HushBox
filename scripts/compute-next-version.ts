@@ -1,7 +1,6 @@
-import { appendFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
-import { semverToCode } from './extract-version.js';
+import { semverToCode, writeGithubOutput } from './extract-version.js';
 
 interface Semver {
   major: number;
@@ -121,7 +120,6 @@ async function main(): Promise<void> {
   const token = process.env['GITHUB_TOKEN'];
   const repository = process.env['GITHUB_REPOSITORY'];
   const sha = process.env['GITHUB_SHA'];
-  const outputFile = process.env['GITHUB_OUTPUT'];
 
   if (!token) throw new Error('GITHUB_TOKEN is required');
   if (!repository) throw new Error('GITHUB_REPOSITORY is required');
@@ -131,21 +129,11 @@ async function main(): Promise<void> {
   const labels = await findMergedPrLabels(repository, sha, token);
   const result = computeNextVersion({ latestTag, labels });
 
-  const lines = [
+  writeGithubOutput([
     `version=${result.version}`,
     `version_name=${result.versionName}`,
     `version_code=${String(result.versionCode)}`,
-  ];
-
-  if (outputFile) {
-    for (const line of lines) {
-      appendFileSync(outputFile, `${line}\n`);
-    }
-  }
-
-  for (const line of lines) {
-    console.log(line);
-  }
+  ]);
 }
 
 const scriptPath = process.argv[1] ?? '';

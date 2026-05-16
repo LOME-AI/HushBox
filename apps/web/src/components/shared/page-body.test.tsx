@@ -46,4 +46,12 @@ describe('PageBody', () => {
     const outer = screen.getByTestId('page-body');
     expect(outer.className).not.toContain('space-y-6');
   });
+
+  it('uses a caller-provided testId on the outer container when passed', () => {
+    render(<PageBody testId="usage-content">content</PageBody>);
+    const outer = screen.getByTestId('usage-content');
+    expect(outer.className).toContain('overflow-y-auto');
+    // Default 'page-body' testid is replaced, not coexistent.
+    expect(screen.queryByTestId('page-body')).toBeNull();
+  });
 });

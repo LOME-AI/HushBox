@@ -206,7 +206,7 @@ test.describe('Fork Lifecycle', () => {
     await test.step('try to create 6th fork — should fail', async () => {
       await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
       await chatPage.clickForkTab('Main');
-      await chatPage.hoverMessage(1);
+      await chatPage.prepareMessage(1);
       await chatPage.getForkButton(1).click();
 
       await chatPage.expectForkTabCount(5);

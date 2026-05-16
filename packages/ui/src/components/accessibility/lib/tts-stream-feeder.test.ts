@@ -133,4 +133,192 @@ describe('createTtsStreamFeeder', () => {
     expect(consoleSpy).toHaveBeenCalledWith('TTS speak failed:', expect.any(Error));
     consoleSpy.mockRestore();
   });
+
+  describe('isStreamMuted gate', () => {
+    it('skips speak when isStreamMuted returns true', () => {
+      const { service, spoken } = makeFakeTts();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+        isStreamMuted: () => true,
+      });
+      feeder.feed('Hello. ');
+      expect(spoken).toEqual([]);
+    });
+
+    it('skips speak on end() when isStreamMuted returns true', () => {
+      const { service, spoken } = makeFakeTts();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+        isStreamMuted: () => true,
+      });
+      feeder.feed('Trailing');
+      feeder.end();
+      expect(spoken).toEqual([]);
+    });
+
+    it('still advances the chunker so already-emitted sentences are not re-spoken later', () => {
+      const { service, spoken } = makeFakeTts();
+      let muted = false;
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+        isStreamMuted: () => muted,
+      });
+      muted = true;
+      feeder.feed('First. ');
+      muted = false;
+      feeder.feed('Second. ');
+      expect(spoken.map((s) => s.text)).toEqual(['Second.']);
+    });
+
+    it('treats omitted isStreamMuted as never-muted', () => {
+      const { service, spoken } = makeFakeTts();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+      });
+      feeder.feed('Hi. ');
+      expect(spoken).toEqual([{ text: 'Hi.', voice: 'af_heart' }]);
+    });
+  });
+
+  describe('onStreamStart hook', () => {
+    it('fires exactly once across multiple sentences', () => {
+      const { service } = makeFakeTts();
+      const onStreamStart = vi.fn();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+        onStreamStart,
+      });
+      feeder.feed('First. Second. Third. ');
+      expect(onStreamStart).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not fire when nothing is ever spoken (disabled throughout)', () => {
+      const { service } = makeFakeTts();
+      const onStreamStart = vi.fn();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => false,
+        onStreamStart,
+      });
+      feeder.feed('First. ');
+      feeder.end();
+      expect(onStreamStart).not.toHaveBeenCalled();
+    });
+
+    it('does not fire when tts is not loaded', () => {
+      const { service } = makeFakeTts();
+      (service.isLoaded as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      const onStreamStart = vi.fn();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+        onStreamStart,
+      });
+      feeder.feed('First. ');
+      expect(onStreamStart).not.toHaveBeenCalled();
+    });
+
+    it('does not fire when isStreamMuted is true from the start', () => {
+      const { service } = makeFakeTts();
+      const onStreamStart = vi.fn();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+        isStreamMuted: () => true,
+        onStreamStart,
+      });
+      feeder.feed('First. Second. ');
+      expect(onStreamStart).not.toHaveBeenCalled();
+    });
+
+    it('fires once when end() flushes a remainder and no prior sentence was spoken', () => {
+      const { service } = makeFakeTts();
+      const onStreamStart = vi.fn();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+        onStreamStart,
+      });
+      feeder.feed('No boundary');
+      feeder.end();
+      expect(onStreamStart).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('onStreamEnd hook', () => {
+    it('fires after end() once all speak promises settle', async () => {
+      const { service } = makeFakeTts();
+      const onStreamEnd = vi.fn();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+        onStreamEnd,
+      });
+      feeder.feed('First. ');
+      feeder.end();
+      expect(onStreamEnd).not.toHaveBeenCalled();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(onStreamEnd).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires synchronously from end() when nothing was ever spoken', () => {
+      const { service } = makeFakeTts();
+      const onStreamEnd = vi.fn();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => false,
+        onStreamEnd,
+      });
+      feeder.end();
+      expect(onStreamEnd).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires after end() even when a speak rejects', async () => {
+      const { service } = makeFakeTts();
+      (service.speak as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('audio failed'));
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const onStreamEnd = vi.fn();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+        onStreamEnd,
+      });
+      feeder.feed('boom. ');
+      feeder.end();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(onStreamEnd).toHaveBeenCalledTimes(1);
+      consoleSpy.mockRestore();
+    });
+
+    it('does not fire before end() is called even after all speaks settle', async () => {
+      const { service } = makeFakeTts();
+      const onStreamEnd = vi.fn();
+      const feeder = createTtsStreamFeeder({
+        tts: service,
+        voice: 'af_heart',
+        isEnabled: () => true,
+        onStreamEnd,
+      });
+      feeder.feed('First. ');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(onStreamEnd).not.toHaveBeenCalled();
+    });
+  });
 });

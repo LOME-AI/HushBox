@@ -189,7 +189,7 @@ export function SettingsPage(): React.JSX.Element {
     <div className="flex h-full flex-col">
       <PageHeader title="Settings" right={<ThemeToggle />} />
 
-      <PageBody className="space-y-6">
+      <PageBody testId="settings-content" className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-[#ec4755]">Account</CardTitle>
