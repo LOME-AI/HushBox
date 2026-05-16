@@ -171,9 +171,6 @@ importers:
 
   apps/api:
     dependencies:
-      '@ai-sdk/gateway':
-        specifier: ^3.0.95
-        version: 3.0.95(zod@4.3.6)
       '@hono/zod-validator':
         specifier: ^0.7.6
         version: 0.7.6(hono@4.12.6)(zod@4.3.6)
@@ -622,9 +619,6 @@ importers:
 
   packages/shared:
     dependencies:
-      '@ai-sdk/gateway':
-        specifier: ^3.0.95
-        version: 3.0.95(zod@4.3.6)
       zod:
         specifier: ^4.3.6
         version: 4.3.6

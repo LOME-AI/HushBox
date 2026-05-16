@@ -13,14 +13,16 @@ vi.mock('@hushbox/db', async (importOriginal) => {
   };
 });
 
-vi.mock('@ai-sdk/gateway', () => ({
-  createGateway: () => ({
-    getAvailableModels: () =>
-      Promise.resolve({
-        models: (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ ?? [],
-      }),
-  }),
-}));
+interface PublicModelFixture {
+  id: string;
+  name?: string;
+  description?: string;
+  type?: string;
+  pricing?: Record<string, unknown>;
+  context_window?: number;
+}
+
+let publicModelsFixture: PublicModelFixture[] = [];
 
 const {
   conversations: conversationsTable,
@@ -304,24 +306,26 @@ describe('stream-pipeline billing mismatch wiring', () => {
     clearModelCache();
     fetchMock = vi.fn() as FetchMock;
     vi.stubGlobal('fetch', fetchMock);
-    (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = mockModels.map(
-      (m) => ({
-        id: m.id,
-        name: m.name,
-        description: m.description,
-        modelType: 'language',
-        pricing: { input: m.pricing.prompt, output: m.pricing.completion },
-      })
-    );
+    publicModelsFixture = mockModels.map((m) => ({
+      id: m.id,
+      name: m.name,
+      description: m.description,
+      type: 'language',
+      pricing: { input: m.pricing.prompt, output: m.pricing.completion },
+      context_window: m.context_length,
+    }));
     fetchMock.mockImplementation(() =>
-      Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: publicModelsFixture }),
+      })
     );
     recordEvidenceMock.mockClear();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    delete (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__;
+    publicModelsFixture = [];
   });
 
   it('records BILLING_MISMATCH evidence when actual cost deviates from per-slot reservation by more than the threshold', async () => {

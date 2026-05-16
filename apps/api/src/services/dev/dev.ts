@@ -179,16 +179,24 @@ export interface ResetUsageRateLimitsResult {
 }
 
 /**
- * Reset authenticated-user usage rate limits between tests. Excludes
- * `trial:chat:stream:ip:ratelimit:*` because `trial-chat.spec.ts` exercises
- * that limit firing — clearing it would break those tests. Excludes IP-scoped
- * anti-scraping limits for the same reason.
+ * Reset per-user usage rate limits and speculative balance reservations
+ * between tests. Excludes IP-scoped and trial-scoped buckets whose tests
+ * exercise the limit firing.
+ *
+ * Reservation prefixes are included so `setWalletBalance` produces an
+ * available balance equal to the wallet value — without clearing them, a
+ * leftover reservation from a prior request would subtract from the new
+ * wallet for up to its 180s TTL, leaving the UI's raw-balance view and the
+ * billing path's reservation-adjusted view out of sync.
  */
 export async function resetUsageRateLimits(redis: Redis): Promise<ResetUsageRateLimitsResult> {
   const prefixes = [
     'chat:stream:user:ratelimit:*',
     'media:download:user:ratelimit:*',
     'share:create:user:ratelimit:*',
+    'chat:reserved:*',
+    'chat:group-reserved:*',
+    'chat:conversation-reserved:*',
   ];
 
   return deleteRedisKeysByPrefixes(redis, prefixes);

@@ -1,18 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
-vi.mock('@ai-sdk/gateway', () => ({
-  createGateway: () => ({
-    getAvailableModels: () =>
-      Promise.resolve({
-        models: (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ ?? [],
-      }),
-  }),
-}));
-
 import { Hono } from 'hono';
 import { clearModelCache } from '@hushbox/shared/models';
 import { trialChatRoute } from './trial-chat.js';
-import { createMockAIClientWithGatewayCatalog } from '../services/ai/mock-with-gateway-catalog.js';
+import { createMockAIClient } from '../services/ai/mock.js';
 import type { AppEnv } from '../types.js';
 
 interface MockFetchResponse {
@@ -23,18 +14,42 @@ interface MockFetchResponse {
 
 type FetchMock = Mock<(url: string, init?: RequestInit) => Promise<MockFetchResponse>>;
 
-/** Build a URL-aware fetch mock and inject models into the @ai-sdk/gateway mock. */
+interface PublicModelFixture {
+  id: string;
+  name?: string;
+  description?: string;
+  type?: string;
+  pricing?: Record<string, unknown>;
+  context_window?: number;
+  created?: number;
+}
+
+let publicModelsFixture: PublicModelFixture[] = [];
+
+/**
+ * Stub `fetch` so the public `/v1/models` catalog returns the supplied models.
+ *
+ * `created` is intentionally omitted — the test sets fake system time to
+ * 2024-01-15, while the fixture's `created` value is computed at module load
+ * (real wall clock). Pushing the real value into the catalog would make every
+ * model look "recent" relative to the fake clock and trip the premium-by-
+ * recency guard. Defaulting `created` to 0 mirrors the pre-refactor behavior
+ * where the SDK path hardcoded `created: 0` regardless of model age.
+ */
 function buildFetchMock(fetchMock: FetchMock, models: typeof trialChatModels): void {
-  // Inject models into the @ai-sdk/gateway mock (gateway response shape)
-  (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = models.map((m) => ({
+  publicModelsFixture = models.map((m) => ({
     id: m.id,
     name: m.name,
     description: m.description,
-    modelType: 'language',
+    type: 'language',
     pricing: { input: m.pricing.prompt, output: m.pricing.completion },
+    context_window: m.context_length,
   }));
   fetchMock.mockImplementation(() =>
-    Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
+    Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ data: publicModelsFixture }),
+    })
   );
 }
 
@@ -126,7 +141,7 @@ function createTestApp(
     } as AppEnv['Bindings'];
     c.set('user', null); // Trial user
     c.set('session', null);
-    c.set('aiClient', createMockAIClientWithGatewayCatalog());
+    c.set('aiClient', createMockAIClient());
     c.set('redis', redis as unknown as AppEnv['Variables']['redis']);
     c.set('db', {} as unknown as AppEnv['Variables']['db']);
     await next();
@@ -153,6 +168,7 @@ describe('trial chat routes', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    publicModelsFixture = [];
   });
 
   describe('POST /stream', () => {
@@ -404,7 +420,7 @@ describe('trial chat routes', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('aiClient', createMockAIClientWithGatewayCatalog());
+        c.set('aiClient', createMockAIClient());
         c.set('redis', createMockRedis() as unknown as AppEnv['Variables']['redis']);
         c.set('db', {} as unknown as AppEnv['Variables']['db']);
         await next();

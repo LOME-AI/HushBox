@@ -20,6 +20,10 @@ interface ChatHeaderProps extends ModelSelectorGatingProps {
   /** Called when facepile is clicked (opens member list) */
   onFacepileClick?: (() => void) | undefined;
   activeModality?: Modality;
+  /** Controlled open state for the picker, lifted so siblings can trigger it. */
+  pickerOpen?: boolean | undefined;
+  /** Called when the picker should open or close. */
+  onPickerOpenChange?: ((open: boolean) => void) | undefined;
 }
 
 export function ChatHeader({
@@ -36,6 +40,8 @@ export function ChatHeader({
   onlineMemberIds,
   onFacepileClick,
   activeModality = 'text',
+  pickerOpen,
+  onPickerOpenChange,
 }: Readonly<ChatHeaderProps>): React.JSX.Element {
   const showGroupFeatures = members !== undefined && members.length > 0;
 
@@ -56,6 +62,8 @@ export function ChatHeader({
           isLinkGuest={isLinkGuest}
           onPremiumClick={onPremiumClick}
           activeModality={activeModality}
+          open={pickerOpen}
+          onOpenChange={onPickerOpenChange}
         />
       }
       right={

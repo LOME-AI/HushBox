@@ -33,21 +33,7 @@ test.describe('Smart Model', () => {
     await chatPage.waitForAppStable();
 
     await test.step('open model selector and choose Smart Model', async () => {
-      await chatPage.openModelSelector();
-      const modal = authenticatedPage.getByTestId('model-selector-modal');
-
-      // Clear default selection so Smart Model becomes the only choice.
-      const clearButton = modal.getByTestId('clear-selection-button');
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-      }
-
-      const smartItem = modal.getByTestId('model-item-smart-model');
-      await expect(smartItem).toBeVisible({ timeout: 10_000 });
-      await smartItem.getByTestId('model-checkbox').click();
-      await expect(smartItem).toHaveAttribute('data-selected', 'true');
-
-      await chatPage.confirmModelSelection();
+      await chatPage.selectSingleModel('smart-model');
     });
 
     const prompt = `Smart Model send ${String(Date.now())}`;
@@ -88,16 +74,7 @@ test.describe('Smart Model', () => {
       'x-mock-classifier-resolution': SONNET_MODEL_ID,
     });
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
-      await clearButton.click();
-    }
-    const smartItem = modal.getByTestId('model-item-smart-model');
-    await expect(smartItem).toBeVisible({ timeout: 10_000 });
-    await smartItem.getByTestId('model-checkbox').click();
-    await chatPage.confirmModelSelection();
+    await chatPage.selectSingleModel('smart-model');
 
     const prompt = `Smart Model regen ${String(Date.now())}`;
     await chatPage.sendNewChatMessage(prompt);
@@ -140,14 +117,7 @@ test.describe('Smart Model', () => {
     await chatPage.goto();
     await chatPage.waitForAppStable();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) await clearButton.click();
-    const smartItem = modal.getByTestId('model-item-smart-model');
-    await expect(smartItem).toBeVisible({ timeout: 10_000 });
-    await smartItem.getByTestId('model-checkbox').click();
-    await chatPage.confirmModelSelection();
+    await chatPage.selectSingleModel('smart-model');
 
     await chatPage.sendNewChatMessage(`Smart→Opus ${String(Date.now())}`);
     await chatPage.waitForConversation();
@@ -174,14 +144,7 @@ test.describe('Smart Model', () => {
     await chatPage.goto();
     await chatPage.waitForAppStable();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) await clearButton.click();
-    const smartItem = modal.getByTestId('model-item-smart-model');
-    await expect(smartItem).toBeVisible({ timeout: 10_000 });
-    await smartItem.getByTestId('model-checkbox').click();
-    await chatPage.confirmModelSelection();
+    await chatPage.selectSingleModel('smart-model');
 
     await chatPage.sendNewChatMessage(`Smart→Sonnet ${String(Date.now())}`);
     await chatPage.waitForConversation();
@@ -339,12 +302,6 @@ test.describe('Smart Model', () => {
     authenticatedPage,
   }) => {
     test.slow();
-
-    // Mock classifier streams resolve on the microtask queue — without an
-    // artificial delay the stage:start → stage:done round-trip is faster than
-    // Playwright's polling window and the indicator is unobservable. Real
-    // production timing is ~1-3s; 500ms is enough for `toBeVisible` to catch.
-    await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-classifier-delay-ms': '500' });
 
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.goto();

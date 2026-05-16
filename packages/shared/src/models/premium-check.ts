@@ -13,8 +13,8 @@ import type { RawModel } from './types.js';
 /** Percentile threshold for premium pricing (0.75 = 75th percentile) */
 export const PREMIUM_PRICE_PERCENTILE = 0.75;
 
-/** Recency threshold for premium models (1 year in milliseconds) */
-export const PREMIUM_RECENCY_MS = 365 * 24 * 60 * 60 * 1000;
+/** Recency threshold for premium models (6 months in milliseconds) */
+export const PREMIUM_RECENCY_MS = 182 * 24 * 60 * 60 * 1000;
 
 /** Model must afford at least 2× MINIMUM_OUTPUT_TOKENS within trial budget */
 export const TRIAL_AFFORDABILITY_MULTIPLIER = 2;

@@ -234,67 +234,18 @@ describe('computeImageWorstCaseCents', () => {
 
 describe('resolveWebSearchCost', () => {
   it('returns 0 when webSearchEnabled is false', () => {
-    const models = [
-      makeModelInfo({
-        id: 'openai/gpt-4o',
-        pricing: { prompt: '0.000005', completion: '0.000015', web_search: '0.004' },
-      }),
-    ];
-
-    expect(resolveWebSearchCost(false, 'openai/gpt-4o', models)).toBe(0);
+    expect(resolveWebSearchCost(false)).toBe(0);
   });
 
   it('returns the worst-case search cost (10 calls, fees included) when enabled', async () => {
-    const models = [
-      makeModelInfo({
-        id: 'openai/gpt-4o',
-        pricing: { prompt: '0.000005', completion: '0.000015', web_search: '0.004' },
-      }),
-    ];
-
     const { worstCaseSearchCost } = await import('@hushbox/shared');
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(
-      worstCaseSearchCost(),
-      9
-    );
-  });
-
-  it('returns the worst-case cost regardless of per-call price (gateway settles actual)', async () => {
-    const models = [
-      makeModelInfo({
-        id: 'openai/gpt-4o',
-        pricing: { prompt: '0.000005', completion: '0.000015' },
-      }),
-    ];
-
-    const { worstCaseSearchCost } = await import('@hushbox/shared');
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(
-      worstCaseSearchCost(),
-      9
-    );
-  });
-
-  it('still returns the worst case when the model is not found in the list', async () => {
-    const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
-
-    const { worstCaseSearchCost } = await import('@hushbox/shared');
-    expect(resolveWebSearchCost(true, 'nonexistent/model', models)).toBeCloseTo(
-      worstCaseSearchCost(),
-      9
-    );
-  });
-
-  it('returns the worst case when models array is empty', async () => {
-    const { worstCaseSearchCost } = await import('@hushbox/shared');
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', [])).toBeCloseTo(worstCaseSearchCost(), 9);
+    expect(resolveWebSearchCost(true)).toBeCloseTo(worstCaseSearchCost(), 9);
   });
 
   it('reserves MAX_SEARCH_TOOL_CALLS × SEARCH_COST_PER_CALL × (1 + fee) per request', async () => {
     const { applyFees, MAX_SEARCH_TOOL_CALLS, SEARCH_COST_PER_CALL } =
       await import('@hushbox/shared');
-    const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
-
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(
+    expect(resolveWebSearchCost(true)).toBeCloseTo(
       applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL),
       9
     );
@@ -303,18 +254,13 @@ describe('resolveWebSearchCost', () => {
   it('reserves the locked worst-case dollar amount (~$0.05475) per request', () => {
     // Pinning the math: MAX=10, per_call=$0.005, fee_rate=0.095
     // Total = applyFees(10 × 0.005) = 0.05 × 1.095 = 0.05475
-    const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeCloseTo(0.054_75, 9);
+    expect(resolveWebSearchCost(true)).toBeCloseTo(0.054_75, 9);
   });
 
   it('is strictly greater than the legacy 1× per-call estimate (the bug we fixed)', async () => {
     const { applyFees, SEARCH_COST_PER_CALL } = await import('@hushbox/shared');
-    const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
-
     // The previous bug reserved only 1× SEARCH_COST_PER_CALL (with fees).
-    expect(resolveWebSearchCost(true, 'openai/gpt-4o', models)).toBeGreaterThan(
-      applyFees(SEARCH_COST_PER_CALL)
-    );
+    expect(resolveWebSearchCost(true)).toBeGreaterThan(applyFees(SEARCH_COST_PER_CALL));
   });
 });
 

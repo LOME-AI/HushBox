@@ -8,7 +8,7 @@ import { ComparisonBar } from '@/components/chat/comparison-bar';
 import { ForkTabs } from '@/components/chat/fork-tabs';
 import { MessageList, type MessageListHandle } from '@/components/chat/message-list';
 import { PromptInput } from '@/components/chat/prompt-input';
-import { getPromptPlaceholder } from '@/components/chat/prompt-placeholder';
+import { getPromptPlaceholder } from '@/lib/modality-strings';
 import { DocumentPanel } from '@/components/document-panel/document-panel';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
@@ -486,6 +486,19 @@ interface ChatMainContentProps {
   readonly isAuthenticated: boolean;
   readonly isLinkGuest: boolean;
   readonly callerPrivilege: MemberPrivilege | undefined;
+  readonly conversationId: string | undefined;
+  readonly activeForkId: string | null | undefined;
+}
+
+// Drives MessageList remount on conversation/fork switch so Virtuoso re-applies
+// `initialTopMostItemIndex` and each fresh open lands on the latest message.
+// The prop is mount-only; without a key change Virtuoso would stay parked
+// wherever the previous conversation left it.
+function buildMessageListKey(
+  conversationId: string | undefined,
+  activeForkId: string | null | undefined
+): string {
+  return `${conversationId ?? 'init'}-${activeForkId ?? 'main'}`;
 }
 
 function ChatMainContent({
@@ -503,13 +516,17 @@ function ChatMainContent({
   isAuthenticated,
   isLinkGuest,
   callerPrivilege,
+  conversationId,
+  activeForkId,
 }: Readonly<ChatMainContentProps>): React.JSX.Element {
   const showDecrypting = messages.length === 0 && isDecrypting;
+  const messageListKey = buildMessageListKey(conversationId, activeForkId);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       {!showDecrypting && (
         <MessageList
+          key={messageListKey}
           ref={virtuosoRef}
           messages={messages}
           streamingMessageIds={streamingMessageIds}
@@ -814,14 +831,13 @@ export function ChatLayout({
     },
     [setActiveModality]
   );
-  const { models, premiumIds: modelPremiumIds, supportsSearch } = useSelectedModelCapabilities();
+  const { models, premiumIds: modelPremiumIds } = useSelectedModelCapabilities();
   // Search is a text-mode feature. Omit searchProps entirely in image mode
   // so the toggle disappears at the structural level, not a render-time check.
   const searchProps: ChatSearchProps | undefined =
     activeModality === 'text'
       ? {
           webSearchEnabled,
-          modelSupportsSearch: supportsSearch,
           onToggleWebSearch: toggleWebSearch,
         }
       : undefined;
@@ -832,6 +848,12 @@ export function ChatLayout({
   const handleRemoveModel = React.useCallback((modelId: string): void => {
     const { activeModality: current, removeModel } = useModelStore.getState();
     removeModel(current, modelId);
+  }, []);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const handleAddViaComparisonBar = React.useCallback((): void => {
+    const { activeModality: current, setPickerMode } = useModelStore.getState();
+    setPickerMode(current, 'multi');
+    setPickerOpen(true);
   }, []);
   const tierInfo = useTierInfo();
   const tierInfoOrUndefined = tierInfo ?? undefined;
@@ -929,6 +951,8 @@ export function ChatLayout({
           isLinkGuest={isLinkGuest ?? false}
           onPremiumClick={handlePremiumClick}
           activeModality={activeModality}
+          pickerOpen={pickerOpen}
+          onPickerOpenChange={setPickerOpen}
           {...buildChatHeaderGroupProps(groupChat, handleFacepileClick)}
         />
       </div>
@@ -936,6 +960,7 @@ export function ChatLayout({
         models={models}
         selectedModels={selectedModels}
         onRemoveModel={handleRemoveModel}
+        onAddClick={handleAddViaComparisonBar}
       />
       <ForkTabs
         {...resolveForkTabsProps({ forks, activeForkId, onForkSelect, onForkRename, onForkDelete })}
@@ -959,6 +984,8 @@ export function ChatLayout({
           isAuthenticated={isAuthenticated}
           isLinkGuest={isLinkGuest ?? false}
           callerPrivilege={callerPrivilege}
+          conversationId={conversationId}
+          activeForkId={activeForkId}
         />
         <DocumentPanel />
         {conversationId !== undefined && (

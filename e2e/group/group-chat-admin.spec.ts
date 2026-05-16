@@ -44,7 +44,10 @@ test.describe('Group Chat Admin', () => {
     await test.step('consecutive messages are grouped', async () => {
       const aliceChatPage = new ChatPage(authenticatedPage);
       // Messages #4 and #5 ("Alice replies" + "Summarize this") are consecutive
-      // from Alice and should be grouped into a single message-item
+      // from Alice and should be grouped into a single message-item.
+      // Park the grouped row in view first — the chat mounts at the latest
+      // message, so middle-of-conversation rows can be virtualized out.
+      await aliceChatPage.scrollMessageIntoView(3);
       const aliceGroup = aliceChatPage.getMessageGroups().filter({ hasText: 'Alice replies' });
       await expect(aliceGroup.getByText('Alice replies')).toBeVisible();
       await expect(aliceGroup.getByText('Summarize this')).toBeVisible();

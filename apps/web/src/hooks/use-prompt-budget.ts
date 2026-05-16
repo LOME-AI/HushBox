@@ -13,7 +13,7 @@ import { useBudgetCalculation } from '@/hooks/use-budget-calculation';
 import { useConversationBudgets } from '@/hooks/use-conversation-budgets';
 import { useMediaCostEstimate } from '@/hooks/use-media-cost-estimate';
 import { useResolveBilling } from '@/hooks/use-resolve-billing';
-import { useModelStore, getPrimaryModel } from '@/stores/model';
+import { useModelStore } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
 import { useModels } from '@/hooks/models';
 import { useSession, useAuthStore } from '@/lib/auth';
@@ -53,16 +53,6 @@ function resolveHasDelegatedBudget(
   groupBudgetData: { memberBudgetDollars: number } | undefined
 ): boolean {
   return isGroupMember && groupBudgetData != null && groupBudgetData.memberBudgetDollars > 0;
-}
-
-function resolveWebSearchCost(
-  webSearchEnabled: boolean,
-  webSearchPrice: number | undefined
-): number {
-  if (webSearchEnabled && webSearchPrice != null && webSearchPrice > 0) {
-    return worstCaseSearchCost();
-  }
-  return 0;
 }
 
 /**
@@ -219,7 +209,6 @@ interface ModelTokenPricing {
   modelInputPricePerToken: number;
   modelOutputPricePerToken: number;
   contextLength: number;
-  webSearchPrice: number | undefined;
 }
 
 interface TokenPricingCatalogEntry {
@@ -227,7 +216,6 @@ interface TokenPricingCatalogEntry {
   pricePerInputToken: number;
   pricePerOutputToken: number;
   contextLength: number;
-  webSearchPrice?: number | undefined;
 }
 
 /**
@@ -250,7 +238,6 @@ function buildModelTokenPricing(
       modelInputPricePerToken: pricing.inputPricePerToken,
       modelOutputPricePerToken: pricing.outputPricePerToken,
       contextLength: pricing.contextLength,
-      webSearchPrice: model?.webSearchPrice,
     };
   });
 }
@@ -312,8 +299,7 @@ export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
   const modelContextLength = Math.min(...modelsPricing.map((m) => m.contextLength));
   const isAuthenticated = !isSessionPending && Boolean(session?.user);
   const customInstructions = useAuthStore((s) => s.customInstructions);
-  const primaryModel = modelsData?.models.find((m) => m.id === getPrimaryModel(selectedModels).id);
-  const webSearchCost = resolveWebSearchCost(webSearchEnabled, primaryModel?.webSearchPrice);
+  const webSearchCost = webSearchEnabled ? worstCaseSearchCost() : 0;
 
   const isGroupMember = resolveIsGroupMember(input.conversationId, input.currentUserPrivilege);
 

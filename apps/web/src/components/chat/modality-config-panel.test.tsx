@@ -1,9 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { createModelStoreStub, type ModelStoreStub } from '@/test-utils/model-store-mock';
-import { ModalityConfigPanel } from './modality-config-panel';
+import {
+  ImageAspectRatioControl,
+  VideoAspectRatioControl,
+  VideoResolutionControl,
+  VideoDurationControl,
+  AudioFormatControl,
+  AudioDurationControl,
+  MediaCostLine,
+} from './modality-config-panel';
 
-// Mock useModels so the panel can look up pricing without a QueryClient.
+// Mock useModels so panels can look up pricing without a QueryClient.
 // Tests that care about pricing override the return value inline.
 // The `mockUseModels` ref has to be declared via `vi.hoisted` so it's available
 // inside the vi.mock factory (which runs before top-level declarations).
@@ -19,6 +27,7 @@ interface MockModelsPayload {
     id: string;
     modality: 'text' | 'image' | 'video' | 'audio';
     pricePerImage?: number;
+    pricePerSecond?: number;
     pricePerSecondByResolution?: Record<string, number>;
   }[];
 }
@@ -48,340 +57,601 @@ vi.mock('@/stores/model', async (importOriginal) => {
   return { ...actual, useModelStore: store };
 });
 
-describe('ModalityConfigPanel', () => {
+describe('ImageAspectRatioControl', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetModelStoreStub();
+    resetModelStoreStub({ activeModality: 'image', imageConfig: { aspectRatio: '1:1' } });
   });
 
-  it('renders nothing for text modality', () => {
-    resetModelStoreStub({ activeModality: 'text' });
-    const { container } = render(<ModalityConfigPanel />);
-    expect(container.firstChild).toBeNull();
+  it('renders aspect ratio picker with all supported ratios', () => {
+    render(<ImageAspectRatioControl />);
+    expect(screen.getByRole('button', { name: '1:1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '4:3' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '3:4' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '9:16' })).toBeInTheDocument();
   });
 
-  it('renders nothing for audio modality (flag-off)', () => {
-    resetModelStoreStub({ activeModality: 'audio' });
-    const { container } = render(<ModalityConfigPanel />);
-    expect(container.firstChild).toBeNull();
+  it('marks the active aspect ratio with aria-pressed=true', () => {
+    resetModelStoreStub({ activeModality: 'image', imageConfig: { aspectRatio: '16:9' } });
+    render(<ImageAspectRatioControl />);
+    expect(screen.getByRole('button', { name: '16:9' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '1:1' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('calls setImageConfig when an aspect ratio is clicked', () => {
+    render(<ImageAspectRatioControl />);
+    fireEvent.click(screen.getByRole('button', { name: '16:9' }));
+    expect(modelStoreStubRef.current.setImageConfig).toHaveBeenCalledWith({
+      aspectRatio: '16:9',
+    });
+  });
+
+  it('exposes the aspect ratio group with a screen-reader-only legend', () => {
+    render(<ImageAspectRatioControl />);
+    expect(screen.getByText(/aspect ratio/i)).toBeInTheDocument();
+  });
+
+  it('renders all image ratio pills at the half-width size (w-14)', () => {
+    render(<ImageAspectRatioControl />);
+    for (const ratio of ['1:1', '4:3', '3:4', '16:9', '9:16']) {
+      expect(screen.getByRole('button', { name: ratio }).className).toContain('w-14');
+    }
+  });
+
+  it('narrows ratios to the intersection across selected models', () => {
+    mockModels({
+      models: [
+        {
+          id: 'fictional/narrow-image',
+          modality: 'image',
+          pricePerImage: 0.04,
+          supportedAspectRatios: ['1:1', '16:9'],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'image',
+      imageConfig: { aspectRatio: '1:1' },
+      selections: {
+        text: [],
+        image: [{ id: 'fictional/narrow-image', name: 'Narrow' }],
+        audio: [],
+        video: [],
+      },
+    });
+    render(<ImageAspectRatioControl />);
+    expect(screen.getByRole('button', { name: '1:1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '4:3' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '3:4' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '9:16' })).not.toBeInTheDocument();
+  });
+});
+
+describe('VideoAspectRatioControl', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+    });
+  });
+
+  it('renders the two Veo-supported ratios', () => {
+    render(<VideoAspectRatioControl />);
+    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '9:16' })).toBeInTheDocument();
+  });
+
+  it('does not render 1:1 or 4:3 (Veo does not support these)', () => {
+    render(<VideoAspectRatioControl />);
+    expect(screen.queryByRole('button', { name: '1:1' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '4:3' })).not.toBeInTheDocument();
+  });
+
+  it('marks the active aspect ratio with aria-pressed=true', () => {
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '9:16', durationSeconds: 4, resolution: '720p' },
+    });
+    render(<VideoAspectRatioControl />);
+    expect(screen.getByRole('button', { name: '9:16' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('writes setVideoConfig when aspect ratio changes', () => {
+    render(<VideoAspectRatioControl />);
+    fireEvent.click(screen.getByRole('button', { name: '9:16' }));
+    expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
+      aspectRatio: '9:16',
+    });
+  });
+
+  it('renders all video ratio pills at the same width as image ratio pills (w-14)', () => {
+    render(<VideoAspectRatioControl />);
+    for (const ratio of ['16:9', '9:16']) {
+      expect(screen.getByRole('button', { name: ratio }).className).toContain('w-14');
+    }
+  });
+
+  it('narrows ratios to the intersection across selected video models', () => {
+    mockModels({
+      models: [
+        {
+          id: 'fictional/landscape-only',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedAspectRatios: ['16:9'],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'fictional/landscape-only', name: 'Landscape Only' }],
+      },
+    });
+    render(<VideoAspectRatioControl />);
+    expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '9:16' })).not.toBeInTheDocument();
+  });
+});
+
+describe('VideoResolutionControl', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows an empty-state hint when no model is selected', () => {
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: { text: [], image: [], audio: [], video: [] },
+    });
+    render(<VideoResolutionControl />);
+    expect(screen.getByText(/Select a video model to see resolution options/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /720p/i })).not.toBeInTheDocument();
+  });
+
+  it('labels resolution buttons with per-second prices when the primary model is priced', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
+        },
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoResolutionControl />);
+    expect(screen.getByRole('button', { name: /720p \$0.10\/s/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /1080p \$0.15\/s/ })).toBeInTheDocument();
+  });
+
+  it('omits resolutions not priced by the primary model', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1',
+          modality: 'video',
+          pricePerSecondByResolution: { '1080p': 0.15 },
+        },
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoResolutionControl />);
+    expect(screen.queryByRole('button', { name: /720p/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /1080p/ })).toBeInTheDocument();
+  });
+
+  it('writes setVideoConfig when a resolution is clicked', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
+        },
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoResolutionControl />);
+    fireEvent.click(screen.getByRole('button', { name: /1080p\s+\$0\.15\/s/ }));
+    expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
+      resolution: '1080p',
+    });
+  });
+
+  it('falls back to the first supported resolution when the current one is unsupported', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1',
+          modality: 'video',
+          pricePerSecondByResolution: { '1080p': 0.15 },
+        },
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoResolutionControl />);
+    expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
+      resolution: '1080p',
+    });
+  });
+});
+
+describe('VideoDurationControl', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+    });
+  });
+
+  it('falls back to the 1-8s legacy bounds when no model is selected', () => {
+    render(<VideoDurationControl />);
+    const slider = screen.getByRole('slider');
+    expect(slider).toHaveAttribute('min', '1');
+    expect(slider).toHaveAttribute('max', '8');
+    expect(slider).toHaveValue('4');
+  });
+
+  it('writes setVideoConfig when duration changes (no model — no snap)', () => {
+    render(<VideoDurationControl />);
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '6' } });
+    expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
+      durationSeconds: 6,
+    });
+  });
+
+  it('displays the current duration next to the slider', () => {
+    render(<VideoDurationControl />);
+    expect(screen.getByText(/4s/i)).toBeInTheDocument();
+  });
+
+  it('exposes the duration in aria-valuetext for screen readers', () => {
+    render(<VideoDurationControl />);
+    const slider = screen.getByRole('slider');
+    expect(slider).toHaveAttribute('aria-valuetext', '4 seconds');
+  });
+
+  it('clamps min and max to the selected Veo 3.1 model durations (4-8)', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedVideoDurationsSeconds: [4, 6, 8],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoDurationControl />);
+    const slider = screen.getByRole('slider');
+    expect(slider).toHaveAttribute('min', '4');
+    expect(slider).toHaveAttribute('max', '8');
+  });
+
+  it('snaps a raw 5 to the nearest supported value (4) when Veo 3.1 is selected', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedVideoDurationsSeconds: [4, 6, 8],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoDurationControl />);
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '5' } });
+    expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
+      durationSeconds: 4,
+    });
+  });
+
+  it('intersects durations across multiple selected models (Veo 3.0 ∩ 3.1 = {6, 8})', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.0-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedVideoDurationsSeconds: [5, 6, 7, 8],
+        } as never,
+        {
+          id: 'google/veo-3.1-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedVideoDurationsSeconds: [4, 6, 8],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 6, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [
+          { id: 'google/veo-3.0-generate-001', name: 'Veo 3.0' },
+          { id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' },
+        ],
+      },
+    });
+    render(<VideoDurationControl />);
+    const slider = screen.getByRole('slider');
+    expect(slider).toHaveAttribute('min', '6');
+    expect(slider).toHaveAttribute('max', '8');
+  });
+});
+
+describe('VideoResolutionControl + 4K', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('shows a 4K button when the selected Veo 3.1 model lists it', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.4, '4k': 0.6 },
+          supportedVideoResolutions: ['720p', '1080p', '4k'],
+        } as never,
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoResolutionControl />);
+    expect(screen.getByRole('button', { name: /4k \$0\.60\/s/i })).toBeInTheDocument();
+  });
+
+  it('drops 4K from the intersection when Veo 3.0 (no 4K) is co-selected — primary is Veo 3.1', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.0-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.4 },
+          supportedVideoResolutions: ['720p', '1080p'],
+        } as never,
+        {
+          id: 'google/veo-3.1-generate-001',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.4, '4k': 0.6 },
+          supportedVideoResolutions: ['720p', '1080p', '4k'],
+        } as never,
+      ],
+    });
+    // Order matters: Veo 3.1 is primary (has 4K). Without cross-model
+    // agreement, the picker would expose 4K despite Veo 3.0 not supporting it,
+    // which is the exact bug the agreement helper exists to prevent.
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [
+          { id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' },
+          { id: 'google/veo-3.0-generate-001', name: 'Veo 3.0' },
+        ],
+      },
+    });
+    render(<VideoResolutionControl />);
+    expect(screen.queryByRole('button', { name: /4k/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /720p/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /1080p/i })).toBeInTheDocument();
+  });
+});
+
+describe('AudioFormatControl', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetModelStoreStub({
+      activeModality: 'audio',
+      audioConfig: { format: 'mp3', maxDurationSeconds: 60 },
+    });
+  });
+
+  it('renders the format picker with all supported formats', () => {
+    render(<AudioFormatControl />);
+    expect(screen.getByRole('button', { name: 'mp3' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'wav' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ogg' })).toBeInTheDocument();
+  });
+
+  it('marks the active format with aria-pressed=true', () => {
+    render(<AudioFormatControl />);
+    expect(screen.getByRole('button', { name: 'mp3' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'wav' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('calls setAudioConfig when a format is clicked', () => {
+    render(<AudioFormatControl />);
+    fireEvent.click(screen.getByRole('button', { name: 'wav' }));
+    expect(modelStoreStubRef.current.setAudioConfig).toHaveBeenCalledWith({ format: 'wav' });
+  });
+});
+
+describe('AudioDurationControl', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetModelStoreStub({
+      activeModality: 'audio',
+      audioConfig: { format: 'mp3', maxDurationSeconds: 60 },
+    });
+  });
+
+  it('renders a max duration slider that reflects audioConfig.maxDurationSeconds', () => {
+    render(<AudioDurationControl />);
+    const slider = screen.getByRole('slider', { name: /audio max duration/i });
+    expect(slider).toHaveValue('60');
+  });
+
+  it('calls setAudioConfig when the duration slider changes', () => {
+    render(<AudioDurationControl />);
+    const slider = screen.getByRole('slider', { name: /audio max duration/i });
+    fireEvent.change(slider, { target: { value: '120' } });
+    expect(modelStoreStubRef.current.setAudioConfig).toHaveBeenCalledWith({
+      maxDurationSeconds: 120,
+    });
+  });
+
+  it('caps the slider max at MAX_AUDIO_DURATION_SECONDS', () => {
+    render(<AudioDurationControl />);
+    const slider = screen.getByRole('slider', { name: /audio max duration/i });
+    expect(slider).toHaveAttribute('max', '600');
+    expect(slider).toHaveAttribute('min', '1');
+  });
+
+  it('exposes the audio max duration in aria-valuetext for screen readers', () => {
+    render(<AudioDurationControl />);
+    const slider = screen.getByRole('slider', { name: /audio max duration/i });
+    expect(slider).toHaveAttribute('aria-valuetext', '60 seconds');
+  });
+});
+
+describe('MediaCostLine', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
   describe('image modality', () => {
-    beforeEach(() => {
-      resetModelStoreStub({ activeModality: 'image', imageConfig: { aspectRatio: '1:1' } });
-    });
-
-    it('renders aspect ratio picker with all supported ratios', () => {
-      render(<ModalityConfigPanel />);
-      expect(screen.getByRole('button', { name: '1:1' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '3:2' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '9:16' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '4:3' })).toBeInTheDocument();
-    });
-
-    it('marks the active aspect ratio with aria-pressed=true', () => {
-      resetModelStoreStub({ activeModality: 'image', imageConfig: { aspectRatio: '16:9' } });
-      render(<ModalityConfigPanel />);
-      expect(screen.getByRole('button', { name: '16:9' })).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('button', { name: '1:1' })).toHaveAttribute('aria-pressed', 'false');
-    });
-
-    it('calls setImageConfig when an aspect ratio is clicked', () => {
-      render(<ModalityConfigPanel />);
-      fireEvent.click(screen.getByRole('button', { name: '16:9' }));
-      expect(modelStoreStubRef.current.setImageConfig).toHaveBeenCalledWith({
-        aspectRatio: '16:9',
-      });
-    });
-
-    it('does not render duration slider or resolution picker', () => {
-      render(<ModalityConfigPanel />);
-      expect(screen.queryByRole('slider')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: '720p' })).not.toBeInTheDocument();
-    });
-  });
-
-  describe('video modality', () => {
-    beforeEach(() => {
-      resetModelStoreStub({
-        activeModality: 'video',
-        videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
-      });
-    });
-
-    it('renders aspect ratio picker with video-supported ratios', () => {
-      render(<ModalityConfigPanel />);
-      expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '9:16' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '1:1' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '4:3' })).toBeInTheDocument();
-    });
-
-    it('does not render 3:2 aspect (video does not support it)', () => {
-      render(<ModalityConfigPanel />);
-      expect(screen.queryByRole('button', { name: '3:2' })).not.toBeInTheDocument();
-    });
-
-    it('shows an empty-state hint for resolution when no video model is selected', () => {
-      render(<ModalityConfigPanel />);
-      expect(
-        screen.getByText(/Select a video model to see resolution options/i)
-      ).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /720p/i })).not.toBeInTheDocument();
-    });
-
-    it('renders duration slider with min=1, max=8, current=4', () => {
-      render(<ModalityConfigPanel />);
-      const slider = screen.getByRole('slider');
-      expect(slider).toHaveAttribute('min', '1');
-      expect(slider).toHaveAttribute('max', '8');
-      expect(slider).toHaveValue('4');
-    });
-
-    it('writes setVideoConfig when aspect ratio changes', () => {
-      render(<ModalityConfigPanel />);
-      fireEvent.click(screen.getByRole('button', { name: '9:16' }));
-      expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
-        aspectRatio: '9:16',
-      });
-    });
-
-    it('writes setVideoConfig when resolution changes (with a selected video model)', () => {
+    it('displays an estimated cost when an image model is selected', () => {
       mockModels({
-        models: [
-          {
-            id: 'google/veo-3.1',
-            modality: 'video',
-            pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
-          },
-        ],
+        models: [{ id: 'google/imagen-4', modality: 'image', pricePerImage: 0.04 }],
       });
-      resetModelStoreStub({
-        activeModality: 'video',
-        videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
-        selections: {
-          text: [{ id: 'text-model', name: 'Text' }],
-          image: [],
-          audio: [],
-          video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
-        },
-      });
-      render(<ModalityConfigPanel />);
-      fireEvent.click(screen.getByRole('button', { name: /1080p\s+\$0\.15\/s/ }));
-      expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
-        resolution: '1080p',
-      });
-    });
-
-    it('writes setVideoConfig when duration changes', () => {
-      render(<ModalityConfigPanel />);
-      const slider = screen.getByRole('slider');
-      fireEvent.change(slider, { target: { value: '6' } });
-      expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
-        durationSeconds: 6,
-      });
-    });
-
-    it('marks the active aspect ratio with aria-pressed=true', () => {
-      resetModelStoreStub({
-        activeModality: 'video',
-        videoConfig: { aspectRatio: '9:16', durationSeconds: 4, resolution: '720p' },
-      });
-      render(<ModalityConfigPanel />);
-      expect(screen.getByRole('button', { name: '9:16' })).toHaveAttribute('aria-pressed', 'true');
-    });
-
-    it('displays the current duration next to the slider', () => {
-      render(<ModalityConfigPanel />);
-      expect(screen.getByText(/4s/i)).toBeInTheDocument();
-    });
-
-    it('exposes the duration in aria-valuetext for screen readers', () => {
-      render(<ModalityConfigPanel />);
-      const slider = screen.getByRole('slider');
-      expect(slider).toHaveAttribute('aria-valuetext', '4 seconds');
-    });
-  });
-
-  describe('video pricing UI', () => {
-    beforeEach(() => {
-      resetModelStoreStub({
-        activeModality: 'video',
-        videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
-        selections: {
-          text: [{ id: 'text-model', name: 'Text' }],
-          image: [],
-          audio: [],
-          video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
-        },
-      });
-    });
-
-    it('labels resolution buttons with per-second prices when the primary model is priced', () => {
-      mockModels({
-        models: [
-          {
-            id: 'google/veo-3.1',
-            modality: 'video',
-            pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
-          },
-        ],
-      });
-      render(<ModalityConfigPanel />);
-      expect(screen.getByRole('button', { name: /720p \$0.10\/s/ })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /1080p \$0.15\/s/ })).toBeInTheDocument();
-    });
-
-    it('omits resolutions not priced by the primary model', () => {
-      mockModels({
-        models: [
-          {
-            id: 'google/veo-3.1',
-            modality: 'video',
-            pricePerSecondByResolution: { '1080p': 0.15 },
-          },
-        ],
-      });
-      render(<ModalityConfigPanel />);
-      expect(screen.queryByRole('button', { name: /720p/ })).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /1080p/ })).toBeInTheDocument();
-    });
-
-    it('displays an estimated cost for the current config', () => {
-      mockModels({
-        models: [
-          {
-            id: 'google/veo-3.1',
-            modality: 'video',
-            pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
-          },
-        ],
-      });
-      render(<ModalityConfigPanel />);
-      // 4s × $0.10/s × 1.15 fee + storage ≈ $0.56 order of magnitude, just assert presence
-      expect(screen.getByText(/^≈ \$\d+\.\d+/)).toBeInTheDocument();
-    });
-
-    it('falls back to the first supported resolution when the current one is unsupported', () => {
-      resetModelStoreStub({
-        activeModality: 'video',
-        videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
-        selections: {
-          text: [{ id: 'text-model', name: 'Text' }],
-          image: [],
-          audio: [],
-          video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
-        },
-      });
-      mockModels({
-        models: [
-          {
-            id: 'google/veo-3.1',
-            modality: 'video',
-            pricePerSecondByResolution: { '1080p': 0.15 },
-          },
-        ],
-      });
-      render(<ModalityConfigPanel />);
-      expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
-        resolution: '1080p',
-      });
-    });
-  });
-
-  describe('image pricing UI', () => {
-    beforeEach(() => {
       resetModelStoreStub({
         activeModality: 'image',
         imageConfig: { aspectRatio: '1:1' },
         selections: {
-          text: [{ id: 'text-model', name: 'Text' }],
+          text: [],
           image: [{ id: 'google/imagen-4', name: 'Imagen 4' }],
           audio: [],
           video: [],
         },
       });
-    });
-
-    it('displays estimated cost for the primary selected image model', () => {
-      mockModels({
-        models: [{ id: 'google/imagen-4', modality: 'image', pricePerImage: 0.04 }],
-      });
-      render(<ModalityConfigPanel />);
+      render(<MediaCostLine modality="image" />);
       expect(screen.getByText(/^≈ \$\d+\.\d+/)).toBeInTheDocument();
     });
 
-    it('shows no cost line when no image model is selected', () => {
-      mockModels({
-        models: [],
-      });
+    it('renders null when no image model is selected', () => {
+      mockModels({ models: [] });
       resetModelStoreStub({
         activeModality: 'image',
         imageConfig: { aspectRatio: '1:1' },
         selections: { text: [], image: [], audio: [], video: [] },
       });
-      render(<ModalityConfigPanel />);
-      expect(screen.queryByText(/^≈ \$/)).not.toBeInTheDocument();
+      const { container } = render(<MediaCostLine modality="image" />);
+      expect(container.firstChild).toBeNull();
     });
   });
 
-  describe('audio modality (FEATURE_FLAGS.AUDIO_ENABLED on)', () => {
-    // Save/restore pattern — afterEach runs even when beforeEach throws,
-    // so the flag can't leak across tests in this file.
-    let originalAudioEnabled: boolean;
-    beforeEach(async () => {
-      const { FEATURE_FLAGS } = await import('@hushbox/shared');
-      originalAudioEnabled = FEATURE_FLAGS.AUDIO_ENABLED;
-      FEATURE_FLAGS.AUDIO_ENABLED = true;
-      resetModelStoreStub({
-        activeModality: 'audio',
-        audioConfig: { format: 'mp3', maxDurationSeconds: 60 },
-        selections: {
-          text: [{ id: 'text-model', name: 'Text' }],
-          image: [],
-          audio: [{ id: 'openai/tts-1', name: 'TTS-1' }],
-          video: [],
-        },
-      });
-    });
-
-    afterEach(async () => {
-      const { FEATURE_FLAGS } = await import('@hushbox/shared');
-      FEATURE_FLAGS.AUDIO_ENABLED = originalAudioEnabled;
-    });
-
-    it('renders the format picker with all supported formats', () => {
-      render(<ModalityConfigPanel />);
-      expect(screen.getByRole('button', { name: 'mp3' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'wav' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'ogg' })).toBeInTheDocument();
-    });
-
-    it('marks the active format with aria-pressed=true', () => {
-      render(<ModalityConfigPanel />);
-      expect(screen.getByRole('button', { name: 'mp3' })).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('button', { name: 'wav' })).toHaveAttribute('aria-pressed', 'false');
-    });
-
-    it('calls setAudioConfig when a format is clicked', () => {
-      render(<ModalityConfigPanel />);
-      fireEvent.click(screen.getByRole('button', { name: 'wav' }));
-      expect(modelStoreStubRef.current.setAudioConfig).toHaveBeenCalledWith({ format: 'wav' });
-    });
-
+  describe('video modality', () => {
     it('displays an estimated cost for the current config', () => {
       mockModels({
         models: [
           {
-            id: 'openai/tts-1',
-            modality: 'audio',
-            pricePerImage: 0,
-            pricePerSecondByResolution: {},
-          } as never,
+            id: 'google/veo-3.1',
+            modality: 'video',
+            pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
+          },
         ],
       });
-      // Override the mock with an audio-priced model — the panel reads pricePerSecond.
+      resetModelStoreStub({
+        activeModality: 'video',
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+        selections: {
+          text: [],
+          image: [],
+          audio: [],
+          video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
+        },
+      });
+      render(<MediaCostLine modality="video" />);
+      expect(screen.getByText(/^≈ \$\d+\.\d+/)).toBeInTheDocument();
+    });
+  });
+
+  describe('audio modality', () => {
+    it('displays an estimated cost for the current config', () => {
       mockUseModels.mockReturnValue({
         data: {
           models: [
@@ -390,36 +660,50 @@ describe('ModalityConfigPanel', () => {
           premiumIds: new Set<string>(),
         },
       });
-      render(<ModalityConfigPanel />);
+      resetModelStoreStub({
+        activeModality: 'audio',
+        audioConfig: { format: 'mp3', maxDurationSeconds: 60 },
+        selections: {
+          text: [],
+          image: [],
+          audio: [{ id: 'openai/tts-1', name: 'TTS-1' }],
+          video: [],
+        },
+      });
+      render(<MediaCostLine modality="audio" />);
       expect(screen.getByText(/^≈ \$\d+\.\d+/)).toBeInTheDocument();
     });
+  });
+});
 
-    it('renders a max duration slider that reflects audioConfig.maxDurationSeconds', () => {
-      render(<ModalityConfigPanel />);
-      const slider = screen.getByRole('slider', { name: /audio max duration/i });
-      expect(slider).toHaveValue('60');
-    });
+describe('AudioFormatControl when FEATURE_FLAGS.AUDIO_ENABLED is on', () => {
+  // Save/restore pattern — afterEach runs even when beforeEach throws,
+  // so the flag can't leak across tests in this file.
+  let originalAudioEnabled: boolean;
 
-    it('calls setAudioConfig when the duration slider changes', () => {
-      render(<ModalityConfigPanel />);
-      const slider = screen.getByRole('slider', { name: /audio max duration/i });
-      fireEvent.change(slider, { target: { value: '120' } });
-      expect(modelStoreStubRef.current.setAudioConfig).toHaveBeenCalledWith({
-        maxDurationSeconds: 120,
-      });
+  beforeEach(async () => {
+    const { FEATURE_FLAGS } = await import('@hushbox/shared');
+    originalAudioEnabled = FEATURE_FLAGS.AUDIO_ENABLED;
+    FEATURE_FLAGS.AUDIO_ENABLED = true;
+    resetModelStoreStub({
+      activeModality: 'audio',
+      audioConfig: { format: 'mp3', maxDurationSeconds: 60 },
+      selections: {
+        text: [],
+        image: [],
+        audio: [{ id: 'openai/tts-1', name: 'TTS-1' }],
+        video: [],
+      },
     });
+  });
 
-    it('caps the slider max at MAX_AUDIO_DURATION_SECONDS', () => {
-      render(<ModalityConfigPanel />);
-      const slider = screen.getByRole('slider', { name: /audio max duration/i });
-      expect(slider).toHaveAttribute('max', '600');
-      expect(slider).toHaveAttribute('min', '1');
-    });
+  afterEach(async () => {
+    const { FEATURE_FLAGS } = await import('@hushbox/shared');
+    FEATURE_FLAGS.AUDIO_ENABLED = originalAudioEnabled;
+  });
 
-    it('exposes the audio max duration in aria-valuetext for screen readers', () => {
-      render(<ModalityConfigPanel />);
-      const slider = screen.getByRole('slider', { name: /audio max duration/i });
-      expect(slider).toHaveAttribute('aria-valuetext', '60 seconds');
-    });
+  it('renders the format picker independent of the flag (parent handles flag gating)', () => {
+    render(<AudioFormatControl />);
+    expect(screen.getByRole('button', { name: 'mp3' })).toBeInTheDocument();
   });
 });

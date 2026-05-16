@@ -360,7 +360,10 @@ test.describe('Video Generation', () => {
 
     await chatPage.switchToVideoMode();
     // Force a known duration so resolution change is the only variable.
-    await chatPage.setVideoDuration(4);
+    // Must be within the default model's supported set (Veo 3.0 Fast: [5,6,7,8]);
+    // the slider snaps to nearest, so an unsupported value rounds away from the
+    // configured one.
+    await chatPage.setVideoDuration(5);
 
     const costLine = authenticatedPage.locator(String.raw`text=/^≈\s+\$\d+\.\d{3}$/`).first();
     await expect(costLine).toBeVisible({ timeout: 10_000 });

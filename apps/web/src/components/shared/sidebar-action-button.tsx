@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cn } from '@hushbox/ui';
+import { cn, useReducedMotion } from '@hushbox/ui';
 
 interface SidebarActionButtonProps {
   icon: React.ReactNode;
@@ -16,6 +16,7 @@ export function SidebarActionButton({
   collapsed,
   testId,
 }: Readonly<SidebarActionButtonProps>): React.JSX.Element {
+  const reducedMotion = useReducedMotion();
   const slashButtonStyles = {
     clipPath: 'polygon(0 0, 100% 0, 95% 100%, 0 100%)',
   };
@@ -30,7 +31,7 @@ export function SidebarActionButton({
           'relative flex h-9 w-9 cursor-pointer items-center justify-center overflow-hidden rounded-lg',
           'from-primary to-secondary bg-gradient-to-r',
           'text-white transition-all hover:opacity-90 hover:shadow-md',
-          'focus-visible:ring-primary focus-visible:ring-2 focus-visible:outline-none'
+          'focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none'
         )}
         style={slashButtonStyles}
       >
@@ -39,7 +40,7 @@ export function SidebarActionButton({
           aria-hidden="true"
           style={{
             background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
-            animation: 'shine 2s infinite',
+            ...(reducedMotion ? {} : { animation: 'shine 2s infinite' }),
           }}
         />
         <span className="relative z-10">{icon}</span>
@@ -56,7 +57,7 @@ export function SidebarActionButton({
         'relative flex w-full cursor-pointer items-center justify-start gap-2 overflow-hidden rounded-lg px-3 py-2',
         'from-primary to-secondary bg-gradient-to-r',
         'font-medium text-white transition-all hover:opacity-90 hover:shadow-md',
-        'focus-visible:ring-primary focus-visible:ring-2 focus-visible:outline-none'
+        'focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none'
       )}
       style={slashButtonStyles}
     >
@@ -65,7 +66,7 @@ export function SidebarActionButton({
         aria-hidden="true"
         style={{
           background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)',
-          animation: 'shine 3s infinite',
+          ...(reducedMotion ? {} : { animation: 'shine 3s infinite' }),
         }}
       />
       <span className="relative z-10">{icon}</span>

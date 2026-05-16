@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures.js';
 import { setupGroupConversationWithSidebar } from '../helpers/group-test-setup.js';
 import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-link.js';
+import { ChatPage } from '../pages/index.js';
 import {
   expectSharedConversationLoaded,
   expectNoDecryptionErrors,
@@ -41,10 +42,11 @@ test.describe('Auth User Using Link', () => {
 
       await expectSharedConversationLoaded(testBobPage);
 
-      await expect(testBobPage.getByText('Hello from Alice').first()).toBeVisible({
-        timeout: 10_000,
-      });
-      await expect(testBobPage.getByText('Hi from Bob').first()).toBeVisible();
+      // Chat mounts at the latest message; older rows may be virtualized out
+      // of the viewport, so use the scroll-aware helper to assert visibility.
+      const bobChatPage = new ChatPage(testBobPage);
+      await bobChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
+      await bobChatPage.assertMessageVisible('Hi from Bob');
 
       await expectNoDecryptionErrors(testBobPage);
       await expectSendInputDisabled(testBobPage);
@@ -68,9 +70,8 @@ test.describe('Auth User Using Link', () => {
 
       await expectSharedConversationLoaded(testBobPage);
 
-      await expect(testBobPage.getByText('Hello from Alice').first()).toBeVisible({
-        timeout: 10_000,
-      });
+      const bobChatPage = new ChatPage(testBobPage);
+      await bobChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
 
       await expectNoDecryptionErrors(testBobPage);
 

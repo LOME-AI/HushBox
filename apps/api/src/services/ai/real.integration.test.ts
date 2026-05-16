@@ -25,7 +25,7 @@ describe('AIClient real integration', () => {
 
   describe('listModels', () => {
     it(
-      'returns ZDR-only models with the expected discriminated shape',
+      'returns ModelInfo entries with the expected discriminated shape',
       async () => {
         const models = await client.listModels();
         expect(models.length).toBeGreaterThan(0);
@@ -34,16 +34,18 @@ describe('AIClient real integration', () => {
           expect(model.name).toBeTruthy();
           expect(model.provider).toBeTruthy();
           expect(['text', 'image', 'audio', 'video']).toContain(model.modality);
-          // Audio is dead-coded production-side (no entries on the ZDR
-          // allow-list yet) but the mock still ships a placeholder audio
-          // entry so chat.test.ts can exercise the audio dispatch branch
-          // when FEATURE_FLAGS.AUDIO_ENABLED is flipped on. Skip the ZDR
-          // assertion for audio until ZDR_AUDIO_MODEL_IDS gains entries.
-          if (model.modality !== 'audio') {
-            expect(model.isZdr).toBe(true);
-          }
           expect(['token', 'image', 'audio', 'video']).toContain(model.pricing.kind);
         }
+      },
+      TEXT_TIMEOUT_MS
+    );
+
+    it(
+      'includes at least one ZDR-listed model so the chat tier-gate has something to lock',
+      async () => {
+        const models = await client.listModels();
+        const zdrModels = models.filter((m) => m.isZdr);
+        expect(zdrModels.length).toBeGreaterThan(0);
       },
       TEXT_TIMEOUT_MS
     );
@@ -202,11 +204,16 @@ describe('AIClient real integration', () => {
 
   describe('ZDR enforcement', () => {
     it(
-      'every non-audio model returned by listModels has isZdr === true',
+      'flags ZDR-listed entries with isZdr === true',
       async () => {
+        // The public `/v1/models` endpoint exposes the full Vercel AI Gateway
+        // catalog; `listModels` no longer narrows to ZDR. ZDR enforcement
+        // happens downstream in `processModels` (route serving) and at the
+        // SDK provider-options boundary in `real.ts`. Verify the `isZdr`
+        // flag flips correctly for at least one entry on the allow-list.
         const models = await client.listModels();
-        const nonZdr = models.filter((m) => !m.isZdr && m.modality !== 'audio');
-        expect(nonZdr).toHaveLength(0);
+        const zdrText = models.find((m) => m.modality === 'text' && m.isZdr);
+        expect(zdrText).toBeDefined();
       },
       TEXT_TIMEOUT_MS
     );

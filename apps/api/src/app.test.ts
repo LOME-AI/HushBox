@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('@ai-sdk/gateway', () => ({
-  createGateway: () => ({
-    getAvailableModels: () => Promise.resolve({ models: [] }),
-  }),
-}));
-
 import { createApp } from './app.js';
 
 const mockDbFrom = {

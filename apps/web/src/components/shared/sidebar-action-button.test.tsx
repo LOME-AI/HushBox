@@ -1,9 +1,24 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SidebarActionButton } from './sidebar-action-button';
 
+const useReducedMotionMock = vi.fn<() => boolean>();
+
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useReducedMotion: (): boolean => useReducedMotionMock(),
+  };
+});
+
 describe('SidebarActionButton', () => {
+  beforeEach(() => {
+    useReducedMotionMock.mockReset();
+    useReducedMotionMock.mockReturnValue(false);
+  });
+
   describe('expanded mode', () => {
     it('renders button with label and icon', () => {
       render(
@@ -115,5 +130,90 @@ describe('SidebarActionButton', () => {
     const shineDiv = button.querySelector('[aria-hidden="true"]');
     expect(shineDiv).not.toBeNull();
     expect(shineDiv).toHaveClass('pointer-events-none', 'absolute', 'inset-0');
+  });
+
+  describe('focus ring', () => {
+    it('uses project-default focus-visible:ring-ring/50 in expanded mode', () => {
+      render(<SidebarActionButton icon={<span>+</span>} label="Action" onClick={vi.fn()} />);
+
+      const button = screen.getByRole('button');
+      expect(button).toHaveClass(
+        'focus-visible:ring-ring/50',
+        'focus-visible:ring-2',
+        'focus-visible:outline-none'
+      );
+      expect(button).not.toHaveClass('focus-visible:ring-primary');
+    });
+
+    it('uses project-default focus-visible:ring-ring/50 in collapsed mode', () => {
+      render(
+        <SidebarActionButton
+          icon={<span>+</span>}
+          label="Action"
+          onClick={vi.fn()}
+          collapsed={true}
+        />
+      );
+
+      const button = screen.getByRole('button');
+      expect(button).toHaveClass(
+        'focus-visible:ring-ring/50',
+        'focus-visible:ring-2',
+        'focus-visible:outline-none'
+      );
+      expect(button).not.toHaveClass('focus-visible:ring-primary');
+    });
+  });
+
+  describe('shine animation with reduced motion', () => {
+    it('applies shine animation style by default (expanded)', () => {
+      useReducedMotionMock.mockReturnValue(false);
+      render(<SidebarActionButton icon={<span>+</span>} label="Action" onClick={vi.fn()} />);
+
+      const button = screen.getByRole('button');
+      const shineDiv = button.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+      expect(shineDiv.style.animation).toContain('shine');
+    });
+
+    it('applies shine animation style by default (collapsed)', () => {
+      useReducedMotionMock.mockReturnValue(false);
+      render(
+        <SidebarActionButton
+          icon={<span>+</span>}
+          label="Action"
+          onClick={vi.fn()}
+          collapsed={true}
+        />
+      );
+
+      const button = screen.getByRole('button');
+      const shineDiv = button.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+      expect(shineDiv.style.animation).toContain('shine');
+    });
+
+    it('omits shine animation style when reduced motion is preferred (expanded)', () => {
+      useReducedMotionMock.mockReturnValue(true);
+      render(<SidebarActionButton icon={<span>+</span>} label="Action" onClick={vi.fn()} />);
+
+      const button = screen.getByRole('button');
+      const shineDiv = button.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+      expect(shineDiv.style.animation).toBe('');
+    });
+
+    it('omits shine animation style when reduced motion is preferred (collapsed)', () => {
+      useReducedMotionMock.mockReturnValue(true);
+      render(
+        <SidebarActionButton
+          icon={<span>+</span>}
+          label="Action"
+          onClick={vi.fn()}
+          collapsed={true}
+        />
+      );
+
+      const button = screen.getByRole('button');
+      const shineDiv = button.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+      expect(shineDiv.style.animation).toBe('');
+    });
   });
 });

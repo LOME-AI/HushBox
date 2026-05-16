@@ -1,10 +1,11 @@
 import * as React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatLayout } from './chat-layout';
 import type { GroupChatProps } from './chat-layout';
 import type { Message } from '@/lib/api';
+import type { ModelStoreStub } from '@/test-utils/model-store-mock';
 
 import type { ConversationWebSocket } from '@/lib/ws-client';
 
@@ -114,8 +115,20 @@ vi.mock('@/stores/ui-modals', () => ({
 }));
 
 vi.mock('@/components/chat/chat-header', () => ({
-  ChatHeader: ({ title, members }: { title?: string; members?: unknown[] }) => (
-    <div data-testid="chat-header" data-member-count={members?.length ?? 0}>
+  ChatHeader: ({
+    title,
+    members,
+    pickerOpen,
+  }: {
+    title?: string;
+    members?: unknown[];
+    pickerOpen?: boolean;
+  }) => (
+    <div
+      data-testid="chat-header"
+      data-member-count={members?.length ?? 0}
+      data-picker-open={pickerOpen === undefined ? 'unset' : String(pickerOpen)}
+    >
       {title}
     </div>
   ),
@@ -170,7 +183,6 @@ interface MockPromptInputProps {
   onTypingChange?: (isTyping: boolean) => void;
   searchProps?: {
     webSearchEnabled: boolean;
-    modelSupportsSearch: boolean;
     onToggleWebSearch: () => void;
   };
   isAuthenticated?: boolean;
@@ -182,9 +194,6 @@ function buildPromptInputDataAttributes(props: MockPromptInputProps): Record<str
   const attributes: Record<string, string> = {};
   if (props.searchProps?.webSearchEnabled !== undefined) {
     attributes['data-web-search-enabled'] = String(props.searchProps.webSearchEnabled);
-  }
-  if (props.searchProps?.modelSupportsSearch !== undefined) {
-    attributes['data-model-supports-search'] = String(props.searchProps.modelSupportsSearch);
   }
   if (props.searchProps?.onToggleWebSearch !== undefined) {
     attributes['data-has-toggle-web-search'] = 'true';
@@ -1032,7 +1041,6 @@ describe('ChatLayout', () => {
 
       const input = screen.getByTestId('prompt-input');
       expect(input).toHaveAttribute('data-web-search-enabled', 'false');
-      expect(input).toHaveAttribute('data-model-supports-search');
       expect(input).toHaveAttribute('data-is-authenticated', 'true');
       expect(input).toHaveAttribute('data-has-toggle-web-search', 'true');
     });
@@ -1042,6 +1050,46 @@ describe('ChatLayout', () => {
 
       const input = screen.getByTestId('prompt-input');
       expect(input).toHaveAttribute('data-is-authenticated', 'false');
+    });
+  });
+
+  describe('+Add chip integration', () => {
+    /**
+     * Restore single-model selection after each test so unrelated tests see the
+     * default fixture (one model). Mutates the closed-over store state directly
+     * — the mock factory creates `state` once at module load and re-reads it on
+     * every selector call.
+     */
+    afterEach(async () => {
+      const { useModelStore } = await import('@/stores/model');
+      (useModelStore.getState() as unknown as ModelStoreStub).selections.text = [
+        { id: 'gpt-4', name: 'GPT-4' },
+      ];
+      (useModelStore.getState() as unknown as ModelStoreStub).setPickerMode.mockReset();
+    });
+
+    it('opens the picker in multi mode when the +Add chip is clicked', async () => {
+      const { useModelStore } = await import('@/stores/model');
+      const state = useModelStore.getState() as unknown as ModelStoreStub;
+      state.selections.text = [
+        { id: 'gpt-4', name: 'GPT-4' },
+        { id: 'claude', name: 'Claude' },
+      ];
+
+      const user = userEvent.setup();
+      render(<ChatLayout {...defaultProps} />);
+
+      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-picker-open', 'false');
+
+      await user.click(screen.getByTestId('comparison-bar-add-button'));
+
+      expect(state.setPickerMode).toHaveBeenCalledWith('text', 'multi');
+      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-picker-open', 'true');
+    });
+
+    it('does not render the +Add chip when only one model is selected', () => {
+      render(<ChatLayout {...defaultProps} />);
+      expect(screen.queryByTestId('comparison-bar-add-button')).not.toBeInTheDocument();
     });
   });
 });

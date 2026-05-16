@@ -14,26 +14,6 @@ import {
   ledgerEntries as ledgerEntriesTable,
 } from '@hushbox/db';
 
-// ---------------------------------------------------------------------------
-// Module mocks — boundary-level intercepts of the AI SDK gateway. Mirrors the
-// shape used in apps/api/src/services/ai/real.test.ts: the mock fn is hoisted
-// to module scope so tests can prime its return value via mockGetAvailableModels
-// instead of a magic globalThis side-channel. The shared `__TEST_MOCK_MODELS__`
-// fallback stays for callers that haven't been migrated.
-// ---------------------------------------------------------------------------
-
-const mockGetAvailableModels = vi.fn(() =>
-  Promise.resolve({
-    models: (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ ?? [],
-  })
-);
-
-vi.mock('@ai-sdk/gateway', () => ({
-  createGateway: vi.fn(() => ({
-    getAvailableModels: mockGetAvailableModels,
-  })),
-}));
-
 import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_BILLING_MISMATCH,
@@ -45,10 +25,30 @@ import { clearModelCache } from '@hushbox/shared/models';
 import { generateKeyPair } from '@hushbox/crypto';
 import { chatRoute, lookupMediaModels } from './chat.js';
 import { createMockAIClient } from '../services/ai/mock.js';
-import { createMockAIClientWithGatewayCatalog } from '../services/ai/mock-with-gateway-catalog.js';
 import type { AppEnv } from '../types.js';
 import type { InferenceEvent } from '../services/ai/types.js';
 import type { MediaStorage } from '../services/storage/index.js';
+
+/**
+ * Public `/v1/models` fixture shape. `publicModelsFixture` (module-scoped
+ * below) is the per-test seed for the `fetch` mock so chat tests can swap the
+ * served catalog without rebuilding every fetch handler. Both mock and real
+ * AIClient source the catalog from `fetchModels`, which parses this shape.
+ * `pricing` is `Record<string, unknown>` so video/image-specific variants
+ * (`video_duration_pricing`, `image_dimension_quality_pricing`) fit without
+ * cast gymnastics.
+ */
+interface PublicModelFixture {
+  id: string;
+  name?: string;
+  description?: string;
+  type?: string;
+  pricing?: Record<string, unknown>;
+  context_window?: number;
+  created?: number;
+}
+
+let publicModelsFixture: PublicModelFixture[] = [];
 
 /** Type-safe JSON response parser for test assertions. */
 async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
@@ -147,6 +147,60 @@ const mockModels = [
     supported_parameters: ['temperature'],
     created: Math.floor(Date.now() / 1000),
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+  {
+    id: 'anthropic/claude-sonnet-4.6',
+    name: 'Claude Sonnet 4.6',
+    description: 'Fast text model',
+    modality: 'text' as const,
+    context_length: 200_000,
+    pricing: { prompt: '0.000003', completion: '0.000015' },
+    supported_parameters: ['temperature'],
+    created: Math.floor(Date.now() / 1000),
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+];
+
+/**
+ * Media model fixtures in public `/v1/models` shape — appended to the default
+ * catalog so multi-modality tests can resolve image/video/audio models without
+ * each test having to seed `publicModelsFixture` manually. The video entry
+ * uses `video_duration_pricing` so `fetchModels` populates
+ * `per_second_by_resolution` correctly.
+ */
+const MEDIA_MODEL_FIXTURES: PublicModelFixture[] = [
+  {
+    id: 'google/imagen-4.0-generate-001',
+    name: 'Imagen 4',
+    description: 'High-quality image generation',
+    type: 'image',
+    pricing: { image: '0.04' },
+  },
+  {
+    id: 'google/imagen-4.0-fast-generate-001',
+    name: 'Imagen 4 Fast',
+    description: 'Fast image generation',
+    type: 'image',
+    pricing: { image: '0.04' },
+  },
+  {
+    id: 'google/veo-3.1-generate-001',
+    name: 'Veo 3.1',
+    description: 'Video generation with audio',
+    type: 'video',
+    pricing: {
+      video_duration_pricing: [
+        { resolution: '720p', audio: true, cost_per_second: '0.4' },
+        { resolution: '1080p', audio: true, cost_per_second: '0.4' },
+      ],
+    },
+  },
+  {
+    id: 'openai/tts-1',
+    name: 'TTS-1',
+    description: 'Text-to-speech audio',
+    type: 'audio',
+    pricing: { input: '0', output: '0' },
   },
 ];
 
@@ -531,7 +585,7 @@ function createTestApp(
     } as AppEnv['Bindings'];
     c.set('user', mockUser);
     c.set('session', mockSession);
-    c.set('aiClient', aiClientOverride ?? createMockAIClientWithGatewayCatalog());
+    c.set('aiClient', aiClientOverride ?? createMockAIClient());
     c.set('mediaStorage', stubMediaStorage());
     c.set(
       'db',
@@ -560,7 +614,7 @@ function createUnauthenticatedTestApp() {
     } as AppEnv['Bindings'];
     c.set('user', null);
     c.set('session', null);
-    c.set('aiClient', createMockAIClientWithGatewayCatalog());
+    c.set('aiClient', createMockAIClient());
     c.set('db', createMockDb({}) as unknown as AppEnv['Variables']['db']);
     c.set('envUtils', createEnvUtilities(c.env));
     await next();
@@ -580,20 +634,23 @@ describe('chat routes', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
 
-    (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = mockModels.map(
-      (m) => ({
+    publicModelsFixture = [
+      ...mockModels.map((m) => ({
         id: m.id,
         name: m.name,
         description: m.description,
-        modelType: 'language',
+        type: 'language',
         pricing: { input: m.pricing.prompt, output: m.pricing.completion },
-      })
-    );
+        context_window: m.context_length,
+        created: m.created,
+      })),
+      ...MEDIA_MODEL_FIXTURES,
+    ];
 
     fetchMock.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ data: [] }),
+        json: () => Promise.resolve({ data: publicModelsFixture }),
       });
     });
   });
@@ -601,7 +658,7 @@ describe('chat routes', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
-    delete (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__;
+    publicModelsFixture = [];
   });
 
   describe('POST /stream', () => {
@@ -1799,27 +1856,27 @@ describe('chat routes', () => {
 
       it('broadcasts the resolved model id (not "smart-model") in message:complete for Smart Model selections', async () => {
         vi.useRealTimers();
-        // Sync the gateway mock with the smart-model fixture so eligibility resolves.
-        (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = [
+        // Sync the public-endpoint catalog with the smart-model fixture so eligibility resolves.
+        publicModelsFixture = [
           {
             id: 'openai/gpt-5',
             name: 'GPT-5',
             description: 'A capable model',
-            modelType: 'language',
+            type: 'language',
             pricing: { input: '0.00001', output: '0.00003' },
           },
           {
             id: 'openai/gpt-4o-mini',
             name: 'GPT-4o Mini',
             description: 'A cheap model',
-            modelType: 'language',
+            type: 'language',
             pricing: { input: '0.000001', output: '0.000003' },
           },
         ];
         // Pick the cheap model from the fixture as the classifier resolution so the
         // assertion can avoid hardcoding any specific id.
         const expectedResolvedId = 'openai/gpt-4o-mini';
-        const aiClient = createMockAIClientWithGatewayCatalog({
+        const aiClient = createMockAIClient({
           classifierResolution: expectedResolvedId,
         });
 
@@ -2534,6 +2591,15 @@ describe('chat routes', () => {
       ];
 
       function stubSmartModelTestModels(fetchMockFunction: FetchMock): void {
+        const publicShape = smartModelTestModels.map((m) => ({
+          id: m.id,
+          name: m.name,
+          description: m.description,
+          type: 'language',
+          pricing: { input: m.pricing.prompt, output: m.pricing.completion },
+          context_window: m.context_length,
+          created: m.created,
+        }));
         fetchMockFunction.mockImplementation((url: string) => {
           if (url.includes('/endpoints/zdr')) {
             return Promise.resolve({
@@ -2552,7 +2618,7 @@ describe('chat routes', () => {
           }
           return Promise.resolve({
             ok: true,
-            json: () => Promise.resolve({ data: smartModelTestModels }),
+            json: () => Promise.resolve({ data: publicShape }),
           });
         });
       }
@@ -2635,19 +2701,6 @@ describe('chat routes', () => {
       it('emits stage:start and stage:done events when classifier resolves an eligible model', async () => {
         vi.useRealTimers();
         stubSmartModelTestModels(fetchMock);
-        // Sync the gateway mock to whatever the test fixture lists. Avoids
-        // hardcoded model ids in the assertion below — the resolved model is
-        // whichever non-Smart-Model entry is cheapest in the eligible set.
-        (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ =
-          smartModelTestModels
-            .filter((m) => m.id !== SMART_MODEL_TEST_ID)
-            .map((m) => ({
-              id: m.id,
-              name: m.name,
-              description: m.description,
-              modelType: 'language',
-              pricing: { input: m.pricing.prompt, output: m.pricing.completion },
-            }));
         // Pick any real eligible model id at random and instruct the mock
         // classifier to "resolve" to it. The test then asserts the SSE
         // payload contains exactly that id, so changes to the fixture
@@ -2657,7 +2710,7 @@ describe('chat routes', () => {
         )?.id;
         if (expectedResolvedId === undefined)
           throw new Error('test fixture must include a real model');
-        const aiClient = createMockAIClientWithGatewayCatalog({
+        const aiClient = createMockAIClient({
           classifierResolution: expectedResolvedId,
         });
         const app = createTestApp(undefined, undefined, undefined, aiClient);
@@ -2690,18 +2743,8 @@ describe('chat routes', () => {
         // failed classifier attempt.
         vi.useRealTimers();
         stubSmartModelTestModels(fetchMock);
-        (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ =
-          smartModelTestModels
-            .filter((m) => m.id !== SMART_MODEL_TEST_ID)
-            .map((m) => ({
-              id: m.id,
-              name: m.name,
-              description: m.description,
-              modelType: 'language',
-              pricing: { input: m.pricing.prompt, output: m.pricing.completion },
-            }));
         // Configure a classifier output that won't match any eligible model.
-        const aiClient = createMockAIClientWithGatewayCatalog({
+        const aiClient = createMockAIClient({
           classifierResolution: 'totally-unrelated-model-id-xyz',
         });
         const app = createTestApp(undefined, undefined, undefined, aiClient);
@@ -2855,6 +2898,56 @@ describe('chat routes', () => {
           const data = JSON.parse(match[1]!) as Record<string, unknown>;
           expect(data).toHaveProperty('modelId');
         }
+      });
+
+      // Regression for the N² web-search over-reservation: web search is a
+      // per-request feature (one Perplexity call shared across all N models),
+      // not per-model. `buildCostManifest` multiplies the caller's
+      // `webSearchCost` by `modelCount` internally, so the caller MUST pass
+      // the per-request cost. Passing `worstCaseSearchCost() * models.length`
+      // (the pre-fix call site) inflated reservations by N² instead of N.
+      it('reserves web-search cost as N × base, not N² × base, for N selected models', async () => {
+        vi.useRealTimers();
+        const { worstCaseSearchCost } = await import('@hushbox/shared');
+
+        stubMultiModels(fetchMock);
+        const redisWithSearch = createMockRedis();
+        const appWithSearch = createTestApp(undefined, redisWithSearch);
+        const resWithSearch = await appWithSearch.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            models: ['openai/gpt-5', SECOND_MODEL_ID],
+            webSearchEnabled: true,
+          }),
+        });
+        await resWithSearch.text();
+
+        stubMultiModels(fetchMock);
+        const redisWithoutSearch = createMockRedis();
+        const appWithoutSearch = createTestApp(undefined, redisWithoutSearch);
+        const resWithoutSearch = await appWithoutSearch.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            models: ['openai/gpt-5', SECOND_MODEL_ID],
+            webSearchEnabled: false,
+          }),
+        });
+        await resWithoutSearch.text();
+
+        // redis.eval call shape: (script, [key], [incrementStr, ttlStr])
+        const withSearchReservation = Number(redisWithSearch.eval.mock.calls[0]?.[2]?.[0]);
+        const withoutSearchReservation = Number(redisWithoutSearch.eval.mock.calls[0]?.[2]?.[0]);
+        const searchDeltaCents = withSearchReservation - withoutSearchReservation;
+
+        // Expected: 2 models × base search cost (in cents).
+        const expectedDeltaCents = 2 * worstCaseSearchCost() * 100;
+        expect(searchDeltaCents).toBeCloseTo(expectedDeltaCents, 5);
+
+        // Regression guard: must NOT be 4× base (the N² bug).
+        const buggyDeltaCents = 4 * worstCaseSearchCost() * 100;
+        expect(searchDeltaCents).not.toBeCloseTo(buggyDeltaCents, 5);
       });
     });
 
@@ -3089,6 +3182,31 @@ describe('chat routes', () => {
         expect(body.code).toBe('MODALITY_MISMATCH');
         const invalidModels = body.details?.['invalidModels'] as string[] | undefined;
         expect(invalidModels).toContain(TEXT_MODEL_ID);
+      });
+
+      it('returns 400 UNSUPPORTED_DURATION when the duration is not in the model supported set', async () => {
+        vi.useRealTimers();
+        const app = createTestApp();
+
+        // Veo 3.1 supports {4, 6, 8}. `5` is in the legacy 1-8 range but not in
+        // the discrete set — the request should reject before reaching the
+        // gateway so the user sees a clear error instead of a silent clamp.
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: [VIDEO_MODEL_ID],
+            videoConfig: { aspectRatio: '16:9', durationSeconds: 5, resolution: '720p' },
+          }),
+        });
+
+        expect(res.status).toBe(400);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('UNSUPPORTED_DURATION');
+        expect(body.details?.['durationSeconds']).toBe(5);
+        const invalidModels = body.details?.['invalidModels'] as string[] | undefined;
+        expect(invalidModels).toContain(VIDEO_MODEL_ID);
       });
 
       it('returns 400 UNSUPPORTED_RESOLUTION when the selected model does not price the requested resolution', async () => {

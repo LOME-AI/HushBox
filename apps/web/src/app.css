@@ -245,10 +245,37 @@ body {
   animation: dot-pulse 1.4s ease-in-out infinite;
 }
 
+/* One-shot accent pulse for the carryover model row when switching to multi mode */
+@keyframes picker-pulse {
+  0% {
+    background-color: transparent;
+  }
+  35% {
+    background-color: color-mix(in oklch, var(--color-accent) 70%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-picker-pulse {
+  animation: picker-pulse 600ms ease-out 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .animate-picker-pulse {
+    animation: none;
+  }
+
   .animate-dot-pulse {
     animation: none;
     opacity: 0.6;
+  }
+
+  .animate-blink,
+  .animate-slide-up,
+  .animate-shake {
+    animation: none;
   }
 }
 

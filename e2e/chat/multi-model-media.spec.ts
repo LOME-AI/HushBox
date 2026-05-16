@@ -28,19 +28,7 @@ test.describe('Multi-Model Media', () => {
     await chatPage.switchToImageMode();
 
     await test.step('select two image models in the modal', async () => {
-      await chatPage.openModelSelector();
-      const modal = authenticatedPage.getByTestId('model-selector-modal');
-      const clearButton = modal.getByTestId('clear-selection-button');
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-      }
-      for (const id of IMAGE_MODELS) {
-        const item = modal.getByTestId(`model-item-${id}`);
-        await expect(item).toBeVisible();
-        await item.getByTestId('model-checkbox').click();
-        await expect(item).toHaveAttribute('data-selected', 'true');
-      }
-      await chatPage.confirmModelSelection();
+      await chatPage.selectModelsByIds(IMAGE_MODELS);
     });
 
     const prompt = `Multi-image ${String(Date.now())}`;
@@ -96,18 +84,7 @@ test.describe('Multi-Model Media', () => {
     const failModel = IMAGE_MODELS[1];
 
     await test.step('select 2 image models and mark the second as failing', async () => {
-      await chatPage.openModelSelector();
-      const modal = authenticatedPage.getByTestId('model-selector-modal');
-      const clearButton = modal.getByTestId('clear-selection-button');
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-      }
-      for (const id of IMAGE_MODELS) {
-        const item = modal.getByTestId(`model-item-${id}`);
-        await item.getByTestId('model-checkbox').click();
-      }
-      await chatPage.confirmModelSelection();
-
+      await chatPage.selectModelsByIds(IMAGE_MODELS);
       await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModel });
     });
 
@@ -175,16 +152,7 @@ test.describe('Multi-Model Media', () => {
 
     await chatPage.switchToImageMode();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
-      await clearButton.click();
-    }
-    for (const id of IMAGE_MODELS) {
-      await modal.getByTestId(`model-item-${id}`).getByTestId('model-checkbox').click();
-    }
-    await chatPage.confirmModelSelection();
+    await chatPage.selectModelsByIds(IMAGE_MODELS);
 
     await chatPage.sendNewChatMessage(`Fork-multi-image ${String(Date.now())}`);
     await chatPage.waitForConversation();
@@ -220,19 +188,7 @@ test.describe('Multi-Model Media', () => {
 
     await chatPage.switchToVideoMode();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
-      await clearButton.click();
-    }
-    for (const id of VIDEO_MODELS) {
-      const item = modal.getByTestId(`model-item-${id}`);
-      await expect(item).toBeVisible();
-      await item.getByTestId('model-checkbox').click();
-      await expect(item).toHaveAttribute('data-selected', 'true');
-    }
-    await chatPage.confirmModelSelection();
+    await chatPage.selectModelsByIds(VIDEO_MODELS);
 
     await chatPage.sendNewChatMessage(`Multi-video ${String(Date.now())}`);
     await chatPage.waitForConversation();
@@ -278,18 +234,7 @@ test.describe('Multi-Model Media', () => {
     const failModel = VIDEO_MODELS[1];
 
     await test.step('select 2 video models and mark the second as failing', async () => {
-      await chatPage.openModelSelector();
-      const modal = authenticatedPage.getByTestId('model-selector-modal');
-      const clearButton = modal.getByTestId('clear-selection-button');
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-      }
-      for (const id of VIDEO_MODELS) {
-        const item = modal.getByTestId(`model-item-${id}`);
-        await item.getByTestId('model-checkbox').click();
-      }
-      await chatPage.confirmModelSelection();
-
+      await chatPage.selectModelsByIds(VIDEO_MODELS);
       await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModel });
     });
 
@@ -353,19 +298,7 @@ test.describe('Multi-Model Media', () => {
 
     await chatPage.switchToImageMode();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
-      await clearButton.click();
-    }
-    for (const id of IMAGE_MODELS) {
-      const item = modal.getByTestId(`model-item-${id}`);
-      await expect(item).toBeVisible();
-      await item.getByTestId('model-checkbox').click();
-      await expect(item).toHaveAttribute('data-selected', 'true');
-    }
-    await chatPage.confirmModelSelection();
+    await chatPage.selectModelsByIds(IMAGE_MODELS);
 
     await chatPage.sendNewChatMessage(`Multi-image reload ${String(Date.now())}`);
     await chatPage.waitForConversation();

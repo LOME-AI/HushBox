@@ -21,13 +21,13 @@ export function ThreeDotsMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <IconButton
+          aria-label="More options"
           className={className}
           data-testid={props['data-testid']}
           data-menu-trigger=""
           onClick={onClick}
         >
           <MoreVertical className="h-4 w-4" />
-          <span className="sr-only">More options</span>
         </IconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align}>{children}</DropdownMenuContent>

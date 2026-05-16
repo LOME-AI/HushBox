@@ -1,31 +1,42 @@
 import { describe, it, expect } from 'vitest';
-import { promptSuggestions, type PromptSuggestion } from './prompt-suggestions';
+import {
+  textSuggestions,
+  imageSuggestions,
+  videoSuggestions,
+  audioSuggestions,
+  getSuggestionsForModality,
+  type PromptSuggestion,
+} from './prompt-suggestions';
 
-describe('promptSuggestions', () => {
+describe('textSuggestions', () => {
+  it('has 4 categories', () => {
+    expect(textSuggestions).toHaveLength(4);
+  });
+
   it('exports an array of suggestions', () => {
-    expect(Array.isArray(promptSuggestions)).toBe(true);
+    expect(Array.isArray(textSuggestions)).toBe(true);
   });
 
   it('contains at least 4 suggestions', () => {
-    expect(promptSuggestions.length).toBeGreaterThanOrEqual(4);
+    expect(textSuggestions.length).toBeGreaterThanOrEqual(4);
   });
 
   it('each suggestion has an id property', () => {
-    for (const suggestion of promptSuggestions) {
+    for (const suggestion of textSuggestions) {
       expect(suggestion).toHaveProperty('id');
       expect(typeof suggestion.id).toBe('string');
     }
   });
 
   it('each suggestion has a label property', () => {
-    for (const suggestion of promptSuggestions) {
+    for (const suggestion of textSuggestions) {
       expect(suggestion).toHaveProperty('label');
       expect(typeof suggestion.label).toBe('string');
     }
   });
 
   it('each suggestion has a prompts array property', () => {
-    for (const suggestion of promptSuggestions) {
+    for (const suggestion of textSuggestions) {
       expect(suggestion).toHaveProperty('prompts');
       expect(Array.isArray(suggestion.prompts)).toBe(true);
       expect(suggestion.prompts.length).toBeGreaterThan(0);
@@ -37,13 +48,13 @@ describe('promptSuggestions', () => {
   });
 
   it('each category has at least 10 prompts', () => {
-    for (const suggestion of promptSuggestions) {
+    for (const suggestion of textSuggestions) {
       expect(suggestion.prompts.length).toBeGreaterThanOrEqual(10);
     }
   });
 
   it('each suggestion has an icon property', () => {
-    for (const suggestion of promptSuggestions) {
+    for (const suggestion of textSuggestions) {
       expect(suggestion).toHaveProperty('icon');
       // LucideIcon is a forwardRef component which is an object
       expect(suggestion.icon).toBeDefined();
@@ -52,34 +63,34 @@ describe('promptSuggestions', () => {
   });
 
   it('all suggestion ids are unique', () => {
-    const ids = promptSuggestions.map((s) => s.id);
+    const ids = textSuggestions.map((s) => s.id);
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(ids.length);
   });
 
   it('includes code-related suggestion', () => {
-    const codeSuggestion = promptSuggestions.find(
+    const codeSuggestion = textSuggestions.find(
       (s) => s.id === 'code' || s.label.toLowerCase().includes('code')
     );
     expect(codeSuggestion).toBeDefined();
   });
 
   it('includes explanation suggestion', () => {
-    const explainSuggestion = promptSuggestions.find(
+    const explainSuggestion = textSuggestions.find(
       (s) => s.id === 'explain' || s.label.toLowerCase().includes('explain')
     );
     expect(explainSuggestion).toBeDefined();
   });
 
   it('includes brainstorm suggestion', () => {
-    const brainstormSuggestion = promptSuggestions.find(
+    const brainstormSuggestion = textSuggestions.find(
       (s) => s.id === 'brainstorm' || s.label.toLowerCase().includes('brainstorm')
     );
     expect(brainstormSuggestion).toBeDefined();
   });
 
   it('includes question suggestion', () => {
-    const questionSuggestion = promptSuggestions.find(
+    const questionSuggestion = textSuggestions.find(
       (s) => s.id === 'question' || s.label.toLowerCase().includes('question')
     );
     expect(questionSuggestion).toBeDefined();
@@ -88,7 +99,7 @@ describe('promptSuggestions', () => {
 
 describe('PromptSuggestion type', () => {
   it('first suggestion conforms to PromptSuggestion type', () => {
-    const suggestion = promptSuggestions[0];
+    const suggestion = textSuggestions[0];
     expect(suggestion).toBeDefined();
     if (!suggestion) return;
     const typed: PromptSuggestion = suggestion;
@@ -97,5 +108,71 @@ describe('PromptSuggestion type', () => {
     expect(typed.prompts).toBeDefined();
     expect(Array.isArray(typed.prompts)).toBe(true);
     expect(typed.icon).toBeDefined();
+  });
+});
+
+function assertCategoryShape(suggestions: PromptSuggestion[], label: string): void {
+  describe(`${label} shape`, () => {
+    it('has 4 categories', () => {
+      expect(suggestions).toHaveLength(4);
+    });
+
+    it('each suggestion has id, label, prompts, icon', () => {
+      for (const suggestion of suggestions) {
+        expect(typeof suggestion.id).toBe('string');
+        expect(typeof suggestion.label).toBe('string');
+        expect(Array.isArray(suggestion.prompts)).toBe(true);
+        expect(suggestion.icon).toBeDefined();
+      }
+    });
+
+    it('each category has at least 10 prompts and all are non-empty strings', () => {
+      for (const suggestion of suggestions) {
+        expect(suggestion.prompts.length).toBeGreaterThanOrEqual(10);
+        for (const prompt of suggestion.prompts) {
+          expect(typeof prompt).toBe('string');
+          expect(prompt.length).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it('all suggestion ids are unique', () => {
+      const ids = suggestions.map((s) => s.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    });
+  });
+}
+
+describe('imageSuggestions', () => {
+  assertCategoryShape(imageSuggestions, 'imageSuggestions');
+});
+
+describe('videoSuggestions', () => {
+  assertCategoryShape(videoSuggestions, 'videoSuggestions');
+});
+
+describe('audioSuggestions', () => {
+  assertCategoryShape(audioSuggestions, 'audioSuggestions');
+});
+
+describe('getSuggestionsForModality', () => {
+  it('returns textSuggestions for "text"', () => {
+    expect(getSuggestionsForModality('text')).toBe(textSuggestions);
+  });
+
+  it('returns imageSuggestions for "image"', () => {
+    expect(getSuggestionsForModality('image')).toBe(imageSuggestions);
+  });
+
+  it('returns videoSuggestions for "video"', () => {
+    expect(getSuggestionsForModality('video')).toBe(videoSuggestions);
+  });
+
+  it('returns audioSuggestions for "audio"', () => {
+    expect(getSuggestionsForModality('audio')).toBe(audioSuggestions);
+  });
+
+  it('returns textSuggestions for undefined', () => {
+    expect(getSuggestionsForModality()).toBe(textSuggestions);
   });
 });

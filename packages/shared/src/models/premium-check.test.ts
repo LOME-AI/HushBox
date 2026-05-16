@@ -15,9 +15,9 @@ describe('PREMIUM_PRICE_PERCENTILE', () => {
 });
 
 describe('PREMIUM_RECENCY_MS', () => {
-  it('is 1 year in milliseconds', () => {
-    const oneYearMs = 365 * 24 * 60 * 60 * 1000;
-    expect(PREMIUM_RECENCY_MS).toBe(oneYearMs);
+  it('is 6 months (182 days) in milliseconds', () => {
+    const sixMonthsMs = 182 * 24 * 60 * 60 * 1000;
+    expect(PREMIUM_RECENCY_MS).toBe(sixMonthsMs);
   });
 });
 

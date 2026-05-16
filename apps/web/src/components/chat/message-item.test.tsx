@@ -228,7 +228,21 @@ describe('MessageItem', () => {
     it('copy button has ghost variant styling', () => {
       render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
       const button = screen.getByRole('button', { name: /copy/i });
-      expect(button).toHaveClass('h-6', 'w-6');
+      expect(button).toHaveClass('h-7', 'w-7');
+    });
+
+    it('action button frame uses compact 28px hit area across viewports', () => {
+      render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
+      const button = screen.getByRole('button', { name: /copy/i });
+      expect(button).toHaveClass('h-7', 'w-7');
+      expect(button.className).not.toMatch(/\bmd:h-/);
+      expect(button.className).not.toMatch(/\bmd:w-/);
+    });
+
+    it('message-item reserves bottom space so absolute action buttons fit within the virtuoso row', () => {
+      render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
+      const item = screen.getByTestId('message-item');
+      expect(item).toHaveClass('pb-8');
     });
   });
 

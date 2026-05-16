@@ -44,12 +44,9 @@ export const useChatErrorStore = create<ChatErrorState>()((set, get) => ({
   clearError: (forkKey) => {
     set((state) => {
       if (!(forkKey in state.errorsByFork)) return state;
-      const next = { ...state.errorsByFork };
-      // forkKey is a string literal at every call site (MAIN_FORK_KEY or a
-      // typed fork id), so the dynamic-delete safety concern does not apply.
-      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-      delete next[forkKey];
-      return { errorsByFork: next };
+      // eslint-disable-next-line sonarjs/no-unused-vars -- rest-spread requires naming the omitted key to drop it from the new object
+      const { [forkKey]: _removed, ...rest } = state.errorsByFork;
+      return { errorsByFork: rest };
     });
   },
 

@@ -13,11 +13,22 @@ const mockGenerateVideo = vi.fn();
 const mockPerplexitySearchTool = vi.fn(() => ({ __mockPerplexityTool: true }));
 const mockStepCountIs = vi.fn((n: number) => ({ __mockStopWhen: n }));
 
+const mockGatewayInstance = {
+  __call: vi.fn(),
+  imageModel: vi.fn(),
+  video: vi.fn(),
+  getGenerationInfo: vi.fn(),
+};
+
+// The gateway is callable: gateway('model-id') returns a language model
+const mockGateway = Object.assign(mockGatewayInstance.__call, mockGatewayInstance);
+
 vi.mock('ai', () => ({
   streamText: mockStreamText,
   generateImage: mockGenerateImage,
   experimental_generateVideo: mockGenerateVideo,
   stepCountIs: mockStepCountIs,
+  createGateway: vi.fn(() => mockGateway),
   gateway: {
     tools: {
       perplexitySearch: mockPerplexitySearchTool,
@@ -25,22 +36,7 @@ vi.mock('ai', () => ({
   },
 }));
 
-const mockGatewayInstance = {
-  __call: vi.fn(),
-  imageModel: vi.fn(),
-  video: vi.fn(),
-  getAvailableModels: vi.fn(),
-  getGenerationInfo: vi.fn(),
-};
-
-// The gateway is callable: gateway('model-id') returns a language model
-const mockGateway = Object.assign(mockGatewayInstance.__call, mockGatewayInstance);
-
-vi.mock('@ai-sdk/gateway', () => ({
-  createGateway: vi.fn(() => mockGateway),
-}));
-
-// Mock shared fetchModels so listModels tests don't need the two-endpoint merge.
+// Mock shared fetchModels so listModels tests don't need a real network call.
 // real.ts delegates to fetchModels; we mock at that seam.
 const mockFetchModels = vi.fn();
 vi.mock('@hushbox/shared/models', async (importOriginal) => {
@@ -483,6 +479,96 @@ describe('createRealAIClient', () => {
         expect(done.mimeType).toBe('image/png');
       }
     });
+
+    // Resolution is not user-controllable (flat pricing means there's no
+    // tradeoff to surface). The Imagen 4 family's `sampleImageSize` is
+    // hardcoded per-model: fast supports 1K only, generate and ultra support 2K.
+    describe('per-model sampleImageSize hardcode', () => {
+      it('sends sampleImageSize=1K for imagen-4.0-fast-generate-001', async () => {
+        mockGenerateImage.mockResolvedValue({
+          images: [{ uint8Array: new Uint8Array([0]), mediaType: 'image/png' }],
+          usage: {},
+          providerMetadata: {},
+        });
+        await collectEvents(
+          client.stream({
+            modality: 'image',
+            model: 'google/imagen-4.0-fast-generate-001',
+            prompt: 'A cat',
+          })
+        );
+        const callArgs = mockGenerateImage.mock.calls[0]![0]!;
+        expect(callArgs.providerOptions?.google?.sampleImageSize).toBe('1K');
+      });
+
+      it('sends sampleImageSize=2K for imagen-4.0-generate-001', async () => {
+        mockGenerateImage.mockResolvedValue({
+          images: [{ uint8Array: new Uint8Array([0]), mediaType: 'image/png' }],
+          usage: {},
+          providerMetadata: {},
+        });
+        await collectEvents(
+          client.stream({
+            modality: 'image',
+            model: 'google/imagen-4.0-generate-001',
+            prompt: 'A cat',
+          })
+        );
+        const callArgs = mockGenerateImage.mock.calls[0]![0]!;
+        expect(callArgs.providerOptions?.google?.sampleImageSize).toBe('2K');
+      });
+
+      it('sends sampleImageSize=2K for imagen-4.0-ultra-generate-001', async () => {
+        mockGenerateImage.mockResolvedValue({
+          images: [{ uint8Array: new Uint8Array([0]), mediaType: 'image/png' }],
+          usage: {},
+          providerMetadata: {},
+        });
+        await collectEvents(
+          client.stream({
+            modality: 'image',
+            model: 'google/imagen-4.0-ultra-generate-001',
+            prompt: 'A cat',
+          })
+        );
+        const callArgs = mockGenerateImage.mock.calls[0]![0]!;
+        expect(callArgs.providerOptions?.google?.sampleImageSize).toBe('2K');
+      });
+
+      it('omits sampleImageSize for non-Imagen-4 models', async () => {
+        mockGenerateImage.mockResolvedValue({
+          images: [{ uint8Array: new Uint8Array([0]), mediaType: 'image/png' }],
+          usage: {},
+          providerMetadata: {},
+        });
+        await collectEvents(
+          client.stream({
+            modality: 'image',
+            model: 'google/imagen-4',
+            prompt: 'A cat',
+          })
+        );
+        const callArgs = mockGenerateImage.mock.calls[0]![0]!;
+        expect(callArgs.providerOptions?.google).toBeUndefined();
+      });
+
+      it('still sets ZDR providerOptions alongside the google sampleImageSize override', async () => {
+        mockGenerateImage.mockResolvedValue({
+          images: [{ uint8Array: new Uint8Array([0]), mediaType: 'image/png' }],
+          usage: {},
+          providerMetadata: {},
+        });
+        await collectEvents(
+          client.stream({
+            modality: 'image',
+            model: 'google/imagen-4.0-generate-001',
+            prompt: 'A cat',
+          })
+        );
+        const callArgs = mockGenerateImage.mock.calls[0]![0]!;
+        expect(callArgs.providerOptions?.gateway).toEqual({ zeroDataRetention: true });
+      });
+    });
   });
 
   describe('video generation', () => {
@@ -825,7 +911,6 @@ describe('createRealAIClient', () => {
 
       expect(result).toEqual(raw);
       expect(mockFetchModels).toHaveBeenCalledWith({
-        apiKey: 'test-api-key',
         publicModelsUrl: 'https://test.example/v1/models',
       });
     });

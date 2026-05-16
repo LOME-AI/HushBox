@@ -52,7 +52,7 @@ function getRandomGreeting(greetings: Greeting[]): Greeting {
   return getSecureRandomElement(greetings);
 }
 
-export function getGreeting(isAuthenticated: boolean): Greeting {
+function getBaseGreeting(isAuthenticated: boolean): Greeting {
   if (!isAuthenticated) {
     return getRandomGreeting(NEW_USER_GREETINGS);
   }
@@ -68,4 +68,8 @@ export function getGreeting(isAuthenticated: boolean): Greeting {
   } else {
     return getRandomGreeting(NIGHT_GREETINGS);
   }
+}
+
+export function getGreeting(isAuthenticated: boolean): Greeting {
+  return getBaseGreeting(isAuthenticated);
 }

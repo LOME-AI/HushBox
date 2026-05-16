@@ -502,8 +502,7 @@ test.describe('Fork History Preservation', () => {
       await unsettledExpect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
       await chatPage.clickForkTab('Main');
       await chatPage.expectActiveForkTab('Main');
-      const mainCount = await chatPage.countMessages();
-      expect(mainCount).toBe(3);
+      await unsettledExpect.poll(() => chatPage.countMessages(), { timeout: 10_000 }).toBe(3);
     });
   });
 });

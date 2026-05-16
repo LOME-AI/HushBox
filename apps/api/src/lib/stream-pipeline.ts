@@ -249,15 +249,13 @@ function handleBillingDenial(
  * cap on Perplexity Search tool invocations. Post-flight billing pulls the
  * gateway's `totalCost`, which already includes search.
  *
- * Per-model `pricing.web_search` is intentionally ignored here — the cap is
- * uniform, not model-driven. Parameters are kept for call-site compatibility
- * and future per-model overrides.
+ * The cap is per-request (one Perplexity tool call set shared across all N
+ * selected models), so this returns the bare value — `buildCostManifest`
+ * multiplies by `modelCount` internally. Doubling the multiplication here
+ * inflates reservations to N², which is the bug regression-tested in
+ * `chat.test.ts:reserves web-search cost as N × base, not N² × base`.
  */
-export function resolveWebSearchCost(
-  webSearchEnabled: boolean,
-  _model: string,
-  _gatewayModels: RawModel[]
-): number {
+export function resolveWebSearchCost(webSearchEnabled: boolean): number {
   if (!webSearchEnabled) return 0;
   return worstCaseSearchCost();
 }
@@ -815,7 +813,9 @@ export async function resolveAndReserveBilling(
   const gatewayModels = await c.var.aiClient.listRawModels();
   const allPricing = models.map((m) => lookupModelPricing(gatewayModels, m));
 
-  const webSearchCostDollars = input.webSearchEnabled ? worstCaseSearchCost() * models.length : 0;
+  // Per-request cost — `buildCostManifest` multiplies by `modelCount` internally.
+  // Multiplying again here would inflate the reservation to N² × base.
+  const webSearchCostDollars = resolveWebSearchCost(input.webSearchEnabled);
 
   const systemPromptForBudget = buildSystemPrompt([], input.customInstructions);
   const historyCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);

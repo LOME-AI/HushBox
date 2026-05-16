@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
 
 test.describe('Solo Regeneration', () => {
@@ -177,6 +177,52 @@ test.describe('Solo Regeneration', () => {
       await chatPage.hoverMessage(0);
       await expect(chatPage.getRetryButton(0)).toBeVisible();
     });
+  });
+
+  // 10.4 — multi-model retry must regenerate the FAILED model, not the
+  // primary. Pre-fix the regenerate request used `getPrimaryModel(...)` so
+  // clicking retry on the second tile re-ran the first model. Asserted via
+  // the network request body so a UI race can't hide a regression.
+  test('retry on a failed multi-model tile regenerates the failed model, not the primary', async ({
+    authenticatedPage,
+  }) => {
+    test.slow();
+    const chatPage = new ChatPage(authenticatedPage);
+
+    await chatPage.goto();
+    await chatPage.waitForAppStable();
+
+    const { failModelId } = await chatPage.selectModelsWithFailTarget();
+    await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModelId });
+
+    try {
+      await chatPage.sendNewChatMessage(`Multi-model retry ${String(Date.now())}`);
+      await chatPage.waitForConversation();
+      await chatPage.waitForStreamComplete(30_000);
+
+      const errorTile = authenticatedPage.getByTestId('model-error-message');
+      await unsettledExpect(errorTile).toBeVisible({ timeout: 10_000 });
+
+      // Clear the failing-models header so the retry attempt can succeed —
+      // we want to confirm the regenerate hits the FAILED model id.
+      await authenticatedPage.setExtraHTTPHeaders({});
+
+      // Capture the regenerate request body to assert the model field.
+      const regeneratePromise = authenticatedPage.waitForRequest(
+        (req) => req.url().includes('/regenerate') && req.method() === 'POST',
+        { timeout: 15_000 }
+      );
+
+      const retryButton = authenticatedPage.getByRole('button', { name: 'Retry' });
+      await expect(retryButton.first()).toBeVisible();
+      await retryButton.first().click();
+
+      const regenerateRequest = await regeneratePromise;
+      const body = JSON.parse(regenerateRequest.postData() ?? '{}') as { model?: string };
+      expect(body.model).toBe(failModelId);
+    } finally {
+      await authenticatedPage.setExtraHTTPHeaders({});
+    }
   });
 });
 

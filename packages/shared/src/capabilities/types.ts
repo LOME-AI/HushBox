@@ -1,4 +1,4 @@
-export type CapabilityId = 'python-execution' | 'javascript-execution' | 'vision' | 'web-search';
+export type CapabilityId = 'python-execution' | 'javascript-execution' | 'vision';
 
 export interface Capability {
   id: CapabilityId;
@@ -30,12 +30,6 @@ export const CAPABILITIES: Record<CapabilityId, Capability> = {
     name: 'Vision',
     description: 'Analyze and understand images',
     requiredParameters: [],
-  },
-  'web-search': {
-    id: 'web-search',
-    name: 'Web Search',
-    description: 'Search the web for current information',
-    requiredParameters: ['web_search_options'],
   },
 };
 

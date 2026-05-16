@@ -174,6 +174,12 @@ export interface MockAIClientConfig {
    * render observably. Tests that assert that indicator set this to ~500ms.
    */
   classifierDelayMs?: number;
+  /**
+   * Public `/v1/models` URL forwarded to `fetchModels` for catalog reads.
+   * Tests that stub `globalThis.fetch` ignore the value; defaults to the
+   * same production URL the real client uses.
+   */
+  publicModelsUrl?: string;
 }
 
 /** Discriminated union — narrows on `client.isMock` without casts. */
