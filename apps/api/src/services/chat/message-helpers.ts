@@ -241,6 +241,24 @@ export interface ChargeAndTrackUsageResult {
 }
 
 /**
+ * Updates per-member group spending when the charge belongs to a group
+ * conversation. No-op for solo conversations (no group billing context).
+ */
+async function applyGroupSpending(
+  tx: DatabaseClient,
+  conversationId: string,
+  groupBillingContext: { memberId: string } | undefined,
+  cost: string
+): Promise<void> {
+  if (groupBillingContext === undefined) return;
+  await updateGroupSpending(tx, {
+    conversationId,
+    memberId: groupBillingContext.memberId,
+    costDollars: cost,
+  });
+}
+
+/**
  * Charges the user's wallet for usage and optionally updates group spending tables.
  */
 export async function chargeAndTrackUsage(
@@ -259,13 +277,7 @@ export async function chargeAndTrackUsage(
     sourceId: params.assistantMessageId,
   });
 
-  if (params.groupBillingContext !== undefined) {
-    await updateGroupSpending(tx, {
-      conversationId: params.conversationId,
-      memberId: params.groupBillingContext.memberId,
-      costDollars: params.cost,
-    });
-  }
+  await applyGroupSpending(tx, params.conversationId, params.groupBillingContext, params.cost);
 
   return { usageRecordId: chargeResult.usageRecordId };
 }
@@ -421,13 +433,7 @@ export async function chargeAndTrackMediaUsage(
     sourceId: params.assistantMessageId,
   });
 
-  if (params.groupBillingContext !== undefined) {
-    await updateGroupSpending(tx, {
-      conversationId: params.conversationId,
-      memberId: params.groupBillingContext.memberId,
-      costDollars: params.cost,
-    });
-  }
+  await applyGroupSpending(tx, params.conversationId, params.groupBillingContext, params.cost);
 
   return { usageRecordId: chargeResult.usageRecordId };
 }

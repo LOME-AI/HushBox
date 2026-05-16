@@ -15,13 +15,14 @@ import {
   ERROR_CODE_MODALITY_MISMATCH,
   ERROR_CODE_MODEL_TIER_LOCKED,
   ERROR_CODE_UNSUPPORTED_RESOLUTION,
+  ERROR_CODE_UNSUPPORTED_DURATION,
   ERROR_CODE_AUDIO_DISABLED,
   ERROR_CODE_DUPLICATE_MESSAGE,
   ERROR_CODE_FORK_TIP_CONFLICT,
   FEATURE_FLAGS,
   assertNever,
 } from '@hushbox/shared';
-import { processModels, type Modality } from '@hushbox/shared/models';
+import { processModels, getSupportedVideoDurations, type Modality } from '@hushbox/shared/models';
 import { createEvent } from '@hushbox/realtime/events';
 import { validateLastMessageIsFromUser, saveUserOnlyMessage } from '../services/chat/index.js';
 import { canRegenerate } from '../services/chat/regeneration-guard.js';
@@ -372,7 +373,12 @@ async function handleVideoStreamRequest(input: VideoBranchInput): Promise<Respon
   const { memberContext, billingUserId, clientFundingSource, billingResult } = input.billingContext;
   return runMediaBranch({
     input,
-    lookup: await lookupVideoBranch(input.c, input.models, input.videoConfig.resolution),
+    lookup: await lookupVideoBranch(
+      input.c,
+      input.models,
+      input.videoConfig.resolution,
+      input.videoConfig.durationSeconds
+    ),
     reserveBilling: async (perSecondByModel) =>
       resolveAndReserveVideoBilling(input.c, {
         billingResult,
@@ -405,7 +411,8 @@ async function handleVideoStreamRequest(input: VideoBranchInput): Promise<Respon
 async function lookupVideoBranch(
   c: Context<AppEnv>,
   models: string[],
-  resolution: string
+  resolution: string,
+  durationSeconds: number
 ): Promise<LookupResult<Map<string, number>>> {
   const { perModelByModel, mismatches, notFound, unsupportedResolutions } = await lookupMediaModels(
     c.get('aiClient'),
@@ -426,6 +433,28 @@ async function lookupVideoBranch(
       ),
     };
   }
+
+  // Per-model discrete-duration check. Models without declared capability
+  // data (`undefined` from the lookup) are allowed through — they're newer
+  // entries the catalog hasn't pinned yet; the gateway is then the
+  // authoritative gate. Veo entries always have data so this matches today.
+  const invalidDurationModels = models.filter((id) => {
+    const supported = getSupportedVideoDurations(id);
+    return supported !== undefined && !supported.includes(durationSeconds);
+  });
+  if (invalidDurationModels.length > 0) {
+    return {
+      ok: false,
+      response: c.json(
+        createErrorResponse(ERROR_CODE_UNSUPPORTED_DURATION, {
+          invalidModels: invalidDurationModels,
+          durationSeconds,
+        }),
+        400
+      ),
+    };
+  }
+
   return { ok: true, perModel: perModelByModel };
 }
 
@@ -621,47 +650,6 @@ async function resolveForkTipMessageId(
 
   if (!fork) return null;
   return fork.tipMessageId ?? undefined;
-}
-
-interface BuildRegenerateTreeActionInput {
-  action: 'retry' | 'regenerate' | 'edit';
-  targetMessageId: string;
-  userMessage: { id: string; content: string };
-  forkId: string | undefined;
-  forkTipMessageId: string | undefined;
-}
-
-/**
- * 'retry' and 'regenerate' map to the same backend kind — both keep the
- * anchor user message and swap the AI reply. 'edit' replaces the user
- * message too.
- *
- * Passing `forkId` makes `applyTreeAction` lock the fork row up-front
- * (SELECT FOR UPDATE) and validate the expected tip atomically. Without
- * this, our own delete cascade would null the tip mid-transaction and
- * the downstream optimistic UPDATE in `updateForkTip` would mismatch and
- * throw `ForkTipConflictError` on every regenerate that targets a fork
- * tip message.
- */
-function buildRegenerateTreeAction(input: BuildRegenerateTreeActionInput): TreeAction {
-  const { action, targetMessageId, userMessage, forkId, forkTipMessageId } = input;
-  const forkSpread = {
-    ...(forkId !== undefined && { forkId }),
-    ...(forkTipMessageId !== undefined && { forkTipMessageId }),
-  };
-  if (action === 'edit') {
-    return {
-      kind: 'edit',
-      anchorUserMessageId: targetMessageId,
-      newUserMessage: userMessage,
-      ...forkSpread,
-    };
-  }
-  return {
-    kind: 'regenerate',
-    anchorUserMessageId: targetMessageId,
-    ...forkSpread,
-  };
 }
 
 interface DispatchModalityInput {
@@ -1001,64 +989,40 @@ export const chatRoute = new Hono<AppEnv>()
       const user = c.get('user');
       if (!user) throw new Error('User required after requirePrivilege');
       const { conversationId } = c.req.param();
-      const ownerId = c.get('conversationOwnerId');
-      const member = getMember(c, conversationId);
       const db = c.get('db');
       const redis = c.get('redis');
 
-      const {
-        targetMessageId,
-        action,
-        modality,
-        model,
-        userMessage,
-        messagesForInference,
-        fundingSource,
-        forkId,
-        webSearchEnabled = false,
-        customInstructions,
-        imageConfig,
-        videoConfig,
-        audioConfig,
-      } = c.req.valid('json');
+      const requestBody = c.req.valid('json');
+      const { targetMessageId, action, modality, model, userMessage, forkId } = requestBody;
 
-      const gateError = validateRegenerateGates({
+      const gateOutcome = await runRegenerateGates({
         c,
-        modality,
-        models: [model],
-        messagesForInference,
-      });
-      if (gateError) return gateError;
-
-      const forkTipMessageId = await resolveForkTipMessageId(db, forkId);
-      if (forkTipMessageId === null) {
-        return c.json(createErrorResponse(ERROR_CODE_FORK_NOT_FOUND), 404);
-      }
-      const allowed = await canRegenerate(db, {
+        db,
+        userId: user.id,
         conversationId,
         targetMessageId,
-        userId: user.id,
-        ...(forkTipMessageId !== undefined && { forkTipMessageId }),
+        modality,
+        model,
+        messagesForInference: requestBody.messagesForInference,
+        forkId,
       });
-      if (!allowed) {
-        return c.json(createErrorResponse(ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER), 403);
-      }
+      if ('errorResponse' in gateOutcome) return gateOutcome.errorResponse;
 
       const treeAction = buildRegenerateTreeAction({
         action,
         targetMessageId,
-        userMessage,
+        newUserMessage: userMessage,
         forkId,
-        forkTipMessageId,
+        forkTipMessageId: gateOutcome.forkTipMessageId,
       });
 
       const billingContext = await resolveUserBillingContext(db, redis, {
         callerId: user.id,
-        ownerId,
-        member,
+        ownerId: c.get('conversationOwnerId'),
+        member: getMember(c, conversationId),
         models: [model],
         conversationId,
-        fundingSource,
+        fundingSource: requestBody.fundingSource,
         aiClient: c.var.aiClient,
       });
 
@@ -1072,16 +1036,109 @@ export const chatRoute = new Hono<AppEnv>()
         models: [model],
         treeAction,
         prompt: userMessage.content,
-        messagesForInference,
+        messagesForInference: requestBody.messagesForInference,
         forkId,
-        webSearchEnabled,
-        customInstructions,
-        imageConfig,
-        videoConfig,
-        audioConfig,
+        webSearchEnabled: requestBody.webSearchEnabled ?? false,
+        customInstructions: requestBody.customInstructions,
+        imageConfig: requestBody.imageConfig,
+        videoConfig: requestBody.videoConfig,
+        audioConfig: requestBody.audioConfig,
       });
     }
   );
+
+interface RunRegenerateGatesParams {
+  c: Context<AppEnv>;
+  db: AppEnv['Variables']['db'];
+  userId: string;
+  conversationId: string;
+  targetMessageId: string;
+  modality: Modality;
+  model: string;
+  messagesForInference: InferenceMessage[];
+  forkId: string | undefined;
+}
+
+type RunRegenerateGatesOutcome =
+  | { errorResponse: Response }
+  | { forkTipMessageId: string | undefined };
+
+async function runRegenerateGates(
+  params: RunRegenerateGatesParams
+): Promise<RunRegenerateGatesOutcome> {
+  const { c, db, userId, conversationId, targetMessageId, modality, model, forkId } = params;
+
+  const gateError = validateRegenerateGates({
+    c,
+    modality,
+    models: [model],
+    messagesForInference: params.messagesForInference,
+  });
+  if (gateError) return { errorResponse: gateError };
+
+  const forkTipMessageId = await resolveForkTipMessageId(db, forkId);
+  if (forkTipMessageId === null) {
+    return { errorResponse: c.json(createErrorResponse(ERROR_CODE_FORK_NOT_FOUND), 404) };
+  }
+
+  const allowed = await canRegenerate(db, {
+    conversationId,
+    targetMessageId,
+    userId,
+    ...(forkTipMessageId !== undefined && { forkTipMessageId }),
+  });
+  if (!allowed) {
+    return {
+      errorResponse: c.json(
+        createErrorResponse(ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER),
+        403
+      ),
+    };
+  }
+
+  return { forkTipMessageId };
+}
+
+interface BuildRegenerateTreeActionParams {
+  action: 'retry' | 'regenerate' | 'edit';
+  targetMessageId: string;
+  newUserMessage: { id: string; content: string };
+  forkId: string | undefined;
+  forkTipMessageId: string | undefined;
+}
+
+/**
+ * 'retry' and 'regenerate' map to the same backend kind — both keep the
+ * anchor user message and swap the AI reply. 'edit' replaces the user
+ * message too.
+ *
+ * Passing `forkId` makes applyTreeAction lock the fork row up-front
+ * (SELECT FOR UPDATE) and validate the expected tip atomically. Without
+ * this, our own delete cascade would null the tip mid-transaction and
+ * the downstream optimistic UPDATE in updateForkTip would mismatch and
+ * throw ForkTipConflictError on every regenerate that targets a fork
+ * tip message.
+ */
+function buildRegenerateTreeAction(params: BuildRegenerateTreeActionParams): TreeAction {
+  const { action, targetMessageId, newUserMessage, forkId, forkTipMessageId } = params;
+  const forkSpread = {
+    ...(forkId !== undefined && { forkId }),
+    ...(forkTipMessageId !== undefined && { forkTipMessageId }),
+  };
+  if (action === 'edit') {
+    return {
+      kind: 'edit',
+      anchorUserMessageId: targetMessageId,
+      newUserMessage,
+      ...forkSpread,
+    };
+  }
+  return {
+    kind: 'regenerate',
+    anchorUserMessageId: targetMessageId,
+    ...forkSpread,
+  };
+}
 
 interface RegenerateGatesParams {
   c: Context<AppEnv>;

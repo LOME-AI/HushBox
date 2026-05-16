@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { useIsMobile } from '@hushbox/ui';
 
 export function useMobileAutoFocus(): (event: Event) => void {
   const isMobile = useIsMobile();

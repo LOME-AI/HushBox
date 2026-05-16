@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Navigate } from '@tanstack/react-router';
 import { ROUTES, friendlyErrorMessage, customUserMessage } from '@hushbox/shared';
+import { useIsMobile } from '@hushbox/ui';
 import { ChatLayout } from '@/components/chat/chat-layout';
 import { createTrialMessage } from '@/lib/chat-messages';
 import { buildMessagesForRegeneration } from '@/lib/chat-regeneration';
@@ -12,7 +13,6 @@ import { useChatErrorStore, createChatError, MAIN_FORK_KEY } from '@/stores/chat
 import { useChatEditStore } from '@/stores/chat-edit';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useSession } from '@/lib/auth';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 import type { PromptInputRef } from '@/components/chat/prompt-input';
 import type { Message } from '@/lib/api';
 

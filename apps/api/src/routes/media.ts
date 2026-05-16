@@ -53,6 +53,16 @@ function callerRateLimitId(caller: CallerIdentity): string {
   return caller.kind === 'user' ? caller.userId : `link:${caller.linkId}`;
 }
 
+const mediaCallerMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const caller = await resolveCaller(c);
+  if (!caller) {
+    return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
+  }
+  c.set('callerId', callerRateLimitId(caller));
+  c.set('mediaCaller', caller);
+  return next();
+};
+
 /**
  * Auth middleware specific to /api/media — admits session users AND link
  * guests, attaches caller identity for the route handler, and sets
@@ -62,16 +72,7 @@ function callerRateLimitId(caller: CallerIdentity): string {
  * item id.
  */
 function requireMediaCaller(): MiddlewareHandler<AppEnv> {
-  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
-  return async (c, next) => {
-    const caller = await resolveCaller(c);
-    if (!caller) {
-      return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
-    }
-    c.set('callerId', callerRateLimitId(caller));
-    c.set('mediaCaller', caller);
-    return next();
-  };
+  return mediaCallerMiddleware;
 }
 
 /**

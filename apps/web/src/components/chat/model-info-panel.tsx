@@ -1,12 +1,7 @@
 import * as React from 'react';
-import { Badge } from '@hushbox/ui';
 import { formatNumber, formatPriceRange, isExpensiveModel } from '@hushbox/shared';
 import { applyFees, formatPricePer1k } from '../../lib/format';
 import type { Model } from '@hushbox/shared';
-
-const CAPABILITY_DISPLAY_NAMES: Record<string, string> = {
-  'internet-search': 'Internet Search',
-};
 
 interface ModelInfoPanelProps {
   model: Model;
@@ -71,36 +66,59 @@ function SmartModelPanel({
   );
 }
 
-function StandardPanel({
+function LabeledValue({
+  label,
+  valueClass,
+  children,
+}: Readonly<{
+  label: string;
+  valueClass?: string;
+  children: React.ReactNode;
+}>): React.JSX.Element {
+  return (
+    <div>
+      <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">{label}</div>
+      {valueClass === undefined ? children : <div className={valueClass}>{children}</div>}
+    </div>
+  );
+}
+
+function ProviderRow({
+  provider,
+  valueClass,
+}: Readonly<{ provider: string; valueClass: string }>): React.JSX.Element {
+  return (
+    <LabeledValue label="Provider" valueClass={`${valueClass} break-words`}>
+      {provider}
+    </LabeledValue>
+  );
+}
+
+function DescriptionRow({ description }: Readonly<{ description: string }>): React.JSX.Element {
+  return (
+    <LabeledValue label="Description" valueClass="overflow-hidden text-sm break-words">
+      {description}
+    </LabeledValue>
+  );
+}
+
+function TextStandardPanel({
   model,
   compact,
 }: Readonly<{ model: Model; compact: boolean }>): React.JSX.Element {
   const valueClass = compact ? 'text-sm font-medium' : 'text-lg font-medium';
 
   return (
-    <div className={compact ? 'space-y-3' : 'space-y-6'}>
-      <div>
-        <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">Provider</div>
-        <div className={`${valueClass} break-words`}>{model.provider}</div>
-      </div>
+    <>
+      <ProviderRow provider={model.provider} valueClass={valueClass} />
 
-      <div>
-        <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-          Input Price / Token
-        </div>
-        <div className={valueClass}>
-          {formatPricePer1k(applyFees(model.pricePerInputToken))} / 1k
-        </div>
-      </div>
+      <LabeledValue label="Input Price / Token" valueClass={valueClass}>
+        {formatPricePer1k(applyFees(model.pricePerInputToken))} / 1k
+      </LabeledValue>
 
-      <div>
-        <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-          Output Price / Token
-        </div>
-        <div className={valueClass}>
-          {formatPricePer1k(applyFees(model.pricePerOutputToken))} / 1k
-        </div>
-      </div>
+      <LabeledValue label="Output Price / Token" valueClass={valueClass}>
+        {formatPricePer1k(applyFees(model.pricePerOutputToken))} / 1k
+      </LabeledValue>
 
       {!compact && isExpensiveModel(model.pricePerInputToken, model.pricePerOutputToken) && (
         <p className="-mt-6 mb-1 text-sm text-amber-500" data-testid="expensive-model-warning">
@@ -108,38 +126,119 @@ function StandardPanel({
         </p>
       )}
 
-      <div>
-        <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-          Capacity Limit
-        </div>
-        <div className={valueClass}>{formatNumber(model.contextLength)} tokens</div>
-      </div>
+      <LabeledValue label="Capacity Limit" valueClass={valueClass}>
+        {formatNumber(model.contextLength)} tokens
+      </LabeledValue>
 
-      {model.capabilities.length > 0 && (
-        <div>
-          <div className="text-muted-foreground mb-2 text-xs font-medium uppercase">
-            Capabilities
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {model.capabilities.map((cap) => (
-              <Badge key={cap} variant="secondary">
-                {CAPABILITY_DISPLAY_NAMES[cap] ?? cap}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!compact && (
-        <div>
-          <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-            Description
-          </div>
-          <div className="overflow-hidden text-sm break-words">{model.description}</div>
-        </div>
-      )}
-    </div>
+      {!compact && <DescriptionRow description={model.description} />}
+    </>
   );
+}
+
+function ImagePanel({
+  model,
+  compact,
+}: Readonly<{ model: Model; compact: boolean }>): React.JSX.Element {
+  const valueClass = compact ? 'text-sm font-medium' : 'text-lg font-medium';
+
+  return (
+    <>
+      <ProviderRow provider={model.provider} valueClass={valueClass} />
+      <LabeledValue label="Price per Image" valueClass={valueClass}>
+        ${model.pricePerImage.toFixed(3)}/image
+      </LabeledValue>
+      {!compact && <DescriptionRow description={model.description} />}
+    </>
+  );
+}
+
+const RESOLUTION_ORDER = ['480p', '720p', '1080p', '2k', '4k', '8k'];
+
+function compareResolutions(a: string, b: string): number {
+  const ai = RESOLUTION_ORDER.indexOf(a);
+  const bi = RESOLUTION_ORDER.indexOf(b);
+  if (ai !== -1 && bi !== -1) return ai - bi;
+  if (ai !== -1) return -1;
+  if (bi !== -1) return 1;
+  return a.localeCompare(b);
+}
+
+function VideoPanel({
+  model,
+  compact,
+}: Readonly<{ model: Model; compact: boolean }>): React.JSX.Element {
+  const valueClass = compact ? 'text-sm font-medium' : 'text-lg font-medium';
+  const entries = Object.entries(model.pricePerSecondByResolution).toSorted(([a], [b]) =>
+    compareResolutions(a, b)
+  );
+
+  return (
+    <>
+      <ProviderRow provider={model.provider} valueClass={valueClass} />
+      <LabeledValue label="Pricing by Resolution">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-muted-foreground text-xs font-medium uppercase">
+              <th className="pb-1 text-left">Resolution</th>
+              <th className="pb-1 text-right">$/second</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map(([resolution, cost]) => (
+              <tr key={resolution}>
+                <td className={`${valueClass} py-1`}>{resolution}</td>
+                <td className={`${valueClass} py-1 text-right`}>${cost.toFixed(2)}/s</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </LabeledValue>
+      {!compact && <DescriptionRow description={model.description} />}
+    </>
+  );
+}
+
+function AudioPanel({
+  model,
+  compact,
+}: Readonly<{ model: Model; compact: boolean }>): React.JSX.Element {
+  const valueClass = compact ? 'text-sm font-medium' : 'text-lg font-medium';
+
+  return (
+    <>
+      <ProviderRow provider={model.provider} valueClass={valueClass} />
+      <LabeledValue label="Price per Second" valueClass={valueClass}>
+        ${model.pricePerSecond.toFixed(3)}/s
+      </LabeledValue>
+      {!compact && <DescriptionRow description={model.description} />}
+    </>
+  );
+}
+
+function StandardPanel({
+  model,
+  compact,
+}: Readonly<{ model: Model; compact: boolean }>): React.JSX.Element {
+  let inner: React.JSX.Element;
+  switch (model.modality) {
+    case 'text': {
+      inner = <TextStandardPanel model={model} compact={compact} />;
+      break;
+    }
+    case 'image': {
+      inner = <ImagePanel model={model} compact={compact} />;
+      break;
+    }
+    case 'video': {
+      inner = <VideoPanel model={model} compact={compact} />;
+      break;
+    }
+    case 'audio': {
+      inner = <AudioPanel model={model} compact={compact} />;
+      break;
+    }
+  }
+  return <div className={compact ? 'space-y-3' : 'space-y-6'}>{inner}</div>;
 }
 
 export function ModelInfoPanel({

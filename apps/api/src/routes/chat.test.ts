@@ -14,26 +14,6 @@ import {
   ledgerEntries as ledgerEntriesTable,
 } from '@hushbox/db';
 
-// ---------------------------------------------------------------------------
-// Module mocks — boundary-level intercepts of the AI SDK gateway. Mirrors the
-// shape used in apps/api/src/services/ai/real.test.ts: the mock fn is hoisted
-// to module scope so tests can prime its return value via mockGetAvailableModels
-// instead of a magic globalThis side-channel. The shared `__TEST_MOCK_MODELS__`
-// fallback stays for callers that haven't been migrated.
-// ---------------------------------------------------------------------------
-
-const mockGetAvailableModels = vi.fn(() =>
-  Promise.resolve({
-    models: (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ ?? [],
-  })
-);
-
-vi.mock('@ai-sdk/gateway', () => ({
-  createGateway: vi.fn(() => ({
-    getAvailableModels: mockGetAvailableModels,
-  })),
-}));
-
 import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_BILLING_MISMATCH,
@@ -45,10 +25,30 @@ import { clearModelCache } from '@hushbox/shared/models';
 import { generateKeyPair } from '@hushbox/crypto';
 import { chatRoute, lookupMediaModels } from './chat.js';
 import { createMockAIClient } from '../services/ai/mock.js';
-import { createMockAIClientWithGatewayCatalog } from '../services/ai/mock-with-gateway-catalog.js';
 import type { AppEnv } from '../types.js';
 import type { InferenceEvent } from '../services/ai/types.js';
 import type { MediaStorage } from '../services/storage/index.js';
+
+/**
+ * Public `/v1/models` fixture shape. `publicModelsFixture` (module-scoped
+ * below) is the per-test seed for the `fetch` mock so chat tests can swap the
+ * served catalog without rebuilding every fetch handler. Both mock and real
+ * AIClient source the catalog from `fetchModels`, which parses this shape.
+ * `pricing` is `Record<string, unknown>` so video/image-specific variants
+ * (`video_duration_pricing`, `image_dimension_quality_pricing`) fit without
+ * cast gymnastics.
+ */
+interface PublicModelFixture {
+  id: string;
+  name?: string;
+  description?: string;
+  type?: string;
+  pricing?: Record<string, unknown>;
+  context_window?: number;
+  created?: number;
+}
+
+let publicModelsFixture: PublicModelFixture[] = [];
 
 /** Type-safe JSON response parser for test assertions. */
 async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
@@ -148,6 +148,60 @@ const mockModels = [
     created: Math.floor(Date.now() / 1000),
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
   },
+  {
+    id: 'anthropic/claude-sonnet-4.6',
+    name: 'Claude Sonnet 4.6',
+    description: 'Fast text model',
+    modality: 'text' as const,
+    context_length: 200_000,
+    pricing: { prompt: '0.000003', completion: '0.000015' },
+    supported_parameters: ['temperature'],
+    created: Math.floor(Date.now() / 1000),
+    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+  },
+];
+
+/**
+ * Media model fixtures in public `/v1/models` shape — appended to the default
+ * catalog so multi-modality tests can resolve image/video/audio models without
+ * each test having to seed `publicModelsFixture` manually. The video entry
+ * uses `video_duration_pricing` so `fetchModels` populates
+ * `per_second_by_resolution` correctly.
+ */
+const MEDIA_MODEL_FIXTURES: PublicModelFixture[] = [
+  {
+    id: 'google/imagen-4.0-generate-001',
+    name: 'Imagen 4',
+    description: 'High-quality image generation',
+    type: 'image',
+    pricing: { image: '0.04' },
+  },
+  {
+    id: 'google/imagen-4.0-fast-generate-001',
+    name: 'Imagen 4 Fast',
+    description: 'Fast image generation',
+    type: 'image',
+    pricing: { image: '0.04' },
+  },
+  {
+    id: 'google/veo-3.1-generate-001',
+    name: 'Veo 3.1',
+    description: 'Video generation with audio',
+    type: 'video',
+    pricing: {
+      video_duration_pricing: [
+        { resolution: '720p', audio: true, cost_per_second: '0.4' },
+        { resolution: '1080p', audio: true, cost_per_second: '0.4' },
+      ],
+    },
+  },
+  {
+    id: 'openai/tts-1',
+    name: 'TTS-1',
+    description: 'Text-to-speech audio',
+    type: 'audio',
+    pricing: { input: '0', output: '0' },
+  },
 ];
 
 /**
@@ -171,18 +225,10 @@ interface MockConversationSpending {
   totalSpent: string;
 }
 
-// eslint-disable-next-line complexity -- test helper with inherent setup branching (auto-wallets, optional insert handler, Map closures)
-function createMockDb(options: {
-  conversations?: MockConversation[];
-  users?: MockUser[];
-  wallets?: MockWallet[];
-  onInsert?: (table: unknown, values: unknown) => void;
-  conversationMemberRows?: MockConversationMember[];
-  memberBudgetRows?: MockMemberBudget[];
-  conversationSpendingRows?: MockConversationSpending[];
-}) {
-  const { conversations = [], users = [], onInsert } = options;
-  const conversationMemberRows = options.conversationMemberRows ?? [
+function defaultConversationMemberRows(
+  conversations: MockConversation[]
+): MockConversationMember[] {
+  return [
     {
       id: 'member-owner',
       userId: conversations[0]?.userId ?? 'unknown',
@@ -191,74 +237,166 @@ function createMockDb(options: {
       visibleFromEpoch: 1,
     },
   ];
-  const memberBudgetRows = options.memberBudgetRows ?? [];
-  const conversationSpendingRows = options.conversationSpendingRows ?? [];
+}
 
-  const wallets: MockWallet[] =
-    options.wallets ??
-    users.map((u) => ({
-      id: `wallet-${u.id}`,
-      userId: u.id,
-      type: 'purchased',
-      balance: u.balance,
-    }));
+function defaultWalletsForUsers(users: MockUser[]): MockWallet[] {
+  return users.map((u) => ({
+    id: `wallet-${u.id}`,
+    userId: u.id,
+    type: 'purchased',
+    balance: u.balance,
+  }));
+}
 
-  let nextSequence = conversations[0]?.nextSequence ?? 0;
-  const currentEpoch = conversations[0]?.currentEpoch ?? 1;
+/* eslint-disable unicorn/no-thenable -- test mock for Drizzle query builder which uses .then() */
+function createThenable<T>(value: T) {
+  return {
+    then: (resolve: (v: T) => unknown) => Promise.resolve(resolve(value)),
+    limit: (n: number) => ({
+      then: (resolve: (v: T) => unknown) => {
+        const sliced = Array.isArray(value) ? (value.slice(0, n) as T) : value;
+        return Promise.resolve(resolve(sliced));
+      },
+    }),
+    orderBy: () => createThenable(value),
+  };
+}
+/* eslint-enable unicorn/no-thenable */
 
+const INSERT_RETURNING_FIXTURES = new Map<unknown, unknown[]>([
+  [usageRecordsTable, [{ id: 'usage-record-123' }]],
+  [llmCompletionsTable, [{ id: 'llm-completion-123' }]],
+  [ledgerEntriesTable, [{ id: 'ledger-entry-123' }]],
+]);
+
+function buildInsertReturning(table: unknown, values: unknown): Promise<unknown[]> {
+  const fixture = INSERT_RETURNING_FIXTURES.get(table);
+  if (fixture !== undefined) return Promise.resolve(fixture);
+  if (table === messagesTable) return Promise.resolve([values]);
+  return Promise.resolve([values]);
+}
+
+interface MockDbState {
+  nextSequence: number;
+  currentEpoch: number;
+}
+
+/* eslint-disable unicorn/no-thenable -- mock Drizzle query result chains end in .then() */
+function buildUpdateChain(
+  table: unknown,
+  setValues: Record<string, unknown>,
+  state: MockDbState,
+  wallets: MockWallet[]
+) {
+  if (table === conversationsTable && setValues['nextSequence']) {
+    // saveChatTurn (increments by 2) / saveUserOnlyMessage (increments by 1)
+    const seq = state.nextSequence;
+    const userSeq = state.nextSequence;
+    const aiSeq = state.nextSequence + 1;
+    state.nextSequence += 2;
+    return {
+      returning: () => Promise.resolve([{ seq, userSeq, aiSeq, currentEpoch: state.currentEpoch }]),
+      then: (resolve: (v?: unknown) => unknown) => Promise.resolve(resolve()),
+    };
+  }
+  if (table === walletsTable) {
+    // chargeForUsage: deduct from wallet
+    const wallet = wallets[0];
+    return {
+      returning: () =>
+        Promise.resolve(
+          wallet ? [{ id: wallet.id, type: wallet.type, balance: '9.99000000' }] : []
+        ),
+      then: (resolve: (v?: unknown) => unknown) => Promise.resolve(resolve()),
+    };
+  }
+  return {
+    returning: () => Promise.resolve([{}]),
+    then: (resolve: (v?: unknown) => unknown) => Promise.resolve(resolve()),
+  };
+}
+/* eslint-enable unicorn/no-thenable */
+
+/**
+ * Joins conversationMemberRows with memberBudgetRows (1:1 by index) to model
+ * the shape returned by `getConversationBudgets`.
+ */
+function joinConversationMembersWithBudgets(
+  rows: Pick<MockDbRows, 'conversationMemberRows' | 'memberBudgetRows'>
+): {
+  memberId: string;
+  userId: string | null;
+  linkId: null;
+  privilege: string;
+  budget: string | null;
+  spent: string | null;
+}[] {
+  return rows.conversationMemberRows.map((cm, index) => {
+    const mb = rows.memberBudgetRows[index];
+    return {
+      memberId: cm.id,
+      userId: cm.userId,
+      linkId: null,
+      privilege: cm.privilege,
+      budget: mb?.budget ?? null,
+      spent: mb?.spent ?? null,
+    };
+  });
+}
+
+// Build db operations object with nested transaction support.
+// chargeForUsage calls db.transaction() on the passed-in tx,
+// so the mock ops object itself must support .transaction().
+interface MockDbOps {
+  select: () => {
+    from: (table: unknown) => {
+      where: () => unknown;
+      leftJoin: () => { where: () => unknown };
+      innerJoin: () => { where: () => unknown };
+    };
+  };
+  insert: (table: unknown) => {
+    values: (values: unknown) => { returning: () => Promise<unknown[]> };
+  };
+  update: (table: unknown) => {
+    set: (setValues: Record<string, unknown>) => { where: () => unknown };
+  };
+  delete: (table: unknown) => { where: () => Promise<void> };
+  transaction: <T>(callback: (tx: MockDbOps) => Promise<T>) => Promise<T>;
+}
+
+interface MockDbRows {
+  conversations: MockConversation[];
+  users: MockUser[];
+  wallets: MockWallet[];
+  conversationMemberRows: MockConversationMember[];
+  memberBudgetRows: MockMemberBudget[];
+  conversationSpendingRows: MockConversationSpending[];
+}
+
+/**
+ * Map-based dispatch: resolves a where() call based on the table being
+ * queried. Shared between direct `.from(table).where()` and
+ * `.from(table).leftJoin().where()` paths. The closures share counters via
+ * the returned mutable state so multi-user fixtures can cycle through
+ * `users[]` round-robin.
+ */
+function buildTableResolvers(
+  rows: MockDbRows
+): Map<unknown, () => ReturnType<typeof createThenable>> {
   // Counter-based multi-user support: cycles through users array per query.
   // getUserTierInfo queries wallets (not users) to compute balance,
   // so wallets needs its own independent cycling counter.
   let usersQueryCount = 0;
-  let lastQueriedUserIndex = 0;
   let walletsQueryCount = 0;
-
-  /* eslint-disable unicorn/no-thenable -- test mock for Drizzle query builder which uses .then() */
-  function createThenable<T>(value: T) {
-    return {
-      then: (resolve: (v: T) => unknown) => Promise.resolve(resolve(value)),
-      limit: (n: number) => ({
-        then: (resolve: (v: T) => unknown) => {
-          const sliced = Array.isArray(value) ? (value.slice(0, n) as T) : value;
-          return Promise.resolve(resolve(sliced));
-        },
-      }),
-      orderBy: () => createThenable(value),
-    };
-  }
-  /* eslint-enable unicorn/no-thenable */
-
-  // Build db operations object with nested transaction support.
-  // chargeForUsage calls db.transaction() on the passed-in tx,
-  // so the mock ops object itself must support .transaction().
-  interface MockDbOps {
-    select: () => {
-      from: (table: unknown) => {
-        where: () => unknown;
-        leftJoin: () => { where: () => unknown };
-        innerJoin: () => { where: () => unknown };
-      };
-    };
-    insert: (table: unknown) => {
-      values: (values: unknown) => { returning: () => Promise<unknown[]> };
-    };
-    update: (table: unknown) => {
-      set: (setValues: Record<string, unknown>) => { where: () => unknown };
-    };
-    delete: (table: unknown) => { where: () => Promise<void> };
-    transaction: <T>(callback: (tx: MockDbOps) => Promise<T>) => Promise<T>;
-  }
-
-  // Map-based dispatch: resolve a where() call based on the table being queried.
-  // Shared between direct `.from(table).where()` and `.from(table).leftJoin().where()` paths.
-  const tableResolvers = new Map<unknown, () => ReturnType<typeof createThenable>>([
-    [conversationsTable, () => createThenable(conversations)],
+  return new Map<unknown, () => ReturnType<typeof createThenable>>([
+    [conversationsTable, () => createThenable(rows.conversations)],
     [
       usersTable,
       () => {
-        lastQueriedUserIndex = usersQueryCount % users.length;
+        const lastQueriedUserIndex = usersQueryCount % rows.users.length;
         usersQueryCount++;
-        const user = users[lastQueriedUserIndex];
+        const user = rows.users[lastQueriedUserIndex];
         return createThenable(
           user
             ? [{ balance: user.balance, freeAllowanceCents: 0, freeAllowanceResetAt: new Date() }]
@@ -269,20 +407,59 @@ function createMockDb(options: {
     [
       walletsTable,
       () => {
-        const walletUserIndex = walletsQueryCount % users.length;
+        const walletUserIndex = walletsQueryCount % rows.users.length;
         walletsQueryCount++;
-        const userForWallets = users[walletUserIndex];
+        const userForWallets = rows.users[walletUserIndex];
         return createThenable(
-          userForWallets ? wallets.filter((w) => w.userId === userForWallets.id) : wallets
+          userForWallets ? rows.wallets.filter((w) => w.userId === userForWallets.id) : rows.wallets
         );
       },
     ],
     [epochsTable, () => createThenable([{ epochPublicKey: testEpochKeyPair.publicKey }])],
     [ledgerEntriesTable, () => createThenable([{ maxCreatedAt: null }])],
-    [conversationMembersTable, () => createThenable(conversationMemberRows)],
-    [memberBudgetsTable, () => createThenable(memberBudgetRows)],
-    [conversationSpendingTable, () => createThenable(conversationSpendingRows)],
+    [conversationMembersTable, () => createThenable(rows.conversationMemberRows)],
+    [memberBudgetsTable, () => createThenable(rows.memberBudgetRows)],
+    [conversationSpendingTable, () => createThenable(rows.conversationSpendingRows)],
   ]);
+}
+
+interface CreateMockDbOptions {
+  conversations?: MockConversation[];
+  users?: MockUser[];
+  wallets?: MockWallet[];
+  onInsert?: (table: unknown, values: unknown) => void;
+  conversationMemberRows?: MockConversationMember[];
+  memberBudgetRows?: MockMemberBudget[];
+  conversationSpendingRows?: MockConversationSpending[];
+}
+
+/**
+ * Materializes the rows the mock will serve, applying defaults for every
+ * undefined option. Keeps the dispatch builder (`createMockDb`) free of
+ * fallback branches.
+ */
+function normalizeMockDbRows(options: CreateMockDbOptions): MockDbRows {
+  const conversations = options.conversations ?? [];
+  const users = options.users ?? [];
+  return {
+    conversations,
+    users,
+    wallets: options.wallets ?? defaultWalletsForUsers(users),
+    conversationMemberRows:
+      options.conversationMemberRows ?? defaultConversationMemberRows(conversations),
+    memberBudgetRows: options.memberBudgetRows ?? [],
+    conversationSpendingRows: options.conversationSpendingRows ?? [],
+  };
+}
+
+function createMockDb(options: CreateMockDbOptions) {
+  const rows = normalizeMockDbRows(options);
+  const onInsert = options.onInsert;
+  const state: MockDbState = {
+    nextSequence: rows.conversations[0]?.nextSequence ?? 0,
+    currentEpoch: rows.conversations[0]?.currentEpoch ?? 1,
+  };
+  const tableResolvers = buildTableResolvers(rows);
 
   function resolveWhere(table: unknown) {
     return tableResolvers.get(table)?.() ?? createThenable([]);
@@ -294,21 +471,7 @@ function createMockDb(options: {
         where: () => resolveWhere(table),
         // leftJoin support: getConversationBudgets joins conversationMembers with memberBudgets
         leftJoin: () => ({
-          where: () => {
-            // Join conversationMemberRows with memberBudgetRows (1:1 by index)
-            const joined = conversationMemberRows.map((cm, index) => {
-              const mb = memberBudgetRows[index];
-              return {
-                memberId: cm.id,
-                userId: cm.userId,
-                linkId: null,
-                privilege: cm.privilege,
-                budget: mb?.budget ?? null,
-                spent: mb?.spent ?? null,
-              };
-            });
-            return createThenable(joined);
-          },
+          where: () => createThenable(joinConversationMembersWithBudgets(rows)),
         }),
         // innerJoin support: submitRotation joins conversationMembers with users/sharedLinks
         innerJoin: () => ({
@@ -318,26 +481,9 @@ function createMockDb(options: {
     }),
     insert: (table: unknown) => ({
       values: (values: unknown) => {
-        if (onInsert) {
-          onInsert(table, values);
-        }
-        const returningFunction = () => {
-          if (table === messagesTable) {
-            return Promise.resolve([values]);
-          }
-          if (table === usageRecordsTable) {
-            return Promise.resolve([{ id: 'usage-record-123' }]);
-          }
-          if (table === llmCompletionsTable) {
-            return Promise.resolve([{ id: 'llm-completion-123' }]);
-          }
-          if (table === ledgerEntriesTable) {
-            return Promise.resolve([{ id: 'ledger-entry-123' }]);
-          }
-          return Promise.resolve([values]);
-        };
+        onInsert?.(table, values);
         return {
-          returning: returningFunction,
+          returning: () => buildInsertReturning(table, values),
           // updateGroupSpending uses insert().values().onConflictDoUpdate()
           onConflictDoUpdate: () => Promise.resolve(),
         };
@@ -345,40 +491,7 @@ function createMockDb(options: {
     }),
     update: (table: unknown) => ({
       set: (setValues: Record<string, unknown>) => ({
-        where: () => {
-          if (table === conversationsTable && setValues['nextSequence']) {
-            // saveChatTurn (increments by 2) / saveUserOnlyMessage (increments by 1)
-            const seq = nextSequence;
-            const userSeq = nextSequence;
-            const aiSeq = nextSequence + 1;
-            nextSequence += 2;
-            /* eslint-disable unicorn/no-thenable -- mock Drizzle query result */
-            return {
-              returning: () => Promise.resolve([{ seq, userSeq, aiSeq, currentEpoch }]),
-              then: (resolve: (v?: unknown) => unknown) => Promise.resolve(resolve()),
-            };
-            /* eslint-enable unicorn/no-thenable */
-          }
-          if (table === walletsTable) {
-            // chargeForUsage: deduct from wallet
-            const wallet = wallets[0];
-            /* eslint-disable unicorn/no-thenable -- mock Drizzle query result */
-            return {
-              returning: () =>
-                Promise.resolve(
-                  wallet ? [{ id: wallet.id, type: wallet.type, balance: '9.99000000' }] : []
-                ),
-              then: (resolve: (v?: unknown) => unknown) => Promise.resolve(resolve()),
-            };
-            /* eslint-enable unicorn/no-thenable */
-          }
-          /* eslint-disable unicorn/no-thenable -- mock Drizzle query result */
-          return {
-            returning: () => Promise.resolve([{}]),
-            then: (resolve: (v?: unknown) => unknown) => Promise.resolve(resolve()),
-          };
-          /* eslint-enable unicorn/no-thenable */
-        },
+        where: () => buildUpdateChain(table, setValues, state, rows.wallets),
       }),
     }),
     // delete support: submitRotation deletes old epochMembers
@@ -472,7 +585,7 @@ function createTestApp(
     } as AppEnv['Bindings'];
     c.set('user', mockUser);
     c.set('session', mockSession);
-    c.set('aiClient', aiClientOverride ?? createMockAIClientWithGatewayCatalog());
+    c.set('aiClient', aiClientOverride ?? createMockAIClient());
     c.set('mediaStorage', stubMediaStorage());
     c.set(
       'db',
@@ -501,7 +614,7 @@ function createUnauthenticatedTestApp() {
     } as AppEnv['Bindings'];
     c.set('user', null);
     c.set('session', null);
-    c.set('aiClient', createMockAIClientWithGatewayCatalog());
+    c.set('aiClient', createMockAIClient());
     c.set('db', createMockDb({}) as unknown as AppEnv['Variables']['db']);
     c.set('envUtils', createEnvUtilities(c.env));
     await next();
@@ -521,20 +634,23 @@ describe('chat routes', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
 
-    (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = mockModels.map(
-      (m) => ({
+    publicModelsFixture = [
+      ...mockModels.map((m) => ({
         id: m.id,
         name: m.name,
         description: m.description,
-        modelType: 'language',
+        type: 'language',
         pricing: { input: m.pricing.prompt, output: m.pricing.completion },
-      })
-    );
+        context_window: m.context_length,
+        created: m.created,
+      })),
+      ...MEDIA_MODEL_FIXTURES,
+    ];
 
     fetchMock.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ data: [] }),
+        json: () => Promise.resolve({ data: publicModelsFixture }),
       });
     });
   });
@@ -542,7 +658,7 @@ describe('chat routes', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
-    delete (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__;
+    publicModelsFixture = [];
   });
 
   describe('POST /stream', () => {
@@ -1740,27 +1856,27 @@ describe('chat routes', () => {
 
       it('broadcasts the resolved model id (not "smart-model") in message:complete for Smart Model selections', async () => {
         vi.useRealTimers();
-        // Sync the gateway mock with the smart-model fixture so eligibility resolves.
-        (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = [
+        // Sync the public-endpoint catalog with the smart-model fixture so eligibility resolves.
+        publicModelsFixture = [
           {
             id: 'openai/gpt-5',
             name: 'GPT-5',
             description: 'A capable model',
-            modelType: 'language',
+            type: 'language',
             pricing: { input: '0.00001', output: '0.00003' },
           },
           {
             id: 'openai/gpt-4o-mini',
             name: 'GPT-4o Mini',
             description: 'A cheap model',
-            modelType: 'language',
+            type: 'language',
             pricing: { input: '0.000001', output: '0.000003' },
           },
         ];
         // Pick the cheap model from the fixture as the classifier resolution so the
         // assertion can avoid hardcoding any specific id.
         const expectedResolvedId = 'openai/gpt-4o-mini';
-        const aiClient = createMockAIClientWithGatewayCatalog({
+        const aiClient = createMockAIClient({
           classifierResolution: expectedResolvedId,
         });
 
@@ -2475,6 +2591,15 @@ describe('chat routes', () => {
       ];
 
       function stubSmartModelTestModels(fetchMockFunction: FetchMock): void {
+        const publicShape = smartModelTestModels.map((m) => ({
+          id: m.id,
+          name: m.name,
+          description: m.description,
+          type: 'language',
+          pricing: { input: m.pricing.prompt, output: m.pricing.completion },
+          context_window: m.context_length,
+          created: m.created,
+        }));
         fetchMockFunction.mockImplementation((url: string) => {
           if (url.includes('/endpoints/zdr')) {
             return Promise.resolve({
@@ -2493,7 +2618,7 @@ describe('chat routes', () => {
           }
           return Promise.resolve({
             ok: true,
-            json: () => Promise.resolve({ data: smartModelTestModels }),
+            json: () => Promise.resolve({ data: publicShape }),
           });
         });
       }
@@ -2576,19 +2701,6 @@ describe('chat routes', () => {
       it('emits stage:start and stage:done events when classifier resolves an eligible model', async () => {
         vi.useRealTimers();
         stubSmartModelTestModels(fetchMock);
-        // Sync the gateway mock to whatever the test fixture lists. Avoids
-        // hardcoded model ids in the assertion below — the resolved model is
-        // whichever non-Smart-Model entry is cheapest in the eligible set.
-        (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ =
-          smartModelTestModels
-            .filter((m) => m.id !== SMART_MODEL_TEST_ID)
-            .map((m) => ({
-              id: m.id,
-              name: m.name,
-              description: m.description,
-              modelType: 'language',
-              pricing: { input: m.pricing.prompt, output: m.pricing.completion },
-            }));
         // Pick any real eligible model id at random and instruct the mock
         // classifier to "resolve" to it. The test then asserts the SSE
         // payload contains exactly that id, so changes to the fixture
@@ -2598,7 +2710,7 @@ describe('chat routes', () => {
         )?.id;
         if (expectedResolvedId === undefined)
           throw new Error('test fixture must include a real model');
-        const aiClient = createMockAIClientWithGatewayCatalog({
+        const aiClient = createMockAIClient({
           classifierResolution: expectedResolvedId,
         });
         const app = createTestApp(undefined, undefined, undefined, aiClient);
@@ -2631,18 +2743,8 @@ describe('chat routes', () => {
         // failed classifier attempt.
         vi.useRealTimers();
         stubSmartModelTestModels(fetchMock);
-        (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ =
-          smartModelTestModels
-            .filter((m) => m.id !== SMART_MODEL_TEST_ID)
-            .map((m) => ({
-              id: m.id,
-              name: m.name,
-              description: m.description,
-              modelType: 'language',
-              pricing: { input: m.pricing.prompt, output: m.pricing.completion },
-            }));
         // Configure a classifier output that won't match any eligible model.
-        const aiClient = createMockAIClientWithGatewayCatalog({
+        const aiClient = createMockAIClient({
           classifierResolution: 'totally-unrelated-model-id-xyz',
         });
         const app = createTestApp(undefined, undefined, undefined, aiClient);
@@ -2796,6 +2898,56 @@ describe('chat routes', () => {
           const data = JSON.parse(match[1]!) as Record<string, unknown>;
           expect(data).toHaveProperty('modelId');
         }
+      });
+
+      // Regression for the N² web-search over-reservation: web search is a
+      // per-request feature (one Perplexity call shared across all N models),
+      // not per-model. `buildCostManifest` multiplies the caller's
+      // `webSearchCost` by `modelCount` internally, so the caller MUST pass
+      // the per-request cost. Passing `worstCaseSearchCost() * models.length`
+      // (the pre-fix call site) inflated reservations by N² instead of N.
+      it('reserves web-search cost as N × base, not N² × base, for N selected models', async () => {
+        vi.useRealTimers();
+        const { worstCaseSearchCost } = await import('@hushbox/shared');
+
+        stubMultiModels(fetchMock);
+        const redisWithSearch = createMockRedis();
+        const appWithSearch = createTestApp(undefined, redisWithSearch);
+        const resWithSearch = await appWithSearch.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            models: ['openai/gpt-5', SECOND_MODEL_ID],
+            webSearchEnabled: true,
+          }),
+        });
+        await resWithSearch.text();
+
+        stubMultiModels(fetchMock);
+        const redisWithoutSearch = createMockRedis();
+        const appWithoutSearch = createTestApp(undefined, redisWithoutSearch);
+        const resWithoutSearch = await appWithoutSearch.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            models: ['openai/gpt-5', SECOND_MODEL_ID],
+            webSearchEnabled: false,
+          }),
+        });
+        await resWithoutSearch.text();
+
+        // redis.eval call shape: (script, [key], [incrementStr, ttlStr])
+        const withSearchReservation = Number(redisWithSearch.eval.mock.calls[0]?.[2]?.[0]);
+        const withoutSearchReservation = Number(redisWithoutSearch.eval.mock.calls[0]?.[2]?.[0]);
+        const searchDeltaCents = withSearchReservation - withoutSearchReservation;
+
+        // Expected: 2 models × base search cost (in cents).
+        const expectedDeltaCents = 2 * worstCaseSearchCost() * 100;
+        expect(searchDeltaCents).toBeCloseTo(expectedDeltaCents, 5);
+
+        // Regression guard: must NOT be 4× base (the N² bug).
+        const buggyDeltaCents = 4 * worstCaseSearchCost() * 100;
+        expect(searchDeltaCents).not.toBeCloseTo(buggyDeltaCents, 5);
       });
     });
 
@@ -3030,6 +3182,31 @@ describe('chat routes', () => {
         expect(body.code).toBe('MODALITY_MISMATCH');
         const invalidModels = body.details?.['invalidModels'] as string[] | undefined;
         expect(invalidModels).toContain(TEXT_MODEL_ID);
+      });
+
+      it('returns 400 UNSUPPORTED_DURATION when the duration is not in the model supported set', async () => {
+        vi.useRealTimers();
+        const app = createTestApp();
+
+        // Veo 3.1 supports {4, 6, 8}. `5` is in the legacy 1-8 range but not in
+        // the discrete set — the request should reject before reaching the
+        // gateway so the user sees a clear error instead of a silent clamp.
+        const res = await app.request(`/${TEST_CONVERSATION_ID}/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: streamBody({
+            modality: 'video',
+            models: [VIDEO_MODEL_ID],
+            videoConfig: { aspectRatio: '16:9', durationSeconds: 5, resolution: '720p' },
+          }),
+        });
+
+        expect(res.status).toBe(400);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('UNSUPPORTED_DURATION');
+        expect(body.details?.['durationSeconds']).toBe(5);
+        const invalidModels = body.details?.['invalidModels'] as string[] | undefined;
+        expect(invalidModels).toContain(VIDEO_MODEL_ID);
       });
 
       it('returns 400 UNSUPPORTED_RESOLUTION when the selected model does not price the requested resolution', async () => {

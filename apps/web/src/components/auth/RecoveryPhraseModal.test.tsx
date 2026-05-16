@@ -37,9 +37,13 @@ Object.defineProperty(navigator, 'clipboard', {
   configurable: true,
 });
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: vi.fn(() => false),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: vi.fn(() => false),
+  };
+});
 
 async function fillVerificationInputs(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   const labels = screen.getAllByText(/word #\d+/i);

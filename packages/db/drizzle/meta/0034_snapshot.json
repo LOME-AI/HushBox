@@ -1,6 +1,6 @@
 {
-  "id": "a94458b7-51dc-4ac4-bc08-c229fd6cc777",
-  "prevId": "ff901b60-1ec1-473d-adf7-da640d1ae5d4",
+  "id": "ea6e2c9d-7635-4cb8-87d3-f9da5e2dfab1",
+  "prevId": "0a85762f-f1e8-45fd-83c2-c0f116d81b47",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1544,6 +1544,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "messages_sender_id_idx": {
+          "name": "messages_sender_id_idx",
+          "columns": [
+            {
+              "expression": "sender_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"messages\".\"sender_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -2225,6 +2241,20 @@
           "type": "bytea",
           "primaryKey": false,
           "notNull": true
+        },
+        "accessibility_preferences": {
+          "name": "accessibility_preferences",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{\"version\":1}'::jsonb"
+        },
+        "accessibility_preferences_updated_at": {
+          "name": "accessibility_preferences_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {

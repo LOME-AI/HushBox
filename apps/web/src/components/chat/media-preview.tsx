@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Download } from 'lucide-react';
-import { Button, cn } from '@hushbox/ui';
+import { Button, cn, Img } from '@hushbox/ui';
 import { friendlyErrorMessage, ERROR_CODE_STORAGE_READ_FAILED } from '@hushbox/shared';
 import { buildDownloadFilename } from '@/lib/media-filename';
 import { MediaModal } from './media-modal';
@@ -122,7 +122,7 @@ export function MediaPreview({
           className="block cursor-zoom-in rounded-md border"
           aria-label="Open image in lightbox"
         >
-          <img src={blobUrl} alt={mediaAlt} className="max-h-96 w-full rounded-md object-contain" />
+          <Img src={blobUrl} alt={mediaAlt} className="max-h-96 w-full rounded-md object-contain" />
         </button>
       )}
       {isVideo && (
@@ -140,6 +140,7 @@ export function MediaPreview({
           className="block w-full cursor-zoom-in rounded-md border"
           aria-label="Open video in fullscreen"
         >
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated video: no caption track is available; aria-label provides accessible name */}
           <video
             src={blobUrl}
             controls
@@ -155,6 +156,7 @@ export function MediaPreview({
         </button>
       )}
       {isAudio && (
+        // eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated audio: no caption track is available; aria-label provides accessible name
         <audio
           src={blobUrl}
           controls

@@ -1,5 +1,7 @@
 ---
 import faviconUrl from '@hushbox/ui/assets/favicon.ico';
+import { A11yProvider, AccessibilityWidget } from '@hushbox/ui/accessibility';
+import { A11Y_INIT_SCRIPT } from '@hushbox/ui/accessibility/init-script';
 import ThemeScript from '../components/ThemeScript.astro';
 import '../styles/global.css';
 
@@ -23,8 +25,11 @@ const { title, description } = Astro.props;
     <meta property="og:type" content="website" />
     <link rel="icon" type="image/x-icon" href={faviconUrl} />
     <ThemeScript />
+    <script is:inline set:html={A11Y_INIT_SCRIPT} />
   </head>
   <body class="bg-background text-foreground flex min-h-dvh flex-col antialiased">
     <slot />
+    <A11yProvider client:load />
+    <AccessibilityWidget client:load />
   </body>
 </html>

@@ -39,6 +39,255 @@ import { findActiveMember } from '../lib/db-helpers.js';
 import { submitRotation, toRotationParams, handleRotationError } from '../services/keys/keys.js';
 import { broadcastFireAndForget } from '../lib/broadcast.js';
 import type { AppEnv } from '../types.js';
+import type { Context } from 'hono';
+
+type RotationInput = z.infer<typeof rotationSchema>;
+
+async function loadTargetUser(
+  db: AppEnv['Variables']['db'],
+  targetUserId: string
+): Promise<{ id: string; publicKey: Uint8Array; username: string } | undefined> {
+  const rows = await db
+    .select({
+      id: users.id,
+      publicKey: users.publicKey,
+      username: users.username,
+    })
+    .from(users)
+    .where(eq(users.id, targetUserId))
+    .limit(1);
+  return rows[0];
+}
+
+interface ConvEpochInfo {
+  conversation: { id: string; currentEpoch: number };
+  epoch: { id: string; epochNumber: number };
+  memberCount: number;
+}
+
+async function loadConvEpoch(
+  db: AppEnv['Variables']['db'],
+  conversationId: string
+): Promise<ConvEpochInfo | undefined> {
+  const rows = await db
+    .select({
+      conversation: { id: conversations.id, currentEpoch: conversations.currentEpoch },
+      epoch: { id: epochs.id, epochNumber: epochs.epochNumber },
+      memberCount: sql<number>`(
+        SELECT count(*)::int FROM conversation_members
+        WHERE conversation_id = ${conversationId} AND left_at IS NULL
+      )`,
+    })
+    .from(conversations)
+    .innerJoin(
+      epochs,
+      and(
+        eq(epochs.conversationId, conversations.id),
+        eq(epochs.epochNumber, conversations.currentEpoch)
+      )
+    )
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  return rows[0];
+}
+
+interface RunMemberInsertionInput {
+  db: AppEnv['Variables']['db'];
+  conversationId: string;
+  targetUserId: string;
+  targetUserPublicKey: Uint8Array;
+  invitingUserId: string;
+  privilege: z.infer<typeof memberPrivilegeSchema>;
+  visibleFromEpoch: number;
+  giveFullHistory: boolean;
+  wrap: string | undefined;
+  rotation: RotationInput | undefined;
+  currentEpochId: string;
+}
+
+/**
+ * Runs the add-member transaction. Returns null when the user is already an
+ * active member (insert hit the unique-on-active constraint), otherwise the
+ * inserted member row. Throws ForkTipConflictError / RotationConflictError
+ * for the caller to translate.
+ */
+async function runMemberInsertion(
+  input: RunMemberInsertionInput
+): Promise<{ id: string; joinedAt: Date } | null> {
+  return input.db.transaction(async (tx) => {
+    const [memberRow] = await tx
+      .insert(conversationMembers)
+      .values({
+        conversationId: input.conversationId,
+        userId: input.targetUserId,
+        privilege: input.privilege,
+        visibleFromEpoch: input.visibleFromEpoch,
+        acceptedAt: null,
+        invitedByUserId: input.invitingUserId,
+      })
+      .onConflictDoNothing({
+        target: [conversationMembers.conversationId, conversationMembers.userId],
+        where: isNull(conversationMembers.leftAt),
+      })
+      .returning();
+    if (!memberRow) return null;
+
+    if (input.giveFullHistory) {
+      if (!input.wrap) throw new Error('invariant: wrap required for full history');
+      await tx.insert(epochMembers).values({
+        epochId: input.currentEpochId,
+        memberPublicKey: input.targetUserPublicKey,
+        wrap: fromBase64(input.wrap),
+        visibleFromEpoch: input.visibleFromEpoch,
+      });
+    } else {
+      if (!input.rotation) throw new Error('invariant: rotation required without history');
+      await submitRotation(
+        tx as unknown as Database,
+        toRotationParams(input.conversationId, input.rotation)
+      );
+    }
+    return memberRow;
+  });
+}
+
+interface BroadcastMemberAddedInput {
+  conversationId: string;
+  newMemberId: string;
+  targetUserId: string;
+  privilege: z.infer<typeof memberPrivilegeSchema>;
+  rotation: RotationInput | undefined;
+}
+
+function broadcastMemberAdded(env: Context<AppEnv>['env'], input: BroadcastMemberAddedInput): void {
+  broadcastFireAndForget(
+    env,
+    input.conversationId,
+    createEvent('member:added', {
+      conversationId: input.conversationId,
+      memberId: input.newMemberId,
+      userId: input.targetUserId,
+      privilege: input.privilege,
+    })
+  );
+  if (input.rotation) {
+    broadcastFireAndForget(
+      env,
+      input.conversationId,
+      createEvent('rotation:complete', {
+        conversationId: input.conversationId,
+        newEpochNumber: input.rotation.expectedEpoch + 1,
+      })
+    );
+  }
+}
+
+interface AddMemberRequestBody {
+  userId: string;
+  wrap?: string | undefined;
+  privilege: z.infer<typeof memberPrivilegeSchema>;
+  giveFullHistory: boolean;
+  rotation?: RotationInput | undefined;
+}
+
+interface AddMemberGatesSuccess {
+  targetUser: { id: string; publicKey: Uint8Array; username: string };
+  convEpoch: ConvEpochInfo;
+  visibleFromEpoch: number;
+}
+
+interface AddMemberGatesError {
+  errorResponse: {
+    body: ReturnType<typeof createErrorResponse>;
+    status: 400 | 404;
+  };
+}
+
+async function runAddMemberGates(
+  db: AppEnv['Variables']['db'],
+  conversationId: string,
+  body: AddMemberRequestBody
+): Promise<AddMemberGatesSuccess | AddMemberGatesError> {
+  const targetUser = await loadTargetUser(db, body.userId);
+  if (!targetUser) {
+    return { errorResponse: { body: createErrorResponse(ERROR_CODE_NOT_FOUND), status: 404 } };
+  }
+  const convEpoch = await loadConvEpoch(db, conversationId);
+  if (!convEpoch) {
+    return {
+      errorResponse: {
+        body: createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND),
+        status: 404,
+      },
+    };
+  }
+  if (convEpoch.memberCount >= MAX_CONVERSATION_MEMBERS) {
+    return {
+      errorResponse: {
+        body: createErrorResponse(ERROR_CODE_MEMBER_LIMIT_REACHED),
+        status: 400,
+      },
+    };
+  }
+  if (!body.giveFullHistory && !body.rotation) {
+    return {
+      errorResponse: { body: createErrorResponse(ERROR_CODE_VALIDATION), status: 400 },
+    };
+  }
+  const visibleFromEpoch = body.giveFullHistory ? 1 : (body.rotation?.expectedEpoch ?? 0) + 1;
+  return { targetUser, convEpoch, visibleFromEpoch };
+}
+
+interface PerformAddMemberInput {
+  c: Context<AppEnv>;
+  db: AppEnv['Variables']['db'];
+  user: { id: string };
+  conversationId: string;
+  requestBody: AddMemberRequestBody;
+  targetUser: AddMemberGatesSuccess['targetUser'];
+  convEpoch: ConvEpochInfo;
+  visibleFromEpoch: number;
+}
+
+async function performAddMember(input: PerformAddMemberInput): Promise<Response> {
+  const { c, requestBody } = input;
+  const newMember = await runMemberInsertion({
+    db: input.db,
+    conversationId: input.conversationId,
+    targetUserId: requestBody.userId,
+    targetUserPublicKey: input.targetUser.publicKey,
+    invitingUserId: input.user.id,
+    privilege: requestBody.privilege,
+    visibleFromEpoch: input.visibleFromEpoch,
+    giveFullHistory: requestBody.giveFullHistory,
+    wrap: requestBody.wrap,
+    rotation: requestBody.rotation,
+    currentEpochId: input.convEpoch.epoch.id,
+  });
+  if (!newMember) {
+    return c.json(createErrorResponse(ERROR_CODE_ALREADY_MEMBER), 409);
+  }
+  broadcastMemberAdded(c.env, {
+    conversationId: input.conversationId,
+    newMemberId: newMember.id,
+    targetUserId: requestBody.userId,
+    privilege: requestBody.privilege,
+    rotation: requestBody.giveFullHistory ? undefined : requestBody.rotation,
+  });
+  return c.json(
+    {
+      member: {
+        id: newMember.id,
+        userId: requestBody.userId,
+        username: input.targetUser.username,
+        privilege: requestBody.privilege,
+        visibleFromEpoch: input.visibleFromEpoch,
+        joinedAt: newMember.joinedAt.toISOString(),
+      },
+    },
+    201
+  );
+}
 
 export const membersRoute = new Hono<AppEnv>()
   .get(
@@ -104,157 +353,28 @@ export const membersRoute = new Hono<AppEnv>()
           message: 'wrap required for full history, rotation required without history',
         })
     ),
-    // eslint-disable-next-line sonarjs/cognitive-complexity, complexity -- add-member handler has inherent branching from giveFullHistory/rotation/wrap guards
     async (c) => {
       const user = c.get('user');
       if (!user) throw new Error('User required after requirePrivilege');
       const db = c.get('db');
       const { conversationId } = c.req.valid('param');
-      const {
-        userId: targetUserId,
-        wrap,
-        privilege,
-        giveFullHistory,
-        rotation,
-      } = c.req.valid('json');
+      const requestBody = c.req.valid('json');
 
-      const targetUser = await db
-        .select({
-          id: users.id,
-          publicKey: users.publicKey,
-          username: users.username,
-        })
-        .from(users)
-        .where(eq(users.id, targetUserId))
-        .limit(1)
-        .then((rows) => rows[0]);
-
-      if (!targetUser) {
-        return c.json(createErrorResponse(ERROR_CODE_NOT_FOUND), 404);
-      }
-
-      const convEpoch = await db
-        .select({
-          conversation: { id: conversations.id, currentEpoch: conversations.currentEpoch },
-          epoch: { id: epochs.id, epochNumber: epochs.epochNumber },
-          memberCount: sql<number>`(
-            SELECT count(*)::int FROM conversation_members
-            WHERE conversation_id = ${conversationId} AND left_at IS NULL
-          )`,
-        })
-        .from(conversations)
-        .innerJoin(
-          epochs,
-          and(
-            eq(epochs.conversationId, conversations.id),
-            eq(epochs.epochNumber, conversations.currentEpoch)
-          )
-        )
-        .where(eq(conversations.id, conversationId))
-        .limit(1)
-        .then((rows) => rows[0]);
-
-      if (!convEpoch) {
-        return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
-      }
-
-      if (convEpoch.memberCount >= MAX_CONVERSATION_MEMBERS) {
-        return c.json(createErrorResponse(ERROR_CODE_MEMBER_LIMIT_REACHED), 400);
-      }
-
-      let visibleFromEpoch: number;
-      if (giveFullHistory) {
-        visibleFromEpoch = 1;
-      } else {
-        if (!rotation) {
-          return c.json(createErrorResponse(ERROR_CODE_VALIDATION), 400);
-        }
-        visibleFromEpoch = rotation.expectedEpoch + 1;
-      }
+      const gates = await runAddMemberGates(db, conversationId, requestBody);
+      if ('errorResponse' in gates)
+        return c.json(gates.errorResponse.body, gates.errorResponse.status);
 
       try {
-        const newMember = await db.transaction(async (tx) => {
-          const [memberRow] = await tx
-            .insert(conversationMembers)
-            .values({
-              conversationId,
-              userId: targetUserId,
-              privilege,
-              visibleFromEpoch,
-              acceptedAt: null,
-              invitedByUserId: user.id,
-            })
-            .onConflictDoNothing({
-              target: [conversationMembers.conversationId, conversationMembers.userId],
-              where: isNull(conversationMembers.leftAt),
-            })
-            .returning();
-
-          if (!memberRow) {
-            return null;
-          }
-
-          if (giveFullHistory) {
-            // Full history: insert wrap for current epoch
-            if (!wrap) throw new Error('invariant: wrap required for full history');
-            const wrapBytes = fromBase64(wrap);
-            await tx.insert(epochMembers).values({
-              epochId: convEpoch.epoch.id,
-              memberPublicKey: targetUser.publicKey,
-              wrap: wrapBytes,
-              visibleFromEpoch,
-            });
-          } else {
-            // Without history: rotate epoch (creates new epoch + wraps for all members)
-            if (!rotation) throw new Error('invariant: rotation required without history');
-            await submitRotation(
-              tx as unknown as Database,
-              toRotationParams(conversationId, rotation)
-            );
-          }
-
-          return memberRow;
-        });
-
-        if (!newMember) {
-          return c.json(createErrorResponse(ERROR_CODE_ALREADY_MEMBER), 409);
-        }
-
-        broadcastFireAndForget(
-          c.env,
+        return await performAddMember({
+          c,
+          db,
+          user,
           conversationId,
-          createEvent('member:added', {
-            conversationId,
-            memberId: newMember.id,
-            userId: targetUserId,
-            privilege,
-          })
-        );
-
-        if (!giveFullHistory && rotation) {
-          broadcastFireAndForget(
-            c.env,
-            conversationId,
-            createEvent('rotation:complete', {
-              conversationId,
-              newEpochNumber: rotation.expectedEpoch + 1,
-            })
-          );
-        }
-
-        return c.json(
-          {
-            member: {
-              id: newMember.id,
-              userId: targetUserId,
-              username: targetUser.username,
-              privilege,
-              visibleFromEpoch,
-              joinedAt: newMember.joinedAt.toISOString(),
-            },
-          },
-          201
-        );
+          requestBody,
+          targetUser: gates.targetUser,
+          convEpoch: gates.convEpoch,
+          visibleFromEpoch: gates.visibleFromEpoch,
+        });
       } catch (error) {
         return handleRotationError(error, c);
       }

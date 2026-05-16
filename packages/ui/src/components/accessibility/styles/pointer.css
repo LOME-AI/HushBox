@@ -1,0 +1,178 @@
+/* Cursor size + color — large/x-large variants in black or white.
+ *
+ * Why the universal selector and `cursor: inherit !important` rule?
+ *
+ * `cursor` is inherited, but element-level declarations (Tailwind's
+ * `cursor-pointer`, browser defaults like `<input>` → text I-beam) computed
+ * on each descendant override the value set on `html`. Without forcing
+ * inheritance, hovering anything interactive shows the system cursor for that
+ * element type, not the custom one — making the size setting look broken.
+ *
+ * The `*` rule forces every descendant to inherit from its parent. The
+ * interactive-element selector below then overrides for buttons/links/cards
+ * with a hand-cursor variant, so users still get the "clickable" affordance
+ * when hovering over actionable UI under a custom cursor size.
+ */
+
+html.a11y-cursor-large {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32'%3E%3Cpath d='M3 3L3 23L8.5 18L13 27L17 25L12.5 16.5L21 16.5Z' fill='black' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E")
+      3 3,
+    auto;
+}
+html.a11y-cursor-xlarge {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='48' height='48'%3E%3Cpath d='M3 3L3 23L8.5 18L13 27L17 25L12.5 16.5L21 16.5Z' fill='black' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E")
+      4 4,
+    auto;
+}
+html.a11y-cursor-white.a11y-cursor-large {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32'%3E%3Cpath d='M3 3L3 23L8.5 18L13 27L17 25L12.5 16.5L21 16.5Z' fill='white' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E")
+      3 3,
+    auto;
+}
+html.a11y-cursor-white.a11y-cursor-xlarge {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='48' height='48'%3E%3Cpath d='M3 3L3 23L8.5 18L13 27L17 25L12.5 16.5L21 16.5Z' fill='white' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E")
+      4 4,
+    auto;
+}
+
+html.a11y-cursor-large *,
+html.a11y-cursor-xlarge * {
+  cursor: inherit !important;
+}
+
+/* Interactive elements get a hand-shaped variant so the "clickable" affordance
+ * is preserved even when a custom cursor size is active. */
+html.a11y-cursor-large button,
+html.a11y-cursor-large a[href],
+html.a11y-cursor-large [role="button"],
+html.a11y-cursor-large [role="link"],
+html.a11y-cursor-large [data-slot="setting-card"],
+html.a11y-cursor-large [data-slot="setting-card-prev"],
+html.a11y-cursor-large [data-slot="setting-card-next"],
+html.a11y-cursor-large summary,
+html.a11y-cursor-large select,
+html.a11y-cursor-large label[for],
+html.a11y-cursor-large input[type="button"],
+html.a11y-cursor-large input[type="submit"],
+html.a11y-cursor-large input[type="checkbox"],
+html.a11y-cursor-large input[type="radio"],
+html.a11y-cursor-large .cursor-pointer {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32'%3E%3Cpath d='M11 3L14 3L14 13L22 13C24 13 24 14 24 16L24 25C24 27 23 28 21 28L10 28C7 28 5 26 5 24L5 18C5 16 6 15 8 15L11 15Z' fill='black' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E")
+      13 2,
+    pointer !important;
+}
+html.a11y-cursor-xlarge button,
+html.a11y-cursor-xlarge a[href],
+html.a11y-cursor-xlarge [role="button"],
+html.a11y-cursor-xlarge [role="link"],
+html.a11y-cursor-xlarge [data-slot="setting-card"],
+html.a11y-cursor-xlarge [data-slot="setting-card-prev"],
+html.a11y-cursor-xlarge [data-slot="setting-card-next"],
+html.a11y-cursor-xlarge summary,
+html.a11y-cursor-xlarge select,
+html.a11y-cursor-xlarge label[for],
+html.a11y-cursor-xlarge input[type="button"],
+html.a11y-cursor-xlarge input[type="submit"],
+html.a11y-cursor-xlarge input[type="checkbox"],
+html.a11y-cursor-xlarge input[type="radio"],
+html.a11y-cursor-xlarge .cursor-pointer {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='48' height='48'%3E%3Cpath d='M11 3L14 3L14 13L22 13C24 13 24 14 24 16L24 25C24 27 23 28 21 28L10 28C7 28 5 26 5 24L5 18C5 16 6 15 8 15L11 15Z' fill='black' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E")
+      20 3,
+    pointer !important;
+}
+html.a11y-cursor-white.a11y-cursor-large button,
+html.a11y-cursor-white.a11y-cursor-large a[href],
+html.a11y-cursor-white.a11y-cursor-large [role="button"],
+html.a11y-cursor-white.a11y-cursor-large [role="link"],
+html.a11y-cursor-white.a11y-cursor-large [data-slot="setting-card"],
+html.a11y-cursor-white.a11y-cursor-large [data-slot="setting-card-prev"],
+html.a11y-cursor-white.a11y-cursor-large [data-slot="setting-card-next"],
+html.a11y-cursor-white.a11y-cursor-large summary,
+html.a11y-cursor-white.a11y-cursor-large select,
+html.a11y-cursor-white.a11y-cursor-large label[for],
+html.a11y-cursor-white.a11y-cursor-large input[type="button"],
+html.a11y-cursor-white.a11y-cursor-large input[type="submit"],
+html.a11y-cursor-white.a11y-cursor-large input[type="checkbox"],
+html.a11y-cursor-white.a11y-cursor-large input[type="radio"],
+html.a11y-cursor-white.a11y-cursor-large .cursor-pointer {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32'%3E%3Cpath d='M11 3L14 3L14 13L22 13C24 13 24 14 24 16L24 25C24 27 23 28 21 28L10 28C7 28 5 26 5 24L5 18C5 16 6 15 8 15L11 15Z' fill='white' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E")
+      13 2,
+    pointer !important;
+}
+html.a11y-cursor-white.a11y-cursor-xlarge button,
+html.a11y-cursor-white.a11y-cursor-xlarge a[href],
+html.a11y-cursor-white.a11y-cursor-xlarge [role="button"],
+html.a11y-cursor-white.a11y-cursor-xlarge [role="link"],
+html.a11y-cursor-white.a11y-cursor-xlarge [data-slot="setting-card"],
+html.a11y-cursor-white.a11y-cursor-xlarge [data-slot="setting-card-prev"],
+html.a11y-cursor-white.a11y-cursor-xlarge [data-slot="setting-card-next"],
+html.a11y-cursor-white.a11y-cursor-xlarge summary,
+html.a11y-cursor-white.a11y-cursor-xlarge select,
+html.a11y-cursor-white.a11y-cursor-xlarge label[for],
+html.a11y-cursor-white.a11y-cursor-xlarge input[type="button"],
+html.a11y-cursor-white.a11y-cursor-xlarge input[type="submit"],
+html.a11y-cursor-white.a11y-cursor-xlarge input[type="checkbox"],
+html.a11y-cursor-white.a11y-cursor-xlarge input[type="radio"],
+html.a11y-cursor-white.a11y-cursor-xlarge .cursor-pointer {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='48' height='48'%3E%3Cpath d='M11 3L14 3L14 13L22 13C24 13 24 14 24 16L24 25C24 27 23 28 21 28L10 28C7 28 5 26 5 24L5 18C5 16 6 15 8 15L11 15Z' fill='white' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E")
+      20 3,
+    pointer !important;
+}
+
+/* Break the magnifier's clone-of-body recursion.
+ *
+ * `Magnifier` renders a `<div data-a11y-magnifier>` lens whose inner
+ * `<div data-a11y-magnifier-content>` mirrors `document.body.innerHTML`. The
+ * body contains the magnifier, so the clone contains a copy of the lens —
+ * which contains another clone of the body — which contains another lens,
+ * ad infinitum. Visually that's the "zooming in forever" Droste effect.
+ *
+ * The previous wrong-content bug masked this: the un-synced clone usually
+ * rendered the magnifier at a stale position outside the visible area, so
+ * the nesting wasn't apparent. Once scrolls sync correctly, the recursion
+ * shows up. Hide any nested lens to terminate the recursion at depth 1. */
+[data-a11y-magnifier-content] [data-a11y-magnifier] {
+  display: none !important;
+}
+
+/* Click-through the magnifier.
+ *
+ * `pointer-events` is non-inherited, so setting it on the lens div alone
+ * doesn't stop the cloned DOM elements inside it from intercepting clicks.
+ * The clone renders the live page magnified — and at the cursor position, a
+ * cloned button is on top of the live one. Without this rule, clicks land on
+ * the (handler-less) clone and the live button never receives them, so menus
+ * like the sidebar Settings/Usage items become un-clickable whenever the
+ * magnifier is over them. */
+[data-a11y-magnifier],
+[data-a11y-magnifier] * {
+  pointer-events: none !important;
+}
+
+/* Focus indicator — width + color + halo.
+ *
+ * Apply on both `:focus` and `:focus-visible` so click-focus also shows the
+ * ring. The widget is always-on (no "differs from default" gate) so users see
+ * their chosen settings whenever any element receives focus, not only when
+ * they tab in via keyboard. */
+html.a11y-focus-strong *:focus,
+html.a11y-focus-strong *:focus-visible {
+  outline: var(--a11y-focus-width, 2px) solid var(--a11y-focus-color, #fbbf24) !important;
+  outline-offset: 2px !important;
+}
+/* Halo uses a blurred drop shadow in the focus color so it reads as a soft
+ * glow (not a flat second ring). The 12px blur + 4px spread gives a visible
+ * aura around the colored outline that contrasts on both light and dark
+ * backgrounds. */
+html.a11y-focus-strong.a11y-focus-halo *:focus,
+html.a11y-focus-strong.a11y-focus-halo *:focus-visible {
+  box-shadow: 0 0 12px 4px var(--a11y-focus-color, #fbbf24) !important;
+}

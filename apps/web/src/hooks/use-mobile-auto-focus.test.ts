@@ -5,9 +5,13 @@ const { mockUseIsMobile } = vi.hoisted(() => ({
   mockUseIsMobile: vi.fn(),
 }));
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: mockUseIsMobile,
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: mockUseIsMobile,
+  };
+});
 
 import { useMobileAutoFocus } from './use-mobile-auto-focus';
 

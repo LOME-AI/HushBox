@@ -4,8 +4,8 @@ import {
   experimental_generateVideo,
   gateway as gatewayTools,
   stepCountIs,
+  createGateway,
 } from 'ai';
-import { createGateway } from '@ai-sdk/gateway';
 import { z } from 'zod';
 import { fetchModels } from '@hushbox/shared/models';
 import { MAX_SEARCH_TOOL_CALLS, assertNever } from '@hushbox/shared';
@@ -43,6 +43,28 @@ export type EvidenceConfig = SharedEvidenceConfig;
 const ZDR_PROVIDER_OPTIONS = {
   gateway: { zeroDataRetention: true },
 } as const;
+
+/**
+ * Per-Imagen-4 hardcoded `sampleImageSize`. Imagen 4 fast supports 1K only;
+ * generate and ultra support 2K. We don't surface resolution in the UI
+ * (flat pricing means there's no user-visible tradeoff), so the right value
+ * is injected at request-build time. Models not in this map use the gateway's
+ * default and never receive a `google.sampleImageSize` provider option.
+ */
+const IMAGEN_SAMPLE_SIZE_BY_MODEL: Readonly<Record<string, '1K' | '2K'>> = {
+  'google/imagen-4.0-fast-generate-001': '1K',
+  'google/imagen-4.0-generate-001': '2K',
+  'google/imagen-4.0-ultra-generate-001': '2K',
+};
+
+function imageProviderOptions(modelId: string): {
+  gateway: { zeroDataRetention: true };
+  google?: { sampleImageSize: '1K' | '2K' };
+} {
+  const sampleImageSize = IMAGEN_SAMPLE_SIZE_BY_MODEL[modelId];
+  if (sampleImageSize === undefined) return ZDR_PROVIDER_OPTIONS;
+  return { ...ZDR_PROVIDER_OPTIONS, google: { sampleImageSize } };
+}
 
 /**
  * Provider-metadata Zod schema for the `gateway` namespace. The AI Gateway
@@ -197,7 +219,7 @@ function streamImageRequest(
           : { aspectRatio: request.aspectRatio as `${number}:${number}` }),
         ...(request.size === undefined ? {} : { size: request.size as `${number}x${number}` }),
         ...(request.n === undefined ? {} : { n: request.n }),
-        providerOptions: ZDR_PROVIDER_OPTIONS,
+        providerOptions: imageProviderOptions(request.model),
       });
 
       const file = result.images[0];
@@ -308,10 +330,11 @@ export function createRealAIClient(options: CreateRealAIClientOptions): AIClient
     isMock: false,
 
     listRawModels(): Promise<RawModel[]> {
-      // Single boundary for raw gateway data — every caller (chat tier-gate,
-      // billing premium-id check, /api/models route) flows through here so
-      // the env fork in `getAIClient` is the only place we read the API key.
-      return fetchModels({ apiKey, publicModelsUrl });
+      // Single boundary for raw catalog data — every caller (chat tier-gate,
+      // billing premium-id check, /api/models route) flows through here. The
+      // catalog source is the unauthenticated public `/v1/models` endpoint;
+      // `apiKey` is only used for inference (`createGateway`).
+      return fetchModels({ publicModelsUrl });
     },
 
     async listModels(): Promise<ModelInfo[]> {

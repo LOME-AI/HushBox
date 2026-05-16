@@ -80,9 +80,13 @@ vi.mock('@/hooks/use-chat-page', () => ({
 }));
 
 const mockUseIsMobile = vi.fn<() => boolean>();
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: (): boolean => mockUseIsMobile(),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: (): boolean => mockUseIsMobile(),
+  };
+});
 
 interface SessionMock {
   data: { user: { id: string } } | null;

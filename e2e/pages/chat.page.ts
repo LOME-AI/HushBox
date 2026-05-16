@@ -1,6 +1,5 @@
 import { type Page, type Locator } from '@playwright/test';
 import { expect, unsettledExpect } from '../helpers/settled-expect.js';
-import { isTouchDevice } from '../helpers/overlay.js';
 import { requireEnv } from '../helpers/env.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
@@ -54,16 +53,43 @@ export class ChatPage {
       .waitFor({ state: 'attached', timeout });
   }
 
-  /** Wait for a conversation page to load (message list visible and content rendered). Use instead of waitForAppStable on conversation pages. */
+  /**
+   * Wait for a conversation page to load. Use instead of waitForAppStable on
+   * conversation pages. Waits for the message list to mount, for either a
+   * message-item or the empty state to render, and for every message to
+   * finish decrypting (so a follow-up assertion can scroll to any message
+   * without racing the decrypt result).
+   */
   async waitForConversationLoaded(timeout = 15_000): Promise<void> {
     await this.messageList.waitFor({ state: 'visible', timeout });
-    // Wait for at least one message to render OR the "No messages yet" empty
-    // state. Uses .or() so a single locator resolves for either case.
     await this.messageList
       .locator('[data-testid="message-item"]')
       .first()
       .or(this.messageList.getByText('No messages yet'))
       .waitFor({ state: 'visible', timeout });
+    await this.waitForDecryptionComplete(timeout);
+  }
+
+  /**
+   * Wait until every message in the conversation has been decrypted, using
+   * the `data-decrypted-count` attribute exposed by `MessageList`. Resolves
+   * immediately when the conversation is empty.
+   */
+  async waitForDecryptionComplete(timeout = 15_000): Promise<void> {
+    await this.page.waitForFunction(
+      () => {
+        const list = document.querySelector<HTMLElement>(
+          '[data-testid="message-list"], [data-testid="message-list-empty"]'
+        );
+        if (!list) return false;
+        const messageCount = Number(list.dataset['messageCount']);
+        const decryptedCount = Number(list.dataset['decryptedCount']);
+        if (Number.isNaN(messageCount) || Number.isNaN(decryptedCount)) return false;
+        return decryptedCount >= messageCount;
+      },
+      undefined,
+      { timeout }
+    );
   }
 
   async gotoTrialChat(): Promise<void> {
@@ -353,8 +379,8 @@ export class ChatPage {
     await expect(pill).toHaveAttribute('aria-pressed', 'true');
   }
 
-  /** Click a video resolution toggle pill (label starts with '720p' or '1080p' followed by inline price). */
-  async selectResolution(resolution: '720p' | '1080p'): Promise<void> {
+  /** Click a video resolution toggle pill (label starts with the resolution followed by inline price). */
+  async selectResolution(resolution: '720p' | '1080p' | '4k'): Promise<void> {
     const pill = this.page.getByRole('button', {
       name: new RegExp(String.raw`^${resolution}\s+\$`, 'i'),
     });
@@ -384,28 +410,79 @@ export class ChatPage {
   }
 
   /**
-   * Park the last row in view and wait for an inline `<img>` to render.
-   * The scroll-to-last guards against Virtuoso virtualizing the bottommost
-   * media tile out of the DOM after several prior messages in the same
-   * conversation push it below the rendered window.
+   * Wait until the matched media element has decoded bytes — `naturalWidth > 0`
+   * for `<img>`, a finite positive `duration` for `<video>`. `toBeVisible()`
+   * alone is insufficient on iPhone-15: a freshly-mounted lazy `<img>` with
+   * no `width`/`height` attributes can be in the DOM with a 0×0 bounding box
+   * and report as "hidden" until the bytes actually decode.
    */
-  async expectImageVisible(timeout = 30_000): Promise<void> {
-    await this.scrollLastMessageIntoView();
-    const imageElement = this.messageList.locator('img').first();
-    await expect(imageElement).toBeVisible({ timeout });
+  private async expectMediaLoaded(media: Locator, timeout = 15_000): Promise<void> {
+    await expect
+      .poll(
+        async () =>
+          media.evaluate((el) => {
+            if (el instanceof HTMLImageElement) return el.naturalWidth;
+            if (el instanceof HTMLVideoElement) {
+              return Number.isFinite(el.duration) && el.duration > 0 ? 1 : 0;
+            }
+            return 0;
+          }),
+        { timeout }
+      )
+      .toBeGreaterThan(0);
   }
 
-  /** Wait for an inline `<video>` element to render in the assistant message list. */
-  async expectVideoVisible(timeout = 30_000): Promise<void> {
-    await this.scrollLastMessageIntoView();
-    const videoElement = this.messageList.locator('video').first();
-    await expect(videoElement).toBeVisible({ timeout });
-  }
-
-  private async scrollLastMessageIntoView(): Promise<void> {
+  /**
+   * Wait for an inline media element to render anywhere in the message list.
+   * Walks virtuoso rows bottom→top, mounting each via
+   * `__virtuosoScrollToIndex`, and returns as soon as a matching element
+   * becomes visible AND its bytes have decoded. Covers the multi-media case
+   * (image at one row, video at another) where scrolling only to the last
+   * row would virtualize the earlier tile out of the DOM.
+   */
+  async expectMediaVisible(kind: 'img' | 'video', timeout = 30_000): Promise<void> {
     const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
-    if (Number.isNaN(rowsCount) || rowsCount <= 0) return;
-    await this.scrollMessageIntoView(rowsCount - 1);
+    const media = this.messageList.locator(kind).first();
+    if (Number.isNaN(rowsCount) || rowsCount <= 0) {
+      await expect(media).toBeVisible({ timeout });
+      await this.expectMediaLoaded(media);
+      return;
+    }
+    for (let index = rowsCount - 1; index >= 0; index--) {
+      await this.scrollMessageIntoView(index);
+      if (await media.isVisible().catch(() => false)) {
+        await this.expectMediaLoaded(media);
+        return;
+      }
+    }
+    await expect(media).toBeVisible({ timeout });
+    await this.expectMediaLoaded(media);
+  }
+
+  /**
+   * Park the message at `index` in Virtuoso's mounted window and assert
+   * that an `<img>` (or `<video>`) inside that row is both visible and
+   * dimensionally settled. Use for tests that need to verify media at a
+   * specific row (e.g. multi-model sibling tiles, fork branches), not
+   * "anywhere in the conversation" — for the latter, use `expectImageVisible`.
+   */
+  async expectMediaVisibleAt(
+    index: number,
+    kind: 'img' | 'video',
+    timeout = 30_000
+  ): Promise<void> {
+    await this.scrollMessageIntoView(index);
+    const media = this.getMessage(index).locator(kind).first();
+    await expect(media).toBeVisible({ timeout });
+    await this.expectMediaLoaded(media);
+  }
+
+  async expectImageVisible(timeout = 30_000): Promise<void> {
+    await this.expectMediaVisible('img', timeout);
+  }
+
+  async expectVideoVisible(timeout = 30_000): Promise<void> {
+    await this.expectMediaVisible('video', timeout);
   }
 
   /** Confirm the "Download media" link is rendered alongside the inline media element. */
@@ -541,6 +618,22 @@ export class ChatPage {
   }
 
   /**
+   * Read the current Virtuoso row count from `data-rows-count` and return
+   * the index of the last row. Throws if no rows exist — callers that
+   * capture an index for later use should fail loudly here rather than
+   * silently propagate a sentinel.
+   */
+  async getLastRowIndex(): Promise<number> {
+    const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
+    if (!Number.isFinite(rowsCount) || rowsCount <= 0) {
+      throw new Error(
+        `getLastRowIndex: data-rows-count is ${String(rowsCount)}; expected at least one row`
+      );
+    }
+    return rowsCount - 1;
+  }
+
+  /**
    * Deterministically park a virtualized row in view. Uses Virtuoso's native
    * `scrollIntoView({ index, done })` via the dev/E2E-gated window backdoor in
    * `MessageList`. Resolves when the target row is measured and mounted —
@@ -575,29 +668,17 @@ export class ChatPage {
   }
 
   /**
-   * Hover the nth message to reveal action buttons. Scrolls the target into
-   * Virtuoso's mounted window first. On touch devices the click target is the
-   * `message-cost` row when present — clicking the media tile would open the
-   * lightbox dialog instead of revealing the action menu.
+   * Park the row at `index` in Virtuoso's mounted window so its action buttons
+   * are reachable. Action buttons are always-rendered now (no hover gating),
+   * so callers only need the row mounted before they can click.
    */
-  async hoverMessage(index: number): Promise<void> {
+  async prepareMessage(index: number): Promise<void> {
     await this.scrollMessageIntoView(index);
-    const item = this.getMessage(index);
-    if (await isTouchDevice(this.page)) {
-      await touchActivateMessage(item);
-    } else {
-      await item.hover();
-    }
   }
 
-  /** Hover over the last message (click on touch devices to trigger sticky hover). */
-  async hoverLastMessage(): Promise<void> {
-    const target = this.getLastMessage();
-    if (await isTouchDevice(this.page)) {
-      await touchActivateMessage(target);
-    } else {
-      await target.hover();
-    }
+  /** Park the last row in the mounted window. */
+  async prepareLastMessage(): Promise<void> {
+    await this.scrollMessageIntoView(await this.getLastRowIndex());
   }
 
   /** Get action button on a specific message by aria-label. */
@@ -627,27 +708,27 @@ export class ChatPage {
   }
 
   async clickRetry(index: number): Promise<void> {
-    await this.hoverMessage(index);
+    await this.prepareMessage(index);
     await this.getRetryButton(index).click();
   }
 
   async clickEdit(index: number): Promise<void> {
-    await this.hoverMessage(index);
+    await this.prepareMessage(index);
     await this.getEditButton(index).click();
   }
 
   async clickRegenerate(index: number): Promise<void> {
-    await this.hoverMessage(index);
+    await this.prepareMessage(index);
     await this.getRegenerateButton(index).click();
   }
 
   async clickFork(index: number): Promise<void> {
-    await this.hoverMessage(index);
+    await this.prepareMessage(index);
     await this.getForkButton(index).click();
   }
 
   async clickForkOnLastMessage(): Promise<void> {
-    await this.hoverLastMessage();
+    await this.prepareLastMessage();
     await this.getLastMessageActionButton('Fork').click();
   }
 
@@ -724,40 +805,82 @@ export class ChatPage {
     await expect(this.page.getByTestId('model-selector-modal')).toBeVisible();
   }
 
-  /** Toggle a model in the open modal by clicking its checkbox. */
-  async toggleModelInModal(modelId: string): Promise<void> {
-    const item = this.page.getByTestId(`model-item-${modelId}`);
-    await item.getByTestId('model-checkbox').click();
+  /**
+   * Switch the picker between single and multi modes by clicking the
+   * appropriate option in the segmented PickerModeToggle. The toggle renders
+   * twice (once per responsive layout); click the first visible option.
+   */
+  async switchPickerMode(mode: 'single' | 'multi'): Promise<void> {
+    const modal = this.page.getByTestId('model-selector-modal');
+    const targetTestId = mode === 'single' ? 'picker-mode-single' : 'picker-mode-multi';
+    await modal.getByTestId(targetTestId).first().click();
+    await expect(modal).toHaveAttribute('data-picker-mode', mode);
   }
 
-  /** Click the confirm button in the model selector modal footer. */
+  /**
+   * Toggle a model in the picker. In single mode this commits + closes; in
+   * multi mode it toggles a checkbox in the local pending selection. Either
+   * way, the row body is the click target now (no more checkbox-only zone).
+   */
+  async toggleModelInModal(modelId: string): Promise<void> {
+    const item = this.page.getByTestId(`model-item-${modelId}`);
+    // Click the row's main button (the part that holds the model name + checkbox).
+    await item.locator('button').first().click();
+  }
+
+  /**
+   * Confirm the multi-mode pending selection via the footer Use button. In
+   * single mode, row clicks commit + close immediately so this helper is
+   * unnecessary — it falls through to closing via X if the modal is still
+   * open with no Use button.
+   */
   async confirmModelSelection(): Promise<void> {
     const modal = this.page.getByTestId('model-selector-modal');
-    const selectButton = modal.getByRole('button', { name: /Select\b/ });
-    const isSelectVisible = await selectButton.isVisible().catch(() => false);
-    if (isSelectVisible) {
-      await selectButton.click();
-    } else {
-      await modal.getByRole('button', { name: 'Close' }).click();
+    const useButton = modal.getByTestId('use-models-button');
+    const isUseVisible = await useButton.isVisible().catch(() => false);
+    if (isUseVisible) {
+      await useButton.click();
+    } else if (await modal.isVisible().catch(() => false)) {
+      // Single mode after a row click already closed the modal; nothing to do.
+      // If it's still open (no row was clicked), close via X.
+      const closeButton = modal.getByRole('button', { name: 'Close' }).first();
+      if (await closeButton.isVisible().catch(() => false)) {
+        await closeButton.click();
+      }
     }
     await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
   }
 
   /**
-   * Select N non-premium models via the modal.
-   * Opens modal, toggles checkboxes on the first N non-premium models, confirms.
+   * Select a single model by name in single mode. Opens the picker, makes
+   * sure single mode is active, clicks the row → commits + closes.
+   */
+  async selectSingleModel(modelId: string): Promise<void> {
+    await this.openModelSelector();
+    await this.switchPickerMode('single');
+    const item = this.page.getByTestId(`model-item-${modelId}`);
+    await item.locator('button').first().click();
+    const modal = this.page.getByTestId('model-selector-modal');
+    await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
+  }
+
+  /**
+   * Select N non-premium models via the modal in multi mode. Opens, switches
+   * to multi mode, clears any pending state, clicks the first N non-premium
+   * rows, and confirms via Use.
    */
   async selectModels(count: number): Promise<void> {
     await this.openModelSelector();
+    await this.switchPickerMode('multi');
     const modal = this.page.getByTestId('model-selector-modal');
 
     const nonPremiumItems = modal.locator(
       '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
     );
 
-    // Clear all selections using the UI button (bypasses the min-1 checkbox guard)
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
+    // Clear all pending selections to start from a known state.
+    const clearButton = modal.getByTestId('clear-selection-button').first();
+    if (await clearButton.isVisible().catch(() => false)) {
       await clearButton.click();
       await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
     }
@@ -768,9 +891,36 @@ export class ChatPage {
       const item = nonPremiumItems.nth(index);
       const isSelected = (await item.getAttribute('data-selected')) === 'true';
       if (!isSelected) {
-        await item.getByTestId('model-checkbox').click();
+        await item.locator('button').first().click();
         await expect(item).toHaveAttribute('data-selected', 'true');
       }
+    }
+
+    await this.confirmModelSelection();
+  }
+
+  /**
+   * Select an explicit list of models by id in multi mode (used by tests that
+   * need a specific model combination, e.g. multi-model media). Opens the
+   * picker, switches to multi mode, clears any pending selection, clicks each
+   * model id, then confirms via Use.
+   */
+  async selectModelsByIds(ids: readonly string[]): Promise<void> {
+    await this.openModelSelector();
+    await this.switchPickerMode('multi');
+    const modal = this.page.getByTestId('model-selector-modal');
+
+    const clearButton = modal.getByTestId('clear-selection-button').first();
+    if (await clearButton.isVisible().catch(() => false)) {
+      await clearButton.click();
+      await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
+    }
+
+    for (const id of ids) {
+      const item = modal.getByTestId(`model-item-${id}`);
+      await expect(item).toBeVisible();
+      await item.locator('button').first().click();
+      await expect(item).toHaveAttribute('data-selected', 'true');
     }
 
     await this.confirmModelSelection();
@@ -785,13 +935,14 @@ export class ChatPage {
    */
   async selectModelsWithFailTarget(): Promise<{ successModelId: string; failModelId: string }> {
     await this.openModelSelector();
+    await this.switchPickerMode('multi');
     const modal = this.page.getByTestId('model-selector-modal');
     const nonPremiumItems = modal.locator(
       '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
     );
 
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
+    const clearButton = modal.getByTestId('clear-selection-button').first();
+    if (await clearButton.isVisible().catch(() => false)) {
       await clearButton.click();
       await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
     }
@@ -799,14 +950,14 @@ export class ChatPage {
     const available = await nonPremiumItems.count();
 
     const firstItem = nonPremiumItems.nth(0);
-    await firstItem.getByTestId('model-checkbox').click();
+    await firstItem.locator('button').first().click();
     await expect(firstItem).toHaveAttribute('data-selected', 'true');
     const firstTestId = await firstItem.getAttribute('data-testid');
     const successModelId = (firstTestId ?? '').replace('model-item-', '');
 
     // Select LAST model (fail target) — never picked by selectModels(N)
     const lastItem = nonPremiumItems.nth(available - 1);
-    await lastItem.getByTestId('model-checkbox').click();
+    await lastItem.locator('button').first().click();
     await expect(lastItem).toHaveAttribute('data-selected', 'true');
     const lastTestId = await lastItem.getAttribute('data-testid');
     const failModelId = (lastTestId ?? '').replace('model-item-', '');
@@ -916,20 +1067,4 @@ export class ChatPage {
     }
     return id;
   }
-}
-
-/**
- * Activate the touch-equivalent of hover on a message-item. The action menu
- * uses `group-hover:opacity-100`, so we need the browser to set `:hover` on
- * the inner `.group` wrapper. Clicking the outer row container doesn't work
- * for right-aligned user messages (the click lands in empty margin outside
- * `.group`) and clicking the row center for media AI messages opens the
- * lightbox (the `<img>`/`<video>` is wrapped in a button). Targeting the
- * direct child div — Virtuoso's row container's only child — lands inside
- * `.group` for both alignments and skips the media tile via top-left
- * positioning.
- */
-async function touchActivateMessage(item: Locator): Promise<void> {
-  const groupWrapper = item.locator(':scope > div').first();
-  await groupWrapper.click({ position: { x: 5, y: 5 } });
 }

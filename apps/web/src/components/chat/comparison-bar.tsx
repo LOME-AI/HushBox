@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { Button, Tooltip, TooltipTrigger, TooltipContent } from '@hushbox/ui';
 import { shortenModelName } from '@hushbox/shared';
 import { getModelColor } from '../../lib/model-color';
@@ -10,6 +10,11 @@ interface ComparisonBarProps {
   models: Model[];
   selectedModels: { id: string; name: string }[];
   onRemoveModel: (modelId: string) => void;
+  /**
+   * When provided, renders a trailing "+ Add" chip that opens the picker in
+   * multi mode pre-set to the current modality. Omit to hide the chip.
+   */
+  onAddClick?: () => void;
 }
 
 function ModelPill({
@@ -66,6 +71,7 @@ export function ComparisonBar({
   models,
   selectedModels,
   onRemoveModel,
+  onAddClick,
 }: Readonly<ComparisonBarProps>): React.JSX.Element | null {
   if (selectedModels.length <= 1) {
     return null;
@@ -74,6 +80,7 @@ export function ComparisonBar({
   return (
     <div
       data-testid="selected-models-bar"
+      data-chrome=""
       className="border-border-strong flex items-center gap-2 overflow-x-auto border-b px-4 py-2"
     >
       {selectedModels.map((model) => (
@@ -86,6 +93,18 @@ export function ComparisonBar({
           }}
         />
       ))}
+      {onAddClick && (
+        <button
+          type="button"
+          data-testid="comparison-bar-add-button"
+          onClick={onAddClick}
+          aria-label="Add another model"
+          className="border-border-strong text-muted-foreground hover:bg-muted/50 hover:text-foreground flex shrink-0 items-center gap-1 rounded-full border border-dashed px-3 py-1 text-sm transition-colors"
+        >
+          <Plus className="h-3 w-3" />
+          <span>Add</span>
+        </button>
+      )}
     </div>
   );
 }

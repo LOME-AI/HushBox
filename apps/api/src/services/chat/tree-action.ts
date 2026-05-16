@@ -97,26 +97,39 @@ async function lockAndValidateForkTip(
   }
 }
 
-/**
- * After applying a regenerate/edit, this is the value the caller will pass
- * to `updateForkTip` as the expected previous tip. When `forkId` is set,
- * our own delete just cascaded the tip to NULL (via FK ON DELETE SET NULL),
- * so the optimistic UPDATE must look for NULL. The no-forkId branch is
- * exercised only by unit tests; production always supplies forkId on
- * regenerate/edit when a fork is active (see chat.ts).
- */
-function expectedTipAfterMutation(action: {
-  forkId?: string;
-  forkTipMessageId?: string;
-}): string | null {
-  if (action.forkId === undefined) return action.forkTipMessageId ?? null;
-  return null;
+type FreshSendAction = Extract<TreeAction, { kind: 'fresh-send' }>;
+type RegenerateActionKind = Extract<TreeAction, { kind: 'regenerate' }>;
+type EditAction = Extract<TreeAction, { kind: 'edit' }>;
+
+async function applyFreshSend(
+  tx: DatabaseClient,
+  conversationId: string,
+  action: FreshSendAction
+): Promise<ApplyTreeActionResult> {
+  await validateParentMessageId(tx, conversationId, action.parentMessageId);
+  return {
+    parentMessageIdForAssistants: action.userMessage.id,
+    userMessageInsert: {
+      id: action.userMessage.id,
+      content: action.userMessage.content,
+      parentMessageId: action.parentMessageId,
+    },
+    forkTipExpectedMessageId: action.parentMessageId,
+  };
+}
+
+// forkId path: our delete just cascaded the tip to NULL — that's what
+// updateForkTip will see. Non-forkId path keeps legacy behaviour for
+// backward compatibility with callers that haven't started passing
+// forkId yet.
+function expectedTipAfterCascade(action: RegenerateActionKind | EditAction): string | null {
+  return action.forkId === undefined ? (action.forkTipMessageId ?? null) : null;
 }
 
 async function applyRegenerate(
   tx: DatabaseClient,
   conversationId: string,
-  action: Extract<TreeAction, { kind: 'regenerate' }>
+  action: RegenerateActionKind
 ): Promise<ApplyTreeActionResult> {
   if (action.forkId !== undefined) {
     await lockAndValidateForkTip(tx, action.forkId, action.forkTipMessageId);
@@ -124,28 +137,34 @@ async function applyRegenerate(
   await deleteMessagesAfterAnchor(tx, {
     conversationId,
     anchorMessageId: action.anchorUserMessageId,
-    ...(action.forkTipMessageId !== undefined && { forkTipMessageId: action.forkTipMessageId }),
+    ...(action.forkTipMessageId !== undefined && {
+      forkTipMessageId: action.forkTipMessageId,
+    }),
   });
   return {
     parentMessageIdForAssistants: action.anchorUserMessageId,
     userMessageInsert: undefined,
-    forkTipExpectedMessageId: expectedTipAfterMutation(action),
+    forkTipExpectedMessageId: expectedTipAfterCascade(action),
   };
+}
+
+async function loadTargetParentId(tx: DatabaseClient, anchorId: string): Promise<string | null> {
+  const [target] = await tx
+    .select({ parentMessageId: messages.parentMessageId })
+    .from(messages)
+    .where(eq(messages.id, anchorId));
+  if (!target) {
+    throw new Error('Target message not found');
+  }
+  return target.parentMessageId;
 }
 
 async function applyEdit(
   tx: DatabaseClient,
   conversationId: string,
-  action: Extract<TreeAction, { kind: 'edit' }>
+  action: EditAction
 ): Promise<ApplyTreeActionResult> {
-  const [target] = await tx
-    .select({ parentMessageId: messages.parentMessageId })
-    .from(messages)
-    .where(eq(messages.id, action.anchorUserMessageId));
-  if (!target) {
-    throw new Error('Target message not found');
-  }
-  const targetParentId = target.parentMessageId;
+  const targetParentId = await loadTargetParentId(tx, action.anchorUserMessageId);
   const forkTipSpread =
     action.forkTipMessageId === undefined ? {} : { forkTipMessageId: action.forkTipMessageId };
 
@@ -153,18 +172,13 @@ async function applyEdit(
     await lockAndValidateForkTip(tx, action.forkId, action.forkTipMessageId);
   }
 
-  if (targetParentId) {
-    await deleteMessagesAfterAnchor(tx, {
-      conversationId,
-      anchorMessageId: targetParentId,
-      ...forkTipSpread,
-    });
-  } else {
-    await deleteMessagesAfterAnchor(tx, {
-      conversationId,
-      anchorMessageId: action.anchorUserMessageId,
-      ...forkTipSpread,
-    });
+  const deletionAnchor = targetParentId ?? action.anchorUserMessageId;
+  await deleteMessagesAfterAnchor(tx, {
+    conversationId,
+    anchorMessageId: deletionAnchor,
+    ...forkTipSpread,
+  });
+  if (targetParentId === null) {
     await tx.delete(messages).where(eq(messages.id, action.anchorUserMessageId));
   }
 
@@ -175,7 +189,7 @@ async function applyEdit(
       content: action.newUserMessage.content,
       parentMessageId: targetParentId,
     },
-    forkTipExpectedMessageId: expectedTipAfterMutation(action),
+    forkTipExpectedMessageId: expectedTipAfterCascade(action),
   };
 }
 
@@ -190,16 +204,7 @@ export async function applyTreeAction(
 ): Promise<ApplyTreeActionResult> {
   switch (action.kind) {
     case 'fresh-send': {
-      await validateParentMessageId(tx, conversationId, action.parentMessageId);
-      return {
-        parentMessageIdForAssistants: action.userMessage.id,
-        userMessageInsert: {
-          id: action.userMessage.id,
-          content: action.userMessage.content,
-          parentMessageId: action.parentMessageId,
-        },
-        forkTipExpectedMessageId: action.parentMessageId,
-      };
+      return applyFreshSend(tx, conversationId, action);
     }
     case 'regenerate': {
       return applyRegenerate(tx, conversationId, action);

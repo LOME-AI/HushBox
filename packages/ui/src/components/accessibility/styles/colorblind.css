@@ -1,0 +1,16 @@
+/* Colorblind filters — applied via filter:url() to body. SVG defs are injected by SvgColorblindDefs React component. */
+html.a11y-cb-protan body {
+  filter: url(#a11y-cb-protan);
+}
+html.a11y-cb-deutan body {
+  filter: url(#a11y-cb-deutan);
+}
+html.a11y-cb-tritan body {
+  filter: url(#a11y-cb-tritan);
+}
+html.a11y-cb-achroma body {
+  filter: url(#a11y-cb-achroma);
+}
+html.a11y-cb-achromatomaly body {
+  filter: url(#a11y-cb-achromatomaly);
+}

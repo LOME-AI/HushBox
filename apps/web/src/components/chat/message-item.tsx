@@ -11,6 +11,8 @@ import { MediaContentItem } from './media-content-item';
 import { MediaPlaceholder } from './media-preview';
 import { MessageCost } from './message-cost';
 import { ThinkingIndicator } from './thinking-indicator';
+import { TtsStopButton } from './tts-stop-button';
+import { TtsStoppedNotice } from './tts-stopped-notice';
 import type { MessageGroup, LinkInfo } from '@/lib/chat-sender';
 import type { Message } from '@/lib/api';
 import type { MessageAction } from '@/lib/message-actions';
@@ -70,13 +72,16 @@ function computeContainerClasses(
   isGroupedUser: boolean,
   ownMessage: boolean
 ): string {
+  // Bottom padding reserves space for the absolute-positioned action button
+  // row (`translate-y-full` from the bubble) so the row's measured height
+  // includes the buttons and the next item doesn't overlap them.
   if (!isUser) {
-    return cn('pt-1.5 pb-3', 'w-full px-4 pb-7');
+    return cn('pt-1.5 pb-8', 'w-full px-4');
   }
   if (isGroupedUser && !ownMessage) {
-    return cn('pt-1.5 pb-3', 'mr-auto ml-4 w-fit max-w-[82%]');
+    return cn('pt-1.5 pb-8', 'mr-auto ml-4 w-fit max-w-[82%]');
   }
-  return cn('pt-1.5 pb-3', 'mr-4 ml-auto w-fit max-w-[82%]');
+  return cn('pt-1.5 pb-8', 'mr-4 ml-auto w-fit max-w-[82%]');
 }
 
 function computeBubbleClasses(
@@ -110,7 +115,7 @@ function TooltipIconButton({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+          className="h-7 w-7"
           onClick={onClick}
           aria-label={label}
         >
@@ -262,10 +267,8 @@ function MessageActions({
   const showCopy = allowedActions.has('copy');
 
   return (
-    <div className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-center justify-between px-1">
-      {primaryMessage.cost && <MessageCost cost={primaryMessage.cost} />}
-
-      <div className="ml-auto flex items-center gap-0.5">
+    <div className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-end gap-2 px-1">
+      <div className="flex items-center gap-0.5">
         {showRegenerate && (
           <TooltipIconButton
             label="Regenerate"
@@ -295,6 +298,12 @@ function MessageActions({
         )}
         {showCopy && <CopyButton copied={copied} onCopy={onCopy} />}
       </div>
+
+      {primaryMessage.cost && (
+        <span className="inline-flex h-7 items-center">
+          <MessageCost cost={primaryMessage.cost} />
+        </span>
+      )}
     </div>
   );
 }
@@ -585,7 +594,7 @@ function AIMessageNametag({
 
   return (
     <span data-testid="model-nametag-container" className="mb-0.5 inline-flex items-center gap-1">
-      <p
+      <span
         data-testid="model-nametag"
         className="inline-block rounded bg-[var(--nametag-bg)] px-1.5 py-0.5 text-xs text-[var(--nametag-fg)] dark:bg-[var(--nametag-bg-dark)] dark:text-[var(--nametag-fg-dark)]"
         style={
@@ -598,7 +607,7 @@ function AIMessageNametag({
         }
       >
         {nametagText}
-      </p>
+      </span>
       {primaryMessage.isSmartModel && (
         <span
           data-testid="smart-model-chip"
@@ -608,6 +617,7 @@ function AIMessageNametag({
           Smart
         </span>
       )}
+      <TtsStopButton messageId={primaryMessage.id} />
     </span>
   );
 }
@@ -751,7 +761,7 @@ export function MessageItem({
         {...(isError ? { 'data-error': 'true' } : {})}
         className={containerClasses}
       >
-        <div className="group relative">
+        <div className="relative">
           <div className={bubbleClasses}>
             {isUser ? (
               <>
@@ -764,6 +774,7 @@ export function MessageItem({
               </>
             ) : (
               <>
+                <TtsStoppedNotice messageId={primaryMessage.id} />
                 {shouldRenderAIMessageNametag(primaryMessage, isStreaming) && (
                   <AIMessageNametag primaryMessage={primaryMessage} modelName={modelName} />
                 )}

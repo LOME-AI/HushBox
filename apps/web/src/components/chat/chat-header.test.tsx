@@ -53,9 +53,9 @@ const mockModels: Model[] = [
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
-    capabilities: ['internet-search'],
+    capabilities: [],
     description: 'Test description for GPT-4 Turbo.',
-    supportedParameters: ['web_search_options'],
+    supportedParameters: [],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -169,7 +169,7 @@ describe('ChatHeader', () => {
       expect(screen.getByTestId('model-selector-button')).toHaveTextContent('GPT-4 Turbo');
     });
 
-    it('calls onModelSelect when model is changed', async () => {
+    it('calls onModelSelect when model is changed in default single mode', async () => {
       const user = userEvent.setup();
       const onModelSelect = vi.fn();
       render(
@@ -187,16 +187,12 @@ describe('ChatHeader', () => {
         expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
       });
 
-      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+      // Single mode: row click commits + closes immediately
+      await user.click(screen.getByText('Claude 3.5 Sonnet'));
 
-      await user.click(screen.getByRole('button', { name: /select.*model/i }));
-
-      expect(onModelSelect).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
-          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
-        ])
-      );
+      expect(onModelSelect).toHaveBeenCalledWith([
+        { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+      ]);
     });
 
     it('centers model selector via CSS Grid columns', () => {

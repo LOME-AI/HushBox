@@ -57,7 +57,7 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 | **TanStack Router**      | Routing. Fully type-safe routes, params, and search params. Compile-time errors for invalid routes.                            |
 | **TanStack Query**       | Server state management. Caching, background refetching, request deduplication for all API calls.                              |
 | **Zustand**              | Client state management. Lightweight, minimal boilerplate for UI state not tied to server.                                     |
-| **shadcn/ui**            | UI components. Accessible (Radix-based), customizable, copy-paste ownership. Favor existing components over custom.            |
+| **shadcn/ui**            | Source of accessible primitives (Radix-based) in `packages/ui`. Copy-paste ownership; extended in-house with composites and domain features. |
 | **Tailwind CSS**         | Styling. Utility-first, consistent design tokens, pairs with shadcn/ui.                                                        |
 | **Sandpack** _(planned)_ | Browser code execution. Renders HTML/React/CSS in iframe sandbox for artifact previews.                                        |
 | **input-otp**            | OTP input component. Accessible, mobile-friendly 6-digit code entry for 2FA verification.                                      |
@@ -272,7 +272,7 @@ Local dev and CI use `.env.development`. No secrets needed outside production.
 │   └── api/              # Hono (Cloudflare Workers)
 │
 ├── packages/
-│   ├── ui/               # shadcn/ui components
+│   ├── ui/               # Shared component library: primitives, composites, hooks, utilities
 │   ├── shared/           # Zod schemas, types, constants
 │   ├── db/               # Drizzle schema, migrations, client
 │   ├── crypto/           # Encryption, key derivation, OPAQUE helpers

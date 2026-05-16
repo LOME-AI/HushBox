@@ -1,1 +1,0 @@
-CREATE INDEX "messages_sender_id_idx" ON "messages" USING btree ("sender_id") WHERE "messages"."sender_id" is not null;

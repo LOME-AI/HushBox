@@ -1,29 +1,5 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
-import { ChatPage } from '../pages';
-import type { Page } from '@playwright/test';
-
-async function setupRealtimePair(
-  alicePage: Page,
-  bobPage: Page,
-  conversationId: string
-): Promise<{ aliceChatPage: ChatPage; bobChatPage: ChatPage }> {
-  const aliceChatPage = new ChatPage(alicePage);
-  const bobChatPage = new ChatPage(bobPage);
-
-  await aliceChatPage.gotoConversation(conversationId);
-  await bobChatPage.gotoConversation(conversationId);
-
-  await aliceChatPage.waitForConversationLoaded();
-  await bobChatPage.waitForConversationLoaded();
-
-  await aliceChatPage.waitForWebSocketConnected();
-  await bobChatPage.waitForWebSocketConnected();
-
-  await aliceChatPage.waitForWebSocketReady();
-  await bobChatPage.waitForWebSocketReady();
-
-  return { aliceChatPage, bobChatPage };
-}
+import { setupRealtimePair } from '../helpers/realtime.js';
 
 /**
  * Lane 9 #4: real-time fan-out of generated media. After Alice generates an

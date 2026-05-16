@@ -15,7 +15,8 @@
       "project": ["src/**/*.ts"]
     },
     "packages/ui": {
-      "project": ["src/**/*.{ts,tsx}"]
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["onnxruntime-web"]
     },
     "packages/config": {
       "project": ["**/*.{js,ts}"],

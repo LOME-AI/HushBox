@@ -140,6 +140,7 @@ export function useCipherWall(
     let lastTime = 0;
 
     function animate(time: number): void {
+      // eslint-disable-next-line no-restricted-globals -- intentional raw rAF for canvas render loop; respects motion via internal flag
       rafIdRef.current = requestAnimationFrame(animate);
 
       // Poll dimensions each frame
@@ -166,6 +167,7 @@ export function useCipherWall(
       tryRender();
     }
 
+    // eslint-disable-next-line no-restricted-globals -- intentional raw rAF for canvas render loop; respects motion via internal flag
     rafIdRef.current = requestAnimationFrame(animate);
 
     const mutationObserver = new MutationObserver(() => {

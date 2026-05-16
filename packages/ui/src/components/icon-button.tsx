@@ -3,7 +3,10 @@ import * as React from 'react';
 import { cn } from '../lib/utilities';
 import { Button } from './button';
 
-const IconButton = React.forwardRef<HTMLButtonElement, React.ComponentPropsWithRef<typeof Button>>(
+type IconButtonProps = React.ComponentPropsWithRef<typeof Button> &
+  Readonly<{ 'aria-label': string }>;
+
+const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
   ({ className, ...props }, ref) => (
     <Button
       ref={ref}
@@ -16,4 +19,4 @@ const IconButton = React.forwardRef<HTMLButtonElement, React.ComponentPropsWithR
 );
 IconButton.displayName = 'IconButton';
 
-export { IconButton };
+export { IconButton, type IconButtonProps };

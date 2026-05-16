@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage } from '../pages';
+import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
 
 /**
  * Video generation flow end-to-end.
@@ -74,18 +75,7 @@ test.describe('Video Generation', () => {
     await chatPage.goto();
     await chatPage.expectNewChatPageVisible();
 
-    await chatPage.switchToVideoMode();
-    const prompt = `Cost+nametag video ${String(Date.now())}`;
-    await chatPage.sendNewChatMessage(prompt);
-    await chatPage.waitForConversation();
-    await chatPage.expectVideoVisible();
-    await chatPage.waitForStreamComplete();
-
-    const costBadge = chatPage.messageList.locator('[data-testid="message-cost"]').first();
-    await expect(costBadge).toBeVisible();
-    await expect(costBadge).toContainText(/\$/);
-
-    await chatPage.expectAllAIMessagesHaveNametag();
+    await assertCostAndNametagForFreshGeneration(chatPage, 'video');
   });
 
   /**
@@ -348,9 +338,13 @@ test.describe('Video Generation', () => {
   /**
    * C17: cost reflects duration × resolution multiplier. We don't assert exact
    * values (those come from server-side billing); we assert that switching from
-   * 720p to 1080p strictly increases the live cost preview at the same duration.
+   * 1080p to 4k strictly increases the live cost preview at the same duration.
+   *
+   * Pinned to Veo 3.1 Fast because Veo 3.0 Fast prices 720p and 1080p the same
+   * (real Google pricing — not a mock bug), so a per-resolution differential
+   * only shows up against models that surface 4k. Veo 3.1 supports `[4, 6, 8]s`.
    */
-  test('cost preview increases when switching from 720p to 1080p at fixed duration', async ({
+  test('cost preview increases when switching from 1080p to 4k at fixed duration', async ({
     authenticatedPage,
   }) => {
     test.slow();
@@ -359,17 +353,17 @@ test.describe('Video Generation', () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToVideoMode();
-    // Force a known duration so resolution change is the only variable.
-    await chatPage.setVideoDuration(4);
+    await chatPage.selectSingleModel('google/veo-3.1-fast-generate-001');
+    await chatPage.setVideoDuration(6);
 
     const costLine = authenticatedPage.locator(String.raw`text=/^≈\s+\$\d+\.\d{3}$/`).first();
     await expect(costLine).toBeVisible({ timeout: 10_000 });
 
-    await chatPage.selectResolution('720p');
+    await chatPage.selectResolution('1080p');
     await expect(costLine).toBeVisible();
     const lower = await costLine.textContent();
 
-    await chatPage.selectResolution('1080p');
+    await chatPage.selectResolution('4k');
     // Re-fetch text — the same locator targets the updated DOM.
     await expect(async () => {
       const higher = await costLine.textContent();

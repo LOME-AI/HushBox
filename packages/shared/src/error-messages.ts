@@ -158,6 +158,8 @@ const ERROR_MESSAGES = {
     'The selected content type needs configuration (aspect ratio, duration, or resolution).',
   UNSUPPORTED_RESOLUTION:
     "One or more selected video models don't support the requested resolution. Pick a different resolution.",
+  UNSUPPORTED_DURATION:
+    "One or more selected video models don't support the requested duration. Pick a different duration.",
   AUDIO_DISABLED: 'Audio generation is not yet available. Please try a different content type.',
   CLASSIFIER_FAILED:
     'Smart Model could not pick the best model for your message. Please try again.',

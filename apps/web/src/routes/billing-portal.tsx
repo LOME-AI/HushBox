@@ -65,7 +65,7 @@ function BillingPortalPage(): React.JSX.Element {
 
   return (
     <div className="flex h-dvh flex-col" data-testid="billing-portal">
-      <header className="flex items-center justify-between border-b px-4 py-3">
+      <header data-chrome="" className="flex items-center justify-between border-b px-4 py-3">
         <Link to={ROUTES.CHAT} aria-label="HushBox - Go to chat">
           <Logo />
         </Link>

@@ -1,4 +1,5 @@
 ---
+import * as lucideStatic from 'lucide-static';
 import { ROUTES } from '@hushbox/shared/routes';
 import {
   SHIPPED_FEATURES,
@@ -53,15 +54,14 @@ const comparisonRows = COMPARISON_ROWS.map((row) => ({
   values: [row.others ? 'Yes' : 'No', row.hushbox ? 'Yes' : 'No'],
 }));
 
-function toKebabCase(name: string): string {
-  return name
-    .replaceAll(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replaceAll(/([A-Z])([A-Z][a-z])/g, '$1-$2')
-    .toLowerCase();
-}
+const icons = lucideStatic as unknown as Record<string, string>;
 
-function iconPath(lucideIcon: string): string {
-  return `@hushbox/ui/assets/icons/${toKebabCase(lucideIcon)}.svg`;
+function iconSvg(lucideIcon: string): string {
+  const svg = icons[lucideIcon];
+  if (!svg) {
+    throw new Error(`Lucide icon "${lucideIcon}" not found in lucide-static.`);
+  }
+  return svg.replace('<svg', '<svg aria-hidden="true" focusable="false"');
 }
 ---
 
@@ -268,7 +268,7 @@ function iconPath(lucideIcon: string): string {
           {
             SHIPPED_FEATURES.map((f) => (
               <FeatureCard name={f.name} description={f.description}>
-                <img slot="icon" src={iconPath(f.lucideIcon)} width="16" height="16" alt="" />
+                <Fragment slot="icon" set:html={iconSvg(f.lucideIcon)} />
               </FeatureCard>
             ))
           }
@@ -278,7 +278,7 @@ function iconPath(lucideIcon: string): string {
           {
             COMING_SOON_FEATURES.map((f) => (
               <FeatureCard name={f.name} comingSoon>
-                <img slot="icon" src={iconPath(f.lucideIcon)} width="16" height="16" alt="" />
+                <Fragment slot="icon" set:html={iconSvg(f.lucideIcon)} />
               </FeatureCard>
             ))
           }

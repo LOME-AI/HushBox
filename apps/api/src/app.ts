@@ -41,6 +41,7 @@ import {
   tokenLoginRoute,
   updatesRoute,
   usageRoute,
+  userPreferencesRoute,
 } from './routes/index.js';
 import type { AppEnv } from './types.js';
 
@@ -173,6 +174,12 @@ export function createApp() {
   base.use('/api/usage/*', ironSessionMiddleware());
   base.use('/api/usage/*', sessionMiddleware());
 
+  base.use('/api/user-preferences/*', csrfProtection());
+  base.use('/api/user-preferences/*', dbMiddleware());
+  base.use('/api/user-preferences/*', redisMiddleware());
+  base.use('/api/user-preferences/*', ironSessionMiddleware());
+  base.use('/api/user-preferences/*', sessionMiddleware());
+
   base.use('/api/dev/*', csrfProtection());
   base.use('/api/dev/*', devOnly());
   base.use('/api/dev/*', dbMiddleware());
@@ -203,6 +210,7 @@ export function createApp() {
     .route('/api/auth/token-login', tokenLoginRoute)
     .route('/api/updates', updatesRoute)
     .route('/api/usage', usageRoute)
+    .route('/api/user-preferences', userPreferencesRoute)
     .route('/api/dev', devRoute);
 
   return app;

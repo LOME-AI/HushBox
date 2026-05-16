@@ -1,7 +1,12 @@
+@layer base, components, utilities, accessibility;
+
 @import '../../../../packages/config/tailwind/index.css';
 
 @source '../../../../packages/ui/src/components/marketing/**/*.tsx';
 @source '../../../../packages/ui/src/components/cipher-wall/**/*.tsx';
+@source '../../../../packages/ui/src/components/accessibility/**/*.tsx';
+
+@import '@hushbox/ui/accessibility/styles';
 
 .prose-blog {
   @apply text-foreground leading-relaxed;

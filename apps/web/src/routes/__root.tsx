@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Outlet, createRootRouteWithContext, Navigate } from '@tanstack/react-router';
 import { ROUTES } from '@hushbox/shared';
 import { Toaster, TouchDeviceOverrideContext } from '@hushbox/ui';
+import { A11yProvider, MotionProvider } from '@hushbox/ui/accessibility';
 import { QueryProvider } from '@/providers/query-provider';
 import { StabilityProvider, useStability } from '@/providers/stability-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
@@ -10,6 +11,7 @@ import { UpgradeRequiredModal } from '@/components/shared/upgrade-required-modal
 import { OfflineOverlay } from '@/components/shared/offline-overlay';
 import { SettledIndicator } from '@/components/shared/settled-indicator';
 import { useTouchOverrideStore } from '@/stores/touch-override';
+import { installTtsDomObserver } from '@/lib/tts-dom-observer';
 import type { RouterContext } from '@/router';
 
 function NotFoundRedirect(): React.JSX.Element {
@@ -32,15 +34,24 @@ function AppShell(): React.JSX.Element {
 function RootComponent(): React.JSX.Element {
   const touchOverride = useTouchOverrideStore((state) => state.override);
 
+  // Self-applying streaming TTS — any current or future surface that wraps its
+  // streamed text in a [data-tts-stream] container gets chat-aloud automatically.
+  // Complements the explicit `chat-tts-stream.ts` wiring inside `executeStream`.
+  React.useEffect(() => installTtsDomObserver(), []);
+
   return (
     <TouchDeviceOverrideContext value={touchOverride}>
-      <ThemeProvider>
-        <QueryProvider>
-          <StabilityProvider>
-            <AppShell />
-          </StabilityProvider>
-        </QueryProvider>
-      </ThemeProvider>
+      <MotionProvider>
+        <ThemeProvider>
+          <QueryProvider>
+            <StabilityProvider>
+              <A11yProvider>
+                <AppShell />
+              </A11yProvider>
+            </StabilityProvider>
+          </QueryProvider>
+        </ThemeProvider>
+      </MotionProvider>
     </TouchDeviceOverrideContext>
   );
 }

@@ -16,6 +16,7 @@ import {
   type ModelMediaProgressData,
   type StageDoneEventData,
 } from '../lib/sse-client';
+import { startChatTtsStream } from '../lib/chat-tts-stream';
 import type {
   Modality,
   ImageConfig,
@@ -376,13 +377,36 @@ async function executeStream(
     modelErrors: new Map(),
   };
 
+  // TTS chat-aloud: opt-in feeder built from accessibility prefs. Returns null
+  // when the user hasn't enabled `streamChatAloud` (or has muted), so the
+  // common path stays zero-cost. Fed alongside (not instead of) the caller's
+  // onToken so existing UI behavior is unaffected.
+  //
+  // Note: only the primary model's tokens are routed to TTS. With multi-model
+  // fan-out, speaking every model's text in parallel would be cacophony.
+  //
+  // The assistant message id is needed to scope the per-message Stop button
+  // and the muted-stream gate, but it only arrives in the SSE `start` event
+  // — after the feeder has been built. Pass a getter so the feeder reads
+  // the id at callback time, not at construction.
+  let primaryModelId: string | null = null;
+  let primaryAssistantMessageId: string | null = null;
+  const ttsFeeder = await startChatTtsStream({
+    messageId: () => primaryAssistantMessageId,
+  });
+
   const parser = createSSEParser({
     onStart: (data) => {
       streamState.startData = data;
+      primaryModelId = data.models[0]?.modelId ?? null;
+      primaryAssistantMessageId = data.models[0]?.assistantMessageId ?? null;
       options?.onStart?.(data);
     },
     onToken: (tokenData) => {
       options?.onToken?.(tokenData.content, tokenData.modelId);
+      if (ttsFeeder !== null && tokenData.modelId === primaryModelId) {
+        ttsFeeder.feed(tokenData.content);
+      }
     },
     onModelDone: (data) => {
       options?.onModelDone?.(data);
@@ -415,6 +439,7 @@ async function executeStream(
     onDone: (doneData) => {
       streamState.done = true;
       streamState.doneData = doneData;
+      ttsFeeder?.end();
       for (const m of doneData.models ?? []) {
         streamState.modelCosts.set(m.modelId, m.cost);
       }
@@ -432,6 +457,10 @@ async function executeStream(
       throw new StreamTimeoutError(error.message, { cause: error });
     }
     throw error;
+  } finally {
+    // Flush any buffered text on premature termination (error, abort, etc.)
+    // so users hear the partial answer instead of silence.
+    ttsFeeder?.end();
   }
 }
 

@@ -123,45 +123,32 @@
     U+A720-A7FF;
 }
 
+@layer base, components, utilities, accessibility;
+
 @import '@hushbox/config/tailwind';
+
+/* Fixed-shell guarantee — the document itself never scrolls. Every scrollable
+ * region in the app is an explicit overflow-y-auto/scroll container. Without
+ * this cap, any layout slip (flex-1 missing min-h-0, sticky header in a tall
+ * route, a stray fixed-position sibling that adds layout height) lets <html>
+ * grow past viewport and produces a "phantom" page-level scroll that drags
+ * the PageHeader along with it. Marketing keeps document scrolling because
+ * it uses its own global.css; this cap is web-only. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Accessibility class-based overrides — must be imported AFTER Tailwind so
+   the `accessibility` layer sits at the top of the cascade. */
+@import '@hushbox/ui/accessibility/styles';
+
+@source '../../../packages/ui/src/components/accessibility/**/*.tsx';
 
 /* Streamdown uses Tailwind classes in its dist files — tell Tailwind to scan them */
 @source '../node_modules/streamdown/dist/*.js';
 @source '../node_modules/@streamdown/code/dist/*.js';
-
-/* Global scrollbar styling - matches Radix ScrollArea */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-*::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 9999px;
-}
-
-*::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-/* Hide scrollbar but keep scrollability */
-.scrollbar-hide {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
-}
-
-.scrollbar-hide::-webkit-scrollbar {
-  display: none; /* Chrome, Safari and Opera */
-}
 
 /* Blinking cursor animation for streaming messages */
 @keyframes blink {
@@ -258,11 +245,42 @@
   animation: dot-pulse 1.4s ease-in-out infinite;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-dot-pulse {
-    animation: none;
-    opacity: 0.6;
+/* One-shot accent pulse for the carryover model row when switching to multi mode */
+@keyframes picker-pulse {
+  0% {
+    background-color: transparent;
   }
+  35% {
+    background-color: color-mix(in oklch, var(--color-accent) 70%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-picker-pulse {
+  animation: picker-pulse 600ms ease-out 1;
+}
+
+/* Reduced motion — keyed on `html.reduced-motion` (set by the broadcaster
+   when either the OS pref or the a11y widget toggles reduce-motion on). The
+   global `motion.css` rule already crushes durations to 0.01ms, but these
+   animations have a final keyframe that isn't the desired resting state
+   (blink ends invisible; dot-pulse ends low-opacity) — so they need explicit
+   `animation: none` to land on the natural element styles. */
+html.reduced-motion .animate-picker-pulse {
+  animation: none;
+}
+
+html.reduced-motion .animate-dot-pulse {
+  animation: none;
+  opacity: 0.6;
+}
+
+html.reduced-motion .animate-blink,
+html.reduced-motion .animate-slide-up,
+html.reduced-motion .animate-shake {
+  animation: none;
 }
 
 /* E2E: disable all CSS transitions and animations to eliminate timing races.

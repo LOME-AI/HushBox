@@ -21,15 +21,6 @@ import {
   llmCompletions as llmCompletionsTable,
   ledgerEntries as ledgerEntriesTable,
 } from '@hushbox/db';
-vi.mock('@ai-sdk/gateway', () => ({
-  createGateway: () => ({
-    getAvailableModels: () =>
-      Promise.resolve({
-        models: (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ ?? [],
-      }),
-  }),
-}));
-
 import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_INSUFFICIENT_BALANCE,
@@ -47,11 +38,24 @@ import {
   CHARS_PER_TOKEN_STANDARD,
   createEnvUtilities,
 } from '@hushbox/shared';
+import { clearModelCache } from '@hushbox/shared/models';
 import { generateKeyPair } from '@hushbox/crypto';
 import { chatRoute, computeWorstCaseCents } from './chat.js';
-import { createMockAIClientWithGatewayCatalog } from '../services/ai/mock-with-gateway-catalog.js';
+import { createMockAIClient } from '../services/ai/mock.js';
 import type { AppEnv } from '../types.js';
 import type { UserTier } from '@hushbox/shared';
+
+interface PublicModelFixture {
+  id: string;
+  name?: string;
+  description?: string;
+  type?: string;
+  pricing?: Record<string, unknown>;
+  context_window?: number;
+  created?: number;
+}
+
+let publicModelsFixture: PublicModelFixture[] = [];
 
 // ============================================================================
 // Constants
@@ -509,7 +513,7 @@ function createTestApp(
     } as AppEnv['Bindings'];
     c.set('user', mockUser);
     c.set('session', mockSession);
-    c.set('aiClient', createMockAIClientWithGatewayCatalog());
+    c.set('aiClient', createMockAIClient());
     c.set('db', createMockDb(dbOptions) as unknown as AppEnv['Variables']['db']);
     c.set('redis', redisOverride as unknown as AppEnv['Variables']['redis']);
     c.set('envUtils', createEnvUtilities(c.env));
@@ -538,31 +542,34 @@ describe('billing integration — scenario matrix', () => {
   let fetchMock: FetchMock;
 
   beforeEach(() => {
+    clearModelCache();
     fetchMock = vi.fn() as FetchMock;
     vi.stubGlobal('fetch', fetchMock);
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
 
-    // Inject ALL_MODELS into the @ai-sdk/gateway mock (in gateway response shape)
-    (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__ = ALL_MODELS.map(
-      (m) => ({
-        id: m.id,
-        name: m.name,
-        description: m.description,
-        modelType: 'language',
-        pricing: { input: m.pricing.prompt, output: m.pricing.completion },
-      })
-    );
+    publicModelsFixture = ALL_MODELS.map((m) => ({
+      id: m.id,
+      name: m.name,
+      description: m.description,
+      type: 'language',
+      pricing: { input: m.pricing.prompt, output: m.pricing.completion },
+      context_window: m.context_length,
+      created: m.created,
+    }));
 
     fetchMock.mockImplementation(() =>
-      Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: publicModelsFixture }),
+      })
     );
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
-    delete (globalThis as { __TEST_MOCK_MODELS__?: unknown[] }).__TEST_MOCK_MODELS__;
+    publicModelsFixture = [];
   });
 
   // --------------------------------------------------------------------------
@@ -1195,7 +1202,7 @@ describe('billing integration — scenario matrix', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('aiClient', createMockAIClientWithGatewayCatalog());
+        c.set('aiClient', createMockAIClient());
         c.set(
           'db',
           createMockDb({
@@ -1333,7 +1340,7 @@ describe('billing integration — scenario matrix', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('aiClient', createMockAIClientWithGatewayCatalog());
+        c.set('aiClient', createMockAIClient());
         c.set(
           'db',
           createMockDb({

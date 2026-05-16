@@ -1,8 +1,6 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
-import { requireEnv } from '../helpers/env.js';
-
-const apiUrl = requireEnv('VITE_API_URL');
+import { assertPartialFailurePersistence } from '../helpers/partial-failure.js';
 
 const IMAGE_MODELS = [
   'google/imagen-4.0-generate-001',
@@ -28,19 +26,7 @@ test.describe('Multi-Model Media', () => {
     await chatPage.switchToImageMode();
 
     await test.step('select two image models in the modal', async () => {
-      await chatPage.openModelSelector();
-      const modal = authenticatedPage.getByTestId('model-selector-modal');
-      const clearButton = modal.getByTestId('clear-selection-button');
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-      }
-      for (const id of IMAGE_MODELS) {
-        const item = modal.getByTestId(`model-item-${id}`);
-        await expect(item).toBeVisible();
-        await item.getByTestId('model-checkbox').click();
-        await expect(item).toHaveAttribute('data-selected', 'true');
-      }
-      await chatPage.confirmModelSelection();
+      await chatPage.selectModelsByIds(IMAGE_MODELS);
     });
 
     const prompt = `Multi-image ${String(Date.now())}`;
@@ -55,13 +41,11 @@ test.describe('Multi-Model Media', () => {
 
     // Conversation is [user, ai1, ai2]. Address by Virtuoso row index so the
     // assertions don't depend on which messages are currently rendered.
-    await chatPage.scrollMessageIntoView(1);
-    await expect(chatPage.getMessage(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    await chatPage.expectMediaVisibleAt(1, 'img', 30_000);
     const tag1 = await chatPage.getMessage(1).getByTestId('model-nametag').textContent();
     const source1 = await chatPage.getMessage(1).locator('img').first().getAttribute('src');
 
-    await chatPage.scrollMessageIntoView(2);
-    await expect(chatPage.getMessage(2).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    await chatPage.expectMediaVisibleAt(2, 'img', 30_000);
     const tag2 = await chatPage.getMessage(2).getByTestId('model-nametag').textContent();
     const source2 = await chatPage.getMessage(2).locator('img').first().getAttribute('src');
 
@@ -96,18 +80,7 @@ test.describe('Multi-Model Media', () => {
     const failModel = IMAGE_MODELS[1];
 
     await test.step('select 2 image models and mark the second as failing', async () => {
-      await chatPage.openModelSelector();
-      const modal = authenticatedPage.getByTestId('model-selector-modal');
-      const clearButton = modal.getByTestId('clear-selection-button');
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-      }
-      for (const id of IMAGE_MODELS) {
-        const item = modal.getByTestId(`model-item-${id}`);
-        await item.getByTestId('model-checkbox').click();
-      }
-      await chatPage.confirmModelSelection();
-
+      await chatPage.selectModelsByIds(IMAGE_MODELS);
       await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModel });
     });
 
@@ -123,38 +96,12 @@ test.describe('Multi-Model Media', () => {
       await unsettledExpect(errorTile).toBeVisible({ timeout: 15_000 });
 
       // Lane 9 #6: server-side persistence parity with text partial-failure.
-      // Query the conversation API: only the successful model's response has a
-      // persisted content item with `cost > 0`; the failing model never wrote
-      // any content_items rows.
-      const conversationUrl = authenticatedPage.url();
-      const conversationId = conversationUrl.split('/chat/')[1]?.split('?')[0];
-      expect(conversationId, 'conversation id should be in URL').toBeTruthy();
-
-      const apiResponse = await authenticatedPage.request.get(
-        `${apiUrl}/api/conversations/${conversationId!}`
-      );
-      expect(apiResponse.ok()).toBe(true);
-      const { messages } = (await apiResponse.json()) as {
-        messages: {
-          senderType: string;
-          contentItems: { modelName: string | null; cost: string | null }[];
-        }[];
-      };
-
-      const aiContentItems = messages
-        .filter((m) => m.senderType === 'ai')
-        .flatMap((m) => m.contentItems);
-
-      const failedItems = aiContentItems.filter((ci) => ci.modelName === failModel);
-      expect(failedItems.length).toBe(0);
-
-      const succeededItems = aiContentItems.filter((ci) => ci.modelName === IMAGE_MODELS[0]);
-      expect(succeededItems.length).toBeGreaterThan(0);
-      // Cost is a numeric string. Persisted, positive, non-zero.
-      for (const item of succeededItems) {
-        expect(item.cost).not.toBeNull();
-        expect(Number.parseFloat(item.cost ?? '0')).toBeGreaterThan(0);
-      }
+      // Only the successful model's response has a persisted content item with
+      // `cost > 0`; the failing model never wrote any content_items rows.
+      await assertPartialFailurePersistence(authenticatedPage, {
+        succeededModelId: IMAGE_MODELS[0],
+        failedModelId: failModel,
+      });
     } finally {
       await authenticatedPage.setExtraHTTPHeaders({});
     }
@@ -175,16 +122,7 @@ test.describe('Multi-Model Media', () => {
 
     await chatPage.switchToImageMode();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
-      await clearButton.click();
-    }
-    for (const id of IMAGE_MODELS) {
-      await modal.getByTestId(`model-item-${id}`).getByTestId('model-checkbox').click();
-    }
-    await chatPage.confirmModelSelection();
+    await chatPage.selectModelsByIds(IMAGE_MODELS);
 
     await chatPage.sendNewChatMessage(`Fork-multi-image ${String(Date.now())}`);
     await chatPage.waitForConversation();
@@ -202,10 +140,8 @@ test.describe('Multi-Model Media', () => {
     await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
       timeout: 15_000,
     });
-    await chatPage.scrollMessageIntoView(1);
-    await expect(chatPage.getMessage(1).locator('img').first()).toBeVisible({ timeout: 15_000 });
-    await chatPage.scrollMessageIntoView(2);
-    await expect(chatPage.getMessage(2).locator('img').first()).toBeVisible({ timeout: 15_000 });
+    await chatPage.expectMediaVisibleAt(1, 'img', 15_000);
+    await chatPage.expectMediaVisibleAt(2, 'img', 15_000);
   });
 
   /**
@@ -220,19 +156,7 @@ test.describe('Multi-Model Media', () => {
 
     await chatPage.switchToVideoMode();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
-      await clearButton.click();
-    }
-    for (const id of VIDEO_MODELS) {
-      const item = modal.getByTestId(`model-item-${id}`);
-      await expect(item).toBeVisible();
-      await item.getByTestId('model-checkbox').click();
-      await expect(item).toHaveAttribute('data-selected', 'true');
-    }
-    await chatPage.confirmModelSelection();
+    await chatPage.selectModelsByIds(VIDEO_MODELS);
 
     await chatPage.sendNewChatMessage(`Multi-video ${String(Date.now())}`);
     await chatPage.waitForConversation();
@@ -242,15 +166,9 @@ test.describe('Multi-Model Media', () => {
     });
     await chatPage.waitForStreamComplete(30_000);
 
-    await chatPage.scrollMessageIntoView(1);
-    await expect(chatPage.getMessage(1).locator('video').first()).toBeVisible({
-      timeout: 30_000,
-    });
+    await chatPage.expectMediaVisibleAt(1, 'video', 30_000);
     const tag1 = await chatPage.getMessage(1).getByTestId('model-nametag').textContent();
-    await chatPage.scrollMessageIntoView(2);
-    await expect(chatPage.getMessage(2).locator('video').first()).toBeVisible({
-      timeout: 30_000,
-    });
+    await chatPage.expectMediaVisibleAt(2, 'video', 30_000);
     const tag2 = await chatPage.getMessage(2).getByTestId('model-nametag').textContent();
     expect(tag1).not.toBe(tag2);
 
@@ -278,18 +196,7 @@ test.describe('Multi-Model Media', () => {
     const failModel = VIDEO_MODELS[1];
 
     await test.step('select 2 video models and mark the second as failing', async () => {
-      await chatPage.openModelSelector();
-      const modal = authenticatedPage.getByTestId('model-selector-modal');
-      const clearButton = modal.getByTestId('clear-selection-button');
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-      }
-      for (const id of VIDEO_MODELS) {
-        const item = modal.getByTestId(`model-item-${id}`);
-        await item.getByTestId('model-checkbox').click();
-      }
-      await chatPage.confirmModelSelection();
-
+      await chatPage.selectModelsByIds(VIDEO_MODELS);
       await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModel });
     });
 
@@ -305,34 +212,10 @@ test.describe('Multi-Model Media', () => {
       await unsettledExpect(errorTile).toBeVisible({ timeout: 15_000 });
 
       // Lane 9 #6 (video): same server-side persistence parity check.
-      const conversationUrl = authenticatedPage.url();
-      const conversationId = conversationUrl.split('/chat/')[1]?.split('?')[0];
-      expect(conversationId, 'conversation id should be in URL').toBeTruthy();
-
-      const apiResponse = await authenticatedPage.request.get(
-        `${apiUrl}/api/conversations/${conversationId!}`
-      );
-      expect(apiResponse.ok()).toBe(true);
-      const { messages } = (await apiResponse.json()) as {
-        messages: {
-          senderType: string;
-          contentItems: { modelName: string | null; cost: string | null }[];
-        }[];
-      };
-
-      const aiContentItems = messages
-        .filter((m) => m.senderType === 'ai')
-        .flatMap((m) => m.contentItems);
-
-      const failedItems = aiContentItems.filter((ci) => ci.modelName === failModel);
-      expect(failedItems.length).toBe(0);
-
-      const succeededItems = aiContentItems.filter((ci) => ci.modelName === VIDEO_MODELS[0]);
-      expect(succeededItems.length).toBeGreaterThan(0);
-      for (const item of succeededItems) {
-        expect(item.cost).not.toBeNull();
-        expect(Number.parseFloat(item.cost ?? '0')).toBeGreaterThan(0);
-      }
+      await assertPartialFailurePersistence(authenticatedPage, {
+        succeededModelId: VIDEO_MODELS[0],
+        failedModelId: failModel,
+      });
     } finally {
       await authenticatedPage.setExtraHTTPHeaders({});
     }
@@ -353,19 +236,7 @@ test.describe('Multi-Model Media', () => {
 
     await chatPage.switchToImageMode();
 
-    await chatPage.openModelSelector();
-    const modal = authenticatedPage.getByTestId('model-selector-modal');
-    const clearButton = modal.getByTestId('clear-selection-button');
-    if (await clearButton.isVisible()) {
-      await clearButton.click();
-    }
-    for (const id of IMAGE_MODELS) {
-      const item = modal.getByTestId(`model-item-${id}`);
-      await expect(item).toBeVisible();
-      await item.getByTestId('model-checkbox').click();
-      await expect(item).toHaveAttribute('data-selected', 'true');
-    }
-    await chatPage.confirmModelSelection();
+    await chatPage.selectModelsByIds(IMAGE_MODELS);
 
     await chatPage.sendNewChatMessage(`Multi-image reload ${String(Date.now())}`);
     await chatPage.waitForConversation();
@@ -376,10 +247,8 @@ test.describe('Multi-Model Media', () => {
     });
     await chatPage.waitForStreamComplete(30_000);
 
-    await chatPage.scrollMessageIntoView(1);
-    await expect(chatPage.getMessage(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
-    await chatPage.scrollMessageIntoView(2);
-    await expect(chatPage.getMessage(2).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    await chatPage.expectMediaVisibleAt(1, 'img', 30_000);
+    await chatPage.expectMediaVisibleAt(2, 'img', 30_000);
 
     // Reload the page and assert both images survive — each requires a fresh
     // download URL mint and decryption round-trip.
@@ -389,9 +258,7 @@ test.describe('Multi-Model Media', () => {
     await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
       timeout: 15_000,
     });
-    await chatPage.scrollMessageIntoView(1);
-    await expect(chatPage.getMessage(1).locator('img').first()).toBeVisible({ timeout: 30_000 });
-    await chatPage.scrollMessageIntoView(2);
-    await expect(chatPage.getMessage(2).locator('img').first()).toBeVisible({ timeout: 30_000 });
+    await chatPage.expectMediaVisibleAt(1, 'img', 30_000);
+    await chatPage.expectMediaVisibleAt(2, 'img', 30_000);
   });
 });

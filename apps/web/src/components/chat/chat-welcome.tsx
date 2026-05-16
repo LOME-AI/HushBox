@@ -1,18 +1,16 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { cn } from '@hushbox/ui';
-import { useVisualViewportHeight } from '@hushbox/ui';
+import { cn, useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
 import { getGreeting } from '@/lib/greetings';
 import { useModelStore, type SelectedModelEntry } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
 import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabilities';
 import { useResolveDefaultModel } from '@/hooks/use-resolve-default-model';
 import { useStableBalance } from '@/hooks/use-stable-balance';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { getInspirationLabel, getPromptPlaceholder } from '@/lib/modality-strings';
 import { ComparisonBar } from './comparison-bar';
 import { ChatHeader } from './chat-header';
 import { SuggestionChips } from './suggestion-chips';
-import { getPromptPlaceholder } from './prompt-placeholder';
 import { PromptInput } from './prompt-input';
 import { TypingAnimation } from './typing-animation';
 import type { FundingSource, Modality } from '@hushbox/shared';
@@ -94,12 +92,11 @@ export function ChatWelcome({
     [setActiveModality]
   );
 
-  const { models, premiumIds, supportsSearch } = useSelectedModelCapabilities();
+  const { models, premiumIds } = useSelectedModelCapabilities();
   const searchProps: ChatSearchProps | undefined =
     activeModality === 'text'
       ? {
           webSearchEnabled,
-          modelSupportsSearch: supportsSearch,
           onToggleWebSearch: toggleWebSearch,
         }
       : undefined;
@@ -114,12 +111,19 @@ export function ChatWelcome({
     removeModel(current, modelId);
   }, []);
 
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const handleAddViaComparisonBar = React.useCallback((): void => {
+    const { activeModality: current, setPickerMode } = useModelStore.getState();
+    setPickerMode(current, 'multi');
+    setPickerOpen(true);
+  }, []);
+
   const { displayBalance } = useStableBalance();
   const balance = Number.parseFloat(displayBalance);
   const canAccessPremium = isAuthenticated && balance > 0;
 
-  // Get a greeting once auth state is settled (prevents flash when isAuthenticated changes)
-  // Use null while loading, generate greeting only after isLoading becomes false
+  // Pick a stable greeting once auth state settles (prevents title flash on
+  // auth changes).
   const greeting = React.useMemo(() => {
     if (isLoading) return null;
     return getGreeting(isAuthenticated);
@@ -167,11 +171,14 @@ export function ChatWelcome({
         isAuthenticated={isAuthenticated}
         onPremiumClick={onPremiumClick}
         activeModality={activeModality}
+        pickerOpen={pickerOpen}
+        onPickerOpenChange={setPickerOpen}
       />
       <ComparisonBar
         models={models}
         selectedModels={selectedModels}
         onRemoveModel={handleRemoveModel}
+        onAddClick={handleAddViaComparisonBar}
       />
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-4 py-8">
@@ -200,7 +207,7 @@ export function ChatWelcome({
 
           <div className="space-y-4">
             <p className="text-muted-foreground text-center text-sm">
-              Need inspiration? Try these:
+              {getInspirationLabel(activeModality)}
             </p>
             <SuggestionChips onSelect={handleSuggestionSelect} showSurpriseMe />
           </div>

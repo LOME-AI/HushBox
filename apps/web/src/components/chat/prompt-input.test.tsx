@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createModelStoreStub, type ModelStoreStub } from '@/test-utils/model-store-mock';
 
 // Break the import chain that requires VITE_API_URL at module load time.
 // Without these mocks, frontendEnvSchema.parse() runs in src/lib/api.ts and
@@ -25,6 +26,37 @@ vi.mock('@/lib/api-client', () => ({
   client: {},
   fetchJson: vi.fn(),
 }));
+
+const { mockUseModels } = vi.hoisted(() => ({
+  mockUseModels: vi.fn(() => ({ data: { models: [], premiumIds: new Set<string>() } })),
+}));
+vi.mock('@/hooks/models', () => ({
+  useModels: mockUseModels,
+}));
+
+const modelStoreStubRef: { current: ModelStoreStub } = { current: createModelStoreStub() };
+function resetModelStoreStub(overrides: Partial<ModelStoreStub> = {}): void {
+  modelStoreStubRef.current = createModelStoreStub(overrides);
+}
+
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  const store = vi.fn((selector?: (s: ModelStoreStub) => unknown) =>
+    selector ? selector(modelStoreStubRef.current) : modelStoreStubRef.current
+  );
+  (store as unknown as Record<string, unknown>)['setState'] = vi.fn();
+  (store as unknown as Record<string, unknown>)['getState'] = () => modelStoreStubRef.current;
+  return { ...actual, useModelStore: store };
+});
+
+const useReducedMotionMock = vi.fn<() => boolean>();
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useReducedMotion: (): boolean => useReducedMotionMock(),
+  };
+});
 
 import { PromptInput } from './prompt-input';
 import type { ChatSearchProps, PromptInputRef } from './prompt-input';
@@ -82,12 +114,11 @@ function renderWithProviders(ui: React.ReactElement): ReturnType<typeof render> 
 }
 
 /**
- * Build a `searchProps` fixture for PromptInput tests. Defaults: modelSupportsSearch=true,
+ * Build a `searchProps` fixture for PromptInput tests. Defaults:
  * webSearchEnabled=false, onToggleWebSearch=vi.fn(). Override any field as needed.
  */
 function makeSearchProps(overrides: Partial<ChatSearchProps> = {}): ChatSearchProps {
   return {
-    modelSupportsSearch: true,
     webSearchEnabled: false,
     onToggleWebSearch: vi.fn(),
     ...overrides,
@@ -106,6 +137,11 @@ describe('PromptInput', () => {
       hasContent: input.value.trim().length > 0,
     }));
     mockUseStability.mockReturnValue(defaultStabilityState);
+    useReducedMotionMock.mockReturnValue(false);
+    resetModelStoreStub();
+    mockUseModels.mockReturnValue({
+      data: { models: [], premiumIds: new Set<string>() },
+    });
   });
 
   afterEach(() => {
@@ -117,16 +153,83 @@ describe('PromptInput', () => {
     expect(screen.getByRole('textbox')).toBeInTheDocument();
   });
 
-  it('displays placeholder text', () => {
-    renderWithProviders(
-      <PromptInput
-        value=""
-        onChange={mockOnChange}
-        onSubmit={mockOnSubmit}
-        placeholder="Ask me anything..."
-      />
-    );
-    expect(screen.getByPlaceholderText('Ask me anything...')).toBeInTheDocument();
+  describe('animated placeholder overlay', () => {
+    it('renders the AnimatedPlaceholder with the given placeholder text when value is empty', () => {
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          placeholder="Ask me anything..."
+        />
+      );
+      const overlay = screen.getByTestId('animated-placeholder');
+      expect(overlay).toBeInTheDocument();
+      expect(overlay).toHaveTextContent('Ask me anything...');
+    });
+
+    it('does not render the AnimatedPlaceholder while the textarea has content (no-op when typing)', () => {
+      renderWithProviders(
+        <PromptInput
+          value="hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          placeholder="Ask me anything..."
+        />
+      );
+      expect(screen.queryByTestId('animated-placeholder')).not.toBeInTheDocument();
+    });
+
+    it('does not set a native placeholder attribute (the overlay drives the visual)', () => {
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          placeholder="Ask me anything..."
+        />
+      );
+      const textarea = screen.getByRole('textbox');
+      expect(textarea.getAttribute('placeholder') ?? '').toBe('');
+    });
+
+    it('keeps aria-label on the textarea so the placeholder is still the accessible name', () => {
+      renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          placeholder="Ask me anything..."
+        />
+      );
+      expect(screen.getByRole('textbox')).toHaveAttribute('aria-label', 'Ask me anything...');
+    });
+
+    it('updates the overlay text when the placeholder prop changes (modality switch)', () => {
+      const { rerender } = renderWithProviders(
+        <PromptInput
+          value=""
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          placeholder="Ask me anything..."
+        />
+      );
+      expect(screen.getByTestId('animated-placeholder')).toHaveTextContent('Ask me anything...');
+
+      rerender(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <PromptInput
+            value=""
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            placeholder="Describe the image you want..."
+          />
+        </QueryClientProvider>
+      );
+      expect(screen.getByTestId('animated-placeholder')).toHaveTextContent(
+        'Describe the image you want...'
+      );
+    });
   });
 
   it('displays the current value', () => {
@@ -372,7 +475,7 @@ describe('PromptInput', () => {
           value="Hello"
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
-          capabilities={['web-search']}
+          capabilities={['vision']}
         />
       );
       expect(screen.getByTestId('capacity-bar')).toBeInTheDocument();
@@ -490,6 +593,7 @@ describe('PromptInput', () => {
   describe('autoFocus prop', () => {
     it('applies autoFocus to textarea when autoFocus is true', async () => {
       renderWithProviders(
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- test exercises autoFocus prop behavior
         <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} autoFocus />
       );
 
@@ -501,6 +605,7 @@ describe('PromptInput', () => {
 
     it('does not autoFocus textarea when autoFocus is false', () => {
       renderWithProviders(
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- test exercises autoFocus prop behavior
         <PromptInput value="" onChange={mockOnChange} onSubmit={mockOnSubmit} autoFocus={false} />
       );
 
@@ -732,7 +837,7 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps()}
         />
       );
-      expect(screen.getByRole('button', { name: /internet search off/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /turn on internet search/i })).toBeInTheDocument();
     });
 
     it('shows search on state when webSearchEnabled is true', () => {
@@ -745,7 +850,42 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps({ webSearchEnabled: true })}
         />
       );
-      expect(screen.getByRole('button', { name: /internet search on/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /turn off internet search/i })).toBeInTheDocument();
+    });
+
+    it('renders the off state with a crossed-out, dimmed icon', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          searchProps={makeSearchProps()}
+        />
+      );
+      const button = screen.getByRole('button', { name: /turn on internet search/i });
+      const icon = button.querySelector('svg');
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveClass('lucide-search-x');
+      expect(icon).toHaveClass('opacity-50');
+    });
+
+    it('renders the on state with the plain search icon at full opacity', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          searchProps={makeSearchProps({ webSearchEnabled: true })}
+        />
+      );
+      const button = screen.getByRole('button', { name: /turn off internet search/i });
+      const icon = button.querySelector('svg');
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveClass('lucide-search');
+      expect(icon).not.toHaveClass('lucide-search-x');
+      expect(icon).not.toHaveClass('opacity-50');
     });
 
     it('calls onToggleWebSearch when clicked', async () => {
@@ -761,25 +901,8 @@ describe('PromptInput', () => {
           searchProps={makeSearchProps({ onToggleWebSearch: mockToggle })}
         />
       );
-      await user.click(screen.getByRole('button', { name: /internet search off/i }));
+      await user.click(screen.getByRole('button', { name: /turn on internet search/i }));
       expect(mockToggle).toHaveBeenCalled();
-    });
-
-    it('shows disabled search toggle when model does not support search', () => {
-      renderWithProviders(
-        <PromptInput
-          value="Hello"
-          onChange={mockOnChange}
-          onSubmit={mockOnSubmit}
-          isAuthenticated
-          searchProps={makeSearchProps({ modelSupportsSearch: false })}
-        />
-      );
-      // Disabled state: only the wrapper span is in the accessibility tree
-      // (inner native button is aria-hidden). aria-disabled communicates the
-      // disabled affordance to assistive tech.
-      const wrapper = screen.getByRole('button', { name: /internet search unavailable/i });
-      expect(wrapper).toHaveAttribute('aria-disabled', 'true');
     });
 
     it('shows disabled search toggle for unauthenticated users', () => {
@@ -833,7 +956,7 @@ describe('PromptInput', () => {
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
           isAuthenticated={false}
-          searchProps={makeSearchProps({ modelSupportsSearch: false })}
+          searchProps={makeSearchProps()}
         />
       );
 
@@ -855,7 +978,7 @@ describe('PromptInput', () => {
         />
       );
 
-      const button = screen.getByRole('button', { name: /internet search on/i });
+      const button = screen.getByRole('button', { name: /turn off internet search/i });
       const wrapper = button.closest('span[data-slot="tooltip-trigger"]');
       expect(wrapper).not.toBeNull();
     });
@@ -883,11 +1006,11 @@ describe('PromptInput', () => {
         />
       );
 
-      const button = screen.getByRole('button', { name: /internet search on/i });
+      const button = screen.getByRole('button', { name: /turn off internet search/i });
       await user.hover(button);
 
       const tooltip = await screen.findByRole('tooltip');
-      expect(tooltip).toHaveTextContent('Internet search on');
+      expect(tooltip).toHaveTextContent('Turn off internet search');
     });
 
     it('shows tooltip content when hovering AI toggle', async () => {
@@ -933,17 +1056,17 @@ describe('PromptInput', () => {
         </QueryClientProvider>
       );
 
-      const button = screen.getByRole('button', { name: /internet search off/i });
+      const button = screen.getByRole('button', { name: /turn on internet search/i });
       await user.hover(button);
 
       const tooltip = await screen.findByRole('tooltip');
-      expect(tooltip).toHaveTextContent('Internet search off');
+      expect(tooltip).toHaveTextContent('Turn on internet search');
 
       await user.click(button);
 
-      expect(screen.getByRole('button', { name: /internet search on/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /turn off internet search/i })).toBeInTheDocument();
       const updatedTooltip = screen.getByRole('tooltip');
-      expect(updatedTooltip).toHaveTextContent('Internet search on');
+      expect(updatedTooltip).toHaveTextContent('Turn off internet search');
     });
   });
 
@@ -1413,6 +1536,264 @@ describe('PromptInput', () => {
       );
       await user.click(screen.getByRole('button', { name: /switch to video/i }));
       expect(handleSelect).toHaveBeenCalledWith('video');
+    });
+  });
+
+  describe('toolbar order', () => {
+    it('renders search toggle before the modality icons in text mode (left-aligned cluster)', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="text"
+          onSelectModality={vi.fn()}
+          searchProps={makeSearchProps()}
+        />
+      );
+      const search = screen.getByRole('button', { name: /turn on internet search/i });
+      const imageIcon = screen.getByRole('button', { name: /switch to image/i });
+      // DOM order: search element should precede the image modality icon.
+      const position = search.compareDocumentPosition(imageIcon);
+      expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+  });
+
+  describe('bottom row layouts per modality', () => {
+    it('renders text modality with capacity bar and no modality config controls above textarea', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="text"
+          onSelectModality={vi.fn()}
+        />
+      );
+      expect(screen.getByTestId('capacity-bar')).toBeInTheDocument();
+      // No aspect ratio chips in text mode.
+      expect(screen.queryByRole('button', { name: '1:1' })).not.toBeInTheDocument();
+    });
+
+    it('renders image modality bottom-row with aspect ratio chips and no capacity bar', () => {
+      resetModelStoreStub({
+        activeModality: 'image',
+        imageConfig: { aspectRatio: '1:1' },
+        selections: {
+          text: [],
+          image: [{ id: 'google/imagen-4', name: 'Imagen 4' }],
+          audio: [],
+          video: [],
+        },
+      });
+      mockUseModels.mockReturnValue({
+        data: {
+          models: [{ id: 'google/imagen-4', modality: 'image', pricePerImage: 0.04 } as never],
+          premiumIds: new Set<string>(),
+        },
+      });
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="image"
+          onSelectModality={vi.fn()}
+        />
+      );
+      expect(screen.getByRole('button', { name: '1:1' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
+      expect(screen.queryByTestId('capacity-bar')).not.toBeInTheDocument();
+      expect(screen.getByText(/^≈ \$\d+\.\d+/)).toBeInTheDocument();
+    });
+
+    it('renders video modality with duration in row 1 and aspect ratio + resolution in row 2', () => {
+      resetModelStoreStub({
+        activeModality: 'video',
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+        selections: {
+          text: [],
+          image: [],
+          audio: [],
+          video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
+        },
+      });
+      mockUseModels.mockReturnValue({
+        data: {
+          models: [
+            {
+              id: 'google/veo-3.1',
+              modality: 'video',
+              pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
+            } as never,
+          ],
+          premiumIds: new Set<string>(),
+        },
+      });
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="video"
+          onSelectModality={vi.fn()}
+        />
+      );
+      // Row 1: duration slider + cost
+      expect(screen.getByRole('slider', { name: /video duration/i })).toBeInTheDocument();
+      expect(screen.getByText(/^≈ \$\d+\.\d+/)).toBeInTheDocument();
+      // Row 2: aspect ratio + resolution
+      expect(screen.getByRole('button', { name: '16:9' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '9:16' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /720p/i })).toBeInTheDocument();
+      // No capacity bar in video mode.
+      expect(screen.queryByTestId('capacity-bar')).not.toBeInTheDocument();
+    });
+
+    it('renders audio modality bottom-row when FEATURE_FLAGS.AUDIO_ENABLED is on', async () => {
+      const { FEATURE_FLAGS } = await import('@hushbox/shared');
+      const original = FEATURE_FLAGS.AUDIO_ENABLED;
+      FEATURE_FLAGS.AUDIO_ENABLED = true;
+      try {
+        resetModelStoreStub({
+          activeModality: 'audio',
+          audioConfig: { format: 'mp3', maxDurationSeconds: 60 },
+          selections: {
+            text: [],
+            image: [],
+            audio: [{ id: 'openai/tts-1', name: 'TTS-1' }],
+            video: [],
+          },
+        });
+        mockUseModels.mockReturnValue({
+          data: {
+            models: [{ id: 'openai/tts-1', modality: 'audio', pricePerSecond: 0.015 } as never],
+            premiumIds: new Set<string>(),
+          },
+        });
+        renderWithProviders(
+          <PromptInput
+            value="Hello"
+            onChange={mockOnChange}
+            onSubmit={mockOnSubmit}
+            isAuthenticated
+            activeModality="audio"
+            onSelectModality={vi.fn()}
+          />
+        );
+        expect(screen.getByRole('button', { name: 'mp3' })).toBeInTheDocument();
+        expect(screen.getByRole('slider', { name: /audio max duration/i })).toBeInTheDocument();
+      } finally {
+        FEATURE_FLAGS.AUDIO_ENABLED = original;
+      }
+    });
+
+    it('does not render audio controls when FEATURE_FLAGS.AUDIO_ENABLED is off', () => {
+      // Default flag state is off — no audio controls should render even with
+      // audio modality set in the store.
+      resetModelStoreStub({
+        activeModality: 'audio',
+        audioConfig: { format: 'mp3', maxDurationSeconds: 60 },
+      });
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="audio"
+          onSelectModality={vi.fn()}
+        />
+      );
+      expect(screen.queryByRole('button', { name: 'mp3' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('slider', { name: /audio max duration/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('toolbar / send button spacing', () => {
+    it('separates the toolbar cluster from the send button with gap-2', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="text"
+          onSelectModality={vi.fn()}
+        />
+      );
+      const sendButton = screen.getByTestId('send-button');
+      const outerCluster = sendButton.parentElement;
+      expect(outerCluster).not.toBeNull();
+      expect(outerCluster!.className).toMatch(/\bgap-2\b/);
+    });
+
+    it('keeps the inner toolbar gap at gap-1', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="text"
+          onSelectModality={vi.fn()}
+          isGroupChat
+        />
+      );
+      const aiButton = screen.getByRole('button', { name: /AI response on/i });
+      // Walk up to find the toolbar container (the one that holds modality
+      // icons, search, AI). It must use gap-1 to keep icons visually tight.
+      let element: HTMLElement | null = aiButton.parentElement;
+      let toolbar: HTMLElement | null = null;
+      while (element) {
+        if (element.className.includes('gap-1') && !element.className.includes('gap-1.5')) {
+          toolbar = element;
+          break;
+        }
+        element = element.parentElement;
+      }
+      expect(toolbar).not.toBeNull();
+    });
+  });
+
+  describe('modality switch animation', () => {
+    it('wraps bottom-row content in a height-animation wrapper', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isAuthenticated
+          activeModality="text"
+          onSelectModality={vi.fn()}
+        />
+      );
+      const sendButton = screen.getByTestId('send-button');
+      // AnimatedHeight always renders the wrapper now — MotionConfig at the
+      // root collapses the animation to instant under reduced motion.
+      const motionWrapper = sendButton.closest('.overflow-hidden');
+      expect(motionWrapper).not.toBeNull();
+    });
+  });
+
+  describe('edit banner animation', () => {
+    it('renders the edit banner inside the height-animation wrapper', () => {
+      renderWithProviders(
+        <PromptInput
+          value="Hello"
+          onChange={mockOnChange}
+          onSubmit={mockOnSubmit}
+          isEditing
+          onCancelEdit={vi.fn()}
+        />
+      );
+      const banner = screen.getByText(/editing/i);
+      const motionWrapper = banner.closest('.overflow-hidden');
+      expect(motionWrapper).not.toBeNull();
     });
   });
 });

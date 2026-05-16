@@ -375,8 +375,8 @@ describe('ESTIMATED_VIDEO_BYTES_PER_SECOND', () => {
 });
 
 describe('VIDEO_ASPECT_RATIOS', () => {
-  it('includes the four supported aspects', () => {
-    expect(VIDEO_ASPECT_RATIOS).toEqual(['16:9', '9:16', '1:1', '4:3']);
+  it('includes the two Veo-supported aspects', () => {
+    expect(VIDEO_ASPECT_RATIOS).toEqual(['16:9', '9:16']);
   });
 
   it('is a non-empty readonly tuple', () => {
@@ -391,20 +391,20 @@ describe('VIDEO_ASPECT_RATIOS', () => {
 });
 
 describe('VIDEO_RESOLUTIONS', () => {
-  it('includes 720p and 1080p', () => {
-    expect(VIDEO_RESOLUTIONS).toEqual(['720p', '1080p']);
+  it('includes 720p, 1080p, and 4k', () => {
+    expect(VIDEO_RESOLUTIONS).toEqual(['720p', '1080p', '4k']);
   });
 
-  it('every entry ends with p', () => {
+  it('every entry is a recognised resolution token', () => {
     for (const res of VIDEO_RESOLUTIONS) {
-      expect(res).toMatch(/^\d+p$/);
+      expect(res).toMatch(/^(\d+p|4k)$/);
     }
   });
 });
 
 describe('IMAGE_ASPECT_RATIOS', () => {
-  it('includes the five supported image aspects', () => {
-    expect(IMAGE_ASPECT_RATIOS).toEqual(['1:1', '3:2', '16:9', '9:16', '4:3']);
+  it('includes the five Imagen-supported aspects', () => {
+    expect(IMAGE_ASPECT_RATIOS).toEqual(['1:1', '4:3', '3:4', '16:9', '9:16']);
   });
 
   it('every entry matches the W:H pattern', () => {

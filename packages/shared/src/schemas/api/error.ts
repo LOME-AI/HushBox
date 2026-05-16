@@ -401,6 +401,16 @@ export const ERROR_CODE_MISSING_MODALITY_CONFIG = 'MISSING_MODALITY_CONFIG';
 export const ERROR_CODE_UNSUPPORTED_RESOLUTION = 'UNSUPPORTED_RESOLUTION';
 
 /**
+ * The requested duration is not in one or more selected video models'
+ * discrete supported-durations set. Veo's set is non-uniform — {4, 6, 8} for
+ * 3.1 and {5, 6, 7, 8} for 3.0 — so a value like 5 passes the outer
+ * `MIN/MAX_VIDEO_DURATION_SECONDS` Zod check but fails per-model. The UI's
+ * snap-to-nearest slider keeps this from happening in the happy path; the
+ * gate catches persisted/tampered values before they reach the provider.
+ */
+export const ERROR_CODE_UNSUPPORTED_DURATION = 'UNSUPPORTED_DURATION';
+
+/**
  * Audio modality is requested but `FEATURE_FLAGS.AUDIO_ENABLED` is off.
  * Removed when the AI Gateway ships speech-model support and the flag flips.
  */

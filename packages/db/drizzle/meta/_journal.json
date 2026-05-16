@@ -236,22 +236,15 @@
     {
       "idx": 33,
       "version": "7",
-      "when": 1778891216412,
-      "tag": "0033_account_deletion_events",
+      "when": 1778631308446,
+      "tag": "0033_user_accessibility_preferences",
       "breakpoints": true
     },
     {
       "idx": 34,
       "version": "7",
-      "when": 1778899901526,
-      "tag": "0034_relax_conversation_members_identity",
-      "breakpoints": true
-    },
-    {
-      "idx": 35,
-      "version": "7",
-      "when": 1778917791858,
-      "tag": "0035_messages_sender_id_idx",
+      "when": 1778960776950,
+      "tag": "0034_delete_account_support",
       "breakpoints": true
     }
   ]

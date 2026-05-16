@@ -154,7 +154,9 @@ test.describe('Trial Chat', () => {
         .locator('[data-testid^="model-item-"]:has([data-testid="lock-icon"])')
         .first();
       await expect(premiumModel).toBeVisible({ timeout: 10_000 });
-      await premiumModel.dblclick();
+      // Single click on a premium row triggers onPremiumClick now that the
+      // dual-zone (focus vs commit) pattern was removed in the picker rewrite.
+      await premiumModel.locator('button').first().click();
 
       await expect(signupModal).toBeVisible({ timeout: 3000 });
       const heading = signupModal.getByRole('heading');

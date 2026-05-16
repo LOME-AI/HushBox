@@ -10,6 +10,7 @@ export * from './resolve-billing.js';
 export * from './env.js';
 export * from './env.config.js';
 export * from './schemas/dev-persona.js';
+export * from './schemas/accessibility-preferences.js';
 export * from './schemas/api/index.js';
 export * from './capabilities/index.js';
 export * from './prompt/index.js';

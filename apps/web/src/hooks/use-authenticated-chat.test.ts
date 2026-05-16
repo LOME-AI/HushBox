@@ -23,7 +23,10 @@ vi.mock('@/hooks/chat', () => ({
 vi.mock('@/hooks/use-chat-page', () => ({}));
 vi.mock('@/hooks/use-optimistic-messages', () => ({}));
 vi.mock('@/hooks/use-decrypted-messages', () => ({}));
-vi.mock('@/hooks/use-is-mobile', () => ({ useIsMobile: () => false }));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return { ...actual, useIsMobile: () => false };
+});
 vi.mock('@/hooks/forks', () => ({}));
 vi.mock('@/hooks/use-fork-messages', () => ({}));
 vi.mock('@/hooks/billing', () => ({}));
@@ -44,6 +47,7 @@ import {
   computeRenderState,
   pruneMessagesAfterTarget,
   mergeMessages,
+  resolveRegenerateModelId,
   DECRYPTING_TITLE,
 } from './use-authenticated-chat';
 
@@ -220,6 +224,65 @@ describe('computeRenderState', () => {
       isDecryptionPending: true,
     });
     expect(result).toEqual({ type: 'ready' });
+  });
+});
+
+describe('resolveRegenerateModelId', () => {
+  function makeAssistantMessage(
+    id: string,
+    modelName?: string | null
+  ): {
+    id: string;
+    conversationId: string;
+    role: 'assistant';
+    content: string;
+    createdAt: string;
+    modelName?: string | null;
+  } {
+    return {
+      id,
+      conversationId: 'conv-1',
+      role: 'assistant',
+      content: 'reply',
+      createdAt: '',
+      ...(modelName !== undefined && { modelName }),
+    };
+  }
+
+  it('returns the target assistant message modelName when present', () => {
+    const messages = [
+      makeMessage('u1'),
+      makeAssistantMessage('a1', 'anthropic/claude-sonnet-4.6'),
+      makeAssistantMessage('a2', 'openai/gpt-5'),
+    ];
+    expect(resolveRegenerateModelId('a2', messages, 'fallback/primary')).toBe('openai/gpt-5');
+  });
+
+  it('returns the fallback when the target message is not found', () => {
+    const messages = [makeMessage('u1'), makeAssistantMessage('a1', 'openai/gpt-5')];
+    expect(resolveRegenerateModelId('missing', messages, 'fallback/primary')).toBe(
+      'fallback/primary'
+    );
+  });
+
+  it('returns the fallback when the target is a user message (no model)', () => {
+    const messages = [makeMessage('u1'), makeAssistantMessage('a1', 'openai/gpt-5')];
+    expect(resolveRegenerateModelId('u1', messages, 'fallback/primary')).toBe('fallback/primary');
+  });
+
+  it('returns the fallback when modelName is null', () => {
+    const messages = [makeAssistantMessage('a1', null)];
+    expect(resolveRegenerateModelId('a1', messages, 'fallback/primary')).toBe('fallback/primary');
+  });
+
+  it('returns the fallback when modelName is empty string', () => {
+    const messages = [makeAssistantMessage('a1', '')];
+    expect(resolveRegenerateModelId('a1', messages, 'fallback/primary')).toBe('fallback/primary');
+  });
+
+  it('returns the fallback when modelName is undefined', () => {
+    const messages = [makeAssistantMessage('a1')];
+    expect(resolveRegenerateModelId('a1', messages, 'fallback/primary')).toBe('fallback/primary');
   });
 });
 

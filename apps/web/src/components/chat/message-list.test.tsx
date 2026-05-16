@@ -161,6 +161,31 @@ describe('MessageList', () => {
     expect(container).toHaveAttribute('data-message-count', '3');
   });
 
+  it('exposes data-decrypted-count equal to messages.length when every message has plaintext content', () => {
+    render(<MessageList messages={messages} />);
+    const container = screen.getByTestId('message-list');
+    expect(container).toHaveAttribute('data-decrypted-count', '3');
+  });
+
+  it('excludes messages with a decryption-failure fallback content from data-decrypted-count', () => {
+    const partiallyDecrypted = [
+      { ...messages[0]!, content: '[decryption failed: missing epoch key]' },
+      messages[1]!,
+      messages[2]!,
+    ];
+    render(<MessageList messages={partiallyDecrypted} />);
+    const container = screen.getByTestId('message-list');
+    expect(container).toHaveAttribute('data-message-count', '3');
+    expect(container).toHaveAttribute('data-decrypted-count', '2');
+  });
+
+  it('reports data-decrypted-count of 0 on the empty-state log', () => {
+    render(<MessageList messages={[]} />);
+    const emptyState = screen.getByTestId('message-list-empty');
+    expect(emptyState).toHaveAttribute('data-decrypted-count', '0');
+    expect(emptyState).toHaveAttribute('data-message-count', '0');
+  });
+
   it('exposes data-message-id on every rendered message item', () => {
     render(<MessageList messages={messages} />);
     const messageItems = screen.getAllByTestId('message-item');

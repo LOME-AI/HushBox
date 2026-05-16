@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { createInviteLink } from '../helpers/invite-link.js';
+import { createMessageShareUrl } from '../helpers/share-message.js';
 import { requireEnv } from '../helpers/env.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
@@ -82,25 +83,7 @@ test.describe('Shared Content', () => {
     let shareUrl: string;
 
     await test.step('share AI message and capture URL', async () => {
-      const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
-      await aiMessage.hover();
-
-      const shareButton = aiMessage.getByRole('button', { name: 'Share' });
-      await expect(shareButton).toBeVisible();
-      await shareButton.click();
-
-      const modal = authenticatedPage.getByTestId('share-message-modal');
-      await expect(modal).toBeVisible();
-
-      await authenticatedPage.getByTestId('share-message-create-button').click();
-
-      const urlEl = authenticatedPage.getByTestId('share-message-url');
-      await expect(urlEl).toBeVisible();
-      shareUrl = (await urlEl.textContent()) ?? '';
-      expect(shareUrl).toContain('/share/m/');
-      expect(shareUrl).toContain('#');
-
-      await authenticatedPage.keyboard.press('Escape');
+      shareUrl = await createMessageShareUrl(chatPage);
     });
 
     await test.step('unauthenticated user sees decrypted message', async () => {
@@ -170,25 +153,7 @@ test.describe('Shared Content', () => {
     let shareUrl = '';
 
     await test.step('share assistant image message and capture URL', async () => {
-      const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
-      await aiMessage.hover();
-
-      const shareButton = aiMessage.getByRole('button', { name: 'Share' });
-      await expect(shareButton).toBeVisible();
-      await shareButton.click();
-
-      const modal = authenticatedPage.getByTestId('share-message-modal');
-      await expect(modal).toBeVisible();
-
-      await authenticatedPage.getByTestId('share-message-create-button').click();
-
-      const urlEl = authenticatedPage.getByTestId('share-message-url');
-      await expect(urlEl).toBeVisible();
-      shareUrl = (await urlEl.textContent()) ?? '';
-      expect(shareUrl).toContain('/share/m/');
-      expect(shareUrl).toContain('#');
-
-      await authenticatedPage.keyboard.press('Escape');
+      shareUrl = await createMessageShareUrl(chatPage);
     });
 
     await test.step('guest sees the rendered image at the share URL', async () => {
@@ -250,24 +215,7 @@ test.describe('Shared Content', () => {
     let shareUrl = '';
 
     await test.step('share assistant video message and capture URL', async () => {
-      const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
-      await aiMessage.hover();
-
-      const shareButton = aiMessage.getByRole('button', { name: 'Share' });
-      await expect(shareButton).toBeVisible();
-      await shareButton.click();
-
-      const modal = authenticatedPage.getByTestId('share-message-modal');
-      await expect(modal).toBeVisible();
-      await authenticatedPage.getByTestId('share-message-create-button').click();
-
-      const urlEl = authenticatedPage.getByTestId('share-message-url');
-      await expect(urlEl).toBeVisible();
-      shareUrl = (await urlEl.textContent()) ?? '';
-      expect(shareUrl).toContain('/share/m/');
-      expect(shareUrl).toContain('#');
-
-      await authenticatedPage.keyboard.press('Escape');
+      shareUrl = await createMessageShareUrl(chatPage);
     });
 
     await test.step('guest sees the rendered video at the share URL', async () => {

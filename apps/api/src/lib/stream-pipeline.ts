@@ -58,6 +58,7 @@ import { safeExecutionCtx } from './safe-execution-ctx.js';
 import { fireAndForget } from './fire-and-forget.js';
 import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
 import { buildGroupBillingContext } from './billing-types.js';
+import type { Model } from '@hushbox/shared';
 import type { Context } from 'hono';
 import type { EvidenceConfig } from '@hushbox/db';
 import type {
@@ -248,15 +249,13 @@ function handleBillingDenial(
  * cap on Perplexity Search tool invocations. Post-flight billing pulls the
  * gateway's `totalCost`, which already includes search.
  *
- * Per-model `pricing.web_search` is intentionally ignored here — the cap is
- * uniform, not model-driven. Parameters are kept for call-site compatibility
- * and future per-model overrides.
+ * The cap is per-request (one Perplexity tool call set shared across all N
+ * selected models), so this returns the bare value — `buildCostManifest`
+ * multiplies by `modelCount` internally. Doubling the multiplication here
+ * inflates reservations to N², which is the bug regression-tested in
+ * `chat.test.ts:reserves web-search cost as N × base, not N² × base`.
  */
-export function resolveWebSearchCost(
-  webSearchEnabled: boolean,
-  _model: string,
-  _gatewayModels: RawModel[]
-): number {
+export function resolveWebSearchCost(webSearchEnabled: boolean): number {
   if (!webSearchEnabled) return 0;
   return worstCaseSearchCost();
 }
@@ -551,13 +550,251 @@ export interface ResolveAndReserveBillingInput {
 }
 
 /**
+ * For group billing, the payer's effective balance is capped by both the
+ * conversation budget remainder and the member budget remainder. For personal
+ * billing, it's just the owner's wallet balance.
+ */
+function computeEffectivePayerBalance(
+  billingResult: BuildBillingResult,
+  isGroupBilling: boolean
+): number {
+  const group = billingResult.input.group;
+  const rawPayerBalanceCents =
+    isGroupBilling && group ? group.ownerBalanceCents : billingResult.input.balanceCents;
+  if (!isGroupBilling || !billingResult.groupBudgetContext) return rawPayerBalanceCents;
+  const ctx = billingResult.groupBudgetContext;
+  const conversationRemainingCents =
+    Number.parseFloat(ctx.conversationBudget) * 100 -
+    Number.parseFloat(ctx.conversationSpent) * 100;
+  const memberRemainingCents =
+    Number.parseFloat(ctx.memberBudget) * 100 - Number.parseFloat(ctx.memberSpent) * 100;
+  return Math.min(rawPayerBalanceCents, conversationRemainingCents, memberRemainingCents);
+}
+
+type ModelPricing = ReturnType<typeof lookupModelPricing>;
+
+interface ResolveSmartModelPricingInput {
+  c: Context<AppEnv>;
+  models: string[];
+  gatewayModels: RawModel[];
+  allPricing: ModelPricing[];
+  payerTier: BuildBillingResult['input']['tier'];
+  payerBalanceCents: number;
+  payerFreeAllowanceCents: number;
+  promptCharacterCount: number;
+}
+
+type SmartModelPricingOutcome = { errorResponse: Response } | { resolution: SmartModelResolution };
+
+/**
+ * Mutates `allPricing` in place: every Smart Model slot has its per-token
+ * fees overridden to the max of the eligible pool. Returns the resolution
+ * metadata used by SmartModelStage, an error response when the payer can't
+ * afford any eligible model, or `null` when no Smart Model slot is requested.
+ */
+function resolveSmartModelPricing(
+  input: ResolveSmartModelPricingInput
+): SmartModelPricingOutcome | null {
+  const { c, models, gatewayModels, allPricing } = input;
+  if (!models.includes(SMART_MODEL_ID)) return null;
+
+  const { models: poolModels, premiumIds } = processModels(gatewayModels);
+  const eligibility = buildEligibleModels({
+    textModels: poolModels.filter((m) => m.modality === 'text' && !m.isSmartModel),
+    premiumIds: new Set(premiumIds),
+    payerTier: input.payerTier,
+    payerBalanceCents: input.payerBalanceCents,
+    payerFreeAllowanceCents: input.payerFreeAllowanceCents,
+    promptCharacterCount: input.promptCharacterCount,
+  });
+
+  if (eligibility === null) {
+    return {
+      errorResponse: c.json(
+        createErrorResponse(ERROR_CODE_INSUFFICIENT_BALANCE, {
+          currentBalance: (input.payerBalanceCents / 100).toFixed(2),
+        }),
+        402
+      ),
+    };
+  }
+
+  applySmartModelPricingOverride(poolModels, eligibility.eligibleInferenceIds, models, allPricing);
+  const modelMetadataById = buildSmartModelMetadata(
+    gatewayModels,
+    eligibility.eligibleInferenceIds
+  );
+
+  return {
+    resolution: {
+      classifierModelId: eligibility.classifierModelId,
+      eligibleInferenceIds: eligibility.eligibleInferenceIds,
+      classifierWorstCaseCents: eligibility.classifierWorstCaseCents,
+      modelMetadataById,
+    },
+  };
+}
+
+/**
+ * Pricing override: every Smart Model slot reserves at the most expensive
+ * eligible model so the budget can absorb whichever model the classifier
+ * picks. Mutates `allPricing` in place for slots whose model id is the
+ * Smart Model sentinel.
+ */
+function computeMaxEligibleFees(
+  poolModels: Model[],
+  eligibleInferenceIds: readonly string[]
+): { maxInputFee: number; maxOutputFee: number } {
+  const eligibleSet = new Set(eligibleInferenceIds);
+  let maxInputFee = 0;
+  let maxOutputFee = 0;
+  for (const pm of poolModels) {
+    if (!eligibleSet.has(pm.id)) continue;
+    const inputFee = applyFees(pm.pricePerInputToken);
+    const outputFee = applyFees(pm.pricePerOutputToken);
+    if (inputFee > maxInputFee) maxInputFee = inputFee;
+    if (outputFee > maxOutputFee) maxOutputFee = outputFee;
+  }
+  return { maxInputFee, maxOutputFee };
+}
+
+function applySmartModelPricingOverride(
+  poolModels: Model[],
+  eligibleInferenceIds: readonly string[],
+  models: string[],
+  allPricing: ModelPricing[]
+): void {
+  const { maxInputFee, maxOutputFee } = computeMaxEligibleFees(poolModels, eligibleInferenceIds);
+  for (const [index, modelId] of models.entries()) {
+    if (modelId !== SMART_MODEL_ID) continue;
+    const existing = allPricing[index];
+    if (!existing) throw new Error(`invariant: allPricing missing entry ${String(index)}`);
+    allPricing[index] = {
+      inputPricePerToken: maxInputFee,
+      outputPricePerToken: maxOutputFee,
+      contextLength: existing.contextLength,
+    };
+  }
+}
+
+/**
+ * Build metadata lookup for the eligible models — used by SmartModelStage
+ * when constructing the classifier prompt and reporting the resolved name.
+ */
+function buildSmartModelMetadata(
+  gatewayModels: RawModel[],
+  eligibleInferenceIds: readonly string[]
+): Map<string, { name: string; description: string }> {
+  const metadata = new Map<string, { name: string; description: string }>();
+  for (const id of eligibleInferenceIds) {
+    const raw = gatewayModels.find((m) => m.id === id);
+    if (!raw) continue;
+    metadata.set(id, { name: raw.name, description: raw.description });
+  }
+  return metadata;
+}
+
+interface ComputeBudgetAndWorstCaseInput {
+  payerTier: BuildBillingResult['input']['tier'];
+  payerBalanceCents: number;
+  payerFreeAllowanceCents: number;
+  promptCharacterCount: number;
+  allPricing: ModelPricing[];
+  webSearchCostDollars: number;
+  stageReservationCents: number;
+}
+
+interface ComputeBudgetAndWorstCaseOutput {
+  budgetResult: ReturnType<typeof calculateBudget>;
+  safeMaxTokens: number | undefined;
+  worstCaseCents: number;
+}
+
+/**
+ * Wraps the budget calculation + max-tokens cap + worst-case reservation
+ * math. The stage reservation (Smart Model classifier today) is pre-deducted
+ * inside `calculateBudget` so the inference token sizing already accounts
+ * for it, then added back to the final reservation so the sum reflects the
+ * full call.
+ */
+function computeBudgetAndWorstCase(
+  input: ComputeBudgetAndWorstCaseInput
+): ComputeBudgetAndWorstCaseOutput {
+  const budgetResult = calculateBudget({
+    tier: input.payerTier,
+    balanceCents: input.payerBalanceCents,
+    freeAllowanceCents: input.payerFreeAllowanceCents,
+    promptCharacterCount: input.promptCharacterCount,
+    models: input.allPricing.map((p) => ({
+      modelInputPricePerToken: p.inputPricePerToken,
+      modelOutputPricePerToken: p.outputPricePerToken,
+      contextLength: p.contextLength,
+    })),
+    webSearchCost: input.webSearchCostDollars,
+    preReservedCents: input.stageReservationCents,
+  });
+
+  const minContextLength = Math.min(...input.allPricing.map((p) => p.contextLength));
+  const safeMaxTokens = computeSafeMaxTokens({
+    budgetMaxTokens: budgetResult.maxOutputTokens,
+    modelContextLength: minContextLength,
+    estimatedInputTokens: budgetResult.estimatedInputTokens,
+  });
+
+  const effectiveMaxOutputTokens =
+    safeMaxTokens ?? minContextLength - budgetResult.estimatedInputTokens;
+  const inferenceWorstCaseCents = computeWorstCaseCents(
+    budgetResult.estimatedInputCost,
+    effectiveMaxOutputTokens,
+    budgetResult.outputCostPerToken
+  );
+
+  return {
+    budgetResult,
+    safeMaxTokens,
+    worstCaseCents: inferenceWorstCaseCents + input.stageReservationCents,
+  };
+}
+
+interface ExecuteReservationInput {
+  c: Context<AppEnv>;
+  redis: AppEnv['Variables']['redis'];
+  billingResult: BuildBillingResult;
+  worstCaseCents: number;
+  payerTier: BuildBillingResult['input']['tier'];
+  isGroupBilling: boolean;
+  memberContext: MemberContext | undefined;
+  conversationId: string | undefined;
+  userId: string;
+  resolvedFundingSource: FundingSource;
+}
+
+/**
+ * Reserve budget — same group/personal race-guard flow as media; the only
+ * difference is the additional text-specific fields (budget, gatewayModels,
+ * smartModelResolution) that the caller layers onto the success result.
+ */
+async function executeReservation(input: ExecuteReservationInput): Promise<ReservationResult> {
+  const reservationCtx = {
+    redis: input.redis,
+    c: input.c,
+    billingResult: input.billingResult,
+    worstCaseCents: input.worstCaseCents,
+    payerTier: input.payerTier,
+  };
+  if (input.isGroupBilling && input.memberContext && input.conversationId) {
+    return reserveGroupBudgetWithGuard(reservationCtx, input.memberContext, input.conversationId);
+  }
+  return reservePersonalBudgetWithGuard(reservationCtx, input.userId, input.resolvedFundingSource);
+}
+
+/**
  * Resolve billing decision, compute budget, and reserve balance.
  *
  * Takes a pre-built `BuildBillingResult` (from either `buildBillingInput` or
  * `buildGuestBillingInput`) and does everything that `validateBilling` did
  * after the billing input was gathered.
  */
-// eslint-disable-next-line complexity, sonarjs/cognitive-complexity -- billing validation has inherent branching (denial, mismatch, budget computation, reservation)
 export async function resolveAndReserveBilling(
   c: Context<AppEnv>,
   input: ResolveAndReserveBillingInput
@@ -576,10 +813,9 @@ export async function resolveAndReserveBilling(
   const gatewayModels = await c.var.aiClient.listRawModels();
   const allPricing = models.map((m) => lookupModelPricing(gatewayModels, m));
 
-  let webSearchCostDollars = 0;
-  if (input.webSearchEnabled) {
-    webSearchCostDollars = worstCaseSearchCost() * models.length;
-  }
+  // Per-request cost — `buildCostManifest` multiplies by `modelCount` internally.
+  // Multiplying again here would inflate the reservation to N² × base.
+  const webSearchCostDollars = resolveWebSearchCost(input.webSearchEnabled);
 
   const systemPromptForBudget = buildSystemPrompt([], input.customInstructions);
   const historyCharacters = messagesForInference.reduce((sum, m) => sum + m.content.length, 0);
@@ -607,159 +843,87 @@ export async function resolveAndReserveBilling(
   if (!decision.success) return decision;
   const { fundingSource: resolvedFundingSource, isGroupBilling, payerTier } = decision;
 
-  const group = billingResult.input.group;
-  const rawPayerBalanceCents =
-    isGroupBilling && group ? group.ownerBalanceCents : billingResult.input.balanceCents;
-  const payerBalanceCents =
-    isGroupBilling && billingResult.groupBudgetContext
-      ? Math.min(
-          rawPayerBalanceCents,
-          Number.parseFloat(billingResult.groupBudgetContext.conversationBudget) * 100 -
-            Number.parseFloat(billingResult.groupBudgetContext.conversationSpent) * 100,
-          Number.parseFloat(billingResult.groupBudgetContext.memberBudget) * 100 -
-            Number.parseFloat(billingResult.groupBudgetContext.memberSpent) * 100
-        )
-      : rawPayerBalanceCents;
+  const payerBalanceCents = computeEffectivePayerBalance(billingResult, isGroupBilling);
   const payerFreeAllowanceCents = isGroupBilling ? 0 : billingResult.input.freeAllowanceCents;
 
   // 7. Smart Model: resolve eligible models and override per-slot pricing
   //    to max-of-eligible. Runs after payer resolution so affordability uses
   //    the actual payer's balance. The classifier worst-case is added to the
   //    final reservation below; per-stage logic lives in `SmartModelStage`.
-  let smartModelResolution: SmartModelResolution | undefined;
-  if (models.includes(SMART_MODEL_ID)) {
-    const { models: poolModels, premiumIds } = processModels(gatewayModels);
-    const eligibility = buildEligibleModels({
-      textModels: poolModels.filter((m) => m.modality === 'text' && !m.isSmartModel),
-      premiumIds: new Set(premiumIds),
-      payerTier,
-      payerBalanceCents,
-      payerFreeAllowanceCents,
-      promptCharacterCount,
-    });
-
-    if (eligibility === null) {
-      return {
-        success: false,
-        response: c.json(
-          createErrorResponse(ERROR_CODE_INSUFFICIENT_BALANCE, {
-            currentBalance: (payerBalanceCents / 100).toFixed(2),
-          }),
-          402
-        ),
-      };
-    }
-
-    // Pricing override: every Smart Model slot reserves at the most expensive
-    // eligible model so the budget can absorb whichever model the classifier picks.
-    const eligibleSet = new Set(eligibility.eligibleInferenceIds);
-    let maxInputFee = 0;
-    let maxOutputFee = 0;
-    for (const pm of poolModels) {
-      if (!eligibleSet.has(pm.id)) continue;
-      const inputFee = applyFees(pm.pricePerInputToken);
-      const outputFee = applyFees(pm.pricePerOutputToken);
-      if (inputFee > maxInputFee) maxInputFee = inputFee;
-      if (outputFee > maxOutputFee) maxOutputFee = outputFee;
-    }
-
-    for (const [index, modelId] of models.entries()) {
-      if (modelId !== SMART_MODEL_ID) continue;
-      const existing = allPricing[index];
-      if (!existing) throw new Error(`invariant: allPricing missing entry ${String(index)}`);
-      allPricing[index] = {
-        inputPricePerToken: maxInputFee,
-        outputPricePerToken: maxOutputFee,
-        contextLength: existing.contextLength,
-      };
-    }
-
-    // Build metadata lookup for the eligible models — used by the SmartModelStage
-    // when constructing the classifier prompt and reporting the resolved name.
-    const metadata = new Map<string, { name: string; description: string }>();
-    for (const id of eligibility.eligibleInferenceIds) {
-      const raw = gatewayModels.find((m) => m.id === id);
-      if (!raw) continue;
-      metadata.set(id, {
-        name: raw.name,
-        description: raw.description,
-      });
-    }
-
-    smartModelResolution = {
-      classifierModelId: eligibility.classifierModelId,
-      eligibleInferenceIds: eligibility.eligibleInferenceIds,
-      classifierWorstCaseCents: eligibility.classifierWorstCaseCents,
-      modelMetadataById: metadata,
-    };
-  }
-
-  // Pre-inference stages (Smart Model classifier today) reserve their worst-
-  // case cents inside `calculateBudget` so the inference budget already sizes
-  // tokens against `balance - stageReservation`. The primitive owns the math;
-  // we only own the input list.
-  const stageReservationCents = smartModelResolution?.classifierWorstCaseCents ?? 0;
-
-  const budgetResult = calculateBudget({
-    tier: payerTier,
-    balanceCents: payerBalanceCents,
-    freeAllowanceCents: payerFreeAllowanceCents,
-    promptCharacterCount,
-    models: allPricing.map((p) => ({
-      modelInputPricePerToken: p.inputPricePerToken,
-      modelOutputPricePerToken: p.outputPricePerToken,
-      contextLength: p.contextLength,
-    })),
-    webSearchCost: webSearchCostDollars,
-    preReservedCents: stageReservationCents,
-  });
-
-  const minContextLength = Math.min(...allPricing.map((p) => p.contextLength));
-  const safeMaxTokens = computeSafeMaxTokens({
-    budgetMaxTokens: budgetResult.maxOutputTokens,
-    modelContextLength: minContextLength,
-    estimatedInputTokens: budgetResult.estimatedInputTokens,
-  });
-
-  // 8. Calculate worst case cost for reservation. Adding back the stage
-  //    reservation is safe because the inference token sizing inside
-  //    `calculateBudget` already excluded `preReservedCents` from the
-  //    balance — the sum is structurally ≤ payer's effective balance.
-  const effectiveMaxOutputTokens =
-    safeMaxTokens ?? minContextLength - budgetResult.estimatedInputTokens;
-  const inferenceWorstCaseCents = computeWorstCaseCents(
-    budgetResult.estimatedInputCost,
-    effectiveMaxOutputTokens,
-    budgetResult.outputCostPerToken
-  );
-  const worstCaseCents = inferenceWorstCaseCents + stageReservationCents;
-
-  // 9. Reserve budget — same group/personal race-guard flow as media; the
-  //    only difference is the additional text-specific fields (budget,
-  //    gatewayModels, smartModelResolution) layered onto the success result.
-  const reservationCtx = {
-    redis,
+  const smartModelOutcome = resolveSmartModelPricing({
     c,
+    models,
+    gatewayModels,
+    allPricing,
+    payerTier,
+    payerBalanceCents,
+    payerFreeAllowanceCents,
+    promptCharacterCount,
+  });
+  if (smartModelOutcome !== null && 'errorResponse' in smartModelOutcome) {
+    return { success: false, response: smartModelOutcome.errorResponse };
+  }
+  const smartModelResolution = smartModelOutcome?.resolution;
+
+  const budget = computeBudgetAndWorstCase({
+    payerTier,
+    payerBalanceCents,
+    payerFreeAllowanceCents,
+    promptCharacterCount,
+    allPricing,
+    webSearchCostDollars,
+    stageReservationCents: smartModelResolution?.classifierWorstCaseCents ?? 0,
+  });
+  const { budgetResult, safeMaxTokens, worstCaseCents } = budget;
+
+  const reservation = await executeReservation({
+    c,
+    redis,
     billingResult,
     worstCaseCents,
     payerTier,
-  };
-  const reservation: ReservationResult =
-    isGroupBilling && memberContext && conversationId
-      ? await reserveGroupBudgetWithGuard(reservationCtx, memberContext, conversationId)
-      : await reservePersonalBudgetWithGuard(reservationCtx, userId, resolvedFundingSource);
+    isGroupBilling,
+    memberContext,
+    conversationId,
+    userId,
+    resolvedFundingSource,
+  });
   if (!reservation.success) return reservation;
 
-  return {
-    success: true,
-    billingInput: billingResult.input,
+  return buildBillingSuccess({
+    billingResult,
     budgetResult,
     safeMaxTokens,
     gatewayModels,
-    worstCaseCents: reservation.worstCaseCents,
-    ...(reservation.groupBudget !== undefined && { groupBudget: reservation.groupBudget }),
-    billingUserId: reservation.billingUserId,
-    ...(smartModelResolution !== undefined && { smartModelResolution }),
+    reservation,
+    smartModelResolution,
+  });
+}
+
+interface BuildBillingSuccessInput {
+  billingResult: BuildBillingResult;
+  budgetResult: ReturnType<typeof calculateBudget>;
+  safeMaxTokens: number | undefined;
+  gatewayModels: RawModel[];
+  reservation: Extract<ReservationResult, { success: true }>;
+  smartModelResolution: SmartModelResolution | undefined;
+}
+
+function buildBillingSuccess(input: BuildBillingSuccessInput): BillingValidationSuccess {
+  return {
+    success: true,
+    billingInput: input.billingResult.input,
+    budgetResult: input.budgetResult,
+    safeMaxTokens: input.safeMaxTokens,
+    gatewayModels: input.gatewayModels,
+    worstCaseCents: input.reservation.worstCaseCents,
+    ...(input.reservation.groupBudget !== undefined && {
+      groupBudget: input.reservation.groupBudget,
+    }),
+    billingUserId: input.reservation.billingUserId,
+    ...(input.smartModelResolution !== undefined && {
+      smartModelResolution: input.smartModelResolution,
+    }),
   };
 }
 

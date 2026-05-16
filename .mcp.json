@@ -8,6 +8,11 @@
         "X-MCP-Readonly": "true",
         "X-MCP-Toolsets": "pull_requests,actions,repos"
       }
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
     }
   }
 }

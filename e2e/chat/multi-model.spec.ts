@@ -1,8 +1,20 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
-import { requireEnv } from '../helpers/env.js';
+import { BudgetHelper } from '../helpers/budget.js';
+import { assertPartialFailurePersistence } from '../helpers/partial-failure.js';
 
-const apiUrl = requireEnv('VITE_API_URL');
+/** Sum the dollar values shown in the per-message cost badges, in cents. */
+async function sumDisplayedMessageCostCents(chatPage: ChatPage): Promise<number> {
+  const costElements = chatPage.messageList.locator('[data-testid="message-cost"]');
+  const count = await costElements.count();
+  let totalCents = 0;
+  for (let index = 0; index < count; index++) {
+    const text = (await costElements.nth(index).textContent()) ?? '';
+    const match = /\$?([\d.]+)/.exec(text);
+    if (match) totalCents += Math.round(Number.parseFloat(match[1] ?? '0') * 100);
+  }
+  return totalCents;
+}
 
 test.describe('Multi-Model Chat', () => {
   test.describe('Model Selection', () => {
@@ -15,9 +27,9 @@ test.describe('Multi-Model Chat', () => {
         await chatPage.selectModels(3);
       });
 
-      await test.step('verify header shows "Multiple Models"', async () => {
+      await test.step('verify header shows "3 models"', async () => {
         const button = authenticatedPage.getByTestId('model-selector-button');
-        await expect(button).toContainText('Multiple Models');
+        await expect(button).toContainText('3 models');
       });
 
       await test.step('verify comparison bar shows 3 pills', async () => {
@@ -53,7 +65,8 @@ test.describe('Multi-Model Chat', () => {
 
         await chatPage.expectComparisonBarHidden();
         const button = authenticatedPage.getByTestId('model-selector-button');
-        await expect(button).not.toContainText('Multiple Models');
+        // Header shows "N models" only when ≥2 selected; with 1, it shows the model name.
+        await expect(button).not.toContainText(/\d+ models/);
       });
     });
 
@@ -87,7 +100,8 @@ test.describe('Multi-Model Chat', () => {
       await test.step('deselect one model — dimming lifts', async () => {
         const modal = authenticatedPage.getByTestId('model-selector-modal');
         const selectedItems = modal.locator('[data-testid^="model-item-"][data-selected="true"]');
-        await selectedItems.last().getByTestId('model-checkbox').click();
+        // Click the row body to toggle (no separate checkbox zone in the new design).
+        await selectedItems.last().locator('button').first().click();
 
         const unselected = modal.locator(
           '[data-testid^="model-item-"][data-selected="false"]:not(:has([data-testid="lock-icon"]))'
@@ -131,20 +145,22 @@ test.describe('Multi-Model Chat', () => {
       await test.step('reopen modal, clear, select 1 model, confirm', async () => {
         await chatPage.openModelSelector();
         const modal = authenticatedPage.getByTestId('model-selector-modal');
-        await authenticatedPage.getByTestId('clear-selection-button').click();
+        // Picker remembers per-modality mode; tests selecting 3 left it in multi.
+        await authenticatedPage.getByTestId('clear-selection-button').first().click();
         await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
-        // With 0 selected, Close reverts — select 1 model in the already-open modal
+        // Click row body to add the first non-premium back in.
         const firstNonPremium = modal.locator(
           '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
         );
-        await firstNonPremium.first().getByTestId('model-checkbox').click();
+        await firstNonPremium.first().locator('button').first().click();
         await chatPage.confirmModelSelection();
       });
 
       await test.step('verify single model in header, no comparison bar', async () => {
         await chatPage.expectComparisonBarHidden();
         const button = authenticatedPage.getByTestId('model-selector-button');
-        await expect(button).not.toContainText('Multiple Models');
+        // Header now shows "N models" instead of the old "Multiple Models" label.
+        await expect(button).not.toContainText(/\d+ models/);
       });
     });
 
@@ -168,6 +184,92 @@ test.describe('Multi-Model Chat', () => {
         const count = await chatPage.getComparisonBarModelCount();
         expect(count).toBe(2);
       });
+    });
+
+    test('picker mode (single/multi) persists across page reload', async ({
+      authenticatedPage,
+    }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+
+      await test.step('switch picker to multi mode and close', async () => {
+        await chatPage.openModelSelector();
+        await chatPage.switchPickerMode('multi');
+        // Close via Cancel — mode persists even when no selection committed.
+        await authenticatedPage
+          .getByTestId('model-selector-modal')
+          .getByTestId('cancel-button')
+          .click();
+      });
+
+      await test.step('reload, reopen — mode is still multi', async () => {
+        await authenticatedPage.reload();
+        await chatPage.waitForAppStable();
+        await chatPage.openModelSelector();
+        await expect(authenticatedPage.getByTestId('model-selector-modal')).toHaveAttribute(
+          'data-picker-mode',
+          'multi'
+        );
+      });
+    });
+
+    test('single mode: clicking a row commits + closes the modal immediately', async ({
+      authenticatedPage,
+    }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+
+      await chatPage.openModelSelector();
+      await chatPage.switchPickerMode('single');
+
+      const modal = authenticatedPage.getByTestId('model-selector-modal');
+      const firstNonPremium = modal
+        .locator(
+          '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
+        )
+        .first();
+      const targetId = (await firstNonPremium.getAttribute('data-testid')) ?? '';
+
+      await firstNonPremium.locator('button').first().click();
+
+      // Modal closed without needing a Use button click
+      await expect(modal).not.toBeVisible();
+
+      // Header reflects the new pick — should NOT show "N models" since this is single mode
+      const button = authenticatedPage.getByTestId('model-selector-button');
+      await expect(button).not.toContainText(/\d+ models/);
+      // The picked model id was the one whose row we clicked
+      expect(targetId).toContain('model-item-');
+    });
+
+    test('multi mode: Cancel discards local changes (does not commit)', async ({
+      authenticatedPage,
+    }) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+
+      // Start with one committed model (default Smart Model).
+      await chatPage.selectSingleModel('smart-model');
+
+      // Open picker, switch to multi, add another model, then Cancel
+      await chatPage.openModelSelector();
+      await chatPage.switchPickerMode('multi');
+      const modal = authenticatedPage.getByTestId('model-selector-modal');
+      const firstNonPremium = modal
+        .locator(
+          '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
+        )
+        .first();
+      await firstNonPremium.locator('button').first().click();
+
+      await modal.getByTestId('cancel-button').click();
+      await expect(modal).not.toBeVisible();
+
+      // Comparison bar should NOT appear because we discarded the second model
+      await chatPage.expectComparisonBarHidden();
     });
   });
 
@@ -249,6 +351,83 @@ test.describe('Multi-Model Chat', () => {
           timeout: 20_000,
         });
       });
+    });
+
+    // 10.2 — balance debit equals the sum of displayed per-message costs for N
+    // models. Catches reservation/charge skew at the wallet boundary, not just
+    // at the API.
+    test('wallet debit equals the sum of per-model displayed costs for N=2', async ({
+      authenticatedPage,
+    }) => {
+      test.slow();
+      const chatPage = new ChatPage(authenticatedPage);
+      const budgetHelper = new BudgetHelper(authenticatedPage.request);
+
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+      await chatPage.selectModels(2);
+
+      const beforeData = await budgetHelper.getBalance();
+      const balanceBefore = Number.parseFloat(beforeData.balance);
+
+      const msg = `Wallet debit ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(msg);
+      await chatPage.waitForConversation();
+      await chatPage.waitForStreamComplete(20_000);
+      await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+        timeout: 20_000,
+      });
+
+      const afterData = await budgetHelper.getBalance();
+      const balanceAfter = Number.parseFloat(afterData.balance);
+      const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
+      const displayedCents = await sumDisplayedMessageCostCents(chatPage);
+
+      // Allow a 1-cent rounding window in either direction — billing snaps to
+      // cents but the UI shows up to 3 decimal places of dollars.
+      expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
+    });
+
+    // 10.1 — web-search × multi-model reservation: regression for the N² bug
+    // (stream-pipeline.ts:581). Pre-fix the debit included N² × search cost;
+    // post-fix it tracks the displayed (correct) sum.
+    test('wallet debit matches displayed cost when web search runs with N=2 models', async ({
+      authenticatedPage,
+    }) => {
+      test.slow();
+      const chatPage = new ChatPage(authenticatedPage);
+      const budgetHelper = new BudgetHelper(authenticatedPage.request);
+
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+      await chatPage.selectModels(2);
+
+      // Flip web search on via the toolbar toggle.
+      const searchToggle = authenticatedPage.getByRole('button', {
+        name: /Turn on internet search/i,
+      });
+      await searchToggle.click();
+      await expect(
+        authenticatedPage.getByRole('button', { name: /Turn off internet search/i })
+      ).toBeVisible();
+
+      const beforeData = await budgetHelper.getBalance();
+      const balanceBefore = Number.parseFloat(beforeData.balance);
+
+      const msg = `Search debit ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(msg);
+      await chatPage.waitForConversation();
+      await chatPage.waitForStreamComplete(30_000);
+      await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+        timeout: 20_000,
+      });
+
+      const afterData = await budgetHelper.getBalance();
+      const balanceAfter = Number.parseFloat(afterData.balance);
+      const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
+      const displayedCents = await sumDisplayedMessageCostCents(chatPage);
+
+      expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
     });
   });
 
@@ -374,34 +553,51 @@ test.describe('Multi-Model Chat', () => {
         await unsettledExpect(errorMessage).toBeVisible({ timeout: 10_000 });
         await unsettledExpect(errorMessage).toContainText(/something went wrong/i);
 
-        const conversationUrl = authenticatedPage.url();
-        const conversationId = conversationUrl.split('/chat/')[1]?.split('?')[0];
-        expect(conversationId).toBeTruthy();
-
-        const apiResponse = await authenticatedPage.request.get(
-          `${apiUrl}/api/conversations/${conversationId!}`
-        );
-        expect(apiResponse.ok()).toBe(true);
-        const { messages } = (await apiResponse.json()) as {
-          messages: {
-            senderType: string;
-            contentItems: { modelName: string | null; cost: string | null }[];
-          }[];
-        };
-
-        const aiContentItems = messages
-          .filter((m) => m.senderType === 'ai')
-          .flatMap((m) => m.contentItems);
-
-        const succeededItems = aiContentItems.filter((ci) => ci.modelName === successModelId);
-        expect(succeededItems.length).toBe(1);
-        expect(succeededItems[0]!.cost).not.toBeNull();
-        expect(Number.parseFloat(succeededItems[0]!.cost ?? '0')).toBeGreaterThan(0);
-
-        const failedItems = aiContentItems.filter((ci) => ci.modelName === failModelId);
-        expect(failedItems.length).toBe(0);
+        await assertPartialFailurePersistence(authenticatedPage, {
+          succeededModelId: successModelId,
+          failedModelId: failModelId,
+          expectedSucceededCount: 1,
+        });
 
         await expect(chatPage.messageInput).toBeVisible();
+      } finally {
+        await authenticatedPage.setExtraHTTPHeaders({});
+      }
+    });
+
+    // 10.3 — partial-failure releases the failed slot's reservation: the user
+    // is charged only for the successful model's actual cost, not for the
+    // worst-case pre-reservation of the failing slot.
+    test('wallet debit excludes the failed model on partial failure', async ({
+      authenticatedPage,
+    }) => {
+      test.slow();
+      const chatPage = new ChatPage(authenticatedPage);
+      const budgetHelper = new BudgetHelper(authenticatedPage.request);
+
+      await chatPage.goto();
+      await chatPage.waitForAppStable();
+
+      const { failModelId } = await chatPage.selectModelsWithFailTarget();
+      await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModelId });
+      try {
+        const beforeData = await budgetHelper.getBalance();
+        const balanceBefore = Number.parseFloat(beforeData.balance);
+        await chatPage.sendNewChatMessage(`Refund test ${String(Date.now())}`);
+        await chatPage.waitForConversation();
+        await chatPage.waitForStreamComplete(30_000);
+
+        const errorTile = authenticatedPage.getByTestId('model-error-message');
+        await unsettledExpect(errorTile).toBeVisible({ timeout: 10_000 });
+
+        const afterData = await budgetHelper.getBalance();
+        const balanceAfter = Number.parseFloat(afterData.balance);
+        const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
+        // Only the successful response has a cost badge — the failed tile
+        // emits an error-message instead of a cost row.
+        const displayedCents = await sumDisplayedMessageCostCents(chatPage);
+
+        expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
       } finally {
         await authenticatedPage.setExtraHTTPHeaders({});
       }

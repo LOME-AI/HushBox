@@ -25,6 +25,8 @@ import {
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
+  SidebarPanel,
+  useIsMobile,
 } from '@hushbox/ui';
 import {
   canManageLinks,
@@ -32,10 +34,8 @@ import {
   normalizeUsername,
   displayUsername,
 } from '@hushbox/shared';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useConversationBudgets } from '@/hooks/use-conversation-budgets';
-import { SidebarPanel } from '@/components/shared/sidebar-panel';
 import { SidebarActionButton } from '@/components/shared/sidebar-action-button';
 import { SidebarFooterBase } from '@/components/shared/sidebar-footer-base';
 import { ConfirmationModal } from '@/components/shared/confirmation-modal';
@@ -689,9 +689,8 @@ function MemberRow({
       {showActions && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <IconButton data-testid={`member-actions-${member.id}`}>
+            <IconButton aria-label="More options" data-testid={`member-actions-${member.id}`}>
               <MoreVertical className="size-4" />
-              <span className="sr-only">More options</span>
             </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -829,9 +828,8 @@ function LinkRow({
       {isAdmin && !isEditing && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <IconButton data-testid={`link-actions-${link.id}`}>
+            <IconButton aria-label="More options" data-testid={`link-actions-${link.id}`}>
               <MoreVertical className="size-4" />
-              <span className="sr-only">More options</span>
             </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

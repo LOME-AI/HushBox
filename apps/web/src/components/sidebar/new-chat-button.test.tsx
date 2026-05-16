@@ -12,9 +12,13 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 const mockUseIsMobile = vi.fn(() => false);
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: () => mockUseIsMobile(),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: () => mockUseIsMobile(),
+  };
+});
 
 describe('NewChatButton', () => {
   beforeEach(() => {

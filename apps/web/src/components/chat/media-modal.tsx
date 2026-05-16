@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Download } from 'lucide-react';
-import { Button, Overlay } from '@hushbox/ui';
+import { Button, Img, Overlay } from '@hushbox/ui';
 import { buildDownloadFilename } from '@/lib/media-filename';
 
 interface MediaModalProps {
@@ -33,7 +33,7 @@ function MediaElement({
 }: Readonly<MediaElementProps>): React.JSX.Element | null {
   if (contentType === 'image') {
     return (
-      <img
+      <Img
         src={blobUrl}
         alt={alt ?? 'Generated media'}
         className="max-h-[85vh] max-w-full object-contain"
@@ -45,6 +45,7 @@ function MediaElement({
     // transcription becomes available. Empty <track> elements add no
     // accessibility value and risk WCAG misclassification, so omitted.
     return (
+      // eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated video: no caption track is available; aria-label provides accessible name
       <video
         src={blobUrl}
         controls
@@ -53,6 +54,7 @@ function MediaElement({
       />
     );
   }
+  // eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated audio: no caption track is available; aria-label provides accessible name
   return <audio src={blobUrl} controls className="w-full" aria-label={alt ?? 'Generated audio'} />;
 }
 

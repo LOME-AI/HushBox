@@ -1,6 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
+
+// Mock the chat-aloud TTS bridge so use-chat-stream tests don't pull in
+// kokoro-js. Individual tests can override the resolved feeder if needed.
+const ttsFeederMock = vi.hoisted(() => ({
+  feed: vi.fn(),
+  end: vi.fn(),
+}));
+const startChatTtsStreamMock = vi.hoisted(() =>
+  vi.fn((): Promise<null | typeof ttsFeederMock> => Promise.resolve(null))
+);
+vi.mock('../lib/chat-tts-stream', () => ({
+  startChatTtsStream: startChatTtsStreamMock,
+}));
 import {
   useChatStream,
   TrialRateLimitError,
@@ -1437,6 +1450,150 @@ describe('useChatStream', () => {
 
       useStreamingActivityStore.getState().endStream();
       expect(useStreamingActivityStore.getState().activeStreams).toBe(0);
+    });
+  });
+
+  describe('TTS chat-aloud wiring', () => {
+    beforeEach(() => {
+      ttsFeederMock.feed.mockReset();
+      ttsFeederMock.end.mockReset();
+      startChatTtsStreamMock.mockReset();
+    });
+
+    it('does nothing when startChatTtsStream returns null (default off)', async () => {
+      startChatTtsStreamMock.mockResolvedValueOnce(null);
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"m"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hi."}',
+        'event: done',
+        'data: {}',
+      ];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4'],
+          userMessage: { id: 'u', content: 'Hi' },
+          messagesForInference: [{ role: 'user', content: 'Hi' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      expect(ttsFeederMock.feed).not.toHaveBeenCalled();
+      expect(ttsFeederMock.end).not.toHaveBeenCalled();
+    });
+
+    it('routes only the primary model tokens to the feeder', async () => {
+      startChatTtsStreamMock.mockResolvedValueOnce(ttsFeederMock);
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"a"},{"modelId":"claude","assistantMessageId":"b"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hello"}',
+        'event: token',
+        'data: {"modelId":"claude","content":"IGNORED"}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":" world."}',
+        'event: done',
+        'data: {}',
+      ];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4', 'claude'],
+          userMessage: { id: 'u', content: 'Hi' },
+          messagesForInference: [{ role: 'user', content: 'Hi' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      const fedTokens = ttsFeederMock.feed.mock.calls.map((c) => c[0]);
+      expect(fedTokens).toEqual(['Hello', ' world.']);
+      expect(ttsFeederMock.end).toHaveBeenCalled();
+    });
+
+    it('passes a messageId getter that resolves to the primary assistant message id after onStart', async () => {
+      startChatTtsStreamMock.mockResolvedValueOnce(ttsFeederMock);
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"assistant-xyz"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hi."}',
+        'event: done',
+        'data: {}',
+      ];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4'],
+          userMessage: { id: 'u', content: 'Hi' },
+          messagesForInference: [{ role: 'user', content: 'Hi' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      expect(startChatTtsStreamMock).toHaveBeenCalledTimes(1);
+      const calls = startChatTtsStreamMock.mock.calls as unknown as [
+        { messageId: () => string | null } | undefined,
+      ][];
+      const callArgument = calls[0]?.[0];
+      expect(callArgument).toBeDefined();
+      expect(typeof callArgument?.messageId).toBe('function');
+      expect(callArgument?.messageId()).toBe('assistant-xyz');
+    });
+
+    it('calls feeder.end() exactly once even when both onDone and finally fire', async () => {
+      startChatTtsStreamMock.mockResolvedValueOnce(ttsFeederMock);
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"a"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hi."}',
+        'event: done',
+        'data: {}',
+      ];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4'],
+          userMessage: { id: 'u', content: 'Hi' },
+          messagesForInference: [{ role: 'user', content: 'Hi' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+      // The feeder is called twice (onDone, then finally) — that's fine because
+      // the second flush() is a no-op (chunker is empty), so users hear the
+      // remainder exactly once.
+      expect(ttsFeederMock.end).toHaveBeenCalled();
     });
   });
 

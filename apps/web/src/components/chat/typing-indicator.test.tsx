@@ -1,6 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import type { Modality } from '@hushbox/shared';
 import { TypingIndicator } from './typing-indicator';
+
+const activeModalityRef = { current: 'text' as Modality };
+
+vi.mock('@/stores/model', () => ({
+  useModelStore: <T,>(selector: (state: { activeModality: Modality }) => T): T =>
+    selector({ activeModality: activeModalityRef.current }),
+}));
 
 describe('TypingIndicator', () => {
   const members = [
@@ -9,6 +17,10 @@ describe('TypingIndicator', () => {
     { userId: 'u3', username: 'carol' },
     { userId: 'u4', username: 'dave' },
   ];
+
+  beforeEach(() => {
+    activeModalityRef.current = 'text';
+  });
 
   it('renders nothing when typingUserIds is empty', () => {
     const { container } = render(<TypingIndicator typingUserIds={new Set()} members={members} />);
@@ -97,5 +109,52 @@ describe('TypingIndicator', () => {
   it('uses foreground text color', () => {
     render(<TypingIndicator typingUserIds={new Set(['u1'])} members={members} />);
     expect(screen.getByTestId('typing-indicator')).toHaveClass('text-foreground');
+  });
+
+  describe('modality-aware copy', () => {
+    it('shows "is generating an image..." for single user in image modality', () => {
+      activeModalityRef.current = 'image';
+      render(<TypingIndicator typingUserIds={new Set(['u1'])} members={members} />);
+      expect(screen.getByText('Alice Smith is generating an image...')).toBeInTheDocument();
+    });
+
+    it('shows "is generating a video..." for single user in video modality', () => {
+      activeModalityRef.current = 'video';
+      render(<TypingIndicator typingUserIds={new Set(['u1'])} members={members} />);
+      expect(screen.getByText('Alice Smith is generating a video...')).toBeInTheDocument();
+    });
+
+    it('shows "is generating audio..." for single user in audio modality', () => {
+      activeModalityRef.current = 'audio';
+      render(<TypingIndicator typingUserIds={new Set(['u1'])} members={members} />);
+      expect(screen.getByText('Alice Smith is generating audio...')).toBeInTheDocument();
+    });
+
+    it('shows "are generating images..." for two users in image modality', () => {
+      activeModalityRef.current = 'image';
+      render(<TypingIndicator typingUserIds={new Set(['u1', 'u2'])} members={members} />);
+      expect(screen.getByText('Alice Smith and Bob are generating images...')).toBeInTheDocument();
+    });
+
+    it('shows "are generating videos..." for two users in video modality', () => {
+      activeModalityRef.current = 'video';
+      render(<TypingIndicator typingUserIds={new Set(['u1', 'u2'])} members={members} />);
+      expect(screen.getByText('Alice Smith and Bob are generating videos...')).toBeInTheDocument();
+    });
+
+    it('shows "3 people are generating images..." for 3+ users in image modality', () => {
+      activeModalityRef.current = 'image';
+      render(<TypingIndicator typingUserIds={new Set(['u1', 'u2', 'u3'])} members={members} />);
+      expect(screen.getByText('3 people are generating images...')).toBeInTheDocument();
+    });
+
+    it('matches aria-label to display text for image modality (single user)', () => {
+      activeModalityRef.current = 'image';
+      render(<TypingIndicator typingUserIds={new Set(['u1'])} members={members} />);
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'aria-label',
+        'Alice Smith is generating an image...'
+      );
+    });
   });
 });

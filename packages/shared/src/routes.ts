@@ -19,6 +19,7 @@ export const ROUTES = {
   BILLING: '/billing',
   USAGE: '/usage',
   SETTINGS: '/settings',
+  ACCESSIBILITY: '/accessibility',
 
   LOGIN: '/login',
   SIGNUP: '/signup',

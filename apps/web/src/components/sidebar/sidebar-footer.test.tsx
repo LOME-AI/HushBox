@@ -67,9 +67,13 @@ vi.mock('@/lib/env', () => ({
   env: mockEnv,
 }));
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: mockUseIsMobile,
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: mockUseIsMobile,
+  };
+});
 
 vi.mock('@/capacitor/platform', () => ({
   isNative: (): boolean => false,
@@ -145,6 +149,24 @@ describe('SidebarFooter', () => {
 
       await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-settings')).toBeInTheDocument();
+    });
+
+    it('shows Accessibility option in dropdown', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      expect(screen.getByTestId('menu-accessibility')).toBeInTheDocument();
+    });
+
+    it('navigates to /accessibility when Accessibility is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-accessibility'));
+
+      expect(mockNavigate).toHaveBeenCalledWith({ to: '/accessibility' });
     });
 
     it('shows Add Credits option in dropdown', async () => {

@@ -83,6 +83,8 @@ describe('selectUserSchema', () => {
       publicKey: new Uint8Array([10, 11, 12]),
       passwordWrappedPrivateKey: new Uint8Array([13, 14, 15]),
       recoveryWrappedPrivateKey: new Uint8Array([16, 17, 18]),
+      accessibilityPreferences: { version: 1 },
+      accessibilityPreferencesUpdatedAt: new Date(),
     });
     expect(result.success).toBe(true);
   });
@@ -104,6 +106,8 @@ describe('selectUserSchema', () => {
       publicKey: new Uint8Array([10, 11, 12]),
       passwordWrappedPrivateKey: new Uint8Array([13, 14, 15]),
       recoveryWrappedPrivateKey: new Uint8Array([16, 17, 18]),
+      accessibilityPreferences: { version: 1 },
+      accessibilityPreferencesUpdatedAt: new Date(),
     });
     expect(result.success).toBe(true);
   });

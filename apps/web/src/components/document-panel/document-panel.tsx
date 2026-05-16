@@ -2,10 +2,9 @@ import * as React from 'react';
 import { X, Code, Eye, Copy, Check, Download, Maximize2, Minimize2 } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import { code } from '@streamdown/code';
-import { Button, cn } from '@hushbox/ui';
+import { Button, cn, useIsMobile } from '@hushbox/ui';
 import { useDocumentStore } from '../../stores/document';
 import { MermaidDiagram } from '../chat/mermaid-diagram';
-import { useIsMobile } from '../../hooks/use-is-mobile';
 import { getFileExtension } from '../../lib/document-parser';
 import type { Document } from '../../lib/document-parser';
 
@@ -23,8 +22,11 @@ function ResizeHandle({
   onResizeStart,
 }: Readonly<ResizeHandleProps>): React.JSX.Element {
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- mouse-only resize handle: keyboard users have alternative panel sizing controls
     <div
       data-testid="resize-handle"
+      role="separator"
+      aria-orientation="vertical"
       onMouseDown={onResizeStart}
       className={cn(
         'group absolute top-0 left-0 z-10 flex h-full w-2 cursor-ew-resize items-center justify-center',
@@ -278,6 +280,7 @@ export function DocumentPanel({
     <div
       ref={panelRef}
       data-testid="document-panel"
+      data-chrome=""
       className={cn(
         'bg-background border-border relative flex h-full flex-col border-l',
         isResizing && 'select-none',

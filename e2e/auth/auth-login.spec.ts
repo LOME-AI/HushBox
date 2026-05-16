@@ -6,6 +6,7 @@ import {
   verifyEmailViaAPI,
   loginViaUI,
 } from '../helpers/auth.js';
+import { expectNoA11yViolations } from '../helpers/axe.js';
 import { DEV_PASSWORD } from '../../packages/shared/src/constants.js';
 
 test.describe('Login & Session', () => {
@@ -19,9 +20,13 @@ test.describe('Login & Session', () => {
   test.describe('Login variants', () => {
     test.describe.configure({ mode: 'serial' });
 
-    test('login with email navigates to /chat', async ({ unauthenticatedPage }) => {
+    test('login with email navigates to /chat', async ({ unauthenticatedPage }, testInfo) => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
+      // axe-core scan on the unauthenticated /login page — catches accessibility
+      // regressions introduced by future edits. Pre-existing violations (if any)
+      // are documented in docs/ACCESSIBILITY.md.
+      await expectNoA11yViolations(unauthenticatedPage, testInfo);
       await loginPage.loginAndWaitForChat('test-alice@test.hushbox.ai', DEV_PASSWORD);
       await expect(unauthenticatedPage).toHaveURL('/chat');
     });

@@ -41,9 +41,9 @@ const mockModels: Model[] = [
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
-    capabilities: ['internet-search'],
+    capabilities: [],
     description: 'A powerful language model from OpenAI.',
-    supportedParameters: ['web_search_options'],
+    supportedParameters: [],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
@@ -56,7 +56,7 @@ const mockModels: Model[] = [
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
-    capabilities: ['internet-search'],
+    capabilities: [],
     description: 'Anthropic most intelligent model.',
     supportedParameters: [],
   },
@@ -98,7 +98,7 @@ describe('ModelSelectorButton', () => {
     });
   });
 
-  it('closes modal after selection', async () => {
+  it('closes modal after selection in default single mode (row click commits)', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     render(
@@ -116,20 +116,16 @@ describe('ModelSelectorButton', () => {
       expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
     });
 
-    await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
-
-    await user.click(screen.getByRole('button', { name: /select.*model/i }));
+    // Single mode: clicking a row commits + closes immediately
+    await user.click(screen.getByText('Claude 3.5 Sonnet'));
 
     await waitFor(() => {
       expect(screen.queryByPlaceholderText('Search models')).not.toBeInTheDocument();
     });
 
-    expect(onSelect).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
-        { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
-      ])
-    );
+    expect(onSelect).toHaveBeenCalledWith([
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+    ]);
   });
 
   it('is disabled when disabled prop is true', () => {
@@ -173,7 +169,7 @@ describe('ModelSelectorButton', () => {
     expect(screen.getByRole('button')).toHaveAccessibleName(/select model.*current.*GPT-4 Turbo/i);
   });
 
-  it('reflects "Multiple Models" in the accessible name when 2+ are selected', () => {
+  it('reflects the selected count in the accessible name when 2+ models are selected', () => {
     render(
       <ModelSelectorButton
         models={mockModels}
@@ -185,9 +181,7 @@ describe('ModelSelectorButton', () => {
       />
     );
 
-    expect(screen.getByRole('button')).toHaveAccessibleName(
-      /select model.*current.*Multiple Models/i
-    );
+    expect(screen.getByRole('button')).toHaveAccessibleName(/select model.*current.*2 models/i);
   });
 
   it('has centered text', () => {
@@ -246,7 +240,7 @@ describe('ModelSelectorButton', () => {
     expect(screen.getByRole('button')).toHaveTextContent('Smart Model');
   });
 
-  it('displays "Multiple Models" when 2+ models selected', () => {
+  it('displays the selected count when 2+ models selected', () => {
     render(
       <ModelSelectorButton
         models={mockModels}
@@ -258,7 +252,23 @@ describe('ModelSelectorButton', () => {
       />
     );
 
-    expect(screen.getByRole('button')).toHaveTextContent('Multiple Models');
+    expect(screen.getByRole('button')).toHaveTextContent('2 models');
+  });
+
+  it('displays "3 models" when 3 models selected', () => {
+    render(
+      <ModelSelectorButton
+        models={mockModels}
+        selectedModels={[
+          { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+          { id: 'meta-llama/llama-3.1-70b-instruct', name: 'Llama 3.1 70B' },
+        ]}
+        onSelect={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button')).toHaveTextContent('3 models');
   });
 
   it('displays shortened model name when 1 model selected via selectedModels', () => {
@@ -301,6 +311,70 @@ describe('ModelSelectorButton', () => {
     await user.click(trigger);
     await waitFor(() => {
       expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    });
+  });
+
+  describe('controlled open state', () => {
+    it('opens the modal when the open prop is true', () => {
+      render(
+        <ModelSelectorButton
+          models={mockModels}
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
+          onSelect={vi.fn()}
+          open={true}
+          onOpenChange={vi.fn()}
+        />
+      );
+
+      expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
+    });
+
+    it('keeps the modal closed when the open prop is false', () => {
+      render(
+        <ModelSelectorButton
+          models={mockModels}
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
+          onSelect={vi.fn()}
+          open={false}
+          onOpenChange={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByPlaceholderText('Search models')).not.toBeInTheDocument();
+    });
+
+    it('calls onOpenChange when the trigger button is clicked', async () => {
+      const user = userEvent.setup();
+      const onOpenChange = vi.fn();
+      render(
+        <ModelSelectorButton
+          models={mockModels}
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
+          onSelect={vi.fn()}
+          open={false}
+          onOpenChange={onOpenChange}
+        />
+      );
+
+      await user.click(screen.getByTestId('model-selector-button'));
+      expect(onOpenChange).toHaveBeenCalledWith(true);
+    });
+
+    it('falls back to internal state when open prop is undefined', async () => {
+      const user = userEvent.setup();
+      render(
+        <ModelSelectorButton
+          models={mockModels}
+          selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
+          onSelect={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByPlaceholderText('Search models')).not.toBeInTheDocument();
+      await user.click(screen.getByTestId('model-selector-button'));
+      await waitFor(() => {
+        expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
+      });
     });
   });
 });

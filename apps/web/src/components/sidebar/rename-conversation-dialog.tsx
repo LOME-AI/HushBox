@@ -41,6 +41,7 @@ export function RenameConversationDialog({
               onValueChange(e.target.value);
             }}
             placeholder="Conversation title"
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- dialog input: focus management for keyboard users opening the dialog
             autoFocus
           />
         </form>

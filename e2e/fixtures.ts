@@ -137,28 +137,12 @@ function createPageFixture(
     const { errors, cleanup } = attachConsoleErrors(page);
     const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
     await use(page);
-
     const failed = testInfo.status !== testInfo.expectedStatus;
-
-    if (failed) {
-      await attachLabeledArtifact(testInfo, 'console-errors', label, errors);
-      await attachLabeledArtifact(testInfo, 'api-errors', label, apiErrors);
-      const snapshot = await page.locator(':root').ariaSnapshot();
-      if (snapshot) {
-        await testInfo.attach(`page-snapshot-${label}`, {
-          body: snapshot,
-          contentType: 'text/yaml',
-        });
-      }
-    }
-
-    cleanup();
-    cleanupApi();
-    await context.close();
-
-    if (failed && isRetry && existsSync(harPath)) {
-      await testInfo.attach(`har-${label}`, { path: harPath, contentType: 'application/json' });
-    }
+    await teardownPage(
+      { page, context, label, errors, apiErrors, cleanup, cleanupApi, harPath },
+      failed,
+      testInfo
+    );
   };
 }
 
@@ -221,6 +205,20 @@ interface CustomFixtures {
   testBobPage: Page;
   testDavePage: Page;
   testBobRequest: APIRequestContext;
+}
+
+async function zeroLowBalanceWallets(
+  requestContext: APIRequestContext,
+  email: string
+): Promise<void> {
+  // Zero both wallets so the user is on the free tier with no allowance —
+  // every preflight cost trips `insufficient_free_allowance` denial.
+  await requestContext.post('/api/dev/wallet-balance', {
+    data: { email, walletType: 'purchased', balance: '0.00000000' },
+  });
+  await requestContext.post('/api/dev/wallet-balance', {
+    data: { email, walletType: 'free_tier', balance: '0.00000000' },
+  });
 }
 
 async function teardownPage(
@@ -500,24 +498,18 @@ export const test = base.extend<CustomFixtures>({
   // Reset to $0 after the test to avoid bleed.
   lowBalancePage: async ({ browser, playwright }, use, testInfo) => {
     const lowBalanceEmail = 'test-billing-validation@test.hushbox.ai';
+    const storageStatePath = 'e2e/.auth/test-billing-validation.json';
     const requestContext = await playwright.request.newContext({
       baseURL: apiUrl,
-      storageState: 'e2e/.auth/test-billing-validation.json',
+      storageState: storageStatePath,
     });
 
-    // Zero both wallets so the user is on the free tier with no allowance —
-    // every preflight cost trips `insufficient_free_allowance` denial.
-    await requestContext.post('/api/dev/wallet-balance', {
-      data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.00000000' },
-    });
-    await requestContext.post('/api/dev/wallet-balance', {
-      data: { email: lowBalanceEmail, walletType: 'free_tier', balance: '0.00000000' },
-    });
+    await zeroLowBalanceWallets(requestContext, lowBalanceEmail);
 
     const harPath = testInfo.outputPath('lowBalancePage.har');
     const isRetry = testInfo.retry > 0;
     const context = await browser.newContext({
-      storageState: 'e2e/.auth/test-billing-validation.json',
+      storageState: storageStatePath,
       ...(isRetry && {
         recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
       }),
@@ -526,33 +518,21 @@ export const test = base.extend<CustomFixtures>({
     const { errors, cleanup } = attachConsoleErrors(page);
     const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
     await use(page);
-
     const failed = testInfo.status !== testInfo.expectedStatus;
-    if (failed) {
-      await attachLabeledArtifact(testInfo, 'console-errors', 'lowBalancePage', errors);
-      await attachLabeledArtifact(testInfo, 'api-errors', 'lowBalancePage', apiErrors);
-      const snapshot = await page
-        .locator(':root')
-        .ariaSnapshot()
-        .catch(() => null);
-      if (snapshot) {
-        await testInfo.attach(`page-snapshot-lowBalancePage`, {
-          body: snapshot,
-          contentType: 'text/yaml',
-        });
-      }
-    }
-
-    cleanup();
-    cleanupApi();
-    await context.close();
-
-    if (failed && isRetry && existsSync(harPath)) {
-      await testInfo.attach(`har-lowBalancePage`, {
-        path: harPath,
-        contentType: 'application/json',
-      });
-    }
+    await teardownPage(
+      {
+        page,
+        context,
+        label: 'lowBalancePage',
+        errors,
+        apiErrors,
+        cleanup,
+        cleanupApi,
+        harPath,
+      },
+      failed,
+      testInfo
+    );
 
     await requestContext.post('/api/dev/wallet-balance', {
       data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.00000000' },

@@ -15,7 +15,6 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "^3.0.95",
     "@hono/zod-validator": "^0.7.6",
     "@hushbox/crypto": "workspace:*",
     "@hushbox/realtime": "workspace:*",

@@ -1,25 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { modelSchema, type Model, modelCapabilitySchema, type ModelCapability } from './models.js';
+import { modelSchema, type Model, modelCapabilitySchema } from './models.js';
 
 describe('modelCapabilitySchema', () => {
-  it('accepts valid capabilities', () => {
-    const validCapabilities: ModelCapability[] = ['internet-search'];
-
-    for (const cap of validCapabilities) {
-      const result = modelCapabilitySchema.safeParse(cap);
-      expect(result.success).toBe(true);
-    }
-  });
-
-  it('rejects old capability values', () => {
-    const oldCapabilities = ['vision', 'functions', 'json-mode', 'streaming'];
-
-    for (const cap of oldCapabilities) {
-      const result = modelCapabilitySchema.safeParse(cap);
-      expect(result.success).toBe(false);
-    }
-  });
-
   it('rejects invalid capabilities', () => {
     const result = modelCapabilitySchema.safeParse('invalid-capability');
     expect(result.success).toBe(false);
@@ -35,7 +17,7 @@ describe('modelSchema', () => {
       contextLength: 128_000,
       pricePerInputToken: 0.000_01,
       pricePerOutputToken: 0.000_03,
-      capabilities: ['internet-search'],
+      capabilities: [],
       description: 'A powerful language model from OpenAI.',
     };
 
@@ -71,6 +53,52 @@ describe('modelSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.pricePerSecondByResolution).toEqual({ '720p': 0.4, '1080p': 0.4 });
+    }
+  });
+
+  it('preserves optional per-model capability sets when provided', () => {
+    const veo31 = {
+      id: 'google/veo-3.1-generate-001',
+      name: 'Veo 3.1',
+      provider: 'Google',
+      modality: 'video',
+      contextLength: 0,
+      pricePerInputToken: 0,
+      pricePerOutputToken: 0,
+      pricePerImage: 0,
+      pricePerSecondByResolution: { '720p': 0.4, '1080p': 0.4, '4k': 0.6 },
+      capabilities: [],
+      description: 'Veo 3.1',
+      supportedAspectRatios: ['16:9', '9:16'],
+      supportedVideoResolutions: ['720p', '1080p', '4k'],
+      supportedVideoDurationsSeconds: [4, 6, 8],
+    };
+    const result = modelSchema.safeParse(veo31);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.supportedAspectRatios).toEqual(['16:9', '9:16']);
+      expect(result.data.supportedVideoResolutions).toEqual(['720p', '1080p', '4k']);
+      expect(result.data.supportedVideoDurationsSeconds).toEqual([4, 6, 8]);
+    }
+  });
+
+  it('omits the capability fields when not declared (default-undefined)', () => {
+    const minimal = {
+      id: 'openai/gpt-5',
+      name: 'GPT-5',
+      provider: 'OpenAI',
+      contextLength: 128_000,
+      pricePerInputToken: 0.000_01,
+      pricePerOutputToken: 0.000_03,
+      capabilities: [],
+      description: 'Test model.',
+    };
+    const result = modelSchema.safeParse(minimal);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.supportedAspectRatios).toBeUndefined();
+      expect(result.data.supportedVideoResolutions).toBeUndefined();
+      expect(result.data.supportedVideoDurationsSeconds).toBeUndefined();
     }
   });
 
@@ -297,70 +325,13 @@ describe('Model type', () => {
       pricePerImage: 0,
       pricePerSecondByResolution: {},
       pricePerSecond: 0,
-      capabilities: ['internet-search'],
+      capabilities: [],
       description: 'A test model for type inference.',
-      supportedParameters: ['temperature', 'web_search_options'],
+      supportedParameters: ['temperature'],
     };
 
     expect(model.id).toBe('test-model');
-    expect(model.capabilities).toContain('internet-search');
     expect(model.description).toBe('A test model for type inference.');
-  });
-
-  it('accepts optional webSearchPrice', () => {
-    const model = {
-      id: 'test',
-      name: 'Test',
-      provider: 'Test',
-      contextLength: 4096,
-      pricePerInputToken: 0.001,
-      pricePerOutputToken: 0.002,
-      capabilities: ['internet-search'],
-      description: 'Test description.',
-      webSearchPrice: 0.005,
-    };
-
-    const result = modelSchema.safeParse(model);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.webSearchPrice).toBe(0.005);
-    }
-  });
-
-  it('allows model without webSearchPrice', () => {
-    const model = {
-      id: 'test',
-      name: 'Test',
-      provider: 'Test',
-      contextLength: 4096,
-      pricePerInputToken: 0.001,
-      pricePerOutputToken: 0.002,
-      capabilities: [],
-      description: 'Test description.',
-    };
-
-    const result = modelSchema.safeParse(model);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.webSearchPrice).toBeUndefined();
-    }
-  });
-
-  it('rejects negative webSearchPrice', () => {
-    const model = {
-      id: 'test',
-      name: 'Test',
-      provider: 'Test',
-      contextLength: 4096,
-      pricePerInputToken: 0.001,
-      pricePerOutputToken: 0.002,
-      capabilities: [],
-      description: 'Test description.',
-      webSearchPrice: -0.01,
-    };
-
-    const result = modelSchema.safeParse(model);
-    expect(result.success).toBe(false);
   });
 
   it('accepts optional isSmartModel flag', () => {

@@ -1,14 +1,14 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
-import { useVisualViewportHeight } from '@hushbox/ui';
+import { useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
 import { createEvent } from '@hushbox/realtime/events';
 import { ChatHeader } from '@/components/chat/chat-header';
 import { ComparisonBar } from '@/components/chat/comparison-bar';
 import { ForkTabs } from '@/components/chat/fork-tabs';
 import { MessageList, type MessageListHandle } from '@/components/chat/message-list';
 import { PromptInput } from '@/components/chat/prompt-input';
-import { getPromptPlaceholder } from '@/components/chat/prompt-placeholder';
+import { getPromptPlaceholder } from '@/lib/modality-strings';
 import { DocumentPanel } from '@/components/document-panel/document-panel';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
@@ -18,7 +18,6 @@ import { BudgetSettingsModal } from '@/components/chat/budget-settings-modal';
 import { InviteLinkModal } from '@/components/chat/invite-link-modal';
 import { ShareMessageModal } from '@/components/chat/share-message-modal';
 import { useKeyboardOffset } from '@/hooks/use-keyboard-offset';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
 import { useTierInfo } from '@/hooks/use-tier-info';
 import { useModelStore, getPrimaryModel, type SelectedModelEntry } from '@/stores/model';
@@ -241,7 +240,9 @@ function useInputFocusManagement(
     previousInputDisabledRef.current = inputDisabled;
 
     if (wasDisabled && !inputDisabled && !isMobile) {
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers focus to next frame, not motion animation
       requestAnimationFrame(() => {
+        // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers focus to next frame, not motion animation
         requestAnimationFrame(() => {
           promptInputRef.current?.focus();
         });
@@ -265,6 +266,7 @@ function useStreamScrollEffect(
     const isFirstMessage = messagesLength <= 2;
 
     if (!wasStreaming && isNowStreaming && isFirstMessage) {
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
       });
@@ -444,6 +446,7 @@ function ChatPromptInput({
       maxHeight="112px"
       disabled={inputDisabled}
       isProcessing={isProcessing}
+      // eslint-disable-next-line jsx-a11y/no-autofocus -- desktop-only focus management for chat composer; mobile is excluded to avoid keyboard popup
       autoFocus={!isMobile}
       isAuthenticated={isAuthenticated}
       activeModality={activeModality}
@@ -630,6 +633,7 @@ function useSubmitUserOnly(
     if (onSubmitUserOnly) {
       onSubmitUserOnly();
       virtuosoRef.current?.resetScrollBreakaway();
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
       });
@@ -827,14 +831,13 @@ export function ChatLayout({
     },
     [setActiveModality]
   );
-  const { models, premiumIds: modelPremiumIds, supportsSearch } = useSelectedModelCapabilities();
+  const { models, premiumIds: modelPremiumIds } = useSelectedModelCapabilities();
   // Search is a text-mode feature. Omit searchProps entirely in image mode
   // so the toggle disappears at the structural level, not a render-time check.
   const searchProps: ChatSearchProps | undefined =
     activeModality === 'text'
       ? {
           webSearchEnabled,
-          modelSupportsSearch: supportsSearch,
           onToggleWebSearch: toggleWebSearch,
         }
       : undefined;
@@ -845,6 +848,12 @@ export function ChatLayout({
   const handleRemoveModel = React.useCallback((modelId: string): void => {
     const { activeModality: current, removeModel } = useModelStore.getState();
     removeModel(current, modelId);
+  }, []);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const handleAddViaComparisonBar = React.useCallback((): void => {
+    const { activeModality: current, setPickerMode } = useModelStore.getState();
+    setPickerMode(current, 'multi');
+    setPickerOpen(true);
   }, []);
   const tierInfo = useTierInfo();
   const tierInfoOrUndefined = tierInfo ?? undefined;
@@ -886,6 +895,7 @@ export function ChatLayout({
     (fundingSource: FundingSource): void => {
       onSubmit(fundingSource);
       virtuosoRef.current?.resetScrollBreakaway();
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
       });
@@ -941,6 +951,8 @@ export function ChatLayout({
           isLinkGuest={isLinkGuest ?? false}
           onPremiumClick={handlePremiumClick}
           activeModality={activeModality}
+          pickerOpen={pickerOpen}
+          onPickerOpenChange={setPickerOpen}
           {...buildChatHeaderGroupProps(groupChat, handleFacepileClick)}
         />
       </div>
@@ -948,6 +960,7 @@ export function ChatLayout({
         models={models}
         selectedModels={selectedModels}
         onRemoveModel={handleRemoveModel}
+        onAddClick={handleAddViaComparisonBar}
       />
       <ForkTabs
         {...resolveForkTabsProps({ forks, activeForkId, onForkSelect, onForkRename, onForkDelete })}
@@ -990,6 +1003,7 @@ export function ChatLayout({
       <div
         ref={inputContainerRef}
         data-chat-input
+        data-chrome=""
         className="bg-background flex-shrink-0 border-t p-4"
         style={inputStyle}
       >

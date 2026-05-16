@@ -1,6 +1,5 @@
 import * as React from 'react';
-import { Overlay } from '@hushbox/ui';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import { Overlay, useIsMobile } from '@hushbox/ui';
 import { PaymentForm } from './payment-form';
 
 interface PaymentModalProps {

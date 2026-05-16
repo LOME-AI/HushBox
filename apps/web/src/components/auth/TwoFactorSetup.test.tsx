@@ -10,9 +10,13 @@ vi.mock('@/lib/api', () => ({
   getApiUrl: () => 'http://localhost:8787',
 }));
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: vi.fn(() => false),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: vi.fn(() => false),
+  };
+});
 
 // Mock QRCode component (uses canvas which isn't available in jsdom)
 vi.mock('react-qrcode-logo', () => ({

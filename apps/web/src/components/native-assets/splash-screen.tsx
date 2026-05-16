@@ -44,6 +44,7 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
       style={{
         width: '100vw',
         height: '100vh',
+        // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
         backgroundColor: theme.background,
         position: 'relative',
         overflow: 'hidden',
@@ -69,6 +70,7 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
           gap: '24px',
         }}
       >
+        {/* eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use <Img> from @hushbox/ui */}
         <img
           src={logoUrl}
           alt="HushBox Logo"
@@ -81,9 +83,12 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0' }}>
           <span
             style={{
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               fontSize: '48px',
               fontWeight: 700,
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               color: theme.foreground,
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               fontFamily: 'system-ui, -apple-system, sans-serif',
             }}
           >
@@ -91,9 +96,12 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
           </span>
           <span
             style={{
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               fontSize: '48px',
               fontWeight: 700,
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               color: BRAND_RED,
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               fontFamily: 'system-ui, -apple-system, sans-serif',
             }}
           >

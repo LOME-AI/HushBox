@@ -42,8 +42,8 @@ const MOCK_MODELS: Model[] = [
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
-    capabilities: ['internet-search'],
-    supportedParameters: ['temperature', 'tools', 'tool_choice', 'web_search_options'],
+    capabilities: [],
+    supportedParameters: ['temperature', 'tools', 'tool_choice'],
     created: Math.floor(Date.now() / 1000),
   },
   {

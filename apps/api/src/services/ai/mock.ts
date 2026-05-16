@@ -3,6 +3,7 @@ import {
   CLASSIFIER_SYSTEM_PROMPT_MARKER,
   assertNever,
 } from '@hushbox/shared';
+import { fetchModels } from '@hushbox/shared/models';
 
 import { rawModelToModelInfo } from './model-mapping.js';
 import {
@@ -33,6 +34,14 @@ import type {
   TextRequest,
 } from './types.js';
 
+/**
+ * Default public `/v1/models` URL the mock client passes to `fetchModels`.
+ * Tests that stub `globalThis.fetch` ignore the value; tests that don't stub
+ * fetch will hit the real endpoint. Same URL production uses, so the catalog
+ * is identical across mock and real clients.
+ */
+const DEFAULT_PUBLIC_MODELS_URL = 'https://ai-gateway.vercel.sh/v1/models';
+
 /** Deterministic mock cost returned by getGenerationStats (USD). */
 const MOCK_GENERATION_STATS_COST = 0.001;
 
@@ -45,6 +54,14 @@ const MOCK_GENERATION_STATS_COST = 0.001;
  */
 const DEFAULT_CLASSIFIER_RESOLUTION = 'anthropic/claude-haiku-4.5';
 
+/**
+ * Default delay before the first classifier event so the pre-inference
+ * stage's `stage:start` and `stage:done` events land in separate render
+ * ticks; without it the loading indicator never paints. Explicit `0`
+ * opts out for unit tests that care about microsecond timing.
+ */
+const DEFAULT_CLASSIFIER_DELAY_MS = 500;
+
 export {
   TEST_IMAGE_BYTES as CANNED_IMAGE,
   TEST_VIDEO_BYTES as CANNED_VIDEO,
@@ -56,168 +73,6 @@ export {
   TEST_VIDEO_HEIGHT as CANNED_VIDEO_HEIGHT,
   TEST_AUDIO_DURATION_MS as CANNED_AUDIO_DURATION_MS,
 } from './mock-fixtures/index.js';
-
-/**
- * Single source of truth for the mock model catalog.
- *
- * Shaped as `RawModel[]` (the gateway-side merged shape) so `processModels`
- * — used by `/api/models`, the chat tier-gate, and billing premium-id checks
- * — sees the same data the real gateway produces. `MOCK_MODELS` (ModelInfo)
- * is derived from this via `rawModelToModelInfo`, keeping inference-layer
- * pricing and the routes' premium classification consistent in tests.
- *
- * Pricing strings follow the gateway's per-token / per-image / per-second
- * conventions. The text entries are real ZDR ids (anthropic/claude-*) so
- * `processModels` keeps them after ZDR filtering. The image/video/audio
- * entries are intentionally not on the ZDR allow-list; `processModels`
- * filters them out, which is correct (production uses real ZDR ids), while
- * `listModels()` still returns them for inference-layer mock streaming.
- */
-const MOCK_RAW_MODELS: RawModel[] = [
-  {
-    id: 'anthropic/claude-sonnet-4.6',
-    name: 'Claude Sonnet 4.6',
-    description: 'Fast, intelligent model for everyday tasks',
-    modality: 'text',
-    context_length: 200_000,
-    pricing: { prompt: '0.000003', completion: '0.000015' },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
-  },
-  {
-    id: 'anthropic/claude-opus-4.6',
-    name: 'Claude Opus 4.6',
-    description: 'Most capable model for complex tasks',
-    modality: 'text',
-    context_length: 200_000,
-    pricing: { prompt: '0.000015', completion: '0.000075' },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
-  },
-  {
-    id: 'anthropic/claude-haiku-4.5',
-    name: 'Claude Haiku 4.5',
-    description: 'Fast, cheap model for everyday tasks',
-    modality: 'text',
-    context_length: 200_000,
-    pricing: { prompt: '0.0000003', completion: '0.0000015' },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
-  },
-  {
-    id: 'openai/gpt-5-nano',
-    name: 'GPT-5 Nano',
-    description: 'Cheap general-purpose model',
-    modality: 'text',
-    context_length: 200_000,
-    pricing: { prompt: '0.0000004', completion: '0.0000016' },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
-  },
-  {
-    id: 'google/gemini-2.5-flash-lite',
-    name: 'Gemini 2.5 Flash Lite',
-    description: 'Lightweight, low-cost model',
-    modality: 'text',
-    context_length: 200_000,
-    pricing: { prompt: '0.00000025', completion: '0.0000012' },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
-  },
-  {
-    id: 'openai/gpt-5-mini',
-    name: 'GPT-5 Mini',
-    description: 'Balanced cost-quality model',
-    modality: 'text',
-    context_length: 200_000,
-    pricing: { prompt: '0.0000005', completion: '0.0000018' },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['text'], output_modalities: ['text'] },
-  },
-  {
-    id: 'google/imagen-4.0-generate-001',
-    name: 'Imagen 4',
-    description: 'High-quality image generation',
-    modality: 'image',
-    context_length: 0,
-    pricing: { prompt: '0', completion: '0', per_image: '0.04' },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['image'], output_modalities: ['image'] },
-  },
-  {
-    id: 'google/imagen-4.0-fast-generate-001',
-    name: 'Imagen 4 Fast',
-    description: 'Fast image generation',
-    modality: 'image',
-    context_length: 0,
-    pricing: { prompt: '0', completion: '0', per_image: '0.04' },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['image'], output_modalities: ['image'] },
-  },
-  {
-    id: 'google/veo-3.1-generate-001',
-    name: 'Veo 3.1',
-    description: 'Video generation with audio',
-    modality: 'video',
-    context_length: 0,
-    pricing: {
-      prompt: '0',
-      completion: '0',
-      per_second_by_resolution: { '720p': '0.1', '1080p': '0.15' },
-    },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['video'], output_modalities: ['video'] },
-  },
-  {
-    id: 'google/veo-3.1-fast-generate-001',
-    name: 'Veo 3.1 Fast',
-    description: 'Fast video generation with audio',
-    modality: 'video',
-    context_length: 0,
-    pricing: {
-      prompt: '0',
-      completion: '0',
-      per_second_by_resolution: { '720p': '0.12', '1080p': '0.18' },
-    },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['video'], output_modalities: ['video'] },
-  },
-  {
-    id: 'openai/tts-1',
-    name: 'TTS-1',
-    description: 'Text-to-speech audio generation',
-    modality: 'audio',
-    context_length: 0,
-    pricing: { prompt: '0', completion: '0' },
-    supported_parameters: [],
-    created: 0,
-    architecture: { input_modalities: ['audio'], output_modalities: ['audio'] },
-  },
-];
-
-const MOCK_AUDIO_PER_SECOND = 0.015;
-
-const MOCK_MODELS: ModelInfo[] = MOCK_RAW_MODELS.map((m) => {
-  const info = rawModelToModelInfo(m);
-  // The shared mapper hardcodes audio.perSecond to 0 because the gateway
-  // fetcher doesn't extract audio pricing yet. Override here so the mock
-  // exposes a deterministic non-zero rate; chat-pipeline tests rely on
-  // perSecond × duration math producing a fixed cost.
-  if (info.modality === 'audio' && info.pricing.kind === 'audio') {
-    return { ...info, pricing: { kind: 'audio', perSecond: MOCK_AUDIO_PER_SECOND } };
-  }
-  return info;
-});
 
 function extractLastUserContent(messages: AIMessage[]): string {
   const lastUser = messages.findLast((m) => m.role === 'user');
@@ -429,23 +284,28 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
   const classifierResolution = config.classifierResolution ?? DEFAULT_CLASSIFIER_RESOLUTION;
   const classifierFailure =
     config.classifierFailure === true ? new Error('Classifier unavailable (test)') : null;
-  const classifierDelayMs = Math.max(0, config.classifierDelayMs ?? 0);
+  const classifierDelayMs = Math.max(0, config.classifierDelayMs ?? DEFAULT_CLASSIFIER_DELAY_MS);
+
+  const publicModelsUrl = config.publicModelsUrl ?? DEFAULT_PUBLIC_MODELS_URL;
 
   return {
     isMock: true,
 
-    listModels(): Promise<ModelInfo[]> {
-      return Promise.resolve([...MOCK_MODELS]);
+    async listRawModels(): Promise<RawModel[]> {
+      const models = await fetchModels({ publicModelsUrl });
+      return models.map((m) => structuredClone(m));
     },
 
-    listRawModels(): Promise<RawModel[]> {
-      return Promise.resolve(MOCK_RAW_MODELS.map((m) => structuredClone(m)));
+    async listModels(): Promise<ModelInfo[]> {
+      const raw = await this.listRawModels();
+      return raw.map((m) => rawModelToModelInfo(m));
     },
 
-    getModel(id: string): Promise<ModelInfo> {
-      const model = MOCK_MODELS.find((m) => m.id === id);
-      if (!model) return Promise.reject(new Error(`Model not found: ${id}`));
-      return Promise.resolve({ ...model });
+    async getModel(id: string): Promise<ModelInfo> {
+      const models = await this.listModels();
+      const model = models.find((m) => m.id === id);
+      if (!model) throw new Error(`Model not found: ${id}`);
+      return model;
     },
 
     stream(request: InferenceRequest): InferenceStream {
