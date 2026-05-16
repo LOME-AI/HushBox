@@ -105,7 +105,7 @@ describe('writeGithubOutput', () => {
 
   beforeEach(() => {
     appendMock.mockClear();
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -115,14 +115,22 @@ describe('writeGithubOutput', () => {
   });
 
   it('appends each line + trailing newline to $GITHUB_OUTPUT when set', () => {
-    process.env['GITHUB_OUTPUT'] = '/tmp/github-output-file';
+    process.env['GITHUB_OUTPUT'] = '/mock/github-output-file';
 
     writeGithubOutput(['version=1.2.3', 'version_name=1.2.3', 'version_code=10203']);
 
     expect(appendMock).toHaveBeenCalledTimes(3);
-    expect(appendMock).toHaveBeenNthCalledWith(1, '/tmp/github-output-file', 'version=1.2.3\n');
-    expect(appendMock).toHaveBeenNthCalledWith(2, '/tmp/github-output-file', 'version_name=1.2.3\n');
-    expect(appendMock).toHaveBeenNthCalledWith(3, '/tmp/github-output-file', 'version_code=10203\n');
+    expect(appendMock).toHaveBeenNthCalledWith(1, '/mock/github-output-file', 'version=1.2.3\n');
+    expect(appendMock).toHaveBeenNthCalledWith(
+      2,
+      '/mock/github-output-file',
+      'version_name=1.2.3\n'
+    );
+    expect(appendMock).toHaveBeenNthCalledWith(
+      3,
+      '/mock/github-output-file',
+      'version_code=10203\n'
+    );
   });
 
   it('prints each line to stdout via console.log', () => {
@@ -146,7 +154,7 @@ describe('writeGithubOutput', () => {
   });
 
   it('is a no-op for both branches with an empty lines array', () => {
-    process.env['GITHUB_OUTPUT'] = '/tmp/github-output-file';
+    process.env['GITHUB_OUTPUT'] = '/mock/github-output-file';
 
     writeGithubOutput([]);
 

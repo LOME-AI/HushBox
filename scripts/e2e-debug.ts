@@ -630,8 +630,8 @@ export function generateJsonReport(report: DebugReport): JsonReport {
   return {
     timestamp: new Date().toISOString(),
     summary: report.summary,
-    failed: report.failed.map(serializeTestForJson),
-    flaky: report.flaky.map(serializeTestForJson),
+    failed: report.failed.map((test) => serializeTestForJson(test)),
+    flaky: report.flaky.map((test) => serializeTestForJson(test)),
     passed: report.passed.map((test) => ({
       title: test.title,
       file: test.file,
