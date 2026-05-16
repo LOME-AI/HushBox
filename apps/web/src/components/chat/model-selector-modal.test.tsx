@@ -62,12 +62,16 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: vi.fn(() => false),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: vi.fn(() => false),
+  };
+});
 
 async function setIsMobile(value: boolean): Promise<void> {
-  const module_ = await import('@/hooks/use-is-mobile');
+  const module_ = await import('@hushbox/ui');
   vi.mocked(module_.useIsMobile).mockReturnValue(value);
 }
 
