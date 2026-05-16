@@ -32,6 +32,7 @@ import {
   billingRoute,
   webhooksRoute,
   opaqueAuthRoute,
+  deleteAccountRoute,
   websocketRoute,
   budgetsRoute,
   usersRoute,
@@ -175,6 +176,7 @@ export function createApp() {
   const app = base
     .route('/api/health', healthRoute)
     .route('/api/auth', opaqueAuthRoute)
+    .route('/api/auth/delete-account', deleteAccountRoute)
     .route('/api/conversations', conversationsRoute)
     .route('/api/members', membersRoute)
     .route('/api/links', linksRoute)

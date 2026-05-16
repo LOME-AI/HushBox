@@ -54,8 +54,18 @@ vi.mock('@/lib/auth', () => ({
   requireAuth: vi.fn().mockImplementation(() => Promise.resolve()),
   changePassword: (...args: unknown[]) => mockChangePassword(...args),
   useAuthStore: useAuthStoreMock,
+  useSession: vi.fn(() => ({ data: null, isPending: false })),
   disable2FAInit: (...args: unknown[]) => mockDisable2FAInit(...args),
   disable2FAFinish: (...args: unknown[]) => mockDisable2FAFinish(...args),
+}));
+
+vi.mock('@/hooks/billing', () => ({
+  useBalance: vi.fn(() => ({ data: undefined, isLoading: false })),
+}));
+
+vi.mock('@/hooks/useDeleteAccount', () => ({
+  useDeleteAccountInit: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+  useDeleteAccountFinish: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
 }));
 
 // RecoveryPhraseModal imports getApiUrl from @/lib/api

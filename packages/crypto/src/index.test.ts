@@ -54,6 +54,8 @@ describe('index barrel exports', () => {
     expect(typeof module_.generateTotpUri).toBe('function');
     expect(typeof module_.verifyTotpCode).toBe('function');
     expect(typeof module_.generateTotpCodeSync).toBe('function');
+    expect(typeof module_.verifyTotpToken).toBe('function');
+    expect(typeof module_.decryptAndVerifyTotp).toBe('function');
 
     expect(typeof module_.generateKeyPair).toBe('function');
     expect(typeof module_.getPublicKeyFromPrivate).toBe('function');
@@ -74,6 +76,8 @@ describe('index barrel exports', () => {
     expect(typeof module_.createOpaqueServerFromEnv).toBe('function');
     expect(typeof module_.deriveServerCredentials).toBe('function');
     expect(typeof module_.createFakeRegistrationRecord).toBe('function');
+    expect(typeof module_.opaqueStepUpInit).toBe('function');
+    expect(typeof module_.opaqueStepUpFinish).toBe('function');
     expect(typeof module_.OPAQUE_SERVER_IDENTIFIER).toBe('string');
     expect(module_.OpaqueServerConfig).toBeDefined();
     expect(module_.OpaqueRegistrationRecord).toBeDefined();

@@ -50,17 +50,13 @@ import {
   createOpaqueServerFromEnv,
   createFakeRegistrationRecord,
   OpaqueServerConfig,
-} from '@hushbox/crypto';
-import { createErrorResponse } from '../lib/error-response.js';
-import { getSessionOptions, type SessionData } from '../lib/session.js';
-import {
   generateTotpSecret,
   generateTotpUri,
   encryptTotpSecret,
   deriveTotpEncryptionKey,
-  decryptTotpSecret,
-  verifyTotpWithReplayProtection,
-} from '../lib/totp.js';
+} from '@hushbox/crypto';
+import { createErrorResponse } from '../lib/error-response.js';
+import { getSessionOptions, type SessionData } from '../lib/session.js';
 import {
   checkRateLimit,
   checkDualRateLimit,
@@ -70,6 +66,8 @@ import {
 } from '../lib/rate-limit.js';
 import { getClientIp, hashIp } from '../lib/client-ip.js';
 import { redisGet, redisSet, redisDel, REDIS_REGISTRY } from '../lib/redis-registry.js';
+import { startOpaqueStepUp, finishOpaqueStepUp } from '../lib/opaque-step-up.js';
+import { verifyTotpStepUp, verifyTotpSetupCode } from '../lib/totp-step-up.js';
 import { getEmailClient } from '../services/email/index.js';
 import { ensureWalletsExist } from '../services/billing/wallet-provisioning.js';
 import {
@@ -84,35 +82,6 @@ import { EMAIL_VERIFY_TOKEN_EXPIRY_MS } from '../constants/auth.js';
 import type { AppEnv, Bindings } from '../types.js';
 
 const PENDING_2FA_LOGIN_SECONDS = 5 * 60; // 5 minutes
-
-/**
- * Helper function to decrypt and verify TOTP code with replay protection.
- * Decrypts the TOTP secret and verifies the code against Redis replay protection.
- */
-async function decryptAndVerifyTotp(options: {
-  redis: import('@upstash/redis').Redis;
-  masterSecret: string;
-  userId: string;
-  code: string;
-  totpSecretEncrypted: number[] | Uint8Array;
-}): Promise<{ valid: true } | { valid: false; error: string }> {
-  const totpKey = deriveTotpEncryptionKey(textEncoder.encode(options.masterSecret));
-  const blob =
-    options.totpSecretEncrypted instanceof Uint8Array
-      ? options.totpSecretEncrypted
-      : new Uint8Array(options.totpSecretEncrypted);
-  const secret = decryptTotpSecret(blob, totpKey);
-  const result = await verifyTotpWithReplayProtection(
-    options.redis,
-    options.userId,
-    options.code,
-    secret
-  );
-  if (!result.valid) {
-    return { valid: false, error: result.error ?? ERROR_CODE_INVALID_TOTP_CODE };
-  }
-  return { valid: true };
-}
 
 /**
  * Handle a failed login attempt: clean up pending state, record failure, and
@@ -802,21 +771,22 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_TOTP_NOT_CONFIGURED), 500);
     }
 
-    const result = await decryptAndVerifyTotp({
+    const result = await verifyTotpStepUp({
       redis,
-      masterSecret,
       userId: sessionCheck.userId,
+      masterSecret: textEncoder.encode(masterSecret),
+      encryptedSecret: userRow.totpSecretEncrypted,
       code,
-      totpSecretEncrypted: userRow.totpSecretEncrypted,
+      now: new Date(),
     });
-    if (!result.valid) {
+    if (!result.ok) {
       await recordFailedAttempt(
         redis,
         'twoFactorUserRateLimit',
         sessionCheck.userId,
         'twoFactorLockout'
       );
-      return c.json(createErrorResponse(result.error), 400);
+      return c.json(createErrorResponse(ERROR_CODE_INVALID_TOTP_CODE), 400);
     }
 
     // Session rotation: delete old session, generate new ID, save
@@ -1031,9 +1001,15 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
     const pending = pendingSetupData;
 
-    const result = await verifyTotpWithReplayProtection(redis, user.id, code, pending.secret);
-    if (!result.valid) {
-      return c.json(createErrorResponse(result.error ?? ERROR_CODE_INVALID_TOTP_CODE), 400);
+    const result = await verifyTotpSetupCode({
+      redis,
+      userId: user.id,
+      plaintextSecret: pending.secret,
+      code,
+      now: new Date(),
+    });
+    if (!result.ok) {
+      return c.json(createErrorResponse(ERROR_CODE_INVALID_TOTP_CODE), 400);
     }
 
     // Use the encrypted blob from pending setup (UPDATE with WHERE is idempotent)
@@ -1095,39 +1071,24 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_TOTP_NOT_ENABLED), 400);
     }
 
-    const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
-
-    const registrationRecord = RegistrationRecord.deserialize(OpaqueServerConfig, [
-      ...user.opaqueRegistration,
-    ]);
-
-    const ke1Message = KE1.deserialize(OpaqueServerConfig, ke1);
-    const credentialIdentifier = user.id;
-
-    const loginResult = await opaqueServer.authInit(
-      ke1Message,
-      registrationRecord,
-      credentialIdentifier
-    );
-    if (loginResult instanceof Error) {
+    let stepUp;
+    try {
+      stepUp = await startOpaqueStepUp({
+        ke1: new Uint8Array(ke1),
+        userId: user.id,
+        opaqueRegistration: user.opaqueRegistration,
+        username: user.id,
+        masterSecret: textEncoder.encode(masterSecret),
+        redis,
+        redisKeyName: 'opaquePending2FADisable',
+      });
+    } catch {
       return c.json(createErrorResponse(ERROR_CODE_DISABLE_2FA_INIT_FAILED), 500);
     }
 
-    const { ke2, expected } = loginResult;
-
-    await redisSet(
-      redis,
-      'opaquePending2FADisable',
-      {
-        userId: user.id,
-        expectedSerialized: expected.serialize(),
-      },
-      user.id
-    );
-
     return c.json(
       {
-        ke2: ke2.serialize(),
+        ke2: [...stepUp.ke2],
       },
       200
     );
@@ -1162,26 +1123,18 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         );
       }
 
-      const pendingData = await redisGet(redis, 'opaquePending2FADisable', sessionData.userId);
-      if (!pendingData) {
-        return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_DISABLE), 400);
-      }
-
-      const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
-
-      const ke3Message = KE3.deserialize(OpaqueServerConfig, ke3);
-      const expected = ExpectedAuthResult.deserialize(
-        OpaqueServerConfig,
-        pendingData.expectedSerialized
-      );
-
-      const authResult = opaqueServer.authFinish(ke3Message, expected);
-      if (authResult instanceof Error) {
-        await redisDel(redis, 'opaquePending2FADisable', sessionData.userId);
+      const finishResult = await finishOpaqueStepUp({
+        ke3: new Uint8Array(ke3),
+        userId: sessionData.userId,
+        redis,
+        redisKeyName: 'opaquePending2FADisable',
+      });
+      if (!finishResult.ok) {
+        if (finishResult.reason === 'no-pending') {
+          return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_DISABLE), 400);
+        }
         return c.json(createErrorResponse(ERROR_CODE_INCORRECT_PASSWORD), 401);
       }
-
-      await redisDel(redis, 'opaquePending2FADisable', sessionData.userId);
 
       const totpUserResult = await getUserWithTotpConfig(db, sessionData.userId);
       if (!totpUserResult.found) {
@@ -1190,15 +1143,16 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
       const { user } = totpUserResult;
 
-      const result = await decryptAndVerifyTotp({
+      const result = await verifyTotpStepUp({
         redis,
-        masterSecret,
         userId: user.id,
+        masterSecret: textEncoder.encode(masterSecret),
+        encryptedSecret: user.totpSecretEncrypted,
         code,
-        totpSecretEncrypted: user.totpSecretEncrypted,
+        now: new Date(),
       });
-      if (!result.valid) {
-        return c.json(createErrorResponse(result.error), 400);
+      if (!result.ok) {
+        return c.json(createErrorResponse(ERROR_CODE_INVALID_TOTP_CODE), 400);
       }
 
       await db
@@ -1358,45 +1312,31 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_USER_NOT_FOUND), 500);
     }
 
-    const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
-
-    const registrationRecord = RegistrationRecord.deserialize(OpaqueServerConfig, [
-      ...user.opaqueRegistration,
-    ]);
-
-    const ke1Message = KE1.deserialize(OpaqueServerConfig, ke1);
-    const credentialIdentifier = user.id;
-
-    const loginResult = await opaqueServer.authInit(
-      ke1Message,
-      registrationRecord,
-      credentialIdentifier
-    );
-    if (loginResult instanceof Error) {
+    let stepUp;
+    try {
+      stepUp = await startOpaqueStepUp({
+        ke1: new Uint8Array(ke1),
+        userId: user.id,
+        opaqueRegistration: user.opaqueRegistration,
+        username: user.id,
+        masterSecret: textEncoder.encode(masterSecret),
+        redis,
+        redisKeyName: 'opaquePendingChangePassword',
+      });
+    } catch {
       return c.json(createErrorResponse(ERROR_CODE_CHANGE_PASSWORD_INIT_FAILED), 500);
     }
 
-    const { ke2, expected } = loginResult;
-
+    const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
     const regRequest = RegistrationRequest.deserialize(OpaqueServerConfig, newRegistrationRequest);
-    const newRegResult = await opaqueServer.registerInit(regRequest, credentialIdentifier);
+    const newRegResult = await opaqueServer.registerInit(regRequest, user.id);
     if (newRegResult instanceof Error) {
       return c.json(createErrorResponse(ERROR_CODE_CHANGE_PASSWORD_REG_FAILED), 500);
     }
 
-    await redisSet(
-      redis,
-      'opaquePendingChangePassword',
-      {
-        userId: user.id,
-        expectedSerialized: expected.serialize(),
-      },
-      user.id
-    );
-
     return c.json(
       {
-        ke2: ke2.serialize(),
+        ke2: [...stepUp.ke2],
         newRegistrationResponse: newRegResult.serialize(),
       },
       200
@@ -1422,24 +1362,16 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
       }
 
-      const pendingData = await redisGet(redis, 'opaquePendingChangePassword', sessionData.userId);
-      if (!pendingData) {
-        return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_CHANGE), 400);
-      }
-
-      const pending = pendingData;
-
-      const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
-
-      const ke3Message = KE3.deserialize(OpaqueServerConfig, ke3);
-      const expected = ExpectedAuthResult.deserialize(
-        OpaqueServerConfig,
-        pending.expectedSerialized
-      );
-
-      const authResult = opaqueServer.authFinish(ke3Message, expected);
-      if (authResult instanceof Error) {
-        await redisDel(redis, 'opaquePendingChangePassword', sessionData.userId);
+      const finishResult = await finishOpaqueStepUp({
+        ke3: new Uint8Array(ke3),
+        userId: sessionData.userId,
+        redis,
+        redisKeyName: 'opaquePendingChangePassword',
+      });
+      if (!finishResult.ok) {
+        if (finishResult.reason === 'no-pending') {
+          return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_CHANGE), 400);
+        }
         return c.json(createErrorResponse(ERROR_CODE_INCORRECT_PASSWORD), 401);
       }
 
@@ -1456,8 +1388,6 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
           passwordWrappedPrivateKey: newPasswordWrappedPrivateKeyBytes,
         })
         .where(eq(users.id, sessionData.userId));
-
-      await redisDel(redis, 'opaquePendingChangePassword', sessionData.userId);
 
       // Revoke all sessions for this user (except current)
       await redisSet(redis, 'passwordChangedAt', Date.now(), sessionData.userId);

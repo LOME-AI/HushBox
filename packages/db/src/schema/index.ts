@@ -19,3 +19,4 @@ export { sharedMessages } from './shared-messages';
 export { memberBudgets } from './member-budgets';
 export { conversationSpending } from './conversation-spending';
 export { conversationForks } from './conversation-forks';
+export { accountDeletionEvents } from './account-deletion-events';

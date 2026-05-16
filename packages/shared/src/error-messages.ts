@@ -161,6 +161,10 @@ const ERROR_MESSAGES = {
   AUDIO_DISABLED: 'Audio generation is not yet available. Please try a different content type.',
   CLASSIFIER_FAILED:
     'Smart Model could not pick the best model for your message. Please try again.',
+
+  DELETE_ACCOUNT_LOCKED: 'Too many deletion attempts. Try again in 24 hours.',
+  INVALID_CONFIRMATION_PHRASE: "Confirmation text didn't match.",
+  NO_PENDING_DELETE_ACCOUNT: 'Your deletion session expired. Start again.',
 } as const satisfies Record<string, string>;
 
 /** Known error code — union of all keys in the error message map. */

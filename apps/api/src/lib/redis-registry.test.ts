@@ -139,6 +139,34 @@ describe('redis-registry', () => {
       expect(REDIS_REGISTRY.opaquePendingLogin).toBeDefined();
       expect(REDIS_REGISTRY.opaquePendingChangePassword).toBeDefined();
       expect(REDIS_REGISTRY.opaquePending2FADisable).toBeDefined();
+      expect(REDIS_REGISTRY.opaquePendingDeleteAccount).toBeDefined();
+    });
+
+    it('has delete-account rate-limit and lockout keys', () => {
+      expect(REDIS_REGISTRY.deleteAccountUserRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.deleteAccountUserRateLimit.rateLimitConfig.maxAttempts).toBe(3);
+      expect(REDIS_REGISTRY.deleteAccountUserRateLimit.rateLimitConfig.windowSeconds).toBe(3600);
+
+      expect(REDIS_REGISTRY.deleteAccountLockout).toBeDefined();
+      expect(REDIS_REGISTRY.deleteAccountLockout.ttl).toBe(24 * 60 * 60);
+    });
+
+    it('builds correct keys for delete-account entries', () => {
+      expect(REDIS_REGISTRY.opaquePendingDeleteAccount.buildKey('user-123')).toBe(
+        'opaque:delete-account:user-123'
+      );
+      expect(REDIS_REGISTRY.deleteAccountUserRateLimit.buildKey('user-123')).toBe(
+        'delete-account:user:ratelimit:user-123'
+      );
+      expect(REDIS_REGISTRY.deleteAccountLockout.buildKey('user-123')).toBe(
+        'delete-account:lockout:user-123'
+      );
+    });
+
+    it('opaquePendingDeleteAccount schema matches the same shape as opaquePendingChangePassword', () => {
+      const sample = { userId: 'u-1', expectedSerialized: [1, 2, 3] };
+      expect(REDIS_REGISTRY.opaquePendingDeleteAccount.schema.parse(sample)).toEqual(sample);
+      expect(REDIS_REGISTRY.opaquePendingDeleteAccount.ttl).toBe(300);
     });
 
     it('has all TOTP keys defined', () => {

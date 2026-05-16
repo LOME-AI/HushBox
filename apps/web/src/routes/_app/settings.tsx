@@ -15,6 +15,7 @@ import { DisableTwoFactorModal } from '@/components/auth/DisableTwoFactorModal';
 import { RecoveryPhraseModal } from '@/components/auth/RecoveryPhraseModal';
 import { RegenerateConfirmModal } from '@/components/auth/RegenerateConfirmModal';
 import { CustomInstructionsModal } from '@/components/settings/CustomInstructionsModal';
+import { DeleteAccountModal } from '@/components/settings/DeleteAccountModal';
 
 export const Route = createFileRoute('/_app/settings')({
   beforeLoad: async () => {
@@ -144,6 +145,7 @@ export function SettingsPage(): React.JSX.Element {
   const [showRecoveryPhrase, setShowRecoveryPhrase] = useState(false);
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
   const [showCustomInstructions, setShowCustomInstructions] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
 
   const handleCustomInstructionsSuccess = useCallback(() => {
     setShowCustomInstructions(false);
@@ -288,7 +290,29 @@ export function SettingsPage(): React.JSX.Element {
             </p>
           </CardContent>
         </Card>
+
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="text-destructive">Danger zone</CardTitle>
+            <CardDescription>
+              Permanently delete your account and all associated data.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setShowDeleteAccount(true);
+              }}
+              data-testid="delete-account-trigger"
+            >
+              Delete account…
+            </Button>
+          </CardContent>
+        </Card>
       </div>
+
+      <DeleteAccountModal open={showDeleteAccount} onOpenChange={setShowDeleteAccount} />
 
       <CustomInstructionsModal
         open={showCustomInstructions}

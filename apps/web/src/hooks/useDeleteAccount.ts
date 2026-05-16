@@ -1,0 +1,49 @@
+import { useMutation, type UseMutationResult } from '@tanstack/react-query';
+import { client, fetchJson } from '@/lib/api-client';
+
+interface DeleteAccountInitRequest {
+  ke1: number[];
+}
+
+interface DeleteAccountInitResponse {
+  ke2: number[];
+}
+
+interface DeleteAccountFinishRequest {
+  ke3: number[];
+  totpCode?: string;
+  confirmationPhrase: string;
+}
+
+export function useDeleteAccountInit(): UseMutationResult<
+  DeleteAccountInitResponse,
+  Error,
+  DeleteAccountInitRequest
+> {
+  return useMutation({
+    mutationFn: async (body: DeleteAccountInitRequest): Promise<DeleteAccountInitResponse> => {
+      return fetchJson<DeleteAccountInitResponse>(
+        client.api.auth['delete-account'].init.$post({ json: body })
+      );
+    },
+  });
+}
+
+export function useDeleteAccountFinish(): UseMutationResult<
+  void,
+  Error,
+  DeleteAccountFinishRequest
+> {
+  return useMutation({
+    mutationFn: async (body: DeleteAccountFinishRequest): Promise<void> => {
+      const json: DeleteAccountFinishRequest = {
+        ke3: body.ke3,
+        confirmationPhrase: body.confirmationPhrase,
+      };
+      if (body.totpCode !== undefined) {
+        json.totpCode = body.totpCode;
+      }
+      await fetchJson<unknown>(client.api.auth['delete-account'].finish.$post({ json }));
+    },
+  });
+}

@@ -128,11 +128,13 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     id: 'termination',
     title: 'Termination',
-    simplyPut: 'You can leave anytime. We can terminate for violations.',
+    simplyPut:
+      'You can leave anytime, including permanently deleting your account. We can terminate for violations.',
     points: [
-      'You may stop using HushBox and delete your conversations at any time.',
+      'You may delete your account at any time from your Settings page.',
+      'You may stop using HushBox without deleting your account; we keep your encrypted data while your account exists.',
       'HushBox may suspend or terminate your account if you violate these Terms of Service.',
-      'Upon termination, certain provisions survive, including Limitation of Liability, Intellectual Property, Disclaimer of Warranties, and Governing Law.',
+      'Upon termination by either side, certain provisions survive, including Limitation of Liability, Intellectual Property, Disclaimer of Warranties, and Governing Law.',
     ],
   },
   {

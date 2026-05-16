@@ -117,11 +117,37 @@ describe('Privacy Policy', () => {
       expect(allText.toLowerCase()).not.toContain('export your data');
     });
 
-    it('does not promise account deletion', () => {
+    it('promises account deletion in plain language', () => {
       const allText = PRIVACY_SECTIONS.flatMap((s) => [s.title, s.simplyPut, ...s.points]).join(
         ' '
       );
-      expect(allText.toLowerCase()).not.toContain('delete your account');
+      expect(allText.toLowerCase()).toContain('delete your account');
+    });
+
+    it('promises a 90-day retention for the deletion event record', () => {
+      const allText = PRIVACY_SECTIONS.flatMap((s) => [s.title, s.simplyPut, ...s.points]).join(
+        ' '
+      );
+      const lower = allText.toLowerCase();
+      expect(lower).toContain('90 days');
+      const ninetyDaysIndex = lower.indexOf('90 days');
+      const deletionIndex = lower.indexOf('deletion', Math.max(0, ninetyDaysIndex - 200));
+      expect(deletionIndex).toBeGreaterThanOrEqual(0);
+      expect(Math.abs(deletionIndex - ninetyDaysIndex)).toBeLessThan(200);
+    });
+
+    it('promises encryption keys are destroyed on account deletion', () => {
+      const retentionSection = PRIVACY_SECTIONS.find((s) => s.id === 'data-retention');
+      expect(retentionSection).toBeDefined();
+      const sectionText = [
+        retentionSection!.title,
+        retentionSection!.simplyPut,
+        ...retentionSection!.points,
+      ]
+        .join(' ')
+        .toLowerCase();
+      expect(sectionText).toContain('encryption keys');
+      expect(sectionText).toContain('destroyed');
     });
   });
 });
@@ -240,6 +266,19 @@ describe('Terms of Service', () => {
       expect(govSection).toBeDefined();
       const allPoints = govSection!.points.join(' ');
       expect(allPoints).toContain('Indiana');
+    });
+
+    it('grants an explicit account-deletion right in the termination section', () => {
+      const terminationSection = TERMS_SECTIONS.find((s) => s.id === 'termination');
+      expect(terminationSection).toBeDefined();
+      const sectionText = [
+        terminationSection!.title,
+        terminationSection!.simplyPut,
+        ...terminationSection!.points,
+      ]
+        .join(' ')
+        .toLowerCase();
+      expect(sectionText).toContain('delete your account');
     });
   });
 });

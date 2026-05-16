@@ -232,6 +232,20 @@
       "when": 1776096192301,
       "tag": "0032_unique_messages_sequence",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1778891216412,
+      "tag": "0033_account_deletion_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1778899901526,
+      "tag": "0034_relax_conversation_members_identity",
+      "breakpoints": true
     }
   ]
 }

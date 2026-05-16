@@ -2,6 +2,7 @@ import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 import { z as zodInstance } from 'zod';
 
 import {
+  accountDeletionEvents,
   contentItems,
   conversationMembers,
   conversationSpending,
@@ -166,6 +167,9 @@ export const insertMemberBudgetSchema = createInsertSchema(memberBudgets);
 export const selectConversationSpendingSchema = createSelectSchema(conversationSpending);
 export const insertConversationSpendingSchema = createInsertSchema(conversationSpending);
 
+export const selectAccountDeletionEventSchema = createSelectSchema(accountDeletionEvents);
+export const insertAccountDeletionEventSchema = createInsertSchema(accountDeletionEvents);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = z.infer<typeof insertUserSchema>;
 export type Conversation = typeof conversations.$inferSelect;
@@ -204,3 +208,5 @@ export type MemberBudget = z.infer<typeof selectMemberBudgetSchema>;
 export type NewMemberBudget = z.infer<typeof insertMemberBudgetSchema>;
 export type ConversationSpending = z.infer<typeof selectConversationSpendingSchema>;
 export type NewConversationSpending = z.infer<typeof insertConversationSpendingSchema>;
+export type AccountDeletionEvent = z.infer<typeof selectAccountDeletionEventSchema>;
+export type NewAccountDeletionEvent = z.infer<typeof insertAccountDeletionEventSchema>;

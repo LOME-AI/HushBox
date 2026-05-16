@@ -1161,7 +1161,7 @@ describe('OPAQUE auth routes', () => {
     });
 
     it('returns 400 for incorrect TOTP code', async () => {
-      const { encryptTotpSecret, deriveTotpEncryptionKey } = await import('../lib/totp.js');
+      const { encryptTotpSecret, deriveTotpEncryptionKey } = await import('@hushbox/crypto');
       const totpKey = deriveTotpEncryptionKey(new TextEncoder().encode(TEST_MASTER_SECRET));
 
       mockDb.where = vi.fn().mockImplementation(() => [
@@ -2161,7 +2161,7 @@ describe('OPAQUE auth routes', () => {
     async function setupPendingTotpSession(
       totpSecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
     ): Promise<{ originalSessionId: string; encryptedSecret: Uint8Array }> {
-      const { encryptTotpSecret, deriveTotpEncryptionKey } = await import('../lib/totp.js');
+      const { encryptTotpSecret, deriveTotpEncryptionKey } = await import('@hushbox/crypto');
       const totpKey = deriveTotpEncryptionKey(new TextEncoder().encode(TEST_MASTER_SECRET));
       const encryptedSecret = encryptTotpSecret(totpSecret, totpKey);
 

@@ -28,7 +28,7 @@ export const client = hc<AppType>(getApiUrl(), {
 
 /**
  * Unwrap a Hono RPC client Response.
- * On success (res.ok), returns parsed JSON.
+ * On success (res.ok), returns parsed JSON, or `undefined as T` for 204 No Content.
  * On failure, throws ApiError with the error message from the response body.
  */
 export async function fetchJson<T>(responsePromise: Promise<Response>): Promise<T> {
@@ -51,6 +51,11 @@ export async function fetchJson<T>(responsePromise: Promise<Response>): Promise<
       useAppVersionStore.getState().setUpgradeRequired(true);
     }
     throw new ApiError(code, res.status, body);
+  }
+  // 204 No Content has no body; treat as undefined. Callers that expect a
+  // payload should use a 200/201 endpoint instead.
+  if (res.status === 204) {
+    return undefined as T;
   }
   return (await res.json()) as T;
 }

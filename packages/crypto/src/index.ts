@@ -57,7 +57,10 @@ export {
   generateTotpUri,
   verifyTotpCode,
   generateTotpCodeSync,
+  verifyTotpToken,
+  decryptAndVerifyTotp,
 } from './totp.js';
+export type { DecryptAndVerifyTotpResult, VerifyTotpTokenResult } from './totp.js';
 
 export { generateKeyPair, getPublicKeyFromPrivate } from './sharing.js';
 export type { KeyPair } from './sharing.js';
@@ -93,6 +96,9 @@ export {
   OpaqueKE3,
   OpaqueExpectedAuthResult,
 } from './opaque-server.js';
+
+export { opaqueStepUpInit, opaqueStepUpFinish } from './opaque-step-up.js';
+export type { FinishOutcome as OpaqueStepUpFinishOutcome } from './opaque-step-up.js';
 
 export { verifyHmacSha256Webhook, signHmacSha256Webhook } from './webhook.js';
 export type { HmacWebhookSignParams, HmacWebhookVerifyParams } from './webhook.js';

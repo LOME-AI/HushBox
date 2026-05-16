@@ -21,10 +21,7 @@ export interface RateLimitResult {
   retryAfterSeconds?: number;
 }
 
-export interface LockoutResult {
-  lockedOut: boolean;
-  retryAfterSeconds?: number;
-}
+export type LockoutResult = { lockedOut: false } | { lockedOut: true; retryAfterSeconds: number };
 
 type RateLimitData = z.infer<typeof rateLimitDataSchema>;
 
@@ -44,9 +41,18 @@ type RateLimitKeyName = {
     : never;
 }[keyof typeof REDIS_REGISTRY];
 
-const LOCKOUT_KEY_NAMES = new Set(['loginLockout', 'twoFactorLockout', 'recoveryLockout'] as const);
+const LOCKOUT_KEY_NAMES = new Set([
+  'loginLockout',
+  'twoFactorLockout',
+  'recoveryLockout',
+  'deleteAccountLockout',
+] as const);
 
-type LockoutKeyName = 'loginLockout' | 'twoFactorLockout' | 'recoveryLockout';
+type LockoutKeyName =
+  | 'loginLockout'
+  | 'twoFactorLockout'
+  | 'recoveryLockout'
+  | 'deleteAccountLockout';
 
 export async function checkRateLimit<K extends RateLimitKeyName>(
   redis: Redis,

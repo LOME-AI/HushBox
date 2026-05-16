@@ -637,6 +637,24 @@ describe('friendlyErrorMessage', () => {
     );
   });
 
+  it('maps DELETE_ACCOUNT_LOCKED to user-facing message', () => {
+    expect(friendlyErrorMessage('DELETE_ACCOUNT_LOCKED')).toBe(
+      'Too many deletion attempts. Try again in 24 hours.'
+    );
+  });
+
+  it('maps INVALID_CONFIRMATION_PHRASE to user-facing message', () => {
+    expect(friendlyErrorMessage('INVALID_CONFIRMATION_PHRASE')).toBe(
+      "Confirmation text didn't match."
+    );
+  });
+
+  it('maps NO_PENDING_DELETE_ACCOUNT to user-facing message', () => {
+    expect(friendlyErrorMessage('NO_PENDING_DELETE_ACCOUNT')).toBe(
+      'Your deletion session expired. Start again.'
+    );
+  });
+
   it('returns generic fallback for unknown codes', () => {
     expect(friendlyErrorMessage('TOTALLY_UNKNOWN_CODE')).toBe(
       'Something went wrong. Please try again.'

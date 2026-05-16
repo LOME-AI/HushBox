@@ -80,6 +80,14 @@ export const REDIS_REGISTRY = {
     rateLimitConfig: { maxAttempts: 10, windowSeconds: 900 },
   }),
 
+  // Rate limit keys — delete-account
+  deleteAccountUserRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 3600,
+    buildKey: (userId: string) => `delete-account:user:ratelimit:${userId}`,
+    rateLimitConfig: { maxAttempts: 3, windowSeconds: 3600 },
+  }),
+
   // Rate limit keys — recovery
   recoveryUserRateLimit: defineRateLimitKey({
     schema: rateLimitDataSchema,
@@ -196,6 +204,11 @@ export const REDIS_REGISTRY = {
     ttl: 3600,
     buildKey: (userIdentifier: string) => `recovery:lockout:${userIdentifier.toLowerCase()}`,
   }),
+  deleteAccountLockout: defineKey({
+    schema: lockoutSchema,
+    ttl: 24 * 60 * 60,
+    buildKey: (userId: string) => `delete-account:lockout:${userId}`,
+  }),
 
   // OPAQUE state
   opaquePendingRegistration: defineKey({
@@ -232,6 +245,14 @@ export const REDIS_REGISTRY = {
     }),
     ttl: 300,
     buildKey: (userId: string) => `opaque:2fa-disable:${userId}`,
+  }),
+  opaquePendingDeleteAccount: defineKey({
+    schema: z.object({
+      userId: z.string(),
+      expectedSerialized: z.array(z.number()),
+    }),
+    ttl: 300,
+    buildKey: (userId: string) => `opaque:delete-account:${userId}`,
   }),
   opaquePendingRecoveryReset: defineKey({
     schema: z.object({

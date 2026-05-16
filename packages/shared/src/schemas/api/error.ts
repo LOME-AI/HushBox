@@ -414,6 +414,22 @@ export const ERROR_CODE_AUDIO_DISABLED = 'AUDIO_DISABLED';
 export const ERROR_CODE_CLASSIFIER_FAILED = 'CLASSIFIER_FAILED';
 
 /**
+ * Account-deletion attempt limit (3 failures within 1h) reached. The user is
+ * locked out for 24h before any further /delete-account/* requests are honored.
+ */
+export const ERROR_CODE_DELETE_ACCOUNT_LOCKED = 'DELETE_ACCOUNT_LOCKED';
+
+/**
+ * The confirmation phrase typed into the delete-account modal did not match the
+ * required `delete my account` string (case-insensitive, trimmed only — no
+ * Unicode normalization, to avoid homoglyph false-matches).
+ */
+export const ERROR_CODE_INVALID_CONFIRMATION_PHRASE = 'INVALID_CONFIRMATION_PHRASE';
+
+/** No pending delete-account OPAQUE state — the /init Redis entry expired. */
+export const ERROR_CODE_NO_PENDING_DELETE_ACCOUNT = 'NO_PENDING_DELETE_ACCOUNT';
+
+/**
  * Standard error response schema.
  *
  * All API error responses follow this format:

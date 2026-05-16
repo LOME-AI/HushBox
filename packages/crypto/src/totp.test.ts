@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { generateSync } from 'otplib';
 import {
   deriveTotpEncryptionKey,
@@ -8,6 +8,7 @@ import {
   generateTotpUri,
   verifyTotpCode,
   generateTotpCodeSync,
+  decryptAndVerifyTotp,
 } from './totp.js';
 
 const TEST_MASTER_SECRET = new Uint8Array(32).fill(1);
@@ -189,6 +190,156 @@ describe('totp', () => {
       const code2 = generateTotpCodeSync(secret2);
 
       expect(code1).not.toBe(code2);
+    });
+  });
+
+  describe('decryptAndVerifyTotp', () => {
+    it('returns { ok: true } for a correct code after round-trip encryption', async () => {
+      const secret = generateTotpSecret();
+      const key = deriveTotpEncryptionKey(TEST_MASTER_SECRET);
+      const encryptedSecret = encryptTotpSecret(secret, key);
+      const code = generateTotpCodeSync(secret);
+
+      const result = await decryptAndVerifyTotp({
+        masterSecret: TEST_MASTER_SECRET,
+        encryptedSecret,
+        code,
+        now: new Date(),
+      });
+
+      expect(result).toEqual({ ok: true });
+    });
+
+    it('returns { ok: false, reason: "invalid-code" } for a wrong code', async () => {
+      const secret = generateTotpSecret();
+      const key = deriveTotpEncryptionKey(TEST_MASTER_SECRET);
+      const encryptedSecret = encryptTotpSecret(secret, key);
+
+      const result = await decryptAndVerifyTotp({
+        masterSecret: TEST_MASTER_SECRET,
+        encryptedSecret,
+        code: '000000',
+        now: new Date(),
+      });
+
+      expect(result).toEqual({ ok: false, reason: 'invalid-code' });
+    });
+
+    it('accepts a code from one window step earlier with default window', async () => {
+      const secret = generateTotpSecret();
+      const key = deriveTotpEncryptionKey(TEST_MASTER_SECRET);
+      const encryptedSecret = encryptTotpSecret(secret, key);
+      const previousEpoch = Math.floor(Date.now() / 1000) - 30;
+      const previousCode = generateSync({ secret, epoch: previousEpoch });
+
+      const result = await decryptAndVerifyTotp({
+        masterSecret: TEST_MASTER_SECRET,
+        encryptedSecret,
+        code: previousCode,
+        now: new Date(),
+      });
+
+      expect(result).toEqual({ ok: true });
+    });
+
+    it('rejects a code from two window steps earlier with default window', async () => {
+      const secret = generateTotpSecret();
+      const key = deriveTotpEncryptionKey(TEST_MASTER_SECRET);
+      const encryptedSecret = encryptTotpSecret(secret, key);
+      const tooOldEpoch = Math.floor(Date.now() / 1000) - 90;
+      const tooOldCode = generateSync({ secret, epoch: tooOldEpoch });
+
+      const result = await decryptAndVerifyTotp({
+        masterSecret: TEST_MASTER_SECRET,
+        encryptedSecret,
+        code: tooOldCode,
+        now: new Date(),
+      });
+
+      expect(result).toEqual({ ok: false, reason: 'invalid-code' });
+    });
+
+    it('returns { ok: false, reason: "decrypt-failed" } when ciphertext is corrupted', async () => {
+      const secret = generateTotpSecret();
+      const key = deriveTotpEncryptionKey(TEST_MASTER_SECRET);
+      const encryptedSecret = encryptTotpSecret(secret, key);
+      const corrupted = new Uint8Array(encryptedSecret);
+      corrupted[0] = (corrupted[0] ?? 0) ^ 0x01;
+      const code = generateTotpCodeSync(secret);
+
+      const result = await decryptAndVerifyTotp({
+        masterSecret: TEST_MASTER_SECRET,
+        encryptedSecret: corrupted,
+        code,
+        now: new Date(),
+      });
+
+      expect(result).toEqual({ ok: false, reason: 'decrypt-failed' });
+    });
+
+    it('returns { ok: false, reason: "invalid-code" } when otplib verify throws on a malformed token', async () => {
+      const secret = generateTotpSecret();
+      const key = deriveTotpEncryptionKey(TEST_MASTER_SECRET);
+      const encryptedSecret = encryptTotpSecret(secret, key);
+
+      const result = await decryptAndVerifyTotp({
+        masterSecret: TEST_MASTER_SECRET,
+        encryptedSecret,
+        code: 'not-a-number',
+        now: new Date(),
+      });
+
+      expect(result).toEqual({ ok: false, reason: 'invalid-code' });
+    });
+
+    it('returns { ok: false, reason: "invalid-code" } when otplib.verify throws synchronously (catch branch)', async () => {
+      const secret = generateTotpSecret();
+      const key = deriveTotpEncryptionKey(TEST_MASTER_SECRET);
+      const encryptedSecret = encryptTotpSecret(secret, key);
+      const code = generateTotpCodeSync(secret);
+
+      const verifyMock = vi.fn(() => {
+        throw new Error('synthetic otplib failure');
+      });
+      vi.resetModules();
+      vi.doMock('otplib', async () => {
+        const actual = await vi.importActual<typeof import('otplib')>('otplib');
+        return { ...actual, verify: verifyMock };
+      });
+      try {
+        const freshModule = await import('./totp.js');
+
+        const result = await freshModule.decryptAndVerifyTotp({
+          masterSecret: TEST_MASTER_SECRET,
+          encryptedSecret,
+          code,
+          now: new Date(),
+        });
+
+        expect(result).toEqual({ ok: false, reason: 'invalid-code' });
+        expect(verifyMock).toHaveBeenCalledOnce();
+      } finally {
+        vi.doUnmock('otplib');
+        vi.resetModules();
+      }
+    });
+
+    it('accepts a code three steps away with a custom window of 3', async () => {
+      const secret = generateTotpSecret();
+      const key = deriveTotpEncryptionKey(TEST_MASTER_SECRET);
+      const encryptedSecret = encryptTotpSecret(secret, key);
+      const threeStepsAgoEpoch = Math.floor(Date.now() / 1000) - 90;
+      const oldCode = generateSync({ secret, epoch: threeStepsAgoEpoch });
+
+      const result = await decryptAndVerifyTotp({
+        masterSecret: TEST_MASTER_SECRET,
+        encryptedSecret,
+        code: oldCode,
+        now: new Date(),
+        window: 3,
+      });
+
+      expect(result).toEqual({ ok: true });
     });
   });
 });

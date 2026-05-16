@@ -1,4 +1,9 @@
-import { createDb, LOCAL_NEON_DEV_CONFIG, type Database } from '@hushbox/db';
+import {
+  createDb,
+  LOCAL_NEON_DEV_CONFIG,
+  purgeExpiredDeletionEvents,
+  type Database,
+} from '@hushbox/db';
 import { createEnvUtilities } from '@hushbox/shared';
 import { runR2Gc } from './services/gc/r2-gc.js';
 import { createMediaStorage } from './services/storage/media-storage.js';
@@ -42,11 +47,25 @@ export async function scheduledHandler(
   );
   const storage = createMediaStorage(env);
 
+  let firstError: Error | undefined;
+
   try {
     const stats = await runR2Gc({ storage, db, now: Date.now(), evidence: { db, isCI } });
     console.warn('r2-gc', stats);
   } catch (error) {
     console.error('r2-gc failed', error);
-    throw error;
+    firstError ??= error instanceof Error ? error : new Error(String(error));
+  }
+
+  try {
+    const purgeStats = await purgeExpiredDeletionEvents(db, new Date());
+    console.warn('account-deletion-events-purge', purgeStats);
+  } catch (error) {
+    console.error('account-deletion-events-purge failed', error);
+    firstError ??= error instanceof Error ? error : new Error(String(error));
+  }
+
+  if (firstError !== undefined) {
+    throw firstError;
   }
 }

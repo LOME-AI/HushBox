@@ -121,6 +121,15 @@ describe('fetchJson', () => {
     expect(result).toEqual(data);
   });
 
+  it('returns undefined on 204 No Content without trying to parse JSON', async () => {
+    const { fetchJson } = await import('./api-client.js');
+    const response = Promise.resolve(new Response(null, { status: 204 }));
+
+    const result = await fetchJson<void>(response);
+
+    expect(result).toBeUndefined();
+  });
+
   it('throws ApiError on non-ok response with error field', async () => {
     const { fetchJson } = await import('./api-client.js');
     const errorBody = { code: 'NOT_FOUND' };

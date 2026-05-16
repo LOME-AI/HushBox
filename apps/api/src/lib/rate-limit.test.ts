@@ -232,7 +232,9 @@ describe('rate-limit', () => {
       );
 
       expect(result.lockedOut).toBe(true);
-      expect(result.retryAfterSeconds).toBeGreaterThan(0);
+      if (result.lockedOut) {
+        expect(result.retryAfterSeconds).toBeGreaterThan(0);
+      }
     });
 
     it('returns false when lockout has expired', async () => {

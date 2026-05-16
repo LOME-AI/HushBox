@@ -275,10 +275,10 @@ export const STREAM_TIMEOUT_MS = 90_000;
 export const KEEPALIVE_INTERVAL_MS = 30_000;
 
 /** Effective date for the Privacy Policy (YYYY-MM-DD) */
-export const PRIVACY_POLICY_EFFECTIVE_DATE = '2026-03-15';
+export const PRIVACY_POLICY_EFFECTIVE_DATE = '2026-05-15';
 
 /** Effective date for the Terms of Service (YYYY-MM-DD) */
-export const TERMS_OF_SERVICE_EFFECTIVE_DATE = '2026-03-15';
+export const TERMS_OF_SERVICE_EFFECTIVE_DATE = '2026-05-15';
 
 /** Contact email for billing-related inquiries */
 export const BILLING_CONTACT_EMAIL = 'billing@hushbox.ai';

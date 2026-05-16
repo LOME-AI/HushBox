@@ -1,5 +1,6 @@
 export { healthRoute } from './health.js';
 export { opaqueAuthRoute } from './opaque-auth.js';
+export { deleteAccountRoute } from './delete-account.js';
 export { billingRoute } from './billing.js';
 export { conversationsRoute } from './conversations.js';
 export { chatRoute } from './chat.js';
