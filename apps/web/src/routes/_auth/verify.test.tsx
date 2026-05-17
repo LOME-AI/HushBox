@@ -141,6 +141,23 @@ describe('VerifyPage idempotency', () => {
 
     expect(authClient.verifyEmail).toHaveBeenCalledTimes(1);
   });
+
+  it('still transitions to the success state when the effect runs twice', async () => {
+    vi.mocked(authClient.verifyEmail).mockResolvedValue({});
+    const { VerifyPage } = await import('./verify');
+
+    const { StrictMode } = await import('react');
+    render(
+      <StrictMode>
+        <VerifyPage />
+      </StrictMode>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /email verified/i })).toBeInTheDocument();
+    });
+    expect(toast.success).toHaveBeenCalledWith('Email verified successfully!');
+  });
 });
 
 describe('VerifyPage without token', () => {

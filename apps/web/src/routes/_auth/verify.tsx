@@ -25,14 +25,12 @@ export function VerifyPage(): React.JSX.Element {
     sentForTokenRef.current = token;
 
     const verificationToken = token;
-    const controller = new AbortController();
 
     async function verify(): Promise<void> {
       try {
         const response = await authClient.verifyEmail({
           query: { token: verificationToken },
         });
-        if (controller.signal.aborted) return;
         if (response.error) {
           setState('error');
           setErrorMessage(response.error.message);
@@ -41,17 +39,12 @@ export function VerifyPage(): React.JSX.Element {
         setState('success');
         toast.success('Email verified successfully!');
       } catch {
-        if (controller.signal.aborted) return;
         setState('error');
         setErrorMessage('Verification failed. Please try again.');
       }
     }
 
     void verify();
-
-    return (): void => {
-      controller.abort();
-    };
   }, [token]);
 
   if (!token) {
