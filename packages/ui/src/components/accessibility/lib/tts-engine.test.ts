@@ -746,6 +746,44 @@ describe('WorkerKokoroTtsService', () => {
     expect(totalAfter).toBe(WORKER_POOL_SIZE);
   });
 
+  it('stop() suppresses a speak whose audio was resolved in the same tick as the click', async () => {
+    // Race: a worker posts speakReady (synchronously runs onSpeakReady → resolves
+    // the audioPromise) in the same tick the user clicks Stop. The cancel path
+    // misses it (onSpeakReady already cleared its tracking entries) and the
+    // source isn't yet scheduled. Without the epoch guard, the awaiting speak()
+    // chain wakes up post-stop and calls source.start(), leaking audio.
+    const service = getTtsService();
+    const loadPromise_ = service.load('af_heart');
+    await completeLoad();
+    await loadPromise_;
+
+    const pending = service.speak('leaked audio', 'af_heart');
+    // Surface unhandled rejection if cancel propagates as an error.
+    // eslint-disable-next-line promise/prefer-await-to-then -- fire-and-forget
+    pending.catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const speakMsg = lastInboundOfType(createdWorkers[0]!, 'speak')!;
+    const sourcesBefore = createdSources.length;
+    // Synchronous in this tick: dispatchEvent runs onSpeakReady inline, which
+    // resolves audioPromise — but the speak() chain's await wakes up on a
+    // microtask, not synchronously.
+    createdWorkers[0]!.send({
+      type: 'speakReady',
+      requestId: speakMsg.requestId,
+      audio: new Float32Array(100),
+      samplingRate: 24_000,
+    });
+    service.stop();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const newSources = createdSources.slice(sourcesBefore);
+    for (const source of newSources) {
+      expect(source.start).not.toHaveBeenCalled();
+    }
+  });
+
   it('load() sends the supplied voice in the warmup message to every worker', async () => {
     const service = getTtsService();
     const loadPromise = service.load('am_michael');

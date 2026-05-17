@@ -162,6 +162,13 @@ class WorkerKokoroTtsService implements TtsService {
   private nextStartTime = 0;
   private scheduledSources = new Set<AudioBufferSourceNode>();
   private playbackChain: Promise<void> = Promise.resolve();
+  // Bumped on every stop(). Each speak() captures the value at entry and
+  // refuses to schedule audio if it changed while waiting for the worker.
+  // Closes the race where a worker resolves audio in the same tick as the
+  // user clicks Stop: the cancel path can't reach a request that has already
+  // had its tracking entries cleared by onSpeakReady but whose chain hasn't
+  // yet reached scheduleAudio.
+  private stopEpoch = 0;
 
   constructor(private readonly factory: WorkerFactory = defaultWorkerFactory) {}
 
@@ -238,6 +245,7 @@ class WorkerKokoroTtsService implements TtsService {
     if (!this.loaded) {
       return Promise.reject(new Error('TTS engine is not loaded — call load() first'));
     }
+    const startedEpoch = this.stopEpoch;
     const requestId = newRequestId();
     const audioPromise = new Promise<{ audio: Float32Array; samplingRate: number }>(
       (resolve, reject) => {
@@ -275,6 +283,10 @@ class WorkerKokoroTtsService implements TtsService {
         signalScheduled();
         throw error;
       }
+      if (this.stopEpoch !== startedEpoch) {
+        signalScheduled();
+        throw new CancelledError();
+      }
       let scheduleResult: { endedPromise: Promise<void> };
       try {
         scheduleResult = await this.scheduleAudio(audio.audio, audio.samplingRate);
@@ -288,6 +300,7 @@ class WorkerKokoroTtsService implements TtsService {
   }
 
   stop(): void {
+    this.stopEpoch++;
     this.playbackChain = Promise.resolve();
     this.rejectQueuedSpeaks();
     this.cancelInflightSpeaks();

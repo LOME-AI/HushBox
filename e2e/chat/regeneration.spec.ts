@@ -218,8 +218,8 @@ test.describe('Solo Regeneration', () => {
       await retryButton.first().click();
 
       const regenerateRequest = await regeneratePromise;
-      const body = JSON.parse(regenerateRequest.postData() ?? '{}') as { model?: string };
-      expect(body.model).toBe(failModelId);
+      const body = JSON.parse(regenerateRequest.postData() ?? '{}') as { models?: string[] };
+      expect(body.models).toEqual([failModelId]);
     } finally {
       await authenticatedPage.setExtraHTTPHeaders({});
     }
