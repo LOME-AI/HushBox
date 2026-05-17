@@ -434,28 +434,49 @@ export class ChatPage {
 
   /**
    * Wait for an inline media element to render anywhere in the message list.
-   * Walks virtuoso rows bottom→top, mounting each via
-   * `__virtuosoScrollToIndex`, and returns as soon as a matching element
-   * becomes visible AND its bytes have decoded. Covers the multi-media case
-   * (image at one row, video at another) where scrolling only to the last
-   * row would virtualize the earlier tile out of the DOM.
+   * Polls until a matching media element becomes visible AND its bytes have
+   * decoded.
+   *
+   * Re-reads `data-rows-count` every iteration so late-arriving rows are
+   * walked too — without that, a media row appended between this helper's
+   * entry and Virtuoso's mount cycle stays virtualized off-screen forever
+   * (the post-`SSE done` refetch can land after `waitForStreamComplete`
+   * resolves, by which time the scroll position is wherever the previous
+   * iteration left it). Each iteration short-circuits when `rowsCount` is
+   * unchanged from the prior successful walk so we don't burn N scrolls per
+   * poll when nothing new arrived.
+   *
+   * On final timeout, defers to `unsettledExpect(...).toBeVisible({timeout:0})`
+   * so the thrown error has Playwright's "element not found / hidden" detail
+   * rather than `expect.poll`'s generic boolean mismatch.
    */
   async expectMediaVisible(kind: 'img' | 'video', timeout = 30_000): Promise<void> {
-    const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
     const media = this.messageList.locator(kind).first();
-    if (Number.isNaN(rowsCount) || rowsCount <= 0) {
-      await unsettledExpect(media).toBeVisible({ timeout });
-      await this.expectMediaLoaded(media);
-      return;
+    let lastRowsCount = -1;
+    try {
+      await expect
+        .poll(
+          async () => {
+            const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
+            if (!Number.isFinite(rowsCount) || rowsCount <= 0) return false;
+            if (rowsCount === lastRowsCount) {
+              return media.isVisible().catch(() => false);
+            }
+            lastRowsCount = rowsCount;
+            for (let index = rowsCount - 1; index >= 0; index--) {
+              await this.scrollMessageIntoView(index);
+              if (await media.isVisible().catch(() => false)) return true;
+            }
+            return false;
+          },
+          { timeout }
+        )
+        .toBe(true);
+    } catch {
+      // Surface Playwright's rich locator error (attached/visible state) on
+      // failure instead of `expect.poll`'s opaque boolean mismatch.
+      await unsettledExpect(media).toBeVisible({ timeout: 0 });
     }
-    for (let index = rowsCount - 1; index >= 0; index--) {
-      await this.scrollMessageIntoView(index);
-      if (await media.isVisible().catch(() => false)) {
-        await this.expectMediaLoaded(media);
-        return;
-      }
-    }
-    await unsettledExpect(media).toBeVisible({ timeout });
     await this.expectMediaLoaded(media);
   }
 

@@ -61,7 +61,13 @@ interface RetryButtonProps {
 function RetryButton({ onRetry }: Readonly<RetryButtonProps>): React.JSX.Element {
   return (
     <div className="px-4 pt-2">
-      <Button variant="outline" size="sm" onClick={onRetry} aria-label="Retry">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRetry}
+        aria-label="Retry"
+        data-testid="retry-error-button"
+      >
         Retry
       </Button>
     </div>

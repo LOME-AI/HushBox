@@ -56,6 +56,8 @@ export function MediaItemShell({
       mimeType={mimeType}
       contentType={contentType}
       ariaPrefix={ariaPrefix}
+      width={width}
+      height={height}
       {...(className !== undefined && { className })}
     />
   );

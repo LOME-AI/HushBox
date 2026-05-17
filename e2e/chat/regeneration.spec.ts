@@ -213,9 +213,13 @@ test.describe('Solo Regeneration', () => {
         { timeout: 15_000 }
       );
 
-      const retryButton = authenticatedPage.getByRole('button', { name: 'Retry' });
-      await unsettledExpect(retryButton.first()).toBeVisible({ timeout: 10_000 });
-      await retryButton.first().click();
+      // The error-tile retry button is disambiguated from the user-message
+      // retry icon (same aria-label="Retry") by its dedicated testid.
+      // Without the scope, `.first()` matches the user-message icon and
+      // triggers retry-all instead of single-tile regenerate.
+      const retryButton = authenticatedPage.getByTestId('retry-error-button');
+      await unsettledExpect(retryButton).toBeVisible({ timeout: 10_000 });
+      await retryButton.click();
 
       const regenerateRequest = await regeneratePromise;
       const body = JSON.parse(regenerateRequest.postData() ?? '{}') as { models?: string[] };

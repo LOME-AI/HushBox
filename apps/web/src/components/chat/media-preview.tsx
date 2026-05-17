@@ -85,6 +85,16 @@ export interface MediaPreviewProps {
    * `"Generated"` for member-side, `"Shared"` for share-recipient side.
    */
   ariaPrefix: string;
+  /**
+   * Intrinsic pixel dimensions from the content item. Forwarded as HTML
+   * `width`/`height` so the browser reserves aspect-ratio layout space
+   * before bytes load. Without this an unloaded `<img>` or `<video>` has a
+   * 0×0 bounding box, which (a) makes Virtuoso mis-measure the row's height
+   * and put the wrong scroll math in `scrollIntoView`, and (b) makes
+   * Playwright report the element as "hidden" until the bytes decode.
+   */
+  width?: number | null | undefined;
+  height?: number | null | undefined;
   className?: string;
 }
 
@@ -99,6 +109,8 @@ export function MediaPreview({
   mimeType,
   contentType,
   ariaPrefix,
+  width,
+  height,
   className,
 }: Readonly<MediaPreviewProps>): React.JSX.Element {
   const [modalOpen, setModalOpen] = React.useState(false);
@@ -122,7 +134,14 @@ export function MediaPreview({
           className="block cursor-zoom-in rounded-md border"
           aria-label="Open image in lightbox"
         >
-          <Img src={blobUrl} alt={mediaAlt} className="max-h-96 w-full rounded-md object-contain" />
+          <Img
+            src={blobUrl}
+            alt={mediaAlt}
+            loading="eager"
+            {...(width != null && { width })}
+            {...(height != null && { height })}
+            className="max-h-96 w-full rounded-md object-contain"
+          />
         </button>
       )}
       {isVideo && (
@@ -145,6 +164,8 @@ export function MediaPreview({
             src={blobUrl}
             controls
             preload="metadata"
+            {...(width != null && { width })}
+            {...(height != null && { height })}
             className="max-h-96 w-full rounded-md"
             aria-label={`${ariaPrefix} video`}
             // Stop propagation so clicking the native controls doesn't open

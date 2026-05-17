@@ -15,6 +15,25 @@ export function useRealtimeSync(
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
+  // Catch-up refetch on every WebSocket ready transition. The DO's
+  // `ctx.acceptWebSocket` only retains *live* sockets, so any event
+  // broadcast while we were briefly disconnected (network blip, DO
+  // hibernation eviction, server restart) is lost — there is no replay
+  // buffer. Without this effect a missed `message:complete` would leave
+  // the client showing stale state until the user navigates away and
+  // back. The initial-mount case is harmless: it fires one redundant
+  // refetch that lands on the same data `useMessages` just fetched.
+  const wsReady = ws?.ready ?? false;
+  React.useEffect(() => {
+    if (!wsReady || !conversationId) return;
+    void queryClient.invalidateQueries({
+      queryKey: chatKeys.conversation(conversationId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: memberKeys.list(conversationId),
+    });
+  }, [wsReady, conversationId, queryClient]);
+
   React.useEffect(() => {
     if (!ws || !conversationId) return;
 
