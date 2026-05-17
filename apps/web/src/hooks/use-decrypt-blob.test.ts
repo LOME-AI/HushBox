@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createElement, type ReactNode } from 'react';
 import type { ContentKey } from '@hushbox/crypto';
 
 const mockDecryptBinaryWithContentKey =
@@ -14,12 +16,35 @@ const mockCreateObjectURL = vi.fn<(blob: Blob) => string>();
 const mockRevokeObjectURL = vi.fn<(url: string) => void>();
 const mockFetch = vi.fn<(input: RequestInfo | URL) => Promise<Response>>();
 
-import { useDecryptBlob } from './use-decrypt-blob';
+import { useDecryptBlob, blobCacheKeys } from './use-decrypt-blob';
+import { installBlobUrlCacheGc } from '@/lib/blob-url-cache-gc';
 
+let activeQueryClient: QueryClient;
+let detachGc: (() => void) | null = null;
+
+function makeWrapper(): {
+  wrapper: ({ children }: { children: ReactNode }) => ReactNode;
+  queryClient: QueryClient;
+} {
+  activeQueryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  detachGc = installBlobUrlCacheGc(activeQueryClient);
+  function Wrapper({ children }: Readonly<{ children: ReactNode }>): React.JSX.Element {
+    return createElement(QueryClientProvider, { client: activeQueryClient }, children);
+  }
+  Wrapper.displayName = 'TestWrapper';
+  return { wrapper: Wrapper, queryClient: activeQueryClient };
+}
+
+// Stable default id — each test creates its own QueryClient via `makeWrapper`,
+// so there's no cross-test cache bleed. Tests that exercise multiple distinct
+// items override this explicitly.
 function defaultParams(
   overrides: Partial<Parameters<typeof useDecryptBlob>[0]> = {}
 ): Parameters<typeof useDecryptBlob>[0] {
   return {
+    contentItemId: 'default-item',
     downloadUrl: 'https://signed.example/img?sig=a',
     contentKey: new Uint8Array([4, 5, 6]) as ContentKey,
     mimeType: 'image/png',
@@ -54,6 +79,8 @@ describe('useDecryptBlob', () => {
   });
 
   afterEach(() => {
+    detachGc?.();
+    detachGc = null;
     vi.unstubAllGlobals();
   });
 
@@ -62,7 +89,10 @@ describe('useDecryptBlob', () => {
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([7, 8])));
 
     const contentKey = new Uint8Array([99, 99]) as ContentKey;
-    const { result } = renderHook(() => useDecryptBlob(defaultParams({ contentKey })));
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDecryptBlob(defaultParams({ contentKey })), {
+      wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.blobUrl).not.toBeNull();
@@ -78,12 +108,16 @@ describe('useDecryptBlob', () => {
   });
 
   it('returns loading state when downloadUrl is null', () => {
-    const { result } = renderHook(() =>
-      useDecryptBlob({
-        downloadUrl: null,
-        contentKey: new Uint8Array([1]) as ContentKey,
-        mimeType: 'image/png',
-      })
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(
+      () =>
+        useDecryptBlob({
+          contentItemId: 'pending-url',
+          downloadUrl: null,
+          contentKey: new Uint8Array([1]) as ContentKey,
+          mimeType: 'image/png',
+        }),
+      { wrapper }
     );
 
     expect(result.current.isLoading).toBe(true);
@@ -93,12 +127,16 @@ describe('useDecryptBlob', () => {
   });
 
   it('returns loading state when contentKey is null', () => {
-    const { result } = renderHook(() =>
-      useDecryptBlob({
-        downloadUrl: 'https://signed.example/x',
-        contentKey: null,
-        mimeType: 'image/png',
-      })
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(
+      () =>
+        useDecryptBlob({
+          contentItemId: 'pending-key',
+          downloadUrl: 'https://signed.example/x',
+          contentKey: null,
+          mimeType: 'image/png',
+        }),
+      { wrapper }
     );
 
     expect(result.current.isLoading).toBe(true);
@@ -109,7 +147,8 @@ describe('useDecryptBlob', () => {
   it('exposes an error when fetch returns a non-ok status', async () => {
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array(), false, 403));
 
-    const { result } = renderHook(() => useDecryptBlob(defaultParams()));
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDecryptBlob(defaultParams()), { wrapper });
 
     await waitFor(() => {
       expect(result.current.error).not.toBeNull();
@@ -126,7 +165,8 @@ describe('useDecryptBlob', () => {
       throw new Error('AEAD tag mismatch');
     });
 
-    const { result } = renderHook(() => useDecryptBlob(defaultParams()));
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDecryptBlob(defaultParams()), { wrapper });
 
     await waitFor(() => {
       expect(result.current.error).not.toBeNull();
@@ -136,12 +176,13 @@ describe('useDecryptBlob', () => {
     expect(result.current.blobUrl).toBeNull();
   });
 
-  it('revokes the blob URL on unmount', async () => {
+  it('revokes the blob URL when the query cache evicts the entry', async () => {
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([7, 8])));
     mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([9, 9]));
 
-    const stableParams = defaultParams();
-    const { result, unmount } = renderHook(() => useDecryptBlob(stableParams));
+    const { wrapper, queryClient } = makeWrapper();
+    const params = defaultParams({ contentItemId: 'evict-me' });
+    const { result, unmount } = renderHook(() => useDecryptBlob(params), { wrapper });
 
     await waitFor(() => {
       expect(result.current.blobUrl).toBe('blob:decrypt-blob-mock-1');
@@ -149,45 +190,60 @@ describe('useDecryptBlob', () => {
 
     unmount();
 
+    // Unmount alone must not revoke — the cache still holds the URL so a
+    // future remount can reuse it. This is the contract that fixes the
+    // Virtuoso scroll thrash.
+    expect(mockRevokeObjectURL).not.toHaveBeenCalled();
+
+    // Cache eviction is what revokes. The GC subscriber installed in the
+    // wrapper turns a `removed` event into `URL.revokeObjectURL`.
+    queryClient.getQueryCache().remove(
+      queryClient.getQueryCache().find({ queryKey: blobCacheKeys.blob('evict-me') })!
+    );
+
     expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:decrypt-blob-mock-1');
   });
 
-  it('does not set state from a stale fetch when downloadUrl changes mid-fetch', async () => {
+  it('does not refetch when remounted with the same contentItemId (Virtuoso unmount/remount)', async () => {
+    // Virtuoso virtualizes off-screen rows: unmount the MediaContentItem,
+    // remount when it comes back into view. The cache must be keyed by
+    // contentItemId and survive unmount — otherwise blob URLs churn on
+    // every scroll cycle (see the iPhone-15 e2e logs where `bc6ab455`
+    // cycled through 4 distinct blob URLs in one test run).
+    mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([7, 8])));
     mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([9, 9]));
 
-    let resolveFirstFetch: ((response: Response) => void) | undefined;
-    const firstFetchPromise = new Promise<Response>((resolve) => {
-      resolveFirstFetch = resolve;
-    });
-    mockFetch.mockReturnValueOnce(firstFetchPromise);
-    mockFetch.mockResolvedValueOnce(createFetchResponse(new Uint8Array([7, 8])));
-
-    const { result, rerender } = renderHook(
-      (params: Parameters<typeof useDecryptBlob>[0]) => useDecryptBlob(params),
-      {
-        initialProps: defaultParams({ downloadUrl: 'https://signed.example/first' }),
-      }
-    );
-
-    rerender(defaultParams({ downloadUrl: 'https://signed.example/second' }));
+    const { wrapper } = makeWrapper();
+    const params = defaultParams({ contentItemId: 'shared-item' });
+    const { result, unmount } = renderHook(() => useDecryptBlob(params), { wrapper });
 
     await waitFor(() => {
-      expect(result.current.blobUrl).toBe('blob:decrypt-blob-mock-1');
+      expect(result.current.blobUrl).not.toBeNull();
     });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    const stableBlobUrl = result.current.blobUrl;
+    unmount();
 
-    resolveFirstFetch?.(createFetchResponse(new Uint8Array([5, 5])));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const remount = renderHook(() => useDecryptBlob(params), { wrapper });
 
-    expect(result.current.blobUrl).toBe(stableBlobUrl);
+    // The blob URL must surface immediately from cache — no fresh fetch.
+    expect(remount.result.current.blobUrl).toBe('blob:decrypt-blob-mock-1');
+    expect(remount.result.current.isLoading).toBe(false);
+
+    // Give the effect/microtask queue a chance to fire a stray fetch.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('creates the Blob with the provided mimeType', async () => {
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([1, 2, 3])));
     mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([4, 5, 6]));
 
-    const { result } = renderHook(() => useDecryptBlob(defaultParams({ mimeType: 'video/mp4' })));
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(
+      () => useDecryptBlob(defaultParams({ mimeType: 'video/mp4' })),
+      { wrapper }
+    );
 
     await waitFor(() => {
       expect(result.current.blobUrl).not.toBeNull();

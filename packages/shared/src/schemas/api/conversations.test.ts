@@ -1799,11 +1799,12 @@ describe('renameForkRequestSchema', () => {
 describe('regenerateRequestSchema', () => {
   const validMsgId = '550e8400-e29b-41d4-a716-446655440001';
   const validTargetId = '550e8400-e29b-41d4-a716-446655440002';
+  const validAssistantId = '550e8400-e29b-41d4-a716-446655440099';
 
   const validRequest = {
     targetMessageId: validTargetId,
     action: 'retry' as const,
-    model: 'gpt-4',
+    models: ['gpt-4'],
     userMessage: { id: validMsgId, content: 'Hello' },
     messagesForInference: [{ role: 'user' as const, content: 'Hello' }],
     fundingSource: 'personal_balance' as const,
@@ -1813,6 +1814,7 @@ describe('regenerateRequestSchema', () => {
     const result = regenerateRequestSchema.parse(validRequest);
     expect(result.action).toBe('retry');
     expect(result.targetMessageId).toBe(validTargetId);
+    expect(result.models).toEqual(['gpt-4']);
   });
 
   it('accepts valid edit request', () => {
@@ -1820,13 +1822,57 @@ describe('regenerateRequestSchema', () => {
     expect(result.action).toBe('edit');
   });
 
-  it('accepts valid regenerate request', () => {
-    const result = regenerateRequestSchema.parse({ ...validRequest, action: 'regenerate' });
-    expect(result.action).toBe('regenerate');
+  it('rejects the legacy "regenerate" action (folded into "retry")', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({ ...validRequest, action: 'regenerate' })
+    ).toThrow();
   });
 
   it('rejects invalid action', () => {
     expect(() => regenerateRequestSchema.parse({ ...validRequest, action: 'delete' })).toThrow();
+  });
+
+  it('accepts multiple models (retry-all)', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      models: ['gpt-4', 'claude-3-5-sonnet', 'gemini-1.5-pro'],
+    });
+    expect(result.models).toHaveLength(3);
+  });
+
+  it('rejects empty models array', () => {
+    expect(() => regenerateRequestSchema.parse({ ...validRequest, models: [] })).toThrow();
+  });
+
+  it('rejects more than the max models', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        models: ['a', 'b', 'c', 'd', 'e', 'f'],
+      })
+    ).toThrow();
+  });
+
+  it('accepts optional replaceAssistantId (regenerate-one)', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      replaceAssistantId: validAssistantId,
+    });
+    expect(result.replaceAssistantId).toBe(validAssistantId);
+  });
+
+  it('allows omitting replaceAssistantId (retry-all)', () => {
+    const result = regenerateRequestSchema.parse(validRequest);
+    expect(result.replaceAssistantId).toBeUndefined();
+  });
+
+  it('rejects non-UUID replaceAssistantId', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        replaceAssistantId: 'not-a-uuid',
+      })
+    ).toThrow();
   });
 
   it('accepts optional forkId', () => {

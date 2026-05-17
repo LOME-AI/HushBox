@@ -221,13 +221,13 @@ describe('resolveMessageActions', () => {
       expect(actions.size).toBe(0);
     });
 
-    it('hides regenerate when isMultiModel is true', () => {
+    it('shows regenerate even when isMultiModel is true (multi-model per-tile regenerate-one)', () => {
       const actions = resolveMessageActions(
         soloCtx,
         makeMsgContext({ message: { role: 'assistant' }, isMultiModel: true })
       );
 
-      expect(actions.has('regenerate')).toBe(false);
+      expect(actions.has('regenerate')).toBe(true);
       expect(actions.has('copy')).toBe(true);
       expect(actions.has('fork')).toBe(true);
     });
@@ -548,7 +548,7 @@ describe('resolveMessageActions', () => {
       expect(actions.has('copy')).toBe(true);
     });
 
-    it('isMultiModel hides retry and edit on user message', () => {
+    it('isMultiModel allows retry and edit on user message (retry-all/edit-all)', () => {
       const ctx: ChatContext = {
         mode: 'solo',
         privilege: 'owner',
@@ -560,8 +560,8 @@ describe('resolveMessageActions', () => {
         makeMsgContext({ message: { role: 'user' }, isMultiModel: true })
       );
 
-      expect(actions.has('retry')).toBe(false);
-      expect(actions.has('edit')).toBe(false);
+      expect(actions.has('retry')).toBe(true);
+      expect(actions.has('edit')).toBe(true);
       expect(actions.has('fork')).toBe(false);
     });
   });

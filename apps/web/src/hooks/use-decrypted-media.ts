@@ -99,6 +99,7 @@ export function useDecryptedMedia(params: UseDecryptedMediaParams): DecryptedMed
     isLoading: decryptLoading,
     error: decryptError,
   } = useDecryptBlob({
+    contentItemId,
     downloadUrl: effectiveUrl ?? null,
     contentKey,
     mimeType,

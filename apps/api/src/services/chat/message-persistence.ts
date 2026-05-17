@@ -13,7 +13,7 @@ import {
   updateForkTip,
   validateParentMessageId,
 } from './message-helpers.js';
-import { applyTreeAction, type TreeAction } from './tree-action.js';
+import { applyTreeAction, treeActionShouldAdvanceForkTip, type TreeAction } from './tree-action.js';
 import type { StageId } from '@hushbox/shared';
 
 /**
@@ -497,7 +497,7 @@ export async function saveChatTurn(
       ...(groupBillingContext !== undefined && { groupBillingContext }),
     });
 
-    if (forkId) {
+    if (forkId && treeActionShouldAdvanceForkTip(treeAction)) {
       const lastAssistant = assistantMsgs.at(-1);
       if (!lastAssistant) throw new Error('invariant: assistantMsgs must not be empty');
       // Conditional update: a concurrent writer that already advanced the tip

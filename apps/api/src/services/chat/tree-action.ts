@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { ERROR_CODE_FORK_TIP_CONFLICT } from '@hushbox/shared';
 import { conversationForks, messages, type DatabaseClient } from '@hushbox/db';
 import { deleteMessagesAfterAnchor } from './message-deletion.js';
@@ -21,6 +21,17 @@ export type TreeAction =
   | {
       kind: 'regenerate';
       anchorUserMessageId: string;
+      /**
+       * Discriminator for retry-all (unset) vs regenerate-one (set):
+       *   - unset → every assistant descendant of `anchorUserMessageId` is
+       *     deleted; new assistants are created under the anchor.
+       *   - set → only this single assistant is deleted; surviving siblings
+       *     keep their rows. New assistants inherit the same anchor parent.
+       *
+       * Multi-model retry-on-failed-tile and per-tile Regenerate buttons
+       * both flow through the set branch.
+       */
+      replaceAssistantId?: string;
       /**
        * When set together with `forkTipMessageId`, the fork row is locked
        * with `SELECT … FOR UPDATE` and the tip is validated up front. After
@@ -60,6 +71,23 @@ export function treeActionUserMessageId(action: TreeAction): string {
       return action.newUserMessage.id;
     }
   }
+}
+
+/**
+ * Whether the chat turn's new assistant should become the fork tip.
+ *
+ * - fresh-send / edit / retry-all → yes (the whole lineage moves forward)
+ * - regenerate-one of THE current tip → yes (the cascade nulled the tip; the
+ *   replacement becomes the new tip)
+ * - regenerate-one of a NON-tip sibling → no (the surviving tip is still the
+ *   correct lineage endpoint; the new sibling is alternative content, not a
+ *   forward move). Unconditional advancement here used to silently clobber
+ *   the tip onto the just-inserted replacement, breaking fork lineage.
+ */
+export function treeActionShouldAdvanceForkTip(action: TreeAction): boolean {
+  if (action.kind !== 'regenerate') return true;
+  if (action.replaceAssistantId === undefined) return true;
+  return action.replaceAssistantId === action.forkTipMessageId;
 }
 
 /**
@@ -126,6 +154,17 @@ function expectedTipAfterCascade(action: RegenerateActionKind | EditAction): str
   return action.forkId === undefined ? (action.forkTipMessageId ?? null) : null;
 }
 
+// regenerate-one: cascade only nulls the tip when the message we deleted
+// WAS the tip. Otherwise the downstream optimistic UPDATE must expect the
+// original tip id, not NULL, or it will throw ForkTipConflictError on every
+// per-tile regenerate where the tile wasn't the latest in the batch.
+function expectedTipAfterPartialReplace(action: RegenerateActionKind): string | null {
+  if (action.forkId !== undefined && action.replaceAssistantId === action.forkTipMessageId) {
+    return null;
+  }
+  return action.forkTipMessageId ?? null;
+}
+
 async function applyRegenerate(
   tx: DatabaseClient,
   conversationId: string,
@@ -133,6 +172,18 @@ async function applyRegenerate(
 ): Promise<ApplyTreeActionResult> {
   if (action.forkId !== undefined) {
     await lockAndValidateForkTip(tx, action.forkId, action.forkTipMessageId);
+  }
+  if (action.replaceAssistantId !== undefined) {
+    await tx
+      .delete(messages)
+      .where(
+        and(eq(messages.id, action.replaceAssistantId), eq(messages.conversationId, conversationId))
+      );
+    return {
+      parentMessageIdForAssistants: action.anchorUserMessageId,
+      userMessageInsert: undefined,
+      forkTipExpectedMessageId: expectedTipAfterPartialReplace(action),
+    };
   }
   await deleteMessagesAfterAnchor(tx, {
     conversationId,

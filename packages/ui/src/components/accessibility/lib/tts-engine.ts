@@ -19,7 +19,7 @@ import type { WorkerInbound, WorkerOutbound } from './tts-worker-protocol';
  * per added worker (q8 model weights duplicate per worker). Decrease for
  * memory-constrained targets (mobile Safari has a tight per-tab budget).
  */
-export const WORKER_POOL_SIZE = 3;
+export const WORKER_POOL_SIZE = 4;
 
 export type TtsVoice = 'af_heart' | 'am_michael' | 'bf_emma' | 'bm_george' | 'af_nicole';
 

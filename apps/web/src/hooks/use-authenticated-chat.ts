@@ -28,7 +28,11 @@ import {
   appendTokenToMessage,
 } from '@/lib/chat-messages';
 import { processStartEvent } from '@/lib/multi-model-stream';
-import { buildMessagesForRegeneration, inferRegenerateModality } from '@/lib/chat-regeneration';
+import {
+  buildMessagesForRegeneration,
+  inferRegenerateModality,
+  resolveRegenerateModels,
+} from '@/lib/chat-regeneration';
 import { useChatPageState } from '@/hooks/use-chat-page';
 import {
   useChatStream,
@@ -102,7 +106,8 @@ interface UseAuthenticatedChatResult {
   readonly handleRegenerate: (
     targetMessageId: string,
     action: RegenerateAction,
-    editedContent?: string
+    editedContent?: string,
+    replaceAssistantId?: string
   ) => void;
   readonly promptInputRef: React.RefObject<PromptInputRef | null>;
   readonly errorMessageId: string | undefined;
@@ -214,26 +219,69 @@ export function pruneMessagesAfterTarget(
 }
 
 /**
- * Pick the model id to use when regenerating a specific assistant message.
+ * Compute the ids that a retry will remove from the rendered list.
  *
- * Multi-model sends spawn one assistant tile per selected model, each tagged
- * with its `modelName`. Retry on a failed tile must re-run that *same* model,
- * not the current primary — otherwise a user who clicks retry on a Claude
- * failure ends up regenerating with GPT (the first model in the selection).
+ * - regenerate-one (`replaceAssistantId` set) → only that one tile
+ * - retry-all (`replaceAssistantId` undefined) → every descendant of the
+ *   anchor user message
  *
- * Falls back to `fallbackModelId` (current primary) for non-assistant targets,
- * missing messages, or messages without a recorded modelName (older rows
- * before the multi-model write path tagged them).
+ * Mirrors the backend's tree-action deletion rule so the optimistic UI and
+ * the eventual server state stay in sync.
  */
-export function resolveRegenerateModelId(
+function computeRetryPruneIds(
+  allMsgs: Message[],
   targetMessageId: string,
-  allMessages: readonly Message[],
-  fallbackModelId: string
-): string {
-  const target = allMessages.find((m) => m.id === targetMessageId);
-  if (target?.role !== 'assistant') return fallbackModelId;
-  if (target.modelName == null || target.modelName === '') return fallbackModelId;
-  return target.modelName;
+  replaceAssistantId: string | undefined
+): Set<string> {
+  if (replaceAssistantId !== undefined) {
+    return new Set([replaceAssistantId]);
+  }
+  const targetIndex = allMsgs.findIndex((m) => m.id === targetMessageId);
+  if (targetIndex === -1) return new Set();
+  return new Set(allMsgs.slice(targetIndex + 1).map((m) => m.id));
+}
+
+interface ApplyRetryPruneInput {
+  allMsgs: Message[];
+  targetMessageId: string;
+  replaceAssistantId: string | undefined;
+  conversationId: string;
+  setRetryPrunedIds: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
+  setLocalMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  queryClient: ReturnType<typeof useQueryClient>;
+}
+
+/**
+ * Optimistic prune for retry-all and regenerate-one. Applied at the top of
+ * the message pipeline AND to the query cache so the stale rows disappear in
+ * the same React commit, avoiding a flash of the about-to-be-replaced tiles.
+ */
+function applyRetryPrune(input: ApplyRetryPruneInput): void {
+  const {
+    allMsgs,
+    targetMessageId,
+    replaceAssistantId,
+    conversationId,
+    setRetryPrunedIds,
+    setLocalMessages,
+    queryClient,
+  } = input;
+
+  const idsToRemove = computeRetryPruneIds(allMsgs, targetMessageId, replaceAssistantId);
+  if (idsToRemove.size > 0) {
+    setRetryPrunedIds(idsToRemove);
+    queryClient.setQueryData<import('@/lib/api').ConversationResponse>(
+      chatKeys.conversation(conversationId),
+      (old) =>
+        old ? { ...old, messages: old.messages.filter((m) => !idsToRemove.has(m.id)) } : old
+    );
+  }
+
+  if (replaceAssistantId === undefined) {
+    pruneMessagesAfterTarget(allMsgs, targetMessageId, setLocalMessages);
+  } else {
+    setLocalMessages((previous) => previous.filter((m) => m.id !== replaceAssistantId));
+  }
 }
 
 interface ChatError {
@@ -1117,7 +1165,12 @@ export function useAuthenticatedChat({
   ]);
 
   const handleRegenerate = React.useCallback(
-    (targetMessageId: string, action: RegenerateAction, editedContent?: string) => {
+    (
+      targetMessageId: string,
+      action: RegenerateAction,
+      editedContent?: string,
+      replaceAssistantId?: string
+    ) => {
       if (!realConversationId) return;
 
       // Regenerating on this fork — clear any prior error tile for this fork
@@ -1138,31 +1191,22 @@ export function useAuthenticatedChat({
       const userContent = resolveUserContent(action, editedContent, allMsgs, targetMessageId);
 
       if (action === 'retry') {
-        const targetIndex = allMsgs.findIndex((m) => m.id === targetMessageId);
-        if (targetIndex !== -1) {
-          const idsToRemove = new Set(allMsgs.slice(targetIndex + 1).map((m) => m.id));
-
-          // Apply prune at the top of the pipeline (allMessages useMemo) so it
-          // takes effect in the same React commit, regardless of whether the
-          // query cache update propagates through the hook chain.
-          setRetryPrunedIds(idsToRemove);
-
-          // Also update the query cache optimistically — when the hook chain
-          // propagates correctly, this avoids a brief flash.
-          queryClient.setQueryData<import('@/lib/api').ConversationResponse>(
-            chatKeys.conversation(realConversationId),
-            (old) =>
-              old ? { ...old, messages: old.messages.filter((m) => !idsToRemove.has(m.id)) } : old
-          );
-        }
-
-        pruneMessagesAfterTarget(allMsgs, targetMessageId, setLocalMessages);
+        applyRetryPrune({
+          allMsgs,
+          targetMessageId,
+          replaceAssistantId,
+          conversationId: realConversationId,
+          setRetryPrunedIds,
+          setLocalMessages,
+          queryClient,
+        });
       }
 
       const modality = inferRegenerateModality(targetMessageId, allMsgs);
-      const regenerateModelId = resolveRegenerateModelId(
-        targetMessageId,
+      const models = resolveRegenerateModels(
         allMsgs,
+        targetMessageId,
+        replaceAssistantId,
         getPrimaryModel(selectedModels).id
       );
 
@@ -1171,7 +1215,8 @@ export function useAuthenticatedChat({
         targetMessageId,
         action,
         modality,
-        model: regenerateModelId,
+        models,
+        ...(replaceAssistantId !== undefined && { replaceAssistantId }),
         userMessage: { id: userMessageId, content: userContent },
         messagesForInference,
         fundingSource: 'personal_balance',
@@ -1181,42 +1226,23 @@ export function useAuthenticatedChat({
         ...buildModalityConfigPayload(modality, imageConfig, videoConfig, audioConfig),
       };
 
-      const assistantMsgId = crypto.randomUUID();
-      const assistantMsg = createAssistantMessage(
-        realConversationId,
-        assistantMsgId,
-        regenerateModelId,
-        targetMessageId
-      );
-      addOptimisticMessage(assistantMsg);
-      state.startStreaming([assistantMsgId]);
+      // Adopt the multi-model send's optimistic callback set. Single-model
+      // regenerate is structurally a special case of N=1, so it reuses the
+      // same per-modelId routing without divergent code paths.
+      const callbacks = createOptimisticStreamCallbacks(realConversationId);
+      // Populated synchronously inside onStart (which fires during the await
+      // below, before stream completion). Safe to read post-await — the
+      // stream resolves strictly after onStart, so the array is fully
+      // populated by then.
+      const placeholderIds: string[] = [];
 
       void (async () => {
         try {
           await startRegenerateStream(request, {
-            onStart: () => {
-              updateOptimisticMessageContent(assistantMsgId, '');
-            },
-            onToken: (token) => {
-              updateOptimisticMessageContent(assistantMsgId, token);
-            },
-            // Smart Model regeneration re-routes through the classifier,
-            // so the same stage events fire here. Stage payloads carry
-            // assistantMessageId — match it against this regeneration's slot.
-            onStageStart: (data) => {
-              if (data.assistantMessageId === assistantMsgId) {
-                setOptimisticMessageStageStart(assistantMsgId, data.stageId);
-              }
-            },
-            onStageDone: (data) => {
-              if (data.assistantMessageId === assistantMsgId) {
-                setOptimisticMessageStageDone(assistantMsgId, data.payload);
-              }
-            },
-            onStageError: (data) => {
-              if (data.assistantMessageId === assistantMsgId) {
-                setOptimisticMessageStageError(assistantMsgId, data.errorCode);
-              }
+            ...callbacks,
+            onStart: (data) => {
+              callbacks.onStart(data);
+              for (const m of data.models) placeholderIds.push(m.assistantMessageId);
             },
           });
 
@@ -1228,7 +1254,7 @@ export function useAuthenticatedChat({
           setRetryPrunedIds(new Set());
           void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
 
-          removeOptimisticMessage(assistantMsgId);
+          for (const id of placeholderIds) removeOptimisticMessage(id);
           useStreamingActivityStore.getState().endStream();
         } catch (error: unknown) {
           state.stopStreaming();
@@ -1243,7 +1269,7 @@ export function useAuthenticatedChat({
           });
           setRetryPrunedIds(new Set());
 
-          removeOptimisticMessage(assistantMsgId);
+          for (const id of placeholderIds) removeOptimisticMessage(id);
           useStreamingActivityStore.getState().endStream();
         }
       })();
@@ -1261,12 +1287,8 @@ export function useAuthenticatedChat({
       videoConfig,
       audioConfig,
       startRegenerateStream,
-      addOptimisticMessage,
       removeOptimisticMessage,
-      updateOptimisticMessageContent,
-      setOptimisticMessageStageStart,
-      setOptimisticMessageStageDone,
-      setOptimisticMessageStageError,
+      createOptimisticStreamCallbacks,
       state,
       queryClient,
     ]

@@ -2,6 +2,8 @@ import { useDecryptBlob } from '@/hooks/use-decrypt-blob';
 import type { ContentKey } from '@hushbox/crypto';
 
 interface UseDecryptedSharedMediaParams {
+  /** Stable cache key for the blob URL; keep the same id across remounts. */
+  contentItemId: string;
   /** Presigned GET URL minted server-side for the share response. */
   downloadUrl: string | null;
   /**

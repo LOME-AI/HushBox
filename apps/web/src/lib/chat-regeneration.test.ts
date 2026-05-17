@@ -4,7 +4,9 @@ import {
   buildMessagesForRegeneration,
   inferRegenerateModality,
   isMultiModelResponse,
+  getMultiModelMessageIds,
   resolveRegenerateTarget,
+  resolveRegenerateModels,
 } from './chat-regeneration.js';
 
 interface TestMessage {
@@ -188,6 +190,69 @@ describe('isMultiModelResponse', () => {
   });
 });
 
+describe('getMultiModelMessageIds', () => {
+  interface TestMsg {
+    id: string;
+    role: string;
+    parentMessageId?: string | null;
+  }
+
+  it('returns empty set when no multi-model groups exist', () => {
+    const messages: TestMsg[] = [
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'a1', role: 'assistant', parentMessageId: 'u1' },
+    ];
+
+    expect(getMultiModelMessageIds(messages)).toEqual(new Set());
+  });
+
+  it('marks both siblings and the parent user message for a multi-model group', () => {
+    const messages: TestMsg[] = [
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'a1', role: 'assistant', parentMessageId: 'u1' },
+      { id: 'a2', role: 'assistant', parentMessageId: 'u1' },
+    ];
+
+    expect(getMultiModelMessageIds(messages)).toEqual(new Set(['u1', 'a1', 'a2']));
+  });
+
+  it('handles multiple independent groups in one pass', () => {
+    const messages: TestMsg[] = [
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'a1', role: 'assistant', parentMessageId: 'u1' },
+      { id: 'a2', role: 'assistant', parentMessageId: 'u1' },
+      { id: 'u2', role: 'user', parentMessageId: 'a2' },
+      { id: 'a3', role: 'assistant', parentMessageId: 'u2' },
+      { id: 'u3', role: 'user', parentMessageId: 'a3' },
+      { id: 'a4', role: 'assistant', parentMessageId: 'u3' },
+      { id: 'a5', role: 'assistant', parentMessageId: 'u3' },
+      { id: 'a6', role: 'assistant', parentMessageId: 'u3' },
+    ];
+
+    expect(getMultiModelMessageIds(messages)).toEqual(
+      new Set(['u1', 'a1', 'a2', 'u3', 'a4', 'a5', 'a6'])
+    );
+  });
+
+  it('agrees with isMultiModelResponse for every message', () => {
+    const messages: TestMsg[] = [
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'a1', role: 'assistant', parentMessageId: 'u1' },
+      { id: 'a2', role: 'assistant', parentMessageId: 'u1' },
+      { id: 'u2', role: 'user', parentMessageId: 'a2' },
+      { id: 'a3', role: 'assistant', parentMessageId: 'u2' },
+    ];
+    const ids = getMultiModelMessageIds(messages);
+    for (const m of messages) {
+      expect(ids.has(m.id)).toBe(isMultiModelResponse(messages, m.id));
+    }
+  });
+
+  it('returns empty set for an empty list', () => {
+    expect(getMultiModelMessageIds([])).toEqual(new Set());
+  });
+});
+
 describe('resolveRegenerateTarget', () => {
   interface TestMsg {
     id: string;
@@ -239,6 +304,125 @@ describe('resolveRegenerateTarget', () => {
 
     const result = resolveRegenerateTarget(messages, 'a2');
     expect(result).toEqual({ targetMessageId: 'u2', action: 'retry' });
+  });
+
+  describe('multi-model click semantics', () => {
+    it('clicking a single-model assistant does NOT set replaceAssistantId (retry-all is equivalent)', () => {
+      const messages: TestMsg[] = [
+        { id: 'u1', role: 'user', parentMessageId: null },
+        { id: 'a1', role: 'assistant', parentMessageId: 'u1' },
+      ];
+
+      const result = resolveRegenerateTarget(messages, 'a1');
+      expect(result).toEqual({ targetMessageId: 'u1', action: 'retry' });
+      expect('replaceAssistantId' in result).toBe(false);
+    });
+
+    it('clicking ONE assistant tile in a multi-model group sets replaceAssistantId to that tile', () => {
+      const messages: TestMsg[] = [
+        { id: 'u1', role: 'user', parentMessageId: null },
+        { id: 'm1', role: 'assistant', parentMessageId: 'u1' },
+        { id: 'm2', role: 'assistant', parentMessageId: 'u1' },
+        { id: 'm3', role: 'assistant', parentMessageId: 'u1' },
+      ];
+
+      expect(resolveRegenerateTarget(messages, 'm2')).toEqual({
+        targetMessageId: 'u1',
+        action: 'retry',
+        replaceAssistantId: 'm2',
+      });
+    });
+
+    it('clicking the user message of a multi-model group does NOT set replaceAssistantId (retry-all)', () => {
+      const messages: TestMsg[] = [
+        { id: 'u1', role: 'user', parentMessageId: null },
+        { id: 'm1', role: 'assistant', parentMessageId: 'u1' },
+        { id: 'm2', role: 'assistant', parentMessageId: 'u1' },
+      ];
+
+      const result = resolveRegenerateTarget(messages, 'u1');
+      expect(result.targetMessageId).toBe('u1');
+      expect(result.action).toBe('retry');
+      expect('replaceAssistantId' in result).toBe(false);
+    });
+  });
+});
+
+describe('resolveRegenerateModels', () => {
+  interface TestMsg {
+    id: string;
+    role: string;
+    parentMessageId?: string | null;
+    modelName?: string | null;
+  }
+
+  it('returns [modelName of replaceAssistantId] when replaceAssistantId is set (regenerate-one)', () => {
+    const messages: TestMsg[] = [
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'm1', role: 'assistant', parentMessageId: 'u1', modelName: 'gpt-4o' },
+      { id: 'm2', role: 'assistant', parentMessageId: 'u1', modelName: 'claude-3-5-sonnet' },
+    ];
+
+    expect(resolveRegenerateModels(messages, 'u1', 'm2', 'fallback-model')).toEqual([
+      'claude-3-5-sonnet',
+    ]);
+  });
+
+  it('returns ALL sibling models when replaceAssistantId is undefined (retry-all)', () => {
+    const messages: TestMsg[] = [
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'm1', role: 'assistant', parentMessageId: 'u1', modelName: 'gpt-4o' },
+      { id: 'm2', role: 'assistant', parentMessageId: 'u1', modelName: 'claude-3-5-sonnet' },
+      { id: 'm3', role: 'assistant', parentMessageId: 'u1', modelName: 'gemini-1.5-pro' },
+    ];
+
+    expect(resolveRegenerateModels(messages, 'u1', undefined, 'fallback-model')).toEqual([
+      'gpt-4o',
+      'claude-3-5-sonnet',
+      'gemini-1.5-pro',
+    ]);
+  });
+
+  it('returns fallback when target has no assistant children (fresh send, retry-all)', () => {
+    const messages: TestMsg[] = [{ id: 'u1', role: 'user', parentMessageId: null }];
+
+    expect(resolveRegenerateModels(messages, 'u1', undefined, 'fallback-model')).toEqual([
+      'fallback-model',
+    ]);
+  });
+
+  it('returns fallback when replaceAssistantId has no modelName', () => {
+    const messages: TestMsg[] = [
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'm1', role: 'assistant', parentMessageId: 'u1', modelName: null },
+    ];
+
+    expect(resolveRegenerateModels(messages, 'u1', 'm1', 'fallback-model')).toEqual([
+      'fallback-model',
+    ]);
+  });
+
+  it('returns fallback when replaceAssistantId does not exist', () => {
+    const messages: TestMsg[] = [
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'm1', role: 'assistant', parentMessageId: 'u1', modelName: 'gpt-4o' },
+    ];
+
+    expect(resolveRegenerateModels(messages, 'u1', 'nonexistent', 'fallback-model')).toEqual([
+      'fallback-model',
+    ]);
+  });
+
+  it('skips siblings without modelName when collecting retry-all models', () => {
+    const messages: TestMsg[] = [
+      { id: 'u1', role: 'user', parentMessageId: null },
+      { id: 'm1', role: 'assistant', parentMessageId: 'u1', modelName: 'gpt-4o' },
+      { id: 'm2', role: 'assistant', parentMessageId: 'u1', modelName: null },
+    ];
+
+    expect(resolveRegenerateModels(messages, 'u1', undefined, 'fallback-model')).toEqual([
+      'gpt-4o',
+    ]);
   });
 });
 

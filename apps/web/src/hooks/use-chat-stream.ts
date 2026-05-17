@@ -61,9 +61,20 @@ interface TrialStreamRequest {
 export interface RegenerateStreamRequest {
   conversationId: string;
   targetMessageId: string;
-  action: 'retry' | 'edit' | 'regenerate';
+  action: 'retry' | 'edit';
   modality: 'text' | 'image' | 'video' | 'audio';
-  model: string;
+  /**
+   * One entry per assistant tile to (re)generate. `length === 1` for
+   * single-model retries and per-tile regenerate-one. `length > 1` for
+   * multi-model retry-all of an N-model turn.
+   */
+  models: string[];
+  /**
+   * When set, replace ONLY this assistant message — surviving siblings keep
+   * their rows + costs. When omitted, retry-all semantics (every assistant
+   * descendant of `targetMessageId` is replaced).
+   */
+  replaceAssistantId?: string;
   userMessage: {
     id: string;
     content: string;

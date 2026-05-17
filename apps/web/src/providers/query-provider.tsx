@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { ApiError } from '@/lib/api';
 import { env } from '@/lib/env';
+import { installBlobUrlCacheGc } from '@/lib/blob-url-cache-gc';
 
 /** Skip retries for 4xx client errors (permanent); retry others once. */
 export function shouldRetryQuery(failureCount: number, error: Error): boolean {
@@ -22,6 +23,12 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+// The blob-URL cache (`['media', 'blob', …]`) owns object URLs that survive
+// component unmount via React Query. Without this subscriber, evicted cache
+// entries would leak: the underlying Blob bytes stay reachable until the
+// document unloads. See `useDecryptBlob` for the read side.
+installBlobUrlCacheGc(queryClient);
 
 interface QueryProviderProps {
   children: React.ReactNode;

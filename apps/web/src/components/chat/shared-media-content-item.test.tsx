@@ -215,6 +215,7 @@ describe('SharedMediaContentItem', () => {
     );
 
     expect(mockUseDecryptedSharedMedia).toHaveBeenCalledWith({
+      contentItemId: 'ci-1',
       downloadUrl: 'https://signed.example/y?sig=z',
       contentKey,
       mimeType: 'image/webp',

@@ -286,8 +286,11 @@ export function AuthenticatedChatPage({
 
   const handleRegenerate = React.useCallback(
     (messageId: string): void => {
-      const { targetMessageId, action } = resolveRegenerateTarget(chat.messages, messageId);
-      chat.handleRegenerate(targetMessageId, action);
+      const { targetMessageId, action, replaceAssistantId } = resolveRegenerateTarget(
+        chat.messages,
+        messageId
+      );
+      chat.handleRegenerate(targetMessageId, action, undefined, replaceAssistantId);
     },
     [chat]
   );

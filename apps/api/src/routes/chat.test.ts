@@ -3763,7 +3763,7 @@ describe('chat routes', () => {
       return JSON.stringify({
         targetMessageId: TEST_TARGET_MESSAGE_ID,
         action: 'retry',
-        model: 'openai/gpt-5',
+        models: ['openai/gpt-5'],
         userMessage: {
           id: TEST_USER_MESSAGE_ID,
           content: 'Hello',
@@ -3840,14 +3840,14 @@ describe('chat routes', () => {
       expect(body.code).toBe('LAST_MESSAGE_NOT_USER');
     });
 
-    it('streams SSE response for valid regenerate request', async () => {
+    it('streams SSE response for valid retry request', async () => {
       vi.useRealTimers();
       const app = createTestApp();
       const res = await app.request(`/${TEST_CONVERSATION_ID}/regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: regenerateBody({
-          action: 'regenerate',
+          action: 'retry',
           messagesForInference: [{ role: 'user', content: 'Hello' }],
         }),
       });

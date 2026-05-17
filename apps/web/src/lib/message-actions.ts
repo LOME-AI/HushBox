@@ -65,23 +65,11 @@ const ACTION_GUARDS: Partial<
 > = {
   copy: (_chat, msg) => !msg.isStreaming && !msg.isError,
   regenerate: (_chat, msg) =>
-    msg.message.role === 'assistant' &&
-    !msg.isStreaming &&
-    !msg.isError &&
-    !msg.isMultiModel &&
-    msg.canRegenerate,
+    msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
   retry: (_chat, msg) =>
-    msg.message.role === 'user' &&
-    !msg.isStreaming &&
-    !msg.isError &&
-    !msg.isMultiModel &&
-    msg.canRegenerate,
+    msg.message.role === 'user' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
   edit: (_chat, msg) =>
-    msg.message.role === 'user' &&
-    !msg.isStreaming &&
-    !msg.isError &&
-    !msg.isMultiModel &&
-    msg.canRegenerate,
+    msg.message.role === 'user' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
   fork: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
   share: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
   'retry-error': (_chat, msg) => msg.isError,

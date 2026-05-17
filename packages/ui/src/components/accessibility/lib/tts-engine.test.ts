@@ -67,6 +67,10 @@ describe('WORKER_POOL_SIZE', () => {
     expect(WORKER_POOL_SIZE).toBeGreaterThan(0);
     expect(WORKER_POOL_SIZE).toBeLessThanOrEqual(8);
   });
+
+  it('is 4 (locks the current tuning so a stray edit is caught in review)', () => {
+    expect(WORKER_POOL_SIZE).toBe(4);
+  });
 });
 
 describe('getTtsService singleton', () => {

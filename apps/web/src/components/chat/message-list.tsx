@@ -9,12 +9,13 @@ import {
 } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { groupConsecutiveMessages, type MessageGroup } from '@/lib/chat-sender';
-import { isMultiModelResponse, canRegenerateMessage } from '@/lib/chat-regeneration';
+import { getMultiModelMessageIds, canRegenerateMessage } from '@/lib/chat-regeneration';
 import {
   resolveMessageActions,
   buildChatContext,
   type MessageContext,
 } from '@/lib/message-actions';
+import { omitUndefined } from '@/lib/optional-props';
 import { env } from '@/lib/env';
 import { MessageItem } from './message-item';
 import type { Message } from '@/lib/api';
@@ -204,6 +205,10 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     [isGroupChat, messages]
   );
 
+  // O(N) precompute so the render mapper does O(1) lookups per row instead of
+  // calling isMultiModelResponse per message (each itself O(N) → O(N²) total).
+  const multiModelIds = useMemo(() => getMultiModelMessageIds(messages), [messages]);
+
   // Bake per-row render state into the data array. When streamingMessageIds
   // or errorMessageId changes, this produces a fresh array with fresh row
   // objects — guaranteeing Virtuoso sees a data-identity change and
@@ -251,14 +256,16 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   ): Partial<React.ComponentProps<typeof MessageItem>> {
     return {
       ...(group !== undefined && { group, isGroupChat: true as const }),
-      ...(currentUserId !== undefined && { currentUserId }),
-      ...(members !== undefined && { members }),
-      ...(links !== undefined && { links }),
-      ...(modelName !== undefined && { modelName }),
-      ...(onShare !== undefined && { onShare }),
-      ...(onRegenerate !== undefined && { onRegenerate }),
-      ...(onEdit !== undefined && { onEdit }),
-      ...(onFork !== undefined && { onFork }),
+      ...omitUndefined({
+        currentUserId,
+        members,
+        links,
+        modelName,
+        onShare,
+        onRegenerate,
+        onEdit,
+        onFork,
+      }),
     };
   }
 
@@ -272,7 +279,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       message,
       isStreaming,
       isError,
-      isMultiModel: isMultiModelResponse(messages, message.id),
+      isMultiModel: multiModelIds.has(message.id),
       canRegenerate: canRegenerateMessage(
         messages,
         message.id,
@@ -281,6 +288,15 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       ),
     };
     const allowedActions = resolveMessageActions(chatContext, msgContext);
+    // retry-error outer RetryButton routes through the same handleRegenerate
+    // as a per-tile click: resolveRegenerateTarget detects multi-model context
+    // and sets replaceAssistantId so only this failed tile gets re-run.
+    const onRetry =
+      isError && onRegenerate
+        ? (): void => {
+            onRegenerate(message.id);
+          }
+        : undefined;
     return (
       <MessageItem
         key={group?.id ?? message.id}
@@ -288,6 +304,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         allowedActions={allowedActions}
         isStreaming={isStreaming}
         isError={isError}
+        {...omitUndefined({ onRetry })}
         {...buildOptionalMessageProps(group)}
       />
     );

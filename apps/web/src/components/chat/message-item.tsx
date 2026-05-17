@@ -6,6 +6,7 @@ import { useModels } from '@/hooks/models';
 import { getModelColor } from '@/lib/model-color';
 import { getSenderLabel, isOwnMessage } from '@/lib/chat-sender';
 import { useMessageContentKey } from '@/hooks/use-decrypted-media';
+import { omitUndefined } from '@/lib/optional-props';
 import { MarkdownRenderer } from './markdown-renderer';
 import { MediaContentItem } from './media-content-item';
 import { MediaPlaceholder } from './media-preview';
@@ -622,30 +623,6 @@ function AIMessageNametag({
   );
 }
 
-function buildUserActionProps(
-  onRegenerate?: (messageId: string) => void,
-  onEdit?: (messageId: string, content: string) => void,
-  onFork?: (messageId: string) => void
-): Record<string, unknown> {
-  return {
-    ...(onRegenerate != null && { onRegenerate }),
-    ...(onEdit != null && { onEdit }),
-    ...(onFork != null && { onFork }),
-  };
-}
-
-function buildAssistantActionProps(
-  onShare?: (messageId: string) => void,
-  onRegenerate?: (messageId: string) => void,
-  onFork?: (messageId: string) => void
-): Record<string, unknown> {
-  return {
-    ...(onShare != null && { onShare }),
-    ...(onRegenerate != null && { onRegenerate }),
-    ...(onFork != null && { onFork }),
-  };
-}
-
 function MessageActionButtons({
   isUser,
   primaryMessage,
@@ -678,7 +655,7 @@ function MessageActionButtons({
         <UserMessageActions
           message={primaryMessage}
           allowedActions={allowedActions}
-          {...buildUserActionProps(onRegenerate, onEdit, onFork)}
+          {...omitUndefined({ onRegenerate, onEdit, onFork })}
           copied={copied}
           onCopy={onCopy}
         />
@@ -692,7 +669,7 @@ function MessageActionButtons({
       <MessageActions
         primaryMessage={primaryMessage}
         allowedActions={allowedActions}
-        {...buildAssistantActionProps(onShare, onRegenerate, onFork)}
+        {...omitUndefined({ onShare, onRegenerate, onFork })}
         copied={copied}
         onCopy={onCopy}
       />

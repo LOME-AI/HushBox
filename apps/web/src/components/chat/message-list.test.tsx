@@ -377,7 +377,7 @@ describe('MessageList', () => {
     });
   });
 
-  describe('multi-model regeneration guard', () => {
+  describe('multi-model regeneration', () => {
     const multiModelMessages: Message[] = [
       {
         id: 'u1',
@@ -407,22 +407,23 @@ describe('MessageList', () => {
       },
     ];
 
-    it('hides regenerate buttons on multi-model assistant messages', () => {
+    it('shows per-tile regenerate buttons on multi-model assistant messages (regenerate-one)', () => {
       const onRegenerate = vi.fn();
       render(<MessageList messages={multiModelMessages} onRegenerate={onRegenerate} />);
 
-      expect(screen.queryByLabelText('Regenerate')).not.toBeInTheDocument();
+      // One regenerate icon button per assistant tile.
+      expect(screen.getAllByLabelText('Regenerate')).toHaveLength(2);
     });
 
-    it('hides retry/edit buttons on user message with multiple assistant children', () => {
+    it('shows retry/edit buttons on user message with multiple assistant children (retry-all)', () => {
       const onRegenerate = vi.fn();
       const onEdit = vi.fn();
       render(
         <MessageList messages={multiModelMessages} onRegenerate={onRegenerate} onEdit={onEdit} />
       );
 
-      expect(screen.queryByLabelText('Retry')).not.toBeInTheDocument();
-      expect(screen.queryByLabelText('Edit')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Retry')).toBeInTheDocument();
+      expect(screen.getByLabelText('Edit')).toBeInTheDocument();
     });
 
     it('shows regenerate buttons on single-model messages', () => {

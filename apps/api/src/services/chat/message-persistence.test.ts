@@ -1468,6 +1468,179 @@ describe('saveChatTurn', () => {
       expect(fork!.tipMessageId).toBe(assistantId2);
     });
 
+    it('regenerate-one of NON-tip assistant preserves the current fork tip', async () => {
+      // Multi-model fork: three siblings, tip points at the LAST one (m3).
+      // Per-tile Regenerate on m1 should delete only m1 and leave the tip on m3.
+      // Pre-fix the unconditional updateForkTip would advance the tip to the new
+      // assistant, silently breaking fork lineage.
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const userMsgId = crypto.randomUUID();
+      const m1Id = crypto.randomUUID();
+      const m2Id = crypto.randomUUID();
+      const m3Id = crypto.randomUUID();
+
+      // Seed: one user message + three assistant siblings, all on the fork.
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        userMessageId: userMsgId,
+        userContent: 'multi-model prompt',
+        parentMessageId: null,
+        assistantMessages: [
+          {
+            modality: 'text',
+            id: m1Id,
+            content: 'm1',
+            model: 'openai/gpt-4o',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+          {
+            modality: 'text',
+            id: m2Id,
+            content: 'm2',
+            model: 'anthropic/claude-3.5-sonnet',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+          {
+            modality: 'text',
+            id: m3Id,
+            content: 'm3',
+            model: 'google/gemini-1.5-pro',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+        ],
+      });
+
+      const forkId = crypto.randomUUID();
+      await db.insert(conversationForks).values({
+        id: forkId,
+        conversationId: setup.conversation.id,
+        name: 'Main',
+        tipMessageId: m3Id, // tip is on the LAST sibling
+      });
+
+      const newAssistantId = crypto.randomUUID();
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        treeAction: {
+          kind: 'regenerate',
+          anchorUserMessageId: userMsgId,
+          replaceAssistantId: m1Id, // NOT the tip
+          forkId,
+          forkTipMessageId: m3Id,
+        },
+        forkId,
+        assistantMessages: [
+          {
+            modality: 'text',
+            id: newAssistantId,
+            content: 'm1-regenerated',
+            model: 'openai/gpt-4o',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+        ],
+      });
+
+      const [forkAfter] = await db
+        .select({ tipMessageId: conversationForks.tipMessageId })
+        .from(conversationForks)
+        .where(eq(conversationForks.id, forkId));
+      expect(forkAfter?.tipMessageId).toBe(m3Id);
+    });
+
+    it('regenerate-one of THE current fork tip advances the tip to the replacement', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const userMsgId = crypto.randomUUID();
+      const m1Id = crypto.randomUUID();
+      const m2Id = crypto.randomUUID();
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        userMessageId: userMsgId,
+        userContent: 'multi-model prompt',
+        parentMessageId: null,
+        assistantMessages: [
+          {
+            modality: 'text',
+            id: m1Id,
+            content: 'm1',
+            model: 'openai/gpt-4o',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+          {
+            modality: 'text',
+            id: m2Id,
+            content: 'm2',
+            model: 'anthropic/claude-3.5-sonnet',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+        ],
+      });
+
+      const forkId = crypto.randomUUID();
+      await db.insert(conversationForks).values({
+        id: forkId,
+        conversationId: setup.conversation.id,
+        name: 'Main',
+        tipMessageId: m2Id, // tip IS the assistant we'll replace
+      });
+
+      const newAssistantId = crypto.randomUUID();
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        treeAction: {
+          kind: 'regenerate',
+          anchorUserMessageId: userMsgId,
+          replaceAssistantId: m2Id, // IS the tip
+          forkId,
+          forkTipMessageId: m2Id,
+        },
+        forkId,
+        assistantMessages: [
+          {
+            modality: 'text',
+            id: newAssistantId,
+            content: 'm2-regenerated',
+            model: 'anthropic/claude-3.5-sonnet',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+        ],
+      });
+
+      const [forkAfter] = await db
+        .select({ tipMessageId: conversationForks.tipMessageId })
+        .from(conversationForks)
+        .where(eq(conversationForks.id, forkId));
+      expect(forkAfter?.tipMessageId).toBe(newAssistantId);
+    });
+
     it('does not update fork tip when forkId is omitted', async () => {
       const setup = await createTestSetup(db);
       createdUserIds.push(setup.user.id);

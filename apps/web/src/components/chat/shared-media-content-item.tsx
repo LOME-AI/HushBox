@@ -25,6 +25,7 @@ export function SharedMediaContentItem({
   className,
 }: Readonly<SharedMediaContentItemProps>): React.JSX.Element {
   const { blobUrl, isLoading, error } = useDecryptedSharedMedia({
+    contentItemId: item.contentItemId,
     downloadUrl: item.downloadUrl,
     contentKey,
     mimeType: item.mimeType,

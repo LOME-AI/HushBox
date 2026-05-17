@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { contentItemResponseSchema } from './conversations.js';
 
 /**
  * Wire-level Zod schemas for the SSE events emitted by the chat stream.
@@ -72,14 +71,40 @@ export const sseErrorDataSchema = z.object({
 });
 
 /**
- * Done-event content item — relaxes `contentItemResponseSchema` for the wire
- * shape. Server attaches `downloadUrl` for media items after R2 upload, and
- * `encryptedBlob` is present only on text items, omitted on media.
+ * Done-event content item — standalone wire shape, NOT extended from
+ * `contentItemResponseSchema`. The two schemas serve different surfaces:
+ *
+ * - `contentItemResponseSchema` (in `conversations.ts`) describes a fully
+ *   hydrated row returned by the conversation read endpoint. Every field
+ *   exists on that row (text-only fields are `null` on media rows and vice
+ *   versa).
+ * - This schema describes the *streaming* delivery shape produced by
+ *   `serializeTextContentItem` / `serializeMediaContentItem` in
+ *   `apps/api/src/lib/stream-pipeline.ts`. Those serializers omit fields that
+ *   don't apply to the content type (text omits storageKey/mimeType/sizeBytes/
+ *   width/height/durationMs; media omits encryptedBlob; both omit storageKey
+ *   because the client uses `downloadUrl` instead). The wire payload is
+ *   intentionally smaller than the read row.
+ *
+ * Reusing the read schema via `.extend()` previously made every media done
+ * event fail validation (missing `storageKey`), silently dropping the `onDone`
+ * callback and forcing image renders through the slower fallback URL path.
  */
-export const doneContentItemSchema = contentItemResponseSchema
-  .extend({
+export const doneContentItemSchema = z
+  .object({
+    id: z.string(),
+    contentType: z.enum(['text', 'image', 'audio', 'video']),
+    position: z.number().int().nonnegative(),
     encryptedBlob: z.string().nullable().optional(),
     downloadUrl: z.string().optional(),
+    mimeType: z.string().nullable().optional(),
+    sizeBytes: z.number().int().nullable().optional(),
+    width: z.number().int().nullable().optional(),
+    height: z.number().int().nullable().optional(),
+    durationMs: z.number().int().nullable().optional(),
+    modelName: z.string().nullable(),
+    cost: z.string().nullable(),
+    isSmartModel: z.boolean(),
   })
   .loose();
 

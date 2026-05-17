@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createElement, type ReactNode } from 'react';
 import { useDecryptedMedia, useMessageContentKey } from './use-decrypted-media';
+import { blobCacheKeys } from './use-decrypt-blob';
+import { installBlobUrlCacheGc } from '@/lib/blob-url-cache-gc';
 import type { ContentKey } from '@hushbox/crypto';
 
 const mockUseMediaDownloadUrl = vi.fn<
@@ -66,6 +70,24 @@ function createFetchResponse(bytes: Uint8Array, ok = true, status = 200): Respon
   } as Response;
 }
 
+let activeQueryClient: QueryClient;
+let detachGc: (() => void) | null = null;
+
+function makeWrapper(): {
+  wrapper: ({ children }: { children: ReactNode }) => ReactNode;
+  queryClient: QueryClient;
+} {
+  activeQueryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  detachGc = installBlobUrlCacheGc(activeQueryClient);
+  function Wrapper({ children }: Readonly<{ children: ReactNode }>): React.JSX.Element {
+    return createElement(QueryClientProvider, { client: activeQueryClient }, children);
+  }
+  Wrapper.displayName = 'TestWrapper';
+  return { wrapper: Wrapper, queryClient: activeQueryClient };
+}
+
 describe('useDecryptedMedia', () => {
   let urlCounter: number;
 
@@ -85,6 +107,8 @@ describe('useDecryptedMedia', () => {
   });
 
   afterEach(() => {
+    detachGc?.();
+    detachGc = null;
     vi.unstubAllGlobals();
   });
 
@@ -97,10 +121,8 @@ describe('useDecryptedMedia', () => {
     mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([9, 9, 9]));
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([7, 8])));
 
-    // Stable params (single object identity across rerenders) so useDecryptBlob's
-    // effect dep array doesn't see a new contentKey reference each render.
-    const stableParams = defaultParams();
-    const { result } = renderHook(() => useDecryptedMedia(stableParams));
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDecryptedMedia(defaultParams()), { wrapper });
 
     await waitFor(() => {
       expect(result.current.blobUrl).not.toBeNull();
@@ -122,7 +144,8 @@ describe('useDecryptedMedia', () => {
       error: null,
     });
 
-    const { result } = renderHook(() => useDecryptedMedia(defaultParams()));
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDecryptedMedia(defaultParams()), { wrapper });
 
     expect(result.current.isLoading).toBe(true);
     expect(result.current.blobUrl).toBeNull();
@@ -136,7 +159,8 @@ describe('useDecryptedMedia', () => {
       error,
     });
 
-    const { result } = renderHook(() => useDecryptedMedia(defaultParams()));
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDecryptedMedia(defaultParams()), { wrapper });
 
     expect(result.current.error).toBe(error);
     expect(result.current.blobUrl).toBeNull();
@@ -149,7 +173,11 @@ describe('useDecryptedMedia', () => {
       error: null,
     });
 
-    const { result } = renderHook(() => useDecryptedMedia(defaultParams({ contentKey: null })));
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(
+      () => useDecryptedMedia(defaultParams({ contentKey: null })),
+      { wrapper }
+    );
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(result.current.blobUrl).toBeNull();
@@ -163,7 +191,8 @@ describe('useDecryptedMedia', () => {
     });
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array(), false, 403));
 
-    const { result } = renderHook(() => useDecryptedMedia(defaultParams()));
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDecryptedMedia(defaultParams()), { wrapper });
 
     await waitFor(() => {
       expect(result.current.error).not.toBeNull();
@@ -185,7 +214,8 @@ describe('useDecryptedMedia', () => {
       throw new Error('AEAD tag mismatch');
     });
 
-    const { result } = renderHook(() => useDecryptedMedia(defaultParams()));
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDecryptedMedia(defaultParams()), { wrapper });
 
     await waitFor(() => {
       expect(result.current.error).not.toBeNull();
@@ -195,7 +225,10 @@ describe('useDecryptedMedia', () => {
     expect(result.current.blobUrl).toBeNull();
   });
 
-  it('revokes the blob URL on unmount', async () => {
+  it('revokes the blob URL when the query cache evicts the entry', async () => {
+    // Updated from the old "revoke on unmount" contract: blob URLs now
+    // outlive component unmount via the React Query cache (so a Virtuoso
+    // remount can reuse them). Revocation is deferred to cache eviction.
     mockUseMediaDownloadUrl.mockReturnValue({
       downloadUrl: 'https://r2.example.com/encrypted-bytes',
       isLoading: false,
@@ -204,14 +237,23 @@ describe('useDecryptedMedia', () => {
     mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([9, 9, 9]));
     mockFetch.mockResolvedValue(createFetchResponse(new Uint8Array([7, 8])));
 
-    const stableParams = defaultParams();
-    const { result, unmount } = renderHook(() => useDecryptedMedia(stableParams));
+    const { wrapper, queryClient } = makeWrapper();
+    const { result, unmount } = renderHook(() => useDecryptedMedia(defaultParams()), {
+      wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.blobUrl).toBe('blob:mock-1');
     });
 
     unmount();
+    expect(mockRevokeObjectURL).not.toHaveBeenCalled();
+
+    queryClient
+      .getQueryCache()
+      .remove(
+        queryClient.getQueryCache().find({ queryKey: blobCacheKeys.blob('content-item-1') })!
+      );
 
     expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:mock-1');
   });

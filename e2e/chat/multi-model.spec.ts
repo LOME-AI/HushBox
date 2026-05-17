@@ -1,20 +1,8 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
+import { sumDisplayedMessageCostCents } from '../helpers/cost-display.js';
 import { assertPartialFailurePersistence } from '../helpers/partial-failure.js';
-
-/** Sum the dollar values shown in the per-message cost badges, in cents. */
-async function sumDisplayedMessageCostCents(chatPage: ChatPage): Promise<number> {
-  const costElements = chatPage.messageList.locator('[data-testid="message-cost"]');
-  const count = await costElements.count();
-  let totalCents = 0;
-  for (let index = 0; index < count; index++) {
-    const text = (await costElements.nth(index).textContent()) ?? '';
-    const match = /\$?([\d.]+)/.exec(text);
-    if (match) totalCents += Math.round(Number.parseFloat(match[1] ?? '0') * 100);
-  }
-  return totalCents;
-}
 
 test.describe('Multi-Model Chat', () => {
   test.describe('Model Selection', () => {
@@ -381,7 +369,7 @@ test.describe('Multi-Model Chat', () => {
       const afterData = await budgetHelper.getBalance();
       const balanceAfter = Number.parseFloat(afterData.balance);
       const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
-      const displayedCents = await sumDisplayedMessageCostCents(chatPage);
+      const displayedCents = await sumDisplayedMessageCostCents(chatPage.messageList);
 
       // Allow a 1-cent rounding window in either direction — billing snaps to
       // cents but the UI shows up to 3 decimal places of dollars.
@@ -425,7 +413,7 @@ test.describe('Multi-Model Chat', () => {
       const afterData = await budgetHelper.getBalance();
       const balanceAfter = Number.parseFloat(afterData.balance);
       const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
-      const displayedCents = await sumDisplayedMessageCostCents(chatPage);
+      const displayedCents = await sumDisplayedMessageCostCents(chatPage.messageList);
 
       expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
     });
@@ -595,7 +583,7 @@ test.describe('Multi-Model Chat', () => {
         const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
         // Only the successful response has a cost badge — the failed tile
         // emits an error-message instead of a cost row.
-        const displayedCents = await sumDisplayedMessageCostCents(chatPage);
+        const displayedCents = await sumDisplayedMessageCostCents(chatPage.messageList);
 
         expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
       } finally {

@@ -993,7 +993,8 @@ export const chatRoute = new Hono<AppEnv>()
       const redis = c.get('redis');
 
       const requestBody = c.req.valid('json');
-      const { targetMessageId, action, modality, model, userMessage, forkId } = requestBody;
+      const { targetMessageId, action, modality, models, replaceAssistantId, userMessage, forkId } =
+        requestBody;
 
       const gateOutcome = await runRegenerateGates({
         c,
@@ -1002,7 +1003,7 @@ export const chatRoute = new Hono<AppEnv>()
         conversationId,
         targetMessageId,
         modality,
-        model,
+        models,
         messagesForInference: requestBody.messagesForInference,
         forkId,
       });
@@ -1012,6 +1013,7 @@ export const chatRoute = new Hono<AppEnv>()
         action,
         targetMessageId,
         newUserMessage: userMessage,
+        replaceAssistantId,
         forkId,
         forkTipMessageId: gateOutcome.forkTipMessageId,
       });
@@ -1020,7 +1022,7 @@ export const chatRoute = new Hono<AppEnv>()
         callerId: user.id,
         ownerId: c.get('conversationOwnerId'),
         member: getMember(c, conversationId),
-        models: [model],
+        models,
         conversationId,
         fundingSource: requestBody.fundingSource,
         aiClient: c.var.aiClient,
@@ -1033,7 +1035,7 @@ export const chatRoute = new Hono<AppEnv>()
         callerId: user.id,
         user,
         billingContext,
-        models: [model],
+        models,
         treeAction,
         prompt: userMessage.content,
         messagesForInference: requestBody.messagesForInference,
@@ -1054,7 +1056,7 @@ interface RunRegenerateGatesParams {
   conversationId: string;
   targetMessageId: string;
   modality: Modality;
-  model: string;
+  models: string[];
   messagesForInference: InferenceMessage[];
   forkId: string | undefined;
 }
@@ -1066,12 +1068,12 @@ type RunRegenerateGatesOutcome =
 async function runRegenerateGates(
   params: RunRegenerateGatesParams
 ): Promise<RunRegenerateGatesOutcome> {
-  const { c, db, userId, conversationId, targetMessageId, modality, model, forkId } = params;
+  const { c, db, userId, conversationId, targetMessageId, modality, models, forkId } = params;
 
   const gateError = validateRegenerateGates({
     c,
     modality,
-    models: [model],
+    models,
     messagesForInference: params.messagesForInference,
   });
   if (gateError) return { errorResponse: gateError };
@@ -1100,17 +1102,19 @@ async function runRegenerateGates(
 }
 
 interface BuildRegenerateTreeActionParams {
-  action: 'retry' | 'regenerate' | 'edit';
+  action: 'retry' | 'edit';
   targetMessageId: string;
   newUserMessage: { id: string; content: string };
+  replaceAssistantId: string | undefined;
   forkId: string | undefined;
   forkTipMessageId: string | undefined;
 }
 
 /**
- * 'retry' and 'regenerate' map to the same backend kind — both keep the
- * anchor user message and swap the AI reply. 'edit' replaces the user
- * message too.
+ * 'retry' keeps the anchor user message and swaps the AI reply(s); 'edit'
+ * replaces the user message too. `replaceAssistantId` (retry only)
+ * discriminates retry-all from regenerate-one — see TreeAction docstring for
+ * the deletion semantics that follow from each.
  *
  * Passing `forkId` makes applyTreeAction lock the fork row up-front
  * (SELECT FOR UPDATE) and validate the expected tip atomically. Without
@@ -1120,7 +1124,8 @@ interface BuildRegenerateTreeActionParams {
  * tip message.
  */
 function buildRegenerateTreeAction(params: BuildRegenerateTreeActionParams): TreeAction {
-  const { action, targetMessageId, newUserMessage, forkId, forkTipMessageId } = params;
+  const { action, targetMessageId, newUserMessage, replaceAssistantId, forkId, forkTipMessageId } =
+    params;
   const forkSpread = {
     ...(forkId !== undefined && { forkId }),
     ...(forkTipMessageId !== undefined && { forkTipMessageId }),
@@ -1136,6 +1141,7 @@ function buildRegenerateTreeAction(params: BuildRegenerateTreeActionParams): Tre
   return {
     kind: 'regenerate',
     anchorUserMessageId: targetMessageId,
+    ...(replaceAssistantId !== undefined && { replaceAssistantId }),
     ...forkSpread,
   };
 }

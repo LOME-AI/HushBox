@@ -33,23 +33,23 @@ export function inferRegenerateModality(
   return firstMedia?.contentType ?? 'text';
 }
 
-function hasMultipleAssistantSiblings(
+/**
+ * Returns true when at least `n` assistant messages share the given parent,
+ * excluding `excludeId` (used to skip the target itself when scanning siblings).
+ * Short-circuits as soon as the threshold is met.
+ */
+function hasAtLeastNAssistantsWithParent(
   messages: MessageWithParent[],
-  target: MessageWithParent
+  parentId: string | null | undefined,
+  n: number,
+  excludeId?: string
 ): boolean {
-  const parentId = target.parentMessageId;
   if (!parentId) return false;
-  return messages.some(
-    (m) => m.id !== target.id && m.role === 'assistant' && m.parentMessageId === parentId
-  );
-}
-
-function hasMultipleAssistantChildren(messages: MessageWithParent[], targetId: string): boolean {
-  let assistantChildCount = 0;
+  let count = 0;
   for (const m of messages) {
-    if (m.role === 'assistant' && m.parentMessageId === targetId) {
-      assistantChildCount++;
-      if (assistantChildCount > 1) return true;
+    if (m.role === 'assistant' && m.parentMessageId === parentId && m.id !== excludeId) {
+      count++;
+      if (count >= n) return true;
     }
   }
   return false;
@@ -61,28 +61,83 @@ function hasMultipleAssistantChildren(messages: MessageWithParent[], targetId: s
  * Returns true when:
  * - Target is an assistant message and another assistant message shares the same parentMessageId
  * - Target is a user message and multiple assistant messages have parentMessageId === targetId
+ *
+ * For per-render bulk checks, prefer {@link getMultiModelMessageIds} which
+ * computes the same predicate for every id in a single O(N) pass.
  */
 export function isMultiModelResponse(messages: MessageWithParent[], targetId: string): boolean {
   const target = messages.find((m) => m.id === targetId);
   if (!target) return false;
 
   if (target.role === 'assistant') {
-    return hasMultipleAssistantSiblings(messages, target);
+    return hasAtLeastNAssistantsWithParent(messages, target.parentMessageId, 1, target.id);
   }
 
-  return hasMultipleAssistantChildren(messages, targetId);
+  return hasAtLeastNAssistantsWithParent(messages, targetId, 2);
+}
+
+function buildAssistantChildCount(messages: MessageWithParent[]): Map<string, number> {
+  const count = new Map<string, number>();
+  for (const m of messages) {
+    if (m.role === 'assistant' && m.parentMessageId) {
+      count.set(m.parentMessageId, (count.get(m.parentMessageId) ?? 0) + 1);
+    }
+  }
+  return count;
+}
+
+function isMultiModelByCount(m: MessageWithParent, childCount: Map<string, number>): boolean {
+  if (m.role === 'assistant' && m.parentMessageId) {
+    return (childCount.get(m.parentMessageId) ?? 0) >= 2;
+  }
+  if (m.role === 'user') {
+    return (childCount.get(m.id) ?? 0) >= 2;
+  }
+  return false;
+}
+
+/**
+ * Returns the set of message ids that are part of a multi-model response —
+ * either an assistant message with ≥1 assistant sibling, or a user message
+ * with ≥2 assistant children. Computed in a single O(N) pass so render loops
+ * can do O(1) lookups instead of calling {@link isMultiModelResponse} per row
+ * (which was O(N) each → O(N²) overall).
+ */
+export function getMultiModelMessageIds(messages: MessageWithParent[]): Set<string> {
+  const childCount = buildAssistantChildCount(messages);
+  const multiModelIds = new Set<string>();
+  for (const m of messages) {
+    if (isMultiModelByCount(m, childCount)) multiModelIds.add(m.id);
+  }
+  return multiModelIds;
 }
 
 interface RegenerateTarget {
   targetMessageId: string;
   action: 'retry';
+  /**
+   * Set when the click landed on one tile of a multi-model assistant group.
+   * Causes the backend to delete only that one assistant and replace it with
+   * one new assistant in the same parent — surviving siblings keep their
+   * existing rows + costs. Omitted otherwise (retry-all semantics).
+   */
+  replaceAssistantId?: string;
+}
+
+interface MessageWithModelName extends MessageWithParent {
+  modelName?: string | null;
 }
 
 /**
  * Resolves a regenerate/retry click to a unified retry target.
  *
- * When clicking on an assistant message, resolves to its parent user message
- * so both "retry" and "regenerate" follow the same code path.
+ * - Click on a user message → retry-all (every assistant descendant
+ *   replaced; one new assistant per `models[i]`).
+ * - Click on an assistant in a single-model turn → walk up to the parent
+ *   user message and retry-all (equivalent: only one sibling exists).
+ * - Click on an assistant in a multi-model turn → walk up to the parent
+ *   user message AND set `replaceAssistantId` so only that single tile gets
+ *   replaced; the other siblings stay put.
  */
 export function resolveRegenerateTarget(
   messages: MessageWithParent[],
@@ -90,9 +145,58 @@ export function resolveRegenerateTarget(
 ): RegenerateTarget {
   const msg = messages.find((m) => m.id === messageId);
   if (msg?.role === 'assistant' && msg.parentMessageId) {
-    return { targetMessageId: msg.parentMessageId, action: 'retry' };
+    const parentId = msg.parentMessageId;
+    const partOfMultiModelGroup = hasAtLeastNAssistantsWithParent(messages, parentId, 2);
+    if (partOfMultiModelGroup) {
+      return { targetMessageId: parentId, action: 'retry', replaceAssistantId: msg.id };
+    }
+    return { targetMessageId: parentId, action: 'retry' };
   }
   return { targetMessageId: messageId, action: 'retry' };
+}
+
+function collectSiblingModels(messages: MessageWithModelName[], parentId: string): string[] {
+  const out: string[] = [];
+  for (const m of messages) {
+    if (m.role !== 'assistant' || m.parentMessageId !== parentId) continue;
+    const name = m.modelName;
+    if (name != null && name !== '') out.push(name);
+  }
+  return out;
+}
+
+function modelOfAssistant(
+  messages: MessageWithModelName[],
+  assistantId: string
+): string | undefined {
+  const target = messages.find((m) => m.id === assistantId);
+  const name = target?.modelName;
+  if (name == null || name === '') return undefined;
+  return name;
+}
+
+/**
+ * Resolves the `models` array for a regenerate request.
+ *
+ * - regenerate-one (`replaceAssistantId` set) → the single model that
+ *   produced the tile being replaced, falling back to `fallbackModelId` if
+ *   that tile is missing or has no `modelName`.
+ * - retry-all (`replaceAssistantId` undefined) → the model of every
+ *   assistant child of `targetMessageId` (the user-message anchor), in
+ *   document order. Empty groups (no existing siblings) fall back to
+ *   `[fallbackModelId]` so fresh-send-style retries still work.
+ */
+export function resolveRegenerateModels(
+  messages: MessageWithModelName[],
+  targetMessageId: string,
+  replaceAssistantId: string | undefined,
+  fallbackModelId: string
+): string[] {
+  if (replaceAssistantId !== undefined) {
+    return [modelOfAssistant(messages, replaceAssistantId) ?? fallbackModelId];
+  }
+  const siblingModels = collectSiblingModels(messages, targetMessageId);
+  return siblingModels.length > 0 ? siblingModels : [fallbackModelId];
 }
 
 type RegenerateAction = 'retry' | 'edit';

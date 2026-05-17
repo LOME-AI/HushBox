@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { decryptBinaryWithContentKey, type ContentKey } from '@hushbox/crypto';
 
 interface UseDecryptBlobParams {
+  /** Stable cache key. Same id across mount/unmount/remount reuses the decrypted blob URL. */
+  contentItemId: string;
   /** Presigned GET URL for the encrypted ciphertext. Null means "not ready yet". */
   downloadUrl: string | null;
   /** Already-unwrapped content key. Null means "not ready yet". */
@@ -16,71 +18,75 @@ interface DecryptBlobResult {
   error: Error | null;
 }
 
+/** 30 minutes — bytes are immutable; the cache survives a long scroll-back. */
+const BLOB_CACHE_GC_MS = 30 * 60 * 1000;
+
+export const blobCacheKeys = {
+  /** All blob-URL cache entries. */
+  all: ['media', 'blob'] as const,
+  /** One blob URL keyed by contentItemId. */
+  blob: (contentItemId: string) => ['media', 'blob', contentItemId] as const,
+};
+
 /**
- * Shared primitive that turns (downloadUrl + contentKey + mimeType) into a
- * revocable blob URL. Used by both `useDecryptedMedia` (conversation members,
- * unwraps key from epoch) and `useDecryptedSharedMedia` (share recipients,
- * gets key from shareSecret). Callers compose their specific upstream logic
- * (URL fetch, key unwrap) and feed the results here.
+ * Turns (downloadUrl + contentKey + mimeType) into a revocable blob URL,
+ * cached in the React Query store keyed by `contentItemId`.
  *
- * Cancellation is checked after the last `await` — everything beyond that
- * point is synchronous, so JS's single-threaded model guarantees the
- * cleanup can't fire mid-statement.
+ * Why React Query: blob URLs must survive Virtuoso virtualization. When an
+ * off-screen MediaContentItem unmounts, its useState/useEffect-based
+ * predecessor revoked the URL and the remount re-fetched from R2 + re-
+ * decrypted, churning a fresh blob URL on every scroll cycle (visible as
+ * repeated blob:... URLs in the iPhone-15 e2e failure logs). The query
+ * cache decouples blob-URL lifetime from component lifetime: the URL is
+ * created once, every remount reads the cached value, and revocation is
+ * deferred to query GC.
+ *
+ * Revocation is handled in `installBlobUrlCacheGc` (mounted once at app
+ * root). That subscriber listens for query-cache `removed` events on the
+ * `['media', 'blob', …]` namespace and calls URL.revokeObjectURL with the
+ * evicted value. Keeps revocation out of every consumer's effect cleanup
+ * and avoids leaks when a contentItem is finally evicted.
  */
 export function useDecryptBlob(params: UseDecryptBlobParams): DecryptBlobResult {
-  const { downloadUrl, contentKey, mimeType } = params;
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [error, setError] = useState<Error | null>(null);
-  const [decrypting, setDecrypting] = useState<boolean>(false);
+  const { contentItemId, downloadUrl, contentKey, mimeType } = params;
+  const enabled = downloadUrl !== null && contentKey !== null;
 
-  useEffect(() => {
-    if (!downloadUrl || !contentKey) return;
-
-    let cancelled = false;
-    let currentBlobUrl: string | null = null;
-
-    const decrypt = async (): Promise<void> => {
-      setDecrypting(true);
-      setError(null);
-      try {
-        const response = await fetch(downloadUrl);
-        if (!response.ok) throw new Error(`Media fetch failed: ${String(response.status)}`);
-        const ciphertext = new Uint8Array(await response.arrayBuffer());
-
-        const plaintext = decryptBinaryWithContentKey(contentKey, ciphertext);
-        // This is the last `cancelled` check: everything below is synchronous,
-        // so the cleanup can't fire between here and the end of the try block
-        // (JS is single-threaded; no `await` boundary to yield on).
-        if (cancelled) return;
-
-        const blob = new Blob([plaintext.buffer as ArrayBuffer], { type: mimeType });
-        currentBlobUrl = URL.createObjectURL(blob);
-        setBlobUrl(currentBlobUrl);
-      } catch (error_) {
-        if (!cancelled) {
-          setError(
-            error_ instanceof Error ? error_ : new Error('Decryption failed', { cause: error_ })
-          );
-        }
-      } finally {
-        if (!cancelled) setDecrypting(false);
-      }
-    };
-
-    void decrypt();
-
-    return () => {
-      cancelled = true;
-      if (currentBlobUrl !== null) {
-        URL.revokeObjectURL(currentBlobUrl);
-      }
-    };
-  }, [downloadUrl, contentKey, mimeType]);
-
-  const awaiting = !downloadUrl || !contentKey;
-  return {
-    blobUrl,
-    isLoading: awaiting || decrypting,
+  const {
+    data: blobUrl,
+    isLoading: queryLoading,
     error,
+  } = useQuery({
+    queryKey: blobCacheKeys.blob(contentItemId),
+    queryFn: async (): Promise<string> => {
+      if (downloadUrl === null || contentKey === null) {
+        // `enabled` guards against this — branch exists for type narrowing.
+        throw new Error('downloadUrl and contentKey required');
+      }
+      const response = await fetch(downloadUrl);
+      if (!response.ok) {
+        throw new Error(`Media fetch failed: ${String(response.status)}`);
+      }
+      const ciphertext = new Uint8Array(await response.arrayBuffer());
+      const plaintext = decryptBinaryWithContentKey(contentKey, ciphertext);
+      const blob = new Blob([plaintext.buffer as ArrayBuffer], { type: mimeType });
+      return URL.createObjectURL(blob);
+    },
+    enabled,
+    // Ciphertext bytes never change for a given contentItemId; the blob URL
+    // is content-equivalent forever (until the document unloads). No refetch.
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: BLOB_CACHE_GC_MS,
+    // Decryption is deterministic; a failure won't succeed on retry.
+    retry: false,
+  });
+
+  return {
+    blobUrl: blobUrl ?? null,
+    // `isLoading: true` while either inputs are still resolving or the query
+    // is in flight — preserves the pre-React-Query contract so consumers can
+    // keep showing a loading placeholder uninterrupted across the
+    // awaiting-inputs → decrypting transition.
+    isLoading: !enabled || queryLoading,
+    error: error ?? null,
   };
 }

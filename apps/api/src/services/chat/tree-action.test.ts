@@ -390,6 +390,238 @@ describe('applyTreeAction', () => {
       expect(remaining).toHaveLength(1);
       expect(remaining[0]?.id).toBe(userMsg.id);
     });
+
+    describe('with replaceAssistantId (regenerate-one)', () => {
+      it('deletes only the named assistant, preserving siblings under the same parent', async () => {
+        const setup = await createTestSetup(db);
+        createdUserIds.push(setup.user.id);
+
+        const userMsg = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 1,
+          senderId: setup.user.id,
+          parentMessageId: null,
+        });
+        const m1 = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 2,
+          senderType: 'ai',
+          senderId: null,
+          parentMessageId: userMsg.id,
+        });
+        const m2 = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 3,
+          senderType: 'ai',
+          senderId: null,
+          parentMessageId: userMsg.id,
+        });
+        const m3 = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 4,
+          senderType: 'ai',
+          senderId: null,
+          parentMessageId: userMsg.id,
+        });
+
+        const result = await db.transaction(async (tx) =>
+          applyTreeAction(tx, setup.conversation.id, {
+            kind: 'regenerate',
+            anchorUserMessageId: userMsg.id,
+            replaceAssistantId: m1.id,
+          })
+        );
+
+        expect(result.parentMessageIdForAssistants).toBe(userMsg.id);
+        expect(result.userMessageInsert).toBeUndefined();
+
+        const remaining = await db
+          .select({ id: messages.id })
+          .from(messages)
+          .where(eq(messages.conversationId, setup.conversation.id));
+        const ids = remaining.map((r) => r.id);
+        expect(ids).toContain(userMsg.id);
+        expect(ids).toContain(m2.id);
+        expect(ids).toContain(m3.id);
+        expect(ids).not.toContain(m1.id);
+      });
+
+      it('is a no-op when replaceAssistantId does not exist (idempotent retry)', async () => {
+        const setup = await createTestSetup(db);
+        createdUserIds.push(setup.user.id);
+
+        const userMsg = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 1,
+          senderId: setup.user.id,
+          parentMessageId: null,
+        });
+        const surviving = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 2,
+          senderType: 'ai',
+          senderId: null,
+          parentMessageId: userMsg.id,
+        });
+
+        await db.transaction(async (tx) =>
+          applyTreeAction(tx, setup.conversation.id, {
+            kind: 'regenerate',
+            anchorUserMessageId: userMsg.id,
+            replaceAssistantId: '00000000-0000-0000-0000-000000000000',
+          })
+        );
+
+        const remaining = await db
+          .select({ id: messages.id })
+          .from(messages)
+          .where(eq(messages.conversationId, setup.conversation.id));
+        const byId = (a: string, b: string): number => a.localeCompare(b);
+        expect(remaining.map((r) => r.id).toSorted(byId)).toEqual(
+          [userMsg.id, surviving.id].toSorted(byId)
+        );
+      });
+
+      it('does not touch messages outside the conversation', async () => {
+        const setup = await createTestSetup(db);
+        createdUserIds.push(setup.user.id);
+
+        const userMsg = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 1,
+          senderId: setup.user.id,
+          parentMessageId: null,
+        });
+        const target = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 2,
+          senderType: 'ai',
+          senderId: null,
+          parentMessageId: userMsg.id,
+        });
+
+        // Set up a parallel conversation owned by the same user, with an
+        // assistant message that happens to be the regenerate target's twin
+        // by everything but conversation_id. Confirms the WHERE clause
+        // includes conversation_id.
+        const otherConv = await db
+          .insert(conversations)
+          .values({ userId: setup.user.id, title: new Uint8Array([1]) })
+          .returning();
+        if (!otherConv[0]) throw new Error('other conv insert failed');
+        await db.insert(epochs).values({
+          conversationId: otherConv[0].id,
+          epochNumber: 1,
+          epochPublicKey: new Uint8Array(32),
+          confirmationHash: new Uint8Array(32),
+        });
+        const decoy = await insertMsg(db, {
+          conversationId: otherConv[0].id,
+          sequenceNumber: 1,
+          senderType: 'ai',
+          senderId: null,
+          parentMessageId: null,
+        });
+
+        await db.transaction(async (tx) =>
+          applyTreeAction(tx, setup.conversation.id, {
+            kind: 'regenerate',
+            anchorUserMessageId: userMsg.id,
+            replaceAssistantId: target.id,
+          })
+        );
+
+        const decoyAfter = await db
+          .select({ id: messages.id })
+          .from(messages)
+          .where(eq(messages.id, decoy.id));
+        expect(decoyAfter).toHaveLength(1);
+      });
+
+      it('returns forkTipExpectedMessageId=null when fork tip is the replaced assistant', async () => {
+        const setup = await createTestSetup(db);
+        createdUserIds.push(setup.user.id);
+
+        const userMsg = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 1,
+          senderId: setup.user.id,
+          parentMessageId: null,
+        });
+        const tip = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 2,
+          senderType: 'ai',
+          senderId: null,
+          parentMessageId: userMsg.id,
+        });
+
+        const [fork] = await db
+          .insert(conversationForks)
+          .values({ conversationId: setup.conversation.id, name: 'Main', tipMessageId: tip.id })
+          .returning({ id: conversationForks.id });
+        if (!fork) throw new Error('fork insert failed');
+
+        const result = await db.transaction(async (tx) =>
+          applyTreeAction(tx, setup.conversation.id, {
+            kind: 'regenerate',
+            anchorUserMessageId: userMsg.id,
+            replaceAssistantId: tip.id,
+            forkId: fork.id,
+            forkTipMessageId: tip.id,
+          })
+        );
+
+        // Cascade nulls the tip → downstream optimistic UPDATE expects NULL.
+        expect(result.forkTipExpectedMessageId).toBeNull();
+      });
+
+      it('returns forkTipExpectedMessageId=current tip when fork tip survives the replacement', async () => {
+        const setup = await createTestSetup(db);
+        createdUserIds.push(setup.user.id);
+
+        const userMsg = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 1,
+          senderId: setup.user.id,
+          parentMessageId: null,
+        });
+        const m1 = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 2,
+          senderType: 'ai',
+          senderId: null,
+          parentMessageId: userMsg.id,
+        });
+        const tip = await insertMsg(db, {
+          conversationId: setup.conversation.id,
+          sequenceNumber: 3,
+          senderType: 'ai',
+          senderId: null,
+          parentMessageId: userMsg.id,
+        });
+
+        const [fork] = await db
+          .insert(conversationForks)
+          .values({ conversationId: setup.conversation.id, name: 'Main', tipMessageId: tip.id })
+          .returning({ id: conversationForks.id });
+        if (!fork) throw new Error('fork insert failed');
+
+        const result = await db.transaction(async (tx) =>
+          applyTreeAction(tx, setup.conversation.id, {
+            kind: 'regenerate',
+            anchorUserMessageId: userMsg.id,
+            replaceAssistantId: m1.id, // not the tip
+            forkId: fork.id,
+            forkTipMessageId: tip.id,
+          })
+        );
+
+        // Tip wasn't touched; downstream optimistic UPDATE should expect the
+        // original tip id, not NULL.
+        expect(result.forkTipExpectedMessageId).toBe(tip.id);
+      });
+    });
   });
 
   describe('edit', () => {

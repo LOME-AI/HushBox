@@ -354,15 +354,26 @@ export type RenameForkRequest = z.infer<typeof renameForkRequestSchema>;
 
 /**
  * Request schema for POST /chat/regenerate.
- * Supports retry (resend same user message), edit (new user message), and
- * regenerate (re-run AI). Modality matches the original message's content
- * type so the same inference + persistence pipeline used for `/stream`
- * handles regenerate / retry / edit uniformly.
+ *
+ * Supports retry (resend same user message, re-running every selected model)
+ * and edit (swap the user message in place). The `models` array is symmetric
+ * with `/stream` — single-model is just `models.length === 1`. `'regenerate'`
+ * is no longer a distinct wire value: server-side it always behaved
+ * identically to `'retry'` (see tree-action.ts), so the enum collapses to
+ * `'retry' | 'edit'`.
+ *
+ * `replaceAssistantId` discriminates two scopes that share the same pipeline:
+ *   - unset → retry-all: every assistant descendant of `targetMessageId` is
+ *     deleted; one new assistant is created per entry in `models`.
+ *   - set → regenerate-one: only the named assistant is deleted; its
+ *     replacement(s) inherit the same parentMessageId so the surviving
+ *     siblings are preserved. Used by the per-tile "Regenerate" button on a
+ *     multi-model response and by the failed-tile retry path.
  */
 export const regenerateRequestSchema = z
   .object({
     targetMessageId: z.uuid(),
-    action: z.enum(['retry', 'edit', 'regenerate']),
+    action: z.enum(['retry', 'edit']),
     /**
      * Modality of the regenerated turn. Must match the original
      * assistant message's content type (image messages regenerate to
@@ -370,7 +381,8 @@ export const regenerateRequestSchema = z
      * clients that omit the field.
      */
     modality: z.enum(['text', 'image', 'video', 'audio']).default('text'),
-    model: z.string(),
+    models: z.array(z.string()).min(1).max(MAX_SELECTED_MODELS),
+    replaceAssistantId: z.uuid().optional(),
     userMessage: z.object({
       id: z.uuid(),
       content: z.string().min(1),
