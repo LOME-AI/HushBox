@@ -146,5 +146,15 @@ export function splitSentence(
   const tail = text.slice(cursorPos).trim();
   if (tail.length > 0) pieces.push(tail);
 
-  return pieces.length > 0 ? pieces : [text];
+  if (pieces.length <= 1) return pieces.length === 1 ? pieces : [text];
+
+  const subdivided: string[] = [];
+  for (const piece of pieces) {
+    if (countWords(piece) <= wordThreshold) {
+      subdivided.push(piece);
+    } else {
+      subdivided.push(...splitSentence(piece, wordThreshold));
+    }
+  }
+  return subdivided;
 }

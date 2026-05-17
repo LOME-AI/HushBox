@@ -193,6 +193,24 @@ describe('splitSentence — fast-start behavior', () => {
   });
 });
 
+describe('splitSentence — recursive subdivision', () => {
+  it('subdivides a piece that remains over threshold after the greedy first pass', () => {
+    // A tier-1 em-dash sits 42 words deep with closer tier-2 commas before
+    // it. Tier weight makes the greedy pass pick the em-dash, producing a
+    // 42-word left piece. With recursion, that left piece must be further
+    // split so no emitted piece exceeds the threshold.
+    const segments = Array.from({ length: 7 }, (_, i) => repeatWords(`s${String(i)}_`, 6));
+    const leftPiece = segments.join(', ');
+    const rightPiece = repeatWords('tail', 8);
+    const input = `${leftPiece}—${rightPiece}.`;
+    const pieces = splitSentence(input, 13);
+    expect(pieces.length).toBeGreaterThan(2);
+    for (const piece of pieces) {
+      expect(wordCount(piece)).toBeLessThanOrEqual(13);
+    }
+  });
+});
+
 describe('splitSentence — whitespace and emptiness', () => {
   it('trims whitespace from every emitted piece', () => {
     const left = repeatWords('a', 15);
