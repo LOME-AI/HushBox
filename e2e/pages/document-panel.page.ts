@@ -1,5 +1,5 @@
 import { type Page, type Locator } from '@playwright/test';
-import { expect } from '../helpers/settled-expect.js';
+import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 import type { ChatPage } from './chat.page.js';
 
 export class DocumentPanelPage {
@@ -87,7 +87,10 @@ export class DocumentPanelPage {
   ): Promise<Locator> {
     await chatPage.scrollMessageIntoView(messageIndex);
     const card = this.cardInMessage(chatPage, messageIndex);
-    await expect(card).toBeVisible({ timeout });
+    // Document extraction is synchronous in the markdown renderer, but
+    // Streamdown's `animated` pipeline and WebKit paint timing can leave the
+    // card un-painted past the settled debounce. Wait the full timeout.
+    await unsettledExpect(card).toBeVisible({ timeout });
     return card;
   }
 

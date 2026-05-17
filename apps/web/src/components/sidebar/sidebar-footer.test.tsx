@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
+import { buildDrizzleStudioUrl } from '@/lib/routes';
 import { SidebarFooter } from './sidebar-footer';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
@@ -333,13 +334,26 @@ describe('SidebarFooter', () => {
     });
 
     it('Database Studio links to Drizzle Studio URL in new tab', async () => {
+      vi.stubEnv('VITE_DRIZZLE_STUDIO_URL', 'http://localhost:4983');
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
       await user.click(screen.getByTestId('sidebar-trigger'));
       const studioLink = screen.getByTestId('menu-db-studio');
-      expect(studioLink).toHaveAttribute('href', 'https://local.drizzle.studio');
+      expect(studioLink).toHaveAttribute('href', buildDrizzleStudioUrl('http://localhost:4983'));
+      expect(studioLink.getAttribute('href')).toMatch(/^https:\/\/local\.drizzle\.studio/);
       expect(studioLink).toHaveAttribute('target', '_blank');
+      vi.unstubAllEnvs();
+    });
+
+    it('does not render Database Studio option when VITE_DRIZZLE_STUDIO_URL is unset', async () => {
+      vi.stubEnv('VITE_DRIZZLE_STUDIO_URL', '');
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      expect(screen.queryByTestId('menu-db-studio')).not.toBeInTheDocument();
+      vi.unstubAllEnvs();
     });
 
     it('uses env.isLocalDev for conditional rendering', () => {

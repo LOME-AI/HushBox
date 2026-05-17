@@ -289,6 +289,15 @@ export const envConfig = {
     [Mode.CiE2E]: ref(Mode.E2E),
   },
 
+  // Drizzle Studio's hosted UI connects to a local websocket server (default
+  // port 4983). `pnpm dev` offsets that port per-worktree, so each worktree
+  // gets a routable URL. Dev-only — production/CI builds hide the link.
+  VITE_DRIZZLE_STUDIO_URL: {
+    to: [Destination.Frontend],
+    [Mode.Development]: 'http://localhost:4983',
+    [Mode.E2E]: ref(Mode.Development),
+  },
+
   // Scripts only
   MIGRATION_DATABASE_URL: {
     to: [Destination.Scripts],
@@ -347,6 +356,7 @@ export const frontendEnvSchema = z.object({
   VITE_PLATFORM: z.enum(VALID_PLATFORMS).default('web'),
   VITE_APP_VERSION: z.string().min(1).default('dev-local'),
   VITE_HELCIM_JS_TOKEN: z.string().optional(),
+  VITE_DRIZZLE_STUDIO_URL: z.string().url().optional(),
 });
 
 export type FrontendEnv = z.infer<typeof frontendEnvSchema>;

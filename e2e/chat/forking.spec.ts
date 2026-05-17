@@ -177,8 +177,9 @@ test.describe('Fork Lifecycle', () => {
     });
 
     await test.step('verify messages display normally', async () => {
-      const count = await chatPage.countMessages();
-      expect(count).toBeGreaterThanOrEqual(2);
+      await expect
+        .poll(() => chatPage.countMessages(), { timeout: 10_000 })
+        .toBeGreaterThanOrEqual(2);
     });
   });
 
@@ -352,8 +353,7 @@ test.describe('Fork History Preservation', () => {
     });
 
     await test.step('Fork 1 shows messages up to fork point', async () => {
-      const forkCount = await chatPage.countMessages();
-      expect(forkCount).toBe(4);
+      await expect.poll(() => chatPage.countMessages(), { timeout: 10_000 }).toBe(4);
     });
 
     await test.step('Main still has all 6 messages', async () => {
@@ -367,8 +367,7 @@ test.describe('Fork History Preservation', () => {
     await test.step('switching back to Fork 1 preserves 4 messages', async () => {
       await chatPage.clickForkTab('Fork 1');
       await chatPage.expectActiveForkTab('Fork 1');
-      const forkCount = await chatPage.countMessages();
-      expect(forkCount).toBe(4);
+      await expect.poll(() => chatPage.countMessages(), { timeout: 10_000 }).toBe(4);
     });
   });
 

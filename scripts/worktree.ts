@@ -15,6 +15,7 @@ export const BASE_PORTS = {
   readmePreview: 6419,
   minioApi: 9000,
   minioConsole: 9001,
+  studio: 4983,
 } as const;
 
 export type PortKey = keyof typeof BASE_PORTS;

@@ -37,6 +37,7 @@ vi.mock('./worktree.js', () => ({
       astro: 4321,
       emulatorAdb: 5555,
       emulatorVnc: 6080,
+      studio: 4983,
     },
   }),
 }));
@@ -128,7 +129,7 @@ describe('dev script', () => {
 
   describe('startDrizzleStudio', () => {
     it('calls pnpm db:studio with correct arguments', () => {
-      startDrizzleStudio();
+      startDrizzleStudio(4983);
 
       expect(mockExeca).toHaveBeenCalledWith(
         'pnpm',
@@ -139,11 +140,21 @@ describe('dev script', () => {
       );
     });
 
+    it('logs the worktree-specific studio URL with the supplied port', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      startDrizzleStudio(5111);
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'Drizzle Studio available at https://local.drizzle.studio?port=5111'
+      );
+    });
+
     it('does not throw when execa rejects (non-fatal)', () => {
       mockExeca.mockReturnValueOnce(Promise.reject(new Error('Studio failed')) as never);
 
       expect(() => {
-        startDrizzleStudio();
+        startDrizzleStudio(4983);
       }).not.toThrow();
     });
   });

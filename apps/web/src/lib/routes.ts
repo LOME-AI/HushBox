@@ -1,7 +1,18 @@
 import { ROUTES } from '@hushbox/shared';
 
-/** Drizzle Studio URL — only accessible during local development. */
-export const DRIZZLE_STUDIO_URL = 'https://local.drizzle.studio';
+/**
+ * Build the hosted Drizzle Studio URL pointing at the local studio server.
+ * The hosted client reads `host` and `port` from the query string, so each
+ * worktree's studio (started on its own offset port by `pnpm dev`) gets a
+ * routable link instead of every worktree fighting over the default 4983.
+ *
+ * Throws if `localStudioUrl` isn't a parseable URL — that means the env config
+ * is wrong and the caller should surface it, not silently render a dead link.
+ */
+export function buildDrizzleStudioUrl(localStudioUrl: string): string {
+  const parsed = new URL(localStudioUrl);
+  return `https://local.drizzle.studio?host=${parsed.hostname}&port=${parsed.port}`;
+}
 
 export function chatConversationRoute(conversationId: string): string {
   return `${ROUTES.CHAT}/${conversationId}`;

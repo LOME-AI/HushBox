@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { ROUTES } from '@hushbox/shared';
-import { chatConversationRoute, shareConversationRoute, shareMessageRoute } from './routes.js';
+import {
+  buildDrizzleStudioUrl,
+  chatConversationRoute,
+  shareConversationRoute,
+  shareMessageRoute,
+} from './routes.js';
 
 describe('routes', () => {
   describe('chatConversationRoute', () => {
@@ -38,6 +43,18 @@ describe('routes', () => {
     it('handles UUID-style share IDs', () => {
       const uuid = 'f1e2d3c4-b5a6-0987-fedc-ba0987654321';
       expect(shareMessageRoute(uuid, 'anotherKey')).toBe(`/share/m/${uuid}#anotherKey`);
+    });
+  });
+
+  describe('buildDrizzleStudioUrl', () => {
+    it('forwards host and port from the local studio URL as query params', () => {
+      expect(buildDrizzleStudioUrl('http://localhost:5111')).toBe(
+        'https://local.drizzle.studio?host=localhost&port=5111'
+      );
+    });
+
+    it('throws on a malformed URL', () => {
+      expect(() => buildDrizzleStudioUrl('not-a-url')).toThrow();
     });
   });
 });

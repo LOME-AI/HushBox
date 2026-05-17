@@ -13,7 +13,7 @@
     "db:generate": "../../scripts/with-env drizzle-kit generate",
     "db:migrate": "../../scripts/with-env drizzle-kit migrate",
     "db:push": "../../scripts/with-env drizzle-kit push",
-    "db:studio": "../../scripts/with-env drizzle-kit studio",
+    "db:studio": "../../scripts/with-env sh -c 'drizzle-kit studio --port=\"${HB_STUDIO_PORT:?HB_STUDIO_PORT is unset — run pnpm generate:env first}\"'",
     "test": "../../scripts/with-env vitest run",
     "test:watch": "../../scripts/with-env vitest",
     "test:coverage": "../../scripts/with-env vitest run --coverage",

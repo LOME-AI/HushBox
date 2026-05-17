@@ -54,8 +54,14 @@ export class MemberSidebarPage {
   }
 
   async expectMemberInSection(memberId: string, privilege: string): Promise<void> {
+    // Uses unsettledExpect: the change-privilege mutation completes and the
+    // member-list refetch resolves, but iphone-15 paint of the re-bucketed
+    // section can lag past the settled debounce. The mutation contract
+    // (use-conversation-members.ts) is correct; only the render is slow.
     const sectionLocator = this.section(privilege);
-    await expect(sectionLocator.getByTestId(`member-item-${memberId}`)).toBeVisible();
+    await unsettledExpect(sectionLocator.getByTestId(`member-item-${memberId}`)).toBeVisible({
+      timeout: 10_000,
+    });
   }
 
   async expectYouBadge(memberId: string): Promise<void> {

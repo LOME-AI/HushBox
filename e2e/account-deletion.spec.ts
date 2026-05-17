@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures.js';
+import { test, expect, unsettledExpect } from './fixtures.js';
 import { LoginPage, SettingsPage, TwoFactorSetupModal, ChatPage } from './pages/index.js';
 import {
   generateTOTPCode,
@@ -18,8 +18,11 @@ const FRESH_PASSWORD = 'TestPassword123!';
 // Post-delete redirect is a same-origin navigation to ROUTES.MARKETING.
 // The Astro page may 404 in the E2E preview (only the Vite app is served)
 // but the URL bar still commits to the path, which is what we assert.
+// Uses unsettledExpect: location.href navigation is opaque to React, so the
+// app settles between mutation resolve and browser URL commit. Settled-aware
+// poll would bail before page.url() reflects the new path.
 async function expectRedirectedToMarketing(page: Page): Promise<void> {
-  await expect.poll(() => page.url(), { timeout: 15_000 }).toContain(ROUTES.MARKETING);
+  await unsettledExpect.poll(() => page.url(), { timeout: 15_000 }).toContain(ROUTES.MARKETING);
 }
 
 interface FreshUser {

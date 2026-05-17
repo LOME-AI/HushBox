@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { createInviteLink } from '../helpers/invite-link.js';
 import { createMessageShareUrl } from '../helpers/share-message.js';
@@ -434,7 +434,8 @@ test.describe('Shared Content', () => {
       const guestChatPage = new ChatPage(guest);
       await guestChatPage.expectImageVisible(15_000);
       const imageElement = guestChatPage.messageList.locator('img').first();
-      await expect
+      // Decode is browser-internal; settled fires before naturalWidth flips.
+      await unsettledExpect
         .poll(async () => imageElement.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
           timeout: 10_000,
         })
@@ -443,7 +444,8 @@ test.describe('Shared Content', () => {
       await guestChatPage.expectVideoVisible(15_000);
       const videoElement = guestChatPage.messageList.locator('video').first();
       // Wait until the video reports a parseable duration (metadata loaded).
-      await expect
+      // Metadata load is browser-internal; settled fires before it completes.
+      await unsettledExpect
         .poll(
           async () =>
             videoElement.evaluate((el) => {

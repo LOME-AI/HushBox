@@ -489,4 +489,24 @@ describe('frontendEnvSchema', () => {
       expect(result.data.VITE_HELCIM_JS_TOKEN).toBe('some-token');
     }
   });
+
+  it('accepts VITE_DRIZZLE_STUDIO_URL when provided', () => {
+    const result = frontendEnvSchema.safeParse({
+      VITE_API_URL: 'http://localhost:8787',
+      VITE_DRIZZLE_STUDIO_URL: 'http://localhost:4983',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.VITE_DRIZZLE_STUDIO_URL).toBe('http://localhost:4983');
+    }
+  });
+
+  it('allows VITE_DRIZZLE_STUDIO_URL to be optional', () => {
+    const result = frontendEnvSchema.safeParse({
+      VITE_API_URL: 'http://localhost:8787',
+    });
+
+    expect(result.success).toBe(true);
+  });
 });

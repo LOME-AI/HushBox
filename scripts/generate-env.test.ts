@@ -106,6 +106,7 @@ local_protocol = "http"
 
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
       expect(content).toContain('VITE_API_URL="http://localhost:8787"');
+      expect(content).toContain('VITE_DRIZZLE_STUDIO_URL="http://localhost:4983"');
     });
 
     it('does NOT include backend vars', () => {
@@ -305,6 +306,7 @@ local_protocol = "http"
       expect(content).toContain('HB_README_PREVIEW_PORT="6419"');
       expect(content).toContain('HB_MINIO_API_PORT="9000"');
       expect(content).toContain('HB_MINIO_CONSOLE_PORT="9001"');
+      expect(content).toContain('HB_STUDIO_PORT="4983"');
     });
 
     it('applies worktree detection like development mode', () => {
@@ -892,6 +894,7 @@ local_protocol = "http"
       expect(content).toContain('HB_README_PREVIEW_PORT="6419"');
       expect(content).toContain('HB_MINIO_API_PORT="9000"');
       expect(content).toContain('HB_MINIO_CONSOLE_PORT="9001"');
+      expect(content).toContain('HB_STUDIO_PORT="4983"');
     });
   });
 
@@ -918,6 +921,7 @@ local_protocol = "http"
 
       const content = readFileSync(path.join(TEST_DIR_WT, '.env.development'), 'utf8');
       expect(content).not.toContain('localhost:8787');
+      expect(content).not.toContain('localhost:4983');
     });
 
     it('offsets ports in .env.scripts', () => {

@@ -34,7 +34,7 @@ export async function runMigrations(): Promise<void> {
   console.log('Migrations complete');
 }
 
-export function startDrizzleStudio(): void {
+export function startDrizzleStudio(port: number): void {
   console.log('Starting Drizzle Studio...');
   const subprocess = execa('pnpm', ['--filter', '@hushbox/db', 'db:studio'], {
     stdio: 'ignore',
@@ -44,7 +44,7 @@ export function startDrizzleStudio(): void {
   subprocess.catch(() => {
     console.warn('Drizzle Studio failed to start (non-fatal)');
   });
-  console.log('Drizzle Studio available at https://local.drizzle.studio');
+  console.log(`Drizzle Studio available at https://local.drizzle.studio?port=${String(port)}`);
 }
 
 export async function runSeed(): Promise<void> {
@@ -73,12 +73,13 @@ export async function main(): Promise<void> {
   console.log(`  Vite:     http://localhost:${String(worktree.ports.vite)}`);
   console.log(`  API:      http://localhost:${String(worktree.ports.api)}`);
   console.log(`  Postgres: localhost:${String(worktree.ports.postgres)}`);
+  console.log(`  Studio:   https://local.drizzle.studio?port=${String(worktree.ports.studio)}`);
   await cleanupOrphanedProjects({ dryRun: false }).catch((error: unknown) => {
     console.warn('Docker cleanup failed (non-fatal):', error);
   });
   await startDocker();
   await runMigrations();
-  startDrizzleStudio();
+  startDrizzleStudio(worktree.ports.studio);
   await runSeed();
   await startTurbo();
 }

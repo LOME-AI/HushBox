@@ -104,7 +104,8 @@ function generatePortLines(
     `HB_EMULATOR_VNC_PORT=${escapeEnvValue(String(ports.emulatorVnc))}`,
     `HB_README_PREVIEW_PORT=${escapeEnvValue(String(ports.readmePreview))}`,
     `HB_MINIO_API_PORT=${escapeEnvValue(String(ports.minioApi))}`,
-    `HB_MINIO_CONSOLE_PORT=${escapeEnvValue(String(ports.minioConsole))}`
+    `HB_MINIO_CONSOLE_PORT=${escapeEnvValue(String(ports.minioConsole))}`,
+    `HB_STUDIO_PORT=${escapeEnvValue(String(ports.studio))}`
   );
   return lines;
 }

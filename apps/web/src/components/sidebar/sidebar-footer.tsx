@@ -26,7 +26,7 @@ import { useUIStore } from '@/stores/ui';
 import { useTouchOverrideStore } from '@/stores/touch-override';
 import { useSession, signOutAndClearCache } from '@/lib/auth';
 import { useStableBalance } from '@/hooks/use-stable-balance';
-import { DRIZZLE_STUDIO_URL } from '@/lib/routes';
+import { buildDrizzleStudioUrl } from '@/lib/routes';
 import { formatBalance } from '@/lib/format';
 import { DevOnly } from '@/components/shared/dev-only';
 import { SidebarFooterBase } from '@/components/shared/sidebar-footer-base';
@@ -62,6 +62,7 @@ function DevMenuItems({
 }>): React.JSX.Element {
   const touchOverride = useTouchOverrideStore((state) => state.override);
   const toggleTouch = useTouchOverrideStore((state) => state.toggle);
+  const localStudioUrl = import.meta.env['VITE_DRIZZLE_STUDIO_URL'] as string | undefined;
 
   return (
     <DevOnly>
@@ -96,12 +97,14 @@ function DevMenuItems({
         <Image className="mr-2 h-4 w-4" />
         Assets
       </DropdownMenuItem>
-      <DropdownMenuItem asChild data-testid="menu-db-studio">
-        <a href={DRIZZLE_STUDIO_URL} target="_blank" rel="noopener noreferrer">
-          <Database className="mr-2 h-4 w-4" />
-          Database Studio
-        </a>
-      </DropdownMenuItem>
+      {localStudioUrl && (
+        <DropdownMenuItem asChild data-testid="menu-db-studio">
+          <a href={buildDrizzleStudioUrl(localStudioUrl)} target="_blank" rel="noopener noreferrer">
+            <Database className="mr-2 h-4 w-4" />
+            Database Studio
+          </a>
+        </DropdownMenuItem>
+      )}
       <DropdownMenuItem
         onClick={(e) => {
           e.preventDefault();
