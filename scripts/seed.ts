@@ -373,7 +373,7 @@ function createConversationEpochData(
  */
 let seedAiModelId: string | null = null;
 
-async function loadSeedAiModel(): Promise<void> {
+export async function loadSeedAiModel(): Promise<void> {
   const publicModelsUrl = process.env['PUBLIC_MODELS_URL'];
   if (publicModelsUrl === undefined || publicModelsUrl.length === 0) {
     throw new Error(

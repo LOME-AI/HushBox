@@ -103,7 +103,7 @@ export const MEDIA_MONTHLY_COST_PER_GB = 0.03;
 
 /**
  * Storage cost per byte for media, derived with 50-year retention.
- * ~$0.000000024/byte → ~$0.024 per 1MB, ~$0.096 per 4MB image
+ * ~$0.000000018/byte → ~$0.018 per 1MB, ~$0.072 per 4MB image
  */
 export const MEDIA_STORAGE_COST_PER_BYTE =
   (MEDIA_MONTHLY_COST_PER_GB * MONTHS_PER_YEAR * STORAGE_YEARS) / (1000 * 1_000_000);

@@ -9,6 +9,11 @@ vi.mock('dotenv', () => ({
   config: vi.fn(),
 }));
 
+vi.mock('@hushbox/shared/models', () => ({
+  fetchModels: vi.fn(() => Promise.resolve([])),
+  pickValueTextModel: vi.fn(() => 'anthropic/claude-3.5-sonnet'),
+}));
+
 function mockCryptoBytes(length: number): Uint8Array {
   return new Uint8Array(length).fill(0xab);
 }
@@ -300,6 +305,7 @@ import {
   generateSeedData,
   generatePersonaData,
   generateTestPersonaData,
+  loadSeedAiModel,
   upsertEntity,
   seed,
   seedUUID,
@@ -307,9 +313,11 @@ import {
 } from './seed';
 
 describe('seed script', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     process.env['DATABASE_URL'] = 'postgres://test:test@localhost:5432/test';
+    process.env['PUBLIC_MODELS_URL'] = 'https://models.test/local.json';
+    await loadSeedAiModel();
   });
 
   afterEach(() => {

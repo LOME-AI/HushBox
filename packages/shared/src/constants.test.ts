@@ -284,8 +284,8 @@ describe('Legal Constants', () => {
 
 describe('Media Storage Cost Constants', () => {
   describe('MEDIA_MONTHLY_COST_PER_GB', () => {
-    it('is 0.04 ($0.04/GB/month)', () => {
-      expect(MEDIA_MONTHLY_COST_PER_GB).toBe(0.04);
+    it('is 0.03 ($0.03/GB/month)', () => {
+      expect(MEDIA_MONTHLY_COST_PER_GB).toBe(0.03);
     });
 
     it('is positive', () => {
@@ -305,14 +305,14 @@ describe('Media Storage Cost Constants', () => {
       expect(MEDIA_STORAGE_COST_PER_BYTE).toBeLessThan(0.000_001);
     });
 
-    it('costs about $0.024 per MB', () => {
+    it('costs about $0.018 per MB', () => {
       const costPerMB = MEDIA_STORAGE_COST_PER_BYTE * 1_000_000;
-      expect(costPerMB).toBeCloseTo(0.024, 3);
+      expect(costPerMB).toBeCloseTo(0.018, 3);
     });
 
-    it('costs about $0.094 per 4MB image', () => {
+    it('costs about $0.072 per 4MB image', () => {
       const costPer4MB = MEDIA_STORAGE_COST_PER_BYTE * 4_000_000;
-      expect(costPer4MB).toBeCloseTo(0.096, 2);
+      expect(costPer4MB).toBeCloseTo(0.072, 2);
     });
   });
 });

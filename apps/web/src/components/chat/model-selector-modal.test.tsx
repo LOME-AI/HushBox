@@ -3021,7 +3021,8 @@ describe('ModelSelectorModal', () => {
 
     it('pulses the previously-committed row when switching from single to multi', async () => {
       switchToSingle();
-      const user = userEvent.setup();
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(
         <ModelSelectorModal
           open={true}
@@ -3036,6 +3037,8 @@ describe('ModelSelectorModal', () => {
 
       const row = screen.getByTestId('model-item-openai/gpt-4-turbo');
       expect(row).toHaveAttribute('data-pulsing', 'true');
+
+      vi.useRealTimers();
     });
 
     it('does not pulse any row when opening the modal in multi mode (no transition)', () => {
