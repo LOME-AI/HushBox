@@ -1,11 +1,3 @@
-// Sentence splitter — breaks a long sentence into smaller pieces at
-// natural clause boundaries before handing them to the TTS engine. With a
-// multi-worker pool, splitting the opening sentence of a chat reply lets
-// the first half start playing while the second half is still inferencing,
-// halving perceived time-to-first-speech for long sentences.
-//
-// Pure function, no dependencies on the engine, store, or React.
-
 /** Sentences longer than this (in words) get split. */
 export const SPLIT_WORD_THRESHOLD = 25;
 
@@ -107,28 +99,12 @@ function pickBestCandidate(
   return best?.cand ?? null;
 }
 
-/**
- * Break `text` into 1+ pieces at natural clause boundaries.
- *
- * @param text - A single normalized sentence (as produced by SentenceChunker).
- * @param wordThreshold - Sentences strictly longer than this trigger splitting.
- *   Defaults to {@link SPLIT_WORD_THRESHOLD}. The TTS feeder passes a halved
- *   value for the first few sentences of a stream to push audio out faster.
- * @returns 1+ pieces, each respecting {@link MIN_PIECE_WORDS}. Returns
- *   `[text]` unchanged when the sentence is short enough, has no eligible
- *   delimiter, or every candidate would violate the minimum.
- */
-export function splitSentence(
+function greedyPass(
   text: string,
-  wordThreshold: number = SPLIT_WORD_THRESHOLD
+  candidates: SplitCandidate[],
+  totalWords: number,
+  targetPieceCount: number
 ): string[] {
-  const totalWords = countWords(text);
-  if (totalWords <= wordThreshold) return [text];
-
-  const candidates = findCandidates(text);
-  if (candidates.length === 0) return [text];
-
-  const targetPieceCount = Math.ceil(totalWords / wordThreshold);
   const pieces: string[] = [];
   let cursorPos = 0;
   let cursorWord = 0;
@@ -145,9 +121,10 @@ export function splitSentence(
 
   const tail = text.slice(cursorPos).trim();
   if (tail.length > 0) pieces.push(tail);
+  return pieces;
+}
 
-  if (pieces.length <= 1) return pieces.length === 1 ? pieces : [text];
-
+function subdivideOverThreshold(pieces: string[], wordThreshold: number): string[] {
   const subdivided: string[] = [];
   for (const piece of pieces) {
     if (countWords(piece) <= wordThreshold) {
@@ -157,4 +134,33 @@ export function splitSentence(
     }
   }
   return subdivided;
+}
+
+/**
+ * Break `text` into 1+ pieces at natural clause boundaries.
+ *
+ * @param text - A single normalized sentence.
+ * @param wordThreshold - Sentences strictly longer than this trigger splitting.
+ *   Defaults to {@link SPLIT_WORD_THRESHOLD}.
+ * @returns 1+ pieces, each respecting {@link MIN_PIECE_WORDS}. Returns
+ *   `[text]` unchanged when the sentence is short enough, has no eligible
+ *   delimiter, or every candidate would violate the minimum.
+ */
+export function splitSentence(
+  text: string,
+  wordThreshold: number = SPLIT_WORD_THRESHOLD
+): string[] {
+  const totalWords = countWords(text);
+  if (totalWords <= wordThreshold) return [text];
+
+  const candidates = findCandidates(text);
+  if (candidates.length === 0) return [text];
+
+  const targetPieceCount = Math.ceil(totalWords / wordThreshold);
+  const pieces = greedyPass(text, candidates, totalWords, targetPieceCount);
+
+  if (pieces.length === 0) return [text];
+  if (pieces.length === 1) return pieces;
+
+  return subdivideOverThreshold(pieces, wordThreshold);
 }

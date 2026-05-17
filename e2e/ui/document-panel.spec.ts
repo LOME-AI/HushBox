@@ -59,10 +59,10 @@ test.describe('Document Panel', () => {
 
     await test.step('send code block and verify card', async () => {
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
-      // Wait for Echo response to confirm streaming started
-      await chatPage.waitForAIResponse();
-      // Capture the row index of the new assistant message; cards are anchored
-      // to specific messages so virtualization can't shift their identity.
+      // Match a substring unique to the new echo. `.first()` on `/^Echo:/`
+      // would resolve to the seeded conversation's echo (already visible)
+      // and return before the new assistant row is in the data.
+      await chatPage.waitForAIResponse('def fibonacci');
       pythonMessageIndex = await chatPage.getLastRowIndex();
       const card = await documentPanel.scrollToCardInMessage(chatPage, pythonMessageIndex, 45_000);
       await expect(card).toContainText('fibonacci');
@@ -114,7 +114,8 @@ test.describe('Document Panel', () => {
 
     await test.step('send Python code block (for multi-document switching)', async () => {
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
-      await chatPage.waitForAIResponse();
+      // Substring unique to the new echo — see other test for rationale.
+      await chatPage.waitForAIResponse('def fibonacci');
       pythonMessageIndex = await chatPage.getLastRowIndex();
       const card = await documentPanel.scrollToCardInMessage(chatPage, pythonMessageIndex, 45_000);
       await expect(card).toBeVisible();
@@ -122,7 +123,7 @@ test.describe('Document Panel', () => {
 
     await test.step('send mermaid and verify rendered diagram', async () => {
       await chatPage.sendFollowUpMessage(MERMAID_BLOCK);
-      await chatPage.waitForAIResponse();
+      await chatPage.waitForAIResponse('graph TD');
       mermaidMessageIndex = await chatPage.getLastRowIndex();
       await documentPanel.clickCardInMessage(chatPage, mermaidMessageIndex);
       await documentPanel.waitForPanelOpen();

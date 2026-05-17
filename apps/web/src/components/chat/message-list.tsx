@@ -154,10 +154,12 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     };
   });
 
-  // Playwright-only escape hatch. iPhone-15 viewport + tall media tiles cause
-  // Virtuoso to virtualize away the target message-item before action helpers
-  // can locate it. Exposing `scrollIntoView({ done })` lets tests deterministically
-  // park a specific row in view and `await` its measurement.
+  // Playwright-only escape hatch for parking a virtualized row in view.
+  // `align: 'start'` (not 'center') because center-alignment for rows
+  // taller than half the viewport clamps to the scroll edge and Virtuoso
+  // can treat that as a no-op. `userScrolledAwayRef = true` before the
+  // scroll so a follow-up refetch's `followOutput()` doesn't re-pin to
+  // the bottom and unmount the just-scrolled-to row.
   useEffect(() => {
     if (!env.isLocalDev && !env.isE2E) return;
     globalThis.__virtuosoScrollToIndex = (index: number): Promise<void> =>
@@ -167,7 +169,8 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
           resolve();
           return;
         }
-        handle.scrollIntoView({ index, align: 'center', behavior: 'auto', done: resolve });
+        userScrolledAwayRef.current = true;
+        handle.scrollIntoView({ index, align: 'start', behavior: 'auto', done: resolve });
       });
     return () => {
       globalThis.__virtuosoScrollToIndex = undefined;

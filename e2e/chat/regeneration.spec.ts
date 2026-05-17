@@ -213,10 +213,9 @@ test.describe('Solo Regeneration', () => {
         { timeout: 15_000 }
       );
 
-      // The error-tile retry button is disambiguated from the user-message
-      // retry icon (same aria-label="Retry") by its dedicated testid.
-      // Without the scope, `.first()` matches the user-message icon and
-      // triggers retry-all instead of single-tile regenerate.
+      // Testid disambiguates from the user-message retry icon (same
+      // aria-label); a role-name selector would match-first the user icon
+      // and trigger retry-all instead of single-tile regenerate.
       const retryButton = authenticatedPage.getByTestId('retry-error-button');
       await unsettledExpect(retryButton).toBeVisible({ timeout: 10_000 });
       await retryButton.click();

@@ -199,7 +199,7 @@ describe('splitSentence — recursive subdivision', () => {
     // it. Tier weight makes the greedy pass pick the em-dash, producing a
     // 42-word left piece. With recursion, that left piece must be further
     // split so no emitted piece exceeds the threshold.
-    const segments = Array.from({ length: 7 }, (_, i) => repeatWords(`s${String(i)}_`, 6));
+    const segments = Array.from({ length: 7 }, (_, index) => repeatWords(`s${String(index)}_`, 6));
     const leftPiece = segments.join(', ');
     const rightPiece = repeatWords('tail', 8);
     const input = `${leftPiece}—${rightPiece}.`;

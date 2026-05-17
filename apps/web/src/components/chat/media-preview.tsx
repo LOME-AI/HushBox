@@ -86,12 +86,10 @@ export interface MediaPreviewProps {
    */
   ariaPrefix: string;
   /**
-   * Intrinsic pixel dimensions from the content item. Forwarded as HTML
-   * `width`/`height` so the browser reserves aspect-ratio layout space
-   * before bytes load. Without this an unloaded `<img>` or `<video>` has a
-   * 0×0 bounding box, which (a) makes Virtuoso mis-measure the row's height
-   * and put the wrong scroll math in `scrollIntoView`, and (b) makes
-   * Playwright report the element as "hidden" until the bytes decode.
+   * Forwarded as HTML `width`/`height` so the browser reserves aspect-ratio
+   * layout space before bytes load. Without this an unloaded media element
+   * has a 0×0 bounding box, which makes Virtuoso mis-measure the row height
+   * and breaks `scrollIntoView` math inside the virtualized chat list.
    */
   width?: number | null | undefined;
   height?: number | null | undefined;
@@ -122,6 +120,10 @@ export function MediaPreview({
   // entering an image lightbox or a video player.
   const modalAlt = isVideo ? `${ariaPrefix} video` : mediaAlt;
   const downloadFilename = buildDownloadFilename(contentType, mimeType);
+  const dimensionProps = {
+    ...(width != null && { width }),
+    ...(height != null && { height }),
+  };
 
   return (
     <div className={cn('relative inline-block max-w-md', className)}>
@@ -138,8 +140,7 @@ export function MediaPreview({
             src={blobUrl}
             alt={mediaAlt}
             loading="eager"
-            {...(width != null && { width })}
-            {...(height != null && { height })}
+            {...dimensionProps}
             className="max-h-96 w-full rounded-md object-contain"
           />
         </button>
@@ -164,8 +165,7 @@ export function MediaPreview({
             src={blobUrl}
             controls
             preload="metadata"
-            {...(width != null && { width })}
-            {...(height != null && { height })}
+            {...dimensionProps}
             className="max-h-96 w-full rounded-md"
             aria-label={`${ariaPrefix} video`}
             // Stop propagation so clicking the native controls doesn't open
