@@ -1,5 +1,5 @@
-import type { QueryClient } from '@tanstack/react-query';
 import { blobCacheKeys } from '@/hooks/use-decrypt-blob';
+import type { QueryClient } from '@tanstack/react-query';
 
 /**
  * Subscribes to the React Query cache and revokes blob URLs when their
@@ -16,9 +16,13 @@ export function installBlobUrlCacheGc(queryClient: QueryClient): () => void {
   const cache = queryClient.getQueryCache();
   return cache.subscribe((event) => {
     if (event.type !== 'removed') return;
-    const key = event.query.queryKey;
+    // `event.query.queryKey` / `event.query.state.data` come through React
+    // Query's generic-erased shape at this callsite, so eslint sees them as
+    // `any`. Cast to `unknown` first to force the narrowing through a
+    // typeof guard rather than trusting the unwidened type.
+    const key = event.query.queryKey as unknown as readonly unknown[];
     if (key[0] !== blobCacheKeys.all[0] || key[1] !== blobCacheKeys.all[1]) return;
-    const data = event.query.state.data;
+    const data = event.query.state.data as unknown;
     if (typeof data === 'string') URL.revokeObjectURL(data);
   });
 }

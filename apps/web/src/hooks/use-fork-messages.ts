@@ -64,6 +64,27 @@ function isContainedThreadSibling(
 }
 
 /**
+ * Returns siblings of `ancestorId` that should be included on this branch.
+ * Caller is responsible for deduping; this returns every candidate that
+ * passes the role-shaped predicate.
+ */
+function siblingsToInclude(
+  ancestorId: string,
+  ancestorIds: Set<string>,
+  messageMap: Map<string, MessageWithParent>,
+  childrenMap: Map<string | null, MessageWithParent[]>
+): MessageWithParent[] {
+  const msg = messageMap.get(ancestorId);
+  const parentId = msg?.parentMessageId;
+  if (parentId === undefined) return [];
+  const siblings = childrenMap.get(parentId ?? null) ?? [];
+  return siblings.filter(
+    (sibling) =>
+      isParallelBatchSibling(sibling) || isContainedThreadSibling(sibling, ancestorIds, childrenMap)
+  );
+}
+
+/**
  * Expand ancestor set to include siblings. Two distinct rules apply:
  *
  * - Parallel-batch siblings (assistant role): always included — they are
@@ -83,18 +104,8 @@ function expandWithSiblings(
 ): Set<string> {
   const included = new Set<string>(ancestorIds);
   for (const id of ancestorIds) {
-    const msg = messageMap.get(id);
-    const parentId = msg?.parentMessageId;
-    if (parentId === undefined) continue;
-    const siblings = childrenMap.get(parentId ?? null) ?? [];
-    for (const sibling of siblings) {
-      if (included.has(sibling.id)) continue;
-      if (
-        isParallelBatchSibling(sibling) ||
-        isContainedThreadSibling(sibling, ancestorIds, childrenMap)
-      ) {
-        included.add(sibling.id);
-      }
+    for (const sibling of siblingsToInclude(id, ancestorIds, messageMap, childrenMap)) {
+      included.add(sibling.id);
     }
   }
   return included;
@@ -140,6 +151,22 @@ function buildChildrenMap(messages: MessageWithParent[]): Map<string | null, Mes
   return childrenMap;
 }
 
+/**
+ * Resolves the active fork's tip message, or returns null if the request
+ * should fall through to "return all messages" (no active fork, fork not
+ * found, or tip references a missing message id).
+ */
+function resolveActiveTipMessage(
+  forks: Fork[],
+  activeForkId: string | null,
+  messageMap: Map<string, MessageWithParent>
+): MessageWithParent | null {
+  if (forks.length === 0 || activeForkId === null) return null;
+  const activeFork = forks.find((f) => f.id === activeForkId);
+  if (!activeFork?.tipMessageId) return null;
+  return messageMap.get(activeFork.tipMessageId) ?? null;
+}
+
 export function filterMessagesForFork(
   allMessages: MessageWithParent[],
   forks: Fork[],
@@ -147,19 +174,12 @@ export function filterMessagesForFork(
 ): MessageWithParent[] {
   if (allMessages.length === 0) return [];
 
-  if (forks.length === 0 || activeForkId === null) {
-    return [...allMessages];
-  }
-
-  const activeFork = forks.find((f) => f.id === activeForkId);
-  if (!activeFork?.tipMessageId) return [...allMessages];
-
   const messageMap = new Map<string, MessageWithParent>();
   for (const msg of allMessages) {
     messageMap.set(msg.id, msg);
   }
 
-  const tipMessage = messageMap.get(activeFork.tipMessageId);
+  const tipMessage = resolveActiveTipMessage(forks, activeForkId, messageMap);
   if (!tipMessage) return [...allMessages];
 
   const childrenMap = buildChildrenMap(allMessages);

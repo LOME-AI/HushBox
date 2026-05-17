@@ -143,7 +143,12 @@ const mockModels = [
     description: 'Premium model',
     modality: 'text' as const,
     context_length: 128_000,
-    pricing: { prompt: '0.00001', completion: '0.00003' },
+    // Dual-shape: `prompt`/`completion` for the ZDR /endpoints/zdr endpoint
+    // (consumed by zdr filtering); `input`/`output` for the public /v1/models
+    // endpoint (consumed by `fetchModels` and surfaced as `RawModel.pricing`
+    // → `ModelInfo.pricing.inputPerToken/outputPerToken`). Both shapes are
+    // required because each downstream parser reads its own key names.
+    pricing: { prompt: '0.00001', completion: '0.00003', input: '0.00001', output: '0.00003' },
     supported_parameters: ['temperature'],
     created: Math.floor(Date.now() / 1000),
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
@@ -154,7 +159,12 @@ const mockModels = [
     description: 'Fast text model',
     modality: 'text' as const,
     context_length: 200_000,
-    pricing: { prompt: '0.000003', completion: '0.000015' },
+    pricing: {
+      prompt: '0.000003',
+      completion: '0.000015',
+      input: '0.000003',
+      output: '0.000015',
+    },
     supported_parameters: ['temperature'],
     created: Math.floor(Date.now() / 1000),
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
@@ -1433,7 +1443,12 @@ describe('chat routes', () => {
           name: 'GPT-3.5 Turbo',
           description: 'Basic model',
           context_length: 16_000,
-          pricing: { prompt: '0.0000005', completion: '0.0000015' },
+          pricing: {
+            prompt: '0.0000005',
+            completion: '0.0000015',
+            input: '0.0000005',
+            output: '0.0000015',
+          },
           supported_parameters: ['temperature'],
           created: Math.floor(Date.now() / 1000) - 2 * 365 * 24 * 60 * 60,
           architecture: { input_modalities: ['text'], output_modalities: ['text'] },
@@ -2774,7 +2789,12 @@ describe('chat routes', () => {
           name: 'GPT-3.5 Turbo',
           description: 'Basic model',
           context_length: 16_000,
-          pricing: { prompt: '0.0000005', completion: '0.0000015' },
+          pricing: {
+            prompt: '0.0000005',
+            completion: '0.0000015',
+            input: '0.0000005',
+            output: '0.0000015',
+          },
           supported_parameters: ['temperature'],
           created: Math.floor(Date.now() / 1000),
           architecture: { input_modalities: ['text'], output_modalities: ['text'] },

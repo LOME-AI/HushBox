@@ -195,9 +195,7 @@ describe('useDecryptedSharedMedia', () => {
 
     queryClient
       .getQueryCache()
-      .remove(
-        queryClient.getQueryCache().find({ queryKey: blobCacheKeys.blob('shared-item') })!
-      );
+      .remove(queryClient.getQueryCache().find({ queryKey: blobCacheKeys.blob('shared-item') })!);
 
     expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:shared-mock-1');
   });

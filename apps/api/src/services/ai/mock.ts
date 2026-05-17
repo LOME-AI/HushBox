@@ -42,9 +42,6 @@ import type {
  */
 const DEFAULT_PUBLIC_MODELS_URL = 'https://ai-gateway.vercel.sh/v1/models';
 
-/** Deterministic mock cost returned by getGenerationStats (USD). */
-const MOCK_GENERATION_STATS_COST = 0.001;
-
 /**
  * Default model id returned by classifier calls — overridable per test.
  *
@@ -73,6 +70,38 @@ export {
   TEST_VIDEO_HEIGHT as CANNED_VIDEO_HEIGHT,
   TEST_AUDIO_DURATION_MS as CANNED_AUDIO_DURATION_MS,
 } from './mock-fixtures/index.js';
+
+/**
+ * Per-generation accounting the mock remembers so {@link getGenerationStats}
+ * can reproduce the cost the gateway would have charged. Recorded at the
+ * moment a stream yields its `finish` event.
+ */
+interface MockGenerationRecord {
+  modelId: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** Mint a generation id and register its accounting in one call. */
+type MintGenerationId = (record: MockGenerationRecord) => string;
+
+/**
+ * Module-level so generationIds minted by ANY mock instance resolve correctly
+ * from ANY mock instance's `getGenerationStats`. Several integration tests
+ * (see e.g. smart-model.integration.test.ts) build a second mock client for
+ * stream config purposes while a parent mock handles billing — without a
+ * shared registry, those crossing-instances lookups fail loudly even though
+ * the test logic is correct. Ids embed `Date.now()` + a monotonic sequence
+ * so cross-test collisions are impossible.
+ */
+const generationRegistry = new Map<string, MockGenerationRecord>();
+let generationSeq = 0;
+function mintGenerationId(record: MockGenerationRecord): string {
+  generationSeq += 1;
+  const id = `mock-gen-${String(Date.now())}-${String(generationSeq)}`;
+  generationRegistry.set(id, record);
+  return id;
+}
 
 function extractLastUserContent(messages: AIMessage[]): string {
   const lastUser = messages.findLast((m) => m.role === 'user');
@@ -123,19 +152,23 @@ function isClassifierRequest(request: TextRequest): boolean {
   return content.startsWith(CLASSIFIER_SYSTEM_PROMPT_MARKER);
 }
 
-function createClassifierStream(modelId: string, delayMs: number): InferenceStream {
+function createClassifierStream(
+  resolvedModelId: string,
+  delayMs: number,
+  classifierModel: string,
+  mint: MintGenerationId
+): InferenceStream {
   const events: InferenceEvent[] = [];
-  for (const char of modelId) {
+  for (const char of resolvedModelId) {
     events.push({ kind: 'text-delta', content: char });
   }
+  const inputTokens = Math.ceil(resolvedModelId.length / CHARS_PER_TOKEN_STANDARD);
+  const outputTokens = Math.ceil(resolvedModelId.length / CHARS_PER_TOKEN_STANDARD);
   events.push({
     kind: 'finish',
     providerMetadata: {
-      generationId: `mock-classifier-${String(Date.now())}`,
-      usage: {
-        inputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
-        outputTokens: Math.ceil(modelId.length / CHARS_PER_TOKEN_STANDARD),
-      },
+      generationId: mint({ modelId: classifierModel, inputTokens, outputTokens }),
+      usage: { inputTokens, outputTokens },
     },
   });
   return delayedEventStream(events, delayMs);
@@ -198,7 +231,7 @@ function createFirstCallDelay(delayMs: number): () => Promise<void> {
   };
 }
 
-function createTextStream(request: TextRequest): InferenceStream {
+function createTextStream(request: TextRequest, mint: MintGenerationId): InferenceStream {
   const echoContent = `Echo:\n${extractLastUserContent(request.messages)}`;
 
   return syncStream(function* (): Generator<InferenceEvent> {
@@ -207,15 +240,14 @@ function createTextStream(request: TextRequest): InferenceStream {
     }
 
     const promptCharacters = countPromptCharacters(request.messages);
+    const inputTokens = Math.ceil(promptCharacters / CHARS_PER_TOKEN_STANDARD);
+    const outputTokens = Math.ceil(echoContent.length / CHARS_PER_TOKEN_STANDARD);
 
     yield {
       kind: 'finish',
       providerMetadata: {
-        generationId: `mock-gen-${String(Date.now())}`,
-        usage: {
-          inputTokens: Math.ceil(promptCharacters / CHARS_PER_TOKEN_STANDARD),
-          outputTokens: Math.ceil(echoContent.length / CHARS_PER_TOKEN_STANDARD),
-        },
+        generationId: mint({ modelId: request.model, inputTokens, outputTokens }),
+        usage: { inputTokens, outputTokens },
       },
     };
   });
@@ -288,6 +320,9 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
 
   const publicModelsUrl = config.publicModelsUrl ?? DEFAULT_PUBLIC_MODELS_URL;
 
+  // Bind the module-level minter so each closure has a stable reference.
+  const mint: MintGenerationId = mintGenerationId;
+
   return {
     isMock: true,
 
@@ -338,9 +373,14 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
             if (classifierFailure !== null) {
               return createFailingClassifierStream(classifierFailure, classifierDelayMs);
             }
-            return createClassifierStream(classifierResolution, classifierDelayMs);
+            return createClassifierStream(
+              classifierResolution,
+              classifierDelayMs,
+              request.model,
+              mint
+            );
           }
-          return createTextStream(request);
+          return createTextStream(request, mint);
         }
         case 'image': {
           return createImageStream();
@@ -357,8 +397,44 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
       }
     },
 
-    getGenerationStats(): Promise<{ costUsd: number }> {
-      return Promise.resolve({ costUsd: MOCK_GENERATION_STATS_COST });
+    /**
+     * Returns the gateway-equivalent cost for a generationId minted by this
+     * mock's text or classifier stream. Reads the model's REAL per-token
+     * pricing from the catalog and multiplies by recorded token counts —
+     * mirrors production semantics so per-model cost differences flow into
+     * billing assertions instead of being masked by a flat constant.
+     *
+     * Fast-fails loudly on:
+     *   - unknown generationId (never minted by this mock instance)
+     *   - model id missing from the catalog
+     *   - catalog pricing fields missing or non-positive
+     * The whole point is to surface mock/catalog drift instead of silently
+     * defaulting to a placeholder cost.
+     */
+    async getGenerationStats(generationId: string): Promise<{ costUsd: number }> {
+      const record = generationRegistry.get(generationId);
+      if (!record) {
+        throw new Error(
+          `Unknown mock generationId: ${generationId} (no record in this mock instance — ` +
+            `did you cross client instances, or call getGenerationStats with a forged id?)`
+        );
+      }
+      const model = await this.getModel(record.modelId);
+      if (model.pricing.kind !== 'token') {
+        throw new Error(
+          `Mock cost lookup: model ${record.modelId} has non-token pricing kind ` +
+            `(${model.pricing.kind}); getGenerationStats is only valid for text generations`
+        );
+      }
+      const { inputPerToken, outputPerToken } = model.pricing;
+      if (inputPerToken <= 0 || outputPerToken <= 0) {
+        throw new Error(
+          `Mock cost lookup: model ${record.modelId} has no usable per-token pricing ` +
+            `(inputPerToken=${String(inputPerToken)}, outputPerToken=${String(outputPerToken)})`
+        );
+      }
+      const costUsd = record.inputTokens * inputPerToken + record.outputTokens * outputPerToken;
+      return { costUsd };
     },
 
     getRequestHistory(): RecordedInferenceRequest[] {

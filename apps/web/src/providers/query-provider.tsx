@@ -24,17 +24,18 @@ export const queryClient = new QueryClient({
   },
 });
 
-// The blob-URL cache (`['media', 'blob', …]`) owns object URLs that survive
-// component unmount via React Query. Without this subscriber, evicted cache
-// entries would leak: the underlying Blob bytes stay reachable until the
-// document unloads. See `useDecryptBlob` for the read side.
-installBlobUrlCacheGc(queryClient);
-
 interface QueryProviderProps {
   children: React.ReactNode;
 }
 
 export function QueryProvider({ children }: Readonly<QueryProviderProps>): React.JSX.Element {
+  // The blob-URL cache (`['media', 'blob', …]`) owns object URLs that survive
+  // component unmount via React Query. Without this subscriber, evicted cache
+  // entries would leak: the underlying Blob bytes stay reachable until the
+  // document unloads. See `useDecryptBlob` for the read side. Lives in an
+  // effect so HMR re-installs cleanly without leaking duplicate subscribers.
+  React.useEffect(() => installBlobUrlCacheGc(queryClient), []);
+
   return (
     <QueryClientProvider client={queryClient}>
       {children}

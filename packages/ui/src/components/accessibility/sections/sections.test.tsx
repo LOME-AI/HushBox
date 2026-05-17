@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import { ACCESSIBILITY_PREFERENCES_DEFAULTS, type AccessibilityPreferences } from '@hushbox/shared';
 
@@ -320,6 +320,45 @@ describe('AudioSection', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.getByText(/80 MB, one-time download/)).not.toBeNull();
     expect(screen.queryByText(/330 MB/)).toBeNull();
+  });
+
+  it('mid-download, shows bytes loaded/total, speed, and ETA derived from progress callbacks', async () => {
+    let capturedOnProgress: ((loaded: number, total: number) => void) | undefined;
+    ttsLoadMock.mockImplementation(
+      (_voice: string, onProgress?: (l: number, t: number) => void): Promise<void> => {
+        capturedOnProgress = onProgress;
+        // Never resolves — we want to inspect the mid-download UI.
+        return new Promise<void>(() => {});
+      }
+    );
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1_700_000_000_000));
+
+    storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, ttsEnabled: false };
+    render(<AudioSection />);
+    fireEvent.click(screen.getByRole('button', { name: /^Read chat replies aloud: / }));
+
+    // Flush the microtask that invokes load() inside the handler.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(capturedOnProgress).toBeDefined();
+
+    const MB = 1_048_576;
+    act(() => {
+      capturedOnProgress!(0, 80 * MB);
+    });
+    vi.setSystemTime(new Date(1_700_000_001_000));
+    act(() => {
+      capturedOnProgress!(4 * MB, 80 * MB);
+    });
+
+    expect(screen.getByText(/4\.0 \/ 80 MB/)).not.toBeNull();
+    expect(screen.getByText(/4\.0 MB\/s/)).not.toBeNull();
+    expect(screen.getByText(/19s left/)).not.toBeNull();
+
+    vi.useRealTimers();
   });
 });
 

@@ -2,6 +2,13 @@ import * as React from 'react';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../select';
 import { SettingCard } from '../controls/setting-card';
+import {
+  DownloadRateTracker,
+  estimateEtaSeconds,
+  formatBytesProgress,
+  formatEta,
+  formatSpeed,
+} from '../lib/tts-download-progress';
 import { TTS_VOICES, getTtsService, type TtsVoice } from '../lib/tts-engine';
 import { useA11yStore } from '../store';
 import { ON_OFF_OPTIONS } from './_constants';
@@ -32,8 +39,10 @@ function ReadAloudControls(): React.JSX.Element {
   const streamChatAloud = useA11yStore((s) => s.streamChatAloud);
   const update = useA11yStore((s) => s.update);
   const [downloading, setDownloading] = React.useState(false);
-  const [progress, setProgress] = React.useState<number | null>(null);
+  const [bytes, setBytes] = React.useState<{ loaded: number; total: number } | null>(null);
+  const [bytesPerSecond, setBytesPerSecond] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const rateTrackerRef = React.useRef<DownloadRateTracker | null>(null);
 
   const handleToggle = React.useCallback(
     (value: 'on' | 'off'): void => {
@@ -49,13 +58,17 @@ function ReadAloudControls(): React.JSX.Element {
       void (async (): Promise<void> => {
         setDownloading(true);
         setError(null);
-        setProgress(null);
+        setBytes(null);
+        setBytesPerSecond(null);
+        const tracker = new DownloadRateTracker();
+        rateTrackerRef.current = tracker;
         try {
           const service = getTtsService();
           await service.load(ttsVoice, (loaded, total) => {
-            if (total > 0) {
-              setProgress(Math.min(100, Math.round((loaded / total) * 100)));
-            }
+            if (total <= 0) return;
+            tracker.record(loaded, Date.now());
+            setBytes({ loaded, total });
+            setBytesPerSecond(tracker.bytesPerSecond());
           });
           await requestPersistentStorage();
           update({ ttsEnabled: true, streamChatAloud: true });
@@ -101,22 +114,36 @@ function ReadAloudControls(): React.JSX.Element {
         {DOWNLOAD_SIZE_TEXT}, one-time download. Runs entirely on your device. No audio or text ever
         leaves this device.
       </p>
-      {downloading && progress !== null ? (
-        <div
-          role="progressbar"
-          aria-label="Read-aloud model download"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={progress}
-          className="bg-input h-2 w-full overflow-hidden rounded-full"
-        >
+      {downloading && bytes !== null ? (
+        <div className="flex flex-col gap-1">
           <div
-            className="bg-primary h-full transition-all"
-            style={{ width: `${String(progress)}%` }}
-          />
+            role="progressbar"
+            aria-label="Read-aloud model download"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.min(100, Math.round((bytes.loaded / bytes.total) * 100))}
+            className="bg-input h-2 w-full overflow-hidden rounded-full"
+          >
+            <div
+              className="bg-primary h-full transition-all"
+              style={{
+                width: `${String(Math.min(100, Math.round((bytes.loaded / bytes.total) * 100)))}%`,
+              }}
+            />
+          </div>
+          <p className="text-muted-foreground text-xs tabular-nums">
+            {formatBytesProgress(bytes.loaded, bytes.total)}
+            {bytesPerSecond === null ? '' : ` · ${formatSpeed(bytesPerSecond)}`}
+            {(() => {
+              if (bytesPerSecond === null) return '';
+              const eta = estimateEtaSeconds(bytes.loaded, bytes.total, bytesPerSecond);
+              if (eta === null || eta <= 0) return '';
+              return ` · ${formatEta(eta)}`;
+            })()}
+          </p>
         </div>
       ) : null}
-      {downloading && progress === null ? (
+      {downloading && bytes === null ? (
         <div
           role="progressbar"
           aria-label="Read-aloud model download"

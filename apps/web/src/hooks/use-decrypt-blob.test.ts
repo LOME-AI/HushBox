@@ -197,9 +197,9 @@ describe('useDecryptBlob', () => {
 
     // Cache eviction is what revokes. The GC subscriber installed in the
     // wrapper turns a `removed` event into `URL.revokeObjectURL`.
-    queryClient.getQueryCache().remove(
-      queryClient.getQueryCache().find({ queryKey: blobCacheKeys.blob('evict-me') })!
-    );
+    queryClient
+      .getQueryCache()
+      .remove(queryClient.getQueryCache().find({ queryKey: blobCacheKeys.blob('evict-me') })!);
 
     expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:decrypt-blob-mock-1');
   });
@@ -240,10 +240,9 @@ describe('useDecryptBlob', () => {
     mockDecryptBinaryWithContentKey.mockReturnValue(new Uint8Array([4, 5, 6]));
 
     const { wrapper } = makeWrapper();
-    const { result } = renderHook(
-      () => useDecryptBlob(defaultParams({ mimeType: 'video/mp4' })),
-      { wrapper }
-    );
+    const { result } = renderHook(() => useDecryptBlob(defaultParams({ mimeType: 'video/mp4' })), {
+      wrapper,
+    });
 
     await waitFor(() => {
       expect(result.current.blobUrl).not.toBeNull();

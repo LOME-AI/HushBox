@@ -4,6 +4,7 @@ import { clearModelCache } from '@hushbox/shared/models';
 import { createMockAIClient, CANNED_IMAGE, CANNED_VIDEO } from './mock.js';
 import type {
   MockAIClient,
+  ModelInfo,
   TextRequest,
   ImageRequest,
   VideoRequest,
@@ -829,10 +830,98 @@ describe('createMockAIClient', () => {
   });
 
   describe('getGenerationStats', () => {
-    it('returns deterministic cost for any generation id', async () => {
-      const stats = await client.getGenerationStats('mock-gen-123');
-      expect(typeof stats.costUsd).toBe('number');
-      expect(stats.costUsd).toBeGreaterThan(0);
+    interface TextPricedModel extends ModelInfo {
+      pricing: { kind: 'token'; inputPerToken: number; outputPerToken: number };
+    }
+
+    /** Pick the first token-priced model from the mock catalog (fail-loud if none). */
+    async function firstTextModel(): Promise<TextPricedModel> {
+      const models = await client.listModels();
+      const model = models.find((m): m is TextPricedModel => m.pricing.kind === 'token');
+      if (!model) {
+        throw new Error('Expected at least one token-priced model in the mock catalog');
+      }
+      return model;
+    }
+
+    async function findFinishEvent(stream: AsyncIterable<InferenceEvent>): Promise<InferenceEvent> {
+      let finish: InferenceEvent | undefined;
+      for await (const event of stream) {
+        if (event.kind === 'finish') finish = event;
+      }
+      if (finish === undefined) throw new Error('Stream produced no finish event');
+      return finish;
+    }
+
+    /** Drive a real text stream to completion and return its `finish` accounting. */
+    async function streamAndCaptureFinish(
+      modelId: string
+    ): Promise<{ generationId: string; inputTokens: number; outputTokens: number }> {
+      const stream = client.stream({
+        modality: 'text',
+        model: modelId,
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      const finish = await findFinishEvent(stream);
+      if (finish.kind !== 'finish') throw new Error('Expected finish event');
+      const meta = finish.providerMetadata;
+      if (!meta?.generationId) throw new Error('Stream produced no generationId');
+      return {
+        generationId: meta.generationId,
+        inputTokens: meta.usage?.inputTokens ?? 0,
+        outputTokens: meta.usage?.outputTokens ?? 0,
+      };
+    }
+
+    it('throws loudly for a generationId this mock never minted', async () => {
+      await expect(client.getGenerationStats('forged-id-123')).rejects.toThrow(
+        /Unknown mock generationId/
+      );
+    });
+
+    it('returns per-model cost computed from catalog pricing and recorded tokens', async () => {
+      const textModel = await firstTextModel();
+      const { generationId, inputTokens, outputTokens } = await streamAndCaptureFinish(
+        textModel.id
+      );
+
+      const stats = await client.getGenerationStats(generationId);
+      const expected =
+        inputTokens * textModel.pricing.inputPerToken +
+        outputTokens * textModel.pricing.outputPerToken;
+      expect(stats.costUsd).toBeCloseTo(expected, 12);
+    });
+
+    it('throws when the recorded model has non-positive per-token pricing', async () => {
+      const textModel = await firstTextModel();
+      const { generationId } = await streamAndCaptureFinish(textModel.id);
+
+      // Poison the catalog lookup so the model resolves to zero prices. Silent
+      // $0 cost is exactly the failure mode the guard exists to prevent.
+      const zeroPricedModel = {
+        ...textModel,
+        pricing: { kind: 'token' as const, inputPerToken: 0, outputPerToken: 0 },
+      };
+      vi.spyOn(client, 'getModel').mockResolvedValueOnce(zeroPricedModel);
+
+      await expect(client.getGenerationStats(generationId)).rejects.toThrow(
+        /no usable per-token pricing/
+      );
+    });
+
+    it('throws when the recorded model resolves to a non-token pricing kind', async () => {
+      const textModel = await firstTextModel();
+      const { generationId } = await streamAndCaptureFinish(textModel.id);
+
+      const imagePricedModel = {
+        ...textModel,
+        pricing: { kind: 'image' as const, perImage: 0.04 },
+      };
+      vi.spyOn(client, 'getModel').mockResolvedValueOnce(imagePricedModel);
+
+      await expect(client.getGenerationStats(generationId)).rejects.toThrow(
+        /non-token pricing kind/
+      );
     });
   });
 

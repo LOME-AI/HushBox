@@ -174,10 +174,9 @@ describe('useDecryptedMedia', () => {
     });
 
     const { wrapper } = makeWrapper();
-    const { result } = renderHook(
-      () => useDecryptedMedia(defaultParams({ contentKey: null })),
-      { wrapper }
-    );
+    const { result } = renderHook(() => useDecryptedMedia(defaultParams({ contentKey: null })), {
+      wrapper,
+    });
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(result.current.blobUrl).toBeNull();
