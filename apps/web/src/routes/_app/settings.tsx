@@ -307,7 +307,7 @@ export function SettingsPage(): React.JSX.Element {
               }}
               data-testid="delete-account-trigger"
             >
-              Delete account…
+              Delete Account
             </Button>
           </CardContent>
         </Card>

@@ -147,7 +147,7 @@ test.describe('Account deletion', () => {
       await unauthenticatedPage.goto('/login', { waitUntil: 'domcontentloaded' });
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.login(user.email, user.password);
-      await loginPage.expectError(/incorrect password|user not found/i);
+      await loginPage.expectError(/login failed/i);
     });
   });
 
@@ -176,7 +176,7 @@ test.describe('Account deletion', () => {
       await unauthenticatedPage.goto('/login', { waitUntil: 'domcontentloaded' });
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.login(user.email, user.password);
-      await loginPage.expectError(/incorrect password|user not found/i);
+      await loginPage.expectError(/login failed/i);
     });
   });
 

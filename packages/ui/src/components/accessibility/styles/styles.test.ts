@@ -129,10 +129,56 @@ describe('accessibility styles bundle', () => {
   it('pointer.css applies a hand-cursor variant to interactive elements when a custom size is active', () => {
     const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
     // Hovering a button/card under a custom cursor should show the "clickable" cursor.
+    // Quotes inside selectors are matched as either `"` or `'` so the assertion survives
+    // Prettier's CSS-default single-quote normalization.
     expect(contents).toMatch(/html\.a11y-cursor-large button/);
-    expect(contents).toMatch(/html\.a11y-cursor-large \[role="button"]/);
-    expect(contents).toMatch(/html\.a11y-cursor-large \[data-slot="setting-card"]/);
+    expect(contents).toMatch(/html\.a11y-cursor-large \[role=['"]button['"]]/);
+    expect(contents).toMatch(/html\.a11y-cursor-large \[data-slot=['"]setting-card['"]]/);
     expect(contents).toMatch(/html\.a11y-cursor-large \.cursor-pointer/);
+  });
+
+  it('pointer.css defines a standalone a11y-cursor-white rule so the color picker works at normal size', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // Compound rules (`html.a11y-cursor-white.a11y-cursor-large`) cover white at large/xlarge,
+    // but white-at-normal needs an unchained selector. Without this, picking color=white while
+    // size=normal added the class but matched no rule — silent no-op for the user.
+    expect(contents).toMatch(
+      /html\.a11y-cursor-white\s*\{[^}]*cursor:\s*url\("data:image\/svg\+xml,/
+    );
+  });
+
+  it('pointer.css applies a hand-pointer variant to interactive elements at normal size when color is white', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // Same interactive-element coverage as the large/xlarge variants, but for normal+white.
+    expect(contents).toMatch(/html\.a11y-cursor-white button[^{]*\{[^}]*cursor:\s*url/);
+    expect(contents).toMatch(
+      /html\.a11y-cursor-white \[role=['"]button['"]][^{]*\{[^}]*cursor:\s*url/
+    );
+  });
+
+  it('pointer.css forces descendant cursor inheritance for the standalone a11y-cursor-white rule', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // Without this, element-default cursors (I-beam on inputs, etc.) would override the custom
+    // white cursor on non-interactive descendants.
+    expect(contents).toMatch(
+      /html\.a11y-cursor-white \*[^{]*\{[^}]*cursor:\s*inherit\s*!important/
+    );
+  });
+
+  it('pointer.css interactive hand-cursor SVG is a filled silhouette (not an empty outline drawing)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // The hand-pointer must read as a solid shape — an outline-only drawing
+    // (`fill='none'` on the path) looks "hollow" against the page and was
+    // the failure mode of an earlier Lucide-stroke-only implementation.
+    const match = /html\.a11y-cursor-large button[^{]*\{[^}]*cursor:\s*url\("([^"]+)"/.exec(
+      contents
+    );
+    expect(match).not.toBeNull();
+    const decoded = decodeURIComponent(match![1]!);
+    expect(decoded).toMatch(
+      /<path[^>]*\sfill=['"](?:black|white|currentColor|#[0-9a-fA-F]{3,8})['"]/
+    );
+    expect(decoded).not.toMatch(/<path[^>]*\sfill=['"]none['"]/);
   });
 
   it('pointer.css disables pointer-events on the magnifier AND its descendants (click-through)', () => {

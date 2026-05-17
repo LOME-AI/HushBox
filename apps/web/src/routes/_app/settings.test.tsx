@@ -508,7 +508,9 @@ describe('SettingsPage', () => {
     it('renders a Delete account button under the Danger zone card', () => {
       render(<SettingsPage />);
       expect(screen.getByTestId('delete-account-trigger')).toBeInTheDocument();
-      expect(screen.getByTestId('delete-account-trigger')).toHaveTextContent(/delete account/i);
+      expect(screen.getByTestId('delete-account-trigger')).toHaveTextContent(
+        /^Delete Account$/
+      );
     });
 
     it('opens the DeleteAccountModal when the Delete account button is clicked', async () => {
