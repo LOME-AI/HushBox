@@ -13,19 +13,19 @@ const KB = 1024;
 
 describe('formatBytesProgress', () => {
   it('renders loaded with one decimal MB and total as integer MB', () => {
-    expect(formatBytesProgress(32.4 * MB, 80 * MB)).toBe('32.4 / 80 MB');
+    expect(formatBytesProgress(32.4 * MB, 88 * MB)).toBe('32.4 / 88 MB');
   });
 
   it('shows 0.0 when nothing loaded yet', () => {
-    expect(formatBytesProgress(0, 80 * MB)).toBe('0.0 / 80 MB');
+    expect(formatBytesProgress(0, 88 * MB)).toBe('0.0 / 88 MB');
   });
 
   it('shows the full size when loaded == total', () => {
-    expect(formatBytesProgress(80 * MB, 80 * MB)).toBe('80.0 / 80 MB');
+    expect(formatBytesProgress(88 * MB, 88 * MB)).toBe('88.0 / 88 MB');
   });
 
   it('rounds total to nearest integer MB', () => {
-    expect(formatBytesProgress(10 * MB, 79.6 * MB)).toBe('10.0 / 80 MB');
+    expect(formatBytesProgress(10 * MB, 87.6 * MB)).toBe('10.0 / 88 MB');
   });
 });
 
@@ -63,15 +63,15 @@ describe('formatEta', () => {
 
 describe('estimateEtaSeconds', () => {
   it('returns remaining bytes divided by speed', () => {
-    expect(estimateEtaSeconds(20 * MB, 80 * MB, 4 * MB)).toBe(15);
+    expect(estimateEtaSeconds(20 * MB, 88 * MB, 4 * MB)).toBe(17);
   });
 
   it('returns 0 once loaded reaches total', () => {
-    expect(estimateEtaSeconds(80 * MB, 80 * MB, 4 * MB)).toBe(0);
+    expect(estimateEtaSeconds(88 * MB, 88 * MB, 4 * MB)).toBe(0);
   });
 
   it('returns null when speed is zero', () => {
-    expect(estimateEtaSeconds(10 * MB, 80 * MB, 0)).toBeNull();
+    expect(estimateEtaSeconds(10 * MB, 88 * MB, 0)).toBeNull();
   });
 });
 

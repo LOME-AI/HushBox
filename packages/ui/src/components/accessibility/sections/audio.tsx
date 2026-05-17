@@ -13,12 +13,12 @@ import { TTS_VOICES, getTtsService, type TtsVoice } from '../lib/tts-engine';
 import { useA11yStore } from '../store';
 import { ON_OFF_OPTIONS } from './_constants';
 
-// Rounded approximation of the q8 weights' size on the
+// Observed download size for the q8 weights on the
 // onnx-community/Kokoro-82M-v1.0-ONNX model card. Multiplied by
 // WORKER_POOL_SIZE workers on disk after first load, but the HF
 // transformers IndexedDB cache deduplicates by URL so the download is
 // paid once.
-const DOWNLOAD_SIZE_TEXT = '80 MB';
+const DOWNLOAD_SIZE_TEXT = '88 MB';
 
 async function requestPersistentStorage(): Promise<void> {
   const nav = globalThis.navigator as unknown as {
@@ -31,6 +31,40 @@ async function requestPersistentStorage(): Promise<void> {
   } catch {
     // Quota request denial is non-fatal; the cached model still works.
   }
+}
+
+function DownloadProgress({
+  bytes,
+  bytesPerSecond,
+}: {
+  readonly bytes: { loaded: number; total: number };
+  readonly bytesPerSecond: number | null;
+}): React.JSX.Element {
+  const percent = Math.min(100, Math.round((bytes.loaded / bytes.total) * 100));
+  const etaSeconds =
+    bytesPerSecond === null ? null : estimateEtaSeconds(bytes.loaded, bytes.total, bytesPerSecond);
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        role="progressbar"
+        aria-label="Read-aloud model download"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        className="bg-input h-2 w-full overflow-hidden rounded-full"
+      >
+        <div
+          className="bg-primary h-full transition-all"
+          style={{ width: `${percent.toString()}%` }}
+        />
+      </div>
+      <p className="text-muted-foreground text-xs tabular-nums">
+        {formatBytesProgress(bytes.loaded, bytes.total)}
+        {bytesPerSecond === null ? '' : ` · ${formatSpeed(bytesPerSecond)}`}
+        {etaSeconds === null || etaSeconds <= 0 ? '' : ` · ${formatEta(etaSeconds)}`}
+      </p>
+    </div>
+  );
 }
 
 function ReadAloudControls(): React.JSX.Element {
@@ -115,33 +149,7 @@ function ReadAloudControls(): React.JSX.Element {
         leaves this device.
       </p>
       {downloading && bytes !== null ? (
-        <div className="flex flex-col gap-1">
-          <div
-            role="progressbar"
-            aria-label="Read-aloud model download"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.min(100, Math.round((bytes.loaded / bytes.total) * 100))}
-            className="bg-input h-2 w-full overflow-hidden rounded-full"
-          >
-            <div
-              className="bg-primary h-full transition-all"
-              style={{
-                width: `${String(Math.min(100, Math.round((bytes.loaded / bytes.total) * 100)))}%`,
-              }}
-            />
-          </div>
-          <p className="text-muted-foreground text-xs tabular-nums">
-            {formatBytesProgress(bytes.loaded, bytes.total)}
-            {bytesPerSecond === null ? '' : ` · ${formatSpeed(bytesPerSecond)}`}
-            {(() => {
-              if (bytesPerSecond === null) return '';
-              const eta = estimateEtaSeconds(bytes.loaded, bytes.total, bytesPerSecond);
-              if (eta === null || eta <= 0) return '';
-              return ` · ${formatEta(eta)}`;
-            })()}
-          </p>
-        </div>
+        <DownloadProgress bytes={bytes} bytesPerSecond={bytesPerSecond} />
       ) : null}
       {downloading && bytes === null ? (
         <div

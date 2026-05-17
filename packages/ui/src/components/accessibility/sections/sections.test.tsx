@@ -233,7 +233,7 @@ describe('AudioSection', () => {
     render(<AudioSection />);
     expect(screen.getByRole('button', { name: /^Mute all sounds: / })).not.toBeNull();
     expect(screen.getByRole('button', { name: /^Read chat replies aloud: / })).not.toBeNull();
-    expect(screen.getByText(/80 MB, one-time download/)).not.toBeNull();
+    expect(screen.getByText(/88 MB, one-time download/)).not.toBeNull();
     expect(
       screen.getByText(/Runs entirely on your device\. No audio or text ever leaves this device/)
     ).not.toBeNull();
@@ -248,7 +248,7 @@ describe('AudioSection', () => {
     storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, ttsEnabled: true };
     render(<AudioSection />);
     expect(screen.getByRole('button', { name: /^Read chat replies aloud: / })).not.toBeNull();
-    expect(screen.getByText(/80 MB, one-time download/)).not.toBeNull();
+    expect(screen.getByText(/88 MB, one-time download/)).not.toBeNull();
   });
 
   it('does not render placeholder "Read page" / "Read selection" buttons', () => {
@@ -315,10 +315,10 @@ describe('AudioSection', () => {
     expect(ttsPreloadVoiceMock).not.toHaveBeenCalled();
   });
 
-  it('download-size disclosure shows the q8/WASM size (~80 MB) unconditionally', async () => {
+  it('download-size disclosure shows the q8/WASM size (~88 MB) unconditionally', async () => {
     render(<AudioSection />);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(screen.getByText(/80 MB, one-time download/)).not.toBeNull();
+    expect(screen.getByText(/88 MB, one-time download/)).not.toBeNull();
     expect(screen.queryByText(/330 MB/)).toBeNull();
   });
 
@@ -333,32 +333,34 @@ describe('AudioSection', () => {
     );
 
     vi.useFakeTimers();
-    vi.setSystemTime(new Date(1_700_000_000_000));
+    try {
+      vi.setSystemTime(new Date(1_700_000_000_000));
 
-    storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, ttsEnabled: false };
-    render(<AudioSection />);
-    fireEvent.click(screen.getByRole('button', { name: /^Read chat replies aloud: / }));
+      storeState.prefs = { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, ttsEnabled: false };
+      render(<AudioSection />);
+      fireEvent.click(screen.getByRole('button', { name: /^Read chat replies aloud: / }));
 
-    // Flush the microtask that invokes load() inside the handler.
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(capturedOnProgress).toBeDefined();
+      // Flush the microtask that invokes load() inside the handler.
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(capturedOnProgress).toBeDefined();
 
-    const MB = 1_048_576;
-    act(() => {
-      capturedOnProgress!(0, 80 * MB);
-    });
-    vi.setSystemTime(new Date(1_700_000_001_000));
-    act(() => {
-      capturedOnProgress!(4 * MB, 80 * MB);
-    });
+      const MB = 1_048_576;
+      act(() => {
+        capturedOnProgress!(0, 88 * MB);
+      });
+      vi.setSystemTime(new Date(1_700_000_001_000));
+      act(() => {
+        capturedOnProgress!(4 * MB, 88 * MB);
+      });
 
-    expect(screen.getByText(/4\.0 \/ 80 MB/)).not.toBeNull();
-    expect(screen.getByText(/4\.0 MB\/s/)).not.toBeNull();
-    expect(screen.getByText(/19s left/)).not.toBeNull();
-
-    vi.useRealTimers();
+      expect(screen.getByText(/4\.0 \/ 88 MB/)).not.toBeNull();
+      expect(screen.getByText(/4\.0 MB\/s/)).not.toBeNull();
+      expect(screen.getByText(/21s left/)).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
