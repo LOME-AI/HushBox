@@ -5,9 +5,6 @@ import { useNetworkStore } from '../stores/network.js';
 import { useWebsocketInboundActivityStore } from '../stores/websocket-inbound-activity.js';
 import type { RealtimeEvent, RealtimeEventType } from '@hushbox/realtime/events';
 
-// Hold the inbound-activity counter elevated for one paint cycle after each
-// event so React has time to commit state updates triggered by the event
-// before useIsSettled samples the counter back at zero.
 const INBOUND_TAIL_MS = 100;
 
 type EventListener<T extends RealtimeEventType> = (

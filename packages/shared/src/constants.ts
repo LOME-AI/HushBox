@@ -98,8 +98,8 @@ export const STORAGE_COST_PER_1K_CHARS = STORAGE_COST_PER_CHARACTER * 1000;
 /** Payment expiration time in milliseconds (30 minutes) */
 export const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
 
-/** R2 actual ($0.015) + 3x markup for backup/ops/margin */
-export const MEDIA_MONTHLY_COST_PER_GB = 0.04;
+/** R2 actual ($0.015) + 2x markup for backup/ops/margin */
+export const MEDIA_MONTHLY_COST_PER_GB = 0.03;
 
 /**
  * Storage cost per byte for media, derived with 50-year retention.

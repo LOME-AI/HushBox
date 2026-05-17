@@ -1,20 +1,25 @@
-// Kokoro TTS engine proxy. Spawns a dedicated Web Worker on first use so
-// model inference never blocks the main thread. The worker hosts the
-// kokoro-js KokoroTTS instance and its ONNX Runtime WASM/WebGPU runtime;
-// this module owns AudioContext playback and the playback queue.
+// Kokoro TTS engine proxy. Spawns a pool of dedicated Web Workers on first
+// use so multiple sentences inference in parallel without blocking the main
+// thread. Each worker hosts its own kokoro-js KokoroTTS instance running on
+// WASM with q8 weights; this module owns AudioContext playback, the
+// playback queue, and the per-slot dispatch scheduler.
 //
-// Generation and playback are pipelined: speak() enqueues a generate call
-// in the worker immediately (returning a promise that resolves whenever
-// audio comes back), and a separate `playbackChain` plays audio buffers
-// in enqueue order. Sentence N+1's inference therefore runs while
-// sentence N is playing, hiding inference latency for all but the first
-// sentence in a stream.
+// Generation and playback are pipelined: speak() enqueues a sentence in
+// the pool, the engine round-robins idle slots, and a separate
+// `playbackChain` plays audio buffers back in the original speak() call
+// order — so audio from slot N+1 finishing before slot N still queues
+// correctly behind sentence N's playback.
 
 import { isWorkerOutbound } from './tts-worker-protocol';
 import type { WorkerInbound, WorkerOutbound } from './tts-worker-protocol';
 
-/** Test-only export; do not consume in production code. */
-export { detectDevice as _detectDeviceForTesting } from './device-detect';
+/**
+ * Number of worker threads in the inference pool. Increase to fan out more
+ * concurrent sentence inference at the cost of ~80 MB of resident memory
+ * per added worker (q8 model weights duplicate per worker). Decrease for
+ * memory-constrained targets (mobile Safari has a tight per-tab budget).
+ */
+export const WORKER_POOL_SIZE = 3;
 
 export type TtsVoice = 'af_heart' | 'am_michael' | 'bf_emma' | 'bm_george' | 'af_nicole';
 
@@ -35,20 +40,20 @@ export const TTS_VOICES: readonly TtsVoiceMeta[] = [
 
 export interface TtsService {
   /**
-   * Lazy-load the model. Resolves when ready to speak (after warmup with
-   * the supplied voice — preloads that voice's embedding so the first real
-   * speak() doesn't pay an extra network fetch). Idempotent and safe to
-   * call concurrently.
+   * Lazy-load the model into every worker in the pool. Resolves when every
+   * worker has finished loadDone + warmupDone for the supplied voice.
+   * Idempotent and safe to call concurrently.
    */
   load(voice: TtsVoice, onProgress?: (loaded: number, total: number) => void): Promise<void>;
   /** True after load() resolved successfully. */
   isLoaded(): boolean;
   /**
-   * Re-warm with a different voice so its embedding is fetched up front.
-   * Call after the user changes voices. Rejects if the model is not loaded.
+   * Re-warm every worker with a different voice so its embedding is fetched
+   * up front. Call after the user changes voices. Rejects if the model is
+   * not loaded, or if any worker reports a warmupError.
    */
   preloadVoice(voice: TtsVoice): Promise<void>;
-  /** Enqueue a sentence. Resolves when audio finishes (or is stopped). Concurrent speak() calls are pipelined. */
+  /** Enqueue a sentence. Resolves when audio finishes (or is stopped). Concurrent speak() calls are pipelined across the pool. */
   speak(text: string, voice: TtsVoice): Promise<void>;
   /** Stop any in-flight audio and clear the pipeline. */
   stop(): void;
@@ -80,8 +85,8 @@ export function _setWorkerFactoryForTesting(factory: WorkerFactory | null): void
 function defaultWorkerFactory(): Worker {
   // Vite bundles workers referenced via `new URL(..., import.meta.url)` as
   // a separate chunk. `type: 'module'` matches the worker's ES module
-  // source — Vite's default `iife` format would break the static imports
-  // (kokoro-js, device-detect) at the top of tts.worker.ts.
+  // source — Vite's default `iife` format would break the static
+  // kokoro-js import at the top of tts.worker.ts.
   return new Worker(new URL('tts.worker.ts', import.meta.url), { type: 'module' });
 }
 
@@ -93,18 +98,29 @@ class CancelledError extends Error {
   }
 }
 
+interface WorkerSlot {
+  worker: Worker;
+  /**
+   * Count of outstanding workerReady messages this slot is expected to
+   * emit. 0 means the slot is idle and eligible for the next queued speak.
+   * Incremented when the engine posts a speak/warmup (either of which
+   * produces a workerReady); decremented when workerReady arrives.
+   */
+  inflight: number;
+}
+
 interface PendingLoad {
   resolve: () => void;
   reject: (error: Error) => void;
   onProgress: ((loaded: number, total: number) => void) | undefined;
-  loadDone: boolean;
-  warmupSettled: boolean;
-  loadRequestId: string;
-  warmupRequestId: string | null;
   voice: TtsVoice;
+  loadRequestIdBySlot: string[];
+  warmupRequestIdBySlot: (string | null)[];
+  loadDoneBySlot: boolean[];
+  warmupSettledBySlot: boolean[];
 }
 
-interface PendingPreload {
+interface PendingWarmup {
   resolve: () => void;
   reject: (error: Error) => void;
 }
@@ -114,20 +130,35 @@ interface PendingSpeak {
   rejectAudio: (error: Error) => void;
 }
 
+interface QueuedSpeak {
+  requestId: string;
+  text: string;
+  voice: TtsVoice;
+}
+
 class WorkerKokoroTtsService implements TtsService {
-  private worker: Worker | null = null;
+  private workers: WorkerSlot[] = [];
   private loaded = false;
   private pendingLoad: PendingLoad | null = null;
   private loadPromise: Promise<void> | null = null;
-  private pendingPreloads = new Map<string, PendingPreload>();
+  /**
+   * One entry per in-flight preloadVoice warmup (separate from load-lifecycle
+   * warmups which live on `pendingLoad.warmupRequestIdBySlot`). Keyed by the
+   * individual per-slot warmup requestId — preloadVoice fans out N entries
+   * and Promise.all aggregates them.
+   */
+  private pendingPreloads = new Map<string, PendingWarmup>();
   private pendingSpeaks = new Map<string, PendingSpeak>();
+  /** requestId → slotIndex so stop() can route cancel to the right worker. */
+  private speakSlotByRequestId = new Map<string, number>();
+  /** FIFO queue of sentences waiting for an idle slot. */
+  private pendingQueue: QueuedSpeak[] = [];
   private audioCtx: AudioContext | null = null;
   // Sample-accurate playback scheduling: nextStartTime tracks the absolute
   // AudioContext time at which the *next* buffer should begin, so back-to-
-  // back sentences play with zero gap (the 5-30ms `'ended'`-event jitter is
-  // eliminated). scheduledSources holds every buffer that has been
-  // `start()`ed but not yet `'ended'`; stop() walks the set so pre-scheduled
-  // future buffers are cancelled too.
+  // back sentences play with zero gap. scheduledSources holds every buffer
+  // that has been `start()`ed but not yet `'ended'`; stop() walks the set
+  // so pre-scheduled future buffers are cancelled too.
   private nextStartTime = 0;
   private scheduledSources = new Set<AudioBufferSourceNode>();
   private playbackChain: Promise<void> = Promise.resolve();
@@ -138,23 +169,36 @@ class WorkerKokoroTtsService implements TtsService {
     if (this.loaded) return Promise.resolve();
     if (this.loadPromise !== null) return this.loadPromise;
 
-    this.worker ??= this.spawnWorker();
-    const loadRequestId = newRequestId();
+    if (this.workers.length === 0) {
+      for (let slotIndex = 0; slotIndex < WORKER_POOL_SIZE; slotIndex++) {
+        this.workers.push(this.spawnWorkerForSlot(slotIndex));
+      }
+    }
+
+    const loadRequestIdBySlot: string[] = [];
+    for (let slotIndex = 0; slotIndex < WORKER_POOL_SIZE; slotIndex++) {
+      loadRequestIdBySlot.push(newRequestId());
+    }
 
     this.loadPromise = new Promise<void>((resolve, reject) => {
       this.pendingLoad = {
         resolve,
         reject,
         onProgress,
-        loadDone: false,
-        warmupSettled: false,
-        loadRequestId,
-        warmupRequestId: null,
         voice,
+        loadRequestIdBySlot,
+        warmupRequestIdBySlot: Array.from({ length: WORKER_POOL_SIZE }, (): string | null => null),
+        loadDoneBySlot: Array.from({ length: WORKER_POOL_SIZE }, (): boolean => false),
+        warmupSettledBySlot: Array.from({ length: WORKER_POOL_SIZE }, (): boolean => false),
       };
     });
 
-    this.postToWorker({ type: 'load', requestId: loadRequestId });
+    for (const [slotIndex, slot] of this.workers.entries()) {
+      const reqId = loadRequestIdBySlot[slotIndex];
+      if (reqId === undefined) continue;
+      this.postToSlot(slot, { type: 'load', requestId: reqId });
+    }
+
     return this.loadPromise;
   }
 
@@ -162,11 +206,17 @@ class WorkerKokoroTtsService implements TtsService {
     if (!this.loaded) {
       return Promise.reject(new Error('TTS engine is not loaded — call load() first'));
     }
-    const requestId = newRequestId();
-    return new Promise<void>((resolve, reject) => {
-      this.pendingPreloads.set(requestId, { resolve, reject });
-      this.postToWorker({ type: 'warmup', requestId, voice });
+    const perSlotPromises = this.workers.map((slot) => {
+      const requestId = newRequestId();
+      return new Promise<void>((resolve, reject) => {
+        this.pendingPreloads.set(requestId, { resolve, reject });
+        slot.inflight++;
+        this.postToSlot(slot, { type: 'warmup', requestId, voice });
+      });
     });
+    return (async (): Promise<void> => {
+      await Promise.all(perSlotPromises);
+    })();
   }
 
   isLoaded(): boolean {
@@ -194,20 +244,20 @@ class WorkerKokoroTtsService implements TtsService {
         this.pendingSpeaks.set(requestId, { resolveAudio: resolve, rejectAudio: reject });
       }
     );
-    this.postToWorker({ type: 'speak', requestId, text, voice });
+    this.pendingQueue.push({ requestId, text, voice });
+    this.dispatchPending();
 
     // Two-stage chain: `playbackChain` serializes the *scheduling* step (so
-    // nextStartTime is computed in order), and advances as soon as the
-    // current sentence's source has been `start()`ed — not after `'ended'`.
-    // That lets sentence N+1's source be scheduled at sentence N's end-time
-    // while N is still playing, eliminating the inter-buffer gap.
+    // nextStartTime is computed in original speak() order even when workers
+    // finish out of order), and advances as soon as the current sentence's
+    // source has been `start()`ed — not after `'ended'`. That lets sentence
+    // N+1's source be scheduled at sentence N's end-time while N is still
+    // playing, eliminating the inter-buffer gap.
     const previousChain = this.playbackChain;
     let signalScheduled!: () => void;
     const scheduled = new Promise<void>((resolve) => {
       signalScheduled = resolve;
     });
-    // Chain advances regardless of success/failure so a single failed
-    // sentence doesn't deadlock subsequent ones.
     this.playbackChain = (async (): Promise<void> => {
       try {
         await scheduled;
@@ -239,11 +289,35 @@ class WorkerKokoroTtsService implements TtsService {
 
   stop(): void {
     this.playbackChain = Promise.resolve();
-    for (const [requestId, entry] of this.pendingSpeaks) {
-      this.postToWorker({ type: 'cancel', requestId });
-      entry.rejectAudio(new CancelledError());
+    this.rejectQueuedSpeaks();
+    this.cancelInflightSpeaks();
+    this.stopAllScheduledSources();
+    this.nextStartTime = 0;
+  }
+
+  private rejectQueuedSpeaks(): void {
+    for (const item of this.pendingQueue) {
+      const speak = this.pendingSpeaks.get(item.requestId);
+      if (speak === undefined) continue;
+      this.pendingSpeaks.delete(item.requestId);
+      speak.rejectAudio(new CancelledError());
     }
-    this.pendingSpeaks.clear();
+    this.pendingQueue.length = 0;
+  }
+
+  private cancelInflightSpeaks(): void {
+    for (const [requestId, slotIndex] of this.speakSlotByRequestId) {
+      const slot = this.workers[slotIndex];
+      if (slot !== undefined) this.postToSlot(slot, { type: 'cancel', requestId });
+      const speak = this.pendingSpeaks.get(requestId);
+      if (speak === undefined) continue;
+      this.pendingSpeaks.delete(requestId);
+      speak.rejectAudio(new CancelledError());
+    }
+    this.speakSlotByRequestId.clear();
+  }
+
+  private stopAllScheduledSources(): void {
     // Multiple sources may be pre-scheduled at once (sample-accurate
     // pipeline). Stop all of them — the second sentence might already be
     // queued to start at a future AudioContext.currentTime.
@@ -255,53 +329,73 @@ class WorkerKokoroTtsService implements TtsService {
       }
     }
     this.scheduledSources.clear();
-    this.nextStartTime = 0;
   }
 
   terminate(): void {
-    this.worker?.terminate();
-    this.worker = null;
+    for (const slot of this.workers) slot.worker.terminate();
+    this.workers = [];
     this.loaded = false;
     this.pendingLoad = null;
     this.loadPromise = null;
     this.pendingPreloads.clear();
     this.pendingSpeaks.clear();
+    this.speakSlotByRequestId.clear();
+    this.pendingQueue.length = 0;
   }
 
-  private spawnWorker(): Worker {
+  private spawnWorkerForSlot(slotIndex: number): WorkerSlot {
     const worker = this.factory();
+    const slot: WorkerSlot = { worker, inflight: 0 };
     worker.addEventListener('message', (event: MessageEvent) => {
       const data = (event as MessageEvent<unknown>).data;
       if (!isWorkerOutbound(data)) return;
-      this.handleWorkerMessage(data);
+      this.handleWorkerMessage(slotIndex, slot, data);
     });
-    return worker;
+    return slot;
   }
 
-  private postToWorker(msg: WorkerInbound): void {
-    this.worker?.postMessage(msg);
+  private postToSlot(slot: WorkerSlot, msg: WorkerInbound): void {
+    slot.worker.postMessage(msg);
   }
 
-  private handleWorkerMessage(msg: WorkerOutbound): void {
+  private dispatchPending(): void {
+    while (this.pendingQueue.length > 0) {
+      const slotIndex = this.workers.findIndex((s) => s.inflight === 0);
+      if (slotIndex === -1) return;
+      const slot = this.workers[slotIndex];
+      const item = this.pendingQueue.shift();
+      if (slot === undefined || item === undefined) return;
+      slot.inflight++;
+      this.speakSlotByRequestId.set(item.requestId, slotIndex);
+      this.postToSlot(slot, {
+        type: 'speak',
+        requestId: item.requestId,
+        text: item.text,
+        voice: item.voice,
+      });
+    }
+  }
+
+  private handleWorkerMessage(slotIndex: number, slot: WorkerSlot, msg: WorkerOutbound): void {
     switch (msg.type) {
       case 'loadProgress': {
-        this.onLoadProgress(msg.requestId, msg.loaded, msg.total);
+        this.onLoadProgress(slotIndex, msg.requestId, msg.loaded, msg.total);
         return;
       }
       case 'loadDone': {
-        this.onLoadDone(msg.requestId);
+        this.onLoadDone(slotIndex, slot, msg.requestId);
         return;
       }
       case 'loadError': {
-        this.onLoadError(msg.requestId, msg.message);
+        this.onLoadError(slotIndex, msg.requestId, msg.message);
         return;
       }
       case 'warmupDone': {
-        this.onWarmupSettled(msg.requestId, null);
+        this.onWarmupSettled(slotIndex, msg.requestId, null);
         return;
       }
       case 'warmupError': {
-        this.onWarmupSettled(msg.requestId, msg.message);
+        this.onWarmupSettled(slotIndex, msg.requestId, msg.message);
         return;
       }
       case 'speakReady': {
@@ -312,37 +406,60 @@ class WorkerKokoroTtsService implements TtsService {
         this.onSpeakError(msg.requestId, msg.message);
         return;
       }
+      case 'workerReady': {
+        this.onWorkerReady(slot);
+        return;
+      }
     }
   }
 
-  private onLoadProgress(requestId: string, loaded: number, total: number): void {
+  private onLoadProgress(
+    slotIndex: number,
+    requestId: string,
+    loaded: number,
+    total: number
+  ): void {
+    // Only forward progress from slot 0 — the others read the freshly cached
+    // weights from IndexedDB after slot 0 finishes downloading, so their
+    // progress events would over-report.
+    if (slotIndex !== 0) return;
     const pending = this.pendingLoad;
     if (pending === null) return;
-    if (pending.loadRequestId !== requestId) return;
+    if (pending.loadRequestIdBySlot[0] !== requestId) return;
     pending.onProgress?.(loaded, total);
   }
 
-  private onLoadDone(requestId: string): void {
+  private onLoadDone(slotIndex: number, slot: WorkerSlot, requestId: string): void {
     const pending = this.pendingLoad;
     if (pending === null) return;
-    if (pending.loadRequestId !== requestId) return;
-    if (pending.loadDone) return;
-    pending.loadDone = true;
+    if (pending.loadRequestIdBySlot[slotIndex] !== requestId) return;
+    if (pending.loadDoneBySlot[slotIndex]) return;
+    pending.loadDoneBySlot[slotIndex] = true;
     const warmupRequestId = newRequestId();
-    pending.warmupRequestId = warmupRequestId;
-    this.postToWorker({ type: 'warmup', requestId: warmupRequestId, voice: pending.voice });
+    pending.warmupRequestIdBySlot[slotIndex] = warmupRequestId;
+    slot.inflight++;
+    this.postToSlot(slot, {
+      type: 'warmup',
+      requestId: warmupRequestId,
+      voice: pending.voice,
+    });
   }
 
-  private onLoadError(requestId: string, message: string): void {
+  private onLoadError(slotIndex: number, requestId: string, message: string): void {
     const pending = this.pendingLoad;
     if (pending === null) return;
-    if (pending.loadRequestId !== requestId) return;
+    if (pending.loadRequestIdBySlot[slotIndex] !== requestId) return;
+    // Fail-fast: a partial pool is meaningless. Reject the load() promise
+    // and clear pendingLoad so subsequent stale messages from other slots
+    // are ignored.
     this.pendingLoad = null;
     this.loadPromise = null;
     pending.reject(new Error(message));
   }
 
-  private onWarmupSettled(requestId: string, errorMessage: string | null): void {
+  private onWarmupSettled(slotIndex: number, requestId: string, errorMessage: string | null): void {
+    // preloadVoice (voice-change) path: each fan-out warmup has its own
+    // requestId in pendingPreloads.
     const preload = this.pendingPreloads.get(requestId);
     if (preload !== undefined) {
       this.pendingPreloads.delete(requestId);
@@ -353,20 +470,25 @@ class WorkerKokoroTtsService implements TtsService {
       }
       return;
     }
+    // Load-lifecycle warmup: warmupError is best-effort — first speak just
+    // pays the embedding-fetch cost. Both Done and Error count as settled.
     const pending = this.pendingLoad;
     if (pending === null) return;
-    if (pending.warmupRequestId !== requestId) return;
-    pending.warmupSettled = true;
-    if (!pending.loadDone) return;
-    this.pendingLoad = null;
-    this.loaded = true;
-    pending.resolve();
+    if (pending.warmupRequestIdBySlot[slotIndex] !== requestId) return;
+    if (pending.warmupSettledBySlot[slotIndex]) return;
+    pending.warmupSettledBySlot[slotIndex] = true;
+    if (pending.loadDoneBySlot.every(Boolean) && pending.warmupSettledBySlot.every(Boolean)) {
+      this.pendingLoad = null;
+      this.loaded = true;
+      pending.resolve();
+    }
   }
 
   private onSpeakReady(requestId: string, audio: Float32Array, samplingRate: number): void {
     const entry = this.pendingSpeaks.get(requestId);
     if (entry === undefined) return;
     this.pendingSpeaks.delete(requestId);
+    this.speakSlotByRequestId.delete(requestId);
     entry.resolveAudio({ audio, samplingRate });
   }
 
@@ -374,7 +496,13 @@ class WorkerKokoroTtsService implements TtsService {
     const entry = this.pendingSpeaks.get(requestId);
     if (entry === undefined) return;
     this.pendingSpeaks.delete(requestId);
+    this.speakSlotByRequestId.delete(requestId);
     entry.rejectAudio(new Error(message));
+  }
+
+  private onWorkerReady(slot: WorkerSlot): void {
+    if (slot.inflight > 0) slot.inflight--;
+    this.dispatchPending();
   }
 
   /**

@@ -50,7 +50,7 @@ describe('createWorkerHandler', () => {
   });
 
   describe('load', () => {
-    it('calls KokoroTTS.from_pretrained with the documented model id and dtype', async () => {
+    it('calls KokoroTTS.from_pretrained with the documented model id, q8 dtype, and wasm device', async () => {
       const { ctx, posts } = captureContext();
       const handler = createWorkerHandler(ctx);
       await handler({ type: 'load', requestId: 'L1' });
@@ -58,7 +58,7 @@ describe('createWorkerHandler', () => {
       const [modelId, options] = fromPretrainedMock.mock.calls[0]!;
       expect(modelId).toBe('onnx-community/Kokoro-82M-v1.0-ONNX');
       expect(options.dtype).toBe('q8');
-      expect(['wasm', 'webgpu']).toContain(options.device);
+      expect(options.device).toBe('wasm');
       const types = posts.map((p) => p.msg.type);
       expect(types).toContain('loadDone');
     });
@@ -68,7 +68,9 @@ describe('createWorkerHandler', () => {
       const handler = createWorkerHandler(ctx);
       await handler({ type: 'load', requestId: 'L42' });
       const done = posts.find((p) => p.msg.type === 'loadDone');
-      expect(done?.msg.requestId).toBe('L42');
+      expect(
+        (done?.msg as Extract<WorkerOutbound, { type: 'loadDone' }> | undefined)?.requestId
+      ).toBe('L42');
     });
 
     it('forwards kokoro progress events as loadProgress messages', async () => {
@@ -106,127 +108,7 @@ describe('createWorkerHandler', () => {
       expect(progresses).toHaveLength(0);
     });
 
-    it('uses dtype fp32 when device detection picks webgpu (clean audio + 3-5x faster)', async () => {
-      type WindowWithCapacitor = Window & {
-        Capacitor?: { isNativePlatform?: () => boolean };
-      };
-      const originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
-      delete (globalThis.window as WindowWithCapacitor).Capacitor;
-      (navigator as unknown as { gpu?: unknown }).gpu = {
-        requestAdapter: () => Promise.resolve({}),
-      };
-
-      const { ctx } = captureContext();
-      const handler = createWorkerHandler(ctx);
-      await handler({ type: 'load', requestId: 'DTYPE-GPU' });
-      expect(fromPretrainedMock).toHaveBeenCalledTimes(1);
-      const options = fromPretrainedMock.mock.calls[0]![1];
-      expect(options.device).toBe('webgpu');
-      expect(options.dtype).toBe('fp32');
-
-      if (originalGpu === undefined) {
-        delete (navigator as unknown as { gpu?: unknown }).gpu;
-      } else {
-        (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
-      }
-    });
-
-    it('uses dtype q8 when device detection picks wasm (smaller download, quantized for CPU)', async () => {
-      type WindowWithCapacitor = Window & {
-        Capacitor?: { isNativePlatform?: () => boolean };
-      };
-      const originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
-      delete (globalThis.window as WindowWithCapacitor).Capacitor;
-      delete (navigator as unknown as { gpu?: unknown }).gpu;
-
-      const { ctx } = captureContext();
-      const handler = createWorkerHandler(ctx);
-      await handler({ type: 'load', requestId: 'DTYPE-WASM' });
-      expect(fromPretrainedMock).toHaveBeenCalledTimes(1);
-      const options = fromPretrainedMock.mock.calls[0]![1];
-      expect(options.device).toBe('wasm');
-      expect(options.dtype).toBe('q8');
-
-      if (originalGpu !== undefined) {
-        (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
-      }
-    });
-
-    it('webgpu→wasm fallback retains dtype fp32 so the already-downloaded model is reused', async () => {
-      type WindowWithCapacitor = Window & {
-        Capacitor?: { isNativePlatform?: () => boolean };
-      };
-      const originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
-      delete (globalThis.window as WindowWithCapacitor).Capacitor;
-      (navigator as unknown as { gpu?: unknown }).gpu = {
-        requestAdapter: () => Promise.resolve({}),
-      };
-
-      let calls = 0;
-      fromPretrainedMock.mockImplementation(() => {
-        calls += 1;
-        if (calls === 1) return Promise.reject(new Error('GPU device init failed'));
-        return Promise.resolve({ generate: generateMock });
-      });
-
-      const { ctx } = captureContext();
-      const handler = createWorkerHandler(ctx);
-      await handler({ type: 'load', requestId: 'DTYPE-FALLBACK' });
-
-      expect(fromPretrainedMock).toHaveBeenCalledTimes(2);
-      expect(fromPretrainedMock.mock.calls[0]![1].device).toBe('webgpu');
-      expect(fromPretrainedMock.mock.calls[0]![1].dtype).toBe('fp32');
-      expect(fromPretrainedMock.mock.calls[1]![1].device).toBe('wasm');
-      expect(fromPretrainedMock.mock.calls[1]![1].dtype).toBe('fp32');
-
-      if (originalGpu === undefined) {
-        delete (navigator as unknown as { gpu?: unknown }).gpu;
-      } else {
-        (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
-      }
-    });
-
-    it('falls back from webgpu to wasm when the first attempt fails', async () => {
-      type WindowWithCapacitor = Window & {
-        Capacitor?: { isNativePlatform?: () => boolean };
-      };
-      const originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
-      delete (globalThis.window as WindowWithCapacitor).Capacitor;
-      (navigator as unknown as { gpu?: unknown }).gpu = {
-        requestAdapter: () => Promise.resolve({}),
-      };
-
-      let calls = 0;
-      fromPretrainedMock.mockImplementation(() => {
-        calls += 1;
-        if (calls === 1) return Promise.reject(new Error('GPU init failed'));
-        return Promise.resolve({ generate: generateMock });
-      });
-
-      const { ctx, posts } = captureContext();
-      const handler = createWorkerHandler(ctx);
-      await handler({ type: 'load', requestId: 'F1' });
-
-      expect(fromPretrainedMock).toHaveBeenCalledTimes(2);
-      expect(fromPretrainedMock.mock.calls[0]![1].device).toBe('webgpu');
-      expect(fromPretrainedMock.mock.calls[1]![1].device).toBe('wasm');
-      expect(posts.some((p) => p.msg.type === 'loadDone')).toBe(true);
-
-      if (originalGpu === undefined) {
-        delete (navigator as unknown as { gpu?: unknown }).gpu;
-      } else {
-        (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
-      }
-    });
-
-    it('posts loadError when wasm fallback also fails', async () => {
-      type WindowWithCapacitor = Window & {
-        Capacitor?: { isNativePlatform?: () => boolean };
-      };
-      const originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
-      delete (globalThis.window as WindowWithCapacitor).Capacitor;
-      delete (navigator as unknown as { gpu?: unknown }).gpu;
-
+    it('posts loadError when from_pretrained throws', async () => {
       fromPretrainedMock.mockRejectedValueOnce(new Error('network unreachable'));
 
       const { ctx, posts } = captureContext();
@@ -238,10 +120,17 @@ describe('createWorkerHandler', () => {
       expect((errorMsg!.msg as Extract<WorkerOutbound, { type: 'loadError' }>).message).toContain(
         'network unreachable'
       );
+    });
 
-      if (originalGpu !== undefined) {
-        (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
-      }
+    it('does NOT post workerReady after loadDone — warmup is auto-issued next, workerReady waits for warmupDone', async () => {
+      const { ctx, posts } = captureContext();
+      const handler = createWorkerHandler(ctx);
+      await handler({ type: 'load', requestId: 'L-NOREADY' });
+      const loadDoneIndex = posts.findIndex((p) => p.msg.type === 'loadDone');
+      const workerReadyAfter = posts
+        .slice(loadDoneIndex + 1)
+        .find((p) => p.msg.type === 'workerReady');
+      expect(workerReadyAfter).toBeUndefined();
     });
   });
 
@@ -254,18 +143,49 @@ describe('createWorkerHandler', () => {
       await handler({ type: 'warmup', requestId: 'W1', voice: 'af_heart' });
       expect(generateMock).toHaveBeenCalledTimes(1);
       const [warmupText, warmupOptions] = generateMock.mock.calls[0]!;
-      // Multi-word sentence with mixed punctuation: forces ORT/WebGPU to compile
+      // Multi-word sentence with mixed punctuation: forces ORT to compile
       // more kernel-shape variants up front so the first real generation
-      // doesn't pay a graph/shader-compilation tax.
+      // doesn't pay a graph-compilation tax.
       expect(typeof warmupText).toBe('string');
       expect((warmupText as string).split(/\s+/).length).toBeGreaterThanOrEqual(5);
       expect(warmupText as string).toMatch(/[,;:]/);
       expect(warmupText as string).toMatch(/[.!?]$/);
       expect(warmupOptions).toEqual({ voice: 'af_heart' });
       const done = posts.find((p) => p.msg.type === 'warmupDone');
-      expect(done?.msg.requestId).toBe('W1');
+      expect(
+        (done?.msg as Extract<WorkerOutbound, { type: 'warmupDone' }> | undefined)?.requestId
+      ).toBe('W1');
       const ready = posts.find((p) => p.msg.type === 'speakReady');
       expect(ready).toBeUndefined();
+    });
+
+    it('posts workerReady after warmupDone so the engine can mark the slot idle', async () => {
+      const { ctx, posts } = captureContext();
+      const handler = createWorkerHandler(ctx);
+      await handler({ type: 'load', requestId: 'L' });
+      await handler({ type: 'warmup', requestId: 'WR1', voice: 'af_heart' });
+      await flush();
+      const warmupDoneIndex = posts.findIndex(
+        (p) => p.msg.type === 'warmupDone' && p.msg.requestId === 'WR1'
+      );
+      expect(warmupDoneIndex).toBeGreaterThanOrEqual(0);
+      const readyAfter = posts.slice(warmupDoneIndex + 1).find((p) => p.msg.type === 'workerReady');
+      expect(readyAfter).toBeDefined();
+    });
+
+    it('posts workerReady after warmupError so the engine can mark the slot idle', async () => {
+      const { ctx, posts } = captureContext();
+      const handler = createWorkerHandler(ctx);
+      await handler({ type: 'load', requestId: 'L' });
+      generateMock.mockRejectedValueOnce(new Error('warmup boom'));
+      await handler({ type: 'warmup', requestId: 'WR-ERR', voice: 'af_heart' });
+      await flush();
+      const errIndex = posts.findIndex(
+        (p) => p.msg.type === 'warmupError' && p.msg.requestId === 'WR-ERR'
+      );
+      expect(errIndex).toBeGreaterThanOrEqual(0);
+      const readyAfter = posts.slice(errIndex + 1).find((p) => p.msg.type === 'workerReady');
+      expect(readyAfter).toBeDefined();
     });
 
     it('uses the voice passed in the warmup message so the user-selected voice embedding is fetched up front', async () => {
@@ -340,8 +260,10 @@ describe('createWorkerHandler', () => {
 
       // Sequential: 'a' must finish before 'b' starts.
       expect(order).toEqual(['start:a', 'end:a', 'start:b', 'end:b']);
-      const readys = posts.filter((p) => p.msg.type === 'speakReady');
-      expect(readys.map((r) => r.msg.requestId)).toEqual(['A', 'B']);
+      const readys = posts
+        .filter((p) => p.msg.type === 'speakReady')
+        .map((r) => r.msg as Extract<WorkerOutbound, { type: 'speakReady' }>);
+      expect(readys.map((r) => r.requestId)).toEqual(['A', 'B']);
     });
 
     it('posts speakError when generate throws', async () => {
@@ -356,6 +278,37 @@ describe('createWorkerHandler', () => {
       const errMsg = err!.msg as Extract<WorkerOutbound, { type: 'speakError' }>;
       expect(errMsg.requestId).toBe('E');
       expect(errMsg.message).toContain('inference died');
+    });
+
+    it('posts workerReady after speakReady so the engine can dispatch the next queued sentence', async () => {
+      const { ctx, posts } = captureContext();
+      const handler = createWorkerHandler(ctx);
+      await handler({ type: 'load', requestId: 'L' });
+      await handler({ type: 'speak', requestId: 'SR1', text: 'a', voice: 'af_heart' });
+      await flush();
+      const readyIndex = posts.findIndex(
+        (p) => p.msg.type === 'speakReady' && p.msg.requestId === 'SR1'
+      );
+      expect(readyIndex).toBeGreaterThanOrEqual(0);
+      const workerReadyAfter = posts
+        .slice(readyIndex + 1)
+        .find((p) => p.msg.type === 'workerReady');
+      expect(workerReadyAfter).toBeDefined();
+    });
+
+    it('posts workerReady after speakError so the engine still marks the slot idle on failure', async () => {
+      const { ctx, posts } = captureContext();
+      const handler = createWorkerHandler(ctx);
+      await handler({ type: 'load', requestId: 'L' });
+      generateMock.mockRejectedValueOnce(new Error('boom'));
+      await handler({ type: 'speak', requestId: 'SE1', text: 'x', voice: 'af_heart' });
+      await flush();
+      const errIndex = posts.findIndex(
+        (p) => p.msg.type === 'speakError' && p.msg.requestId === 'SE1'
+      );
+      expect(errIndex).toBeGreaterThanOrEqual(0);
+      const workerReadyAfter = posts.slice(errIndex + 1).find((p) => p.msg.type === 'workerReady');
+      expect(workerReadyAfter).toBeDefined();
     });
   });
 
@@ -384,8 +337,10 @@ describe('createWorkerHandler', () => {
       await flush();
       await flush();
 
-      const readys = posts.filter((p) => p.msg.type === 'speakReady');
-      const readyIds = readys.map((r) => r.msg.requestId);
+      const readys = posts
+        .filter((p) => p.msg.type === 'speakReady')
+        .map((r) => r.msg as Extract<WorkerOutbound, { type: 'speakReady' }>);
+      const readyIds = readys.map((r) => r.requestId);
       expect(readyIds).toContain('A');
       expect(readyIds).not.toContain('B');
     });
@@ -412,6 +367,35 @@ describe('createWorkerHandler', () => {
 
       const ready = posts.find((p) => p.msg.type === 'speakReady' && p.msg.requestId === 'C');
       expect(ready).toBeUndefined();
+    });
+
+    it('posts workerReady once a cancelled speak finishes draining (no speakReady, still ready signal)', async () => {
+      const { ctx, posts } = captureContext();
+      const handler = createWorkerHandler(ctx);
+      await handler({ type: 'load', requestId: 'L' });
+
+      let blockerResolve: (() => void) | null = null;
+      const blocker = new Promise<void>((resolve) => {
+        blockerResolve = resolve;
+      });
+      generateMock.mockImplementationOnce(async () => {
+        await blocker;
+        return { audio: new Float32Array(10), sampling_rate: 24_000 };
+      });
+
+      const readyCountBefore = posts.filter((p) => p.msg.type === 'workerReady').length;
+      await handler({ type: 'speak', requestId: 'CWR', text: 'c', voice: 'af_heart' });
+      await handler({ type: 'cancel', requestId: 'CWR' });
+      blockerResolve!();
+      await flush();
+      await flush();
+
+      const readyCountAfter = posts.filter((p) => p.msg.type === 'workerReady').length;
+      expect(readyCountAfter).toBe(readyCountBefore + 1);
+      const speakReady = posts.find(
+        (p) => p.msg.type === 'speakReady' && p.msg.requestId === 'CWR'
+      );
+      expect(speakReady).toBeUndefined();
     });
   });
 });

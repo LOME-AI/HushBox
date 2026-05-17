@@ -201,6 +201,41 @@ describe('filterMessagesForFork', () => {
     expect(fork1.map((m) => m.id)).toEqual(['u1', 'a1', 'u3', 'a3_claude', 'a3_gpt']);
   });
 
+  it('keeps a multi-model assistant sibling on the source branch after the other fork grows', () => {
+    // Multi-model conversation with three image responses:
+    //   u1 → [a1, a2, a3]  (Main tip = a3, the latest sequenceNumber)
+    //
+    // The user forks on a1 (Fork 1's tip = a1), then sends a follow-up on
+    // Fork 1 creating u4 → a5 underneath a1. Main's tip is unchanged, but
+    // a1 now has a child (u4) that is NOT in Main's ancestor chain.
+    //
+    // Expected: Main still includes [u1, a1, a2, a3] — the assistant
+    // siblings of a3 (a1 and a2) are parallel multi-model responses to the
+    // same prompt (u1) and must travel with that prompt regardless of what
+    // happens below a1 on another fork.
+    const messages = [
+      makeMessage({ id: 'u1', parentMessageId: null, role: 'user' }),
+      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant' }),
+      makeMessage({ id: 'a2', parentMessageId: 'u1', role: 'assistant' }),
+      makeMessage({ id: 'a3', parentMessageId: 'u1', role: 'assistant' }),
+      // Follow-up sent on Fork 1 (under a1):
+      makeMessage({ id: 'u4', parentMessageId: 'a1', role: 'user' }),
+      makeMessage({ id: 'a5', parentMessageId: 'u4', role: 'assistant' }),
+    ];
+
+    const forks = [
+      { id: 'fmain', conversationId: 'conv-1', name: 'Main', tipMessageId: 'a3', createdAt: '' },
+      { id: 'ffork', conversationId: 'conv-1', name: 'Fork 1', tipMessageId: 'a5', createdAt: '' },
+    ];
+
+    const main = filterMessagesForFork(messages, forks, 'fmain');
+    expect(main.map((m) => m.id)).toEqual(['u1', 'a1', 'a2', 'a3']);
+
+    // Sanity: Fork 1 still gets its own chain plus the parallel-batch siblings.
+    const fork = filterMessagesForFork(messages, forks, 'ffork');
+    expect(fork.map((m) => m.id)).toEqual(['u1', 'a1', 'a2', 'a3', 'u4', 'a5']);
+  });
+
   it('prevents infinite loop on circular parentMessageId references', () => {
     // Pathological: m1 → m2 → m1 (circular)
     const messages = [

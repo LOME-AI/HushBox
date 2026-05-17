@@ -15,9 +15,6 @@ export function VerifyPage(): React.JSX.Element {
   const search = useSearch({ from: '/_auth/verify' });
   const [state, setState] = useState<VerifyState>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
-  // The email-verify token is single-use server-side: a successful POST nulls
-  // the row, so a repeat call returns INVALID_OR_EXPIRED_TOKEN. Guard against
-  // any re-fire of the effect for the same token within this component instance.
   const sentForTokenRef = useRef<string | null>(null);
 
   const token = (search as { token?: string }).token;

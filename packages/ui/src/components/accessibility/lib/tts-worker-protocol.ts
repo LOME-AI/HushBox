@@ -6,6 +6,11 @@
  * in-flight calls can be correlated with their responses. Audio buffers are
  * sent back as transferables (`postMessage(msg, [msg.audio.buffer])`) so
  * crossing the thread boundary is zero-copy.
+ *
+ * `workerReady` is the one outbound message that does NOT carry a requestId:
+ * it's a per-worker readiness signal so the engine can dispatch the next
+ * queued sentence to this worker. The engine identifies the source worker
+ * via the message listener's closure, not via the payload.
  */
 
 import type { TtsVoice } from './tts-engine';
@@ -23,9 +28,10 @@ export type WorkerOutbound =
   | { type: 'warmupDone'; requestId: string }
   | { type: 'warmupError'; requestId: string; message: string }
   | { type: 'speakReady'; requestId: string; audio: Float32Array; samplingRate: number }
-  | { type: 'speakError'; requestId: string; message: string };
+  | { type: 'speakError'; requestId: string; message: string }
+  | { type: 'workerReady' };
 
-const OUTBOUND_TYPES: ReadonlySet<string> = new Set([
+const OUTBOUND_TYPES_WITH_REQUEST_ID: ReadonlySet<string> = new Set([
   'loadProgress',
   'loadDone',
   'loadError',
@@ -35,9 +41,13 @@ const OUTBOUND_TYPES: ReadonlySet<string> = new Set([
   'speakError',
 ]);
 
+const OUTBOUND_TYPES_WITHOUT_REQUEST_ID: ReadonlySet<string> = new Set(['workerReady']);
+
 export function isWorkerOutbound(value: unknown): value is WorkerOutbound {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as { type?: unknown; requestId?: unknown };
-  if (typeof v.type !== 'string' || typeof v.requestId !== 'string') return false;
-  return OUTBOUND_TYPES.has(v.type);
+  if (typeof v.type !== 'string') return false;
+  if (OUTBOUND_TYPES_WITHOUT_REQUEST_ID.has(v.type)) return true;
+  if (!OUTBOUND_TYPES_WITH_REQUEST_ID.has(v.type)) return false;
+  return typeof v.requestId === 'string';
 }

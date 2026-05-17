@@ -100,7 +100,7 @@ We charge **9.5%** on AI model usage and **$0.0003** per 1,000 characters for st
   <img alt="Pricing breakdown" src=".github/readme/pricing-light.svg" width="100%">
 </picture>
 
-Storage is cheap. $1 covers over 16,666 average messages. Most users spend less than $1/year on storage.
+Storage is cheap. $1 covers over 16,666 average messages. Most users spend less than $1/year on text storage.
 
 No subscriptions. No premium tier that locks features behind a paywall. No "free" plan subsidized by selling your data. You pay for the AI you use. We take a cut. The math is public.
 

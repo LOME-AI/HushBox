@@ -31,8 +31,30 @@ function collectAncestorIds(
   return ancestorIds;
 }
 
-/** Returns true if a sibling message is safe to include (no descendants outside the ancestor chain). */
-function isSafeSibling(
+/**
+ * Assistant siblings sharing a parentMessageId are always parallel
+ * multi-model responses to the same user prompt. The product enforces this
+ * invariant on the write side: regenerate is blocked for multi-model
+ * messages (see `message-actions.ts`'s `regenerate` guard), and the
+ * regenerate tree action deletes-and-replaces rather than appending
+ * siblings (see `services/chat/tree-action.ts`). So an assistant sibling
+ * cannot exist except as a parallel-batch peer, and it must travel with
+ * its shared parent on every branch that includes the parent — regardless
+ * of what other forks have grown beneath it.
+ */
+function isParallelBatchSibling(sibling: MessageWithParent): boolean {
+  return sibling.role === 'assistant';
+}
+
+/**
+ * Non-assistant siblings (user messages sharing a parentMessageId under an
+ * assistant ancestor) represent divergent conversation threads — typically
+ * the first message of a different fork. They're only safe to render on
+ * this branch when their entire subtree is already in our ancestor chain;
+ * otherwise the subtree belongs to a different fork and rendering the
+ * sibling here would surface that fork's content.
+ */
+function isContainedThreadSibling(
   sibling: MessageWithParent,
   ancestorIds: Set<string>,
   childrenMap: Map<string | null, MessageWithParent[]>
@@ -42,8 +64,17 @@ function isSafeSibling(
 }
 
 /**
- * Expand ancestor set to include multi-model siblings — messages sharing a
- * parentMessageId with a chain member that are NOT fork branch roots.
+ * Expand ancestor set to include siblings. Two distinct rules apply:
+ *
+ * - Parallel-batch siblings (assistant role): always included — they are
+ *   multi-model peers of an ancestor and belong with the shared parent.
+ * - Divergent-thread siblings (everything else): included only if their
+ *   subtree is fully contained in the ancestor chain.
+ *
+ * Conflating the two used to silently drop a multi-model assistant peer
+ * from its source branch as soon as another fork sent a follow-up beneath
+ * it. Splitting the rule by role honors the write-side invariant that
+ * regenerate cannot produce sibling assistants.
  */
 function expandWithSiblings(
   ancestorIds: Set<string>,
@@ -57,7 +88,11 @@ function expandWithSiblings(
     if (parentId === undefined) continue;
     const siblings = childrenMap.get(parentId ?? null) ?? [];
     for (const sibling of siblings) {
-      if (!included.has(sibling.id) && isSafeSibling(sibling, ancestorIds, childrenMap)) {
+      if (included.has(sibling.id)) continue;
+      if (
+        isParallelBatchSibling(sibling) ||
+        isContainedThreadSibling(sibling, ancestorIds, childrenMap)
+      ) {
         included.add(sibling.id);
       }
     }

@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import {
   TTS_VOICES,
+  WORKER_POOL_SIZE,
   getTtsService,
   _resetTtsServiceForTesting,
   _setWorkerFactoryForTesting,
-  _detectDeviceForTesting,
   type TtsVoice,
 } from './tts-engine';
 
@@ -29,6 +29,10 @@ function lastInboundOfType<T extends WorkerInbound['type']>(
     if (msg.type === type) return msg as Extract<WorkerInbound, { type: T }>;
   }
   return undefined;
+}
+
+function countInboundOfType(worker: FakeWorker, type: WorkerInbound['type']): number {
+  return worker.postMessage.mock.calls.filter(([m]) => m.type === type).length;
 }
 
 describe('TTS_VOICES', () => {
@@ -57,67 +61,11 @@ describe('TTS_VOICES', () => {
   });
 });
 
-describe('detectDevice', () => {
-  type WindowWithCapacitor = Window & {
-    Capacitor?: { isNativePlatform?: () => boolean };
-  };
-  let originalCapacitor: WindowWithCapacitor['Capacitor'];
-  let originalGpu: unknown;
-
-  beforeEach(() => {
-    originalCapacitor = (globalThis.window as WindowWithCapacitor).Capacitor;
-    originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
-  });
-
-  afterEach(() => {
-    if (originalCapacitor === undefined) {
-      delete (globalThis.window as WindowWithCapacitor).Capacitor;
-    } else {
-      (globalThis.window as WindowWithCapacitor).Capacitor = originalCapacitor;
-    }
-    if (originalGpu === undefined) {
-      delete (navigator as unknown as { gpu?: unknown }).gpu;
-    } else {
-      (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
-    }
-  });
-
-  it('returns "wasm" when Capacitor.isNativePlatform() is true', async () => {
-    (globalThis.window as WindowWithCapacitor).Capacitor = { isNativePlatform: () => true };
-    (navigator as unknown as { gpu?: unknown }).gpu = {
-      requestAdapter: () => Promise.resolve({}),
-    };
-    await expect(_detectDeviceForTesting()).resolves.toBe('wasm');
-  });
-
-  it('returns "webgpu" when requestAdapter returns a valid adapter', async () => {
-    delete (globalThis.window as WindowWithCapacitor).Capacitor;
-    (navigator as unknown as { gpu?: unknown }).gpu = {
-      requestAdapter: () => Promise.resolve({}),
-    };
-    await expect(_detectDeviceForTesting()).resolves.toBe('webgpu');
-  });
-
-  it('returns "wasm" when requestAdapter returns null (API present but no adapter)', async () => {
-    delete (globalThis.window as WindowWithCapacitor).Capacitor;
-    (navigator as unknown as { gpu?: unknown }).gpu = {
-      requestAdapter: () => Promise.resolve(null),
-    };
-    await expect(_detectDeviceForTesting()).resolves.toBe('wasm');
-  });
-
-  it('returns "wasm" when requestAdapter throws', async () => {
-    delete (globalThis.window as WindowWithCapacitor).Capacitor;
-    (navigator as unknown as { gpu?: unknown }).gpu = {
-      requestAdapter: () => Promise.reject(new Error('GPU init failed')),
-    };
-    await expect(_detectDeviceForTesting()).resolves.toBe('wasm');
-  });
-
-  it('returns "wasm" when neither Capacitor nor navigator.gpu present', async () => {
-    delete (globalThis.window as WindowWithCapacitor).Capacitor;
-    delete (navigator as unknown as { gpu?: unknown }).gpu;
-    await expect(_detectDeviceForTesting()).resolves.toBe('wasm');
+describe('WORKER_POOL_SIZE', () => {
+  it('is a small positive integer (single local constant controlling pool width)', () => {
+    expect(Number.isInteger(WORKER_POOL_SIZE)).toBe(true);
+    expect(WORKER_POOL_SIZE).toBeGreaterThan(0);
+    expect(WORKER_POOL_SIZE).toBeLessThanOrEqual(8);
   });
 });
 
@@ -231,19 +179,37 @@ describe('WorkerKokoroTtsService', () => {
     return ctx;
   }
 
-  function currentWorker(): FakeWorker {
-    return createdWorkers.at(-1)!;
+  async function ackLoadOn(worker: FakeWorker): Promise<void> {
+    const msg = lastInboundOfType(worker, 'load');
+    if (msg) worker.send({ type: 'loadDone', requestId: msg.requestId });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  async function ackWarmupOn(worker: FakeWorker): Promise<void> {
+    const msg = lastInboundOfType(worker, 'warmup');
+    if (msg) {
+      worker.send({ type: 'warmupDone', requestId: msg.requestId });
+      worker.send({ type: 'workerReady' });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
   async function completeLoad(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const loadMsg = lastInboundOfType(worker, 'load');
-    if (loadMsg) worker.send({ type: 'loadDone', requestId: loadMsg.requestId });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const warmupMsg = lastInboundOfType(worker, 'warmup');
-    if (warmupMsg) worker.send({ type: 'warmupDone', requestId: warmupMsg.requestId });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (const worker of createdWorkers) await ackLoadOn(worker);
+    for (const worker of createdWorkers) await ackWarmupOn(worker);
+  }
+
+  function ackSpeakOn(worker: FakeWorker, audioLength: number, samplingRate = 24_000): string {
+    const msg = lastInboundOfType(worker, 'speak')!;
+    worker.send({
+      type: 'speakReady',
+      requestId: msg.requestId,
+      audio: new Float32Array(audioLength),
+      samplingRate,
+    });
+    worker.send({ type: 'workerReady' });
+    return msg.requestId;
   }
 
   beforeEach(() => {
@@ -276,117 +242,141 @@ describe('WorkerKokoroTtsService', () => {
     expect(service.isLoaded()).toBe(false);
   });
 
-  it('load() spawns a worker and posts a load message', async () => {
+  it('load() spawns WORKER_POOL_SIZE workers and posts a load message to every one', async () => {
     const service = getTtsService();
     const loadPromise = service.load('af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(createdWorkers).toHaveLength(1);
-    const worker = currentWorker();
-    expect(worker.postMessage).toHaveBeenCalled();
-    const sent = worker.postMessage.mock.calls[0]![0];
-    expect(sent.type).toBe('load');
-    expect(typeof (sent as { requestId: string }).requestId).toBe('string');
-    worker.send({ type: 'loadDone', requestId: (sent as { requestId: string }).requestId });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const warmupMsg = lastInboundOfType(worker, 'warmup')!;
-    worker.send({ type: 'warmupDone', requestId: warmupMsg.requestId });
+    expect(createdWorkers).toHaveLength(WORKER_POOL_SIZE);
+    for (const worker of createdWorkers) {
+      expect(countInboundOfType(worker, 'load')).toBe(1);
+    }
+    await completeLoad();
     await loadPromise;
     expect(service.isLoaded()).toBe(true);
   });
 
-  it('load() resolves only after both loadDone and warmupDone arrive', async () => {
+  it('load() resolves only after every worker reports both loadDone and warmupDone', async () => {
     const service = getTtsService();
-    const loadPromise = service.load('af_heart');
     let resolved = false;
-
     /* eslint-disable promise/prefer-await-to-then, promise/always-return -- observe resolution without awaiting */
-    loadPromise
+    service
+      .load('af_heart')
       .then(() => {
         resolved = true;
       })
       .catch(() => {});
     /* eslint-enable promise/prefer-await-to-then, promise/always-return */
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const loadMsg = lastInboundOfType(worker, 'load')!;
-    worker.send({ type: 'loadDone', requestId: loadMsg.requestId });
+
+    // Ack loadDone on all but the last worker.
+    for (let index = 0; index < createdWorkers.length - 1; index++) {
+      await ackLoadOn(createdWorkers[index]!);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Engine should NOT have issued any warmups yet on the workers we didn't ack.
+    expect(resolved).toBe(false);
+
+    // Ack the last worker's loadDone — now engine issues warmup to every worker.
+    await ackLoadOn(createdWorkers.at(-1)!);
+
+    // Ack warmupDone on all but the last worker.
+    for (let index = 0; index < createdWorkers.length - 1; index++) {
+      await ackWarmupOn(createdWorkers[index]!);
+    }
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(resolved).toBe(false);
-    const warmupMsg = lastInboundOfType(worker, 'warmup')!;
-    worker.send({ type: 'warmupDone', requestId: warmupMsg.requestId });
-    await loadPromise;
+    expect(service.isLoaded()).toBe(false);
+
+    // Final warmupDone — now load() resolves.
+    await ackWarmupOn(createdWorkers.at(-1)!);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(resolved).toBe(true);
+    expect(service.isLoaded()).toBe(true);
   });
 
-  it('load() forwards loadProgress events to the onProgress callback', async () => {
+  it('load() forwards loadProgress events from slot 0 only (other slots read from cache)', async () => {
     const onProgress = vi.fn();
     const service = getTtsService();
     const loadPromise = service.load('af_heart', onProgress);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const loadMsg = lastInboundOfType(worker, 'load')!;
-    worker.send({
+
+    const slot0Load = lastInboundOfType(createdWorkers[0]!, 'load')!;
+    createdWorkers[0]!.send({
       type: 'loadProgress',
-      requestId: loadMsg.requestId,
+      requestId: slot0Load.requestId,
       loaded: 50,
       total: 100,
     });
     expect(onProgress).toHaveBeenCalledWith(50, 100);
-    worker.send({ type: 'loadDone', requestId: loadMsg.requestId });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const warmupMsg = lastInboundOfType(worker, 'warmup')!;
-    worker.send({ type: 'warmupDone', requestId: warmupMsg.requestId });
+    onProgress.mockClear();
+
+    // Progress from other slots is suppressed — they hit the IndexedDB cache.
+    for (let index = 1; index < createdWorkers.length; index++) {
+      const lm = lastInboundOfType(createdWorkers[index]!, 'load')!;
+      createdWorkers[index]!.send({
+        type: 'loadProgress',
+        requestId: lm.requestId,
+        loaded: 25,
+        total: 100,
+      });
+    }
+    expect(onProgress).not.toHaveBeenCalled();
+
+    await completeLoad();
     await loadPromise;
   });
 
-  it('load() rejects on loadError and leaves isLoaded false', async () => {
+  it('load() rejects fail-fast on the first loadError from any worker', async () => {
     const service = getTtsService();
     const loadPromise = service.load('af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const loadMsg = lastInboundOfType(worker, 'load')!;
-    worker.send({ type: 'loadError', requestId: loadMsg.requestId, message: 'network down' });
-    await expect(loadPromise).rejects.toThrow('network down');
+    const slot1Load = lastInboundOfType(createdWorkers[1] ?? createdWorkers[0]!, 'load')!;
+    (createdWorkers[1] ?? createdWorkers[0]!).send({
+      type: 'loadError',
+      requestId: slot1Load.requestId,
+      message: 'gpu died',
+    });
+    await expect(loadPromise).rejects.toThrow('gpu died');
     expect(service.isLoaded()).toBe(false);
   });
 
-  it('load() concurrent calls share the same in-flight promise', async () => {
+  it('load() concurrent calls share the same in-flight promise (still one pool spawned)', async () => {
     const service = getTtsService();
     const promiseA = service.load('af_heart');
     const promiseB = service.load('af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(createdWorkers).toHaveLength(1);
-    const worker = currentWorker();
-    const loadCount = worker.postMessage.mock.calls.filter(([m]) => m.type === 'load').length;
-    expect(loadCount).toBe(1);
+    expect(createdWorkers).toHaveLength(WORKER_POOL_SIZE);
+    for (const worker of createdWorkers) {
+      expect(countInboundOfType(worker, 'load')).toBe(1);
+    }
     await completeLoad();
     await Promise.all([promiseA, promiseB]);
   });
 
-  it('load() is idempotent — calling twice after success does not spawn another worker', async () => {
+  it('load() is idempotent — calling twice after success does not spawn another pool', async () => {
     const service = getTtsService();
     const p1 = service.load('af_heart');
     await completeLoad();
     await p1;
     await service.load('af_heart');
-    expect(createdWorkers).toHaveLength(1);
+    expect(createdWorkers).toHaveLength(WORKER_POOL_SIZE);
   });
 
-  it('warmupError still resolves load() successfully (best-effort)', async () => {
+  it('warmupError on all workers still resolves load() successfully (best-effort)', async () => {
     const service = getTtsService();
     const loadPromise = service.load('af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const loadMsg = lastInboundOfType(worker, 'load')!;
-    worker.send({ type: 'loadDone', requestId: loadMsg.requestId });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const warmupMsg = lastInboundOfType(worker, 'warmup')!;
-    worker.send({ type: 'warmupError', requestId: warmupMsg.requestId, message: 'oom' });
+    for (const worker of createdWorkers) await ackLoadOn(worker);
+    for (const worker of createdWorkers) {
+      const wm = lastInboundOfType(worker, 'warmup')!;
+      worker.send({ type: 'warmupError', requestId: wm.requestId, message: 'oom' });
+      worker.send({ type: 'workerReady' });
+    }
     await expect(loadPromise).resolves.toBeUndefined();
     expect(service.isLoaded()).toBe(true);
   });
 
-  it('ignores a loadDone with a requestId that does not match the in-flight load', async () => {
+  it('ignores a loadDone with a requestId that does not match any in-flight load', async () => {
     const service = getTtsService();
     const loadPromise = service.load('af_heart');
     let resolved = false;
@@ -398,17 +388,12 @@ describe('WorkerKokoroTtsService', () => {
       .catch(() => {});
     /* eslint-enable promise/prefer-await-to-then, promise/always-return */
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    worker.send({ type: 'loadDone', requestId: 'stale-id-from-a-prior-load' });
+    createdWorkers[0]!.send({ type: 'loadDone', requestId: 'stale-id' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(resolved).toBe(false);
     expect(service.isLoaded()).toBe(false);
-    // Now send the real loadDone — load should still complete.
-    const loadMsg = lastInboundOfType(worker, 'load')!;
-    worker.send({ type: 'loadDone', requestId: loadMsg.requestId });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const warmupMsg = lastInboundOfType(worker, 'warmup')!;
-    worker.send({ type: 'warmupDone', requestId: warmupMsg.requestId });
+
+    await completeLoad();
     await loadPromise;
     expect(service.isLoaded()).toBe(true);
   });
@@ -417,19 +402,13 @@ describe('WorkerKokoroTtsService', () => {
     const service = getTtsService();
     const loadPromise = service.load('af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    worker.send({
+    createdWorkers[0]!.send({
       type: 'loadError',
       requestId: 'stale-id',
       message: 'should be ignored',
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    // Real load completes normally.
-    const loadMsg = lastInboundOfType(worker, 'load')!;
-    worker.send({ type: 'loadDone', requestId: loadMsg.requestId });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const warmupMsg = lastInboundOfType(worker, 'warmup')!;
-    worker.send({ type: 'warmupDone', requestId: warmupMsg.requestId });
+    await completeLoad();
     await loadPromise;
     expect(service.isLoaded()).toBe(true);
   });
@@ -438,15 +417,12 @@ describe('WorkerKokoroTtsService', () => {
     const service = getTtsService();
     const loadPromise = service.load('af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const loadMsg = lastInboundOfType(worker, 'load')!;
-    worker.send({ type: 'loadDone', requestId: loadMsg.requestId });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    worker.send({ type: 'warmupDone', requestId: 'stale-warmup-id' });
+    for (const worker of createdWorkers) await ackLoadOn(worker);
+    // Send a stale warmupDone — should be ignored, load still pending.
+    createdWorkers[0]!.send({ type: 'warmupDone', requestId: 'stale-warmup-id' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(service.isLoaded()).toBe(false);
-    const warmupMsg = lastInboundOfType(worker, 'warmup')!;
-    worker.send({ type: 'warmupDone', requestId: warmupMsg.requestId });
+    for (const worker of createdWorkers) await ackWarmupOn(worker);
     await loadPromise;
     expect(service.isLoaded()).toBe(true);
   });
@@ -475,18 +451,20 @@ describe('WorkerKokoroTtsService', () => {
     await expect(service.speak('hello', 'af_heart')).rejects.toThrow(/not loaded/i);
   });
 
-  it('speak() posts a speak message to the worker with the text and voice', async () => {
+  it('speak() dispatches to slot 0 (first idle) when the whole pool is idle', async () => {
     const service = getTtsService();
     const loadPromise_ = service.load('af_heart');
     await completeLoad();
     await loadPromise_;
     void service.speak('hello world', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const speakMsg = lastInboundOfType(worker, 'speak')!;
-    expect(speakMsg.text).toBe('hello world');
-    expect(speakMsg.voice).toBe('af_heart');
-    expect(typeof speakMsg.requestId).toBe('string');
+    expect(countInboundOfType(createdWorkers[0]!, 'speak')).toBe(1);
+    for (let index = 1; index < createdWorkers.length; index++) {
+      expect(countInboundOfType(createdWorkers[index]!, 'speak')).toBe(0);
+    }
+    const msg = lastInboundOfType(createdWorkers[0]!, 'speak')!;
+    expect(msg.text).toBe('hello world');
+    expect(msg.voice).toBe('af_heart');
   });
 
   it('speak() plays the audio buffer returned by the worker and resolves on ended', async () => {
@@ -497,15 +475,15 @@ describe('WorkerKokoroTtsService', () => {
     service.unlockAudio();
     const speakPromise = service.speak('hi', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const speakMsg = lastInboundOfType(worker, 'speak')!;
+    const speakMsg = lastInboundOfType(createdWorkers[0]!, 'speak')!;
     const audio = new Float32Array(100);
-    worker.send({
+    createdWorkers[0]!.send({
       type: 'speakReady',
       requestId: speakMsg.requestId,
       audio,
       samplingRate: 24_000,
     });
+    createdWorkers[0]!.send({ type: 'workerReady' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     const ctx = createdContexts[0]!;
     expect(ctx.createBuffer).toHaveBeenLastCalledWith(1, 100, 24_000);
@@ -523,14 +501,78 @@ describe('WorkerKokoroTtsService', () => {
     await loadPromise_;
     const speakPromise = service.speak('boom', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const speakMsg = lastInboundOfType(worker, 'speak')!;
-    worker.send({
+    const speakMsg = lastInboundOfType(createdWorkers[0]!, 'speak')!;
+    createdWorkers[0]!.send({
       type: 'speakError',
       requestId: speakMsg.requestId,
       message: 'generation failed',
     });
     await expect(speakPromise).rejects.toThrow('generation failed');
+  });
+
+  it('speak() fan-out: three concurrent speaks land one per slot when the pool is idle', async () => {
+    const service = getTtsService();
+    const loadPromise_ = service.load('af_heart');
+    await completeLoad();
+    await loadPromise_;
+    void service.speak('a', 'af_heart');
+    void service.speak('b', 'af_heart');
+    void service.speak('c', 'af_heart');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(WORKER_POOL_SIZE).toBeGreaterThanOrEqual(3);
+    for (let index = 0; index < 3; index++) {
+      expect(countInboundOfType(createdWorkers[index]!, 'speak')).toBe(1);
+    }
+  });
+
+  it('speak() called N+1 times with N idle slots queues the (N+1)th until a workerReady arrives', async () => {
+    const service = getTtsService();
+    const loadPromise_ = service.load('af_heart');
+    await completeLoad();
+    await loadPromise_;
+
+    // Fire N+1 speaks where N is the pool size.
+    const N = WORKER_POOL_SIZE;
+    for (let index = 0; index < N + 1; index++) {
+      void service.speak(`s${String(index)}`, 'af_heart');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Exactly one speak per slot — the (N+1)th waits.
+    const dispatched = createdWorkers.reduce((sum, w) => sum + countInboundOfType(w, 'speak'), 0);
+    expect(dispatched).toBe(N);
+
+    // Slot 0 finishes. The queued speak should now be dispatched to slot 0.
+    ackSpeakOn(createdWorkers[0]!, 10);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(countInboundOfType(createdWorkers[0]!, 'speak')).toBe(2);
+    const totalNow = createdWorkers.reduce((sum, w) => sum + countInboundOfType(w, 'speak'), 0);
+    expect(totalNow).toBe(N + 1);
+  });
+
+  it('dispatch resumes for queued speaks as each workerReady arrives', async () => {
+    const service = getTtsService();
+    const loadPromise_ = service.load('af_heart');
+    await completeLoad();
+    await loadPromise_;
+
+    // Saturate the pool, then queue 2 extra.
+    for (let index = 0; index < WORKER_POOL_SIZE + 2; index++) {
+      void service.speak(`q${String(index)}`, 'af_heart');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const initialTotal = createdWorkers.reduce((sum, w) => sum + countInboundOfType(w, 'speak'), 0);
+    expect(initialTotal).toBe(WORKER_POOL_SIZE);
+
+    ackSpeakOn(createdWorkers[0]!, 10);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    let total = createdWorkers.reduce((sum, w) => sum + countInboundOfType(w, 'speak'), 0);
+    expect(total).toBe(WORKER_POOL_SIZE + 1);
+
+    ackSpeakOn(createdWorkers[1]!, 10);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    total = createdWorkers.reduce((sum, w) => sum + countInboundOfType(w, 'speak'), 0);
+    expect(total).toBe(WORKER_POOL_SIZE + 2);
   });
 
   it('two speak() calls in a row both post messages BEFORE either plays (pipelining)', async () => {
@@ -541,58 +583,66 @@ describe('WorkerKokoroTtsService', () => {
     void service.speak('first', 'af_heart');
     void service.speak('second', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const speaks = worker.postMessage.mock.calls.filter(([m]) => m.type === 'speak');
-    expect(speaks).toHaveLength(2);
-    expect((speaks[0]![0] as { text: string }).text).toBe('first');
-    expect((speaks[1]![0] as { text: string }).text).toBe('second');
+    expect(lastInboundOfType(createdWorkers[0]!, 'speak')!.text).toBe('first');
+    expect(lastInboundOfType(createdWorkers[1]!, 'speak')!.text).toBe('second');
     expect(createdSources.filter((s) => s.start.mock.calls.length > 0)).toHaveLength(0);
   });
 
-  it('audio for the SECOND speak() arriving first still plays the FIRST sentence first', async () => {
+  it('audio for a LATER speak arriving first still plays the EARLIER sentence first (pool out-of-order)', async () => {
     const service = getTtsService();
     const loadPromise_ = service.load('af_heart');
     await completeLoad();
     await loadPromise_;
+    service.unlockAudio();
     const sourcesBefore = createdSources.length;
-    const firstPromise = service.speak('first', 'af_heart');
-    const secondPromise = service.speak('second', 'af_heart');
+
+    const p0 = service.speak('first', 'af_heart');
+    const p1 = service.speak('second', 'af_heart');
+    const p2 = service.speak('third', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const speaks = worker.postMessage.mock.calls.filter(([m]) => m.type === 'speak');
-    const firstId = (speaks[0]![0] as { requestId: string }).requestId;
-    const secondId = (speaks[1]![0] as { requestId: string }).requestId;
-    // Out-of-order audio arrival: second arrives first.
-    worker.send({
+
+    // Audio arrives in reverse slot order: slot 2 finishes first, then 1, then 0.
+    const id2 = lastInboundOfType(createdWorkers[2]!, 'speak')!.requestId;
+    const id1 = lastInboundOfType(createdWorkers[1]!, 'speak')!.requestId;
+    const id0 = lastInboundOfType(createdWorkers[0]!, 'speak')!.requestId;
+    createdWorkers[2]!.send({
       type: 'speakReady',
-      requestId: secondId,
-      audio: new Float32Array(50),
+      requestId: id2,
+      audio: new Float32Array(30),
       samplingRate: 24_000,
     });
-    worker.send({
+    createdWorkers[1]!.send({
       type: 'speakReady',
-      requestId: firstId,
-      audio: new Float32Array(100),
+      requestId: id1,
+      audio: new Float32Array(20),
+      samplingRate: 24_000,
+    });
+    createdWorkers[0]!.send({
+      type: 'speakReady',
+      requestId: id0,
+      audio: new Float32Array(10),
       samplingRate: 24_000,
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    // With sample-accurate scheduling, both sources get scheduled before either
-    // ends. The chain still serializes scheduling order: the FIRST sentence
-    // must be scheduled first (length 100), the SECOND after (length 50).
+
     const speakSources = createdSources.slice(sourcesBefore);
-    expect(speakSources.length).toBe(2);
-    const firstScheduled = speakSources[0]!;
-    const secondScheduled = speakSources[1]!;
-    expect(firstScheduled.buffer?.length).toBe(100);
-    expect(secondScheduled.buffer?.length).toBe(50);
-    const firstStart = (firstScheduled.start.mock.calls[0] as [number])[0];
-    const secondStart = (secondScheduled.start.mock.calls[0] as [number])[0];
-    expect(secondStart).toBeGreaterThanOrEqual(firstStart);
-    firstScheduled.triggerEnded();
+    expect(speakSources.length).toBe(3);
+    // Playback chain serializes scheduling in original speak() call order.
+    expect(speakSources[0]!.buffer?.length).toBe(10);
+    expect(speakSources[1]!.buffer?.length).toBe(20);
+    expect(speakSources[2]!.buffer?.length).toBe(30);
+    const start0 = (speakSources[0]!.start.mock.calls[0] as [number])[0];
+    const start1 = (speakSources[1]!.start.mock.calls[0] as [number])[0];
+    const start2 = (speakSources[2]!.start.mock.calls[0] as [number])[0];
+    expect(start1).toBeGreaterThanOrEqual(start0);
+    expect(start2).toBeGreaterThanOrEqual(start1);
+    speakSources[0]!.triggerEnded();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    await firstPromise;
-    secondScheduled.triggerEnded();
-    await secondPromise;
+    await p0;
+    speakSources[1]!.triggerEnded();
+    await p1;
+    speakSources[2]!.triggerEnded();
+    await p2;
   });
 
   it('stop() stops the currently playing source', async () => {
@@ -602,9 +652,8 @@ describe('WorkerKokoroTtsService', () => {
     await loadPromise_;
     const speakPromise = service.speak('to stop', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const speakMsg = lastInboundOfType(worker, 'speak')!;
-    worker.send({
+    const speakMsg = lastInboundOfType(createdWorkers[0]!, 'speak')!;
+    createdWorkers[0]!.send({
       type: 'speakReady',
       requestId: speakMsg.requestId,
       audio: new Float32Array(100),
@@ -618,20 +667,31 @@ describe('WorkerKokoroTtsService', () => {
     await speakPromise;
   });
 
-  it('stop() posts a cancel message for an in-flight generation that has not yet returned audio', async () => {
+  it('stop() posts a cancel to every busy worker for its in-flight requestId', async () => {
     const service = getTtsService();
     const loadPromise_ = service.load('af_heart');
     await completeLoad();
     await loadPromise_;
-    // eslint-disable-next-line promise/prefer-await-to-then -- fire and forget so we can call stop() while generation is still pending
-    service.speak('still generating', 'af_heart').catch(() => {});
+
+    // eslint-disable-next-line promise/prefer-await-to-then -- fire-and-forget so cancel can happen during inference
+    service.speak('a', 'af_heart').catch(() => {});
+    // eslint-disable-next-line promise/prefer-await-to-then -- fire-and-forget
+    service.speak('b', 'af_heart').catch(() => {});
+    // eslint-disable-next-line promise/prefer-await-to-then -- fire-and-forget
+    service.speak('c', 'af_heart').catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const speakMsg = lastInboundOfType(worker, 'speak')!;
+    const ids = [
+      lastInboundOfType(createdWorkers[0]!, 'speak')!.requestId,
+      lastInboundOfType(createdWorkers[1]!, 'speak')!.requestId,
+      lastInboundOfType(createdWorkers[2]!, 'speak')!.requestId,
+    ];
+
     service.stop();
-    const cancelMsgs = worker.postMessage.mock.calls.filter(([m]) => m.type === 'cancel');
-    expect(cancelMsgs).toHaveLength(1);
-    expect((cancelMsgs[0]![0] as { requestId: string }).requestId).toBe(speakMsg.requestId);
+
+    for (let index = 0; index < 3; index++) {
+      expect(countInboundOfType(createdWorkers[index]!, 'cancel')).toBe(1);
+      expect(lastInboundOfType(createdWorkers[index]!, 'cancel')!.requestId).toBe(ids[index]);
+    }
   });
 
   it('stop() before any speak() is a safe no-op', async () => {
@@ -655,69 +715,62 @@ describe('WorkerKokoroTtsService', () => {
     await expect(pending).rejects.toThrow(/cancell?ed/i);
   });
 
-  it('stop() between two queued speaks prevents the second from playing', async () => {
+  it('stop() drains the queue: queued speaks are rejected and never dispatched even after a workerReady', async () => {
     const service = getTtsService();
     const loadPromise_ = service.load('af_heart');
     await completeLoad();
     await loadPromise_;
-    const firstPromise = service.speak('first', 'af_heart');
-    // eslint-disable-next-line promise/prefer-await-to-then -- queue a second speak, then stop() it before it plays
-    service.speak('second', 'af_heart').catch(() => {});
+
+    // Saturate the pool and queue an extra speak.
+    for (let index = 0; index < WORKER_POOL_SIZE; index++) {
+      // eslint-disable-next-line promise/prefer-await-to-then -- fire-and-forget
+      service.speak(`busy${String(index)}`, 'af_heart').catch(() => {});
+    }
+    const queued = service.speak('queued', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const speaks = worker.postMessage.mock.calls.filter(([m]) => m.type === 'speak');
-    worker.send({
-      type: 'speakReady',
-      requestId: (speaks[0]![0] as { requestId: string }).requestId,
-      audio: new Float32Array(100),
-      samplingRate: 24_000,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const firstSource = createdSources.at(-1)!;
+    const totalBefore = createdWorkers.reduce((sum, w) => sum + countInboundOfType(w, 'speak'), 0);
+    expect(totalBefore).toBe(WORKER_POOL_SIZE);
+
     service.stop();
-    firstSource.triggerEnded();
-    await firstPromise;
-    // After stop, even if second audio arrives it should not play.
-    const sourceCountBefore = createdSources.length;
-    worker.send({
-      type: 'speakReady',
-      requestId: (speaks[1]![0] as { requestId: string }).requestId,
-      audio: new Float32Array(50),
-      samplingRate: 24_000,
-    });
+    await expect(queued).rejects.toThrow(/cancell?ed/i);
+
+    // Workers eventually emit workerReady for the cancelled speaks. The
+    // queued speak must NOT be re-dispatched.
+    for (const worker of createdWorkers) worker.send({ type: 'workerReady' });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(createdSources.length).toBe(sourceCountBefore);
+    const totalAfter = createdWorkers.reduce((sum, w) => sum + countInboundOfType(w, 'speak'), 0);
+    expect(totalAfter).toBe(WORKER_POOL_SIZE);
   });
 
-  it('load() sends the supplied voice in the warmup message so its embedding is preloaded', async () => {
+  it('load() sends the supplied voice in the warmup message to every worker', async () => {
     const service = getTtsService();
     const loadPromise = service.load('am_michael');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const loadMsg = lastInboundOfType(worker, 'load')!;
-    worker.send({ type: 'loadDone', requestId: loadMsg.requestId });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const warmupMsg = lastInboundOfType(worker, 'warmup')!;
-    expect(warmupMsg.voice).toBe('am_michael');
-    worker.send({ type: 'warmupDone', requestId: warmupMsg.requestId });
+    for (const worker of createdWorkers) await ackLoadOn(worker);
+    for (const worker of createdWorkers) {
+      const warmupMsg = lastInboundOfType(worker, 'warmup')!;
+      expect(warmupMsg.voice).toBe('am_michael');
+      worker.send({ type: 'warmupDone', requestId: warmupMsg.requestId });
+      worker.send({ type: 'workerReady' });
+    }
     await loadPromise;
   });
 
-  it('preloadVoice() sends a warmup message with the new voice so the embedding is fetched up front', async () => {
+  it('preloadVoice() fan-outs a warmup with the new voice to every worker and resolves when all settle', async () => {
     const service = getTtsService();
     const loadPromise_ = service.load('af_heart');
     await completeLoad();
     await loadPromise_;
-    const worker = currentWorker();
-    const beforeCount = worker.postMessage.mock.calls.filter(([m]) => m.type === 'warmup').length;
+    const beforeCounts = createdWorkers.map((w) => countInboundOfType(w, 'warmup'));
     const preload = service.preloadVoice('bm_george');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const warmupCalls = worker.postMessage.mock.calls.filter(([m]) => m.type === 'warmup');
-    expect(warmupCalls.length).toBe(beforeCount + 1);
-    const lastWarmup = warmupCalls.at(-1)![0] as Extract<WorkerInbound, { type: 'warmup' }>;
-    expect(lastWarmup.voice).toBe('bm_george');
-    worker.send({ type: 'warmupDone', requestId: lastWarmup.requestId });
+    for (const [index, createdWorker] of createdWorkers.entries()) {
+      expect(countInboundOfType(createdWorker, 'warmup')).toBe(beforeCounts[index]! + 1);
+      const last = lastInboundOfType(createdWorker, 'warmup')!;
+      expect(last.voice).toBe('bm_george');
+      createdWorker.send({ type: 'warmupDone', requestId: last.requestId });
+      createdWorker.send({ type: 'workerReady' });
+    }
     await expect(preload).resolves.toBeUndefined();
   });
 
@@ -726,33 +779,52 @@ describe('WorkerKokoroTtsService', () => {
     await expect(service.preloadVoice('bm_george')).rejects.toThrow(/not loaded/i);
   });
 
-  it('schedules consecutive sentences sample-accurately: source N+1 starts at source N start + duration', async () => {
+  it('preloadVoice() rejects when any worker reports warmupError', async () => {
+    const service = getTtsService();
+    const loadPromise_ = service.load('af_heart');
+    await completeLoad();
+    await loadPromise_;
+    const preload = service.preloadVoice('bm_george');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Slot 0 reports an error; the other slots succeed.
+    const slot0Warmup = lastInboundOfType(createdWorkers[0]!, 'warmup')!;
+    createdWorkers[0]!.send({
+      type: 'warmupError',
+      requestId: slot0Warmup.requestId,
+      message: 'voice fetch failed',
+    });
+    createdWorkers[0]!.send({ type: 'workerReady' });
+    for (let index = 1; index < createdWorkers.length; index++) {
+      const warmupMsg = lastInboundOfType(createdWorkers[index]!, 'warmup')!;
+      createdWorkers[index]!.send({ type: 'warmupDone', requestId: warmupMsg.requestId });
+      createdWorkers[index]!.send({ type: 'workerReady' });
+    }
+    await expect(preload).rejects.toThrow('voice fetch failed');
+  });
+
+  it('schedules consecutive sentences sample-accurately even when audio comes from different workers', async () => {
     const service = getTtsService();
     const loadPromise_ = service.load('af_heart');
     await completeLoad();
     await loadPromise_;
     service.unlockAudio();
     const ctx = createdContexts[0]!;
-    // Pretend playback clock is past unlockAudio's primer.
     ctx.currentTime = 5;
     const sourcesBefore = createdSources.length;
 
     const firstPromise = service.speak('first', 'af_heart');
     const secondPromise = service.speak('second', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const speaks = worker.postMessage.mock.calls.filter(([m]) => m.type === 'speak');
-    const firstId = (speaks[0]![0] as { requestId: string }).requestId;
-    const secondId = (speaks[1]![0] as { requestId: string }).requestId;
-    // 2400 samples @ 24kHz = 0.1s duration; 4800 = 0.2s.
-    worker.send({
+    const firstId = lastInboundOfType(createdWorkers[0]!, 'speak')!.requestId;
+    const secondId = lastInboundOfType(createdWorkers[1]!, 'speak')!.requestId;
+    createdWorkers[0]!.send({
       type: 'speakReady',
       requestId: firstId,
       audio: new Float32Array(2400),
       samplingRate: 24_000,
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    worker.send({
+    createdWorkers[1]!.send({
       type: 'speakReady',
       requestId: secondId,
       audio: new Float32Array(4800),
@@ -760,12 +832,10 @@ describe('WorkerKokoroTtsService', () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Sources created after the unlockAudio primer are the real playback sources.
     const speakSources = createdSources.slice(sourcesBefore);
     expect(speakSources.length).toBe(2);
     const firstStart = (speakSources[0]!.start.mock.calls[0] as [number])[0];
     const secondStart = (speakSources[1]!.start.mock.calls[0] as [number])[0];
-    // First source plays at currentTime (5); second at 5 + 0.1 = 5.1.
     expect(firstStart).toBeCloseTo(5, 5);
     expect(secondStart).toBeCloseTo(5.1, 5);
 
@@ -786,24 +856,24 @@ describe('WorkerKokoroTtsService', () => {
 
     const firstPromise = service.speak('first', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const firstSpeakMsg = lastInboundOfType(worker, 'speak')!;
-    worker.send({
+    const firstSpeakMsg = lastInboundOfType(createdWorkers[0]!, 'speak')!;
+    createdWorkers[0]!.send({
       type: 'speakReady',
       requestId: firstSpeakMsg.requestId,
       audio: new Float32Array(2400),
       samplingRate: 24_000,
     });
+    createdWorkers[0]!.send({ type: 'workerReady' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     createdSources.at(-1)!.triggerEnded();
     await firstPromise;
 
-    // Advance clock past nextStartTime (10.1) to simulate a gap before next inference.
     ctx.currentTime = 30;
     const secondPromise = service.speak('second', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const secondSpeakMsg = lastInboundOfType(worker, 'speak')!;
-    worker.send({
+    // After workerReady, slot 0 is idle again, so second speak goes to slot 0.
+    const secondSpeakMsg = lastInboundOfType(createdWorkers[0]!, 'speak')!;
+    createdWorkers[0]!.send({
       type: 'speakReady',
       requestId: secondSpeakMsg.requestId,
       audio: new Float32Array(2400),
@@ -812,13 +882,12 @@ describe('WorkerKokoroTtsService', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     const startedSources = createdSources.filter((s) => s.start.mock.calls.length > 0);
     const secondStart = (startedSources.at(-1)!.start.mock.calls[0] as [number])[0];
-    // Second sentence should start at 30 (currentTime), NOT 10.1 (stale nextStartTime).
     expect(secondStart).toBeCloseTo(30, 5);
     createdSources.at(-1)!.triggerEnded();
     await secondPromise;
   });
 
-  it('stop() stops every scheduled source, not just the first one', async () => {
+  it('stop() stops every scheduled source across the pool, not just the first one', async () => {
     const service = getTtsService();
     const loadPromise_ = service.load('af_heart');
     await completeLoad();
@@ -831,30 +900,27 @@ describe('WorkerKokoroTtsService', () => {
     const firstPromise = service.speak('first', 'af_heart');
     const secondPromise = service.speak('second', 'af_heart');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const worker = currentWorker();
-    const speaks = worker.postMessage.mock.calls.filter(([m]) => m.type === 'speak');
-    worker.send({
+    const id0 = lastInboundOfType(createdWorkers[0]!, 'speak')!.requestId;
+    const id1 = lastInboundOfType(createdWorkers[1]!, 'speak')!.requestId;
+    createdWorkers[0]!.send({
       type: 'speakReady',
-      requestId: (speaks[0]![0] as { requestId: string }).requestId,
+      requestId: id0,
       audio: new Float32Array(24_000),
       samplingRate: 24_000,
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    worker.send({
+    createdWorkers[1]!.send({
       type: 'speakReady',
-      requestId: (speaks[1]![0] as { requestId: string }).requestId,
+      requestId: id1,
       audio: new Float32Array(24_000),
       samplingRate: 24_000,
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Both speak sources are pre-scheduled (second starts at 1.0s, in the future).
     const speakSources = createdSources.slice(sourcesBefore);
     expect(speakSources.length).toBe(2);
 
     service.stop();
-
-    // Both must be stopped — not just the first one.
     for (const source of speakSources) {
       expect(source.stop).toHaveBeenCalled();
     }
@@ -869,18 +935,20 @@ describe('WorkerKokoroTtsService', () => {
     await completeLoad();
     await loadPromise_;
     const voices: TtsVoice[] = ['af_heart', 'am_michael', 'bf_emma', 'bm_george', 'af_nicole'];
-    const worker = currentWorker();
     for (const voice of voices) {
       const promise = service.speak(`x ${voice}`, voice);
       await new Promise((resolve) => setTimeout(resolve, 0));
-      const speakMsg = lastInboundOfType(worker, 'speak')!;
+      // Slot 0 is idle each iteration (we ack between iterations), so each
+      // speak lands there.
+      const speakMsg = lastInboundOfType(createdWorkers[0]!, 'speak')!;
       expect(speakMsg.voice).toBe(voice);
-      worker.send({
+      createdWorkers[0]!.send({
         type: 'speakReady',
         requestId: speakMsg.requestId,
         audio: new Float32Array(10),
         samplingRate: 24_000,
       });
+      createdWorkers[0]!.send({ type: 'workerReady' });
       await new Promise((resolve) => setTimeout(resolve, 0));
       const source = createdSources.at(-1)!;
       source.triggerEnded();
@@ -888,13 +956,15 @@ describe('WorkerKokoroTtsService', () => {
     }
   });
 
-  it('_resetTtsServiceForTesting terminates the worker', async () => {
+  it('_resetTtsServiceForTesting terminates every worker in the pool', async () => {
     const service = getTtsService();
     const loadPromise = service.load('af_heart');
     await completeLoad();
     await loadPromise;
-    const worker = currentWorker();
+    const workersAtReset = [...createdWorkers];
     _resetTtsServiceForTesting();
-    expect(worker.terminate).toHaveBeenCalled();
+    for (const worker of workersAtReset) {
+      expect(worker.terminate).toHaveBeenCalled();
+    }
   });
 });

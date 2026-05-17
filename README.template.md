@@ -98,7 +98,7 @@ We charge **{{TOTAL_FEE_PERCENT}}** on AI model usage and **{{STORAGE_COST_PER_1
   <img alt="Pricing breakdown" src=".github/readme/pricing-light.svg" width="100%">
 </picture>
 
-Storage is cheap. $1 covers over {{MESSAGES_PER_DOLLAR}} average messages. Most users spend less than $1/year on storage.
+Storage is cheap. $1 covers over {{MESSAGES_PER_DOLLAR}} average messages. Most users spend less than $1/year on text storage.
 
 No subscriptions. No premium tier that locks features behind a paywall. No "free" plan subsidized by selling your data. You pay for the AI you use. We take a cut. The math is public.
 

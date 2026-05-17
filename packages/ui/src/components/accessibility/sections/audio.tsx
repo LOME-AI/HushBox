@@ -2,16 +2,16 @@ import * as React from 'react';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../select';
 import { SettingCard } from '../controls/setting-card';
-import { detectDevice } from '../lib/device-detect';
 import { TTS_VOICES, getTtsService, type TtsVoice } from '../lib/tts-engine';
 import { useA11yStore } from '../store';
 import { ON_OFF_OPTIONS } from './_constants';
 
-// Disclosure sizes are rounded approximations of the published file sizes on
-// the onnx-community/Kokoro-82M-v1.0-ONNX model card. fp32 is what WebGPU
-// requires for clean audio (see tts.worker.ts); q8 is the WASM default.
-const DOWNLOAD_SIZE_TEXT_WEBGPU = '330 MB';
-const DOWNLOAD_SIZE_TEXT_WASM = '80 MB';
+// Rounded approximation of the q8 weights' size on the
+// onnx-community/Kokoro-82M-v1.0-ONNX model card. Multiplied by
+// WORKER_POOL_SIZE workers on disk after first load, but the HF
+// transformers IndexedDB cache deduplicates by URL so the download is
+// paid once.
+const DOWNLOAD_SIZE_TEXT = '80 MB';
 
 async function requestPersistentStorage(): Promise<void> {
   const nav = globalThis.navigator as unknown as {
@@ -34,27 +34,6 @@ function ReadAloudControls(): React.JSX.Element {
   const [downloading, setDownloading] = React.useState(false);
   const [progress, setProgress] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  // detectDevice() does an async navigator.gpu.requestAdapter() round-trip,
-  // so the disclosure starts at the conservative WASM size and upgrades to
-  // the fp32 size if WebGPU is genuinely available. The brief flicker is
-  // acceptable: the user only sees this panel, not a loading-critical path.
-  const [detectedDevice, setDetectedDevice] = React.useState<'webgpu' | 'wasm'>('wasm');
-  React.useEffect(() => {
-    // Wrapped in an object so TypeScript doesn't narrow the cancel flag to
-    // its initial literal value (a plain `let cancelled = false` would be
-    // narrowed to `false` for the `if (!cancelled)` check, even though the
-    // cleanup callback below mutates it asynchronously).
-    const lifecycle = { cancelled: false };
-    void (async (): Promise<void> => {
-      const device = await detectDevice();
-      if (!lifecycle.cancelled) setDetectedDevice(device);
-    })();
-    return () => {
-      lifecycle.cancelled = true;
-    };
-  }, []);
-  const downloadSizeText =
-    detectedDevice === 'webgpu' ? DOWNLOAD_SIZE_TEXT_WEBGPU : DOWNLOAD_SIZE_TEXT_WASM;
 
   const handleToggle = React.useCallback(
     (value: 'on' | 'off'): void => {
@@ -119,7 +98,7 @@ function ReadAloudControls(): React.JSX.Element {
         onChange={handleToggle}
       />
       <p className="text-muted-foreground text-xs">
-        {downloadSizeText}, one-time download. Runs entirely on your device. No audio or text ever
+        {DOWNLOAD_SIZE_TEXT}, one-time download. Runs entirely on your device. No audio or text ever
         leaves this device.
       </p>
       {downloading && progress !== null ? (

@@ -1,7 +1,9 @@
 // Dedicated Web Worker that hosts the kokoro-js KokoroTTS instance and its
-// underlying @huggingface/transformers + onnxruntime-web runtime. The proxy
-// in tts-engine.ts (main thread) communicates over postMessage. Audio
-// buffers are sent back as Transferable so the thread boundary is zero-copy.
+// underlying @huggingface/transformers + onnxruntime-web runtime. The
+// engine in tts-engine.ts (main thread) spawns a pool of these workers and
+// dispatches one sentence at a time per worker; each worker emits
+// `workerReady` after every speak/warmup completion so the engine can mark
+// the slot idle and dispatch the next queued sentence.
 //
 // The handler logic is exported as `createWorkerHandler(ctx)` so tests can
 // drive it without spawning a real worker. The worker globals are wired
@@ -17,20 +19,17 @@
 
 import { KokoroTTS } from 'kokoro-js';
 
-import { detectDevice } from './device-detect';
 import type { WorkerInbound, WorkerOutbound } from './tts-worker-protocol';
 
 const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
-// WebGPU requires fp32: q8/fp16/q4f16 produce distorted or NaN audio on the
-// WebGPU EP (kokoro-js issues #98 and #68; ORT issue #26732). Plain fp32 is
-// also the dtype the canonical webml-community/kokoro-webgpu demo ships.
-// q8 on WASM keeps the download small (~92 MB vs ~326 MB) where the CPU
-// can't take advantage of full-precision math anyway.
-const DTYPE_WEBGPU = 'fp32';
-const DTYPE_WASM = 'q8';
+// q8 on WASM keeps the download to ~80 MB (vs ~330 MB at fp32). The CPU
+// can't take advantage of full-precision math anyway, and the worker pool
+// delivers comparable throughput on WASM — fp32/WebGPU support was removed.
+const DTYPE = 'q8' as const;
+const DEVICE = 'wasm' as const;
 // Multi-word sentence with mixed punctuation: makes the first warmup
-// generation exercise a wider set of ORT kernel/WebGPU shader shapes so
-// the user's first real sentence doesn't pay graph/shader compilation cost.
+// generation exercise a wider set of ORT kernel shapes so the user's
+// first real sentence doesn't pay graph-compilation cost.
 const WARMUP_TEXT = 'Hello, this warms up the speech engine.';
 
 interface KokoroTtsInstance {
@@ -52,51 +51,43 @@ export interface WorkerContext {
 
 export function createWorkerHandler(ctx: WorkerContext): (msg: WorkerInbound) => Promise<void> {
   let tts: KokoroTtsInstance | null = null;
+  // Serializes generations so the single ONNX session is never invoked
+  // concurrently (concurrent generate() calls produce undefined behavior).
+  // The engine should only ever dispatch one speak at a time per worker;
+  // the chain keeps the worker correct even if a test or a future engine
+  // bug double-posts.
   let generationChain: Promise<void> = Promise.resolve();
   const cancelled = new Set<string>();
 
+  function postWorkerReady(): void {
+    ctx.postMessage({ type: 'workerReady' });
+  }
+
   async function handleLoad(requestId: string): Promise<void> {
     try {
-      const preferred = await detectDevice();
-      // dtype is pinned by the *detected* device, not by the device we end
-      // up running on. WebGPU→WASM fallback keeps fp32 so the cached fp32
-      // download is reused rather than triggering a second q8 download.
-      const dtype = preferred === 'webgpu' ? DTYPE_WEBGPU : DTYPE_WASM;
-      const tryLoad = (device: 'wasm' | 'webgpu'): Promise<KokoroTtsInstance> =>
-        (
-          KokoroTTS.from_pretrained as unknown as (
-            modelId: string,
-            options: {
-              dtype: string;
-              device: 'wasm' | 'webgpu';
-              progress_callback: (event: KokoroProgressEvent) => void;
-            }
-          ) => Promise<KokoroTtsInstance>
-        )(MODEL_ID, {
-          dtype,
-          device,
-          progress_callback: (event) => {
-            if (typeof event.loaded === 'number' && typeof event.total === 'number') {
-              ctx.postMessage({
-                type: 'loadProgress',
-                requestId,
-                loaded: event.loaded,
-                total: event.total,
-              });
-            }
-          },
-        });
-
-      try {
-        tts = await tryLoad(preferred);
-      } catch (error) {
-        // WebGPU can advertise an adapter but still fail at load time (driver,
-        // browser flag, runtime backend). Fall back to WASM. Re-throw if we
-        // were already on WASM — nothing else to try.
-        if (preferred !== 'webgpu') throw error;
-        tts = await tryLoad('wasm');
-      }
-
+      tts = await (
+        KokoroTTS.from_pretrained as unknown as (
+          modelId: string,
+          options: {
+            dtype: string;
+            device: 'wasm';
+            progress_callback: (event: KokoroProgressEvent) => void;
+          }
+        ) => Promise<KokoroTtsInstance>
+      )(MODEL_ID, {
+        dtype: DTYPE,
+        device: DEVICE,
+        progress_callback: (event) => {
+          if (typeof event.loaded === 'number' && typeof event.total === 'number') {
+            ctx.postMessage({
+              type: 'loadProgress',
+              requestId,
+              loaded: event.loaded,
+              total: event.total,
+            });
+          }
+        },
+      });
       ctx.postMessage({ type: 'loadDone', requestId });
     } catch (error) {
       ctx.postMessage({
@@ -114,6 +105,7 @@ export function createWorkerHandler(ctx: WorkerContext): (msg: WorkerInbound) =>
         requestId,
         message: 'TTS engine is not loaded',
       });
+      postWorkerReady();
       return;
     }
     try {
@@ -126,6 +118,7 @@ export function createWorkerHandler(ctx: WorkerContext): (msg: WorkerInbound) =>
         message: error instanceof Error ? error.message : String(error),
       });
     }
+    postWorkerReady();
   }
 
   async function runSpeak(requestId: string, text: string, voice: string): Promise<void> {
@@ -166,15 +159,16 @@ export function createWorkerHandler(ctx: WorkerContext): (msg: WorkerInbound) =>
   }
 
   function handleSpeak(requestId: string, text: string, voice: string): void {
-    // Chain generations so they execute one at a time inside the worker —
-    // the underlying ONNX session is a single instance and can't be invoked
-    // concurrently. Each `then()` step waits for the previous to finish.
-    // Returns void: enqueue is synchronous, execution happens later on the
-    // chain. Callers must not await this — that would block waiting for
-    // every prior generation to finish before the next message can be
-    // processed (e.g., a `cancel` message couldn't get through).
-    // eslint-disable-next-line promise/prefer-await-to-then -- explicit chain: appending preserves enqueue order without awaiting
-    generationChain = generationChain.then(() => runSpeak(requestId, text, voice));
+    // Enqueue is synchronous; execution happens later on the chain so a
+    // `cancel` message can still be processed while a generation is running.
+    // workerReady fires after every speak attempt — success, failure, or
+    // cancelled-before-start — so the engine can decrement the slot's
+    // inflight counter without special-casing.
+    // eslint-disable-next-line promise/prefer-await-to-then, promise/always-return -- explicit chain: appending preserves enqueue order without awaiting; the async callback's implicit return is a Promise<void>
+    generationChain = generationChain.then(async () => {
+      await runSpeak(requestId, text, voice);
+      postWorkerReady();
+    });
   }
 
   function handleCancel(requestId: string): void {

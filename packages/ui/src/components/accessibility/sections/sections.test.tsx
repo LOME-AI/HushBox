@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import { ACCESSIBILITY_PREFERENCES_DEFAULTS, type AccessibilityPreferences } from '@hushbox/shared';
@@ -315,44 +315,11 @@ describe('AudioSection', () => {
     expect(ttsPreloadVoiceMock).not.toHaveBeenCalled();
   });
 
-  describe('download-size disclosure varies with detected device', () => {
-    type WindowWithCapacitor = Window & {
-      Capacitor?: { isNativePlatform?: () => boolean };
-    };
-    let originalGpu: unknown;
-
-    beforeEach(() => {
-      originalGpu = (navigator as unknown as { gpu?: unknown }).gpu;
-      delete (globalThis.window as WindowWithCapacitor).Capacitor;
-    });
-
-    afterEach(() => {
-      if (originalGpu === undefined) {
-        delete (navigator as unknown as { gpu?: unknown }).gpu;
-      } else {
-        (navigator as unknown as { gpu?: unknown }).gpu = originalGpu;
-      }
-    });
-
-    it('no WebGPU adapter: shows the q8/WASM size (~80 MB)', async () => {
-      delete (navigator as unknown as { gpu?: unknown }).gpu;
-      render(<AudioSection />);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(screen.getByText(/80 MB, one-time download/)).not.toBeNull();
-      expect(screen.queryByText(/330 MB/)).toBeNull();
-    });
-
-    it('WebGPU adapter available: shows the fp32 size (~330 MB) after detection resolves', async () => {
-      (navigator as unknown as { gpu?: unknown }).gpu = {
-        requestAdapter: () => Promise.resolve({}),
-      };
-      render(<AudioSection />);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(screen.getByText(/330 MB, one-time download/)).not.toBeNull();
-      expect(screen.queryByText(/80 MB/)).toBeNull();
-    });
+  it('download-size disclosure shows the q8/WASM size (~80 MB) unconditionally', async () => {
+    render(<AudioSection />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText(/80 MB, one-time download/)).not.toBeNull();
+    expect(screen.queryByText(/330 MB/)).toBeNull();
   });
 });
 

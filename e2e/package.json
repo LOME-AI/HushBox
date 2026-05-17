@@ -8,7 +8,6 @@
     "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.11.3",
     "@hushbox/config": "workspace:*",
     "@hushbox/crypto": "workspace:*",
     "@hushbox/shared": "workspace:*",
