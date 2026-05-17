@@ -2,7 +2,13 @@ import { parseEvent } from '@hushbox/realtime/events';
 import { getApiUrl } from './api.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
 import { useNetworkStore } from '../stores/network.js';
+import { useWebsocketInboundActivityStore } from '../stores/websocket-inbound-activity.js';
 import type { RealtimeEvent, RealtimeEventType } from '@hushbox/realtime/events';
+
+// Hold the inbound-activity counter elevated for one paint cycle after each
+// event so React has time to commit state updates triggered by the event
+// before useIsSettled samples the counter back at zero.
+const INBOUND_TAIL_MS = 100;
 
 type EventListener<T extends RealtimeEventType> = (
   event: Extract<RealtimeEvent, { type: T }>
@@ -130,6 +136,8 @@ export class ConversationWebSocket {
         return;
       }
 
+      const activity = useWebsocketInboundActivityStore.getState();
+      activity.startProcessing();
       try {
         const event = parseEvent(raw);
         this.options.onEvent?.(event);
@@ -142,6 +150,10 @@ export class ConversationWebSocket {
       } catch {
         // Intentional: malformed events from transit corruption cannot be fixed client-side.
         // Server validates via Zod before broadcast; parse failure here indicates data corruption, not a bug.
+      } finally {
+        setTimeout(() => {
+          activity.endProcessing();
+        }, INBOUND_TAIL_MS);
       }
     });
 

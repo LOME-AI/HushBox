@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useIsFetching, useIsMutating } from '@tanstack/react-query';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useDecryptionActivityStore } from '@/stores/decryption-activity';
+import { useWebsocketInboundActivityStore } from '@/stores/websocket-inbound-activity';
 import { useAuthStore } from '@/lib/auth';
 
 const DEBOUNCE_MS = 600;
@@ -11,6 +12,7 @@ export function useIsSettled(): boolean {
   const isMutating = useIsMutating();
   const activeStreams = useStreamingActivityStore((s) => s.activeStreams);
   const pendingDecryptions = useDecryptionActivityStore((s) => s.pendingDecryptions);
+  const pendingInbound = useWebsocketInboundActivityStore((s) => s.pendingInbound);
   const isAuthLoading = useAuthStore((s) => s.isLoading);
 
   const isIdle =
@@ -18,6 +20,7 @@ export function useIsSettled(): boolean {
     isMutating === 0 &&
     activeStreams === 0 &&
     pendingDecryptions === 0 &&
+    pendingInbound === 0 &&
     !isAuthLoading;
 
   const [settled, setSettled] = useState(false);

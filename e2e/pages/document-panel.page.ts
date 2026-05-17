@@ -87,9 +87,6 @@ export class DocumentPanelPage {
   ): Promise<Locator> {
     await chatPage.scrollMessageIntoView(messageIndex);
     const card = this.cardInMessage(chatPage, messageIndex);
-    // Document extraction is synchronous in the markdown renderer, but
-    // Streamdown's `animated` pipeline and WebKit paint timing can leave the
-    // card un-painted past the settled debounce. Wait the full timeout.
     await unsettledExpect(card).toBeVisible({ timeout });
     return card;
   }

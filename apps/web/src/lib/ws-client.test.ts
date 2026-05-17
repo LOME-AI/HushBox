@@ -52,6 +52,17 @@ vi.mock('../stores/network.js', () => ({
   useNetworkStore: mockNetworkStore.useNetworkStore,
 }));
 
+const mockStartProcessing = vi.fn();
+const mockEndProcessing = vi.fn();
+vi.mock('../stores/websocket-inbound-activity.js', () => ({
+  useWebsocketInboundActivityStore: {
+    getState: (): { startProcessing: () => void; endProcessing: () => void } => ({
+      startProcessing: mockStartProcessing,
+      endProcessing: mockEndProcessing,
+    }),
+  },
+}));
+
 import { ConversationWebSocket, type ConversationWebSocketOptions } from './ws-client.js';
 
 // readyState starts as OPEN. onopen is NOT auto-fired; tests trigger it manually.
@@ -130,6 +141,8 @@ describe('ConversationWebSocket', () => {
     mockParseEvent.mockReset();
     mockGetApiUrl.mockReset().mockReturnValue('http://localhost:8787');
     mockGetLinkGuestAuth.mockReset().mockReturnValue(null);
+    mockStartProcessing.mockReset();
+    mockEndProcessing.mockReset();
   });
 
   afterEach(() => {
@@ -443,6 +456,59 @@ describe('ConversationWebSocket', () => {
         ws.dispatchEvent('message', { data: 'not-json' } as MessageEvent);
       }).not.toThrow();
       expect(onEvent).not.toHaveBeenCalled();
+    });
+
+    it('marks inbound activity start synchronously and end after a paint-cycle tail', () => {
+      const fakeEvent = {
+        type: 'typing:start' as const,
+        timestamp: 1,
+        conversationId: 'c1',
+        userId: 'u1',
+      };
+      mockParseEvent.mockReturnValue(fakeEvent);
+
+      const client = createClient();
+      client.connect();
+      const ws = getLastWebSocket();
+
+      ws.dispatchEvent('message', { data: JSON.stringify(fakeEvent) } as MessageEvent);
+
+      expect(mockStartProcessing).toHaveBeenCalledTimes(1);
+      expect(mockEndProcessing).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(100);
+
+      expect(mockEndProcessing).toHaveBeenCalledTimes(1);
+    });
+
+    it('still marks inbound activity start/end when parseEvent throws', () => {
+      mockParseEvent.mockImplementation(() => {
+        throw new Error('Invalid event');
+      });
+
+      const client = createClient();
+      client.connect();
+      const ws = getLastWebSocket();
+
+      ws.dispatchEvent('message', { data: 'garbage' } as MessageEvent);
+
+      expect(mockStartProcessing).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(100);
+
+      expect(mockEndProcessing).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not mark inbound activity for the ready signal', () => {
+      const client = createClient();
+      client.connect();
+      const ws = getLastWebSocket();
+
+      ws.dispatchEvent('message', { data: '{"type":"ready"}' } as MessageEvent);
+
+      expect(mockStartProcessing).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(200);
+      expect(mockEndProcessing).not.toHaveBeenCalled();
     });
   });
 

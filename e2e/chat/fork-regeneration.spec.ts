@@ -93,8 +93,7 @@ test.describe('Fork and Regeneration Interaction', () => {
 
     await test.step('Fork 1 still intact with its messages', async () => {
       await chatPage.clickForkTab('Fork 1');
-      // Fork 1 chain walk from its tip should include the shared early messages.
-      // Poll: tab switch triggers an async re-render via the fork-filter refetch.
+      // Fork 1 chain walk from its tip should include the shared early messages
       await expect
         .poll(() => chatPage.countMessages(), { timeout: 10_000 })
         .toBeGreaterThanOrEqual(4);

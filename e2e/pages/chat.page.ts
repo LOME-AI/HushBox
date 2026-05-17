@@ -415,9 +415,6 @@ export class ChatPage {
    * alone is insufficient on iPhone-15: a freshly-mounted lazy `<img>` with
    * no `width`/`height` attributes can be in the DOM with a 0×0 bounding box
    * and report as "hidden" until the bytes actually decode.
-   *
-   * Uses unsettledExpect: decode is a WebKit-internal step the React tree
-   * cannot observe, so the settled signal fires before the bytes are ready.
    */
   private async expectMediaLoaded(media: Locator, timeout = 15_000): Promise<void> {
     await unsettledExpect

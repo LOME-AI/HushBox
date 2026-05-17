@@ -60,7 +60,7 @@ const DEFAULT_CLASSIFIER_RESOLUTION = 'anthropic/claude-haiku-4.5';
  * ticks; without it the loading indicator never paints. Explicit `0`
  * opts out for unit tests that care about microsecond timing.
  */
-const DEFAULT_CLASSIFIER_DELAY_MS = 500;
+const DEFAULT_CLASSIFIER_DELAY_MS = 1000;
 
 export {
   TEST_IMAGE_BYTES as CANNED_IMAGE,

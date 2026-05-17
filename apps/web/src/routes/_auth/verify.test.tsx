@@ -118,6 +118,31 @@ describe('VerifyPage', () => {
   });
 });
 
+describe('VerifyPage idempotency', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useSearch).mockReturnValue({ token: 'idempotency-token' });
+  });
+
+  it('fires verifyEmail at most once when the effect runs twice for the same token', async () => {
+    vi.mocked(authClient.verifyEmail).mockResolvedValue({});
+    const { VerifyPage } = await import('./verify');
+
+    const { StrictMode } = await import('react');
+    render(
+      <StrictMode>
+        <VerifyPage />
+      </StrictMode>
+    );
+
+    await waitFor(() => {
+      expect(authClient.verifyEmail).toHaveBeenCalled();
+    });
+
+    expect(authClient.verifyEmail).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('VerifyPage without token', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -434,7 +434,6 @@ test.describe('Shared Content', () => {
       const guestChatPage = new ChatPage(guest);
       await guestChatPage.expectImageVisible(15_000);
       const imageElement = guestChatPage.messageList.locator('img').first();
-      // Decode is browser-internal; settled fires before naturalWidth flips.
       await unsettledExpect
         .poll(async () => imageElement.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
           timeout: 10_000,
@@ -444,7 +443,6 @@ test.describe('Shared Content', () => {
       await guestChatPage.expectVideoVisible(15_000);
       const videoElement = guestChatPage.messageList.locator('video').first();
       // Wait until the video reports a parseable duration (metadata loaded).
-      // Metadata load is browser-internal; settled fires before it completes.
       await unsettledExpect
         .poll(
           async () =>

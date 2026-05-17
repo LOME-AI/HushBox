@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, useSearch, Link } from '@tanstack/react-router';
 import { toast } from '@hushbox/ui';
 import { ROUTES } from '@hushbox/shared';
@@ -15,20 +15,27 @@ export function VerifyPage(): React.JSX.Element {
   const search = useSearch({ from: '/_auth/verify' });
   const [state, setState] = useState<VerifyState>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  // The email-verify token is single-use server-side: a successful POST nulls
+  // the row, so a repeat call returns INVALID_OR_EXPIRED_TOKEN. Guard against
+  // any re-fire of the effect for the same token within this component instance.
+  const sentForTokenRef = useRef<string | null>(null);
 
   const token = (search as { token?: string }).token;
 
   useEffect(() => {
     if (!token) return;
+    if (sentForTokenRef.current === token) return;
+    sentForTokenRef.current = token;
 
-    // Token is validated above, capture it for the async closure
     const verificationToken = token;
+    const controller = new AbortController();
 
     async function verify(): Promise<void> {
       try {
         const response = await authClient.verifyEmail({
           query: { token: verificationToken },
         });
+        if (controller.signal.aborted) return;
         if (response.error) {
           setState('error');
           setErrorMessage(response.error.message);
@@ -37,12 +44,17 @@ export function VerifyPage(): React.JSX.Element {
         setState('success');
         toast.success('Email verified successfully!');
       } catch {
+        if (controller.signal.aborted) return;
         setState('error');
         setErrorMessage('Verification failed. Please try again.');
       }
     }
 
     void verify();
+
+    return (): void => {
+      controller.abort();
+    };
   }, [token]);
 
   if (!token) {
