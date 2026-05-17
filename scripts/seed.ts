@@ -61,6 +61,7 @@ import {
   Mode,
   normalizeUsername,
 } from '@hushbox/shared';
+import { fetchModels, pickValueTextModel } from '@hushbox/shared/models';
 import {
   createOpaqueClient,
   startRegistration,
@@ -364,6 +365,25 @@ function createConversationEpochData(
   return { epoch, epochMember, conversationMember, epochPublicKey: epochResult.epochPublicKey };
 }
 
+/**
+ * Resolved at script startup via `loadSeedAiModel()` so AI seed messages
+ * reference a model that currently exists in the live AI Gateway catalog,
+ * not a hardcoded id that drifts when the gateway retires models. Mirrors
+ * the runtime behavior added to `apps/api/src/services/dev/dev.ts`.
+ */
+let seedAiModelId: string | null = null;
+
+async function loadSeedAiModel(): Promise<void> {
+  const publicModelsUrl = process.env['PUBLIC_MODELS_URL'];
+  if (publicModelsUrl === undefined || publicModelsUrl.length === 0) {
+    throw new Error(
+      'PUBLIC_MODELS_URL env var is required so the seed script can pick a live AI model id'
+    );
+  }
+  const rawModels = await fetchModels({ publicModelsUrl });
+  seedAiModelId = pickValueTextModel(rawModels);
+}
+
 function buildSeedMessageAndContentItem(
   epochPublicKey: Uint8Array,
   text: string,
@@ -378,6 +398,9 @@ function buildSeedMessageAndContentItem(
     createdAt?: Date;
   }
 ): { message: MessageWithId; contentItem: ContentItemWithId } {
+  if (seedAiModelId === null) {
+    throw new Error('invariant: loadSeedAiModel() must run before buildSeedMessageAndContentItem');
+  }
   const { contentKey, wrappedContentKey } = beginMessageEnvelope(epochPublicKey);
   const encryptedBlob = encryptTextWithContentKey(contentKey, text);
 
@@ -392,7 +415,7 @@ function buildSeedMessageAndContentItem(
     contentType: 'text',
     position: 0,
     encryptedBlob,
-    modelName: msgOverrides.senderType === 'ai' ? 'anthropic/claude-3.5-sonnet' : null,
+    modelName: msgOverrides.senderType === 'ai' ? seedAiModelId : null,
     cost: null,
     isSmartModel: false,
   });
@@ -1693,6 +1716,10 @@ export async function seed(): Promise<void> {
     connectionString: databaseUrl,
     neonDev: LOCAL_NEON_DEV_CONFIG,
   });
+
+  // Resolve the AI seed model id once from the live catalog before any
+  // data-generation runs.
+  await loadSeedAiModel();
 
   const data = generateSeedData();
   const personaData = await generatePersonaData();

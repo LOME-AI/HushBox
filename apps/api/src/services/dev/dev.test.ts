@@ -11,6 +11,13 @@ import {
   setWalletBalance,
 } from './dev.js';
 
+/**
+ * Sentinel seed model id passed by these unit tests. The production route
+ * derives this from `pickValueTextModel(rawModels)` at request time; we don't
+ * exercise that selection here.
+ */
+const TEST_SEED_AI_MODEL = 'anthropic/claude-haiku-4.5';
+
 vi.mock('../billing/index.js', () => ({
   checkUserBalance: vi.fn().mockResolvedValue({
     hasBalance: true,
@@ -432,6 +439,7 @@ describe('dev service', () => {
       const result = await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       expect(result.conversationId).toBeDefined();
@@ -467,6 +475,7 @@ describe('dev service', () => {
       await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       expect(mockCreateFirstEpoch).toHaveBeenCalledWith([ALICE_PUBLIC_KEY, BOB_PUBLIC_KEY]);
@@ -486,6 +495,7 @@ describe('dev service', () => {
       await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       const tables = insertCalls.map((c) => c.table);
@@ -509,6 +519,7 @@ describe('dev service', () => {
       await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       const memberInsert = insertCalls.find((c) => c.table === conversationMembers);
@@ -540,6 +551,7 @@ describe('dev service', () => {
       await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
         messages: [
           { senderEmail: 'alice@test.hushbox.ai', content: 'Hello from Alice', senderType: 'user' },
           { content: 'Echo: Hello', senderType: 'ai' },
@@ -559,7 +571,7 @@ describe('dev service', () => {
       const call1 = mockInsertEnvelopeTextMessage.mock.calls[1]![1] as Record<string, unknown>;
       expect(call1['senderType']).toBe('ai');
       expect(call1['sequenceNumber']).toBe(2);
-      expect(call1['modelName']).toBe('anthropic/claude-3.5-sonnet');
+      expect(call1['modelName']).toBe(TEST_SEED_AI_MODEL);
     });
 
     it('does not insert messages when none provided', async () => {
@@ -576,6 +588,7 @@ describe('dev service', () => {
       await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       const msgInsert = insertCalls.find((c) => c.table === messages);
@@ -593,6 +606,7 @@ describe('dev service', () => {
         createDevGroupChat(mockDb as never, {
           ownerEmail: 'alice@test.hushbox.ai',
           memberEmails: ['bob@test.hushbox.ai'],
+          seedAiModel: TEST_SEED_AI_MODEL,
         })
       ).rejects.toThrow('Owner not found');
     });
@@ -751,6 +765,7 @@ describe('dev service', () => {
 
       const result = await createDevConversation(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       expect(result.conversationId).toBe('conv-123');
@@ -771,7 +786,10 @@ describe('dev service', () => {
       const mockDb = createMockDb([]);
 
       await expect(
-        createDevConversation(mockDb as never, { ownerEmail: 'nobody@test.hushbox.ai' })
+        createDevConversation(mockDb as never, {
+          ownerEmail: 'nobody@test.hushbox.ai',
+          seedAiModel: TEST_SEED_AI_MODEL,
+        })
       ).rejects.toThrow('User not found: nobody@test.hushbox.ai');
     });
 
@@ -793,6 +811,7 @@ describe('dev service', () => {
 
       await createDevConversation(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
+        seedAiModel: TEST_SEED_AI_MODEL,
         messages: [
           { content: 'Hello', senderType: 'user' },
           { content: 'Echo: Hello', senderType: 'ai' },
@@ -826,6 +845,7 @@ describe('dev service', () => {
 
       const result = await createDevConversation(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       expect(result.conversationId).toBe('conv-456');

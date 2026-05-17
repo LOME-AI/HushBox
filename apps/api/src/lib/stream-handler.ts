@@ -4,6 +4,7 @@
  * Provides typed event writers for SSE streams used by chat endpoints.
  */
 
+import { ERROR_CODE_STREAM_ERROR } from '@hushbox/shared';
 import type { StageDonePayload, StageErrorPayload, StageStartPayload } from '@hushbox/shared';
 
 export interface SSEStream {
@@ -156,6 +157,27 @@ export interface SSEEventWriter {
   /** Pre-inference stage failure — generic across all stage types. */
   writeStageError: (data: StageErrorPayload) => Promise<void>;
   isConnected: () => boolean;
+}
+
+/**
+ * Surfaces an unexpected exception thrown inside a `streamSSE` callback as a
+ * client-visible `event: error`. Without this wrapper the SSE socket closes
+ * cleanly after the last successful event (typically `model:done`) and the
+ * client sits at its STREAM_TIMEOUT_MS — a silent failure that hides server
+ * crashes (e.g. catalog miss in `getGenerationStats`, billing persistence
+ * errors).
+ *
+ * Always logs to `console.error` so the server-side trace survives even when
+ * the writer is already disconnected. Write attempts after disconnect no-op
+ * via the writer's connection guard, so this is safe to call from a `catch`.
+ */
+export async function writeStreamErrorFromException(
+  writer: SSEEventWriter,
+  err: unknown
+): Promise<void> {
+  console.error('sse stream: uncaught exception', err);
+  const message = err instanceof Error ? err.message : 'Stream processing failed';
+  await writer.writeError({ message, code: ERROR_CODE_STREAM_ERROR });
 }
 
 /**

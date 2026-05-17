@@ -84,6 +84,7 @@ function buildDecryptedMessage(msg: MessageResponse, content: string): Message {
     ...(msg.senderId != null && { senderId: msg.senderId }),
     modelName,
     parentMessageId: msg.parentMessageId,
+    batchId: msg.batchId,
     wrappedContentKey: msg.wrappedContentKey,
     epochNumber: msg.epochNumber,
     ...(isSmartModel && { isSmartModel: true }),

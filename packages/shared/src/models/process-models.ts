@@ -383,3 +383,37 @@ export function processModels(rawModels: RawModel[]): ProcessedModels {
     premiumIds: [...text.premiumIds, ...image.premiumIds, ...video.premiumIds, ...audio.premiumIds],
   };
 }
+
+/**
+ * Returns the id of the cheapest non-premium text model in the catalog.
+ *
+ * Drives dev-fixture seed messages (`apps/api/src/services/dev/dev.ts`) so
+ * seeded AI rows always reference a model that currently exists on the AI
+ * Gateway — hardcoding a name drifts as soon as the gateway retires that
+ * model, breaking every retry path that re-uses the seeded `modelName`.
+ *
+ * Mirrors {@link processTextModels}'s filter + sort so the choice matches
+ * what `buildEligibleModels` would pick as its classifier model. Throws if
+ * the resulting set is empty — silently returning a placeholder would just
+ * defer the same failure into `getGenerationStats`.
+ */
+export function pickValueTextModel(rawModels: RawModel[]): string {
+  const text = processTextModels(groupByModality(rawModels).text);
+  const premiumSet = new Set(text.premiumIds);
+  let bestId: string | undefined;
+  let bestPrice = Number.POSITIVE_INFINITY;
+  for (const raw of text.filteredPool) {
+    if (premiumSet.has(raw.id)) continue;
+    const price = getCombinedPrice(raw);
+    if (price < bestPrice) {
+      bestPrice = price;
+      bestId = raw.id;
+    }
+  }
+  if (bestId === undefined) {
+    throw new Error(
+      'pickValueTextModel: no non-premium text model in catalog — dev seed cannot pick a stable model id'
+    );
+  }
+  return bestId;
+}

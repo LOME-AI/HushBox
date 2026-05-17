@@ -256,6 +256,13 @@ interface PersistAssistantContext {
   userMessageId: string;
   userId: string;
   groupBillingContext?: { memberId: string };
+  /**
+   * Per-turn id shared by every message this `saveChatTurn` call persists.
+   * Forwarded to {@link insertEnvelopeTextMessage} / {@link insertEnvelopeMediaMessage}
+   * so multi-model peers (same parent, same batch) can be distinguished from
+   * fork-preserve orphans (same parent, different batch) in the fork-filter.
+   */
+  batchId: string;
 }
 
 async function persistTextAssistant(
@@ -281,6 +288,7 @@ async function persistTextAssistant(
     cost: totalCostAmount,
     isSmartModel: msg.isSmartModel ?? false,
     parentMessageId: context.userMessageId,
+    batchId: context.batchId,
   });
 
   const { usageRecordId } = await chargeAndTrackUsage(tx, {
@@ -345,6 +353,7 @@ async function persistMediaAssistant(
     senderType: 'ai',
     parentMessageId: context.userMessageId,
     mediaItems: msg.contentItems,
+    batchId: context.batchId,
   });
 
   const { usageRecordId } = await chargeAndTrackMediaUsage(tx, {
@@ -448,6 +457,12 @@ export async function saveChatTurn(
   const assistantMsgs = normalizeAssistantMessages(params);
   logNegativeCosts(assistantMsgs, conversationId, userId);
 
+  // One batch id per turn — every message persisted in this call (the new
+  // user message if any, plus every assistant) shares it. The fork-filter
+  // uses it to tell a multi-model fan-out from a retry-with-fork-preserved
+  // orphan that left a same-parent assistant behind.
+  const batchId = crypto.randomUUID();
+
   return db.transaction(async (tx) => {
     const treeResult = await applyTreeAction(tx, conversationId, treeAction);
 
@@ -478,6 +493,7 @@ export async function saveChatTurn(
         senderType: 'user',
         senderId,
         parentMessageId: treeResult.userMessageInsert.parentMessageId,
+        batchId,
       });
       userSequence = userSeq;
       userEnvelope = {
@@ -494,6 +510,7 @@ export async function saveChatTurn(
       userMessageId: treeResult.parentMessageIdForAssistants,
       userId,
       sequenceOffset: userMsgCount,
+      batchId,
       ...(groupBillingContext !== undefined && { groupBillingContext }),
     });
 

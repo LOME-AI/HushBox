@@ -57,6 +57,15 @@ export interface Message {
   senderId?: string;
   modelName?: string | null;
   parentMessageId?: string | null;
+  /**
+   * Per-turn id from the API. Two assistant messages with the same parent
+   * are multi-model peers iff their `batchId`s match. `useForkMessages` uses
+   * this to keep peers visible on every branch while excluding fork-
+   * preserved orphans (assistants left behind by retries upstream of a fork
+   * branch). Optional in the type because optimistic/streaming messages
+   * built client-side may not have it yet.
+   */
+  batchId?: string;
   errorCode?: string;
   /**
    * True when this assistant message was produced via a Smart Model (or

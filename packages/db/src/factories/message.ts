@@ -20,6 +20,7 @@ export const messageFactory = Factory.define<Message>(({ params }) => {
     epochNumber: 1,
     sequenceNumber: faker.number.int({ min: 1, max: 1000 }),
     parentMessageId: null,
+    batchId: crypto.randomUUID(),
     createdAt: faker.date.recent(),
   };
 });

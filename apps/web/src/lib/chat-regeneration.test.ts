@@ -424,6 +424,92 @@ describe('resolveRegenerateModels', () => {
       'gpt-4o',
     ]);
   });
+
+  describe('Smart Model preservation', () => {
+    interface SmartTestMsg {
+      id: string;
+      role: string;
+      parentMessageId?: string | null;
+      modelName?: string | null;
+      isSmartModel?: boolean;
+    }
+
+    it("emits 'smart-model' for regenerate-one of a Smart Model tile, not the resolved id", () => {
+      const messages: SmartTestMsg[] = [
+        { id: 'u1', role: 'user', parentMessageId: null },
+        {
+          id: 'm1',
+          role: 'assistant',
+          parentMessageId: 'u1',
+          modelName: 'anthropic/claude-sonnet-4.6',
+          isSmartModel: true,
+        },
+      ];
+
+      expect(resolveRegenerateModels(messages, 'u1', 'm1', 'fallback-model')).toEqual([
+        'smart-model',
+      ]);
+    });
+
+    it("emits 'smart-model' for retry-all when target has a Smart Model child", () => {
+      const messages: SmartTestMsg[] = [
+        { id: 'u1', role: 'user', parentMessageId: null },
+        {
+          id: 'm1',
+          role: 'assistant',
+          parentMessageId: 'u1',
+          modelName: 'anthropic/claude-sonnet-4.6',
+          isSmartModel: true,
+        },
+      ];
+
+      expect(resolveRegenerateModels(messages, 'u1', undefined, 'fallback-model')).toEqual([
+        'smart-model',
+      ]);
+    });
+
+    it('preserves Smart Model in mixed retry-all sibling sets', () => {
+      const messages: SmartTestMsg[] = [
+        { id: 'u1', role: 'user', parentMessageId: null },
+        {
+          id: 'm1',
+          role: 'assistant',
+          parentMessageId: 'u1',
+          modelName: 'anthropic/claude-sonnet-4.6',
+          isSmartModel: true,
+        },
+        {
+          id: 'm2',
+          role: 'assistant',
+          parentMessageId: 'u1',
+          modelName: 'openai/gpt-4o',
+          isSmartModel: false,
+        },
+      ];
+
+      expect(resolveRegenerateModels(messages, 'u1', undefined, 'fallback-model')).toEqual([
+        'smart-model',
+        'openai/gpt-4o',
+      ]);
+    });
+
+    it('does not emit smart-model for non-Smart-Model messages even with same resolved id', () => {
+      const messages: SmartTestMsg[] = [
+        { id: 'u1', role: 'user', parentMessageId: null },
+        {
+          id: 'm1',
+          role: 'assistant',
+          parentMessageId: 'u1',
+          modelName: 'anthropic/claude-sonnet-4.6',
+          isSmartModel: false,
+        },
+      ];
+
+      expect(resolveRegenerateModels(messages, 'u1', 'm1', 'fallback-model')).toEqual([
+        'anthropic/claude-sonnet-4.6',
+      ]);
+    });
+  });
 });
 
 describe('buildMessagesForRegeneration', () => {

@@ -1,7 +1,10 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
-import { sumDisplayedMessageCostCents } from '../helpers/cost-display.js';
+import {
+  sumDisplayedMessageCostMicros,
+  DISPLAY_COST_TOLERANCE_MICROS,
+} from '../helpers/cost-display.js';
 import { assertPartialFailurePersistence } from '../helpers/partial-failure.js';
 
 test.describe('Multi-Model Chat', () => {
@@ -368,12 +371,14 @@ test.describe('Multi-Model Chat', () => {
 
       const afterData = await budgetHelper.getBalance();
       const balanceAfter = Number.parseFloat(afterData.balance);
-      const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
-      const displayedCents = await sumDisplayedMessageCostCents(chatPage.messageList);
+      const debitMicros = Math.round((balanceBefore - balanceAfter) * 1_000_000);
+      const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
 
-      // Allow a 1-cent rounding window in either direction — billing snaps to
-      // cents but the UI shows up to 3 decimal places of dollars.
-      expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
+      // 1-cent tolerance in either direction (DISPLAY_COST_TOLERANCE_MICROS =
+      // 10_000) — billing snaps to cents but the UI shows finer dollars.
+      expect(Math.abs(debitMicros - displayedMicros)).toBeLessThanOrEqual(
+        DISPLAY_COST_TOLERANCE_MICROS
+      );
     });
 
     // 10.1 — web-search × multi-model reservation: regression for the N² bug
@@ -412,10 +417,12 @@ test.describe('Multi-Model Chat', () => {
 
       const afterData = await budgetHelper.getBalance();
       const balanceAfter = Number.parseFloat(afterData.balance);
-      const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
-      const displayedCents = await sumDisplayedMessageCostCents(chatPage.messageList);
+      const debitMicros = Math.round((balanceBefore - balanceAfter) * 1_000_000);
+      const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
 
-      expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
+      expect(Math.abs(debitMicros - displayedMicros)).toBeLessThanOrEqual(
+        DISPLAY_COST_TOLERANCE_MICROS
+      );
     });
   });
 
@@ -580,12 +587,14 @@ test.describe('Multi-Model Chat', () => {
 
         const afterData = await budgetHelper.getBalance();
         const balanceAfter = Number.parseFloat(afterData.balance);
-        const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
+        const debitMicros = Math.round((balanceBefore - balanceAfter) * 1_000_000);
         // Only the successful response has a cost badge — the failed tile
         // emits an error-message instead of a cost row.
-        const displayedCents = await sumDisplayedMessageCostCents(chatPage.messageList);
+        const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
 
-        expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
+        expect(Math.abs(debitMicros - displayedMicros)).toBeLessThanOrEqual(
+          DISPLAY_COST_TOLERANCE_MICROS
+        );
       } finally {
         await authenticatedPage.setExtraHTTPHeaders({});
       }

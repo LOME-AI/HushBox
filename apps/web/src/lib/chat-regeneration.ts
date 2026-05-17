@@ -1,3 +1,5 @@
+import { SMART_MODEL_ID } from '@hushbox/shared';
+
 interface MessageLike {
   id: string;
   role: string;
@@ -126,6 +128,7 @@ interface RegenerateTarget {
 
 interface MessageWithModelName extends MessageWithParent {
   modelName?: string | null;
+  isSmartModel?: boolean;
 }
 
 /**
@@ -159,17 +162,27 @@ function collectSiblingModels(messages: MessageWithModelName[], parentId: string
   const out: string[] = [];
   for (const m of messages) {
     if (m.role !== 'assistant' || m.parentMessageId !== parentId) continue;
+    if (m.isSmartModel) {
+      out.push(SMART_MODEL_ID);
+      continue;
+    }
     const name = m.modelName;
     if (name != null && name !== '') out.push(name);
   }
   return out;
 }
 
+// `modelName` stores the RESOLVED downstream id for a Smart Model turn (see
+// apps/api/src/services/chat/message-persistence.ts:117-124). Sending that
+// resolved id back on regenerate would bypass the classifier and downgrade
+// the message to a direct-model send; emit the symbolic SMART_MODEL_ID
+// instead so the server's pre-inference stage runs again.
 function modelOfAssistant(
   messages: MessageWithModelName[],
   assistantId: string
 ): string | undefined {
   const target = messages.find((m) => m.id === assistantId);
+  if (target?.isSmartModel) return SMART_MODEL_ID;
   const name = target?.modelName;
   if (name == null || name === '') return undefined;
   return name;

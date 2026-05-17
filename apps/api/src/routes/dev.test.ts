@@ -11,11 +11,53 @@ async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> 
   return (await res.json()) as T;
 }
 
+/**
+ * Stub AI client returning a minimal text-model catalog. The route's call to
+ * `aiClient.listRawModels()` feeds `pickValueTextModel`; the selector needs at
+ * least one non-premium text entry (old enough to escape the recency premium
+ * check, priced above MIN_PRICE_PER_1K_TOKENS, with text I/O modalities).
+ */
+const TEST_AI_CLIENT_STUB = {
+  listRawModels: vi.fn().mockResolvedValue([
+    {
+      id: 'anthropic/claude-haiku-4.5',
+      name: 'Claude Haiku',
+      description: 'Test stub model',
+      modality: 'text',
+      context_length: 100_000,
+      pricing: { prompt: '0.000001', completion: '0.000001' },
+      supported_parameters: ['temperature'],
+      // Two years ago in seconds — escapes both the recency premium check
+      // (<6mo) and the standard-criteria age exclusion (>2y).
+      created: Math.floor((Date.now() - 365 * 24 * 60 * 60 * 1000) / 1000),
+      architecture: {
+        input_modalities: ['text'],
+        output_modalities: ['text'],
+      },
+    },
+    {
+      id: 'openai/gpt-5',
+      name: 'GPT-5',
+      description: 'Test stub premium model',
+      modality: 'text',
+      context_length: 100_000,
+      pricing: { prompt: '0.000004', completion: '0.000004' },
+      supported_parameters: ['temperature'],
+      created: Math.floor((Date.now() - 365 * 24 * 60 * 60 * 1000) / 1000),
+      architecture: {
+        input_modalities: ['text'],
+        output_modalities: ['text'],
+      },
+    },
+  ]),
+};
+
 /** Shared test app factory for dev routes that only need a db stub. */
 function createDevApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use('*', async (c, next) => {
     c.set('db', {} as AppEnv['Variables']['db']);
+    c.set('aiClient', TEST_AI_CLIENT_STUB as unknown as AppEnv['Variables']['aiClient']);
     await next();
   });
   app.route('/dev', devRoute);

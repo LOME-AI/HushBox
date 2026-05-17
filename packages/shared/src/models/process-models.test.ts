@@ -7,7 +7,7 @@ vi.mock('./zdr.js', () => ({
   isZdrModel: () => true,
 }));
 
-import { processModels } from './process-models.js';
+import { processModels, pickValueTextModel } from './process-models.js';
 import { SMART_MODEL_ID } from '../constants.js';
 
 /**
@@ -934,5 +934,108 @@ describe('processModels', () => {
       expect(gpt?.supportedVideoResolutions).toBeUndefined();
       expect(gpt?.supportedVideoDurationsSeconds).toBeUndefined();
     });
+  });
+});
+
+describe('pickValueTextModel', () => {
+  // `isPremiumModel` flags anything <6 months old as premium (regardless of
+  // price), and `isExcludedByStandardCriteria` excludes anything >2 years old.
+  // Fixtures use a value safely inside the [6mo, 2y] window so they appear in
+  // `filtered` AND are not flagged premium-by-recency.
+  const oldCreated = Math.floor((now - 365 * 24 * 60 * 60 * 1000) / 1000);
+
+  it('returns the id of the cheapest non-premium text model in the catalog', () => {
+    // Output prices stay below the trial-budget ceiling (~0.000005/token) so
+    // `exceedsTrialBudget` doesn't downgrade these to premium.
+    const raws = [
+      createModel({
+        id: 'openai/gpt-5',
+        modality: 'text',
+        pricing: { prompt: '0.000004', completion: '0.000004' },
+        created: oldCreated,
+      }),
+      createModel({
+        id: 'anthropic/claude-haiku-4.5',
+        modality: 'text',
+        pricing: { prompt: '0.000001', completion: '0.000001' },
+        created: oldCreated,
+      }),
+      createModel({
+        id: 'openai/gpt-4o-mini',
+        modality: 'text',
+        pricing: { prompt: '0.000002', completion: '0.000002' },
+        created: oldCreated,
+      }),
+    ];
+
+    expect(pickValueTextModel(raws)).toBe('anthropic/claude-haiku-4.5');
+  });
+
+  it('skips premium text models even when they are the cheapest', () => {
+    // The cheaper entry is recent → flagged premium by recency, despite low
+    // price. Selector must skip it and return the older non-premium entry.
+    // Prices follow the working pattern from the 'premium classification'
+    // describe above so output cost stays under the trial budget.
+    const raws = [
+      createModel({
+        id: 'recent/expensive',
+        modality: 'text',
+        pricing: { prompt: '0.000010', completion: '0.000010' },
+        created: Math.floor(now / 1000),
+      }),
+      createModel({
+        id: 'recent/cheaper-but-recent',
+        modality: 'text',
+        pricing: { prompt: '0.000002', completion: '0.000002' },
+        created: Math.floor(now / 1000),
+      }),
+      createModel({
+        id: 'old/stable-value',
+        modality: 'text',
+        pricing: { prompt: '0.000003', completion: '0.000003' },
+        created: oldCreated,
+      }),
+    ];
+
+    expect(pickValueTextModel(raws)).toBe('old/stable-value');
+  });
+
+  it('skips image, video, and audio models', () => {
+    // Two text models so the cheaper one escapes the 75th-percentile premium
+    // check; an image model in the same catalog must be ignored entirely.
+    const raws = [
+      createImageModel({ id: 'google/imagen-4.0-generate-001' }),
+      createModel({
+        id: 'anthropic/claude-haiku-4.5',
+        modality: 'text',
+        pricing: { prompt: '0.000001', completion: '0.000001' },
+        created: oldCreated,
+      }),
+      createModel({
+        id: 'openai/gpt-5',
+        modality: 'text',
+        pricing: { prompt: '0.000004', completion: '0.000004' },
+        created: oldCreated,
+      }),
+    ];
+
+    expect(pickValueTextModel(raws)).toBe('anthropic/claude-haiku-4.5');
+  });
+
+  it('throws when no non-premium text model exists (catalog drift guard)', () => {
+    const raws = [
+      createModel({
+        id: 'recent/only',
+        modality: 'text',
+        pricing: { prompt: '0.00010', completion: '0.00020' },
+        created: Math.floor(now / 1000),
+      }),
+    ];
+
+    expect(() => pickValueTextModel(raws)).toThrow(/no non-premium text model/i);
+  });
+
+  it('throws when no text models exist at all', () => {
+    expect(() => pickValueTextModel([])).toThrow(/no non-premium text model/i);
   });
 });

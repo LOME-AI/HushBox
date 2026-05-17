@@ -78,6 +78,7 @@ function serializeMessage(msg: MessageWithContent): z.infer<typeof messageRespon
     epochNumber: msg.epochNumber,
     sequenceNumber: msg.sequenceNumber,
     parentMessageId: msg.parentMessageId ?? null,
+    batchId: msg.batchId,
     createdAt: msg.createdAt.toISOString(),
     contentItems: msg.contentItems.map((ci) => serializeContentItem(ci)),
   };

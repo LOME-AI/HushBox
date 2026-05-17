@@ -948,6 +948,7 @@ function buildMessageResponse(overrides: Record<string, unknown> = {}): Record<s
     epochNumber: 1,
     sequenceNumber: 0,
     parentMessageId: null,
+    batchId: 'batch-test-1',
     createdAt: '2024-01-01T00:00:00Z',
     contentItems: [
       {

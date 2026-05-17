@@ -228,6 +228,14 @@ async function deleteRedisKeysByPrefixes(
 
 export interface CreateDevConversationParams {
   ownerEmail: string;
+  /**
+   * Model id to stamp on seeded AI messages — passed in by the dev route
+   * after a live catalog lookup (see `pickValueTextModel`). Required so seeds
+   * never hardcode a model that has been retired from the gateway; a stale
+   * seed model breaks retry, since the client picks the existing AI's
+   * `modelName` as the retry model.
+   */
+  seedAiModel: string;
   messages?:
     | {
         content: string;
@@ -322,7 +330,7 @@ export async function createDevConversation(
             epochNumber,
             sequenceNumber: seq,
             senderType: 'ai',
-            modelName: 'anthropic/claude-3.5-sonnet',
+            modelName: params.seedAiModel,
             parentMessageId: lastMessageId,
           });
         });
@@ -341,10 +349,11 @@ interface InsertGroupChatMessagesParams {
   epochPublicKey: Uint8Array;
   msgs: { senderEmail?: string; content: string; senderType: 'user' | 'ai' }[];
   orderedUsers: { id: string; email: string | null }[];
+  seedAiModel: string;
 }
 
 async function insertGroupChatMessages(params: InsertGroupChatMessagesParams): Promise<void> {
-  const { txDb, conversationId, epochPublicKey, msgs, orderedUsers } = params;
+  const { txDb, conversationId, epochPublicKey, msgs, orderedUsers, seedAiModel } = params;
   const messageIds = msgs.map(() => crypto.randomUUID());
 
   for (const [index, msg] of msgs.entries()) {
@@ -375,7 +384,7 @@ async function insertGroupChatMessages(params: InsertGroupChatMessagesParams): P
       sequenceNumber: index + 1,
       senderType: msg.senderType,
       ...(senderId !== null && { senderId }),
-      ...(msg.senderType === 'ai' && { modelName: 'anthropic/claude-3.5-sonnet' }),
+      ...(msg.senderType === 'ai' && { modelName: seedAiModel }),
       parentMessageId,
     });
   }
@@ -390,6 +399,11 @@ async function insertGroupChatMessages(params: InsertGroupChatMessagesParams): P
 export interface CreateDevGroupChatParams {
   ownerEmail: string;
   memberEmails: string[];
+  /**
+   * Model id to stamp on seeded AI messages — see
+   * {@link CreateDevConversationParams.seedAiModel} for context.
+   */
+  seedAiModel: string;
   messages?: {
     senderEmail?: string;
     content: string;
@@ -495,6 +509,7 @@ export async function createDevGroupChat(
         epochPublicKey: epochResult.epochPublicKey,
         msgs: params.messages,
         orderedUsers,
+        seedAiModel: params.seedAiModel,
       });
     }
   });

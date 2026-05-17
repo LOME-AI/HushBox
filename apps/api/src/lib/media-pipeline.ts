@@ -37,7 +37,7 @@ import {
   type MediaStreamResult,
 } from './multi-stream.js';
 import { safeExecutionCtx } from './safe-execution-ctx.js';
-import { createSSEEventWriter } from './stream-handler.js';
+import { createSSEEventWriter, writeStreamErrorFromException } from './stream-handler.js';
 import { buildGroupBillingContext } from './billing-types.js';
 import type { Context } from 'hono';
 import type { AppEnv } from '../types.js';
@@ -921,6 +921,12 @@ export function executeMediaPipeline(
           code: ERROR_CODE_BILLING_ERROR,
         });
       }
+    } catch (error) {
+      // Mirror of stream-pipeline.ts's structural catch: without this, any
+      // throw inside the media pipeline (presign error, encryption fault,
+      // billing persistence crash) closes the SSE socket after the last
+      // successful event and the client times out silently.
+      await writeStreamErrorFromException(writer, error);
     } finally {
       clearInterval(keepAliveTimer);
       // Defensive: if an error path skipped the explicit stop, ensure the

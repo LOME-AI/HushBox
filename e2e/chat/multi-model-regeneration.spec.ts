@@ -1,15 +1,23 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
-import { sumDisplayedMessageCostCents } from '../helpers/cost-display.js';
+import {
+  sumDisplayedMessageCostMicros,
+  DISPLAY_COST_TOLERANCE_MICROS,
+} from '../helpers/cost-display.js';
 import type { Page, Request } from '@playwright/test';
 
-/** Read the cost badge for a specific persisted message by data-message-id. */
-async function getMessageCostCents(page: Page, messageId: string): Promise<number> {
+/**
+ * Read the cost badge for a specific persisted message by data-message-id.
+ * Returns micros (millionths of a dollar) — sub-cent tile costs (e.g. cheap
+ * models like GPT-5 nano at ~$0.00003) round to 0 in cents and break
+ * `toBeGreaterThan(0)` checks. Micros preserve those values exactly.
+ */
+async function getMessageCostMicros(page: Page, messageId: string): Promise<number> {
   const badge = page.locator(`[data-message-id="${messageId}"] [data-testid="message-cost"]`);
   const text = (await badge.textContent()) ?? '';
   const match = /\$?([\d.]+)/.exec(text);
-  return match ? Math.round(Number.parseFloat(match[1] ?? '0') * 100) : 0;
+  return match ? Math.round(Number.parseFloat(match[1] ?? '0') * 1_000_000) : 0;
 }
 
 /** Collect the (id, modelName) of every persisted assistant message currently rendered. */
@@ -103,10 +111,11 @@ test.describe('Multi-Model Regeneration', () => {
     await test.step('wallet debit equals the sum of the NEW per-tile costs', async () => {
       const afterBalance = await budgetHelper.getBalance();
       const balanceAfter = Number.parseFloat(afterBalance.balance);
-      const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
-      const displayedCents = await sumDisplayedMessageCostCents(chatPage.messageList);
-      // 1-cent rounding tolerance matches multi-model.spec.ts:388.
-      expect(Math.abs(debitCents - displayedCents)).toBeLessThanOrEqual(1);
+      const debitMicros = Math.round((balanceBefore - balanceAfter) * 1_000_000);
+      const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
+      expect(Math.abs(debitMicros - displayedMicros)).toBeLessThanOrEqual(
+        DISPLAY_COST_TOLERANCE_MICROS
+      );
     });
   });
 
@@ -127,7 +136,7 @@ test.describe('Multi-Model Regeneration', () => {
     // Pick the second tile to regenerate; the first stays put.
     const survivor = tilesBefore[0]!;
     const toReplace = tilesBefore[1]!;
-    const survivorCostBefore = await getMessageCostCents(authenticatedPage, survivor.id);
+    const survivorCostBefore = await getMessageCostMicros(authenticatedPage, survivor.id);
     expect(survivorCostBefore).toBeGreaterThan(0);
 
     const beforeBalance = await budgetHelper.getBalance();
@@ -160,7 +169,7 @@ test.describe('Multi-Model Regeneration', () => {
       expect(survivorAfter).toBeDefined();
       expect(survivorAfter?.modelName).toBe(survivor.modelName);
 
-      const survivorCostAfter = await getMessageCostCents(authenticatedPage, survivor.id);
+      const survivorCostAfter = await getMessageCostMicros(authenticatedPage, survivor.id);
       expect(survivorCostAfter).toBe(survivorCostBefore);
     });
 
@@ -176,12 +185,14 @@ test.describe('Multi-Model Regeneration', () => {
     await test.step('wallet debit equals the new tile cost only', async () => {
       const afterBalance = await budgetHelper.getBalance();
       const balanceAfter = Number.parseFloat(afterBalance.balance);
-      const debitCents = Math.round((balanceBefore - balanceAfter) * 100);
-      const displayedTotal = await sumDisplayedMessageCostCents(chatPage.messageList);
-      // displayedTotal = survivorCostBefore + newTileCost
+      const debitMicros = Math.round((balanceBefore - balanceAfter) * 1_000_000);
+      const displayedTotalMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
+      // displayedTotalMicros = survivorCostBefore + newTileCost
       // debit should equal newTileCost (survivor wasn't re-charged).
-      const newTileCost = displayedTotal - survivorCostBefore;
-      expect(Math.abs(debitCents - newTileCost)).toBeLessThanOrEqual(1);
+      const newTileCostMicros = displayedTotalMicros - survivorCostBefore;
+      expect(Math.abs(debitMicros - newTileCostMicros)).toBeLessThanOrEqual(
+        DISPLAY_COST_TOLERANCE_MICROS
+      );
     });
   });
 });

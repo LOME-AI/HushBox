@@ -32,18 +32,31 @@ function collectAncestorIds(
 }
 
 /**
- * Assistant siblings sharing a parentMessageId are always parallel
- * multi-model responses to the same user prompt. The product enforces this
- * invariant on the write side: regenerate is blocked for multi-model
- * messages (see `message-actions.ts`'s `regenerate` guard), and the
- * regenerate tree action deletes-and-replaces rather than appending
- * siblings (see `services/chat/tree-action.ts`). So an assistant sibling
- * cannot exist except as a parallel-batch peer, and it must travel with
- * its shared parent on every branch that includes the parent — regardless
- * of what other forks have grown beneath it.
+ * Two assistant messages with the same parentMessageId are multi-model peers
+ * iff they were persisted in the same `saveChatTurn` — i.e. their `batchId`s
+ * match. This distinguishes:
+ *
+ *   - **Multi-model fan-out** (same batch): u1 → [a1, a2] from one user send;
+ *     a1 and a2 are peers and must both appear on every branch that includes
+ *     u1, even if a later fork branches beneath one of them.
+ *   - **Fork-preserve orphan** (different batches): retry of u1 upstream of a
+ *     fork can't delete the prior assistant a1 because the fork's tail still
+ *     points at it, so a1 (batch_T0) and the new a1_new (batch_T_new) end up
+ *     as siblings under u1 — but a1 belongs to the fork's branch, not Main.
+ *
+ * The fallback to `false` when either side lacks a batchId is intentional:
+ * legacy rows pre-migration share `batch_id = gen_random_uuid()` defaults
+ * which never collide, so they'll fail this comparison and fall through to
+ * the containment check — same behavior as if the field had been there all
+ * along. The streaming/optimistic path on the client constructs messages
+ * before the API responds and may also have undefined batchIds; in that
+ * window the user only sees their own branch, so peer-recognition isn't
+ * needed yet.
  */
-function isParallelBatchSibling(sibling: MessageWithParent): boolean {
-  return sibling.role === 'assistant';
+function isParallelBatchSibling(sibling: MessageWithParent, ancestor: MessageWithParent): boolean {
+  if (sibling.role !== 'assistant') return false;
+  if (sibling.batchId === undefined || ancestor.batchId === undefined) return false;
+  return sibling.batchId === ancestor.batchId;
 }
 
 /**
@@ -65,6 +78,14 @@ function isContainedThreadSibling(
 
 /**
  * Returns siblings of `ancestorId` that should be included on this branch.
+ *
+ * Assistants and non-assistants use different rules and do NOT fall back to
+ * each other. An assistant sibling either matches the ancestor's batchId
+ * (multi-model peer) or is excluded — running the containment check on an
+ * assistant would let any leaf assistant from a different branch sneak in
+ * (vacuously "all children in chain"). User-shaped siblings still go
+ * through containment to keep the original cross-fork user-thread guard.
+ *
  * Caller is responsible for deduping; this returns every candidate that
  * passes the role-shaped predicate.
  */
@@ -75,27 +96,28 @@ function siblingsToInclude(
   childrenMap: Map<string | null, MessageWithParent[]>
 ): MessageWithParent[] {
   const msg = messageMap.get(ancestorId);
-  const parentId = msg?.parentMessageId;
+  if (!msg) return [];
+  const parentId = msg.parentMessageId;
   if (parentId === undefined) return [];
   const siblings = childrenMap.get(parentId ?? null) ?? [];
-  return siblings.filter(
-    (sibling) =>
-      isParallelBatchSibling(sibling) || isContainedThreadSibling(sibling, ancestorIds, childrenMap)
-  );
+  return siblings.filter((sibling) => {
+    if (sibling.id === ancestorId) return false;
+    if (sibling.role === 'assistant') return isParallelBatchSibling(sibling, msg);
+    return isContainedThreadSibling(sibling, ancestorIds, childrenMap);
+  });
 }
 
 /**
  * Expand ancestor set to include siblings. Two distinct rules apply:
  *
- * - Parallel-batch siblings (assistant role): always included — they are
- *   multi-model peers of an ancestor and belong with the shared parent.
- * - Divergent-thread siblings (everything else): included only if their
- *   subtree is fully contained in the ancestor chain.
- *
- * Conflating the two used to silently drop a multi-model assistant peer
- * from its source branch as soon as another fork sent a follow-up beneath
- * it. Splitting the rule by role honors the write-side invariant that
- * regenerate cannot produce sibling assistants.
+ * - Parallel-batch siblings: included when the sibling shares its parent's
+ *   `batchId` AND has role `assistant`. This catches multi-model fan-out
+ *   without misclassifying a fork-preserve orphan (an old assistant left
+ *   under the same user message because a fork branch still references it).
+ * - Containment-based siblings (everything else, including assistants that
+ *   failed the batch-id check): included only if their subtree is fully
+ *   inside the ancestor chain. Prevents leaking a different fork's tail
+ *   onto this branch.
  */
 function expandWithSiblings(
   ancestorIds: Set<string>,

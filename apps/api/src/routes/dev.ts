@@ -5,6 +5,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { getIronSession } from 'iron-session';
 import { users, sharedMessages, llmCompletions, messages, usageRecords } from '@hushbox/db';
 import { ERROR_CODE_NOT_FOUND, ERROR_CODE_SERVER_MISCONFIGURED } from '@hushbox/shared';
+import { pickValueTextModel } from '@hushbox/shared/models';
 import {
   listDevPersonas,
   cleanupTestData,
@@ -131,8 +132,12 @@ export const devRoute = new Hono<AppEnv>()
     ),
     async (c) => {
       const db = c.get('db');
+      const aiClient = c.get('aiClient');
       const body = c.req.valid('json');
-      const result = await createDevConversation(db, body);
+      // Derive the seed model from the live catalog so seeds never reference a
+      // retired gateway model. See `pickValueTextModel` for selection criteria.
+      const seedAiModel = pickValueTextModel(await aiClient.listRawModels());
+      const result = await createDevConversation(db, { ...body, seedAiModel });
       return c.json(result, 201);
     }
   )
@@ -156,9 +161,12 @@ export const devRoute = new Hono<AppEnv>()
     ),
     async (c) => {
       const db = c.get('db');
+      const aiClient = c.get('aiClient');
       const { messages: rawMessages, ...rest } = c.req.valid('json');
+      const seedAiModel = pickValueTextModel(await aiClient.listRawModels());
       const result = await createDevGroupChat(db, {
         ...rest,
+        seedAiModel,
         ...(rawMessages !== undefined && {
           messages: rawMessages.map(({ senderEmail, ...msgRest }) => ({
             ...msgRest,

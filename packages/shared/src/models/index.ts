@@ -1,6 +1,11 @@
 export type { RawModel, ProcessedModels, Modality } from './types.js';
 export { fetchModels, clearModelCache, toRawModel, publicModelEntrySchema } from './fetch.js';
-export { processModels, PROVIDER_MAP, getSupportedVideoDurations } from './process-models.js';
+export {
+  processModels,
+  pickValueTextModel,
+  PROVIDER_MAP,
+  getSupportedVideoDurations,
+} from './process-models.js';
 export { isPremiumModel, PREMIUM_PRICE_PERCENTILE, PREMIUM_RECENCY_MS } from './premium-check.js';
 export {
   isZdrModel,

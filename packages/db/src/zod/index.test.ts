@@ -306,6 +306,7 @@ describe('selectMessageSchema', () => {
       epochNumber: 1,
       sequenceNumber: 1,
       parentMessageId: null,
+      batchId: '550e8400-e29b-41d4-a716-446655440099',
       createdAt: new Date(),
     });
     expect(result.success).toBe(true);
@@ -321,6 +322,7 @@ describe('selectMessageSchema', () => {
       epochNumber: 1,
       sequenceNumber: 2,
       parentMessageId: null,
+      batchId: '550e8400-e29b-41d4-a716-446655440099',
       createdAt: new Date(),
     });
     expect(result.success).toBe(true);

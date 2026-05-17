@@ -248,6 +248,12 @@ export const messageResponseSchema = z.object({
   epochNumber: z.number().int().min(1),
   sequenceNumber: z.number().int().nonnegative(),
   parentMessageId: z.string().nullable(),
+  /**
+   * Per-turn id shared by all messages persisted in one `saveChatTurn`.
+   * Drives the multi-model-peer vs fork-preserve-orphan distinction in
+   * the client-side fork-filter.
+   */
+  batchId: z.string(),
   createdAt: z.string(),
   /** Discrete content items belonging to this message, ordered by position. */
   contentItems: z.array(contentItemResponseSchema),

@@ -138,13 +138,13 @@ describe('filterMessagesForFork', () => {
     expect(result.map((m) => m.id)).toEqual(['m1']);
   });
 
-  it('includes sibling AI messages that share the same parentMessageId', () => {
-    // Multi-model: user sends to 2 models, both AI responses share parentMessageId = u1
-    //   u1 → [a1, a2]  (a1 and a2 are siblings)
+  it('includes sibling AI messages that share the same parentMessageId and batchId', () => {
+    // Multi-model: user sends to 2 models in one turn, batchId matches.
+    //   u1 → [a1, a2]  (a1 and a2 are batch peers under u1)
     const messages = [
-      makeMessage({ id: 'u1', parentMessageId: null, role: 'user' }),
-      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant' }),
-      makeMessage({ id: 'a2', parentMessageId: 'u1', role: 'assistant' }),
+      makeMessage({ id: 'u1', parentMessageId: null, role: 'user', batchId: 'b1' }),
+      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant', batchId: 'b1' }),
+      makeMessage({ id: 'a2', parentMessageId: 'u1', role: 'assistant', batchId: 'b1' }),
     ];
 
     const forks = [
@@ -158,12 +158,13 @@ describe('filterMessagesForFork', () => {
 
   it('includes siblings at multiple levels in the chain', () => {
     // u1 → a1 → u2 → [a2_claude, a2_gpt]
+    // Two batches: (u1, a1) in one, (u2, a2_*) in the next.
     const messages = [
-      makeMessage({ id: 'u1', parentMessageId: null, role: 'user' }),
-      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant' }),
-      makeMessage({ id: 'u2', parentMessageId: 'a1', role: 'user' }),
-      makeMessage({ id: 'a2_claude', parentMessageId: 'u2', role: 'assistant' }),
-      makeMessage({ id: 'a2_gpt', parentMessageId: 'u2', role: 'assistant' }),
+      makeMessage({ id: 'u1', parentMessageId: null, role: 'user', batchId: 'b1' }),
+      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant', batchId: 'b1' }),
+      makeMessage({ id: 'u2', parentMessageId: 'a1', role: 'user', batchId: 'b2' }),
+      makeMessage({ id: 'a2_claude', parentMessageId: 'u2', role: 'assistant', batchId: 'b2' }),
+      makeMessage({ id: 'a2_gpt', parentMessageId: 'u2', role: 'assistant', batchId: 'b2' }),
     ];
 
     const forks = [
@@ -177,14 +178,16 @@ describe('filterMessagesForFork', () => {
   it('does not include sibling messages from other fork branches', () => {
     // Main: u1 → a1 → u2 → a2
     // Fork 1: u1 → a1 → u3 → [a3_claude, a3_gpt] (tip = a3_gpt)
+    // Each turn gets its own batch id; cross-batch siblings (a3_* under u3
+    // when viewing Main, or a2 under u2 when viewing Fork 1) must NOT leak.
     const messages = [
-      makeMessage({ id: 'u1', parentMessageId: null, role: 'user' }),
-      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant' }),
-      makeMessage({ id: 'u2', parentMessageId: 'a1', role: 'user' }),
-      makeMessage({ id: 'a2', parentMessageId: 'u2', role: 'assistant' }),
-      makeMessage({ id: 'u3', parentMessageId: 'a1', role: 'user' }),
-      makeMessage({ id: 'a3_claude', parentMessageId: 'u3', role: 'assistant' }),
-      makeMessage({ id: 'a3_gpt', parentMessageId: 'u3', role: 'assistant' }),
+      makeMessage({ id: 'u1', parentMessageId: null, role: 'user', batchId: 'b1' }),
+      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant', batchId: 'b1' }),
+      makeMessage({ id: 'u2', parentMessageId: 'a1', role: 'user', batchId: 'b2' }),
+      makeMessage({ id: 'a2', parentMessageId: 'u2', role: 'assistant', batchId: 'b2' }),
+      makeMessage({ id: 'u3', parentMessageId: 'a1', role: 'user', batchId: 'b3' }),
+      makeMessage({ id: 'a3_claude', parentMessageId: 'u3', role: 'assistant', batchId: 'b3' }),
+      makeMessage({ id: 'a3_gpt', parentMessageId: 'u3', role: 'assistant', batchId: 'b3' }),
     ];
 
     const forks = [
@@ -212,15 +215,16 @@ describe('filterMessagesForFork', () => {
     // Expected: Main still includes [u1, a1, a2, a3] — the assistant
     // siblings of a3 (a1 and a2) are parallel multi-model responses to the
     // same prompt (u1) and must travel with that prompt regardless of what
-    // happens below a1 on another fork.
+    // happens below a1 on another fork. The batchId rule keeps them tied
+    // to the u1 turn; the follow-up u4/a5 belong to a different batch.
     const messages = [
-      makeMessage({ id: 'u1', parentMessageId: null, role: 'user' }),
-      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant' }),
-      makeMessage({ id: 'a2', parentMessageId: 'u1', role: 'assistant' }),
-      makeMessage({ id: 'a3', parentMessageId: 'u1', role: 'assistant' }),
+      makeMessage({ id: 'u1', parentMessageId: null, role: 'user', batchId: 'batch-u1' }),
+      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant', batchId: 'batch-u1' }),
+      makeMessage({ id: 'a2', parentMessageId: 'u1', role: 'assistant', batchId: 'batch-u1' }),
+      makeMessage({ id: 'a3', parentMessageId: 'u1', role: 'assistant', batchId: 'batch-u1' }),
       // Follow-up sent on Fork 1 (under a1):
-      makeMessage({ id: 'u4', parentMessageId: 'a1', role: 'user' }),
-      makeMessage({ id: 'a5', parentMessageId: 'u4', role: 'assistant' }),
+      makeMessage({ id: 'u4', parentMessageId: 'a1', role: 'user', batchId: 'batch-u4' }),
+      makeMessage({ id: 'a5', parentMessageId: 'u4', role: 'assistant', batchId: 'batch-u4' }),
     ];
 
     const forks = [
@@ -234,6 +238,106 @@ describe('filterMessagesForFork', () => {
     // Sanity: Fork 1 still gets its own chain plus the parallel-batch siblings.
     const fork = filterMessagesForFork(messages, forks, 'ffork');
     expect(fork.map((m) => m.id)).toEqual(['u1', 'a1', 'a2', 'a3', 'u4', 'a5']);
+  });
+
+  it('excludes a fork-preserve orphan assistant from Main when its batchId differs from the new tip', () => {
+    // Scenario from Failure #1 in the 2026-05-17 E2E report:
+    //   1. New conversation: u1 → a1 (batch_T0)
+    //   2. Follow-up: u2 (batch_T1) → a2 (batch_T1)
+    //   3. Fork from a1 → Fork 1 with tip = a1; user sends → fork_user, fork_ai
+    //   4. Switch to Main, retry u1. `deleteForkChain` preserves a1 (Fork 1
+    //      has descendants under it) but creates a fresh a1_new under u1 with
+    //      a brand-new batch id.
+    //
+    // After retry, u1 has THREE assistant children: a1 (batch_T0), a1_new
+    // (batch_T_new), and — implicitly — the multi-model rule would falsely
+    // include a1 as a peer of a1_new. The batchId discriminator forces the
+    // filter to exclude a1 from Main (its descendants belong to Fork 1).
+    const messages = [
+      makeMessage({ id: 'u1', parentMessageId: null, role: 'user', batchId: 'batch-T0' }),
+      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant', batchId: 'batch-T0' }),
+      makeMessage({
+        id: 'a1_new',
+        parentMessageId: 'u1',
+        role: 'assistant',
+        batchId: 'batch-T-new',
+      }),
+      // Fork 1's tail beneath a1 — proves a1 isn't exclusive to Main but
+      // still must not appear on Main's view.
+      makeMessage({
+        id: 'fork_user',
+        parentMessageId: 'a1',
+        role: 'user',
+        batchId: 'batch-fork',
+      }),
+      makeMessage({
+        id: 'fork_ai',
+        parentMessageId: 'fork_user',
+        role: 'assistant',
+        batchId: 'batch-fork',
+      }),
+    ];
+
+    const forks = [
+      {
+        id: 'fmain',
+        conversationId: 'conv-1',
+        name: 'Main',
+        tipMessageId: 'a1_new',
+        createdAt: '',
+      },
+      {
+        id: 'ffork',
+        conversationId: 'conv-1',
+        name: 'Fork 1',
+        tipMessageId: 'fork_ai',
+        createdAt: '',
+      },
+    ];
+
+    const main = filterMessagesForFork(messages, forks, 'fmain');
+    expect(main.map((m) => m.id)).toEqual(['u1', 'a1_new']);
+
+    // Fork 1 still sees a1 because a1 IS in its ancestor chain (not a sibling).
+    const fork = filterMessagesForFork(messages, forks, 'ffork');
+    expect(fork.map((m) => m.id)).toEqual(['u1', 'a1', 'fork_user', 'fork_ai']);
+  });
+
+  it('keeps multi-model peers visible even when one peer has a fork branching beneath it', () => {
+    // Multi-model fan-out: u1 → [a1, a2] (same batch_T0). User later forks
+    // off a1; Fork 1 tip is below a1. Viewing Main at a2 (still in batch_T0),
+    // a1 must remain visible because a1 and a2 are batch peers.
+    const messages = [
+      makeMessage({ id: 'u1', parentMessageId: null, role: 'user', batchId: 'batch-T0' }),
+      makeMessage({ id: 'a1', parentMessageId: 'u1', role: 'assistant', batchId: 'batch-T0' }),
+      makeMessage({ id: 'a2', parentMessageId: 'u1', role: 'assistant', batchId: 'batch-T0' }),
+      makeMessage({
+        id: 'fork_user',
+        parentMessageId: 'a1',
+        role: 'user',
+        batchId: 'batch-fork',
+      }),
+      makeMessage({
+        id: 'fork_ai',
+        parentMessageId: 'fork_user',
+        role: 'assistant',
+        batchId: 'batch-fork',
+      }),
+    ];
+
+    const forks = [
+      { id: 'fmain', conversationId: 'conv-1', name: 'Main', tipMessageId: 'a2', createdAt: '' },
+      {
+        id: 'ffork',
+        conversationId: 'conv-1',
+        name: 'Fork 1',
+        tipMessageId: 'fork_ai',
+        createdAt: '',
+      },
+    ];
+
+    const main = filterMessagesForFork(messages, forks, 'fmain');
+    expect(main.map((m) => m.id)).toEqual(['u1', 'a1', 'a2']);
   });
 
   it('prevents infinite loop on circular parentMessageId references', () => {

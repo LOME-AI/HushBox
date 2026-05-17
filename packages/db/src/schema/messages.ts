@@ -19,6 +19,20 @@ export const messages = pgTable(
     epochNumber: integer('epoch_number').notNull(),
     sequenceNumber: integer('sequence_number').notNull(),
     parentMessageId: text('parent_message_id'),
+    /**
+     * Per-turn identifier shared by every message persisted in a single
+     * `saveChatTurn`. Two assistant messages with the same parent are
+     * multi-model peers iff their `batchId`s match. The fork-filter uses
+     * this to distinguish parallel multi-model fan-out (always travel with
+     * their shared parent) from fork-preserved orphans created when a retry
+     * upstream of a fork-branch had to keep the prior assistant alive
+     * because the fork's descendants still pointed at it. Defaults to `id`
+     * so legacy rows pre-migration are each their own batch (sibling
+     * comparison returns false — falls back to containment).
+     */
+    batchId: text('batch_id')
+      .notNull()
+      .default(sql`gen_random_uuid()::text`),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [

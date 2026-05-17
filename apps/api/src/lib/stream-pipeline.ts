@@ -43,7 +43,7 @@ import { createEvidenceConfig } from './evidence-config.js';
 import { executePreInferenceChain, resolveStagesForSlot } from './pre-inference/index.js';
 import { createErrorResponse } from './error-response.js';
 import { classifyStreamErrorCode } from './classify-stream-error.js';
-import { createSSEEventWriter } from './stream-handler.js';
+import { createSSEEventWriter, writeStreamErrorFromException } from './stream-handler.js';
 import { collectMultiModelStreams } from './multi-stream.js';
 import { executeMediaPipeline as executeMediaPipelineImpl } from './media-pipeline.js';
 import { getStrategy } from './modality-strategies.js';
@@ -1548,6 +1548,12 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
         billingUserId,
         primaryModel: model,
       });
+    } catch (error) {
+      // Catch is structural: every exception inside runStreamingTurn used to
+      // close the SSE socket cleanly after the last successful event (typically
+      // `model:done`), leaving the client hung on STREAM_TIMEOUT_MS. The
+      // helper writes an `event: error` and logs the exception server-side.
+      await writeStreamErrorFromException(writer, error);
     } finally {
       await releaseReservation();
     }

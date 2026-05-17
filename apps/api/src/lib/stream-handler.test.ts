@@ -1,6 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
-import { ERROR_CODE_CLASSIFIER_FAILED } from '@hushbox/shared';
-import { createSSEEventWriter, type SSEStream } from './stream-handler.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ERROR_CODE_CLASSIFIER_FAILED, ERROR_CODE_STREAM_ERROR } from '@hushbox/shared';
+import {
+  createSSEEventWriter,
+  writeStreamErrorFromException,
+  type SSEStream,
+} from './stream-handler.js';
 
 function createMockStream(): SSEStream & {
   events: { event: string; data: string }[];
@@ -478,5 +482,65 @@ describe('createSSEEventWriter', () => {
 
       expect(stream.events).toHaveLength(0);
     });
+  });
+});
+
+describe('writeStreamErrorFromException', () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+  });
+
+  it('writes an error event with STREAM_ERROR code and the Error message', async () => {
+    const stream = createMockStream();
+    const writer = createSSEEventWriter(stream);
+
+    await writeStreamErrorFromException(writer, new Error('saveChatTurn exploded'));
+
+    expect(stream.events).toHaveLength(1);
+    expect(stream.events[0]).toEqual({
+      event: 'error',
+      data: JSON.stringify({
+        message: 'saveChatTurn exploded',
+        code: ERROR_CODE_STREAM_ERROR,
+      }),
+    });
+  });
+
+  it('writes a fallback message for non-Error throws', async () => {
+    const stream = createMockStream();
+    const writer = createSSEEventWriter(stream);
+
+    await writeStreamErrorFromException(writer, 'string-thrown');
+
+    expect(stream.events).toHaveLength(1);
+    const parsed = JSON.parse(stream.events[0]?.data ?? '{}') as { message: string; code: string };
+    expect(parsed.code).toBe(ERROR_CODE_STREAM_ERROR);
+    expect(parsed.message).toBe('Stream processing failed');
+  });
+
+  it('logs the original exception to console.error for server-side observability', async () => {
+    const stream = createMockStream();
+    const writer = createSSEEventWriter(stream);
+    const err = new Error('boom');
+
+    await writeStreamErrorFromException(writer, err);
+
+    expect(consoleSpy).toHaveBeenCalledWith('sse stream: uncaught exception', err);
+  });
+
+  it('silently no-ops when the writer is already disconnected', async () => {
+    const stream = createMockStream();
+    const writer = createSSEEventWriter(stream);
+    stream.triggerAbort();
+
+    await writeStreamErrorFromException(writer, new Error('after-disconnect'));
+
+    expect(stream.events).toHaveLength(0);
   });
 });

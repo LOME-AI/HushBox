@@ -148,6 +148,15 @@ export interface InsertEnvelopeTextMessageParams {
   cost?: string;
   isSmartModel?: boolean;
   parentMessageId: string | null;
+  /**
+   * Per-turn identifier. `saveChatTurn` mints one UUID per turn and forwards
+   * it to every message persisted in that turn so the fork-filter can tell
+   * multi-model peers from fork-preserve orphans. Omitted → schema default
+   * (`gen_random_uuid()`) writes a unique id, which yields the legacy
+   * "treat each message as its own batch" semantics for callers that
+   * haven't been updated yet (dev seeds, single-message inserts).
+   */
+  batchId?: string;
 }
 
 export interface InsertedTextContentItem {
@@ -192,6 +201,7 @@ export async function insertEnvelopeTextMessage(
     epochNumber: params.epochNumber,
     sequenceNumber: params.sequenceNumber,
     parentMessageId: params.parentMessageId,
+    ...(params.batchId !== undefined && { batchId: params.batchId }),
   });
 
   const contentItemId = crypto.randomUUID();
@@ -327,6 +337,8 @@ export interface InsertEnvelopeMediaMessageParams {
   senderType: 'ai';
   parentMessageId: string | null;
   mediaItems: MediaContentItemInput[];
+  /** See {@link InsertEnvelopeTextMessageParams.batchId}. */
+  batchId?: string;
 }
 
 export interface InsertEnvelopeMediaMessageResult {
@@ -365,6 +377,7 @@ export async function insertEnvelopeMediaMessage(
     epochNumber: params.epochNumber,
     sequenceNumber: params.sequenceNumber,
     parentMessageId: params.parentMessageId,
+    ...(params.batchId !== undefined && { batchId: params.batchId }),
   });
 
   const insertedItems: InsertedMediaContentItem[] = [];

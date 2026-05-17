@@ -111,6 +111,7 @@ function createMessageResponse(overrides: MessageResponseOverrides = {}): Messag
     epochNumber: 1,
     sequenceNumber: 0,
     parentMessageId: null,
+    batchId: 'batch-1',
     createdAt: '2026-01-01T00:00:00Z',
     contentItems: contentItemsOverride ?? [
       {
