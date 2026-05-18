@@ -16,6 +16,7 @@ import {
   SERVICE_NAMES,
   type ServiceName,
 } from '@hushbox/db';
+import { isMainModule } from './lib/is-main.js';
 import { parseOrExit } from './lib/run-cli.js';
 
 const VALID_SERVICES = Object.values(SERVICE_NAMES);
@@ -92,7 +93,7 @@ async function main(): Promise<void> {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
+if (isMainModule(import.meta.url)) {
   void main();
 }
 /* v8 ignore stop */

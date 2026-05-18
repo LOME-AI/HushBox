@@ -13,6 +13,7 @@ import {
   type VariableConfig,
 } from '../packages/shared/src/env.config.js';
 import { getWorktreeConfig, BASE_PORTS, type WorktreeConfig, type PortKey } from './worktree.js';
+import { isMainModule } from './lib/is-main.js';
 
 /**
  * Build variants for release workflows.
@@ -445,7 +446,7 @@ export function parseArgs(args: string[]): EnvMode {
 }
 
 /* v8 ignore start */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   const mode = parseArgs(process.argv.slice(2));
   generateEnvFiles(process.cwd(), mode);

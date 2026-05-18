@@ -116,6 +116,44 @@ describe('mobile-test script', () => {
     });
   });
 
+  describe('assertLinux', () => {
+    it('does not throw on linux', async () => {
+      const { assertLinux } = await import('./mobile-test.js');
+      const spy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+      try {
+        expect(() => {
+          assertLinux();
+        }).not.toThrow();
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('throws on darwin with a clear message', async () => {
+      const { assertLinux } = await import('./mobile-test.js');
+      const spy = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+      try {
+        expect(() => {
+          assertLinux();
+        }).toThrow(/Linux-only/);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('throws on win32 with a clear message', async () => {
+      const { assertLinux } = await import('./mobile-test.js');
+      const spy = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+      try {
+        expect(() => {
+          assertLinux();
+        }).toThrow(/Linux-only/);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
   describe('checkPrerequisites', () => {
     it('calls docker info to check Docker is running', async () => {
       await checkPrerequisites();

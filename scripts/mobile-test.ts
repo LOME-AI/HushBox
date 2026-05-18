@@ -1,6 +1,8 @@
+/* eslint-disable no-restricted-syntax -- mobile-test.ts is gated to Linux via assertLinux() and intentionally shells out to mkdir/curl/unzip/bash for one-shot SDK installation on the CI runner. */
 import { execa } from 'execa';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { isMainModule } from './lib/is-main.js';
 
 const APK_PATH = 'apps/web/android/app/build/outputs/apk/debug/app-debug.apk';
 const BOOT_TIMEOUT_POLLS = 120;
@@ -12,6 +14,20 @@ const EMULATOR_SERVICE = 'android-emulator';
 
 export function parseArgs(args: string[]): { smoke: boolean } {
   return { smoke: args.includes('--smoke') };
+}
+
+/**
+ * Mobile tests depend on KVM acceleration, Docker host networking, and
+ * Linux-style filesystem paths used by the android-emulator service. Fail
+ * fast on other platforms so the user gets a clear error instead of opaque
+ * downstream failures.
+ */
+export function assertLinux(): void {
+  if (process.platform !== 'linux') {
+    throw new Error(
+      `mobile-test is Linux-only (requires KVM and Docker host networking). Current platform: ${process.platform}.`
+    );
+  }
 }
 
 export async function checkPrerequisites(): Promise<void> {
@@ -574,6 +590,7 @@ async function runMaestroOta(): Promise<void> {
 }
 
 export async function main(): Promise<void> {
+  assertLinux();
   const { smoke } = parseArgs(process.argv.slice(2));
 
   await checkPrerequisites();
@@ -598,7 +615,7 @@ export async function main(): Promise<void> {
 }
 
 /* v8 ignore start */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   void (async () => {
     try {

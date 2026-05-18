@@ -21,9 +21,9 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsgo --noEmit",
-    "test": "../../scripts/with-env vitest run",
-    "test:watch": "../../scripts/with-env vitest",
-    "test:coverage": "../../scripts/with-env vitest run --coverage"
+    "test": "tsx ../../scripts/with-env.ts vitest run",
+    "test:watch": "tsx ../../scripts/with-env.ts vitest",
+    "test:coverage": "tsx ../../scripts/with-env.ts vitest run --coverage"
   },
   "dependencies": {
     "@hushbox/shared": "workspace:*",

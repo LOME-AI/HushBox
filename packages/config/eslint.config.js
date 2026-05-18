@@ -208,6 +208,35 @@ export function createBaseConfig(tsconfigRootDir) {
             ],
           },
         ],
+
+        // Cross-platform — block shell-outs to POSIX-only commands and embedded
+        // shells. Use Node fs APIs, kill-port, archiver/adm-zip, the 'open'
+        // package, native fetch, or dedicated tsx wrappers. Reaches execa(),
+        // execSync, execFileSync, spawn, spawnSync.
+        //
+        // Allowed commands: git, docker, node, pnpm, npm, tsx, wrangler,
+        // playwright, vitest, drizzle-kit, etc. — cross-platform tools.
+        'no-restricted-syntax': [
+          'error',
+          {
+            selector:
+              "CallExpression[callee.name='execa'][arguments.0.type='Literal'][arguments.0.value=/^(rm|mv|cp|mkdir|chmod|chown|lsof|xargs|kill|killall|pkill|grep|sed|awk|tr|cut|find|unzip|zip|stat|yes|touch|tail|head|sudo|sh|bash|zsh|fish|curl|wget|xdg-open)$/]",
+            message:
+              'Cross-platform: do not execa POSIX-only commands. Use Node fs APIs, kill-port, archiver/adm-zip, the open package, native fetch, or a tsx wrapper.',
+          },
+          {
+            selector:
+              "CallExpression[callee.name=/^(execFileSync|spawn|spawnSync)$/][arguments.0.type='Literal'][arguments.0.value=/^(rm|mv|cp|mkdir|chmod|chown|lsof|xargs|kill|killall|pkill|grep|sed|awk|tr|cut|find|unzip|zip|stat|yes|touch|tail|head|sudo|sh|bash|zsh|fish|curl|wget|xdg-open)$/]",
+            message:
+              'Cross-platform: do not invoke POSIX-only commands via execFileSync/spawn. Use Node fs APIs, kill-port, archiver/adm-zip, the open package, native fetch, or a tsx wrapper.',
+          },
+          {
+            selector:
+              "CallExpression[callee.name='execSync'][arguments.0.type='Literal'][arguments.0.value=/^(rm|mv|cp|mkdir|chmod|chown|lsof|xargs|kill|killall|pkill|grep|sed|awk|tr|cut|find|unzip|zip|stat|yes|touch|tail|head|sudo|sh|bash|zsh|fish|curl|wget|xdg-open)(\\s|$)/]",
+            message:
+              'Cross-platform: do not execSync POSIX-only shell strings. Use Node APIs or a tsx wrapper.',
+          },
+        ],
       },
     },
   ];

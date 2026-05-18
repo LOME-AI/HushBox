@@ -50,6 +50,6 @@
     "tailwindcss",
     "tw-animate-css"
   ],
-  "ignoreBinaries": ["maestro", "adb", "cap", "wrangler"],
+  "ignoreBinaries": ["maestro", "adb", "cap", "wrangler", "drizzle-kit"],
   "ignoreExportsUsedInFile": true
 }

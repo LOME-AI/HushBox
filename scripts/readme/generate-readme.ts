@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { isMainModule } from '../lib/is-main.js';
 import {
   TOTAL_FEE_RATE,
   HUSHBOX_FEE_RATE,
@@ -93,5 +94,5 @@ export function generateReadme(rootDir: string): void {
 }
 
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) generateReadme(process.cwd());

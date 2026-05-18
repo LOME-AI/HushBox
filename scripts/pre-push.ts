@@ -1,4 +1,5 @@
 import { execa } from 'execa';
+import { isMainModule } from './lib/is-main.js';
 
 export interface Task {
   name: string;
@@ -61,7 +62,7 @@ export async function main(): Promise<void> {
 }
 
 /* v8 ignore start -- CLI entry point uses process.exit, exercised via husky */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   void (async () => {
     try {

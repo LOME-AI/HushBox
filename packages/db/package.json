@@ -10,13 +10,13 @@
     "./factories": "./src/factories/index.ts"
   },
   "scripts": {
-    "db:generate": "../../scripts/with-env drizzle-kit generate",
-    "db:migrate": "../../scripts/with-env drizzle-kit migrate",
-    "db:push": "../../scripts/with-env drizzle-kit push",
-    "db:studio": "../../scripts/with-env sh -c 'drizzle-kit studio --port=\"${HB_STUDIO_PORT:?HB_STUDIO_PORT is unset — run pnpm generate:env first}\"'",
-    "test": "../../scripts/with-env vitest run",
-    "test:watch": "../../scripts/with-env vitest",
-    "test:coverage": "../../scripts/with-env vitest run --coverage",
+    "db:generate": "tsx ../../scripts/with-env.ts drizzle-kit generate",
+    "db:migrate": "tsx ../../scripts/with-env.ts drizzle-kit migrate",
+    "db:push": "tsx ../../scripts/with-env.ts drizzle-kit push",
+    "db:studio": "tsx ../../scripts/with-env.ts tsx ../../scripts/drizzle-studio.ts",
+    "test": "tsx ../../scripts/with-env.ts vitest run",
+    "test:watch": "tsx ../../scripts/with-env.ts vitest",
+    "test:coverage": "tsx ../../scripts/with-env.ts vitest run --coverage",
     "lint": "eslint .",
     "typecheck": "tsgo --noEmit"
   },

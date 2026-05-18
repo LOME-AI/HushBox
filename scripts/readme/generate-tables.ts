@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as lucideStatic from 'lucide-static';
+import { isMainModule } from '../lib/is-main.js';
 import { TOTAL_FEE_RATE } from '../../packages/shared/src/constants.js';
 import { FEE_CATEGORIES, formatFeePercent } from '../../packages/shared/src/fees.js';
 import {
@@ -479,5 +480,5 @@ export function generateTables(outputDir: string, repoRoot?: string): void {
 const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../.github/readme');
 
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) generateTables(DEFAULT_OUTPUT);

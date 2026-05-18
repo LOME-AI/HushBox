@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import GIFEncoder from 'gif-encoder-2';
 import seedrandom from 'seedrandom';
+import { isMainModule } from '../lib/is-main.js';
 import {
   createGrid,
   seedInitialReveals,
@@ -405,5 +406,5 @@ export function generateBanners(outputDir: string, repoRoot?: string): void {
 const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../.github/readme');
 
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) generateBanners(DEFAULT_OUTPUT);

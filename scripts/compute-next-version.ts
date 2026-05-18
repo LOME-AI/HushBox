@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 import { semverToCode, writeGithubOutput } from './extract-version.js';
 
@@ -76,7 +76,7 @@ export function computeNextVersion(input: ComputeVersionInput): ComputeVersionRe
 /** Find the latest stable git tag matching vX.Y.Z (no pre-release). */
 export function findLatestStableTag(): string | null {
   // eslint-disable-next-line sonarjs/no-os-command-from-path -- git is a standard tool in CI runners
-  const output = execSync('git tag --list "v*" --sort=-version:refname', {
+  const output = execFileSync('git', ['tag', '--list', 'v*', '--sort=-version:refname'], {
     encoding: 'utf8',
   }).trim();
 

@@ -12,6 +12,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import { discoverWorkspaces } from './workspaces.js';
+import { isMainModule } from './lib/is-main.js';
 import type { Workspace } from './workspaces.js';
 
 const EXCLUDED_DIRS = new Set([
@@ -93,7 +94,7 @@ export function getFilesFromTsconfig(tsconfigPath: string): string[] {
   return program
     .getSourceFiles()
     .map((sourceFile) => sourceFile.fileName)
-    .filter((fileName) => !fileName.includes('/node_modules/'));
+    .filter((fileName) => !fileName.replaceAll('\\', '/').includes('/node_modules/'));
 }
 
 function isExcludedDirectory(name: string): boolean {
@@ -217,7 +218,7 @@ function main(): void {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
+if (isMainModule(import.meta.url)) {
   try {
     main();
   } catch (error: unknown) {

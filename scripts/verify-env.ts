@@ -14,6 +14,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { createEnvUtilities, type EnvContext, type EnvUtilities } from '@hushbox/shared';
+import { isMainModule } from './lib/is-main.js';
 import { parseOrExit } from './lib/run-cli.js';
 
 export type Mode = 'development' | 'ciVitest' | 'e2e' | 'ciE2E' | 'production';
@@ -413,7 +414,7 @@ async function main(): Promise<void> {
   console.log('\n✓ All environment verifications passed');
 }
 
-if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
+if (isMainModule(import.meta.url)) {
   void (async () => {
     try {
       await main();

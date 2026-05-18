@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
+import AdmZip from 'adm-zip';
 import {
   categorizeTests,
   extractArtifactPaths,
@@ -29,16 +29,12 @@ import {
 } from './e2e-debug.js';
 
 function makeTraceZip(workDir: string, zipName: string, files: Record<string, string>): string {
-  const stageDir = path.join(workDir, `stage-${zipName}`);
-  mkdirSync(stageDir, { recursive: true });
-  for (const [relativePath, contents] of Object.entries(files)) {
-    const absolutePath = path.join(stageDir, relativePath);
-    mkdirSync(path.dirname(absolutePath), { recursive: true });
-    writeFileSync(absolutePath, contents);
-  }
   const zipPath = path.join(workDir, zipName);
-  // eslint-disable-next-line sonarjs/no-os-command-from-path -- zip is a standard tool on Linux/macOS dev and CI runners
-  execFileSync('zip', ['-r', '-q', zipPath, '.'], { cwd: stageDir });
+  const zip = new AdmZip();
+  for (const [relativePath, contents] of Object.entries(files)) {
+    zip.addFile(relativePath, Buffer.from(contents));
+  }
+  zip.writeZip(zipPath);
   return zipPath;
 }
 

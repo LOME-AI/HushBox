@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { isMainModule } from './lib/is-main.js';
 
 interface AssetConfig {
   name: string;
@@ -158,7 +159,7 @@ export async function generateSingleAsset(rootDir: string, assetName: string): P
 }
 
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   /* v8 ignore next 9 */
   const assetName = process.argv[2];

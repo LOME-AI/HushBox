@@ -5,6 +5,7 @@ import { generateEnvFiles } from './generate-env.js';
 import { getWorktreeConfig } from './worktree.js';
 import { seed } from './seed.js';
 import { cleanupOrphanedProjects } from './docker-cleanup.js';
+import { isMainModule } from './lib/is-main.js';
 
 const DOCKER_SERVICES = ['postgres', 'neon-proxy', 'redis', 'serverless-redis-http', 'minio'];
 
@@ -84,7 +85,7 @@ export async function main(): Promise<void> {
   await startTurbo();
 }
 
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   void (async () => {
     try {

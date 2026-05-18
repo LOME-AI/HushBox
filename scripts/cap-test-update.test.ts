@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   generateVersionString,
   getDistributionZipPath,
@@ -7,6 +10,7 @@ import {
   getUpdatesCurrentUrl,
   getR2ObjectKey,
   parsePlatformArgument,
+  zipDirectory,
 } from './cap-test-update.js';
 
 describe('generateVersionString', () => {
@@ -69,6 +73,63 @@ describe('getR2ObjectKey', () => {
     expect(getR2ObjectKey('android-direct', 'dev-update-1234567890')).toBe(
       'hushbox-app-builds/builds/android-direct/dev-update-1234567890.zip'
     );
+  });
+});
+
+describe('zipDirectory', () => {
+  let temporaryDir: string;
+
+  beforeEach(() => {
+    temporaryDir = mkdtempSync(path.join(tmpdir(), 'cap-test-zip-'));
+  });
+
+  function cleanup(): void {
+    rmSync(temporaryDir, { recursive: true, force: true });
+  }
+
+  it('creates a zip file at the target path containing entries for the source files', async () => {
+    const sourceDir = path.join(temporaryDir, 'src');
+    mkdirSync(sourceDir);
+    writeFileSync(path.join(sourceDir, 'a.txt'), 'alpha');
+    writeFileSync(path.join(sourceDir, 'b.txt'), 'beta');
+
+    const zipPath = path.join(temporaryDir, 'out.zip');
+    await zipDirectory(sourceDir, zipPath);
+
+    const zipBytes = readFileSync(zipPath);
+    // PK\x03\x04 = local file header signature
+    expect(zipBytes.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    expect(zipBytes.byteLength).toBeGreaterThan(0);
+
+    const zipString = zipBytes.toString('binary');
+    expect(zipString).toContain('a.txt');
+    expect(zipString).toContain('b.txt');
+
+    cleanup();
+  });
+
+  it('includes nested files relative to the source directory root', async () => {
+    const sourceDir = path.join(temporaryDir, 'src');
+    const nested = path.join(sourceDir, 'nested');
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(path.join(nested, 'deep.txt'), 'deep content');
+
+    const zipPath = path.join(temporaryDir, 'out.zip');
+    await zipDirectory(sourceDir, zipPath);
+
+    const zipBytes = readFileSync(zipPath);
+    const zipString = zipBytes.toString('binary');
+    expect(zipString).toContain('nested/deep.txt');
+
+    cleanup();
+  });
+
+  it('rejects when archiver cannot write to the destination', async () => {
+    const sourceDir = path.join(temporaryDir, 'src');
+    mkdirSync(sourceDir);
+    const invalidZipPath = path.join(temporaryDir, 'no-such-dir', 'out.zip');
+    await expect(zipDirectory(sourceDir, invalidZipPath)).rejects.toThrow();
+    cleanup();
   });
 });
 

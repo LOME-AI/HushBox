@@ -5,6 +5,7 @@
 
 import { execa } from 'execa';
 import { discoverWorkspaces, type Workspace } from './workspaces.js';
+import { isMainModule } from './lib/is-main.js';
 
 export interface LintMessage {
   ruleId: string | null;
@@ -166,7 +167,7 @@ export async function runLint(filters: LintFilters, rootDirectory?: string): Pro
 }
 
 /* v8 ignore start */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   void (async () => {
     try {

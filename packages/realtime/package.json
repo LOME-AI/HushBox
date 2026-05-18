@@ -8,9 +8,9 @@
     "./events": "./src/events.ts"
   },
   "scripts": {
-    "test": "../../scripts/with-env vitest run --passWithNoTests",
-    "test:watch": "../../scripts/with-env vitest",
-    "test:coverage": "../../scripts/with-env vitest run --coverage --passWithNoTests",
+    "test": "tsx ../../scripts/with-env.ts vitest run --passWithNoTests",
+    "test:watch": "tsx ../../scripts/with-env.ts vitest",
+    "test:coverage": "tsx ../../scripts/with-env.ts vitest run --coverage --passWithNoTests",
     "lint": "eslint .",
     "typecheck": "tsgo --noEmit"
   },

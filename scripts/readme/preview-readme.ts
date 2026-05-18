@@ -5,6 +5,7 @@ import { Marked } from 'marked';
 import markedAlert from 'marked-alert';
 import { markedHighlight } from 'marked-highlight';
 import hljs from 'highlight.js';
+import { isMainModule } from '../lib/is-main.js';
 
 const ROOT = process.cwd();
 
@@ -17,7 +18,7 @@ export function resolvePort(): number {
   const raw = process.env['HB_README_PREVIEW_PORT'];
   if (!raw) {
     throw new Error(
-      'HB_README_PREVIEW_PORT is not set. Run `pnpm generate:env` first, or invoke this script via `./scripts/with-env`.'
+      'HB_README_PREVIEW_PORT is not set. Run `pnpm generate:env` first, or invoke this script via `tsx scripts/with-env.ts`.'
     );
   }
   const port = Number(raw);
@@ -150,5 +151,5 @@ export function startServer(port: number): ReturnType<typeof createServer> {
 }
 
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) startServer(resolvePort());

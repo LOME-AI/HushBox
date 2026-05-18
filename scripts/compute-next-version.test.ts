@@ -8,7 +8,7 @@ import {
 } from './compute-next-version.js';
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 vi.mock('node:fs', () => ({
@@ -130,34 +130,44 @@ describe('computeNextVersion', () => {
 });
 
 describe('findLatestStableTag', () => {
-  let execSyncMock: ReturnType<typeof vi.fn>;
+  let execFileSyncMock: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     const childProcess = await import('node:child_process');
-    execSyncMock = vi.mocked(childProcess.execSync);
+    execFileSyncMock = vi.mocked(childProcess.execFileSync);
   });
 
   it('returns the first stable tag from sorted output', () => {
-    execSyncMock.mockReturnValue('v2.1.0\nv2.0.0\nv1.0.0\n');
+    execFileSyncMock.mockReturnValue('v2.1.0\nv2.0.0\nv1.0.0\n');
 
     expect(findLatestStableTag()).toBe('v2.1.0');
   });
 
+  it('invokes git via execFileSync with array args (no shell interpolation)', () => {
+    execFileSyncMock.mockReturnValue('v1.0.0\n');
+    findLatestStableTag();
+    expect(execFileSyncMock).toHaveBeenCalledWith(
+      'git',
+      ['tag', '--list', 'v*', '--sort=-version:refname'],
+      expect.objectContaining({ encoding: 'utf8' })
+    );
+  });
+
   it('returns null when no tags exist', () => {
-    execSyncMock.mockReturnValue('');
+    execFileSyncMock.mockReturnValue('');
 
     expect(findLatestStableTag()).toBeNull();
   });
 
   it('skips pre-release tags', () => {
-    execSyncMock.mockReturnValue('v2.0.0-beta.1\nv1.5.0\nv1.0.0\n');
+    execFileSyncMock.mockReturnValue('v2.0.0-beta.1\nv1.5.0\nv1.0.0\n');
 
     expect(findLatestStableTag()).toBe('v1.5.0');
   });
 
   it('returns null when only pre-release tags exist', () => {
-    execSyncMock.mockReturnValue('v2.0.0-beta.1\nv1.0.0-alpha.3\n');
+    execFileSyncMock.mockReturnValue('v2.0.0-beta.1\nv1.0.0-alpha.3\n');
 
     expect(findLatestStableTag()).toBeNull();
   });

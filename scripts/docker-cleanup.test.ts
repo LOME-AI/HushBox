@@ -176,6 +176,36 @@ describe('docker-cleanup', () => {
     it('returns all projects when active paths list is empty', () => {
       expect(findOrphanedProjects(projects, [])).toEqual(projects);
     });
+
+    it('matches Windows-style backslash paths against forward-slash worktree paths', () => {
+      const windowsProjects: DockerComposeProject[] = [
+        {
+          projectName: 'hushbox-34',
+          workingDir: String.raw`C:\Users\dev\repo\worktrees\feature-a`,
+        },
+      ];
+      const activePaths = ['C:/Users/dev/repo/worktrees/feature-a'];
+      expect(findOrphanedProjects(windowsProjects, activePaths)).toEqual([]);
+    });
+
+    it('matches when drive letter case differs', () => {
+      const windowsProjects: DockerComposeProject[] = [
+        { projectName: 'hushbox-34', workingDir: 'C:/Users/dev/repo' },
+      ];
+      const activePaths = ['c:/Users/dev/repo'];
+      expect(findOrphanedProjects(windowsProjects, activePaths)).toEqual([]);
+    });
+
+    it('does not treat unrelated paths as equal even after normalization', () => {
+      const windowsProjects: DockerComposeProject[] = [
+        {
+          projectName: 'hushbox-34',
+          workingDir: String.raw`C:\Users\dev\repo\worktrees\feature-a`,
+        },
+      ];
+      const activePaths = ['C:/Users/dev/repo/worktrees/feature-b'];
+      expect(findOrphanedProjects(windowsProjects, activePaths)).toEqual(windowsProjects);
+    });
   });
 
   describe('getActiveWorktreePaths', () => {

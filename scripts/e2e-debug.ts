@@ -15,8 +15,8 @@ import {
   existsSync,
   readdirSync,
 } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+import AdmZip from 'adm-zip';
 
 export interface PlaywrightError {
   message?: string;
@@ -662,14 +662,19 @@ export function mergeHarFiles(harPaths: string[], outputPath: string): void {
   writeFileSync(outputPath, JSON.stringify(merged, null, 2), 'utf8');
 }
 
+const TRACE_FRAME_JPEG = /^resources\/page@[^/]+\.jpeg$/;
+
 export function extractTraceArchive(zipPath: string, destinationDir: string): void {
   if (!existsSync(zipPath)) return;
   mkdirSync(destinationDir, { recursive: true });
-  // -x 'resources/page@*.jpeg' drops the visual frame screenshots; the DOM
+  // Drop the visual frame screenshots (resources/page@*.jpeg); the DOM
   // snapshots (in *.trace) and captured sources (resources/src@*.txt) remain.
-  const args = ['-q', '-o', zipPath, '-d', destinationDir, '-x', 'resources/page@*.jpeg'];
-  // eslint-disable-next-line sonarjs/no-os-command-from-path -- unzip is a standard tool on Linux/macOS dev and CI runners
-  execFileSync('unzip', args, { stdio: 'pipe' });
+  const zip = new AdmZip(zipPath);
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory) continue;
+    if (TRACE_FRAME_JPEG.test(entry.entryName)) continue;
+    zip.extractEntryTo(entry, destinationDir, true, true);
+  }
 }
 
 export function writePerTestArtifacts(test: FailedTest, testDir: string): void {

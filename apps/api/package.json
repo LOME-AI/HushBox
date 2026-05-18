@@ -7,10 +7,10 @@
     ".": "./src/app.ts"
   },
   "scripts": {
-    "dev": "wrangler dev --port $HB_API_PORT",
-    "test": "../../scripts/with-env vitest run",
-    "test:watch": "../../scripts/with-env vitest",
-    "test:coverage": "../../scripts/with-env vitest run --coverage",
+    "dev": "tsx ../../scripts/wrangler-dev.ts",
+    "test": "tsx ../../scripts/with-env.ts vitest run",
+    "test:watch": "tsx ../../scripts/with-env.ts vitest",
+    "test:coverage": "tsx ../../scripts/with-env.ts vitest run --coverage",
     "lint": "eslint .",
     "typecheck": "tsgo --noEmit"
   },

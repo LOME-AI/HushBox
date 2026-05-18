@@ -78,6 +78,7 @@ import {
   deriveTotpEncryptionKey,
   encryptTotpSecret,
 } from '@hushbox/crypto';
+import { isMainModule } from './lib/is-main.js';
 
 async function createOpaqueUserCrypto(
   password: string,
@@ -1876,7 +1877,7 @@ export async function seed(): Promise<void> {
   console.log('\nSeed complete!');
 }
 
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   void (async () => {
     try {

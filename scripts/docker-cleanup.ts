@@ -1,4 +1,5 @@
 import { execa } from 'execa';
+import { isMainModule } from './lib/is-main.js';
 
 export interface DockerComposeProject {
   projectName: string;
@@ -41,12 +42,27 @@ export function parseDockerProjects(output: string): DockerComposeProject[] {
   return projects;
 }
 
+/**
+ * Normalize a path for cross-platform set membership.
+ * Docker may store working_dir with backslashes (Windows native) while
+ * git worktree list emits forward slashes on every platform. Drive-letter
+ * casing also differs across tools on Windows.
+ */
+export function normalizeProjectPath(input: string): string {
+  const slashNormalized = input.replaceAll('\\', '/');
+  const driveLetter = slashNormalized.charAt(0);
+  if (/^[A-Za-z]:\//.test(slashNormalized)) {
+    return driveLetter.toLowerCase() + slashNormalized.slice(1);
+  }
+  return slashNormalized;
+}
+
 export function findOrphanedProjects(
   projects: DockerComposeProject[],
   activeWorktreePaths: string[]
 ): DockerComposeProject[] {
-  const activeSet = new Set(activeWorktreePaths);
-  return projects.filter((p) => !activeSet.has(p.workingDir));
+  const activeSet = new Set(activeWorktreePaths.map((p) => normalizeProjectPath(p)));
+  return projects.filter((p) => !activeSet.has(normalizeProjectPath(p.workingDir)));
 }
 
 export async function getActiveWorktreePaths(): Promise<string[]> {
@@ -123,7 +139,7 @@ export async function main(): Promise<void> {
   await cleanupOrphanedProjects(options);
 }
 
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   void (async () => {
     try {

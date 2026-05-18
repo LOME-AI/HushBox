@@ -30,7 +30,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `lsof -ti:${previewPort} | xargs -r kill -9 2>/dev/null || true; ${envGen}${dbReset}pnpm --filter @hushbox/web build --mode development && pnpm --filter @hushbox/web preview --port ${previewPort}`,
+      command: `tsx scripts/kill-ports.ts HB_PREVIEW_PORT && ${envGen}${dbReset}pnpm --filter @hushbox/web build --mode development && pnpm --filter @hushbox/web preview --port ${previewPort}`,
       url: previewUrl,
       reuseExistingServer: false,
       timeout: 120_000,
@@ -38,7 +38,7 @@ export default defineConfig({
       stdout: 'pipe',
     },
     {
-      command: `lsof -ti:${apiPort} | xargs -r kill -9 2>/dev/null || true; pnpm --filter @hushbox/api dev --log-level error`,
+      command: `tsx scripts/kill-ports.ts HB_API_PORT && pnpm --filter @hushbox/api dev --log-level error`,
       url: `${apiUrl}/api/health`,
       reuseExistingServer: false,
       timeout: 120_000,
