@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Inert base64 test fixtures in stream-handler.test.ts. Each string decodes to a human-readable label ('wrapped-b', 'user-wrapped', 'ai_wrapped') used as opaque envelope bytes in SSE writer tests. AND-condition pins them to that single file."
+condition = "AND"
+paths = ['''^apps/api/src/lib/stream-handler\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^d3JhcHBlZC1i$''',
+  '''^dXNlci13cmFwcGVk$''',
+  '''^YWlfd3JhcHBlZA==$''',
+]

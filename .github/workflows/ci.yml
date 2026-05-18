@@ -55,6 +55,8 @@ jobs:
         run: pnpm typecheck
       - name: Verify typecheck coverage
         run: pnpm verify:typecheck-coverage
+      - name: Generate environment files
+        run: pnpm generate:env
       - name: Drizzle migration drift check
         run: |
           pnpm --filter @hushbox/db db:generate
