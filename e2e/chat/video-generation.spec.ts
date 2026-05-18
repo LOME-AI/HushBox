@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages';
 import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
 
@@ -427,7 +427,8 @@ test.describe('Video Generation', () => {
       const locked = modal.locator('[data-testid^="model-item-"]:has([data-testid="lock-icon"])');
       await expect(locked).toHaveCount(total);
       await lowBalancePage.keyboard.press('Escape');
-      await expect(modal).not.toBeVisible();
+      // Modal exit animation races the settled-aware indicator.
+      await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
     });
 
     await expect(lowBalancePage).toHaveURL(/\/chat$/);

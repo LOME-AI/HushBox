@@ -46,6 +46,9 @@ test.describe('Real-time media broadcast', () => {
       { timeout: 20_000 }
     );
 
+    // iPhone-15 Virtuoso virtualizes the user-prompt row off-screen.
+    const bobLastRowIndex = await bobChatPage.getLastRowIndex();
+    await bobChatPage.scrollMessageIntoView(bobLastRowIndex - 1);
     await unsettledExpect(bobChatPage.messageList.getByText(prompt).first()).toBeVisible({
       timeout: 15_000,
     });

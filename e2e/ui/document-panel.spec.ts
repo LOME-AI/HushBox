@@ -58,11 +58,17 @@ test.describe('Document Panel', () => {
     let pythonMessageIndex: number;
 
     await test.step('send code block and verify card', async () => {
+      // Code blocks ≥ MIN_LINES_FOR_DOCUMENT get extracted into a card, so
+      // the response text is not in DOM. Wait for assistant-count to grow.
+      const beforeAssistantCount = Number(
+        (await chatPage.messageList.getAttribute('data-assistant-count')) ?? '0'
+      );
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
-      // Match a substring unique to the new echo. `.first()` on `/^Echo:/`
-      // would resolve to the seeded conversation's echo (already visible)
-      // and return before the new assistant row is in the data.
-      await chatPage.waitForAIResponse('def fibonacci');
+      await unsettledExpect(chatPage.messageList).toHaveAttribute(
+        'data-assistant-count',
+        String(beforeAssistantCount + 1),
+        { timeout: 10_000 }
+      );
       pythonMessageIndex = await chatPage.getLastRowIndex();
       const card = await documentPanel.scrollToCardInMessage(chatPage, pythonMessageIndex, 45_000);
       await expect(card).toContainText('fibonacci');
@@ -113,17 +119,30 @@ test.describe('Document Panel', () => {
     let mermaidMessageIndex: number;
 
     await test.step('send Python code block (for multi-document switching)', async () => {
+      const beforeAssistantCount = Number(
+        (await chatPage.messageList.getAttribute('data-assistant-count')) ?? '0'
+      );
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
-      // Substring unique to the new echo — see other test for rationale.
-      await chatPage.waitForAIResponse('def fibonacci');
+      await unsettledExpect(chatPage.messageList).toHaveAttribute(
+        'data-assistant-count',
+        String(beforeAssistantCount + 1),
+        { timeout: 10_000 }
+      );
       pythonMessageIndex = await chatPage.getLastRowIndex();
       const card = await documentPanel.scrollToCardInMessage(chatPage, pythonMessageIndex, 45_000);
       await expect(card).toBeVisible();
     });
 
     await test.step('send mermaid and verify rendered diagram', async () => {
+      const beforeAssistantCount = Number(
+        (await chatPage.messageList.getAttribute('data-assistant-count')) ?? '0'
+      );
       await chatPage.sendFollowUpMessage(MERMAID_BLOCK);
-      await chatPage.waitForAIResponse('graph TD');
+      await unsettledExpect(chatPage.messageList).toHaveAttribute(
+        'data-assistant-count',
+        String(beforeAssistantCount + 1),
+        { timeout: 10_000 }
+      );
       mermaidMessageIndex = await chatPage.getLastRowIndex();
       await documentPanel.clickCardInMessage(chatPage, mermaidMessageIndex);
       await documentPanel.waitForPanelOpen();

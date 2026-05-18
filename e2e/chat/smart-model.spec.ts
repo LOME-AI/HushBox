@@ -277,19 +277,18 @@ test.describe('Smart Model', () => {
    */
   test('Smart Model shows "Choosing the best model" loading state then clears it', async ({
     authenticatedPage,
+    testConversation: _testConversation,
   }) => {
     test.slow();
 
     const chatPage = new ChatPage(authenticatedPage);
-    await chatPage.goto();
+    // Seeded conversation, not a new chat: see sendNewChatMessage docstring.
     await chatPage.waitForAppStable();
 
     await chatPage.selectSingleModel('smart-model');
 
-    // Send the message — don't await waitForAIResponse before we start polling
-    // for the loading text, because the indicator window is brief.
     const prompt = `Smart Model loading ${String(Date.now())}`;
-    await chatPage.sendNewChatMessage(prompt);
+    await chatPage.sendFollowUpMessage(prompt);
 
     // The "Choosing the best model…" indicator should appear within a short
     // window (the classifier round-trip starts as soon as the first token

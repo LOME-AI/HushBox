@@ -537,6 +537,23 @@ describe('DeleteAccountModal', () => {
       expect(mockClearLocalAuthState).toHaveBeenCalled();
     });
 
+    it('assigns location.href before clearLocalAuthState so the navigation commits before queryClient.clear settles the app', async () => {
+      let hrefWhenCleared: string | undefined;
+      mockClearLocalAuthState.mockImplementation(() => {
+        hrefWhenCleared = globalThis.location.href;
+      });
+
+      const user = await advanceToFinalStep();
+      await user.type(screen.getByLabelText(/confirmation/i), 'delete my account');
+      await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
+
+      await waitFor(() => {
+        expect(mockClearLocalAuthState).toHaveBeenCalled();
+      });
+
+      expect(hrefWhenCleared).toBe('/welcome');
+    });
+
     it('includes totpCode when user has 2FA', async () => {
       const user = await advanceToFinalStep({ withTotp: true });
       await user.type(screen.getByLabelText(/confirmation/i), 'delete my account');

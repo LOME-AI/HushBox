@@ -15,6 +15,7 @@ import {
   existsSync,
   readdirSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 export interface PlaywrightError {
@@ -513,7 +514,9 @@ function renderSingleTest(test: RenderableTest, artifactDir: 'failed' | 'flaky')
   }
 
   if (test.artifacts.trace) {
-    lines.push(`**Trace:** \`npx playwright show-trace ${test.artifacts.trace}\``);
+    lines.push(
+      `**Trace:** \`${artifactDir}/${slug}/trace/\` (extracted) or \`npx playwright show-trace ${test.artifacts.trace}\` (viewer)`
+    );
   }
 
   if (test.artifacts.screenshot) {
@@ -659,6 +662,16 @@ export function mergeHarFiles(harPaths: string[], outputPath: string): void {
   writeFileSync(outputPath, JSON.stringify(merged, null, 2), 'utf8');
 }
 
+export function extractTraceArchive(zipPath: string, destinationDir: string): void {
+  if (!existsSync(zipPath)) return;
+  mkdirSync(destinationDir, { recursive: true });
+  // -x 'resources/page@*.jpeg' drops the visual frame screenshots; the DOM
+  // snapshots (in *.trace) and captured sources (resources/src@*.txt) remain.
+  const args = ['-q', '-o', zipPath, '-d', destinationDir, '-x', 'resources/page@*.jpeg'];
+  // eslint-disable-next-line sonarjs/no-os-command-from-path -- unzip is a standard tool on Linux/macOS dev and CI runners
+  execFileSync('unzip', args, { stdio: 'pipe' });
+}
+
 export function writePerTestArtifacts(test: FailedTest, testDir: string): void {
   mkdirSync(testDir, { recursive: true });
 
@@ -683,6 +696,10 @@ export function writePerTestArtifacts(test: FailedTest, testDir: string): void {
 
   if (test.artifacts.harFiles.length > 0) {
     mergeHarFiles(test.artifacts.harFiles, path.join(testDir, 'network.har'));
+  }
+
+  if (test.artifacts.trace) {
+    extractTraceArchive(test.artifacts.trace, path.join(testDir, 'trace'));
   }
 }
 

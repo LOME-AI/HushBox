@@ -33,11 +33,11 @@ For every failed and flaky test in the report:
 
 ## Step 3 — Deep Investigation Per Failure
 
-For EACH failed AND flaky test, do ALL of the following:
+For EACH failed AND flaky test, do ALL of the following. Failed tests live under `e2e/report/<latest>/failed/<test-slug>/`; flaky tests under `.../flaky/<test-slug>/`. Each test dir also has a `trace/` subdir with the extracted Playwright trace (`*.trace`, `*.stacks`, `resources/src@*.txt`, `resources/<sha>` response bodies) — read these when the other artifacts aren't enough.
 
 ### 3a. Read the full error
 
-- Read `e2e/report/<latest>/failed/<test-slug>/error.txt`
+- Read `error.txt`
 - Identify the assertion or timeout that failed
 - Note the exact expected vs actual values
 
@@ -50,24 +50,24 @@ For EACH failed AND flaky test, do ALL of the following:
 
 ### 3c. Trace the execution steps
 
-- Read `e2e/report/<latest>/failed/<test-slug>/steps.json`
+- Read `steps.json`
 - Identify the last successful step before the failure
 - Note any steps with unusually long durations (potential flakiness)
 
 ### 3d. Examine API calls
 
-- Read `e2e/report/<latest>/failed/<test-slug>/network.har`
+- Read `network.har`
 - Look for: failed API responses (4xx/5xx), slow responses, missing responses
 - For each relevant API endpoint, trace it to the backend route handler
 
 ### 3e. Examine console errors
 
-- Read `e2e/report/<latest>/failed/<test-slug>/console-errors.txt`
+- Read `console-errors.txt`
 - Correlate console errors with the test failure — are they the cause or a symptom?
 
 ### 3f. Examine the page state
 
-- Read `e2e/report/<latest>/failed/<test-slug>/page-snapshot.txt`
+- Read `page-snapshot.txt`
 - Check: was the expected element present? Was the page in the right state?
 - Look for unexpected modals, loading spinners, or error banners
 
@@ -108,7 +108,7 @@ For each failure, include a checklist of every file in that test's artifact dire
 - [x] `error.txt`
 - [x] `network.har`
 - [x] `screenshot.png`
-- [ ] `trace.zip` (not readable)
+- [x] `trace/`
 ```
 
 Then present:

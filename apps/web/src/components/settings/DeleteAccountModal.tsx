@@ -442,12 +442,10 @@ export function DeleteAccountModal({
       };
       if (totpEnabled) body.totpCode = otpValue;
       await finishMutation.mutateAsync(body);
-      clearLocalAuthState();
-      // Same-origin redirect to the marketing root. Web app and Astro
-      // marketing share a Cloudflare Pages deployment so a relative path
-      // works in every environment (dev, E2E preview, prod) without needing
-      // to know the marketing base URL.
+      // Assign before clearLocalAuthState: queryClient.clear() flips the
+      // settled-aware indicator true, racing the browser's URL commit.
       globalThis.location.href = ROUTES.MARKETING;
+      clearLocalAuthState();
     } catch (error) {
       handleFinishError(error);
     }

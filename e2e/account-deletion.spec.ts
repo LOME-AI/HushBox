@@ -1,4 +1,4 @@
-import { test, expect, unsettledExpect } from './fixtures.js';
+import { test, expect } from './fixtures.js';
 import { LoginPage, SettingsPage, TwoFactorSetupModal, ChatPage } from './pages/index.js';
 import {
   generateTOTPCode,
@@ -15,11 +15,10 @@ import type { Page, APIRequestContext, Locator } from '@playwright/test';
 const apiUrl = requireEnv('VITE_API_URL');
 const FRESH_PASSWORD = 'TestPassword123!';
 
-// Post-delete redirect is a same-origin navigation to ROUTES.MARKETING.
-// The Astro page may 404 in the E2E preview (only the Vite app is served)
-// but the URL bar still commits to the path, which is what we assert.
+// Post-delete redirect to ROUTES.MARKETING. waitForURL is independent of the
+// settled-aware indicator, which can flip true mid-navigation.
 async function expectRedirectedToMarketing(page: Page): Promise<void> {
-  await unsettledExpect.poll(() => page.url(), { timeout: 15_000 }).toContain(ROUTES.MARKETING);
+  await page.waitForURL(new RegExp(ROUTES.MARKETING), { timeout: 15_000 });
 }
 
 interface FreshUser {

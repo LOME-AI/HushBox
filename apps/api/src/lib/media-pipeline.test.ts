@@ -415,6 +415,47 @@ describe('executeMediaPipeline', () => {
     expect(release).toHaveBeenCalledOnce();
   });
 
+  it('broadcasts message:new for fresh-send AFTER saveChatTurn commits', async () => {
+    const callOrder: string[] = [];
+
+    mockCollectMultiMediaModelStreams.mockImplementation(() => {
+      const map = new Map<string, MediaStreamResult>([['model-a', buildSuccessfulMediaResult()]]);
+      return Promise.resolve(map);
+    });
+    mockSaveChatTurn.mockImplementation(() => {
+      callOrder.push('saveChatTurn');
+      return Promise.resolve(createBillingResult());
+    });
+    mockBroadcastFireAndForget.mockImplementation((_env, _conversationId, event: unknown) => {
+      if (typeof event === 'object' && event !== null && 'type' in event) {
+        const typed = event as { type: string };
+        if (typed.type === 'message:new') {
+          callOrder.push('broadcast:message:new');
+        }
+      }
+    });
+
+    const log: DepsCallLog = {
+      writeFirstMediaError: [],
+      handleBillingResult: [],
+      finalizeTurn: [],
+      createAssistantIdLookup: 0,
+    };
+    const billingResult = createBillingResult();
+    const deps = createDeps({ billingResult, log });
+
+    const { app } = buildAppWithPipeline({
+      pipelineInput: { ...createPipelineInput() },
+      deps,
+    });
+
+    const res = await app.request('/run', { method: 'POST' });
+    expect(res.status).toBe(200);
+    await res.text();
+
+    expect(callOrder).toEqual(['saveChatTurn', 'broadcast:message:new']);
+  });
+
   it('writes media error and skips persistence when every model fails', async () => {
     mockCollectMultiMediaModelStreams.mockImplementation(() => {
       const map = new Map<string, MediaStreamResult>([['model-a', buildFailedMediaResult()]]);

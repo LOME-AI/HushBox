@@ -741,6 +741,10 @@ interface ExecuteMediaPipelineDeps {
   createAssistantIdLookup: (models: string[]) => (modelId: string) => string;
 }
 
+function stopProgressTimerSafe(timer: VideoProgressTimerHandle | null): void {
+  timer?.stop();
+}
+
 /**
  * Shared pipeline for image/video/audio generation.
  * Fans out per-model inference, encrypts results, stores in R2, persists,
@@ -776,21 +780,6 @@ export function executeMediaPipeline(
 
   const primaryModel = models[0];
   if (!primaryModel) throw new Error('invariant: models must have at least one entry');
-
-  if (treeAction.kind === 'fresh-send') {
-    broadcastFireAndForget(
-      c.env,
-      conversationId,
-      createEvent('message:new', {
-        messageId: userMessageId,
-        conversationId,
-        senderType: 'user',
-        senderId,
-        content: prompt,
-      }),
-      safeExecutionCtx(c)
-    );
-  }
 
   return streamSSE(c, async (stream) => {
     const writer = createSSEEventWriter(stream);
@@ -840,7 +829,7 @@ export function executeMediaPipeline(
       const mediaResults = await collectMultiMediaModelStreams(streamEntries, writer);
       // Stop progress emissions before billing runs so `model:done` carries
       // the implicit 100%.
-      progressTimer?.stop();
+      stopProgressTimerSafe(progressTimer);
       progressTimer = null;
       const successfulModels = filterSuccessfulMediaModels(mediaResults);
 
@@ -899,6 +888,22 @@ export function executeMediaPipeline(
       });
 
       if (billingResult) {
+        // After save: emitting earlier races other viewers' refetch against
+        // the transaction commit.
+        if (treeAction.kind === 'fresh-send') {
+          broadcastFireAndForget(
+            c.env,
+            conversationId,
+            createEvent('message:new', {
+              messageId: userMessageId,
+              conversationId,
+              senderType: 'user',
+              senderId,
+              content: prompt,
+            }),
+            safeExecutionCtx(c)
+          );
+        }
         await deps.finalizeTurn({
           c,
           conversationId,
@@ -931,7 +936,7 @@ export function executeMediaPipeline(
       clearInterval(keepAliveTimer);
       // Defensive: if an error path skipped the explicit stop, ensure the
       // progress timers don't outlive the request.
-      progressTimer?.stop();
+      stopProgressTimerSafe(progressTimer);
       await releaseReservation();
     }
   });

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import {
@@ -26,6 +27,20 @@ import {
   type PlaywrightTest,
   type PlaywrightTestResult,
 } from './e2e-debug.js';
+
+function makeTraceZip(workDir: string, zipName: string, files: Record<string, string>): string {
+  const stageDir = path.join(workDir, `stage-${zipName}`);
+  mkdirSync(stageDir, { recursive: true });
+  for (const [relativePath, contents] of Object.entries(files)) {
+    const absolutePath = path.join(stageDir, relativePath);
+    mkdirSync(path.dirname(absolutePath), { recursive: true });
+    writeFileSync(absolutePath, contents);
+  }
+  const zipPath = path.join(workDir, zipName);
+  // eslint-disable-next-line sonarjs/no-os-command-from-path -- zip is a standard tool on Linux/macOS dev and CI runners
+  execFileSync('zip', ['-r', '-q', zipPath, '.'], { cwd: stageDir });
+  return zipPath;
+}
 
 describe('e2e-debug', () => {
   describe('stripAnsi', () => {
@@ -1755,6 +1770,174 @@ describe('e2e-debug', () => {
       writeReport(simpleReport, baseDir);
 
       expect(existsSync(path.join(oldDir, 'REPORT.md'))).toBe(true);
+    });
+
+    it('extracts trace.zip into trace/ subdirectory for failed tests', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const baseDir = path.join(temporaryDir, 'report');
+      const tracePath = makeTraceZip(temporaryDir, 'trace.zip', {
+        'test.trace': '{"type":"context-options","title":"failure-trace"}',
+        '1-trace.network': '{"type":"resource-snapshot"}',
+        'resources/src@abc.txt': '<html><body>captured</body></html>',
+        'resources/page@frame-1.jpeg': 'BINARY-JPEG-DATA',
+      });
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'broken with trace',
+            file: 'e2e/test.spec.ts',
+            project: 'chromium',
+            error: 'oops',
+            duration: 1000,
+            steps: [],
+            artifacts: {
+              trace: tracePath,
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: undefined,
+              apiErrors: undefined,
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+      };
+
+      const resultDir = writeReport(report, baseDir);
+
+      const slug = 'e2e-test-spec-ts-chromium-broken-with-trace';
+      const traceDir = path.join(resultDir, 'failed', slug, 'trace');
+      expect(existsSync(path.join(traceDir, 'test.trace'))).toBe(true);
+      expect(existsSync(path.join(traceDir, '1-trace.network'))).toBe(true);
+      expect(existsSync(path.join(traceDir, 'resources', 'src@abc.txt'))).toBe(true);
+      expect(readFileSync(path.join(traceDir, 'test.trace'), 'utf8')).toContain('failure-trace');
+    });
+
+    it('extracts trace.zip into trace/ subdirectory for flaky tests', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const baseDir = path.join(temporaryDir, 'report');
+      const tracePath = makeTraceZip(temporaryDir, 'flaky-trace.zip', {
+        'test.trace': '{"type":"context-options","title":"flaky-trace"}',
+      });
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 1, failed: 0, duration: 1000 },
+        passed: [],
+        flaky: [
+          {
+            title: 'intermittent with trace',
+            file: 'e2e/chat/flaky.spec.ts',
+            project: 'webkit',
+            attempts: 2,
+            error: 'race',
+            duration: 500,
+            steps: [],
+            artifacts: {
+              trace: tracePath,
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: undefined,
+              apiErrors: undefined,
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+        failed: [],
+      };
+
+      const resultDir = writeReport(report, baseDir);
+
+      const slug = 'e2e-chat-flaky-spec-ts-webkit-intermittent-with-trace';
+      const traceDir = path.join(resultDir, 'flaky', slug, 'trace');
+      expect(existsSync(path.join(traceDir, 'test.trace'))).toBe(true);
+      expect(readFileSync(path.join(traceDir, 'test.trace'), 'utf8')).toContain('flaky-trace');
+    });
+
+    it('omits resources/page@*.jpeg frame screenshots when extracting trace', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const baseDir = path.join(temporaryDir, 'report');
+      const tracePath = makeTraceZip(temporaryDir, 'jpeg-trace.zip', {
+        'test.trace': '{}',
+        'resources/page@frame-1.jpeg': 'JPEG-1',
+        'resources/page@frame-2.jpeg': 'JPEG-2',
+        'resources/src@kept.txt': 'kept-source',
+        'resources/abc123.dat': 'kept-response-body',
+      });
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'jpeg trim',
+            file: 'e2e/t.spec.ts',
+            project: 'chromium',
+            error: 'e',
+            duration: 1,
+            steps: [],
+            artifacts: {
+              trace: tracePath,
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: undefined,
+              apiErrors: undefined,
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+      };
+
+      const resultDir = writeReport(report, baseDir);
+
+      const slug = 'e2e-t-spec-ts-chromium-jpeg-trim';
+      const traceDir = path.join(resultDir, 'failed', slug, 'trace');
+      expect(existsSync(path.join(traceDir, 'resources', 'page@frame-1.jpeg'))).toBe(false);
+      expect(existsSync(path.join(traceDir, 'resources', 'page@frame-2.jpeg'))).toBe(false);
+      expect(existsSync(path.join(traceDir, 'resources', 'src@kept.txt'))).toBe(true);
+      expect(existsSync(path.join(traceDir, 'resources', 'abc123.dat'))).toBe(true);
+    });
+
+    it('handles missing trace zip path gracefully', () => {
+      temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-report-'));
+      const baseDir = path.join(temporaryDir, 'report');
+
+      const report: DebugReport = {
+        summary: { total: 1, passed: 0, flaky: 0, failed: 1, duration: 1000 },
+        passed: [],
+        flaky: [],
+        failed: [
+          {
+            title: 'no trace file on disk',
+            file: 'e2e/t.spec.ts',
+            project: 'chromium',
+            error: 'e',
+            duration: 1,
+            steps: [],
+            artifacts: {
+              trace: '/nonexistent/trace.zip',
+              screenshot: undefined,
+              video: undefined,
+              consoleErrors: undefined,
+              apiErrors: undefined,
+              pageSnapshot: undefined,
+              harFiles: [],
+            },
+          },
+        ],
+      };
+
+      const resultDir = writeReport(report, baseDir);
+
+      const slug = 'e2e-t-spec-ts-chromium-no-trace-file-on-disk';
+      expect(existsSync(path.join(resultDir, 'failed', slug, 'trace'))).toBe(false);
+      expect(existsSync(path.join(resultDir, 'REPORT.md'))).toBe(true);
     });
 
     it('handles missing artifact sources gracefully', () => {

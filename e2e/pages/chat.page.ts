@@ -100,6 +100,14 @@ export class ChatPage {
     await this.page.goto(`/chat/${conversationId}`, { waitUntil: 'domcontentloaded' });
   }
 
+  /**
+   * Trap for tests asserting on transient streaming UI (classifier indicator,
+   * first tokens, etc.): this method triggers a /chat → /chat/<new-id>
+   * navigation that remounts MessageList. react-virtuoso applies
+   * `visibility: hidden` to its item-list during its initial measure-and-scroll,
+   * so content is in DOM but invisible during that ~1s window. Prefer a seeded
+   * conversation (testConversation fixture) + sendFollowUpMessage instead.
+   */
   async sendNewChatMessage(message: string): Promise<void> {
     await this.waitForAppStable();
     await this.promptInput.fill(message);
@@ -704,7 +712,8 @@ export class ChatPage {
       }
       await function_(index_);
     }, index);
-    await expect(this.getMessage(index)).toBeAttached({ timeout: 5000 });
+    // Short deadline so the outer poll can retry on re-virtualize.
+    await expect(this.getMessage(index)).toBeAttached({ timeout: 500 });
   }
 
   /**
