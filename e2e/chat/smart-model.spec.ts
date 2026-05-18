@@ -282,8 +282,6 @@ test.describe('Smart Model', () => {
     test.slow();
 
     const chatPage = new ChatPage(authenticatedPage);
-    // Seeded conversation, not a new chat: see sendNewChatMessage docstring.
-    await chatPage.waitForAppStable();
 
     await chatPage.selectSingleModel('smart-model');
 

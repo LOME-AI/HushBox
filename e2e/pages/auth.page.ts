@@ -233,7 +233,8 @@ export class TwoFactorInputModal {
   }
 
   async waitForModal(): Promise<void> {
-    await expect(this.modal).toBeVisible({ timeout: 10_000 });
+    // Login uses raw fetch + OPAQUE crypto; settled-aware would bail before modal mounts.
+    await unsettledExpect(this.modal).toBeVisible({ timeout: 10_000 });
   }
 
   async enterCode(code: string): Promise<void> {
@@ -439,7 +440,10 @@ export class RecoverySuccessView {
   }
 
   async expectVisible(): Promise<void> {
-    await expect(this.page.getByText('Password Reset Successful')).toBeVisible({ timeout: 30_000 });
+    // Recovery uses raw fetch + OPAQUE crypto; settled-aware would bail before success renders.
+    await unsettledExpect(this.page.getByText('Password Reset Successful')).toBeVisible({
+      timeout: 30_000,
+    });
   }
 
   async returnToLogin(): Promise<void> {
