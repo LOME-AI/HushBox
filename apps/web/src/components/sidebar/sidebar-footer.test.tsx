@@ -317,20 +317,24 @@ describe('SidebarFooter', () => {
     });
 
     it('shows Database Studio option in dev mode when authenticated', async () => {
+      vi.stubEnv('VITE_DRIZZLE_STUDIO_URL', 'http://localhost:4983');
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
       await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-db-studio')).toBeInTheDocument();
+      vi.unstubAllEnvs();
     });
 
     it('shows Database Studio option in dev mode when unauthenticated', async () => {
+      vi.stubEnv('VITE_DRIZZLE_STUDIO_URL', 'http://localhost:4983');
       mockUseSession.mockReturnValue({ data: null });
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
       await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-db-studio')).toBeInTheDocument();
+      vi.unstubAllEnvs();
     });
 
     it('Database Studio links to Drizzle Studio URL in new tab', async () => {
