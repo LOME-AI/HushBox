@@ -35,7 +35,8 @@ env:
 
 # Wait for authenticated chat page (use element unique to chat, not login page)
 - extendedWaitUntil:
-    visible: 'Select model'
+    visible:
+      id: 'model-selector-button'
     timeout: 15000
 
 # Use a suggestion chip to set the textarea value via React state.

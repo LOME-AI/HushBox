@@ -84,6 +84,7 @@ export function ModelSelectorButton({
   return (
     <>
       <Button
+        id="model-selector-button"
         variant="outline"
         onClick={handleClick}
         disabled={disabled}

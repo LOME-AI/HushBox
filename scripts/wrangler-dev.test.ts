@@ -16,7 +16,7 @@ describe('wrangler-dev', () => {
   it('spawns wrangler dev with port from HB_API_PORT', async () => {
     process.env['HB_API_PORT'] = '8915';
     mockExeca.mockResolvedValue({ exitCode: 0 } as never);
-    const exitCode = await runWranglerDev();
+    const exitCode = await runWranglerDev([]);
     expect(mockExeca).toHaveBeenCalledWith('wrangler', ['dev', '--port', '8915'], {
       stdio: 'inherit',
       reject: false,
@@ -24,20 +24,31 @@ describe('wrangler-dev', () => {
     expect(exitCode).toBe(0);
   });
 
+  it('forwards extra args to wrangler', async () => {
+    process.env['HB_API_PORT'] = '8915';
+    mockExeca.mockResolvedValue({ exitCode: 0 } as never);
+    await runWranglerDev(['--log-level', 'error']);
+    expect(mockExeca).toHaveBeenCalledWith(
+      'wrangler',
+      ['dev', '--port', '8915', '--log-level', 'error'],
+      { stdio: 'inherit', reject: false }
+    );
+  });
+
   it('propagates child exit code', async () => {
     process.env['HB_API_PORT'] = '8915';
     mockExeca.mockResolvedValue({ exitCode: 3 } as never);
-    expect(await runWranglerDev()).toBe(3);
+    expect(await runWranglerDev([])).toBe(3);
   });
 
   it('returns 1 when child has no numeric exit code', async () => {
     process.env['HB_API_PORT'] = '8915';
     mockExeca.mockResolvedValue({ exitCode: undefined } as never);
-    expect(await runWranglerDev()).toBe(1);
+    expect(await runWranglerDev([])).toBe(1);
   });
 
   it('throws when HB_API_PORT is unset', async () => {
-    await expect(runWranglerDev()).rejects.toThrow(
+    await expect(runWranglerDev([])).rejects.toThrow(
       'HB_API_PORT is not set — run pnpm generate:env first'
     );
   });

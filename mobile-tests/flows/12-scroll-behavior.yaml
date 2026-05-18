@@ -30,7 +30,8 @@ env:
 
 # Wait for authenticated chat page (use element unique to chat, not login page)
 - extendedWaitUntil:
-    visible: 'Select model'
+    visible:
+      id: 'model-selector-button'
     timeout: 15000
 
 # Send a message using suggestion chip (IME inputText doesn't trigger React onChange)

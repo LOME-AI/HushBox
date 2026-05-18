@@ -295,6 +295,21 @@ describe('ModelSelectorButton', () => {
     expect(screen.getByTestId('model-selector-button')).toHaveAttribute('aria-haspopup', 'dialog');
   });
 
+  it('exposes a stable HTML id for Maestro mobile tests that select by DOM id', () => {
+    render(
+      <ModelSelectorButton
+        models={mockModels}
+        selectedModels={[{ id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' }]}
+        onSelect={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('model-selector-button')).toHaveAttribute(
+      'id',
+      'model-selector-button'
+    );
+  });
+
   it('reflects open/closed state via aria-expanded', async () => {
     const user = userEvent.setup();
     render(
