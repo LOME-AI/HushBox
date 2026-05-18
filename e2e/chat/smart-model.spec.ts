@@ -300,7 +300,7 @@ test.describe('Smart Model', () => {
 
     // Sanity: the assistant message arrived with a real response.
     await chatPage.waitForStreamComplete();
-    const assistant = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const assistant = chatPage.messageList.locator('[data-role="assistant"]').last();
     await expect(assistant.getByTestId('smart-model-chip')).toBeVisible();
   });
 });
