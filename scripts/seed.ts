@@ -14,9 +14,10 @@
  * the media pipeline (which both encrypts the bytes and uploads them to
  * MinIO via the same code path used in production).
  */
-import { eq } from 'drizzle-orm';
+import { eq, getTableColumns, sql, type Column, type SQL } from 'drizzle-orm';
 import { config } from 'dotenv';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   createDb,
@@ -79,23 +80,33 @@ import {
   encryptTotpSecret,
 } from '@hushbox/crypto';
 import { isMainModule } from './lib/is-main.js';
+import {
+  CACHE_VERSION,
+  computeCryptoFingerprint,
+  type CryptoBytes,
+} from './lib/seed-crypto-cache.js';
+import { ensurePersonaCrypto, type PersonaCryptoRequest } from './lib/seed-crypto-pool.js';
+
+function resolveOpaqueMasterSecret(): string {
+  const fromEnv = process.env['OPAQUE_MASTER_SECRET'];
+  if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
+  return resolveRaw(envConfig.OPAQUE_MASTER_SECRET, Mode.Development) as string;
+}
+
+let cachedOpaqueServer: Awaited<ReturnType<typeof createOpaqueServer>> | null = null;
+async function getSharedOpaqueServer(): Promise<Awaited<ReturnType<typeof createOpaqueServer>>> {
+  if (!cachedOpaqueServer) {
+    const masterSecretBytes = new TextEncoder().encode(resolveOpaqueMasterSecret());
+    cachedOpaqueServer = await createOpaqueServer(masterSecretBytes, OPAQUE_SERVER_IDENTIFIER);
+  }
+  return cachedOpaqueServer;
+}
 
 async function createOpaqueUserCrypto(
   password: string,
   credentialIdentifier: string
-): Promise<{
-  opaqueRegistration: Uint8Array;
-  publicKey: Uint8Array;
-  passwordWrappedPrivateKey: Uint8Array;
-  recoveryWrappedPrivateKey: Uint8Array;
-}> {
-  const masterSecret =
-    process.env['OPAQUE_MASTER_SECRET'] ??
-    (resolveRaw(envConfig.OPAQUE_MASTER_SECRET, Mode.Development) as string);
-
-  const masterSecretBytes = new TextEncoder().encode(masterSecret);
-  const opaqueServer = await createOpaqueServer(masterSecretBytes, OPAQUE_SERVER_IDENTIFIER);
-
+): Promise<CryptoBytes> {
+  const opaqueServer = await getSharedOpaqueServer();
   const client = createOpaqueClient();
   const { serialized } = await startRegistration(client, password);
 
@@ -108,16 +119,40 @@ async function createOpaqueUserCrypto(
     serverResult.serialize(),
     OPAQUE_SERVER_IDENTIFIER
   );
-  const opaqueRegistration = new Uint8Array(record);
 
   const account = await createAccount(new Uint8Array(exportKey));
 
   return {
-    opaqueRegistration,
+    opaqueRegistration: new Uint8Array(record),
     publicKey: account.publicKey,
     passwordWrappedPrivateKey: account.passwordWrappedPrivateKey,
     recoveryWrappedPrivateKey: account.recoveryWrappedPrivateKey,
   };
+}
+
+const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..');
+const DEFAULT_CACHE_DIR = path.join(REPO_ROOT, 'scripts', '.cache', 'seed-crypto');
+const DEFAULT_CRYPTO_DIR = path.join(REPO_ROOT, 'packages', 'crypto', 'src');
+
+async function loadPersonaCryptoFromCache(): Promise<Map<string, CryptoBytes>> {
+  const requests: PersonaCryptoRequest[] = [
+    ...DEV_PERSONAS.map((persona) => ({
+      credentialIdentifier: seedUUID(`dev-user-${persona.name}`),
+      password: DEV_PASSWORD,
+    })),
+    ...TEST_PERSONAS.map((persona) => ({
+      credentialIdentifier: seedUUID(`test-user-${persona.name}`),
+      password: DEV_PASSWORD,
+    })),
+  ];
+  const cryptoFingerprint = await computeCryptoFingerprint(DEFAULT_CRYPTO_DIR);
+  return ensurePersonaCrypto(requests, {
+    cacheDir: DEFAULT_CACHE_DIR,
+    cacheVersion: CACHE_VERSION,
+    cryptoFingerprint,
+    masterSecret: resolveOpaqueMasterSecret(),
+  });
 }
 
 export const DEV_PERSONAS = [
@@ -605,11 +640,12 @@ export function generateSeedData(): SeedData {
 
 async function createPersonaUser(
   persona: (typeof DEV_PERSONAS)[number],
-  now: Date
+  now: Date,
+  cryptoMap?: Map<string, CryptoBytes>
 ): Promise<{ user: UserWithId; publicKey: Uint8Array }> {
   const userId = seedUUID(`dev-user-${persona.name}`);
   const email = devEmail(persona.name);
-  const crypto = await createOpaqueUserCrypto(DEV_PASSWORD, userId);
+  const crypto = cryptoMap?.get(userId) ?? (await createOpaqueUserCrypto(DEV_PASSWORD, userId));
 
   const user: UserWithId = {
     id: userId,
@@ -1355,7 +1391,9 @@ export function createScreenshotConversations(
   };
 }
 
-export async function generatePersonaData(): Promise<PersonaData> {
+export async function generatePersonaData(
+  cryptoMap?: Map<string, CryptoBytes>
+): Promise<PersonaData> {
   const personaUsers: UserWithId[] = [];
   const personaProjects: ProjectWithId[] = [];
   const personaConversations: ConversationWithId[] = [];
@@ -1375,7 +1413,7 @@ export async function generatePersonaData(): Promise<PersonaData> {
   const publicKeys = new Map<string, Uint8Array>();
 
   for (const persona of DEV_PERSONAS) {
-    const { user, publicKey } = await createPersonaUser(persona, now);
+    const { user, publicKey } = await createPersonaUser(persona, now, cryptoMap);
     personaUsers.push(user);
     publicKeys.set(persona.name, publicKey);
 
@@ -1469,11 +1507,12 @@ export async function generatePersonaData(): Promise<PersonaData> {
 
 async function createTestPersonaUser(
   persona: (typeof TEST_PERSONAS)[number],
-  now: Date
+  now: Date,
+  cryptoMap?: Map<string, CryptoBytes>
 ): Promise<{ user: UserWithId; publicKey: Uint8Array }> {
   const userId = seedUUID(`test-user-${persona.name}`);
   const email = testEmail(persona.name);
-  const crypto = await createOpaqueUserCrypto(DEV_PASSWORD, userId);
+  const crypto = cryptoMap?.get(userId) ?? (await createOpaqueUserCrypto(DEV_PASSWORD, userId));
 
   let totpEnabled = false;
   let totpSecretEncrypted: Uint8Array | null = null;
@@ -1632,7 +1671,9 @@ function createTestPaymentData(
   return { payment, ledgerEntry };
 }
 
-export async function generateTestPersonaData(): Promise<PersonaData> {
+export async function generateTestPersonaData(
+  cryptoMap?: Map<string, CryptoBytes>
+): Promise<PersonaData> {
   const testUsers: UserWithId[] = [];
   const testProjects: ProjectWithId[] = [];
   const testConversations: ConversationWithId[] = [];
@@ -1651,7 +1692,7 @@ export async function generateTestPersonaData(): Promise<PersonaData> {
   const now = new Date();
 
   for (const persona of TEST_PERSONAS) {
-    const { user, publicKey } = await createTestPersonaUser(persona, now);
+    const { user, publicKey } = await createTestPersonaUser(persona, now, cryptoMap);
     testUsers.push(user);
 
     const balance = persona.hasSampleData ? '10000.00000000' : '0.00000000';
@@ -1747,22 +1788,44 @@ interface UpsertResult {
   updated: number;
 }
 
-async function upsertEntities(
+/**
+ * One multi-row INSERT ... ON CONFLICT (id) DO UPDATE per batch. Avoids N
+ * sequential round-trips at the cost of losing the created-vs-updated
+ * distinction — both are reported as `total`. Batched to stay under PostgreSQL's
+ * 65535 parameter limit on tables with many columns.
+ */
+const BULK_UPSERT_BATCH_SIZE = 500;
+
+async function bulkUpsert(
   db: DbClient,
   table: Table,
   entities: { id: string }[]
-): Promise<UpsertResult> {
-  let created = 0;
-  let updated = 0;
-  for (const entity of entities) {
-    const result = await upsertEntity(db, table, entity);
-    if (result === 'created') created++;
-    else updated++;
+): Promise<{ total: number }> {
+  if (entities.length === 0) return { total: 0 };
+
+  const columns: Record<string, Column> = getTableColumns(table);
+  const setClause: Record<string, SQL> = {};
+  for (const [jsKey, col] of Object.entries(columns)) {
+    if (jsKey === 'id') continue;
+    setClause[jsKey] = sql.raw(`excluded."${col.name}"`);
   }
-  return { created, updated };
+
+  for (let index = 0; index < entities.length; index += BULK_UPSERT_BATCH_SIZE) {
+    const batch = entities.slice(index, index + BULK_UPSERT_BATCH_SIZE);
+    await db.insert(table).values(batch).onConflictDoUpdate({
+      target: table.id,
+      set: setClause,
+    });
+  }
+
+  return { total: entities.length };
 }
 
-function logUpsertResult(entityName: string, result: UpsertResult): void {
+function logUpsertResult(entityName: string, result: UpsertResult | { total: number }): void {
+  if ('total' in result) {
+    console.log(`${entityName}: ${String(result.total)} upserted`);
+    return;
+  }
   console.log(
     `${entityName}: ${String(result.created)} created, ${String(result.updated)} updated`
   );
@@ -1788,9 +1851,14 @@ export async function seed(): Promise<void> {
   // data-generation runs.
   await loadSeedAiModel();
 
+  const cryptoStart = Date.now();
+  const cryptoMap = await loadPersonaCryptoFromCache();
+  const cryptoElapsed = ((Date.now() - cryptoStart) / 1000).toFixed(1);
+  console.log(`Persona crypto: ${String(cryptoMap.size)} resolved in ${cryptoElapsed}s`);
+
   const data = generateSeedData();
-  const personaData = await generatePersonaData();
-  const testPersonaData = await generateTestPersonaData();
+  const personaData = await generatePersonaData(cryptoMap);
+  const testPersonaData = await generateTestPersonaData(cryptoMap);
 
   console.log('Seeding database...');
   console.log('');
@@ -1835,30 +1903,30 @@ export async function seed(): Promise<void> {
   console.log(`  Content Items: ${String(data.contentItems.length)}`);
   console.log('');
 
-  const personaUserResult = await upsertEntities(db, users, [
+  const personaUserResult = await bulkUpsert(db, users, [
     ...personaData.users,
     ...testPersonaData.users,
   ]);
   logUpsertResult('Persona Users', personaUserResult);
 
-  const randomUserResult = await upsertEntities(db, users, data.users);
+  const randomUserResult = await bulkUpsert(db, users, data.users);
   logUpsertResult('Random Users', randomUserResult);
 
   // 2. Wallets (depends on users)
-  const walletResult = await upsertEntities(db, wallets, [
+  const walletResult = await bulkUpsert(db, wallets, [
     ...personaData.wallets,
     ...testPersonaData.wallets,
   ]);
   logUpsertResult('Wallets', walletResult);
 
-  const projectResult = await upsertEntities(db, projects, [
+  const projectResult = await bulkUpsert(db, projects, [
     ...personaData.projects,
     ...testPersonaData.projects,
     ...data.projects,
   ]);
   logUpsertResult('Projects', projectResult);
 
-  const conversationResult = await upsertEntities(db, conversations, [
+  const conversationResult = await bulkUpsert(db, conversations, [
     ...personaData.conversations,
     ...testPersonaData.conversations,
     ...data.conversations,
@@ -1866,7 +1934,7 @@ export async function seed(): Promise<void> {
   logUpsertResult('Conversations', conversationResult);
 
   // 5. ConversationMembers (depends on conversations + users)
-  const conversationMemberResult = await upsertEntities(db, conversationMembers, [
+  const conversationMemberResult = await bulkUpsert(db, conversationMembers, [
     ...personaData.conversationMembers,
     ...testPersonaData.conversationMembers,
     ...data.conversationMembers,
@@ -1874,7 +1942,7 @@ export async function seed(): Promise<void> {
   logUpsertResult('ConversationMembers', conversationMemberResult);
 
   // 6. Epochs (depends on conversations)
-  const epochResult = await upsertEntities(db, epochs, [
+  const epochResult = await bulkUpsert(db, epochs, [
     ...personaData.epochs,
     ...testPersonaData.epochs,
     ...data.epochs,
@@ -1882,7 +1950,7 @@ export async function seed(): Promise<void> {
   logUpsertResult('Epochs', epochResult);
 
   // 7. EpochMembers (depends on epochs)
-  const epochMemberResult = await upsertEntities(db, epochMembers, [
+  const epochMemberResult = await bulkUpsert(db, epochMembers, [
     ...personaData.epochMembers,
     ...testPersonaData.epochMembers,
     ...data.epochMembers,
@@ -1890,7 +1958,7 @@ export async function seed(): Promise<void> {
   logUpsertResult('EpochMembers', epochMemberResult);
 
   // 8. Messages (depends on conversations)
-  const messageResult = await upsertEntities(db, messages, [
+  const messageResult = await bulkUpsert(db, messages, [
     ...personaData.messages,
     ...testPersonaData.messages,
     ...data.messages,
@@ -1898,7 +1966,7 @@ export async function seed(): Promise<void> {
   logUpsertResult('Messages', messageResult);
 
   // 8b. Content Items (depends on messages)
-  const contentItemResult = await upsertEntities(db, contentItems, [
+  const contentItemResult = await bulkUpsert(db, contentItems, [
     ...personaData.contentItems,
     ...testPersonaData.contentItems,
     ...data.contentItems,
@@ -1906,35 +1974,35 @@ export async function seed(): Promise<void> {
   logUpsertResult('Content Items', contentItemResult);
 
   // 9. UsageRecords (depends on users)
-  const usageRecordResult = await upsertEntities(db, usageRecords, [
+  const usageRecordResult = await bulkUpsert(db, usageRecords, [
     ...personaData.usageRecords,
     ...testPersonaData.usageRecords,
   ]);
   logUpsertResult('Usage Records', usageRecordResult);
 
   // 10. LLM Completions (depends on usage records)
-  const llmCompletionResult = await upsertEntities(db, llmCompletions, [
+  const llmCompletionResult = await bulkUpsert(db, llmCompletions, [
     ...personaData.llmCompletions,
     ...testPersonaData.llmCompletions,
   ]);
   logUpsertResult('LLM Completions', llmCompletionResult);
 
   // 11. Conversation Spending (depends on conversations)
-  const convSpendingResult = await upsertEntities(db, conversationSpending, [
+  const convSpendingResult = await bulkUpsert(db, conversationSpending, [
     ...personaData.conversationSpending,
     ...testPersonaData.conversationSpending,
   ]);
   logUpsertResult('Conversation Spending', convSpendingResult);
 
   // 12. Payments (depends on users)
-  const paymentResult = await upsertEntities(db, payments, [
+  const paymentResult = await bulkUpsert(db, payments, [
     ...personaData.payments,
     ...testPersonaData.payments,
   ]);
   logUpsertResult('Payments', paymentResult);
 
   // 13. LedgerEntries (depends on wallets + payments + usage records)
-  const ledgerEntryResult = await upsertEntities(db, ledgerEntries, [
+  const ledgerEntryResult = await bulkUpsert(db, ledgerEntries, [
     ...personaData.ledgerEntries,
     ...testPersonaData.ledgerEntries,
   ]);

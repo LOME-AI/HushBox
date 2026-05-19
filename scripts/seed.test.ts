@@ -3,7 +3,29 @@ import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN } from '@hushbox/shared';
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((col: unknown, val: unknown) => ({ col, val })),
+  getTableColumns: vi.fn(() => ({ id: { name: 'id' }, name: { name: 'name' } })),
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
+    {
+      raw: vi.fn((s: string) => ({ raw: s })),
+      identifier: vi.fn((s: string) => ({ identifier: s })),
+    }
+  ),
 }));
+
+vi.mock('./lib/seed-crypto-pool.js', () => ({
+  ensurePersonaCrypto: vi.fn(() => Promise.resolve(new Map())),
+}));
+
+vi.mock('./lib/seed-crypto-cache.js', async () => {
+  const actual = await vi.importActual<typeof import('./lib/seed-crypto-cache.js')>(
+    './lib/seed-crypto-cache.js'
+  );
+  return {
+    ...actual,
+    computeCryptoFingerprint: vi.fn(() => Promise.resolve('test-fingerprint')),
+  };
+});
 
 vi.mock('dotenv', () => ({
   config: vi.fn(),
@@ -76,10 +98,18 @@ function createMockSelectChain(result: unknown[] = []) {
 }
 
 function createMockDb() {
+  const buildValues = (): Promise<void> & { onConflictDoUpdate: () => Promise<void> } => {
+    const promise = Promise.resolve();
+    const augmented = promise as Promise<void> & {
+      onConflictDoUpdate: () => Promise<void>;
+    };
+    augmented.onConflictDoUpdate = vi.fn(() => Promise.resolve());
+    return augmented;
+  };
   return {
     select: vi.fn(() => createMockSelectChain()),
     insert: vi.fn(() => ({
-      values: vi.fn(() => Promise.resolve()),
+      values: vi.fn(() => buildValues()),
     })),
     update: vi.fn(() => ({
       set: vi.fn(() => ({
@@ -310,7 +340,13 @@ import {
   seed,
   seedUUID,
   createScreenshotConversations,
+  BASE_TEST_PERSONAS,
+  E2E_PROJECT_NAMES,
+  TEST_PERSONAS,
 } from './seed';
+
+const FIRST_PROJECT = E2E_PROJECT_NAMES[0];
+const EXPECTED_TEST_USER_COUNT = BASE_TEST_PERSONAS.length * E2E_PROJECT_NAMES.length;
 
 describe('seed script', () => {
   beforeEach(async () => {
@@ -723,30 +759,32 @@ describe('seed script', () => {
   });
 
   describe('generateTestPersonaData', () => {
-    it('generates all eleven test personas', async () => {
+    it('generates one user per base persona per project', async () => {
       const data = await generateTestPersonaData();
-      expect(data.users).toHaveLength(11);
+      expect(data.users).toHaveLength(EXPECTED_TEST_USER_COUNT);
     });
 
-    it('includes test-alice, test-bob, and test-charlie users with test domain', async () => {
+    it('includes test-alice, test-bob, and test-charlie variants with test domain', async () => {
       const data = await generateTestPersonaData();
       const emails = data.users.map((u) => u.email);
-      expect(emails).toContain(`test-alice@${TEST_EMAIL_DOMAIN}`);
-      expect(emails).toContain(`test-bob@${TEST_EMAIL_DOMAIN}`);
-      expect(emails).toContain(`test-charlie@${TEST_EMAIL_DOMAIN}`);
+      expect(emails).toContain(`test-alice-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`);
+      expect(emails).toContain(`test-bob-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`);
+      expect(emails).toContain(`test-charlie-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`);
     });
 
-    it('uses deterministic UUIDs based on test persona name', async () => {
+    it('uses deterministic UUIDs based on project-suffixed persona name', async () => {
       const data = await generateTestPersonaData();
-      const testAlice = data.users.find((u) => u.email === `test-alice@${TEST_EMAIL_DOMAIN}`);
-      expect(testAlice?.id).toBe(seedUUID('test-user-test-alice'));
+      const testAlice = data.users.find(
+        (u) => u.email === `test-alice-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`
+      );
+      expect(testAlice?.id).toBe(seedUUID(`test-user-test-alice-${FIRST_PROJECT}`));
     });
 
-    it('generates sample data only for test-alice (hasSampleData=true)', async () => {
+    it('generates sample data only for test-alice variants (hasSampleData=true)', async () => {
       const data = await generateTestPersonaData();
-      const testAliceId = seedUUID('test-user-test-alice');
-      const testBobId = seedUUID('test-user-test-bob');
-      const testCharlieId = seedUUID('test-user-test-charlie');
+      const testAliceId = seedUUID(`test-user-test-alice-${FIRST_PROJECT}`);
+      const testBobId = seedUUID(`test-user-test-bob-${FIRST_PROJECT}`);
+      const testCharlieId = seedUUID(`test-user-test-charlie-${FIRST_PROJECT}`);
 
       const testAliceProjects = data.projects.filter((p) => p.userId === testAliceId);
       expect(testAliceProjects.length).toBeGreaterThan(0);
@@ -765,25 +803,31 @@ describe('seed script', () => {
       expect(testCharlieConversations).toHaveLength(0);
     });
 
-    it('test-alice has exactly 2 projects', async () => {
+    it('each test-alice variant has exactly 2 projects', async () => {
       const data = await generateTestPersonaData();
-      const testAliceId = seedUUID('test-user-test-alice');
+      const testAliceId = seedUUID(`test-user-test-alice-${FIRST_PROJECT}`);
       const testAliceProjects = data.projects.filter((p) => p.userId === testAliceId);
       expect(testAliceProjects).toHaveLength(2);
     });
 
-    it('test-alice has exactly 3 conversations', async () => {
+    it('each test-alice variant has exactly 3 conversations', async () => {
       const data = await generateTestPersonaData();
-      const testAliceId = seedUUID('test-user-test-alice');
+      const testAliceId = seedUUID(`test-user-test-alice-${FIRST_PROJECT}`);
       const testAliceConversations = data.conversations.filter((c) => c.userId === testAliceId);
       expect(testAliceConversations).toHaveLength(3);
     });
 
-    it('sets emailVerified correctly from test persona definition', async () => {
+    it('sets emailVerified correctly from base test persona definition', async () => {
       const data = await generateTestPersonaData();
-      const testAlice = data.users.find((u) => u.email === `test-alice@${TEST_EMAIL_DOMAIN}`);
-      const testBob = data.users.find((u) => u.email === `test-bob@${TEST_EMAIL_DOMAIN}`);
-      const testCharlie = data.users.find((u) => u.email === `test-charlie@${TEST_EMAIL_DOMAIN}`);
+      const testAlice = data.users.find(
+        (u) => u.email === `test-alice-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`
+      );
+      const testBob = data.users.find(
+        (u) => u.email === `test-bob-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`
+      );
+      const testCharlie = data.users.find(
+        (u) => u.email === `test-charlie-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`
+      );
 
       expect(testAlice?.emailVerified).toBe(true);
       expect(testBob?.emailVerified).toBe(true);
@@ -802,9 +846,11 @@ describe('seed script', () => {
       }
     });
 
-    it('includes test-2fa persona with TOTP enabled', async () => {
+    it('includes test-2fa persona variants with TOTP enabled', async () => {
       const data = await generateTestPersonaData();
-      const test2fa = data.users.find((u) => u.email === `test-2fa@${TEST_EMAIL_DOMAIN}`);
+      const test2fa = data.users.find(
+        (u) => u.email === `test-2fa-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`
+      );
 
       expect(test2fa).toBeDefined();
       expect(test2fa?.emailVerified).toBe(true);
@@ -825,12 +871,12 @@ describe('seed script', () => {
 
     it('each test persona has 2 wallets (purchased + free_tier)', async () => {
       const data = await generateTestPersonaData();
-      expect(data.wallets).toHaveLength(22);
+      expect(data.wallets).toHaveLength(TEST_PERSONAS.length * 2);
     });
 
-    it('test-alice conversations have epochs and members', async () => {
+    it('test-alice variant conversations have epochs and members', async () => {
       const data = await generateTestPersonaData();
-      const testAliceId = seedUUID('test-user-test-alice');
+      const testAliceId = seedUUID(`test-user-test-alice-${FIRST_PROJECT}`);
       const testAliceConversations = data.conversations.filter((c) => c.userId === testAliceId);
 
       for (const conv of testAliceConversations) {

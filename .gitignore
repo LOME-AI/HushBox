@@ -84,6 +84,10 @@ apps/web/public/dev-assets/
 # README generation hashes are deliberately committed so CI and fresh clones
 # skip expensive regeneration when inputs haven't changed.
 !.github/readme/.cache/
+# Seed-crypto cache is committed: produced by `pnpm seed:cache` (auto-run from
+# pre-commit when crypto/personas change). Lets CI seed in ~6s on every run.
+!scripts/.cache/
+!scripts/.cache/seed-crypto/
 
 # TanStack Router
 .tanstack/
