@@ -337,6 +337,23 @@ function startStreamingIfNeeded(
 }
 
 /**
+ * Guards the route-change wipe (localMessages, optimisticMessages, title,
+ * chat errors). The `realConversationId === null` check prevents the
+ * create→real navigation from firing before `setRealConversationId` propagates,
+ * which otherwise wipes the optimistic error tile just added for failed models.
+ */
+export function shouldClearStateOnConversationSwitch(
+  isCreateMode: boolean,
+  routeConversationId: string | null | undefined,
+  realConversationId: string | null
+): boolean {
+  if (isCreateMode) return false;
+  if (routeConversationId === realConversationId) return false;
+  if (realConversationId === null) return false;
+  return true;
+}
+
+/**
  * Picks the per-modality config block for the stream request payload.
  * Returns an empty object for text. Pure helper — both `executeStream`
  * and `executeStreamAndFinalize` use it so adding a new modality is one edit.
@@ -639,7 +656,19 @@ export function useAuthenticatedChat({
   const conversationIdRef = React.useRef<string>('');
 
   React.useEffect(() => {
-    if (isCreateMode || routeConversationId === realConversationId) return;
+    if (
+      !shouldClearStateOnConversationSwitch(isCreateMode, routeConversationId, realConversationId)
+    ) {
+      // create→real: sync the ref without clearing optimistic.
+      if (
+        !isCreateMode &&
+        routeConversationId !== realConversationId &&
+        realConversationId === null
+      ) {
+        setRealConversationId(routeConversationId);
+      }
+      return;
+    }
     setRealConversationId(routeConversationId);
     resetOptimisticMessages();
     setLocalMessages([]);

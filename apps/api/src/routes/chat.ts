@@ -22,8 +22,9 @@ import {
   FEATURE_FLAGS,
   assertNever,
 } from '@hushbox/shared';
-import { processModels, getSupportedVideoDurations, type Modality } from '@hushbox/shared/models';
+import { getSupportedVideoDurations, type Modality } from '@hushbox/shared/models';
 import { createEvent } from '@hushbox/realtime/events';
+import { getProcessedCatalog } from '../lib/processed-catalog.js';
 import { validateLastMessageIsFromUser, saveUserOnlyMessage } from '../services/chat/index.js';
 import { canRegenerate } from '../services/chat/regeneration-guard.js';
 import { createErrorResponse } from '../lib/error-response.js';
@@ -128,12 +129,11 @@ async function findTierLockedModel(
   callerId: string | null
 ): Promise<string | null> {
   const db = c.get('db');
-  const [tierInfo, rawModels] = await Promise.all([
+  const [tierInfo, { premiumIds }] = await Promise.all([
     getUserTierInfo(db, callerId),
-    c.var.aiClient.listRawModels(),
+    getProcessedCatalog(c),
   ]);
   if (tierInfo.canAccessPremium) return null;
-  const { premiumIds } = processModels(rawModels);
   const premiumSet = new Set(premiumIds);
   for (const modelId of models) {
     if (premiumSet.has(modelId)) return modelId;
@@ -586,7 +586,7 @@ async function resolveGuestBillingContext(
     ownerId: string;
     models: string[];
     conversationId: string;
-    aiClient: AppEnv['Variables']['aiClient'];
+    processedCatalog: ReturnType<typeof getProcessedCatalog>;
   }
 ): Promise<BillingContext> {
   const billingResult = await buildGuestBillingInput(db, redis, {
@@ -594,7 +594,7 @@ async function resolveGuestBillingContext(
     memberId: params.member.id,
     models: params.models,
     conversationId: params.conversationId,
-    aiClient: params.aiClient,
+    processedCatalog: params.processedCatalog,
   });
   return {
     memberContext: { memberId: params.member.id, ownerId: params.ownerId },
@@ -614,7 +614,7 @@ async function resolveUserBillingContext(
     models: string[];
     conversationId: string;
     fundingSource: FundingSource;
-    aiClient: AppEnv['Variables']['aiClient'];
+    processedCatalog: ReturnType<typeof getProcessedCatalog>;
   }
 ): Promise<BillingContext> {
   const isOwner = params.callerId === params.ownerId;
@@ -626,7 +626,7 @@ async function resolveUserBillingContext(
     models: params.models,
     ...(memberContext !== undefined && { memberContext }),
     conversationId: params.conversationId,
-    aiClient: params.aiClient,
+    processedCatalog: params.processedCatalog,
   });
   return {
     memberContext,
@@ -873,7 +873,7 @@ export const chatRoute = new Hono<AppEnv>()
             ownerId,
             models,
             conversationId,
-            aiClient: c.var.aiClient,
+            processedCatalog: getProcessedCatalog(c),
           })
         : await resolveUserBillingContext(db, redis, {
             callerId,
@@ -882,7 +882,7 @@ export const chatRoute = new Hono<AppEnv>()
             models,
             conversationId,
             fundingSource,
-            aiClient: c.var.aiClient,
+            processedCatalog: getProcessedCatalog(c),
           });
       const user = c.get('user');
 
@@ -1025,7 +1025,7 @@ export const chatRoute = new Hono<AppEnv>()
         models,
         conversationId,
         fundingSource: requestBody.fundingSource,
-        aiClient: c.var.aiClient,
+        processedCatalog: getProcessedCatalog(c),
       });
 
       return dispatchModalityRequest({

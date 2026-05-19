@@ -14,7 +14,7 @@ import {
   resolveBilling,
   buildSystemPrompt,
 } from '@hushbox/shared';
-import { processModels } from '@hushbox/shared/models';
+import { getProcessedCatalog } from '../lib/processed-catalog.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import { consumeTrialMessage } from '../services/billing/index.js';
 import { validateLastMessageIsFromUser, buildAIMessages } from '../services/chat/index.js';
@@ -169,8 +169,10 @@ async function validateTrialRequest(
     return { success: false, response: quotaResult.errorResponse };
   }
 
-  const allModels = await c.var.aiClient.listRawModels();
-  const { premiumIds } = processModels(allModels);
+  const [allModels, { premiumIds }] = await Promise.all([
+    c.var.aiClient.listRawModels(),
+    getProcessedCatalog(c),
+  ]);
 
   const modelError = checkTrialModelAccess(c, model, premiumIds);
   if (modelError) {

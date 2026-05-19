@@ -171,7 +171,7 @@ export function aiClientMiddleware(): MiddlewareHandler<AppEnv> {
         mockConfig.classifierDelayMs = parsed;
       }
     }
-    c.set('aiClient', getAIClient(c.env, { ...createEvidenceConfig(c), mockConfig }));
+    c.set('aiClient', getAIClient(c.env, { evidence: createEvidenceConfig(c), mockConfig }));
     await next();
   };
 }

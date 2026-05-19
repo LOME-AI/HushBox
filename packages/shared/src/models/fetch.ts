@@ -171,6 +171,13 @@ export interface FetchModelsOptions {
    * `https://ai-gateway.vercel.sh/v1/models`; tests stub `globalThis.fetch`.
    */
   publicModelsUrl: string;
+  /**
+   * Optional fetch implementation. Defaults to `globalThis.fetch`. The HTTP
+   * cassette layer in `apps/api/src/services/ai/cassette/` passes a wrapped
+   * fetch here so integration tests record/replay the catalog read alongside
+   * the gateway calls; production callers omit this and use the default.
+   */
+  fetch?: typeof globalThis.fetch;
 }
 
 /**
@@ -181,7 +188,7 @@ export interface FetchModelsOptions {
  * failure, or schema drift, throws a clear error rather than returning empty.
  */
 export async function fetchModels(options: FetchModelsOptions): Promise<RawModel[]> {
-  const { publicModelsUrl } = options;
+  const { publicModelsUrl, fetch: customFetch } = options;
   if (modelsCache?.publicModelsUrl === publicModelsUrl && Date.now() < modelsCache.expiresAt) {
     // structuredClone isolates the cached array from caller mutation
     // (push/sort/splice would otherwise corrupt the cache for the remaining TTL).
@@ -193,9 +200,10 @@ export async function fetchModels(options: FetchModelsOptions): Promise<RawModel
     controller.abort();
   }, FETCH_TIMEOUT_MS);
 
+  const fetchImpl = customFetch ?? fetch;
   let response: Response;
   try {
-    response = await fetch(publicModelsUrl, { signal: controller.signal });
+    response = await fetchImpl(publicModelsUrl, { signal: controller.signal });
   } catch (error) {
     if (controller.signal.aborted) {
       throw new Error(

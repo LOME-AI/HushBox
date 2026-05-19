@@ -111,9 +111,10 @@ async function attachLabeledArtifact(
 }
 
 type StorageState = string | { cookies: []; origins: [] };
+type FixtureSpec = { persona: string } | { state: StorageState };
 
 function createPageFixture(
-  storageState: StorageState,
+  spec: FixtureSpec,
   label: string
 ): (
   deps: { browser: Browser },
@@ -123,6 +124,8 @@ function createPageFixture(
   return async ({ browser }, use, testInfo) => {
     const harPath = testInfo.outputPath(`${label}.har`);
     const isRetry = testInfo.retry > 0;
+    const storageState =
+      'persona' in spec ? `e2e/.auth/${testInfo.project.name}/${spec.persona}.json` : spec.state;
     const context = await browser.newContext({
       storageState,
       ...(isRetry && {
@@ -271,10 +274,13 @@ export const test = base.extend<CustomFixtures>({
     { auto: true },
   ],
 
-  authenticatedPage: createPageFixture('e2e/.auth/test-alice.json', 'authenticatedPage'),
+  authenticatedPage: createPageFixture({ persona: 'test-alice' }, 'authenticatedPage'),
 
   // Explicitly clear storage state to override project-level default auth
-  unauthenticatedPage: createPageFixture({ cookies: [], origins: [] }, 'unauthenticatedPage'),
+  unauthenticatedPage: createPageFixture(
+    { state: { cookies: [], origins: [] } },
+    'unauthenticatedPage'
+  ),
 
   createPage: async ({ browser }, use, testInfo) => {
     const pages: {
@@ -316,42 +322,33 @@ export const test = base.extend<CustomFixtures>({
     }
   },
 
-  authenticatedRequest: async ({ playwright }, use) => {
+  authenticatedRequest: async ({ playwright }, use, testInfo) => {
     const context = await playwright.request.newContext({
       baseURL: apiUrl,
-      storageState: 'e2e/.auth/test-alice.json',
+      storageState: `e2e/.auth/${testInfo.project.name}/test-alice.json`,
     });
     await use(context);
     await context.dispose();
   },
 
-  test2FAPage: createPageFixture('e2e/.auth/test-2fa.json', 'test2FAPage'),
+  test2FAPage: createPageFixture({ persona: 'test-2fa' }, 'test2FAPage'),
 
-  billingSuccessPage: createPageFixture(
-    'e2e/.auth/test-billing-success.json',
-    'billingSuccessPage'
-  ),
+  billingSuccessPage: createPageFixture({ persona: 'test-billing-success' }, 'billingSuccessPage'),
   billingSuccessPage2: createPageFixture(
-    'e2e/.auth/test-billing-success-2.json',
+    { persona: 'test-billing-success-2' },
     'billingSuccessPage2'
   ),
-  billingFailurePage: createPageFixture(
-    'e2e/.auth/test-billing-failure.json',
-    'billingFailurePage'
-  ),
+  billingFailurePage: createPageFixture({ persona: 'test-billing-failure' }, 'billingFailurePage'),
   billingValidationPage: createPageFixture(
-    'e2e/.auth/test-billing-validation.json',
+    { persona: 'test-billing-validation' },
     'billingValidationPage'
   ),
-  billingDevModePage: createPageFixture(
-    'e2e/.auth/test-billing-devmode.json',
-    'billingDevModePage'
-  ),
+  billingDevModePage: createPageFixture({ persona: 'test-billing-devmode' }, 'billingDevModePage'),
 
-  billingTokenRequest: async ({ playwright }, use) => {
+  billingTokenRequest: async ({ playwright }, use, testInfo) => {
     const context = await playwright.request.newContext({
       baseURL: apiUrl,
-      storageState: 'e2e/.auth/test-billing-token.json',
+      storageState: `e2e/.auth/${testInfo.project.name}/test-billing-token.json`,
     });
     await use(context);
     await context.dispose();
@@ -359,30 +356,22 @@ export const test = base.extend<CustomFixtures>({
 
   groupConversation: async (
     { authenticatedPage: _authenticatedPage, authenticatedRequest },
-    use
+    use,
+    testInfo
   ) => {
+    const projectName = testInfo.project.name;
+    const aliceEmail = `test-alice-${projectName}@test.hushbox.ai`;
+    const bobEmail = `test-bob-${projectName}@test.hushbox.ai`;
     const response = await authenticatedRequest.post('/api/dev/group-chat', {
       data: {
-        ownerEmail: 'test-alice@test.hushbox.ai',
-        memberEmails: ['test-bob@test.hushbox.ai'],
+        ownerEmail: aliceEmail,
+        memberEmails: [bobEmail],
         messages: [
-          {
-            senderEmail: 'test-alice@test.hushbox.ai',
-            content: 'Hello from Alice',
-            senderType: 'user',
-          },
+          { senderEmail: aliceEmail, content: 'Hello from Alice', senderType: 'user' },
           { content: 'Echo: Hello! How can I help?', senderType: 'ai' },
-          { senderEmail: 'test-bob@test.hushbox.ai', content: 'Hi from Bob', senderType: 'user' },
-          {
-            senderEmail: 'test-alice@test.hushbox.ai',
-            content: 'Alice replies',
-            senderType: 'user',
-          },
-          {
-            senderEmail: 'test-alice@test.hushbox.ai',
-            content: 'Summarize this',
-            senderType: 'user',
-          },
+          { senderEmail: bobEmail, content: 'Hi from Bob', senderType: 'user' },
+          { senderEmail: aliceEmail, content: 'Alice replies', senderType: 'user' },
+          { senderEmail: aliceEmail, content: 'Summarize this', senderType: 'user' },
           { content: 'Echo: Here is a summary of your conversation.', senderType: 'ai' },
         ],
       },
@@ -398,14 +387,14 @@ export const test = base.extend<CustomFixtures>({
     // saveChatTurn() running via Wrangler's waitUntil(), producing billing_failed errors.
   },
 
-  testBobPage: createPageFixture('e2e/.auth/test-bob.json', 'testBobPage'),
+  testBobPage: createPageFixture({ persona: 'test-bob' }, 'testBobPage'),
 
-  testDavePage: createPageFixture('e2e/.auth/test-dave.json', 'testDavePage'),
+  testDavePage: createPageFixture({ persona: 'test-dave' }, 'testDavePage'),
 
-  testBobRequest: async ({ playwright }, use) => {
+  testBobRequest: async ({ playwright }, use, testInfo) => {
     const context = await playwright.request.newContext({
       baseURL: apiUrl,
-      storageState: 'e2e/.auth/test-bob.json',
+      storageState: `e2e/.auth/${testInfo.project.name}/test-bob.json`,
     });
     await use(context);
     await context.dispose();
@@ -497,8 +486,9 @@ export const test = base.extend<CustomFixtures>({
   // the $0.50 paid-tier cushion always covers image/Smart-Model preflight costs.
   // Reset to $0 after the test to avoid bleed.
   lowBalancePage: async ({ browser, playwright }, use, testInfo) => {
-    const lowBalanceEmail = 'test-billing-validation@test.hushbox.ai';
-    const storageStatePath = 'e2e/.auth/test-billing-validation.json';
+    const projectName = testInfo.project.name;
+    const lowBalanceEmail = `test-billing-validation-${projectName}@test.hushbox.ai`;
+    const storageStatePath = `e2e/.auth/${projectName}/test-billing-validation.json`;
     const requestContext = await playwright.request.newContext({
       baseURL: apiUrl,
       storageState: storageStatePath,
@@ -540,11 +530,12 @@ export const test = base.extend<CustomFixtures>({
     await requestContext.dispose();
   },
 
-  testConversation: async ({ authenticatedPage, authenticatedRequest }, use) => {
+  testConversation: async ({ authenticatedPage, authenticatedRequest }, use, testInfo) => {
     const testMessage = `Fixture setup ${String(Date.now())}`;
+    const aliceEmail = `test-alice-${testInfo.project.name}@test.hushbox.ai`;
     const response = await authenticatedRequest.post('/api/dev/conversation', {
       data: {
-        ownerEmail: 'test-alice@test.hushbox.ai',
+        ownerEmail: aliceEmail,
         messages: [
           { content: testMessage, senderType: 'user' },
           { content: `Echo: ${testMessage}`, senderType: 'ai' },

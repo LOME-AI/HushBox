@@ -58,10 +58,16 @@ function pricingFromRawModel(raw: RawModel): ModelPricing {
       return { kind: 'video', perSecondByResolution };
     }
     case 'audio': {
-      // The shared `fetchModels` doesn't extract audio per-second pricing
-      // from the public `/v1/models` endpoint yet. Hardcoding 0 here mirrors
-      // the gap; mocks override this on the ModelInfo where they need a
-      // non-zero price for billing math.
+      // Audio pricing extraction is deferred until the AI Gateway ships ZDR
+      // audio (ZDR_AUDIO_MODEL_IDS is `[] as const` in `zdr.ts`). Adding the
+      // catalog extractor today would be speculative since the public
+      // `/v1/models` endpoint doesn't carry audio entries; we'd guess the
+      // field name without a real example. When audio ships:
+      //   1. Add the ZDR audio model id to `ZDR_AUDIO_MODEL_IDS`.
+      //   2. Add an `extractAudioPricing` to `packages/shared/src/models/fetch.ts`
+      //      mirroring `extractImagePricing` against the real catalog key.
+      //   3. Replace this `0` with `parseTokenPrice(raw.pricing.per_second ?? '0')`.
+      // Mocks override `pricing.perSecond` on the ModelInfo for billing tests.
       return { kind: 'audio', perSecond: 0 };
     }
     default: {

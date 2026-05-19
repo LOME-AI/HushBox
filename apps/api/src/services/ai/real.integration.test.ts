@@ -175,7 +175,7 @@ describe('AIClient real integration', () => {
 
   describe('stream(video)', () => {
     it(
-      'produces a valid 1-second video with media-start, media-done, and finish events',
+      'produces a valid short video with media-start, media-done, and finish events',
       async () => {
         const spec = await getCheapestTestModel(client, 'video');
         if (spec.parameters.kind !== 'video') throw new Error('expected video spec');
@@ -185,6 +185,9 @@ describe('AIClient real integration', () => {
           prompt: 'A short panning shot of a calm landscape',
           durationSeconds: spec.parameters.duration,
           resolution: spec.parameters.resolution,
+          ...(spec.parameters.aspectRatio !== undefined && {
+            aspectRatio: spec.parameters.aspectRatio,
+          }),
         };
         const result = await consumeStream(client.stream(request));
         const kinds = result.events.map((e) => e.kind);

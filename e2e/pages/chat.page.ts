@@ -718,16 +718,38 @@ export class ChatPage {
 
   /**
    * Park the row at `index` in Virtuoso's mounted window so its action buttons
-   * are reachable. Action buttons are always-rendered now (no hover gating),
-   * so callers only need the row mounted before they can click.
+   * are reachable. Polls to survive Virtuoso remount on fork-tab switch.
+   * The predicate is not wrapped in try/catch — expect.poll retries on thrown
+   * errors and surfaces the last one on timeout, so genuine "index out of range"
+   * bugs are reported with their original message instead of "expected true,
+   * received false".
    */
   async prepareMessage(index: number): Promise<void> {
-    await this.scrollMessageIntoView(index);
+    await expect
+      .poll(
+        async () => {
+          await this.scrollMessageIntoView(index);
+          return true;
+        },
+        { timeout: 3000, intervals: [100, 250, 500, 500, 500, 500] }
+      )
+      .toBe(true);
   }
 
-  /** Park the last row in the mounted window. */
+  /**
+   * Park the last row. `getLastRowIndex()` is intentionally inside the poll —
+   * during streaming the last index can grow between attempts.
+   */
   async prepareLastMessage(): Promise<void> {
-    await this.scrollMessageIntoView(await this.getLastRowIndex());
+    await expect
+      .poll(
+        async () => {
+          await this.scrollMessageIntoView(await this.getLastRowIndex());
+          return true;
+        },
+        { timeout: 3000, intervals: [100, 250, 500, 500, 500, 500] }
+      )
+      .toBe(true);
   }
 
   /** Get action button on a specific message by aria-label. */

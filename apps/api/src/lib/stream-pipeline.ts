@@ -28,8 +28,14 @@ import {
   worstCaseSearchCost,
   toBase64,
 } from '@hushbox/shared';
-import { processModels, type RawModel } from '@hushbox/shared/models';
+import {
+  type RawModel,
+  type ImageAspectRatio,
+  type VideoAspectRatio,
+  type VideoResolution,
+} from '@hushbox/shared/models';
 import { createEvent } from '@hushbox/realtime/events';
+import { getProcessedCatalog } from './processed-catalog.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import {
   calculateMessageCost,
@@ -592,13 +598,13 @@ type SmartModelPricingOutcome = { errorResponse: Response } | { resolution: Smar
  * metadata used by SmartModelStage, an error response when the payer can't
  * afford any eligible model, or `null` when no Smart Model slot is requested.
  */
-function resolveSmartModelPricing(
+async function resolveSmartModelPricing(
   input: ResolveSmartModelPricingInput
-): SmartModelPricingOutcome | null {
+): Promise<SmartModelPricingOutcome | null> {
   const { c, models, gatewayModels, allPricing } = input;
   if (!models.includes(SMART_MODEL_ID)) return null;
 
-  const { models: poolModels, premiumIds } = processModels(gatewayModels);
+  const { models: poolModels, premiumIds } = await getProcessedCatalog(c);
   const eligibility = buildEligibleModels({
     textModels: poolModels.filter((m) => m.modality === 'text' && !m.isSmartModel),
     premiumIds: new Set(premiumIds),
@@ -850,7 +856,7 @@ export async function resolveAndReserveBilling(
   //    to max-of-eligible. Runs after payer resolution so affordability uses
   //    the actual payer's balance. The classifier worst-case is added to the
   //    final reservation below; per-stage logic lives in `SmartModelStage`.
-  const smartModelOutcome = resolveSmartModelPricing({
+  const smartModelOutcome = await resolveSmartModelPricing({
     c,
     models,
     gatewayModels,
@@ -994,7 +1000,7 @@ export interface ResolveAndReserveVideoBillingInput {
   /** Actual per-second price at the chosen resolution for each selected video model. */
   perSecondByModel: Map<string, number>;
   durationSeconds: number;
-  resolution: string;
+  resolution: VideoResolution;
   clientFundingSource: FundingSource;
   memberContext?: MemberContext;
   conversationId?: string;
@@ -1736,7 +1742,7 @@ export interface ImagePipelineInput {
   releaseReservation: () => Promise<void>;
   senderId: string;
   forkId?: string;
-  aspectRatio?: string;
+  aspectRatio?: ImageAspectRatio;
 }
 
 /**
@@ -1823,7 +1829,7 @@ export interface VideoPipelineInput {
   releaseReservation: () => Promise<void>;
   senderId: string;
   forkId?: string;
-  aspectRatio: string;
+  aspectRatio: VideoAspectRatio;
 }
 
 /**

@@ -12,6 +12,8 @@
  * from the strategy callbacks into the shared media persistence helper.
  */
 
+import type { VideoResolution } from '@hushbox/shared/models';
+
 import type { MemberContext } from '../services/billing/index.js';
 import type { GroupBudgetReservation } from './speculative-balance.js';
 
@@ -54,7 +56,7 @@ export interface VideoBillingValidationSuccess {
    */
   perSecondByModel: Map<string, number>;
   durationSeconds: number;
-  resolution: string;
+  resolution: VideoResolution;
 }
 
 export interface AudioBillingValidationSuccess {
@@ -80,5 +82,5 @@ export interface AudioBillingValidationSuccess {
  */
 export type MediaPersistPricing =
   | { kind: 'image'; perImage: number }
-  | { kind: 'video'; perSecond: number; durationSeconds: number; resolution: string }
+  | { kind: 'video'; perSecond: number; durationSeconds: number; resolution: VideoResolution }
   | { kind: 'audio'; perSecond: number; durationSeconds: number };

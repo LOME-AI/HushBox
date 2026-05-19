@@ -17,6 +17,7 @@
  */
 
 import { assertNever } from '@hushbox/shared';
+import type { ImageAspectRatio, VideoAspectRatio } from '@hushbox/shared/models';
 
 import type {
   AudioRequest,
@@ -89,12 +90,12 @@ export interface BuildTextRequestInput {
 
 export interface ImageBuildExtras {
   prompt: string;
-  aspectRatio?: string;
+  aspectRatio?: ImageAspectRatio;
 }
 
 export interface VideoBuildExtras {
   prompt: string;
-  aspectRatio: string;
+  aspectRatio: VideoAspectRatio;
 }
 
 export interface AudioBuildExtras {

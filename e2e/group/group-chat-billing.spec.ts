@@ -2,6 +2,7 @@ import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { BudgetHelper, setWalletBalance } from '../helpers/budget.js';
 import type { APIRequestContext } from '@playwright/test';
+import { personaEmail } from '../helpers/personas.js';
 
 async function getLastAiPayerId(
   request: APIRequestContext,
@@ -36,7 +37,7 @@ test.describe('Group Chat Billing', () => {
     groupConversation,
   }) => {
     const helper = new BudgetHelper(authenticatedRequest);
-    const bobUser = groupConversation.members.find((m) => m.email === 'test-bob@test.hushbox.ai')!;
+    const bobUser = groupConversation.members.find((m) => m.email === personaEmail('test-bob'))!;
 
     await test.step('setup budgets: conv=$10, member=$5', async () => {
       await helper.setConversationBudget(groupConversation.id, 1000);
@@ -103,7 +104,7 @@ test.describe('Group Chat Billing', () => {
     test.beforeEach(async ({ authenticatedRequest }) => {
       await setWalletBalance(
         authenticatedRequest,
-        'test-bob@test.hushbox.ai',
+        personaEmail('test-bob'),
         'free_tier',
         '0.05000000'
       );
@@ -141,7 +142,7 @@ test.describe('Group Chat Billing', () => {
         // Verify Bob (not Alice) was charged — per-message payerId check,
         // immune to parallel test pollution (unlike Alice's global balance)
         const bobUser = groupConversation.members.find(
-          (m) => m.email === 'test-bob@test.hushbox.ai'
+          (m) => m.email === personaEmail('test-bob')
         )!;
         await expect
           .poll(() => getLastAiPayerId(authenticatedRequest, groupConversation.id), {
@@ -163,9 +164,7 @@ test.describe('Group Chat Billing', () => {
       groupConversation,
     }) => {
       const helper = new BudgetHelper(authenticatedRequest);
-      const bobUser = groupConversation.members.find(
-        (m) => m.email === 'test-bob@test.hushbox.ai'
-      )!;
+      const bobUser = groupConversation.members.find((m) => m.email === personaEmail('test-bob'))!;
 
       await test.step('setup: conv=$0 (default), member=$5', async () => {
         // Set high member budget but do NOT set conversation budget (stays 0)
@@ -214,11 +213,11 @@ test.describe('Group Chat Billing', () => {
     // and Alice (paid tier, $100 balance) is an admin member.
     const createResponse = await authenticatedRequest.post('/api/dev/group-chat', {
       data: {
-        ownerEmail: 'test-bob@test.hushbox.ai',
-        memberEmails: ['test-alice@test.hushbox.ai'],
+        ownerEmail: personaEmail('test-bob'),
+        memberEmails: [personaEmail('test-alice')],
         messages: [
           {
-            senderEmail: 'test-bob@test.hushbox.ai',
+            senderEmail: personaEmail('test-bob'),
             content: 'Welcome to Bob group',
             senderType: 'user',
           },
@@ -286,7 +285,7 @@ test.describe('Group Chat Billing', () => {
     test.slow();
 
     const helper = new BudgetHelper(authenticatedRequest);
-    const bobUser = groupConversation.members.find((m) => m.email === 'test-bob@test.hushbox.ai')!;
+    const bobUser = groupConversation.members.find((m) => m.email === personaEmail('test-bob'))!;
 
     await test.step('setup budgets', async () => {
       await helper.setConversationBudget(groupConversation.id, 1000);

@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { setupGroupConversationWithSidebar } from '../helpers/group-test-setup.js';
 import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-link.js';
 import { ChatPage } from '../pages/index.js';
@@ -115,7 +115,8 @@ test.describe('Auth User Using Link', () => {
 
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      await expect(testBobPage.getByText('Post no-history link').first()).toBeVisible({
+      // Decryption can paint after settled fires.
+      await unsettledExpect(testBobPage.getByText('Post no-history link').first()).toBeVisible({
         timeout: 10_000,
       });
 
@@ -149,7 +150,8 @@ test.describe('Auth User Using Link', () => {
 
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      await expect(testBobPage.getByText('Latest for write link').first()).toBeVisible({
+      // Decryption can paint after settled fires.
+      await unsettledExpect(testBobPage.getByText('Latest for write link').first()).toBeVisible({
         timeout: 10_000,
       });
 

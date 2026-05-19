@@ -6,6 +6,7 @@ import {
 import { fetchModels } from '@hushbox/shared/models';
 
 import { rawModelToModelInfo } from './model-mapping.js';
+import { buildModelViewsForModality, type ModelViewFor } from './model-view.js';
 import {
   TEST_IMAGE_BYTES,
   TEST_AUDIO_BYTES,
@@ -27,6 +28,7 @@ import type {
   InferenceRequest,
   InferenceStream,
   MessageContentPart,
+  Modality,
   MockAIClient,
   MockAIClientConfig,
   ModelInfo,
@@ -334,6 +336,13 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
     async listModels(): Promise<ModelInfo[]> {
       const raw = await this.listRawModels();
       return raw.map((m) => rawModelToModelInfo(m));
+    },
+
+    async listModelsForModality<M extends Modality>(
+      modality: M
+    ): Promise<readonly ModelViewFor<M>[]> {
+      const raw = await this.listRawModels();
+      return buildModelViewsForModality(raw, modality);
     },
 
     async getModel(id: string): Promise<ModelInfo> {

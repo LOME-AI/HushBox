@@ -4,7 +4,7 @@ import {
   worstCaseSearchCost,
   getModelPricing,
   generateNotifications,
-  type CapabilityId,
+  type ModelFeatureId,
   type BudgetError,
   type FundingSource,
   type MemberPrivilege,
@@ -21,7 +21,7 @@ import { useSession, useAuthStore } from '@/lib/auth';
 interface PromptBudgetInput {
   value: string;
   historyCharacters: number;
-  capabilities: CapabilityId[];
+  capabilities: ModelFeatureId[];
   /** Conversation ID for group budget lookup. Omit or null for solo conversations. */
   conversationId?: string | null;
   /** Current user's privilege in the group conversation. Omit for solo conversations. */

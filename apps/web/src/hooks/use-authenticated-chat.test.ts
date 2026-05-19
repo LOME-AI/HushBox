@@ -47,6 +47,7 @@ import {
   computeRenderState,
   pruneMessagesAfterTarget,
   mergeMessages,
+  shouldClearStateOnConversationSwitch,
   DECRYPTING_TITLE,
 } from './use-authenticated-chat';
 
@@ -223,6 +224,24 @@ describe('computeRenderState', () => {
       isDecryptionPending: true,
     });
     expect(result).toEqual({ type: 'ready' });
+  });
+});
+
+describe('shouldClearStateOnConversationSwitch', () => {
+  it('does not clear during create mode', () => {
+    expect(shouldClearStateOnConversationSwitch(true, 'new', null)).toBe(false);
+  });
+
+  it('does not clear when route and real ids already match', () => {
+    expect(shouldClearStateOnConversationSwitch(false, 'abc-123', 'abc-123')).toBe(false);
+  });
+
+  it('does not clear during create→real with realConversationId still null', () => {
+    expect(shouldClearStateOnConversationSwitch(false, 'abc-123', null)).toBe(false);
+  });
+
+  it('clears when switching between two distinct real conversations', () => {
+    expect(shouldClearStateOnConversationSwitch(false, 'abc-123', 'def-456')).toBe(true);
   });
 });
 

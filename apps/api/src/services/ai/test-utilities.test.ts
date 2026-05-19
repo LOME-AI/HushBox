@@ -5,13 +5,25 @@ import {
   consumeStream,
   getCheapestTestModel,
 } from './test-utilities.js';
-import type { AIClient, InferenceEvent, InferenceStream, ModelInfo } from './types.js';
+import type { ImageModelView, TextModelView, VideoModelView } from './model-view.js';
+import type { AIClient, InferenceEvent, InferenceStream } from './types.js';
 
-function makeStubClient(models: ModelInfo[]): AIClient {
+interface ModalityViewMap {
+  text: TextModelView[];
+  image: ImageModelView[];
+  video: VideoModelView[];
+}
+
+function makeStubClient(views: Partial<ModalityViewMap>): AIClient {
   return {
     isMock: false,
-    listModels: vi.fn().mockResolvedValue(models),
+    listModels: vi.fn().mockResolvedValue([]),
     listRawModels: vi.fn().mockResolvedValue([]),
+    listModelsForModality: vi
+      .fn()
+      .mockImplementation((modality: keyof ModalityViewMap) =>
+        Promise.resolve(views[modality] ?? [])
+      ),
     getModel: vi.fn(),
     stream: vi.fn() as unknown as AIClient['stream'],
     getGenerationStats: vi.fn(),
@@ -22,47 +34,61 @@ function tokenModel(
   id: string,
   inputPerToken: number,
   outputPerToken: number,
-  isZdr = true
-): ModelInfo {
+  isPremium = false
+): TextModelView {
   return {
     id,
     name: id,
     provider: id.split('/')[0] ?? 'unknown',
     modality: 'text',
     description: `Mock ${id}`,
-    pricing: { kind: 'token', inputPerToken, outputPerToken },
-    capabilities: [],
-    isZdr,
+    isPremium,
+    features: [],
+    contextLength: 100_000,
+    inputPerToken,
+    outputPerToken,
   };
 }
 
-function imageModel(id: string, perImage: number, isZdr = true): ModelInfo {
+function imageModel(
+  id: string,
+  perImage: number,
+  supportedAspectRatios: ImageModelView['supportedAspectRatios'] = ['1:1']
+): ImageModelView {
   return {
     id,
     name: id,
     provider: id.split('/')[0] ?? 'unknown',
     modality: 'image',
     description: `Mock ${id}`,
-    pricing: { kind: 'image', perImage },
-    capabilities: [],
-    isZdr,
+    isPremium: false,
+    features: [],
+    perImage,
+    supportedAspectRatios,
   };
 }
 
 function videoModel(
   id: string,
   perSecondByResolution: Record<string, number>,
-  isZdr = true
-): ModelInfo {
+  capability?: Partial<{
+    supportedAspectRatios: VideoModelView['supportedAspectRatios'];
+    supportedResolutions: VideoModelView['supportedResolutions'];
+    supportedDurationsSeconds: VideoModelView['supportedDurationsSeconds'];
+  }>
+): VideoModelView {
   return {
     id,
     name: id,
     provider: id.split('/')[0] ?? 'unknown',
     modality: 'video',
     description: `Mock ${id}`,
-    pricing: { kind: 'video', perSecondByResolution },
-    capabilities: [],
-    isZdr,
+    isPremium: false,
+    features: [],
+    perSecondByResolution,
+    supportedAspectRatios: capability?.supportedAspectRatios ?? ['16:9'],
+    supportedResolutions: capability?.supportedResolutions ?? ['720p', '1080p'],
+    supportedDurationsSeconds: capability?.supportedDurationsSeconds ?? [4, 6, 8],
   };
 }
 
@@ -84,97 +110,200 @@ describe('getCheapestTestModel', () => {
     clearTestModelCache();
   });
 
-  it('returns cheapest paid ZDR text model with maxOutputTokens=10', async () => {
-    const client = makeStubClient([
-      tokenModel('p/free', 0, 0),
-      tokenModel('p/cheap', 0.000_001, 0.000_001),
-      tokenModel('p/expensive', 0.0001, 0.0001),
-    ]);
+  it('returns cheapest non-premium text model with maxOutputTokens=10', async () => {
+    const client = makeStubClient({
+      text: [
+        tokenModel('p/free', 0, 0),
+        tokenModel('p/cheap', 0.000_001, 0.000_001),
+        tokenModel('p/expensive', 0.0001, 0.0001),
+      ],
+    });
     const spec = await getCheapestTestModel(client, 'text');
     expect(spec.modelId).toBe('p/cheap');
     expect(spec.parameters).toEqual({ kind: 'text', maxOutputTokens: 10 });
   });
 
-  it('falls back to cheapest paid ZDR text model when none fit the threshold', async () => {
-    const client = makeStubClient([
-      tokenModel('p/free', 0, 0),
-      tokenModel('p/expensive', 1, 1),
-      tokenModel('p/very-expensive', 5, 5),
-    ]);
+  it('falls back to cheapest paid non-premium text model when none fit the threshold', async () => {
+    const client = makeStubClient({
+      text: [
+        tokenModel('p/free', 0, 0),
+        tokenModel('p/expensive', 1, 1),
+        tokenModel('p/very-expensive', 5, 5),
+      ],
+    });
     const spec = await getCheapestTestModel(client, 'text');
     expect(spec.modelId).toBe('p/expensive');
   });
 
-  it('throws when no paid ZDR text model exists at all', async () => {
-    const client = makeStubClient([tokenModel('p/free', 0, 0)]);
-    await expect(getCheapestTestModel(client, 'text')).rejects.toThrow('No paid ZDR text model');
+  it('throws when no paid non-premium text model exists at all', async () => {
+    const client = makeStubClient({ text: [tokenModel('p/free', 0, 0)] });
+    await expect(getCheapestTestModel(client, 'text')).rejects.toThrow(
+      'No paid non-premium text model'
+    );
   });
 
-  it('excludes non-ZDR models from text selection', async () => {
-    const client = makeStubClient([
-      tokenModel('p/non-zdr', 0.000_001, 0.000_001, false),
-      tokenModel('p/zdr', 0.000_005, 0.000_005, true),
-    ]);
+  it('excludes premium models from text selection', async () => {
+    const client = makeStubClient({
+      text: [
+        tokenModel('p/premium', 0.000_001, 0.000_001, true),
+        tokenModel('p/value', 0.000_005, 0.000_005, false),
+      ],
+    });
     const spec = await getCheapestTestModel(client, 'text');
-    expect(spec.modelId).toBe('p/zdr');
+    expect(spec.modelId).toBe('p/value');
   });
 
-  it('returns cheapest paid ZDR image model with aspectRatio 1:1', async () => {
-    const client = makeStubClient([
-      imageModel('p/free-image', 0),
-      imageModel('p/cheap-image', 0.001),
-      imageModel('p/medium-image', 0.01),
-    ]);
+  it('returns cheapest image model with first supportedAspectRatio', async () => {
+    const client = makeStubClient({
+      image: [
+        imageModel('p/free-image', 0),
+        imageModel('p/cheap-image', 0.001),
+        imageModel('p/medium-image', 0.01),
+      ],
+    });
     const spec = await getCheapestTestModel(client, 'image');
     expect(spec.modelId).toBe('p/cheap-image');
     expect(spec.parameters).toEqual({ kind: 'image', aspectRatio: '1:1' });
   });
 
   it('throws when no image model fits the price ceiling', async () => {
-    const client = makeStubClient([imageModel('p/expensive-image', 100)]);
-    await expect(getCheapestTestModel(client, 'image')).rejects.toThrow('No paid ZDR image model');
+    const client = makeStubClient({ image: [imageModel('p/expensive-image', 100)] });
+    await expect(getCheapestTestModel(client, 'image')).rejects.toThrow(
+      'No image model with capability data'
+    );
   });
 
-  it('returns cheapest video model+resolution with duration=MIN_VIDEO_DURATION_SECONDS', async () => {
-    const client = makeStubClient([
-      videoModel('p/video-a', { '720p': 0.1, '1080p': 0.15 }),
-      videoModel('p/video-b', { '480p': 0.05, '720p': 0.12 }),
-    ]);
+  it('skips image models with no capability data', async () => {
+    const client = makeStubClient({
+      image: [
+        // ModelView without supportedAspectRatios — simulates a catalog entry
+        // we haven't pinned (e.g., a new image provider).
+        {
+          id: 'p/no-cap',
+          name: 'no cap',
+          provider: 'p',
+          modality: 'image',
+          description: '',
+          isPremium: false,
+          features: [],
+          perImage: 0.001,
+        },
+        imageModel('p/with-cap', 0.005, ['1:1']),
+      ],
+    });
+    const spec = await getCheapestTestModel(client, 'image');
+    expect(spec.modelId).toBe('p/with-cap');
+  });
+
+  it('uses capability table for video — min duration + supported resolutions', async () => {
+    const client = makeStubClient({
+      video: [
+        videoModel(
+          'p/veo-3.0-like',
+          { '720p': 0.1, '1080p': 0.1 },
+          {
+            supportedResolutions: ['720p', '1080p'],
+            supportedDurationsSeconds: [5, 6, 7, 8],
+            supportedAspectRatios: ['16:9'],
+          }
+        ),
+        videoModel(
+          'p/veo-3.1-like',
+          { '720p': 0.1, '1080p': 0.1, '4k': 0.15 },
+          {
+            supportedResolutions: ['720p', '1080p', '4k'],
+            supportedDurationsSeconds: [4, 6, 8],
+            supportedAspectRatios: ['16:9'],
+          }
+        ),
+      ],
+    });
     const spec = await getCheapestTestModel(client, 'video');
-    expect(spec.modelId).toBe('p/video-b');
-    expect(spec.parameters).toEqual({ kind: 'video', duration: 1, resolution: '480p' });
+    // Veo-3.1-like (4s min) at 720p ($0.1 × 4 = $0.40) beats Veo-3.0-like (5s
+    // min) at 720p ($0.1 × 5 = $0.50) on per-call cost. Capability-driven.
+    expect(spec.modelId).toBe('p/veo-3.1-like');
+    expect(spec.parameters).toEqual({
+      kind: 'video',
+      duration: 4,
+      resolution: '720p',
+      aspectRatio: '16:9',
+    });
+  });
+
+  it('skips video models with no capability data', async () => {
+    const client = makeStubClient({
+      video: [
+        // ModelView with explicit undefined capability fields — simulates a
+        // model present in the catalog but not in our VEO_CAPABILITY table.
+        {
+          id: 'p/no-cap-video',
+          name: 'no cap',
+          provider: 'p',
+          modality: 'video',
+          description: '',
+          isPremium: false,
+          features: [],
+          perSecondByResolution: { '720p': 0.05 },
+        },
+        videoModel(
+          'p/with-cap',
+          { '720p': 0.1 },
+          {
+            supportedResolutions: ['720p'],
+            supportedDurationsSeconds: [4],
+            supportedAspectRatios: ['16:9'],
+          }
+        ),
+      ],
+    });
+    const spec = await getCheapestTestModel(client, 'video');
+    expect(spec.modelId).toBe('p/with-cap');
   });
 
   it('throws when no video model fits the per-second ceiling', async () => {
-    const client = makeStubClient([videoModel('p/expensive-video', { '720p': 100 })]);
-    await expect(getCheapestTestModel(client, 'video')).rejects.toThrow('No paid ZDR video model');
+    const client = makeStubClient({
+      video: [
+        videoModel(
+          'p/expensive-video',
+          { '720p': 100 },
+          {
+            supportedResolutions: ['720p'],
+            supportedDurationsSeconds: [4],
+            supportedAspectRatios: ['16:9'],
+          }
+        ),
+      ],
+    });
+    await expect(getCheapestTestModel(client, 'video')).rejects.toThrow(
+      'No video model with capability data'
+    );
   });
 
   it('throws for audio modality (out of scope)', async () => {
-    const client = makeStubClient([]);
+    const client = makeStubClient({});
     await expect(getCheapestTestModel(client, 'audio')).rejects.toThrow('Audio');
   });
 
   it('throws on unrecognized modality (assertNever exhaustiveness guard)', async () => {
-    const client = makeStubClient([]);
+    const client = makeStubClient({});
     await expect(getCheapestTestModel(client, 'rogue' as 'text')).rejects.toThrow(
       /exhaustiveness/i
     );
   });
 
   it('caches the result across calls', async () => {
-    const client = makeStubClient([tokenModel('p/cached', 0.000_001, 0.000_001)]);
+    const client = makeStubClient({ text: [tokenModel('p/cached', 0.000_001, 0.000_001)] });
     await getCheapestTestModel(client, 'text');
     await getCheapestTestModel(client, 'text');
-    expect(client.listModels).toHaveBeenCalledTimes(1);
+    expect(client.listModelsForModality).toHaveBeenCalledTimes(1);
   });
 
   it('clearTestModelCache resets cached selection', async () => {
-    const client = makeStubClient([tokenModel('p/cached', 0.000_001, 0.000_001)]);
+    const client = makeStubClient({ text: [tokenModel('p/cached', 0.000_001, 0.000_001)] });
     await getCheapestTestModel(client, 'text');
     clearTestModelCache();
     await getCheapestTestModel(client, 'text');
-    expect(client.listModels).toHaveBeenCalledTimes(2);
+    expect(client.listModelsForModality).toHaveBeenCalledTimes(2);
   });
 });
 

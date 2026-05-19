@@ -3,7 +3,7 @@ import { createMockAIClient } from './mock.js';
 import { createRealAIClient } from './real.js';
 import { requireCatalogConfig, requireInferenceConfig } from '../../lib/gateway-config.js';
 import type { AIClient, MockAIClientConfig } from './types.js';
-import type { Database } from '@hushbox/db';
+import type { EvidenceConfig } from '@hushbox/db';
 import type { Bindings } from '../../types.js';
 
 export type {
@@ -36,17 +36,22 @@ interface AIClientEnv extends EnvContext {
 }
 
 /**
- * Optional evidence-recording dependencies. When both are provided, the real
- * AI client records `SERVICE_NAMES.AI_GATEWAY` evidence after each successful
- * gateway call so CI integration tests can verify the integration ran.
+ * Optional evidence-recording config bundle. When supplied, the real AI client
+ * records `SERVICE_NAMES.AI_GATEWAY` evidence after each successful gateway
+ * call so CI integration tests can verify the integration ran.
  *
- * `mockConfig` carries per-request mock overrides decoded from
- * `x-mock-*` request headers; only consulted in dev / E2E builds.
+ * `mockConfig` carries per-request mock overrides decoded from `x-mock-*`
+ * request headers; only consulted in dev / E2E builds.
  */
 export interface AIClientOptions {
-  db?: Database;
-  isCI?: boolean;
+  evidence?: EvidenceConfig;
   mockConfig?: MockAIClientConfig;
+  /**
+   * Optional fetch implementation. The HTTP cassette layer passes a recording
+   * fetch here for CI integration tests; production omits this and the SDK
+   * uses `globalThis.fetch`. Ignored by the mock client.
+   */
+  fetch?: typeof globalThis.fetch;
 }
 
 /**
@@ -65,12 +70,10 @@ export function getAIClient(env: AIClientEnv, options: AIClientOptions = {}): AI
     return createMockAIClient(options.mockConfig);
   }
 
-  const evidence =
-    options.db && options.isCI !== undefined ? { db: options.db, isCI: options.isCI } : undefined;
-
   return createRealAIClient({
     ...requireInferenceConfig(env as Bindings),
     ...requireCatalogConfig(env as Bindings),
-    ...(evidence !== undefined && { evidence }),
+    ...(options.evidence !== undefined && { evidence: options.evidence }),
+    ...(options.fetch !== undefined && { fetch: options.fetch }),
   });
 }

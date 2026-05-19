@@ -33,6 +33,10 @@ out/
 coverage/
 .nyc_output/
 
+# HTTP cassettes for AI Gateway integration tests (recorded by CI, restored
+# via actions/cache; never committed). See docs/CI-CASSETTES.md.
+.ai-cassettes/
+
 # Quality reports
 /reports/
 .stryker-cache/

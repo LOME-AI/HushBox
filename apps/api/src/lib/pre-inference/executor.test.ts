@@ -16,6 +16,7 @@ function noopAIClient(): AIClient {
     isMock: false,
     listModels: () => Promise.resolve([]),
     listRawModels: () => Promise.resolve([]),
+    listModelsForModality: () => Promise.resolve([]),
     getModel: () => Promise.reject(new Error('not used')),
     stream: () => ({
       [Symbol.asyncIterator](): AsyncIterator<never> {

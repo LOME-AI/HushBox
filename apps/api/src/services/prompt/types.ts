@@ -1,4 +1,4 @@
-import type { CapabilityId } from '@hushbox/shared';
+import type { ModelFeatureId } from '@hushbox/shared';
 import type { AIMessage, ToolDefinition } from '../ai/index.js';
 
 /**
@@ -7,13 +7,13 @@ import type { AIMessage, ToolDefinition } from '../ai/index.js';
  */
 export interface ToolModule {
   id: string;
-  capability: CapabilityId;
+  capability: ModelFeatureId;
   getTools(): ToolDefinition[];
 }
 
 export interface PromptBuilderOptions {
   modelId: string;
-  supportedCapabilities: CapabilityId[];
+  supportedCapabilities: ModelFeatureId[];
   chatHistory?: AIMessage[];
   customInstructions?: string;
 }

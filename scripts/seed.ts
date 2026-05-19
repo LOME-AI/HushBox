@@ -149,77 +149,120 @@ export const DEV_PERSONAS = [
 
 export const TEST_2FA_TOTP_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 
-export const TEST_PERSONAS = [
+/** Playwright project names; persona×project seeds the per-project wallets. */
+export const E2E_PROJECT_NAMES = [
+  'chromium',
+  'firefox',
+  'webkit',
+  'iphone-15',
+  'pixel-7',
+  'ipad-pro',
+  'auth-tests',
+] as const;
+
+export type E2EProjectName = (typeof E2E_PROJECT_NAMES)[number];
+
+/**
+ * 2-char project codes used to suffix usernames. `username` is `varchar(20)`
+ * and must stay unique across the persona×project cross-product — full project
+ * names (e.g. "chromium" + a 20-char base displayName) overflow.
+ */
+const PROJECT_CODE: Record<E2EProjectName, string> = {
+  chromium: 'cr',
+  firefox: 'ff',
+  webkit: 'wk',
+  'iphone-15': 'ih',
+  'pixel-7': 'px',
+  'ipad-pro': 'ip',
+  'auth-tests': 'au',
+};
+
+export interface BaseTestPersona {
+  name: string;
+  displayName: string;
+  emailVerified: boolean;
+  hasSampleData: boolean;
+  totpSecret: string | null;
+}
+
+export interface SeededTestPersona extends BaseTestPersona {
+  /** Pre-computed username (≤20 chars, unique). Use this verbatim when seeding. */
+  username: string;
+}
+
+export const BASE_TEST_PERSONAS: BaseTestPersona[] = [
   {
     name: 'test-alice',
     displayName: 'Test Alice',
     emailVerified: true,
     hasSampleData: true,
-    totpSecret: null as string | null,
+    totpSecret: null,
   },
   {
     name: 'test-bob',
     displayName: 'Test Bob',
     emailVerified: true,
     hasSampleData: false,
-    totpSecret: null as string | null,
+    totpSecret: null,
   },
   {
     name: 'test-charlie',
     displayName: 'Test Charlie',
     emailVerified: false,
     hasSampleData: false,
-    totpSecret: null as string | null,
+    totpSecret: null,
   },
   {
     name: 'test-dave',
     displayName: 'Test Dave',
     emailVerified: true,
     hasSampleData: false,
-    totpSecret: null as string | null,
+    totpSecret: null,
   },
   // Dedicated billing test users (isolated to avoid balance state bleeding between tests)
+  // displayNames are abbreviated ("Bill" not "Billing") so normalized username +
+  // "_<2-char-project>" fits in varchar(20).
   {
     name: 'test-billing-success',
-    displayName: 'Test Billing Success',
+    displayName: 'Test Bill Success',
     emailVerified: true,
     hasSampleData: false,
-    totpSecret: null as string | null,
+    totpSecret: null,
   },
   {
     name: 'test-billing-failure',
-    displayName: 'Test Billing Failure',
+    displayName: 'Test Bill Failure',
     emailVerified: true,
     hasSampleData: false,
-    totpSecret: null as string | null,
+    totpSecret: null,
   },
   {
     name: 'test-billing-validation',
     displayName: 'Test Bill Valid',
     emailVerified: true,
     hasSampleData: false,
-    totpSecret: null as string | null,
+    totpSecret: null,
   },
   {
     name: 'test-billing-success-2',
-    displayName: 'Test Bill Success 2',
+    displayName: 'Test Bill OK 2',
     emailVerified: true,
     hasSampleData: false,
-    totpSecret: null as string | null,
+    totpSecret: null,
   },
   {
     name: 'test-billing-devmode',
-    displayName: 'Test Billing Dev',
+    displayName: 'Test Bill Dev',
     emailVerified: true,
     hasSampleData: false,
-    totpSecret: null as string | null,
+    totpSecret: null,
   },
   {
     name: 'test-billing-token',
     displayName: 'Test Bill Token',
     emailVerified: true,
     hasSampleData: false,
-    totpSecret: null as string | null,
+    totpSecret: null,
   },
   {
     name: 'test-2fa',
@@ -228,7 +271,30 @@ export const TEST_PERSONAS = [
     hasSampleData: false,
     totpSecret: TEST_2FA_TOTP_SECRET,
   },
-] as const;
+];
+
+const USERNAME_MAX_LENGTH = 20;
+
+export const TEST_PERSONAS: SeededTestPersona[] = E2E_PROJECT_NAMES.flatMap((projectName) =>
+  BASE_TEST_PERSONAS.map((p) => {
+    const baseUsername = p.displayName.trim().toLowerCase().replaceAll(/\s+/g, '_');
+    const username = `${baseUsername}_${PROJECT_CODE[projectName]}`;
+    if (username.length > USERNAME_MAX_LENGTH) {
+      throw new Error(
+        `seed: persona username "${username}" exceeds ${String(USERNAME_MAX_LENGTH)} chars; shorten "${p.displayName}".`
+      );
+    }
+    return {
+      ...p,
+      name: `${p.name}-${projectName}`,
+      username,
+    };
+  })
+);
+
+export function testPersonaName(baseName: string, projectName: E2EProjectName): string {
+  return `${baseName}-${projectName}`;
+}
 
 function devEmail(name: string): string {
   return `${name}@${DEV_EMAIL_DOMAIN}`;
@@ -1423,7 +1489,7 @@ async function createTestPersonaUser(
   const user: UserWithId = {
     id: userId,
     email,
-    username: normalizeUsername(persona.displayName),
+    username: persona.username,
     emailVerified: persona.emailVerified,
     hasAcknowledgedPhrase: true,
     createdAt: now,

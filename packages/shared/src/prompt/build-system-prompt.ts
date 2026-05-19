@@ -1,11 +1,11 @@
-import type { CapabilityId } from '../capabilities/types.js';
+import type { ModelFeatureId } from '../capabilities/types.js';
 
 /**
  * Builds the system prompt based on active capabilities.
  * Mirrors the prompt building logic from the API for token estimation.
  */
 export function buildSystemPrompt(
-  capabilities: CapabilityId[],
+  capabilities: ModelFeatureId[],
   customInstructions?: string
 ): string {
   const sections: string[] = [];

@@ -3,7 +3,7 @@ import { renderHook } from '@testing-library/react';
 import {
   worstCaseSearchCost,
   type BudgetCalculationResult,
-  type CapabilityId,
+  type ModelFeatureId,
   type ResolveBillingResult,
 } from '@hushbox/shared';
 import { usePromptBudget } from './use-prompt-budget';
@@ -141,7 +141,7 @@ describe('usePromptBudget', () => {
   const defaultInput: {
     value: string;
     historyCharacters: number;
-    capabilities: CapabilityId[];
+    capabilities: ModelFeatureId[];
   } = {
     value: 'Hello',
     historyCharacters: 0,

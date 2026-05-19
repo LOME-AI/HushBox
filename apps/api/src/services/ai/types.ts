@@ -4,7 +4,13 @@
  * declarations below, so pair the re-export with a separate type import.
  */
 export type { RawModel } from '@hushbox/shared/models';
-import type { RawModel } from '@hushbox/shared/models';
+import type {
+  ImageAspectRatio,
+  RawModel,
+  VideoAspectRatio,
+  VideoResolution,
+} from '@hushbox/shared/models';
+import type { ModelViewFor } from './model-view.js';
 
 /** Content modality discriminator. */
 export type Modality = 'text' | 'image' | 'audio' | 'video';
@@ -61,7 +67,7 @@ export interface ImageRequest {
   modality: 'image';
   model: string;
   prompt: string;
-  aspectRatio?: string;
+  aspectRatio?: ImageAspectRatio;
   size?: string;
   n?: number;
 }
@@ -78,9 +84,9 @@ export interface VideoRequest {
   modality: 'video';
   model: string;
   prompt: string;
-  aspectRatio?: string;
+  aspectRatio?: VideoAspectRatio;
   durationSeconds?: number;
-  resolution?: string;
+  resolution?: VideoResolution;
 }
 
 export type InferenceRequest = TextRequest | ImageRequest | AudioRequest | VideoRequest;
@@ -126,6 +132,16 @@ export interface AIClientBase {
    * routes never touch `fetchModels` directly.
    */
   listRawModels(): Promise<RawModel[]>;
+  /**
+   * Per-modality typed view of the catalog. Returns rich {@link ModelView}
+   * entries discriminated by `modality`, carrying merged data from
+   * `processModels` (ZDR filter, premium classification) plus provider
+   * capability axes from `packages/shared/src/models/capabilities.ts` plus
+   * feature flags from `packages/shared/src/capabilities/`. Single SoT for
+   * code that already knows which modality it's working in (test pickers,
+   * per-modality route gates, capability validation).
+   */
+  listModelsForModality<M extends Modality>(modality: M): Promise<readonly ModelViewFor<M>[]>;
   getModel(id: string): Promise<ModelInfo>;
   stream(request: InferenceRequest): InferenceStream;
   getGenerationStats(generationId: string): Promise<{ costUsd: number }>;

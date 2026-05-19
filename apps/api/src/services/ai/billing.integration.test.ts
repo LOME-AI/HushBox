@@ -168,6 +168,9 @@ describe('AIClient billing integration', () => {
           prompt: 'A short calm scene',
           durationSeconds: spec.parameters.duration,
           resolution: spec.parameters.resolution,
+          ...(spec.parameters.aspectRatio !== undefined && {
+            aspectRatio: spec.parameters.aspectRatio,
+          }),
         };
         const result = await consumeStream(client.stream(request));
         expect(result.mediaBytes).toBeDefined();

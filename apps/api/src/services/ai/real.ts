@@ -7,14 +7,16 @@ import {
   createGateway,
 } from 'ai';
 import { z } from 'zod';
-import { fetchModels } from '@hushbox/shared/models';
-import { MAX_SEARCH_TOOL_CALLS, assertNever } from '@hushbox/shared';
 import {
-  recordServiceEvidence,
-  SERVICE_NAMES,
-  type EvidenceConfig as SharedEvidenceConfig,
-} from '@hushbox/db';
+  fetchModels,
+  ZDR_PROVIDER_OPTIONS,
+  getImagenSampleSize,
+  type ImagenSampleSize,
+} from '@hushbox/shared/models';
+import { MAX_SEARCH_TOOL_CALLS, assertNever } from '@hushbox/shared';
+import { recordServiceEvidence, SERVICE_NAMES, type EvidenceConfig } from '@hushbox/db';
 import { rawModelToModelInfo } from './model-mapping.js';
+import { buildModelViewsForModality, type ModelViewFor } from './model-view.js';
 import type { RawModel } from '@hushbox/shared/models';
 import type { ImagePart, TextPart } from 'ai';
 import type {
@@ -23,6 +25,7 @@ import type {
   InferenceRequest,
   InferenceStream,
   MessageContentPart,
+  Modality,
   ModelInfo,
   ProviderMetadata,
   TextRequest,
@@ -31,37 +34,11 @@ import type {
   AudioRequest,
 } from './types.js';
 
-/**
- * Optional evidence-recording config. When supplied, the real client calls
- * `recordServiceEvidence` after each successful AI Gateway call so CI can
- * verify the integration was exercised. New callers should import
- * `EvidenceConfig` directly from `@hushbox/db`; this re-export remains for
- * existing call sites.
- */
-export type EvidenceConfig = SharedEvidenceConfig;
-
-const ZDR_PROVIDER_OPTIONS = {
-  gateway: { zeroDataRetention: true },
-} as const;
-
-/**
- * Per-Imagen-4 hardcoded `sampleImageSize`. Imagen 4 fast supports 1K only;
- * generate and ultra support 2K. We don't surface resolution in the UI
- * (flat pricing means there's no user-visible tradeoff), so the right value
- * is injected at request-build time. Models not in this map use the gateway's
- * default and never receive a `google.sampleImageSize` provider option.
- */
-const IMAGEN_SAMPLE_SIZE_BY_MODEL: Readonly<Record<string, '1K' | '2K'>> = {
-  'google/imagen-4.0-fast-generate-001': '1K',
-  'google/imagen-4.0-generate-001': '2K',
-  'google/imagen-4.0-ultra-generate-001': '2K',
-};
-
 function imageProviderOptions(modelId: string): {
   gateway: { zeroDataRetention: true };
-  google?: { sampleImageSize: '1K' | '2K' };
+  google?: { sampleImageSize: ImagenSampleSize };
 } {
-  const sampleImageSize = IMAGEN_SAMPLE_SIZE_BY_MODEL[modelId];
+  const sampleImageSize = getImagenSampleSize(modelId);
   if (sampleImageSize === undefined) return ZDR_PROVIDER_OPTIONS;
   return { ...ZDR_PROVIDER_OPTIONS, google: { sampleImageSize } };
 }
@@ -214,9 +191,7 @@ function streamImageRequest(
       const result = await generateImage({
         model: gateway.imageModel(request.model),
         prompt: request.prompt,
-        ...(request.aspectRatio === undefined
-          ? {}
-          : { aspectRatio: request.aspectRatio as `${number}:${number}` }),
+        ...(request.aspectRatio === undefined ? {} : { aspectRatio: request.aspectRatio }),
         ...(request.size === undefined ? {} : { size: request.size as `${number}x${number}` }),
         ...(request.n === undefined ? {} : { n: request.n }),
         providerOptions: imageProviderOptions(request.model),
@@ -245,12 +220,13 @@ function streamVideoRequest(
       const result = await experimental_generateVideo({
         model: gateway.video(request.model),
         prompt: request.prompt,
-        ...(request.aspectRatio === undefined
-          ? {}
-          : { aspectRatio: request.aspectRatio as `${number}:${number}` }),
+        ...(request.aspectRatio === undefined ? {} : { aspectRatio: request.aspectRatio }),
+        // SDK types `resolution` as `${number}x${number}` but Veo accepts
+        // shorthand like '720p' / '1080p' / '4k' at runtime — passed through
+        // verbatim to the provider. Our `VideoResolution` is the SoT.
         ...(request.resolution === undefined
           ? {}
-          : { resolution: request.resolution as `${number}x${number}` }),
+          : { resolution: request.resolution as unknown as `${number}x${number}` }),
         ...(request.durationSeconds === undefined ? {} : { duration: request.durationSeconds }),
         providerOptions: ZDR_PROVIDER_OPTIONS,
       });
@@ -298,11 +274,21 @@ export interface CreateRealAIClientOptions {
   /** URL of the unauthenticated `/v1/models` endpoint for media pricing. */
   publicModelsUrl: string;
   evidence?: EvidenceConfig;
+  /**
+   * Optional fetch implementation passed to both `createGateway` and
+   * `fetchModels`. The HTTP cassette layer injects a wrapped fetch here in
+   * integration tests so the gateway calls and the catalog read are recorded
+   * uniformly. Production omits this and the SDK uses `globalThis.fetch`.
+   */
+  fetch?: typeof globalThis.fetch;
 }
 
 export function createRealAIClient(options: CreateRealAIClientOptions): AIClient {
-  const { apiKey, publicModelsUrl, evidence } = options;
-  const gateway = createGateway({ apiKey });
+  const { apiKey, publicModelsUrl, evidence, fetch: customFetch } = options;
+  const gateway = createGateway({
+    apiKey,
+    ...(customFetch !== undefined && { fetch: customFetch }),
+  });
 
   const recordEvidence = async (): Promise<void> => {
     if (!evidence) return;
@@ -334,7 +320,10 @@ export function createRealAIClient(options: CreateRealAIClientOptions): AIClient
       // billing premium-id check, /api/models route) flows through here. The
       // catalog source is the unauthenticated public `/v1/models` endpoint;
       // `apiKey` is only used for inference (`createGateway`).
-      return fetchModels({ publicModelsUrl });
+      return fetchModels({
+        publicModelsUrl,
+        ...(customFetch !== undefined && { fetch: customFetch }),
+      });
     },
 
     async listModels(): Promise<ModelInfo[]> {
@@ -342,6 +331,13 @@ export function createRealAIClient(options: CreateRealAIClientOptions): AIClient
       const models = rawModels.map((m) => rawModelToModelInfo(m));
       await recordEvidence();
       return models;
+    },
+
+    async listModelsForModality<M extends Modality>(
+      modality: M
+    ): Promise<readonly ModelViewFor<M>[]> {
+      const rawModels = await this.listRawModels();
+      return buildModelViewsForModality(rawModels, modality);
     },
 
     async getModel(id: string): Promise<ModelInfo> {

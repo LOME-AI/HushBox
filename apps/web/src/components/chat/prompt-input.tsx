@@ -34,7 +34,7 @@ import {
   AudioDurationControl,
   MediaCostLine,
 } from './modality-config-panel';
-import type { CapabilityId, FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
+import type { ModelFeatureId, FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
 
 export interface PromptInputRef {
   focus: () => void;
@@ -181,7 +181,7 @@ interface PromptInputProps {
   /** Current conversation history character count (for budget calculation) */
   historyCharacters?: number;
   /** Active capabilities that affect system prompt size */
-  capabilities?: CapabilityId[];
+  capabilities?: ModelFeatureId[];
   className?: string;
   rows?: number;
   disabled?: boolean;
@@ -235,7 +235,7 @@ const PROMPT_INPUT_DEFAULTS: Pick<
 > = {
   placeholder: 'Ask me anything...',
   historyCharacters: 0,
-  capabilities: [] as CapabilityId[],
+  capabilities: [] as ModelFeatureId[],
   rows: 6,
   disabled: false,
   isProcessing: false,

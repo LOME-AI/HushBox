@@ -166,7 +166,8 @@ export class BillingPage {
 
     while (Date.now() - startTime < timeout) {
       await this.page.reload({ waitUntil: 'domcontentloaded' });
-      await expect(this.balanceDisplay).toBeVisible();
+      // Settled fires after reload before the billing query paints.
+      await unsettledExpect(this.balanceDisplay).toBeVisible({ timeout: 10_000 });
 
       // Detect session loss — fail fast instead of waiting for timeout
       if (this.page.url().includes('/login')) {

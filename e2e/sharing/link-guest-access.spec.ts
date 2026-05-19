@@ -178,7 +178,8 @@ test.describe('Link Guest Access', () => {
 
       await expect(freshPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      await expect(freshPage.getByText('Latest epoch message').first()).toBeVisible({
+      // Decryption can paint after settled fires.
+      await unsettledExpect(freshPage.getByText('Latest epoch message').first()).toBeVisible({
         timeout: 10_000,
       });
 

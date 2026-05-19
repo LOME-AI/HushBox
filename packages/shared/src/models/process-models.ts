@@ -9,67 +9,17 @@ import { parseTokenPrice } from '../pricing.js';
 
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 
+import { getVideoCapability, IMAGEN_SAMPLE_SIZE_BY_MODEL } from './capabilities.js';
 import { isPremiumModel, PREMIUM_PRICE_PERCENTILE, exceedsTrialBudget } from './premium-check.js';
 import { isZdrModel } from './zdr.js';
 import type { Model } from '../schemas/api/models.js';
 
 import type { Modality, RawModel, ProcessedModels } from './types.js';
 
-interface VideoCapability {
-  readonly aspectRatios: readonly string[];
-  readonly resolutions: readonly string[];
-  readonly durationsSeconds: readonly number[];
-}
-
-/**
- * Provider-side capability data — these axes aren't exposed in the public
- * `/v1/models` catalog (or are exposed inconsistently across providers), so
- * we pin them per model against the provider's own documentation. Adding a
- * new ZDR-allowlisted media model means appending an entry here.
- *
- * Veo 3.1 supports `[4, 6, 8]s` and 4K; Veo 3.0 supports `[5, 6, 7, 8]s`
- * and only 720p/1080p (no 4K). Veo 3.1 reference-image variants are 8-only
- * but we don't surface that mode today.
- */
-const VEO_CAPABILITY: Record<string, VideoCapability> = {
-  'google/veo-3.0-generate-001': {
-    aspectRatios: ['16:9', '9:16'],
-    resolutions: ['720p', '1080p'],
-    durationsSeconds: [5, 6, 7, 8],
-  },
-  'google/veo-3.0-fast-generate-001': {
-    aspectRatios: ['16:9', '9:16'],
-    resolutions: ['720p', '1080p'],
-    durationsSeconds: [5, 6, 7, 8],
-  },
-  'google/veo-3.1-generate-001': {
-    aspectRatios: ['16:9', '9:16'],
-    resolutions: ['720p', '1080p', '4k'],
-    durationsSeconds: [4, 6, 8],
-  },
-  'google/veo-3.1-fast-generate-001': {
-    aspectRatios: ['16:9', '9:16'],
-    resolutions: ['720p', '1080p', '4k'],
-    durationsSeconds: [4, 6, 8],
-  },
-};
-
-const IMAGEN_MODEL_IDS: ReadonlySet<string> = new Set([
-  'google/imagen-4.0-generate-001',
-  'google/imagen-4.0-fast-generate-001',
-  'google/imagen-4.0-ultra-generate-001',
-]);
-
-/**
- * Discrete supported video durations for a given model id, or `undefined` if
- * the model has no declared capability data. The route layer uses this to
- * reject requests whose duration isn't in the supported set BEFORE reaching
- * the gateway — the slider's snap is the happy-path guard, this is the
- * server-side enforcement against persisted or tampered values.
- */
-export function getSupportedVideoDurations(modelId: string): readonly number[] | undefined {
-  return VEO_CAPABILITY[modelId]?.durationsSeconds;
-}
+// "Imagen 4 family" is the same set of model ids that have a pinned sample
+// size — deriving the set from `IMAGEN_SAMPLE_SIZE_BY_MODEL` keeps one source
+// of truth for "this is an Imagen-4 variant we've verified."
+const IMAGEN_MODEL_IDS: ReadonlySet<string> = new Set(Object.keys(IMAGEN_SAMPLE_SIZE_BY_MODEL));
 
 /** Percentile threshold for top context (0.95 = top 5%) */
 const TOP_CONTEXT_PERCENTILE = 0.95;
@@ -285,7 +235,7 @@ function transformVideo(model: RawModel): Model {
   // Per-Veo-version capability — durations and resolutions are non-overlapping
   // across 3.0 vs 3.1. Models not in the lookup omit the fields entirely so
   // the UI's agreement helper falls back to the price-key derived view.
-  const veoCapability = VEO_CAPABILITY[model.id];
+  const veoCapability = getVideoCapability(model.id);
   return {
     id: model.id,
     name: displayName,

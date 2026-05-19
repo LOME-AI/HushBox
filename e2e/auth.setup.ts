@@ -2,21 +2,40 @@ import { test as setup, expect } from '@playwright/test';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TEST_PERSONAS, TEST_2FA_TOTP_SECRET } from '../scripts/seed.js';
+import {
+  BASE_TEST_PERSONAS,
+  TEST_2FA_TOTP_SECRET,
+  E2E_PROJECT_NAMES,
+  testPersonaName,
+  type E2EProjectName,
+} from '../scripts/seed.js';
 import { DEV_PASSWORD } from '../packages/shared/src/constants.js';
 import { clearAuthRateLimits, generateTOTPCode } from './helpers/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const authDir = path.join(__dirname, '.auth');
 
-// Filter to verified personas only (unverified cannot log in)
-const verifiedPersonas = TEST_PERSONAS.filter((p) => p.emailVerified);
-
-// Personas without 2FA can use the fast persona-card login
+const verifiedPersonas = BASE_TEST_PERSONAS.filter((p) => p.emailVerified);
 const standardPersonas = verifiedPersonas.filter((p) => !p.totpSecret);
-
-// 2FA personas need login page + TOTP code
 const twoFactorPersonas = verifiedPersonas.filter((p) => p.totpSecret);
+
+/** `setup-chromium` → `chromium`. */
+function projectFromSetupName(setupProjectName: string): E2EProjectName {
+  const stripped = setupProjectName.replace(/^setup-/, '');
+  const match = E2E_PROJECT_NAMES.find((p) => p === stripped);
+  if (!match) {
+    throw new Error(
+      `auth.setup.ts: cannot map setup project "${setupProjectName}" to a known e2e project`
+    );
+  }
+  return match;
+}
+
+function projectAuthDir(projectName: E2EProjectName): string {
+  const dir = path.join(authDir, projectName);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 setup.beforeAll(() => {
   if (!fs.existsSync(authDir)) {
@@ -24,13 +43,23 @@ setup.beforeAll(() => {
   }
 });
 
-/** Verify session persisted in Redis, save storage state, and close context. */
-async function verifyAndPersistSession(
-  context: import('@playwright/test').BrowserContext,
-  page: import('@playwright/test').Page,
-  personaName: string,
-  outputPath: string
-): Promise<void> {
+interface FinishSetupArgs {
+  context: import('@playwright/test').BrowserContext;
+  page: import('@playwright/test').Page;
+  project: E2EProjectName;
+  basePersonaName: string;
+  personaName: string;
+}
+
+async function finishSetup({
+  context,
+  page,
+  project,
+  basePersonaName,
+  personaName,
+}: FinishSetupArgs): Promise<void> {
+  await page.waitForURL('/chat', { timeout: 30_000 });
+
   const verifyResponse = await page.request.get('/api/conversations');
   if (verifyResponse.status() === 401) {
     throw new Error(
@@ -38,39 +67,39 @@ async function verifyAndPersistSession(
     );
   }
 
+  const outputPath = path.join(projectAuthDir(project), `${basePersonaName}.json`);
   await context.storageState({ path: outputPath });
   await context.close();
 }
 
-// Standard personas: fast login via persona card
-for (const persona of standardPersonas) {
-  setup(`authenticate ${persona.name}`, async ({ browser }) => {
+// Standard personas: fast login via persona card. Project-specific persona
+// resolved at runtime from testInfo.project.name.
+for (const basePersona of standardPersonas) {
+  setup(`authenticate ${basePersona.name}`, async ({ browser }, testInfo) => {
+    const project = projectFromSetupName(testInfo.project.name);
+    const personaName = testPersonaName(basePersona.name, project);
+
     const context = await browser.newContext();
     const page = await context.newPage();
 
     await page.goto('/dev/personas?type=test', { waitUntil: 'domcontentloaded' });
-    await page.locator(`[data-testid="persona-card-${persona.name}"]`).click();
-    await page.waitForURL('/chat', { timeout: 30_000 });
+    await page.locator(`[data-testid="persona-card-${personaName}"]`).click();
 
-    await verifyAndPersistSession(
-      context,
-      page,
-      persona.name,
-      path.join(authDir, `${persona.name}.json`)
-    );
+    await finishSetup({ context, page, project, basePersonaName: basePersona.name, personaName });
   });
 }
 
-// 2FA personas: login page with TOTP code
-for (const persona of twoFactorPersonas) {
-  setup(`authenticate ${persona.name}`, async ({ browser, request }) => {
-    // Clear rate limits and used TOTP codes to handle retries
+for (const basePersona of twoFactorPersonas) {
+  setup(`authenticate ${basePersona.name}`, async ({ browser, request }, testInfo) => {
+    const project = projectFromSetupName(testInfo.project.name);
+    const personaName = testPersonaName(basePersona.name, project);
+
     await clearAuthRateLimits(request);
 
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    const email = `${persona.name}@test.hushbox.ai`;
+    const email = `${personaName}@test.hushbox.ai`;
 
     await page.goto('/login', { waitUntil: 'domcontentloaded' });
     await page.getByLabel('Email or Username').fill(email);
@@ -81,17 +110,9 @@ for (const persona of twoFactorPersonas) {
     const otpModal = page.getByTestId('two-factor-input-modal');
     await expect(otpModal).toBeVisible({ timeout: 30_000 });
 
-    // Generate and enter TOTP code — OTP component auto-submits on completion
     const code = generateTOTPCode(TEST_2FA_TOTP_SECRET);
     await otpModal.getByTestId('otp-input').pressSequentially(code);
 
-    await page.waitForURL('/chat', { timeout: 30_000 });
-
-    await verifyAndPersistSession(
-      context,
-      page,
-      persona.name,
-      path.join(authDir, `${persona.name}.json`)
-    );
+    await finishSetup({ context, page, project, basePersonaName: basePersona.name, personaName });
   });
 }

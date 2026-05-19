@@ -160,11 +160,35 @@ jobs:
       - name: Run migrations
         run: pnpm db:migrate
 
+      # HTTP cassettes — restore prior recordings of AI Gateway calls so most
+      # integration tests replay from disk instead of hitting the gateway.
+      # `restore-keys` does prefix-fallback to the most-recent prior run; the
+      # unique save key below is then appended below. Bumping AI_RECORDING_VERSION
+      # in `apps/api/src/services/ai/cassette/cassette-store.ts` changes the
+      # `v1` segment of the path and orphans old recordings. See docs/CI-CASSETTES.md.
+      - name: Restore AI cassettes
+        uses: actions/cache/restore@v4
+        with:
+          path: .ai-cassettes
+          key: ai-cassettes-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ai-cassettes-v1-
+
       - name: Run tests
         run: pnpm test
 
       - name: Verify AI Gateway was called
         run: pnpm verify:evidence --require=ai-gateway
+
+      # Save cassettes regardless of test outcome — fresh recordings from a
+      # failed run are still valuable for the next attempt, and the cache key
+      # is unique per run so a failed save doesn't poison main.
+      - name: Save AI cassettes
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .ai-cassettes
+          key: ai-cassettes-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Stop database
         if: always()

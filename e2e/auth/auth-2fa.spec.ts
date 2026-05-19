@@ -17,6 +17,7 @@ import {
 } from '../helpers/auth.js';
 import { DEV_PASSWORD } from '../../packages/shared/src/constants.js';
 import { TEST_2FA_TOTP_SECRET } from '../../scripts/seed.js';
+import { personaEmail } from '../helpers/personas.js';
 
 test.describe('Two-Factor Authentication', () => {
   test.beforeEach(async ({ request }, testInfo) => {
@@ -32,7 +33,7 @@ test.describe('Two-Factor Authentication', () => {
     test('invalid 2FA code shows error', async ({ unauthenticatedPage }) => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
-      await loginPage.login('test-2fa@test.hushbox.ai', DEV_PASSWORD);
+      await loginPage.login(personaEmail('test-2fa'), DEV_PASSWORD);
 
       const tfaModal = new TwoFactorInputModal(unauthenticatedPage);
       await tfaModal.waitForModal();
@@ -44,7 +45,7 @@ test.describe('Two-Factor Authentication', () => {
     test('valid 2FA code navigates to /chat', async ({ unauthenticatedPage }) => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
-      await loginPage.login('test-2fa@test.hushbox.ai', DEV_PASSWORD);
+      await loginPage.login(personaEmail('test-2fa'), DEV_PASSWORD);
 
       const tfaModal = new TwoFactorInputModal(unauthenticatedPage);
       await tfaModal.waitForModal();

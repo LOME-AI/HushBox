@@ -3,6 +3,7 @@ import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { searchAndSelectMember } from '../helpers/add-member.js';
 import { expectAccessRevoked } from '../helpers/member-actions.js';
 import { closeOverlay } from '../helpers/overlay.js';
+import { personaEmail } from '../helpers/personas.js';
 
 test.describe('Group Chat Admin', () => {
   test.describe.configure({ mode: 'serial' });
@@ -15,9 +16,9 @@ test.describe('Group Chat Admin', () => {
     // 6 steps with multiple page navigations + AI response
     test.slow();
 
-    const bobMember = groupConversation.members.find((m) => m.email === 'test-bob@test.hushbox.ai');
+    const bobMember = groupConversation.members.find((m) => m.email === personaEmail('test-bob'));
     const aliceMember = groupConversation.members.find(
-      (m) => m.email === 'test-alice@test.hushbox.ai'
+      (m) => m.email === personaEmail('test-alice')
     );
 
     await test.step('Alice sees correct sender labels', async () => {
@@ -132,11 +133,9 @@ test.describe('Group Chat Admin', () => {
     });
 
     const aliceMember = groupConversation.members.find(
-      (m) => m.email === 'test-alice@test.hushbox.ai'
+      (m) => m.email === personaEmail('test-alice')
     )!;
-    const bobMember = groupConversation.members.find(
-      (m) => m.email === 'test-bob@test.hushbox.ai'
-    )!;
+    const bobMember = groupConversation.members.find((m) => m.email === personaEmail('test-bob'))!;
 
     await test.step('privilege sections show correct members', async () => {
       await sidebar.expectSectionVisible('owner');
