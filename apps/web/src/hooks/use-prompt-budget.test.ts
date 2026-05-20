@@ -576,9 +576,9 @@ describe('usePromptBudget', () => {
       renderHook(() => usePromptBudget(defaultInput));
 
       const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as { webSearchCost: number };
-      // Worst-case = applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL) = 10 * 0.005 * 1.095 = 0.05475
+      // Worst-case = applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL) = 10 * 0.005 * 1.15 = 0.0575
       expect(budgetInput.webSearchCost).toBeCloseTo(worstCaseSearchCost(), 10);
-      expect(budgetInput.webSearchCost).toBeCloseTo(0.054_75, 10);
+      expect(budgetInput.webSearchCost).toBeCloseTo(0.0575, 10);
     });
 
     it('passes 0 web search cost when web search is disabled', () => {
