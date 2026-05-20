@@ -28,6 +28,7 @@ export function createBaseConfig(tsconfigRootDir) {
         '**/build/**',
         '**/.turbo/**',
         '**/coverage/**',
+        '**/__test-fixtures-*__/**',
         '**/*.d.ts',
         '**/*.config.js',
         '**/*.config.ts',
