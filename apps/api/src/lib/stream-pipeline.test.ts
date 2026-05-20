@@ -251,10 +251,10 @@ describe('resolveWebSearchCost', () => {
     );
   });
 
-  it('reserves the locked worst-case dollar amount (~$0.05475) per request', () => {
-    // Pinning the math: MAX=10, per_call=$0.005, fee_rate=0.095
-    // Total = applyFees(10 × 0.005) = 0.05 × 1.095 = 0.05475
-    expect(resolveWebSearchCost(true)).toBeCloseTo(0.054_75, 9);
+  it('reserves the locked worst-case dollar amount (~$0.0575) per request', () => {
+    // Pinning the math: MAX=10, per_call=$0.005, fee_rate=0.15
+    // Total = applyFees(10 × 0.005) = 0.05 × 1.15 = 0.0575
+    expect(resolveWebSearchCost(true)).toBeCloseTo(0.057_5, 9);
   });
 
   it('is strictly greater than the legacy 1× per-call estimate (the bug we fixed)', async () => {
