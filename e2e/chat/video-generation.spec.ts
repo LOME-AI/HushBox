@@ -1,6 +1,7 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages';
 import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
+import { expectVideoDecoded } from '../helpers/webkit-media-decode.js';
 
 /**
  * Video generation flow end-to-end.
@@ -16,6 +17,7 @@ import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.j
 test.describe('Video Generation', () => {
   test('switches to video modality, generates, and renders inline', async ({
     authenticatedPage,
+    browserName,
   }) => {
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.goto();
@@ -38,22 +40,11 @@ test.describe('Video Generation', () => {
     await chatPage.expectVideoVisible();
     await chatPage.expectDownloadLinkVisible();
 
-    // The canned MP4 must actually decode in the browser — a positive finite
-    // duration proves the browser parsed the moov atom. We don't assert the
-    // exact value because short-clip duration varies across decoders
-    // (Chromium/WebKit/Firefox disagree on the same MP4 by hundreds of ms).
-    // DOM-only <video> assertions don't prove the bytes are valid; this does.
+    // Proves the browser parsed the bytes (positive finite duration => moov
+    // atom / EBML header read). expectVideoDecoded degrades to a "src bound"
+    // check on engines that can't decode — see helper for the why.
     const videoElement = chatPage.messageList.locator('video').first();
-    await expect
-      .poll(
-        async () =>
-          videoElement.evaluate((el) => {
-            const v = el as HTMLVideoElement;
-            return Number.isFinite(v.duration) ? v.duration : 0;
-          }),
-        { timeout: 10_000 }
-      )
-      .toBeGreaterThan(0);
+    await expectVideoDecoded(videoElement, browserName, { timeout: 10_000 });
   });
 
   test('resolution button labels include per-second price', async ({ authenticatedPage }) => {

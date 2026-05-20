@@ -3,6 +3,7 @@ import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { createInviteLink } from '../helpers/invite-link.js';
 import { createMessageShareUrl } from '../helpers/share-message.js';
 import { requireEnv } from '../helpers/env.js';
+import { expectVideoDecoded } from '../helpers/webkit-media-decode.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
 
@@ -373,6 +374,7 @@ test.describe('Shared Content', () => {
     authenticatedPage,
     groupConversation,
     createPage,
+    browserName,
   }) => {
     test.slow();
 
@@ -442,17 +444,9 @@ test.describe('Shared Content', () => {
 
       await guestChatPage.expectVideoVisible(15_000);
       const videoElement = guestChatPage.messageList.locator('video').first();
-      // Wait until the video reports a parseable duration (metadata loaded).
-      await unsettledExpect
-        .poll(
-          async () =>
-            videoElement.evaluate((el) => {
-              const v = el as HTMLVideoElement;
-              return Number.isFinite(v.duration) ? v.duration : 0;
-            }),
-          { timeout: 15_000 }
-        )
-        .toBeGreaterThan(0);
+      // Wait until the video reports a parseable duration (metadata loaded);
+      // degrades to a "src bound" check on engines that can't decode.
+      await expectVideoDecoded(videoElement, browserName, { timeout: 15_000 });
     });
   });
 });

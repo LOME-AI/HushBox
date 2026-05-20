@@ -1,6 +1,7 @@
 import { type Page, type Locator } from '@playwright/test';
 import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 import { requireEnv } from '../helpers/env.js';
+import { getBrowserName, lacksMediaDecode } from '../helpers/webkit-media-decode.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
 
@@ -451,25 +452,30 @@ export class ChatPage {
    * sentinel keeps it idempotent so we don't restart the load on every poll.
    * `el.error === null` is checked first so corrupt bytes still fail fast
    * instead of being papered over by the nudge.
+   *
+   * On engines where Playwright cannot decode video (Linux WebKit — see
+   * `../helpers/webkit-media-decode.ts`), the video branch downgrades to a
+   * "non-empty src" check so the rest of the test still runs end-to-end.
+   * Production Safari decodes the same bytes natively.
    */
   private async expectMediaLoaded(media: Locator, timeout = 15_000): Promise<void> {
+    const skipVideoDecode = lacksMediaDecode(getBrowserName(this.page));
     await unsettledExpect
       .poll(
         async () =>
-          media.evaluate((el) => {
+          media.evaluate((el, skipDecode: boolean) => {
             if (el instanceof HTMLImageElement) return el.naturalWidth;
-            if (el instanceof HTMLVideoElement) {
-              const v = el as HTMLVideoElement & { __pwLoadNudged?: boolean };
-              if (v.error !== null) return 0;
-              if (v.readyState >= 1) return 1;
-              if (!v.__pwLoadNudged) {
-                v.__pwLoadNudged = true;
-                v.load();
-              }
-              return 0;
+            if (!(el instanceof HTMLVideoElement)) return 0;
+            const v = el as HTMLVideoElement & { __pwLoadNudged?: boolean };
+            if (v.error !== null) return 0;
+            if (skipDecode) return v.currentSrc || v.src ? 1 : 0;
+            if (v.readyState >= 1) return 1;
+            if (!v.__pwLoadNudged) {
+              v.__pwLoadNudged = true;
+              v.load();
             }
             return 0;
-          }),
+          }, skipVideoDecode),
         { timeout }
       )
       .toBeGreaterThan(0);
@@ -485,6 +491,7 @@ export class ChatPage {
    */
   async expectMediaVisible(kind: 'img' | 'video', timeout = 30_000): Promise<void> {
     const media = this.messageList.locator(kind).first();
+    const skipVideoDecode = lacksMediaDecode(getBrowserName(this.page));
     try {
       await expect
         .poll(
@@ -499,15 +506,19 @@ export class ChatPage {
               }
               if (!(await media.isVisible().catch(() => false))) continue;
               const decoded = await media
-                .evaluate((el) => {
+                .evaluate((el, skipDecode: boolean) => {
                   if (el instanceof HTMLImageElement) return el.naturalWidth > 0;
                   if (el instanceof HTMLVideoElement) {
                     // Mirrors expectMediaLoaded: one-shot `el.load()` nudge
                     // for WebKitGTK's lazy-metadata-on-blob behavior, sentinel
                     // prevents repeated cancel/restart cycles. Real corrupt
-                    // bytes still surface via `el.error`.
+                    // bytes still surface via `el.error`. On engines that
+                    // can't decode (Linux WebKit — see
+                    // `../helpers/webkit-media-decode.ts`), pass as soon as
+                    // the element has a non-empty src.
                     const v = el as HTMLVideoElement & { __pwLoadNudged?: boolean };
                     if (v.error !== null) return false;
+                    if (skipDecode) return Boolean(v.currentSrc || v.src);
                     if (v.readyState >= 1) return true;
                     if (!v.__pwLoadNudged) {
                       v.__pwLoadNudged = true;
@@ -516,7 +527,7 @@ export class ChatPage {
                     return false;
                   }
                   return false;
-                })
+                }, skipVideoDecode)
                 .catch(() => false);
               if (decoded) return true;
             }
