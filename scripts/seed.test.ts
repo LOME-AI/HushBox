@@ -342,6 +342,7 @@ import {
   createScreenshotConversations,
   BASE_TEST_PERSONAS,
   E2E_PROJECT_NAMES,
+  MOBILE_TEST_PERSONA,
   TEST_PERSONAS,
 } from './seed';
 
@@ -759,9 +760,9 @@ describe('seed script', () => {
   });
 
   describe('generateTestPersonaData', () => {
-    it('generates one user per base persona per project', async () => {
+    it('generates one user per base persona per project plus the mobile persona', async () => {
       const data = await generateTestPersonaData();
-      expect(data.users).toHaveLength(EXPECTED_TEST_USER_COUNT);
+      expect(data.users).toHaveLength(EXPECTED_TEST_USER_COUNT + 1);
     });
 
     it('includes test-alice, test-bob, and test-charlie variants with test domain', async () => {
@@ -871,7 +872,7 @@ describe('seed script', () => {
 
     it('each test persona has 2 wallets (purchased + free_tier)', async () => {
       const data = await generateTestPersonaData();
-      expect(data.wallets).toHaveLength(TEST_PERSONAS.length * 2);
+      expect(data.wallets).toHaveLength((TEST_PERSONAS.length + 1) * 2);
     });
 
     it('test-alice variant conversations have epochs and members', async () => {
@@ -887,6 +888,53 @@ describe('seed script', () => {
         expect(convMembers).toHaveLength(1);
         expect(convMembers[0]?.userId).toBe(testAliceId);
       }
+    });
+  });
+
+  describe('MOBILE_TEST_PERSONA', () => {
+    it('uses an unsuffixed name so the Maestro YAML literal resolves', () => {
+      expect(MOBILE_TEST_PERSONA.name).toBe('test-mobile');
+    });
+
+    it('has a varchar(20)-safe username', () => {
+      expect(MOBILE_TEST_PERSONA.username).toBe('test_mobile');
+      expect(MOBILE_TEST_PERSONA.username.length).toBeLessThanOrEqual(20);
+    });
+
+    it('is marked email-verified so login does not bounce to verification', () => {
+      expect(MOBILE_TEST_PERSONA.emailVerified).toBe(true);
+    });
+
+    it('is not part of the per-project TEST_PERSONAS cross-product', () => {
+      for (const persona of TEST_PERSONAS) {
+        expect(persona.name).not.toBe('test-mobile');
+      }
+    });
+
+    it('generates exactly one seeded user at test-mobile@test.hushbox.ai', async () => {
+      const data = await generateTestPersonaData();
+      const mobileUsers = data.users.filter((u) => u.email === `test-mobile@${TEST_EMAIL_DOMAIN}`);
+      expect(mobileUsers).toHaveLength(1);
+    });
+
+    it('uses a deterministic UUID derived from test-user-test-mobile', async () => {
+      const data = await generateTestPersonaData();
+      const mobileUser = data.users.find((u) => u.email === `test-mobile@${TEST_EMAIL_DOMAIN}`);
+      expect(mobileUser?.id).toBe(seedUUID('test-user-test-mobile'));
+    });
+
+    it('seeds two wallets for the mobile persona', async () => {
+      const data = await generateTestPersonaData();
+      const mobileUserId = seedUUID('test-user-test-mobile');
+      const mobileWallets = data.wallets.filter((w) => w.userId === mobileUserId);
+      expect(mobileWallets).toHaveLength(2);
+    });
+
+    it('seeds sample-data projects for the mobile persona', async () => {
+      const data = await generateTestPersonaData();
+      const mobileUserId = seedUUID('test-user-test-mobile');
+      const mobileProjects = data.projects.filter((p) => p.userId === mobileUserId);
+      expect(mobileProjects.length).toBeGreaterThan(0);
     });
   });
 

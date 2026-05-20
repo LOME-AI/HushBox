@@ -14,7 +14,7 @@ import {
   type ChunkRunner,
   type PersonaCryptoRequest,
 } from './lib/seed-crypto-pool.js';
-import { DEV_PERSONAS, TEST_PERSONAS, seedUUID } from './seed.js';
+import { DEV_PERSONAS, MOBILE_TEST_PERSONA, TEST_PERSONAS, seedUUID } from './seed.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -32,6 +32,10 @@ export function enumerateAllPersonaRequests(): PersonaCryptoRequest[] {
       credentialIdentifier: seedUUID(`test-user-${persona.name}`),
       password: DEV_PASSWORD,
     })),
+    {
+      credentialIdentifier: seedUUID(`test-user-${MOBILE_TEST_PERSONA.name}`),
+      password: DEV_PASSWORD,
+    },
   ];
 }
 

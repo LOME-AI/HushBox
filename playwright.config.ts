@@ -24,7 +24,7 @@ export default defineConfig({
     : [['list'], ['html', { open: 'on-failure' }], ['./scripts/e2e-reporter.ts']],
   use: {
     baseURL: previewUrl,
-    trace: 'retain-on-failure',
+    trace: 'retain-on-first-failure',
     screenshot: isCI ? 'only-on-failure' : 'on',
     video: 'retain-on-failure',
     // App's MotionProvider reads this and skipAnimations every motion.*.

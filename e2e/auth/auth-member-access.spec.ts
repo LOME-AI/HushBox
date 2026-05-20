@@ -3,6 +3,7 @@ import { unsettledExpect } from '../helpers/settled-expect.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { searchAndSelectMember } from '../helpers/add-member.js';
 import { expectAccessRevoked } from '../helpers/member-actions.js';
+import { personaUsername } from '../helpers/personas.js';
 
 test.describe('Auth Member Access', () => {
   test('read member lifecycle: history access, removal, no-history re-add, privilege elevation', async ({
@@ -23,7 +24,7 @@ test.describe('Auth Member Access', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
+      await searchAndSelectMember(authenticatedPage, sidebar, personaUsername('test-dave'));
 
       await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('read');
 
@@ -58,7 +59,7 @@ test.describe('Auth Member Access', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      const daveMemberId = await sidebar.getMemberIdByUsername('test dave');
+      const daveMemberId = await sidebar.getMemberIdByUsername(personaUsername('test-dave'));
       await sidebar.openMemberActions(daveMemberId);
       await sidebar.clickRemoveMember(daveMemberId);
 
@@ -79,7 +80,7 @@ test.describe('Auth Member Access', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
+      await searchAndSelectMember(authenticatedPage, sidebar, personaUsername('test-dave'));
 
       await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('read');
 
@@ -92,9 +93,8 @@ test.describe('Auth Member Access', () => {
       await authenticatedPage.getByTestId('add-member-submit-button').click();
       await expect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
 
-      await unsettledExpect(sidebar.findMemberByUsername('test dave')).toBeVisible({
-        timeout: 10_000,
-      });
+      const daveRow = sidebar.findMemberByUsername(personaUsername('test-dave'));
+      await unsettledExpect(daveRow).toBeVisible({ timeout: 10_000 });
 
       await sidebar.closeMobileSidebarIfOpen();
     });
@@ -131,7 +131,7 @@ test.describe('Auth Member Access', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      const daveMemberId = await sidebar.getMemberIdByUsername('test dave');
+      const daveMemberId = await sidebar.getMemberIdByUsername(personaUsername('test-dave'));
       await sidebar.openMemberActions(daveMemberId);
       await sidebar.clickChangePrivilege(daveMemberId, 'admin');
       await sidebar.expectMemberInSection(daveMemberId, 'admin');

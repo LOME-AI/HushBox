@@ -145,6 +145,10 @@ async function loadPersonaCryptoFromCache(): Promise<Map<string, CryptoBytes>> {
       credentialIdentifier: seedUUID(`test-user-${persona.name}`),
       password: DEV_PASSWORD,
     })),
+    {
+      credentialIdentifier: seedUUID(`test-user-${MOBILE_TEST_PERSONA.name}`),
+      password: DEV_PASSWORD,
+    },
   ];
   const cryptoFingerprint = await computeCryptoFingerprint(DEFAULT_CRYPTO_DIR);
   return ensurePersonaCrypto(requests, {
@@ -326,6 +330,20 @@ export const TEST_PERSONAS: SeededTestPersona[] = E2E_PROJECT_NAMES.flatMap((pro
     };
   })
 );
+
+/**
+ * Single mobile-test persona — kept outside the E2E_PROJECT_NAMES cross-product
+ * so Maestro flows can hardcode `test-mobile@test.hushbox.ai` without taking a
+ * dependency on Playwright project state.
+ */
+export const MOBILE_TEST_PERSONA: SeededTestPersona = {
+  name: 'test-mobile',
+  displayName: 'Test Mobile',
+  username: 'test_mobile',
+  emailVerified: true,
+  hasSampleData: true,
+  totpSecret: null,
+};
 
 export function testPersonaName(baseName: string, projectName: E2EProjectName): string {
   return `${baseName}-${projectName}`;
@@ -1691,7 +1709,7 @@ export async function generateTestPersonaData(
 
   const now = new Date();
 
-  for (const persona of TEST_PERSONAS) {
+  for (const persona of [...TEST_PERSONAS, MOBILE_TEST_PERSONA]) {
     const { user, publicKey } = await createTestPersonaUser(persona, now, cryptoMap);
     testUsers.push(user);
 

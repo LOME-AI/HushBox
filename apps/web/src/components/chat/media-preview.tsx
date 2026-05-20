@@ -165,6 +165,7 @@ export function MediaPreview({
             src={blobUrl}
             controls
             preload="metadata"
+            playsInline
             {...dimensionProps}
             className="max-h-96 w-full rounded-md"
             aria-label={`${ariaPrefix} video`}

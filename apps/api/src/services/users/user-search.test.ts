@@ -15,7 +15,9 @@ function mockSelectChain(mockSelect: ReturnType<typeof vi.fn>, rows: unknown[]):
   mockSelect.mockReturnValueOnce({
     from: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockResolvedValue(rows),
+        orderBy: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue(rows),
+        }),
       }),
     }),
   });
@@ -26,7 +28,9 @@ function mockSelectChainWithJoin(mockSelect: ReturnType<typeof vi.fn>, rows: unk
     from: vi.fn().mockReturnValue({
       leftJoin: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue(rows),
+          orderBy: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue(rows),
+          }),
         }),
       }),
     }),
@@ -41,6 +45,21 @@ describe('searchUsers', () => {
     const mocks = createMockDb();
     db = mocks.db;
     mockSelect = mocks.mockSelect;
+  });
+
+  it('orders results by username ascending so prefix matches are deterministic', async () => {
+    // Without ORDER BY, Postgres returns rows in scan order, which surprised
+    // e2e tests that picked `result.first()` after the persona×project cross
+    // seed introduced multiple rows sharing a `test_dave%` prefix.
+    mockSelectChain(mockSelect, []);
+
+    await searchUsers(db as never, 'test', 'requester-id');
+
+    const firstResult = mockSelect.mock.results[0];
+    if (!firstResult) throw new Error('Expected at least one select call');
+    const orderByFunction = firstResult.value.from.mock.results[0].value.where.mock.results[0].value
+      .orderBy as ReturnType<typeof vi.fn>;
+    expect(orderByFunction).toHaveBeenCalledTimes(1);
   });
 
   it('returns matching users by username prefix', async () => {
@@ -93,7 +112,7 @@ describe('searchUsers', () => {
     expect(fromFunction).toHaveBeenCalledTimes(1);
     const whereFunction = fromFunction.mock.results[0].value.where;
     expect(whereFunction).toHaveBeenCalledTimes(1);
-    const limitFunction = whereFunction.mock.results[0].value.limit;
+    const limitFunction = whereFunction.mock.results[0].value.orderBy.mock.results[0].value.limit;
     expect(limitFunction).toHaveBeenCalledTimes(1);
     expect(limitFunction).toHaveBeenCalledWith(20);
   });
@@ -106,7 +125,8 @@ describe('searchUsers', () => {
     const firstResult = mockSelect.mock.results[0];
     if (!firstResult) throw new Error('Expected at least one select call');
     const limitFunction =
-      firstResult.value.from.mock.results[0].value.where.mock.results[0].value.limit;
+      firstResult.value.from.mock.results[0].value.where.mock.results[0].value.orderBy.mock
+        .results[0].value.limit;
     expect(limitFunction).toHaveBeenCalledWith(5);
   });
 
@@ -118,7 +138,8 @@ describe('searchUsers', () => {
     const firstResult = mockSelect.mock.results[0];
     if (!firstResult) throw new Error('Expected at least one select call');
     const limitFunction =
-      firstResult.value.from.mock.results[0].value.where.mock.results[0].value.limit;
+      firstResult.value.from.mock.results[0].value.where.mock.results[0].value.orderBy.mock
+        .results[0].value.limit;
     expect(limitFunction).toHaveBeenCalledWith(20);
   });
 

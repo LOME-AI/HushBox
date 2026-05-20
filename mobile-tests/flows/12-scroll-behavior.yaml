@@ -4,7 +4,7 @@ tags:
   - should
 androidWebViewHierarchy: devtools
 env:
-  TEST_EMAIL: test-alice@test.hushbox.ai
+  TEST_EMAIL: test-mobile@test.hushbox.ai
   TEST_PASSWORD: password123
 ---
 - launchApp:

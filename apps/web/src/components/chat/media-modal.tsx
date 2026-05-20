@@ -49,6 +49,7 @@ function MediaElement({
       <video
         src={blobUrl}
         controls
+        playsInline
         className="max-h-[85vh] max-w-full"
         aria-label={alt ?? 'Generated video'}
       />

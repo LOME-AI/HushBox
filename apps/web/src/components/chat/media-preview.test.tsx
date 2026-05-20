@@ -112,6 +112,23 @@ describe('MediaPreview', () => {
     expect(document.querySelector('img')).toBeNull();
   });
 
+  // Real iOS Safari launches the system fullscreen player when a <video>
+  // without `playsinline` is played, which breaks inline chat playback.
+  it('sets playsInline on the inline <video> so iOS Safari plays inline', () => {
+    render(
+      <MediaPreview
+        {...baseProps({
+          contentType: 'video',
+          mimeType: 'video/mp4',
+          ariaPrefix: 'Generated',
+        })}
+      />
+    );
+    const video = document.querySelector('video');
+    expect(video).not.toBeNull();
+    expect(video!.playsInline).toBe(true);
+  });
+
   it('renders <audio> for audio content with ariaPrefix in the aria-label', () => {
     render(
       <MediaPreview

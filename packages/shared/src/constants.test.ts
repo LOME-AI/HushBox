@@ -113,8 +113,8 @@ describe('Per-modality quick-select pins', () => {
 
 describe('Fee Structure', () => {
   describe('HUSHBOX_FEE_RATE', () => {
-    it('is 0.05 (5%)', () => {
-      expect(HUSHBOX_FEE_RATE).toBe(0.05);
+    it('is 0.06 (6%)', () => {
+      expect(HUSHBOX_FEE_RATE).toBe(0.06);
     });
 
     it('is a positive number less than 1', () => {
@@ -135,8 +135,8 @@ describe('Fee Structure', () => {
   });
 
   describe('PROVIDER_FEE_RATE', () => {
-    it('is 0 (Vercel AI Gateway charges no markup)', () => {
-      expect(PROVIDER_FEE_RATE).toBe(0);
+    it('is 0.045 (4.5% AI provider overhead)', () => {
+      expect(PROVIDER_FEE_RATE).toBe(0.045);
     });
 
     it('is a non-negative number less than 1', () => {
@@ -150,8 +150,8 @@ describe('Fee Structure', () => {
       expect(TOTAL_FEE_RATE).toBe(HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE);
     });
 
-    it('equals 0.095 (9.5%)', () => {
-      expect(TOTAL_FEE_RATE).toBeCloseTo(0.095, 10);
+    it('equals 0.15 (15%)', () => {
+      expect(TOTAL_FEE_RATE).toBeCloseTo(0.15, 10);
     });
   });
 });

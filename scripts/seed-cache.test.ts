@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import path from 'node:path';
-import { DEV_PERSONAS, TEST_PERSONAS, seedUUID } from './seed.js';
+import { DEV_PERSONAS, MOBILE_TEST_PERSONA, TEST_PERSONAS, seedUUID } from './seed.js';
 import { DEV_PASSWORD } from '@hushbox/shared';
 import {
   cacheKey,
@@ -57,6 +57,12 @@ describe('enumerateAllPersonaRequests', () => {
     }
   });
 
+  it('includes the MOBILE_TEST_PERSONA', () => {
+    const requests = enumerateAllPersonaRequests();
+    const expectedId = seedUUID(`test-user-${MOBILE_TEST_PERSONA.name}`);
+    expect(requests.map((r) => r.credentialIdentifier)).toContain(expectedId);
+  });
+
   it('uses DEV_PASSWORD for every persona', () => {
     const requests = enumerateAllPersonaRequests();
     expect(requests.every((r) => r.password === DEV_PASSWORD)).toBe(true);
@@ -68,9 +74,9 @@ describe('enumerateAllPersonaRequests', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('total count equals DEV_PERSONAS + TEST_PERSONAS', () => {
+  it('total count equals DEV_PERSONAS + TEST_PERSONAS + MOBILE_TEST_PERSONA', () => {
     const requests = enumerateAllPersonaRequests();
-    expect(requests).toHaveLength(DEV_PERSONAS.length + TEST_PERSONAS.length);
+    expect(requests).toHaveLength(DEV_PERSONAS.length + TEST_PERSONAS.length + 1);
   });
 });
 
@@ -87,7 +93,7 @@ describe('refreshCache', () => {
       workerCount: 1,
     });
 
-    const totalPersonas = DEV_PERSONAS.length + TEST_PERSONAS.length;
+    const totalPersonas = DEV_PERSONAS.length + TEST_PERSONAS.length + 1;
     expect(result.total).toBe(totalPersonas);
     expect(result.hits).toBe(0);
     expect(result.misses).toBe(totalPersonas);

@@ -136,17 +136,37 @@ export class ChatPage {
   }
 
   /**
-   * Count messages in the conversation. Happy path (instant): `data-message-count`
-   * from React state matches the DOM count of `[data-message-id]`, meaning
-   * every message is currently rendered. Otherwise scrolls top→bottom once
-   * collecting unique `data-message-id` values.
+   * Count messages in the conversation. Eventually-consistent: waits for
+   * `data-message-count` to stabilize (two consecutive reads agree) before
+   * trusting it, so callers can land immediately after a fork-tab switch or
+   * fresh navigation without separately gating on "messages loaded".
+   *
+   * After stabilization: happy path returns `stateCount` when it matches the
+   * DOM count of `[data-message-id]` (every message currently mounted);
+   * otherwise scrolls top→bottom once collecting unique `data-message-id`
+   * values.
    *
    * @param role - optional filter ('user' | 'assistant'); when set, counts only
    *               messages of that role (still scrolling through all to collect
    *               them reliably).
    */
   async countMessages(role?: 'user' | 'assistant'): Promise<number> {
-    const stateCount = Number(await this.messageList.getAttribute('data-message-count'));
+    // ipad-pro fork-tab switch lands on data-message-count=0 momentarily
+    // before the fork's parent-chain messages decrypt into React state.
+    // Requiring two consecutive agreeing reads lets that resolve naturally.
+    const readState = async (): Promise<number> => {
+      const v = Number(await this.messageList.getAttribute('data-message-count'));
+      return Number.isNaN(v) ? -1 : v;
+    };
+    let stateCount = await readState();
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      await this.page.waitForTimeout(100);
+      const next = await readState();
+      if (next === stateCount && next >= 0) break;
+      stateCount = next;
+    }
+
     const domCount = await this.messageList.locator('[data-message-id]').count();
 
     // Happy path: every message is already rendered, no scrolling needed.
@@ -419,10 +439,18 @@ export class ChatPage {
 
   /**
    * Wait until the matched media element has decoded bytes — `naturalWidth > 0`
-   * for `<img>`, a finite positive `duration` for `<video>`. `toBeVisible()`
-   * alone is insufficient on iPhone-15: a freshly-mounted lazy `<img>` with
-   * no `width`/`height` attributes can be in the DOM with a 0×0 bounding box
-   * and report as "hidden" until the bytes actually decode.
+   * for `<img>`, `readyState >= HAVE_METADATA` (with no `el.error`) for
+   * `<video>`. `toBeVisible()` alone is insufficient on iPhone-15: a
+   * freshly-mounted lazy `<img>` with no `width`/`height` attributes can be
+   * in the DOM with a 0×0 bounding box and report as "hidden" until the bytes
+   * actually decode.
+   *
+   * The video branch one-shot-nudges `el.load()` on first poll because
+   * WebKitGTK's GStreamer pipeline doesn't always fire `loadedmetadata` for
+   * `<video src=blob: preload="metadata">` without a programmatic kick. The
+   * sentinel keeps it idempotent so we don't restart the load on every poll.
+   * `el.error === null` is checked first so corrupt bytes still fail fast
+   * instead of being papered over by the nudge.
    */
   private async expectMediaLoaded(media: Locator, timeout = 15_000): Promise<void> {
     await unsettledExpect
@@ -431,7 +459,14 @@ export class ChatPage {
           media.evaluate((el) => {
             if (el instanceof HTMLImageElement) return el.naturalWidth;
             if (el instanceof HTMLVideoElement) {
-              return Number.isFinite(el.duration) && el.duration > 0 ? 1 : 0;
+              const v = el as HTMLVideoElement & { __pwLoadNudged?: boolean };
+              if (v.error !== null) return 0;
+              if (v.readyState >= 1) return 1;
+              if (!v.__pwLoadNudged) {
+                v.__pwLoadNudged = true;
+                v.load();
+              }
+              return 0;
             }
             return 0;
           }),
@@ -467,7 +502,18 @@ export class ChatPage {
                 .evaluate((el) => {
                   if (el instanceof HTMLImageElement) return el.naturalWidth > 0;
                   if (el instanceof HTMLVideoElement) {
-                    return Number.isFinite(el.duration) && el.duration > 0;
+                    // Mirrors expectMediaLoaded: one-shot `el.load()` nudge
+                    // for WebKitGTK's lazy-metadata-on-blob behavior, sentinel
+                    // prevents repeated cancel/restart cycles. Real corrupt
+                    // bytes still surface via `el.error`.
+                    const v = el as HTMLVideoElement & { __pwLoadNudged?: boolean };
+                    if (v.error !== null) return false;
+                    if (v.readyState >= 1) return true;
+                    if (!v.__pwLoadNudged) {
+                      v.__pwLoadNudged = true;
+                      v.load();
+                    }
+                    return false;
                   }
                   return false;
                 })

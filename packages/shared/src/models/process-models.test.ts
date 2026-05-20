@@ -992,7 +992,7 @@ describe('pickValueTextModel', () => {
       createModel({
         id: 'old/stable-value',
         modality: 'text',
-        pricing: { prompt: '0.000003', completion: '0.000003' },
+        pricing: { prompt: '0.000001', completion: '0.000001' },
         created: oldCreated,
       }),
     ];

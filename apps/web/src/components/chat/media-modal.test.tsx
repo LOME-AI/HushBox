@@ -29,6 +29,13 @@ describe('MediaModal', () => {
     expect(document.querySelector('img')).toBeNull();
   });
 
+  it('sets playsInline on the modal <video> for iOS Safari inline playback', () => {
+    render(<MediaModal {...defaultProps} mimeType="video/mp4" />);
+    const video = document.querySelector('video');
+    expect(video).not.toBeNull();
+    expect(video!.playsInline).toBe(true);
+  });
+
   it('renders audio when mimeType starts with audio/', () => {
     render(<MediaModal {...defaultProps} mimeType="audio/mpeg" />);
 

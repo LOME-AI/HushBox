@@ -7,7 +7,7 @@ import {
   loginViaUI,
 } from '../helpers/auth.js';
 import { DEV_PASSWORD } from '../../packages/shared/src/constants.js';
-import { personaEmail } from '../helpers/personas.js';
+import { personaEmail, personaUsername } from '../helpers/personas.js';
 
 test.describe('Login & Session', () => {
   test.beforeEach(async ({ request }, testInfo) => {
@@ -30,7 +30,7 @@ test.describe('Login & Session', () => {
     test('login with username navigates to /chat', async ({ unauthenticatedPage }) => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
-      await loginPage.loginAndWaitForChat('test alice', DEV_PASSWORD);
+      await loginPage.loginAndWaitForChat(personaUsername('test-alice'), DEV_PASSWORD);
       await expect(unauthenticatedPage).toHaveURL('/chat');
     });
 

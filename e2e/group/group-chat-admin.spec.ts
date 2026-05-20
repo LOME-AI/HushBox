@@ -3,7 +3,7 @@ import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { searchAndSelectMember } from '../helpers/add-member.js';
 import { expectAccessRevoked } from '../helpers/member-actions.js';
 import { closeOverlay } from '../helpers/overlay.js';
-import { personaEmail } from '../helpers/personas.js';
+import { personaEmail, personaUsername } from '../helpers/personas.js';
 
 test.describe('Group Chat Admin', () => {
   test.describe.configure({ mode: 'serial' });
@@ -214,7 +214,7 @@ test.describe('Group Chat Admin', () => {
     await sidebar.waitForLoaded();
 
     await test.step('open add member modal and search for Dave', async () => {
-      await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
+      await searchAndSelectMember(authenticatedPage, sidebar, personaUsername('test-dave'));
     });
 
     await test.step('set privilege and history, submit', async () => {
@@ -232,7 +232,7 @@ test.describe('Group Chat Admin', () => {
     await test.step('sidebar updates with new member', async () => {
       await sidebar.expectMemberCount(3);
       await sidebar.expectSectionVisible('write');
-      await expect(sidebar.findMemberByUsername('test dave')).toBeVisible();
+      await expect(sidebar.findMemberByUsername(personaUsername('test-dave'))).toBeVisible();
     });
 
     await test.step('Dave can access conversation and sees full history', async () => {
@@ -243,7 +243,7 @@ test.describe('Group Chat Admin', () => {
       await daveChatPage.expectMessageVisible('Hi from Bob');
     });
 
-    const daveMemberId = await sidebar.getMemberIdByUsername('test dave');
+    const daveMemberId = await sidebar.getMemberIdByUsername(personaUsername('test-dave'));
 
     await test.step('change Dave to read privilege', async () => {
       await sidebar.openMemberActions(daveMemberId);
@@ -277,7 +277,7 @@ test.describe('Group Chat Admin', () => {
       await sidebar.expectMemberInSection(daveMemberId, 'admin');
     });
 
-    const bobMemberId = await sidebar.getMemberIdByUsername('test bob');
+    const bobMemberId = await sidebar.getMemberIdByUsername(personaUsername('test-bob'));
 
     await test.step('cancel remove keeps member', async () => {
       await sidebar.openMemberActions(bobMemberId);
@@ -571,7 +571,7 @@ test.describe('Group Chat Admin', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
+      await searchAndSelectMember(authenticatedPage, sidebar, personaUsername('test-dave'));
 
       await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('write');
 
