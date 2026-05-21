@@ -85,6 +85,15 @@ interface MessageListProps {
   isLinkGuest?: boolean;
   /** The caller's privilege level */
   callerPrivilege?: MemberPrivilege | undefined;
+  /**
+   * Parent-derived signal that the message list reflects the final data for
+   * the current conversation/fork — conversation query loaded, fork resolved,
+   * decryption pass complete. Tests wait on this attribute before reading
+   * `data-message-count` to avoid the "stable at 0 mid-decryption" race that
+   * the legacy polling helper had. Defaults to `false` so a missing prop
+   * never lets a test trust an in-flight render.
+   */
+  messagesReady?: boolean | undefined;
 }
 
 export interface MessageListHandle extends VirtuosoHandle {
@@ -124,6 +133,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     isAuthenticated,
     isLinkGuest,
     callerPrivilege,
+    messagesReady = false,
   },
   ref
 ) {
@@ -247,6 +257,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         data-testid="message-list-empty"
         data-message-count={0}
         data-decrypted-count={0}
+        data-messages-ready={String(messagesReady)}
         className="flex flex-1 items-center justify-center"
       >
         <p className="text-muted-foreground">No messages yet</p>
@@ -331,6 +342,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       data-decrypted-count={decryptedCount}
       data-rows-count={rows.length}
       data-virtuoso-scrolling={String(isVirtuosoScrolling)}
+      data-messages-ready={String(messagesReady)}
       className="h-full min-h-0 flex-1"
     >
       <Virtuoso<MessageRow>
@@ -342,6 +354,14 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         followOutput={followOutput}
         atBottomStateChange={handleAtBottomStateChange}
         atBottomThreshold={atBottomThreshold}
+        // Keep rows mounted ~one viewport above and below the visible area.
+        // Accessibility: screen readers + browser find-in-page need
+        // off-screen content in the DOM. Also closes a race where a tile's
+        // post-stream size grows (e.g. media bytes arriving) pushes the
+        // previous-bottom row outside the visible area; without overscan
+        // Virtuoso unmounts it before the user (or an E2E assertion) can
+        // see it.
+        increaseViewportBy={{ top: 800, bottom: 800 }}
         itemContent={(_index, row) => {
           if (row.message === undefined) return null;
           return renderMessageItem(row.message, row.isStreaming, row.isError, row.group);

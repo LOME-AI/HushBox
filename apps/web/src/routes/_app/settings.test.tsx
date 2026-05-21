@@ -68,6 +68,23 @@ vi.mock('@/hooks/useDeleteAccount', () => ({
   useDeleteAccountFinish: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
 }));
 
+vi.mock('@/hooks/auth-mutations', () => ({
+  useChangePassword: vi.fn(() => ({
+    mutateAsync: async (variables: {
+      currentPassword: string;
+      newPassword: string;
+    }): Promise<{ success: boolean; error?: string }> => {
+      const result = (await mockChangePassword(
+        variables.currentPassword,
+        variables.newPassword
+      )) as { success: boolean; error?: string };
+      if (!result.success) throw new Error(result.error ?? 'CHANGE_PASSWORD_FAILED');
+      return result;
+    },
+    isPending: false,
+  })),
+}));
+
 // RecoveryPhraseModal imports getApiUrl from @/lib/api
 vi.mock('@/lib/api', () => ({
   getApiUrl: vi.fn(() => 'http://localhost:8787'),

@@ -410,6 +410,7 @@ export function AuthenticatedChatPage({
         onFork={fm.handleForkFromMessage}
         isEditing={editingMessageId !== null}
         onCancelEdit={handleCancelEdit}
+        messagesReady={chat.messagesReady}
       />
       <ForkDialogs fm={fm} />
     </>

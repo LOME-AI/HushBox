@@ -93,6 +93,11 @@ test.describe('Multi-Model Media', () => {
       await expect(successImage.first()).toBeVisible({ timeout: 15_000 });
 
       const errorTile = authenticatedPage.getByTestId('model-error-message');
+      // Scroll into view before asserting. Virtuoso's overscan keeps the row
+      // mounted (see message-list.tsx `increaseViewportBy`), but post-stream
+      // layout shift (media bytes resolving) can land it just outside the
+      // visible area. The scroll is a no-op when the row is already visible.
+      await errorTile.scrollIntoViewIfNeeded({ timeout: 15_000 });
       await unsettledExpect(errorTile).toBeVisible({ timeout: 15_000 });
 
       // Lane 9 #6: server-side persistence parity with text partial-failure.
@@ -209,6 +214,11 @@ test.describe('Multi-Model Media', () => {
       await expect(successVideo.first()).toBeVisible({ timeout: 15_000 });
 
       const errorTile = authenticatedPage.getByTestId('model-error-message');
+      // Scroll into view before asserting. Virtuoso's overscan keeps the row
+      // mounted (see message-list.tsx `increaseViewportBy`), but post-stream
+      // layout shift (media bytes resolving) can land it just outside the
+      // visible area. The scroll is a no-op when the row is already visible.
+      await errorTile.scrollIntoViewIfNeeded({ timeout: 15_000 });
       await unsettledExpect(errorTile).toBeVisible({ timeout: 15_000 });
 
       // Lane 9 #6 (video): same server-side persistence parity check.

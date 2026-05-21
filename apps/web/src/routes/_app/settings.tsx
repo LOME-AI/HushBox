@@ -5,7 +5,8 @@ import { Shield, Key, FileText, Scale, ChevronRight, MessageSquare } from 'lucid
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@hushbox/ui';
 import { PRIVACY_POLICY_META } from '@hushbox/shared/legal';
 import { ROUTES } from '@hushbox/shared';
-import { requireAuth, changePassword, useAuthStore } from '@/lib/auth';
+import { requireAuth, useAuthStore } from '@/lib/auth';
+import { useChangePassword } from '@/hooks/auth-mutations';
 import { openExternalPage } from '@/capacitor';
 import { PageHeader } from '@/components/shared/page-header';
 import { PageBody } from '@/components/shared/page-body';
@@ -164,14 +165,21 @@ export function SettingsPage(): React.JSX.Element {
     }
   }, []);
 
+  const changePasswordMutation = useChangePassword();
   const handleChangePasswordSubmit = useCallback(
     async (data: {
       currentPassword: string;
       newPassword: string;
     }): Promise<{ success: boolean; error?: string }> => {
-      return changePassword(data.currentPassword, data.newPassword);
+      try {
+        await changePasswordMutation.mutateAsync(data);
+        return { success: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : undefined;
+        return { success: false, ...(message !== undefined && { error: message }) };
+      }
     },
-    []
+    [changePasswordMutation]
   );
 
   const handleRecoveryClick = useCallback(() => {

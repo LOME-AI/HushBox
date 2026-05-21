@@ -186,6 +186,24 @@ describe('MessageList', () => {
     expect(emptyState).toHaveAttribute('data-message-count', '0');
   });
 
+  it('renders data-messages-ready="false" by default so tests can wait for parent readiness', () => {
+    render(<MessageList messages={messages} />);
+    const container = screen.getByTestId('message-list');
+    expect(container).toHaveAttribute('data-messages-ready', 'false');
+  });
+
+  it('renders data-messages-ready="true" when the parent passes messagesReady', () => {
+    render(<MessageList messages={messages} messagesReady />);
+    const container = screen.getByTestId('message-list');
+    expect(container).toHaveAttribute('data-messages-ready', 'true');
+  });
+
+  it('exposes data-messages-ready on the empty-state log too', () => {
+    render(<MessageList messages={[]} messagesReady />);
+    const emptyState = screen.getByTestId('message-list-empty');
+    expect(emptyState).toHaveAttribute('data-messages-ready', 'true');
+  });
+
   it('exposes data-message-id on every rendered message item', () => {
     render(<MessageList messages={messages} />);
     const messageItems = screen.getAllByTestId('message-item');

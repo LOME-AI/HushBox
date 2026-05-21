@@ -97,6 +97,7 @@ interface UseAuthenticatedChatResult {
   readonly state: ReturnType<typeof useChatPageState>;
   readonly renderState: RenderState;
   readonly messages: Message[];
+  readonly messagesReady: boolean;
   readonly historyCharacters: number;
   readonly displayTitle: string | undefined;
   readonly inputDisabled: boolean;
@@ -559,6 +560,22 @@ function handleRegenerationError(
     );
     promptInputRef.current?.focus();
   }
+}
+
+/**
+ * Mirrors the conditions for "MessageList shows final data": past the
+ * create-mode placeholder, conversation query loaded, no in-flight
+ * decryption pass. E2E tests gate `countMessages` on the resulting
+ * `data-messages-ready` attribute so the helper never reads
+ * `data-message-count` mid-decryption (where it would be 0 momentarily
+ * and the polling helper would mistake that for "stable empty").
+ */
+function deriveMessagesReady(
+  isCreateMode: boolean,
+  isConversationLoading: boolean,
+  isDecryptionPending: boolean
+): boolean {
+  return !isCreateMode && !isConversationLoading && !isDecryptionPending;
 }
 
 export function useAuthenticatedChat({
@@ -1399,10 +1416,17 @@ export function useAuthenticatedChat({
 
   const errorMessageId: string | undefined = chatError?.id;
 
+  const messagesReady = deriveMessagesReady(
+    isCreateMode,
+    isConversationLoading,
+    isDecryptionPending
+  );
+
   return {
     state,
     renderState,
     messages: allMessages,
+    messagesReady,
     historyCharacters,
     displayTitle,
     inputDisabled,

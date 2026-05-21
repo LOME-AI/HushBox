@@ -111,6 +111,8 @@ interface ChatLayoutProps {
   readonly isLinkGuest?: boolean | undefined;
   readonly isEditing?: boolean | undefined;
   readonly onCancelEdit?: (() => void) | undefined;
+  /** See MessageList docs — parent-derived signal that messages reflect final data. */
+  readonly messagesReady?: boolean | undefined;
 }
 
 interface MobileInputStyleInput {
@@ -488,6 +490,7 @@ interface ChatMainContentProps {
   readonly callerPrivilege: MemberPrivilege | undefined;
   readonly conversationId: string | undefined;
   readonly activeForkId: string | null | undefined;
+  readonly messagesReady: boolean | undefined;
 }
 
 // Drives MessageList remount on conversation/fork switch so Virtuoso re-applies
@@ -518,6 +521,7 @@ function ChatMainContent({
   callerPrivilege,
   conversationId,
   activeForkId,
+  messagesReady,
 }: Readonly<ChatMainContentProps>): React.JSX.Element {
   const showDecrypting = messages.length === 0 && isDecrypting;
   const messageListKey = buildMessageListKey(conversationId, activeForkId);
@@ -536,6 +540,7 @@ function ChatMainContent({
           isAuthenticated={isAuthenticated}
           isLinkGuest={isLinkGuest}
           callerPrivilege={callerPrivilege}
+          messagesReady={messagesReady}
           {...(onRegenerate !== undefined && { onRegenerate })}
           {...(onEdit !== undefined && { onEdit })}
           {...(onFork !== undefined && { onFork })}
@@ -816,6 +821,7 @@ export function ChatLayout({
   isLinkGuest,
   isEditing,
   onCancelEdit,
+  messagesReady,
 }: ChatLayoutProps): React.JSX.Element {
   const viewportHeight = useVisualViewportHeight();
   const isMobile = useIsMobile();
@@ -986,6 +992,7 @@ export function ChatLayout({
           callerPrivilege={callerPrivilege}
           conversationId={conversationId}
           activeForkId={activeForkId}
+          messagesReady={messagesReady}
         />
         <DocumentPanel />
         {conversationId !== undefined && (

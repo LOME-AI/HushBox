@@ -137,37 +137,27 @@ export class ChatPage {
   }
 
   /**
-   * Count messages in the conversation. Eventually-consistent: waits for
-   * `data-message-count` to stabilize (two consecutive reads agree) before
-   * trusting it, so callers can land immediately after a fork-tab switch or
-   * fresh navigation without separately gating on "messages loaded".
+   * Count messages in the conversation. Gates on the app-emitted
+   * `data-messages-ready="true"` signal first so we never read
+   * `data-message-count` mid-decryption (where it sits at 0 momentarily on
+   * fork-tab switch / fresh navigation and the old "stable count" polling
+   * would mistake that for "stable empty").
    *
-   * After stabilization: happy path returns `stateCount` when it matches the
-   * DOM count of `[data-message-id]` (every message currently mounted);
-   * otherwise scrolls top→bottom once collecting unique `data-message-id`
-   * values.
+   * Happy path: returns `stateCount` when it matches the DOM count of
+   * `[data-message-id]` (every message currently mounted). Otherwise scrolls
+   * top→bottom once collecting unique `data-message-id` values — covers
+   * virtualized chats where Virtuoso unmounts off-screen rows.
    *
    * @param role - optional filter ('user' | 'assistant'); when set, counts only
    *               messages of that role (still scrolling through all to collect
    *               them reliably).
    */
   async countMessages(role?: 'user' | 'assistant'): Promise<number> {
-    // ipad-pro fork-tab switch lands on data-message-count=0 momentarily
-    // before the fork's parent-chain messages decrypt into React state.
-    // Requiring two consecutive agreeing reads lets that resolve naturally.
-    const readState = async (): Promise<number> => {
-      const v = Number(await this.messageList.getAttribute('data-message-count'));
-      return Number.isNaN(v) ? -1 : v;
-    };
-    let stateCount = await readState();
-    const deadline = Date.now() + 10_000;
-    while (Date.now() < deadline) {
-      await this.page.waitForTimeout(100);
-      const next = await readState();
-      if (next === stateCount && next >= 0) break;
-      stateCount = next;
-    }
+    await this.messageList
+      .and(this.page.locator('[data-messages-ready="true"]'))
+      .waitFor({ timeout: 10_000 });
 
+    const stateCount = Number(await this.messageList.getAttribute('data-message-count'));
     const domCount = await this.messageList.locator('[data-message-id]').count();
 
     // Happy path: every message is already rendered, no scrolling needed.
@@ -224,6 +214,13 @@ export class ChatPage {
   async assertMessageNotVisible(text: string, options?: { exact?: boolean }): Promise<void> {
     const exact = options?.exact ?? false;
     const locator = this.messageList.getByText(text, { exact });
+
+    // Same gate as countMessages: don't read `data-message-count` until the
+    // app has finished its decryption pass, or the negative check could
+    // succeed against a transient "messages.length=0" render.
+    await this.messageList
+      .and(this.page.locator('[data-messages-ready="true"]'))
+      .waitFor({ timeout: 10_000 });
 
     const stateCount = Number(await this.messageList.getAttribute('data-message-count'));
     const domCount = await this.messageList.locator('[data-message-id]').count();
