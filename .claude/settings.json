@@ -3,13 +3,16 @@
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "permissions": {
+    "allow": ["mcp__linear-server"],
     "deny": [
       "Bash(git stash:*)",
       "Bash(git checkout -- :*)",
       "Bash(git checkout .:*)",
       "Bash(git restore:*)",
       "Bash(git reset --hard:*)",
-      "Bash(git clean:*)"
+      "Bash(git clean:*)",
+      "mcp__linear-server__delete_*",
+      "mcp__linear-server__remove_*"
     ]
   }
 }

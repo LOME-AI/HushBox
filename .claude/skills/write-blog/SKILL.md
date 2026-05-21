@@ -128,6 +128,8 @@ Lucid. Principled. Unhurried. Precise. Confident without arrogance. Technically 
 
 ## Anti-Slop Rules
 
+> Sync: this content is duplicated in `.claude/skills/anti-ai-writing/SKILL.md`, `.claude/agents/linear-task-manager.md`, and `.claude/skills/backfill-linear/SKILL.md`. If you modify rules here, update those files to match.
+
 This is the most important section of this skill. AI-generated writing has recognizable fingerprints. HushBox's blog must read as if a human with strong opinions and deep knowledge wrote it. Every draft MUST pass this checklist before being shown to the user.
 
 ### Banned Vocabulary
