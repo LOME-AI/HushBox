@@ -1,0 +1,29 @@
+---
+import LandingLayout from '../layouts/LandingLayout.astro';
+import LandingHeader from '../components/LandingHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import { RoadmapIsland } from '../components/roadmap/RoadmapIsland';
+---
+
+<LandingLayout
+  title="Roadmap"
+  description="What HushBox is building. A live view of our work, pulled from Linear."
+>
+  <LandingHeader />
+
+  <main class="flex-1 pt-20">
+    <section class="mx-auto max-w-6xl px-6 py-12">
+      <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">Roadmap</h1>
+      <p class="text-foreground-muted mt-3 max-w-2xl">
+        What we're building, broken down by project. Pulled live from our Linear workspace and
+        cached for an hour.
+      </p>
+
+      <div class="mt-12 min-h-[60vh]" data-roadmap-container>
+        <RoadmapIsland client:visible />
+      </div>
+    </section>
+  </main>
+
+  <SiteFooter />
+</LandingLayout>

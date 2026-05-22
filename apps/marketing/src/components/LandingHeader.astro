@@ -38,6 +38,10 @@ function formatStars(count: number): string {
         class="text-foreground-muted hover:text-foreground text-sm transition-colors">Blog</a
       >
       <a
+        href={ROUTES.ROADMAP}
+        class="text-foreground-muted hover:text-foreground text-sm transition-colors">Roadmap</a
+      >
+      <a
         href={ROUTES.PRIVACY}
         class="text-foreground-muted hover:text-foreground text-sm transition-colors">Privacy</a
       >
@@ -91,6 +95,7 @@ function formatStars(count: number): string {
         <span>{formatStars(starCount)}</span>
       </a>
       <a href={ROUTES.BLOG} class="text-foreground-muted text-sm">Blog</a>
+      <a href={ROUTES.ROADMAP} class="text-foreground-muted text-sm">Roadmap</a>
       <a href={ROUTES.PRIVACY} class="text-foreground-muted text-sm">Privacy</a>
       <a href={ROUTES.TERMS} class="text-foreground-muted text-sm">Terms</a>
       <a href={ROUTES.LOGIN} class="text-foreground-muted text-sm">Log In</a>

@@ -5,6 +5,7 @@ export const SERVICE_NAMES = {
   AI_GATEWAY: 'ai-gateway',
   HELCIM: 'helcim',
   HOOKDECK: 'hookdeck',
+  LINEAR: 'linear',
   R2_STORAGE: 'r2-storage',
   R2_GC: 'r2-gc',
   BILLING_MISMATCH: 'billing-mismatch',

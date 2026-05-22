@@ -32,7 +32,18 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `tsx scripts/kill-ports.ts HB_PREVIEW_PORT && ${envGen}${dbReset}pnpm --filter @hushbox/web build --mode development && pnpm --filter @hushbox/web preview --port ${previewPort}`,
+      // Build web + marketing, then merge marketing on top of web's dist via
+      // the same scripts/merge-marketing-into-web.ts that CI (ci.yml and
+      // release.yml) calls. This makes `vite preview` serve exactly what
+      // Cloudflare Pages serves in production — /chat, /roadmap, /welcome,
+      // /blog all reachable from one origin — and removes the prior divergence
+      // where E2E only knew about the web app's routes.
+      command:
+        `tsx scripts/kill-ports.ts HB_PREVIEW_PORT && ${envGen}${dbReset}` +
+        `pnpm --filter @hushbox/marketing build --mode development && ` +
+        `pnpm --filter @hushbox/web build --mode development && ` +
+        `pnpm tsx scripts/merge-marketing-into-web.ts && ` +
+        `pnpm --filter @hushbox/web preview --port ${previewPort}`,
       url: previewUrl,
       reuseExistingServer: false,
       timeout: 120_000,

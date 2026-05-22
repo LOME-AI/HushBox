@@ -25,6 +25,7 @@ export const ROUTES = {
 
   MARKETING: '/welcome',
   BLOG: '/blog',
+  ROADMAP: '/roadmap',
   PRIVACY: '/privacy',
   TERMS: '/terms',
 
@@ -38,6 +39,7 @@ export const FOOTER_LINKS = [
   { group: 'Product', label: 'Welcome', href: ROUTES.MARKETING },
   { group: 'Product', label: 'Chat', href: ROUTES.CHAT },
   { group: 'Product', label: 'Blog', href: ROUTES.BLOG },
+  { group: 'Product', label: 'Roadmap', href: ROUTES.ROADMAP },
   { group: 'Account', label: 'Log In', href: ROUTES.LOGIN },
   { group: 'Account', label: 'Sign Up', href: ROUTES.SIGNUP },
   { group: 'Legal', label: 'Privacy', href: ROUTES.PRIVACY },

@@ -3,5 +3,6 @@ export * from './conversations.js';
 export * from './error.js';
 export * from './message-shares.js';
 export * from './models.js';
+export * from './roadmap.js';
 export * from './sse-events.js';
 export * from './usage.js';

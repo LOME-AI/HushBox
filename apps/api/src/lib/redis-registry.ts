@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { roadmapResponseSchema } from '@hushbox/shared';
 import { SESSION_MAX_AGE_SECONDS } from './session.js';
 import type { Redis } from '@upstash/redis';
 
@@ -187,6 +188,17 @@ export const REDIS_REGISTRY = {
     buildKey: (ipHash: string) => `trial:chat:stream:ip:ratelimit:${ipHash}`,
     rateLimitConfig: { maxAttempts: 20, windowSeconds: 60 },
   }),
+  // Per-IP cap on the UNAUTHENTICATED public roadmap endpoint. The response
+  // is heavily cached (1h Redis + 5min CDN edge) so this primarily caps
+  // scrape-style traffic that bypasses the edge cache by varying headers.
+  // 30/60s aligns with shareGetIpRateLimit; a marketing roadmap page does
+  // not refresh that frequently in normal use.
+  roadmapIpRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (ipHash: string) => `roadmap:ip:ratelimit:${ipHash}`,
+    rateLimitConfig: { maxAttempts: 30, windowSeconds: 60 },
+  }),
 
   // Lockout keys
   loginLockout: defineKey({
@@ -312,6 +324,17 @@ export const REDIS_REGISTRY = {
     schema: z.object({ userId: z.string() }),
     ttl: 60,
     buildKey: (token: string) => `billing:login-token:${token}`,
+  }),
+
+  // Public roadmap cache. Key is `roadmap:<teamKey>:<layoutVersion>` where
+  // layoutVersion is a SHA-256 prefix of the layout module source produced
+  // by `getLayoutVersion` at runtime — so a layout-code change automatically
+  // points future reads at a fresh key.
+  roadmapCache: defineKey({
+    schema: roadmapResponseSchema,
+    ttl: 60 * 60,
+    buildKey: (teamKey: string, layoutVersion: string) =>
+      `roadmap:${teamKey.toLowerCase()}:${layoutVersion}`,
   }),
 
   // Session tracking

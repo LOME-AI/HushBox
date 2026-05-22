@@ -194,6 +194,18 @@ export const envConfig = {
     // NOT in ciVitest or e2e - only CI e2e and production need real Helcim
   },
 
+  // Linear read-only API key for the public /roadmap page. One key used in
+  // both CI integration tests (catches Linear GraphQL schema breaks) and
+  // production. NOT in Development / E2E / CiE2E — those modes use the mock
+  // Linear client per the factory at apps/api/src/services/linear/index.ts.
+  // Mirrors the AI_GATEWAY_API_KEY pattern but with a single GitHub secret
+  // name because there is no permission difference between CI and prod.
+  LINEAR_API_KEY_READ: {
+    to: [Destination.Backend],
+    [Mode.CiVitest]: secret('LINEAR_API_KEY_READ'),
+    [Mode.Production]: secret('LINEAR_API_KEY_READ'),
+  },
+
   HELCIM_WEBHOOK_VERIFIER: {
     to: [Destination.Backend],
     [Mode.Development]: 'bW9jay13ZWJob29rLXZlcmlmaWVyLXNlY3JldC0zMmI=', // Mock verifier for local webhook testing
@@ -322,6 +334,7 @@ export const backendEnvSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   HELCIM_API_TOKEN: z.string().optional(),
   HELCIM_WEBHOOK_VERIFIER: z.string().optional(),
+  LINEAR_API_KEY_READ: z.string().min(1).optional(),
   FCM_PROJECT_ID: z.string().optional(),
   FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
   // Redis

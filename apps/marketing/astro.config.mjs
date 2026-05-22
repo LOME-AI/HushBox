@@ -15,6 +15,11 @@ export default defineConfig({
     port: Number(astroPort ?? 4321),
   },
   vite: {
+    // Read env files from the repo root (where `pnpm generate:env` writes
+    // `.env.development`) instead of `apps/marketing/`. Mirrors the same
+    // override in `apps/web/vite.config.ts` so both apps see the single
+    // generated env file.
+    envDir: '../..',
     plugins: [
       tailwindcss(),
       {

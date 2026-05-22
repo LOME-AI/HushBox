@@ -36,6 +36,7 @@ describe('evidence', () => {
       expect(SERVICE_NAMES.AI_GATEWAY).toBe('ai-gateway');
       expect(SERVICE_NAMES.HELCIM).toBe('helcim');
       expect(SERVICE_NAMES.HOOKDECK).toBe('hookdeck');
+      expect(SERVICE_NAMES.LINEAR).toBe('linear');
     });
 
     it('exports R2 storage, R2 GC and billing-mismatch service names', () => {

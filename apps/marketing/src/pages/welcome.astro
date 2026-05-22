@@ -31,9 +31,13 @@ import type { Model } from '@hushbox/shared';
 
 // Fetch models from the deployed API at build time. Staleness until next
 // marketing deploy is acceptable. If the API is unreachable, the page renders
-// with empty data via the existing fallback paths.
-const apiUrl: string =
-  (import.meta.env.PUBLIC_API_URL as string | undefined) ?? 'http://localhost:8818';
+// with empty data via the catch below.
+const apiUrl: string | undefined = import.meta.env.VITE_API_URL;
+if (apiUrl === undefined || apiUrl.length === 0) {
+  throw new Error(
+    'VITE_API_URL is required for marketing builds. Check envConfig and run pnpm generate:env.',
+  );
+}
 let models: Model[] = [];
 try {
   const response = await fetch(`${apiUrl}/api/models`);

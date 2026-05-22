@@ -29,6 +29,7 @@ import {
   mediaRoute,
   trialChatRoute,
   modelsRoute,
+  roadmapRoute,
   billingRoute,
   webhooksRoute,
   opaqueAuthRoute,
@@ -142,6 +143,11 @@ export function createApp() {
   base.use('/api/models/*', csrfProtection());
   base.use('/api/models/*', aiClientMiddleware());
 
+  // Public read-only roadmap. Unauthenticated; per-IP rate-limited inside
+  // the route. Needs Redis for both the rate limiter and the response
+  // cache, but no DB, session, or media-storage.
+  base.use('/api/roadmap/*', redisMiddleware());
+
   base.use('/api/billing/*', csrfProtection());
   base.use('/api/billing/*', dbMiddleware());
   base.use('/api/billing/*', redisMiddleware());
@@ -201,6 +207,7 @@ export function createApp() {
     .route('/api/forks', forksRoute)
     .route('/api/trial', trialChatRoute)
     .route('/api/models', modelsRoute)
+    .route('/api/roadmap', roadmapRoute)
     .route('/api/billing', billingRoute)
     .route('/api/webhooks', webhooksRoute)
     .route('/api/ws', websocketRoute)

@@ -101,7 +101,7 @@ jobs:
           VITE_APP_VERSION: ${{ needs.prepare-version.outputs.version }}
         # END GENERATED: build-env-web-release
       - name: Merge marketing into web dist
-        run: cp -r apps/marketing/dist/* apps/web/dist/
+        run: pnpm tsx scripts/merge-marketing-into-web.ts
       - name: Upload web build artifact
         uses: actions/upload-artifact@v6
         with:
