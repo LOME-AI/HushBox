@@ -24,7 +24,11 @@ export function MorphHeight({ children }: Readonly<MorphHeightProps>): React.JSX
       // 0.25s: bottom-row modality swap is short and decorative; longer durations
       // make the input feel laggy on every modality click.
       transition={{ duration: 0.25, ease: 'easeInOut' }}
-      className="overflow-hidden"
+      // overflow-y only: vertical clip is required for the height tween, but
+      // overflow-x: hidden silently swallows clicks on children that overflow
+      // their parent (e.g. the chat send button on narrow viewports), since
+      // Android WebView hit-testing respects the clip.
+      className="overflow-y-hidden"
     >
       <div ref={contentRef}>{children}</div>
     </motion.div>

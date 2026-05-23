@@ -115,7 +115,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/firefox/test-alice.json',
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**', '**/smoke.spec.ts'],
+      testIgnore: ['**/mobile/**'],
       dependencies: ['setup-firefox'],
     },
     {
@@ -125,7 +125,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/webkit/test-alice.json',
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**', '**/smoke.spec.ts'],
+      testIgnore: ['**/mobile/**'],
       dependencies: ['setup-webkit'],
     },
     {
@@ -134,7 +134,6 @@ export default defineConfig({
         ...devices['iPhone 15'],
         storageState: 'e2e/.auth/iphone-15/test-alice.json',
       },
-      testIgnore: ['**/smoke.spec.ts'],
       dependencies: ['setup-iphone-15'],
     },
     {
@@ -143,7 +142,6 @@ export default defineConfig({
         ...devices['Pixel 7'],
         storageState: 'e2e/.auth/pixel-7/test-alice.json',
       },
-      testIgnore: ['**/smoke.spec.ts'],
       dependencies: ['setup-pixel-7'],
     },
     {
@@ -152,7 +150,6 @@ export default defineConfig({
         ...devices['iPad Pro 11'],
         storageState: 'e2e/.auth/ipad-pro/test-alice.json',
       },
-      testIgnore: ['**/smoke.spec.ts'],
       dependencies: ['setup-ipad-pro'],
     },
   ],

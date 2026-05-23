@@ -455,7 +455,11 @@ function TextBottomRow({
       <CapacityBar
         currentUsage={capacity.currentUsage}
         maxCapacity={capacity.maxCapacity}
-        className="flex-1"
+        // min-w-0 lets the flex item shrink below its intrinsic content width
+        // so the toolbar+send group on the right never overflows the row on
+        // narrow viewports. Without this, the bar's auto min-width pins the
+        // left side and pushes the send button past the parent.
+        className="flex-1 min-w-0"
         data-testid="capacity-bar"
       />
       <div className="flex items-center gap-2">
