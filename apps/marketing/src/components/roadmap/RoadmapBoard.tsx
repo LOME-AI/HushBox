@@ -78,10 +78,7 @@ function BoardSkeleton(): React.JSX.Element {
 
 function BoardError(): React.JSX.Element {
   return (
-    <div
-      role="alert"
-      className="border-border bg-background rounded-md border p-6 text-center"
-    >
+    <div role="alert" className="border-border bg-background rounded-md border p-6 text-center">
       <p className="text-foreground-muted text-sm">
         The roadmap is temporarily unavailable. Please try again shortly.
       </p>

@@ -14,14 +14,14 @@ function makeStubRedis(): { redis: Redis; calls: RedisCall[]; store: Map<string,
   const store = new Map<string, unknown>();
   const calls: RedisCall[] = [];
   const redis = {
-    get: async (key: string) => {
+    get: (key: string) => {
       calls.push({ op: 'get', key });
-      return store.has(key) ? store.get(key) : null;
+      return Promise.resolve(store.has(key) ? store.get(key) : null);
     },
-    set: async (key: string, value: unknown, options: unknown) => {
+    set: (key: string, value: unknown, options: unknown) => {
       calls.push({ op: 'set', key, value, options });
       store.set(key, value);
-      return 'OK';
+      return Promise.resolve('OK');
     },
   } as unknown as Redis;
   return { redis, calls, store };

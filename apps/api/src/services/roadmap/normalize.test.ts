@@ -76,7 +76,7 @@ describe('normalizeRoadmap', () => {
     const projectStatuses = result.nodes
       .filter((n) => n.kind === 'project')
       .map((n) => `${n.title}=${n.status}`)
-      .sort();
+      .toSorted((a, b) => a.localeCompare(b));
     expect(projectStatuses).toEqual([
       'Back=planned',
       'Done=shipped',
@@ -361,10 +361,7 @@ describe('normalizeRoadmap', () => {
     it('returns N/N when every task is shipped', async () => {
       const data = makeData({
         projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'completed' }],
-        issues: [
-          makeFeature('a', 'p1', 'completed'),
-          makeFeature('b', 'p1', 'completed'),
-        ],
+        issues: [makeFeature('a', 'p1', 'completed'), makeFeature('b', 'p1', 'completed')],
       });
       const result = await normalizeRoadmap(data);
       const project = result.nodes.find((n) => n.kind === 'project');

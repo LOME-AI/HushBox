@@ -120,9 +120,9 @@ describe('CipherWall', () => {
   });
 
   it('throws when fadeMask is radial but fadeMaskTarget is missing', () => {
-    expect(() => render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} fadeMask="radial" />)).toThrow(
-      'CipherWall: fadeMask="radial" requires fadeMaskTarget selector'
-    );
+    expect(() =>
+      render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} fadeMask="radial" />)
+    ).toThrow('CipherWall: fadeMask="radial" requires fadeMaskTarget selector');
   });
 
   it('computes pixel-based radial mask from fadeMaskTarget element', () => {
@@ -136,7 +136,13 @@ describe('CipherWall', () => {
 
     setupResizeObserver();
 
-    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} fadeMask="radial" fadeMaskTarget="[data-target]" />);
+    render(
+      <CipherWall
+        messages={TEST_MESSAGES_FOR_RENDER}
+        fadeMask="radial"
+        fadeMaskTarget="[data-target]"
+      />
+    );
     const canvas = screen.getByTestId('cipher-wall');
 
     expect(canvas.style.maskImage).toContain('300px');
@@ -153,7 +159,13 @@ describe('CipherWall', () => {
     );
 
     expect(() =>
-      render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} fadeMask="radial" fadeMaskTarget="[data-nonexistent]" />)
+      render(
+        <CipherWall
+          messages={TEST_MESSAGES_FOR_RENDER}
+          fadeMask="radial"
+          fadeMaskTarget="[data-nonexistent]"
+        />
+      )
     ).toThrow('CipherWall: fadeMaskTarget "[data-nonexistent]" not found in DOM');
   });
 
@@ -164,7 +176,14 @@ describe('CipherWall', () => {
   });
 
   it('applies no mask when frozen regardless of fadeMask', () => {
-    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} frozen fadeMask="radial" fadeMaskTarget="[data-target]" />);
+    render(
+      <CipherWall
+        messages={TEST_MESSAGES_FOR_RENDER}
+        frozen
+        fadeMask="radial"
+        fadeMaskTarget="[data-target]"
+      />
+    );
     const canvas = screen.getByTestId('cipher-wall');
     expect(canvas.style.maskImage).toBe('');
   });
@@ -328,7 +347,13 @@ describe('CipherWall exclusionZone wiring', () => {
 
     setupResizeObserver();
 
-    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} fadeMask="radial" fadeMaskTarget="[data-wire]" />);
+    render(
+      <CipherWall
+        messages={TEST_MESSAGES_FOR_RENDER}
+        fadeMask="radial"
+        fadeMaskTarget="[data-wire]"
+      />
+    );
 
     expect(lastUseCipherWallOptions).toBeDefined();
     expect(lastUseCipherWallOptions).toHaveProperty('exclusionZone');

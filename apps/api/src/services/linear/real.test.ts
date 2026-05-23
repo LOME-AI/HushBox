@@ -74,7 +74,7 @@ describe('createRealLinearClient', () => {
 
   beforeEach(() => {
     captured = [];
-    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
       const headers: Record<string, string> = {};
       const initHeaders = init.headers as Record<string, string> | undefined;
       if (initHeaders) Object.assign(headers, initHeaders);
@@ -97,7 +97,7 @@ describe('createRealLinearClient', () => {
       } else {
         payload = ISSUES_RESPONSE_PAGE_2;
       }
-      return new Response(JSON.stringify(payload), { status: 200 });
+      return Promise.resolve(Response.json(payload, { status: 200 }));
     });
   });
 
@@ -139,7 +139,7 @@ describe('createRealLinearClient', () => {
   it('drops "related" and "duplicate" relations, keeping only blocks/blocked_by', async () => {
     const client = createRealLinearClient('test-key');
     const data = await client.fetchRoadmap('HUS');
-    const issue = data.issues.find((i) => i.id === 'iss-1');
+    const issue = data.issues.find((index) => index.id === 'iss-1');
     expect(issue?.relations).toEqual([{ type: 'blocks', relatedIssueId: 'iss-2' }]);
   });
 
@@ -152,32 +152,33 @@ describe('createRealLinearClient', () => {
   });
 
   it('throws LinearApiError when Linear returns a non-2xx response', async () => {
-    vi.stubGlobal('fetch', async () => new Response('forbidden', { status: 401 }));
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response('forbidden', { status: 401 })));
     const client = createRealLinearClient('bad-key');
     await expect(client.fetchRoadmap('HUS')).rejects.toThrow(LinearApiError);
   });
 
   it('throws when Linear returns a payload that fails the response schema', async () => {
-    vi.stubGlobal(
-      'fetch',
-      async () => new Response(JSON.stringify({ data: { something: 'wrong' } }), { status: 200 })
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(Response.json({ data: { something: 'wrong' } }, { status: 200 }))
     );
     const client = createRealLinearClient('test-key');
     await expect(client.fetchRoadmap('HUS')).rejects.toThrow();
   });
 
   it('returns an empty project list when the team is null', async () => {
-    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
       const bodyText = init.body as string;
       const parsed = JSON.parse(bodyText) as { query: string };
       if (parsed.query.includes('PublicRoadmapProjects')) {
-        return new Response(JSON.stringify({ data: { team: null } }), { status: 200 });
+        return Promise.resolve(Response.json({ data: { team: null } }, { status: 200 }));
       }
-      return new Response(
-        JSON.stringify({
-          data: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } },
-        }),
-        { status: 200 }
+      return Promise.resolve(
+        Response.json(
+          {
+            data: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } },
+          },
+          { status: 200 }
+        )
       );
     });
     const client = createRealLinearClient('test-key');
@@ -189,8 +190,8 @@ describe('createRealLinearClient', () => {
   it('handles missing parent and project gracefully (nullable in schema)', async () => {
     const client = createRealLinearClient('test-key');
     const data = await client.fetchRoadmap('HUS');
-    const iss1 = data.issues.find((i) => i.id === 'iss-1');
-    const iss2 = data.issues.find((i) => i.id === 'iss-2');
+    const iss1 = data.issues.find((index) => index.id === 'iss-1');
+    const iss2 = data.issues.find((index) => index.id === 'iss-2');
     expect(iss1?.parentId).toBeNull();
     expect(iss1?.projectId).toBe('proj-1');
     expect(iss2?.parentId).toBe('iss-1');

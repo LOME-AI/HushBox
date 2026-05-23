@@ -166,18 +166,14 @@ describe('SidebarPanel', () => {
     });
 
     it('left titleGroup has h-9 to match PageHeader tallest control (ModelSelectorButton)', () => {
-      render(
-        <SidebarPanel {...defaultProps} side="left" headerTitle="Chats" testId="panel" />
-      );
+      render(<SidebarPanel {...defaultProps} side="left" headerTitle="Chats" testId="panel" />);
       const header = screen.getByTestId('panel-header');
       const titleGroup = header.firstElementChild!;
       expect(titleGroup).toHaveClass('h-9');
     });
 
     it('right titleGroup has h-9 to match PageHeader tallest control (ModelSelectorButton)', () => {
-      render(
-        <SidebarPanel {...defaultProps} side="right" headerTitle="Members" testId="panel" />
-      );
+      render(<SidebarPanel {...defaultProps} side="right" headerTitle="Members" testId="panel" />);
       const header = screen.getByTestId('panel-header');
       const titleGroup = header.children[1]!;
       expect(titleGroup).toHaveClass('h-9');

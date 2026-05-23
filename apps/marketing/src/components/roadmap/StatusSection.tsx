@@ -3,8 +3,6 @@ import { ProjectCard } from './ProjectCard';
 import type { ProjectWithTasks } from './types';
 import type { FilterStatus, FilterType } from './use-filter-state';
 
-export type { ProjectWithTasks };
-
 interface StatusSectionProps {
   readonly status: FilterStatus;
   readonly projects: readonly ProjectWithTasks[];
@@ -38,7 +36,7 @@ export function StatusSection({
   return (
     <section data-status={status} className="flex flex-col gap-4">
       <div className="border-border bg-background-subtle/60 flex items-center justify-between rounded-md border px-4 py-2">
-        <h2 className="text-foreground inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em]">
+        <h2 className="text-foreground inline-flex items-center gap-2 text-sm font-semibold tracking-[0.18em] uppercase">
           <span aria-hidden="true" className={`size-2.5 rounded-full ${STATUS_DOT[status]}`} />
           {STATUS_LABELS[status]}
         </h2>
@@ -48,14 +46,11 @@ export function StatusSection({
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {projects.map(({ project, tasks }) => (
-          <ProjectCard
-            key={project.id}
-            project={project}
-            tasks={tasks}
-            activeTypes={activeTypes}
-          />
+          <ProjectCard key={project.id} project={project} tasks={tasks} activeTypes={activeTypes} />
         ))}
       </div>
     </section>
   );
 }
+
+export { type ProjectWithTasks } from './types';

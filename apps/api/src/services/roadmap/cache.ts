@@ -1,6 +1,6 @@
+import { redisGet, redisSet } from '../../lib/redis-registry.js';
 import type { Redis } from '@upstash/redis';
 import type { RoadmapResponse } from '@hushbox/shared';
-import { redisGet, redisSet } from '../../lib/redis-registry.js';
 
 /**
  * Schema version baked into the cache key. Bump this string when the

@@ -8,6 +8,33 @@ export interface BoardData {
   typeCounts: Record<FilterType, number>;
 }
 
+function appendToMap<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const list = map.get(key) ?? [];
+  list.push(value);
+  map.set(key, list);
+}
+
+interface NodeIndex {
+  tasksByProject: Map<string, RoadmapNode[]>;
+  subtasksByTask: Map<string, RoadmapNode[]>;
+  typeCounts: Record<FilterType, number>;
+}
+
+function indexNodes(nodes: readonly RoadmapNode[]): NodeIndex {
+  const tasksByProject = new Map<string, RoadmapNode[]>();
+  const subtasksByTask = new Map<string, RoadmapNode[]>();
+  const typeCounts: Record<FilterType, number> = { feature: 0, bug: 0 };
+  for (const node of nodes) {
+    if (node.kind === 'task' && node.parentId !== null) {
+      appendToMap(tasksByProject, node.parentId, node);
+    } else if (node.kind === 'subtask' && node.parentId !== null) {
+      appendToMap(subtasksByTask, node.parentId, node);
+    }
+    if (node.kind !== 'project' && node.type !== null) typeCounts[node.type] += 1;
+  }
+  return { tasksByProject, subtasksByTask, typeCounts };
+}
+
 /**
  * Pure transform: take the flat node list from the API and build the
  * tree shape the board needs to render — projects grouped by status,
@@ -28,30 +55,11 @@ export function computeBoard(nodes: readonly RoadmapNode[]): BoardData {
     planned: 0,
     shipped: 0,
   };
-  const typeCounts: Record<FilterType, number> = { feature: 0, bug: 0 };
-
-  const subtasksByTask = new Map<string, RoadmapNode[]>();
-  const tasksByProject = new Map<string, RoadmapNode[]>();
-
-  for (const node of nodes) {
-    if (node.kind === 'task' && node.parentId !== null) {
-      const list = tasksByProject.get(node.parentId) ?? [];
-      list.push(node);
-      tasksByProject.set(node.parentId, list);
-    } else if (node.kind === 'subtask' && node.parentId !== null) {
-      const list = subtasksByTask.get(node.parentId) ?? [];
-      list.push(node);
-      subtasksByTask.set(node.parentId, list);
-    }
-    if (node.kind !== 'project' && node.type !== null) {
-      typeCounts[node.type] += 1;
-    }
-  }
+  const { tasksByProject, subtasksByTask, typeCounts } = indexNodes(nodes);
 
   for (const node of nodes) {
     if (node.kind !== 'project') continue;
-    const tasksForProject = tasksByProject.get(node.id) ?? [];
-    const taskTrees: TaskWithSubtasks[] = tasksForProject.map((task) => ({
+    const taskTrees: TaskWithSubtasks[] = (tasksByProject.get(node.id) ?? []).map((task) => ({
       task,
       subtasks: subtasksByTask.get(task.id) ?? [],
     }));

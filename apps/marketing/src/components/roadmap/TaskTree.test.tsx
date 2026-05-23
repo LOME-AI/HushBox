@@ -38,8 +38,16 @@ describe('TaskTree', () => {
       {
         task: makeTask({ id: 'a00000000001', title: 'Cross-device sync' }),
         subtasks: [
-          makeSubtask({ id: 'b00000000001', parentId: 'a00000000001', title: 'Conflict resolution' }),
-          makeSubtask({ id: 'b00000000002', parentId: 'a00000000001', title: 'Migration backfill' }),
+          makeSubtask({
+            id: 'b00000000001',
+            parentId: 'a00000000001',
+            title: 'Conflict resolution',
+          }),
+          makeSubtask({
+            id: 'b00000000002',
+            parentId: 'a00000000001',
+            title: 'Migration backfill',
+          }),
         ],
       },
     ];
@@ -51,7 +59,10 @@ describe('TaskTree', () => {
 
   it('hides tasks whose type is not in activeTypes', () => {
     const tasks: TaskWithSubtasks[] = [
-      { task: makeTask({ id: 'a00000000001', title: 'Schema feature', type: 'feature' }), subtasks: [] },
+      {
+        task: makeTask({ id: 'a00000000001', title: 'Schema feature', type: 'feature' }),
+        subtasks: [],
+      },
       { task: makeTask({ id: 'a00000000002', title: 'Schema bug', type: 'bug' }), subtasks: [] },
     ];
     render(<TaskTree tasks={tasks} activeTypes={new Set<FilterType>(['feature'])} />);
@@ -64,7 +75,12 @@ describe('TaskTree', () => {
       {
         task: makeTask({ id: 'a00000000001', title: 'Cross-device sync', type: 'feature' }),
         subtasks: [
-          makeSubtask({ id: 'b00000000001', parentId: 'a00000000001', title: 'Migration bug', type: 'bug' }),
+          makeSubtask({
+            id: 'b00000000001',
+            parentId: 'a00000000001',
+            title: 'Migration bug',
+            type: 'bug',
+          }),
         ],
       },
     ];
@@ -78,7 +94,12 @@ describe('TaskTree', () => {
       {
         task: makeTask({ id: 'a00000000001', title: 'A bug task', type: 'bug' }),
         subtasks: [
-          makeSubtask({ id: 'b00000000001', parentId: 'a00000000001', title: 'Feature subtask', type: 'feature' }),
+          makeSubtask({
+            id: 'b00000000001',
+            parentId: 'a00000000001',
+            title: 'Feature subtask',
+            type: 'feature',
+          }),
         ],
       },
     ];
@@ -101,7 +122,10 @@ describe('TaskTree', () => {
 
   it('marks tasks with their type via data-type', () => {
     const tasks: TaskWithSubtasks[] = [
-      { task: makeTask({ id: 'a00000000001', title: 'A feature task', type: 'feature' }), subtasks: [] },
+      {
+        task: makeTask({ id: 'a00000000001', title: 'A feature task', type: 'feature' }),
+        subtasks: [],
+      },
       { task: makeTask({ id: 'a00000000002', title: 'A bug task', type: 'bug' }), subtasks: [] },
     ];
     render(<TaskTree tasks={tasks} activeTypes={allTypes} />);

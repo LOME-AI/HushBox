@@ -4,8 +4,6 @@ import type { RoadmapNode } from '@hushbox/shared';
 import type { FilterType } from './use-filter-state';
 import type { TaskWithSubtasks } from './types';
 
-export type { TaskWithSubtasks };
-
 interface TaskTreeProps {
   readonly tasks: readonly TaskWithSubtasks[];
   readonly activeTypes: ReadonlySet<FilterType>;
@@ -37,10 +35,7 @@ export function TaskTree({ tasks, activeTypes }: TaskTreeProps): React.JSX.Eleme
   );
 }
 
-function isTypeVisible(
-  type: RoadmapNode['type'],
-  activeTypes: ReadonlySet<FilterType>
-): boolean {
+function isTypeVisible(type: RoadmapNode['type'], activeTypes: ReadonlySet<FilterType>): boolean {
   if (type === null) return true;
   return activeTypes.has(type);
 }
@@ -54,7 +49,7 @@ function TaskRow({ node }: { readonly node: RoadmapNode }): React.JSX.Element {
       data-type={node.type ?? undefined}
       className={cn(
         'flex items-center gap-2 text-sm',
-        isSubtask && 'ml-5 border-l border-border pl-3 text-foreground-muted'
+        isSubtask && 'border-border text-foreground-muted ml-5 border-l pl-3'
       )}
     >
       <StatusGlyph status={node.status} />
@@ -67,14 +62,20 @@ function TaskRow({ node }: { readonly node: RoadmapNode }): React.JSX.Element {
 function StatusGlyph({ status }: { readonly status: RoadmapNode['status'] }): React.JSX.Element {
   if (status === 'shipped') {
     return (
-      <span aria-label="Shipped" className="text-success inline-flex size-4 shrink-0 items-center justify-center font-bold">
+      <span
+        aria-label="Shipped"
+        className="text-success inline-flex size-4 shrink-0 items-center justify-center font-bold"
+      >
         ✓
       </span>
     );
   }
   if (status === 'in_progress') {
     return (
-      <span aria-label="In progress" className="text-primary inline-flex size-4 shrink-0 items-center justify-center font-bold">
+      <span
+        aria-label="In progress"
+        className="text-primary inline-flex size-4 shrink-0 items-center justify-center font-bold"
+      >
         ⟳
       </span>
     );
@@ -92,7 +93,7 @@ function TypeBadge({ type }: { readonly type: 'feature' | 'bug' }): React.JSX.El
     <span
       aria-label={type}
       className={cn(
-        'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+        'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase',
         type === 'feature' ? 'bg-foreground/10 text-foreground' : 'bg-warning/20 text-warning'
       )}
     >
@@ -100,3 +101,5 @@ function TypeBadge({ type }: { readonly type: 'feature' | 'bug' }): React.JSX.El
     </span>
   );
 }
+
+export { type TaskWithSubtasks } from './types';

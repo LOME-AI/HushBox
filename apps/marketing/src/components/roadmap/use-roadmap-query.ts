@@ -2,10 +2,10 @@ import * as React from 'react';
 import { roadmapResponseSchema, type RoadmapResponse } from '@hushbox/shared';
 
 const API_URL = ((): string => {
-  const fromEnv = import.meta.env['VITE_API_URL'];
+  const fromEnv = import.meta.env.VITE_API_URL;
   if (typeof fromEnv !== 'string' || fromEnv.length === 0) {
     throw new Error(
-      'VITE_API_URL is required for the roadmap React island. Check envConfig and run pnpm generate:env.',
+      'VITE_API_URL is required for the roadmap React island. Check envConfig and run pnpm generate:env.'
     );
   }
   return fromEnv;
@@ -34,10 +34,12 @@ export function useRoadmapQuery(): RoadmapQueryState {
     isLoading: true,
   });
 
+  const cancelledRef = React.useRef(false);
+
   React.useEffect(() => {
-    let cancelled = false;
+    cancelledRef.current = false;
     const controller = new AbortController();
-    (async () => {
+    void (async () => {
       try {
         const response = await fetch(`${API_URL}/api/public/roadmap`, {
           signal: controller.signal,
@@ -45,10 +47,10 @@ export function useRoadmapQuery(): RoadmapQueryState {
         if (!response.ok) throw new Error(`roadmap request failed: ${String(response.status)}`);
         const raw: unknown = await response.json();
         const parsed = roadmapResponseSchema.parse(raw);
-        if (cancelled) return;
+        if (cancelledRef.current) return;
         setState({ data: parsed, error: null, isLoading: false });
       } catch (error) {
-        if (cancelled) return;
+        if (cancelledRef.current) return;
         setState({
           data: null,
           error: error instanceof Error ? error : new Error('unknown roadmap error'),
@@ -57,7 +59,7 @@ export function useRoadmapQuery(): RoadmapQueryState {
       }
     })();
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
       controller.abort();
     };
   }, []);

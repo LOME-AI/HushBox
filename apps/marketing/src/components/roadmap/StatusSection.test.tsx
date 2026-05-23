@@ -43,7 +43,9 @@ describe('StatusSection', () => {
     ['planned' as FilterStatus, 'Up next'],
     ['shipped' as FilterStatus, 'Shipped'],
   ])('uses the right label for status %s', (status, label) => {
-    const projects: ProjectWithTasks[] = [{ project: makeProject({ id: 'a00000000001' }), tasks: [] }];
+    const projects: ProjectWithTasks[] = [
+      { project: makeProject({ id: 'a00000000001' }), tasks: [] },
+    ];
     render(<StatusSection status={status} projects={projects} activeTypes={allTypes} />);
     expect(screen.getByRole('heading', { name: new RegExp(label, 'i') })).toBeInTheDocument();
   });

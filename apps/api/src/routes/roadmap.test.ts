@@ -4,8 +4,8 @@ import type { Redis } from '@upstash/redis';
 import {
   ERROR_CODE_RATE_LIMITED,
   ERROR_CODE_SERVICE_UNAVAILABLE,
+  errorResponseSchema,
   roadmapResponseSchema,
-  type RoadmapResponse,
 } from '@hushbox/shared';
 import { roadmapRoute } from './roadmap.js';
 import type { AppEnv } from '../types.js';
@@ -18,22 +18,22 @@ interface FakeStore {
 
 function makeFakeRedis(store: FakeStore): Redis {
   return {
-    get: async (key: string) => (store.data.has(key) ? store.data.get(key) : null),
-    set: async (key: string, value: unknown) => {
+    get: (key: string) => Promise.resolve(store.data.has(key) ? store.data.get(key) : null),
+    set: (key: string, value: unknown) => {
       store.data.set(key, value);
-      return 'OK';
+      return Promise.resolve('OK');
     },
-    incr: async (key: string) => {
+    incr: (key: string) => {
       const v = ((store.data.get(key) as number | undefined) ?? 0) + 1;
       store.data.set(key, v);
-      return v;
+      return Promise.resolve(v);
     },
-    expire: async () => 1,
+    expire: () => Promise.resolve(1),
   } as unknown as Redis;
 }
 
 function makeTestApp(
-  opts: { redis: Redis; env?: Partial<AppEnv['Bindings']> } & {
+  options: { redis: Redis; env?: Partial<AppEnv['Bindings']> } & {
     env?: Partial<AppEnv['Bindings']>;
   }
 ): Hono<AppEnv> {
@@ -41,9 +41,9 @@ function makeTestApp(
   app.use('*', async (c, next) => {
     c.env = {
       NODE_ENV: 'test',
-      ...(opts.env ?? {}),
+      ...options.env,
     } as AppEnv['Bindings'];
-    c.set('redis', opts.redis);
+    c.set('redis', options.redis);
     await next();
   });
   app.route('/api/public/roadmap', roadmapRoute);
@@ -79,7 +79,7 @@ describe('GET /api/public/roadmap', () => {
     const response = await app.request('/api/public/roadmap', {
       headers: { 'cf-connecting-ip': '1.2.3.4' },
     });
-    const body = (await response.json()) as RoadmapResponse;
+    const body = roadmapResponseSchema.parse(await response.json());
     const projects = body.nodes.filter((n) => n.kind === 'project');
     expect(projects.length).toBeGreaterThan(0);
     for (const project of projects) {
@@ -98,7 +98,7 @@ describe('GET /api/public/roadmap', () => {
   it('rate-limits a single IP after the configured threshold', async () => {
     const headers = { 'cf-connecting-ip': '9.9.9.9' };
     let lastStatus = 200;
-    for (let i = 0; i < 35; i += 1) {
+    for (let index = 0; index < 35; index += 1) {
       const response = await app.request('/api/public/roadmap', { headers });
       lastStatus = response.status;
       if (lastStatus === 429) break;
@@ -109,11 +109,11 @@ describe('GET /api/public/roadmap', () => {
   it('returns a RATE_LIMITED code when throttled', async () => {
     const headers = { 'cf-connecting-ip': '8.8.8.8' };
     let response = await app.request('/api/public/roadmap', { headers });
-    for (let i = 0; i < 50 && response.status !== 429; i += 1) {
+    for (let index = 0; index < 50 && response.status !== 429; index += 1) {
       response = await app.request('/api/public/roadmap', { headers });
     }
     expect(response.status).toBe(429);
-    const body = (await response.json()) as { code: string };
+    const body = errorResponseSchema.parse(await response.json());
     expect(body.code).toBe(ERROR_CODE_RATE_LIMITED);
   });
 
@@ -129,7 +129,7 @@ describe('GET /api/public/roadmap', () => {
         headers: { 'cf-connecting-ip': '2.2.2.2' },
       });
       expect(response.status).toBe(503);
-      const body = (await response.json()) as { code: string };
+      const body = errorResponseSchema.parse(await response.json());
       expect(body.code).toBe(ERROR_CODE_SERVICE_UNAVAILABLE);
     } finally {
       spy.mockRestore();

@@ -312,7 +312,7 @@ describe('user-preferences routes', () => {
       const newPrefs: AccessibilityPreferences = {
         ...ACCESSIBILITY_PREFERENCES_DEFAULTS,
         contrast: 'increased',
-        fontSize: '150',
+        fontSize: '124',
         ttsEnabled: true,
       };
 

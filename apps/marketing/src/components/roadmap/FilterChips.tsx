@@ -89,7 +89,9 @@ export function FilterChips({
               label={STATUS_LABELS[value]}
               data-status={value}
               tone={STATUS_TONES[value]}
-              onClick={() => onToggleStatus(value)}
+              onClick={() => {
+                onToggleStatus(value);
+              }}
             />
           ))}
         </div>
@@ -105,7 +107,9 @@ export function FilterChips({
               label={TYPE_LABELS[value]}
               data-type={value}
               tone={TYPE_TONES[value]}
-              onClick={() => onToggleType(value)}
+              onClick={() => {
+                onToggleType(value);
+              }}
             />
           ))}
         </div>
@@ -116,18 +120,18 @@ export function FilterChips({
 
 function FilterAxisLabel({ children }: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
-    <span className="text-foreground w-20 shrink-0 text-sm font-semibold uppercase tracking-[0.18em]">
+    <span className="text-foreground w-20 shrink-0 text-sm font-semibold tracking-[0.18em] uppercase">
       {children}
     </span>
   );
 }
 
-interface ChipProps extends React.ComponentPropsWithoutRef<'button'> {
+type ChipProps = Readonly<React.ComponentPropsWithoutRef<'button'>> & {
   readonly active: boolean;
   readonly count: number;
   readonly label: string;
   readonly tone: { active: string; inactive: string };
-}
+};
 
 function Chip({ active, count, label, tone, className, ...rest }: ChipProps): React.JSX.Element {
   return (
@@ -136,7 +140,7 @@ function Chip({ active, count, label, tone, className, ...rest }: ChipProps): Re
       aria-pressed={active}
       className={cn(
         'inline-flex items-center gap-2.5 rounded-full border px-4 py-2 text-base font-medium transition-colors',
-        'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-[3px]',
+        'focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none',
         active ? tone.active : tone.inactive,
         className
       )}
@@ -145,10 +149,8 @@ function Chip({ active, count, label, tone, className, ...rest }: ChipProps): Re
       <span>{label}</span>
       <span
         className={cn(
-          'inline-flex min-w-[1.75rem] items-center justify-center rounded-full border px-2 py-0.5 text-sm font-mono tabular-nums',
-          active
-            ? 'border-current/20 bg-black/10'
-            : 'border-current/30 bg-current/10'
+          'inline-flex min-w-[1.75rem] items-center justify-center rounded-full border px-2 py-0.5 font-mono text-sm tabular-nums',
+          active ? 'border-current/20 bg-black/10' : 'border-current/30 bg-current/10'
         )}
       >
         {count}

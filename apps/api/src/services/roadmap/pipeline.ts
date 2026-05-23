@@ -1,6 +1,6 @@
 import { roadmapResponseSchema, type RoadmapResponse } from '@hushbox/shared';
-import type { LinearClient } from '../linear/index.js';
 import { normalizeRoadmap } from './normalize.js';
+import type { LinearClient } from '../linear/index.js';
 import type { RoadmapCache } from './cache.js';
 
 const TEAM_KEY = 'HUS';

@@ -8,13 +8,7 @@ import {
   TOTAL_FEE_RATE,
   formatFeePercent,
 } from '@hushbox/shared';
-import {
-  buttonVariants,
-  ScrollReveal,
-  DataGrid,
-  FeeBreakdown,
-  CostPieChart,
-} from '@hushbox/ui';
+import { buttonVariants, ScrollReveal, DataGrid, FeeBreakdown, CostPieChart } from '@hushbox/ui';
 import { LANDING_CIPHER_MESSAGES } from '@hushbox/shared/cipher-messages';
 import PageHero from '../components/PageHero.astro';
 import { EncryptionDemo } from '../components/encryption-demo';
@@ -33,10 +27,10 @@ import type { Model } from '@hushbox/shared';
 // Fetch models from the deployed API at build time. Staleness until next
 // marketing deploy is acceptable. If the API is unreachable, the page renders
 // with empty data via the catch below.
-const apiUrl: string | undefined = import.meta.env.VITE_API_URL;
+const apiUrl = import.meta.env.VITE_API_URL;
 if (apiUrl === undefined || apiUrl.length === 0) {
   throw new Error(
-    'VITE_API_URL is required for marketing builds. Check envConfig and run pnpm generate:env.',
+    'VITE_API_URL is required for marketing builds. Check envConfig and run pnpm generate:env.'
   );
 }
 let models: Model[] = [];

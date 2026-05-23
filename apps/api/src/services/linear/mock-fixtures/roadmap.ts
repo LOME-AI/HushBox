@@ -1,5 +1,5 @@
 /* prettier-ignore */
-/* eslint-disable */
+
 /**
  * Hand-rolled Linear roadmap fixture for the mock client. Used by local
  * dev and E2E. Realistic enough that the constellation renders populated

@@ -60,7 +60,11 @@ describe('ProjectCard', () => {
         subtasks: [],
       },
       {
-        task: makeTask({ id: 'a00000000002', title: 'Settings UI', status: 'in_progress' as const }),
+        task: makeTask({
+          id: 'a00000000002',
+          title: 'Settings UI',
+          status: 'in_progress' as const,
+        }),
         subtasks: [],
       },
     ];
@@ -72,15 +76,17 @@ describe('ProjectCard', () => {
   it('shows a hidden-by-filter note when a bug task is hidden', () => {
     const project = makeProject();
     const tasks = [
-      { task: makeTask({ id: 'a00000000001', title: 'Feat A', type: 'feature' as const }), subtasks: [] },
-      { task: makeTask({ id: 'a00000000002', title: 'Bug A', type: 'bug' as const }), subtasks: [] },
+      {
+        task: makeTask({ id: 'a00000000001', title: 'Feat A', type: 'feature' as const }),
+        subtasks: [],
+      },
+      {
+        task: makeTask({ id: 'a00000000002', title: 'Bug A', type: 'bug' as const }),
+        subtasks: [],
+      },
     ];
     render(
-      <ProjectCard
-        project={project}
-        tasks={tasks}
-        activeTypes={new Set<FilterType>(['feature'])}
-      />
+      <ProjectCard project={project} tasks={tasks} activeTypes={new Set<FilterType>(['feature'])} />
     );
     expect(screen.getByText(/1 bug hidden by filter/i)).toBeInTheDocument();
   });
@@ -88,15 +94,17 @@ describe('ProjectCard', () => {
   it('pluralizes the hidden note ("2 bugs")', () => {
     const project = makeProject();
     const tasks = [
-      { task: makeTask({ id: 'a00000000001', title: 'Bug 1', type: 'bug' as const }), subtasks: [] },
-      { task: makeTask({ id: 'a00000000002', title: 'Bug 2', type: 'bug' as const }), subtasks: [] },
+      {
+        task: makeTask({ id: 'a00000000001', title: 'Bug 1', type: 'bug' as const }),
+        subtasks: [],
+      },
+      {
+        task: makeTask({ id: 'a00000000002', title: 'Bug 2', type: 'bug' as const }),
+        subtasks: [],
+      },
     ];
     render(
-      <ProjectCard
-        project={project}
-        tasks={tasks}
-        activeTypes={new Set<FilterType>(['feature'])}
-      />
+      <ProjectCard project={project} tasks={tasks} activeTypes={new Set<FilterType>(['feature'])} />
     );
     expect(screen.getByText(/2 bugs hidden by filter/i)).toBeInTheDocument();
   });
@@ -107,16 +115,16 @@ describe('ProjectCard', () => {
       {
         task: makeTask({ id: 'a00000000001', title: 'Feat', type: 'feature' as const }),
         subtasks: [
-          { ...makeTask({ id: 'b00000000001', parentId: 'a00000000001', title: 'Bug sub' }), kind: 'subtask' as const, type: 'bug' as const },
+          {
+            ...makeTask({ id: 'b00000000001', parentId: 'a00000000001', title: 'Bug sub' }),
+            kind: 'subtask' as const,
+            type: 'bug' as const,
+          },
         ],
       },
     ];
     render(
-      <ProjectCard
-        project={project}
-        tasks={tasks}
-        activeTypes={new Set<FilterType>(['feature'])}
-      />
+      <ProjectCard project={project} tasks={tasks} activeTypes={new Set<FilterType>(['feature'])} />
     );
     expect(screen.getByText(/1 bug hidden by filter/i)).toBeInTheDocument();
   });
@@ -127,16 +135,16 @@ describe('ProjectCard', () => {
       {
         task: makeTask({ id: 'a00000000001', title: 'Bug parent', type: 'bug' as const }),
         subtasks: [
-          { ...makeTask({ id: 'b00000000001', parentId: 'a00000000001', title: 'Bug sub' }), kind: 'subtask' as const, type: 'bug' as const },
+          {
+            ...makeTask({ id: 'b00000000001', parentId: 'a00000000001', title: 'Bug sub' }),
+            kind: 'subtask' as const,
+            type: 'bug' as const,
+          },
         ],
       },
     ];
     render(
-      <ProjectCard
-        project={project}
-        tasks={tasks}
-        activeTypes={new Set<FilterType>(['feature'])}
-      />
+      <ProjectCard project={project} tasks={tasks} activeTypes={new Set<FilterType>(['feature'])} />
     );
     expect(screen.getByText(/2 bugs hidden by filter/i)).toBeInTheDocument();
   });
@@ -144,7 +152,10 @@ describe('ProjectCard', () => {
   it('does not show the hidden-by-filter note when nothing is hidden', () => {
     const project = makeProject();
     const tasks = [
-      { task: makeTask({ id: 'a00000000001', title: 'Feat', type: 'feature' as const }), subtasks: [] },
+      {
+        task: makeTask({ id: 'a00000000001', title: 'Feat', type: 'feature' as const }),
+        subtasks: [],
+      },
     ];
     render(<ProjectCard project={project} tasks={tasks} activeTypes={allTypes} />);
     expect(screen.queryByText(/hidden by filter/i)).not.toBeInTheDocument();
@@ -153,15 +164,14 @@ describe('ProjectCard', () => {
   it('reports a "features hidden" note when features are filtered out', () => {
     const project = makeProject();
     const tasks = [
-      { task: makeTask({ id: 'a00000000001', title: 'Feat', type: 'feature' as const }), subtasks: [] },
+      {
+        task: makeTask({ id: 'a00000000001', title: 'Feat', type: 'feature' as const }),
+        subtasks: [],
+      },
       { task: makeTask({ id: 'a00000000002', title: 'Bug', type: 'bug' as const }), subtasks: [] },
     ];
     render(
-      <ProjectCard
-        project={project}
-        tasks={tasks}
-        activeTypes={new Set<FilterType>(['bug'])}
-      />
+      <ProjectCard project={project} tasks={tasks} activeTypes={new Set<FilterType>(['bug'])} />
     );
     expect(screen.getByText(/1 feature hidden by filter/i)).toBeInTheDocument();
   });

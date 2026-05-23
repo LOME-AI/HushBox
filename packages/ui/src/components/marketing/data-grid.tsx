@@ -38,51 +38,52 @@ function DataGrid({
     >
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr>
-            {columns.map((col, colIndex) => (
-              <th
-                key={col}
-                className={cn(
-                  'border-b px-4 py-2 text-left font-semibold',
-                  highlightColumn !== undefined &&
-                    colIndex === highlightColumn &&
-                    'bg-primary/10 text-primary'
-                )}
-              >
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, rowIndex) => (
-            <tr
-              key={row.label}
-              {...(animated && {
-                style: { '--row-delay': `${String(rowIndex * 100)}ms` } as React.CSSProperties,
-              })}
-            >
-              <td className="border-b px-4 py-2 font-medium">{row.label}</td>
-              {row.values.map((value, valueIndex) => {
-                const colIndex = valueIndex + 1;
-                const isHighlighted = highlightColumn !== undefined && colIndex === highlightColumn;
-                return (
-                  <td
-                    key={valueIndex}
-                    className={cn(
-                      'border-b px-4 py-2',
-                      isHighlighted && 'bg-primary/10 text-primary font-semibold'
-                    )}
-                  >
-                    {value}
-                  </td>
-                );
-              })}
+          <thead>
+            <tr>
+              {columns.map((col, colIndex) => (
+                <th
+                  key={col}
+                  className={cn(
+                    'border-b px-4 py-2 text-left font-semibold',
+                    highlightColumn !== undefined &&
+                      colIndex === highlightColumn &&
+                      'bg-primary/10 text-primary'
+                  )}
+                >
+                  {col}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr
+                key={row.label}
+                {...(animated && {
+                  style: { '--row-delay': `${String(rowIndex * 100)}ms` } as React.CSSProperties,
+                })}
+              >
+                <td className="border-b px-4 py-2 font-medium">{row.label}</td>
+                {row.values.map((value, valueIndex) => {
+                  const colIndex = valueIndex + 1;
+                  const isHighlighted =
+                    highlightColumn !== undefined && colIndex === highlightColumn;
+                  return (
+                    <td
+                      key={valueIndex}
+                      className={cn(
+                        'border-b px-4 py-2',
+                        isHighlighted && 'bg-primary/10 text-primary font-semibold'
+                      )}
+                    >
+                      {value}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

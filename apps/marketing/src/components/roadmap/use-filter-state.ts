@@ -16,16 +16,16 @@ export interface FilterState {
 }
 
 function readInitialFromUrl<T extends string>(key: string, allowed: readonly T[]): ReadonlySet<T> {
-  if (typeof window === 'undefined') return new Set(allowed);
-  const raw = new URLSearchParams(window.location.search).get(key);
+  if ((globalThis as { window?: Window }).window === undefined) return new Set(allowed);
+  const raw = new URLSearchParams(globalThis.location.search).get(key);
   if (raw === null) return new Set(allowed);
   const requested = raw.split(',').filter((value): value is T => allowed.includes(value as T));
   return requested.length > 0 ? new Set(requested) : new Set(allowed);
 }
 
 function writeToUrl(key: string, values: ReadonlySet<string>, defaults: readonly string[]): void {
-  if (typeof window === 'undefined') return;
-  const params = new URLSearchParams(window.location.search);
+  if ((globalThis as { window?: Window }).window === undefined) return;
+  const params = new URLSearchParams(globalThis.location.search);
   const valueList = [...values];
   const matchesDefault =
     valueList.length === defaults.length && defaults.every((v) => values.has(v));
@@ -35,8 +35,9 @@ function writeToUrl(key: string, values: ReadonlySet<string>, defaults: readonly
     params.set(key, valueList.join(','));
   }
   const next = params.toString();
-  const url = `${window.location.pathname}${next.length > 0 ? `?${next}` : ''}`;
-  window.history.replaceState(null, '', url);
+  const search = next.length > 0 ? `?${next}` : '';
+  const url = `${globalThis.location.pathname}${search}`;
+  globalThis.history.replaceState(null, '', url);
 }
 
 /**
@@ -83,8 +84,8 @@ export function useFilterState(): FilterState {
   const reset = React.useCallback(() => {
     setStatuses(new Set(ALL_STATUSES));
     setTypes(new Set(ALL_TYPES));
-    if (typeof window !== 'undefined') {
-      window.history.replaceState(null, '', window.location.pathname);
+    if ((globalThis as { window?: Window }).window !== undefined) {
+      globalThis.history.replaceState(null, '', globalThis.location.pathname);
     }
   }, []);
 

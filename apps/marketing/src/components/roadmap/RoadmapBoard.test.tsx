@@ -40,7 +40,7 @@ function mockQuery(state: {
 
 describe('RoadmapBoard', () => {
   beforeEach(() => {
-    window.history.replaceState(null, '', '/roadmap');
+    globalThis.history.replaceState(null, '', '/roadmap');
     vi.restoreAllMocks();
   });
 
@@ -151,7 +151,7 @@ describe('RoadmapBoard', () => {
       error: null,
       isLoading: false,
     });
-    window.history.replaceState(null, '', '/roadmap?status=shipped');
+    globalThis.history.replaceState(null, '', '/roadmap?status=shipped');
     render(<RoadmapBoard />);
     await waitFor(() => {
       expect(screen.getByText(/no projects match/i)).toBeInTheDocument();
@@ -167,7 +167,7 @@ describe('RoadmapBoard', () => {
       error: null,
       isLoading: false,
     });
-    window.history.replaceState(null, '', '/roadmap?status=shipped');
+    globalThis.history.replaceState(null, '', '/roadmap?status=shipped');
     render(<RoadmapBoard />);
     await user.click(screen.getByRole('button', { name: /reset filters/i }));
     await waitFor(() => {

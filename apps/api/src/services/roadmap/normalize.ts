@@ -37,18 +37,14 @@ function maxStatus(a: PublicStatus, b: PublicStatus): PublicStatus {
  */
 export async function hashLinearId(linearId: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(linearId));
-  return [...new Uint8Array(buf).slice(0, 6)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
+  return Array.from(new Uint8Array(buf, 0, 6), (byte) => byte.toString(16).padStart(2, '0')).join(
+    ''
+  );
 }
 
-function bucketIssueStatus(stateType: LinearIssue['stateType']): PublicStatus {
-  if (stateType === 'started') return 'in_progress';
-  if (stateType === 'completed') return 'shipped';
-  return 'planned';
-}
-
-function bucketProjectStatus(stateType: LinearProject['stateType']): PublicStatus {
+function bucketStatus(
+  stateType: LinearIssue['stateType'] | LinearProject['stateType']
+): PublicStatus {
   if (stateType === 'started') return 'in_progress';
   if (stateType === 'completed') return 'shipped';
   return 'planned';
@@ -69,7 +65,8 @@ function pickIssueType(labels: readonly string[]): 'feature' | 'bug' | null {
  */
 function findDepth1Ancestor(issueId: string, issuesById: Map<string, LinearIssue>): string | null {
   const start = issuesById.get(issueId);
-  if (start === undefined || start.parentId === null) return null;
+  if (start === undefined) return null;
+  if (start.parentId === null) return null;
 
   let cursor: LinearIssue | undefined = issuesById.get(start.parentId);
   let safetyDepth = 0;
@@ -91,48 +88,56 @@ function findDepth1Ancestor(issueId: string, issuesById: Map<string, LinearIssue
  * 5. Roll status up: each parent's status = max(self, ...descendants).
  * 6. Derive per-project progress from top-level task statuses.
  */
-export async function normalizeRoadmap(data: LinearRoadmapData): Promise<NormalizedGraph> {
-  const issuesById = new Map<string, LinearIssue>();
-  for (const issue of data.issues) {
-    issuesById.set(issue.id, issue);
-  }
-
-  const filteredIssues = data.issues.filter((issue) => pickIssueType(issue.labelNames) !== null);
-
-  const orphanHashId = await hashLinearId(ORPHAN_PROJECT_ID);
-
+function collectProjectsToRender(
+  projects: readonly LinearProject[],
+  filteredIssues: readonly LinearIssue[]
+): LinearProject[] {
   const usedProjectIds = new Set<string>();
-  const usedOrphan = filteredIssues.some((issue) => issue.projectId === null);
+  let usedOrphan = false;
   for (const issue of filteredIssues) {
-    if (issue.projectId !== null) usedProjectIds.add(issue.projectId);
+    if (issue.projectId === null) usedOrphan = true;
+    else usedProjectIds.add(issue.projectId);
   }
-
-  const projectsToRender: LinearProject[] = data.projects.filter((p) => usedProjectIds.has(p.id));
+  const rendered: LinearProject[] = projects.filter((p) => usedProjectIds.has(p.id));
   if (usedOrphan) {
-    projectsToRender.push({
+    rendered.push({
       id: ORPHAN_PROJECT_ID,
       name: ORPHAN_PROJECT_NAME,
       color: ORPHAN_PROJECT_COLOR,
       stateType: 'planned',
     });
   }
+  return rendered;
+}
 
-  const projectHashes = new Map<string, string>();
-  for (const project of projectsToRender) {
-    projectHashes.set(
+async function hashProjectIds(
+  projects: readonly LinearProject[],
+  orphanHashId: string
+): Promise<Map<string, string>> {
+  const hashes = new Map<string, string>();
+  for (const project of projects) {
+    hashes.set(
       project.id,
       project.id === ORPHAN_PROJECT_ID ? orphanHashId : await hashLinearId(project.id)
     );
   }
+  return hashes;
+}
 
-  const issueHashes = new Map<string, string>();
-  for (const issue of filteredIssues) {
-    issueHashes.set(issue.id, await hashLinearId(issue.id));
+async function hashIssueIds(issues: readonly LinearIssue[]): Promise<Map<string, string>> {
+  const hashes = new Map<string, string>();
+  for (const issue of issues) {
+    hashes.set(issue.id, await hashLinearId(issue.id));
   }
+  return hashes;
+}
 
+function buildProjectNodes(
+  projects: readonly LinearProject[],
+  projectHashes: ReadonlyMap<string, string>
+): NormalizedNode[] {
   const nodes: NormalizedNode[] = [];
-
-  for (const project of projectsToRender) {
+  for (const project of projects) {
     const hashedId = projectHashes.get(project.id);
     if (hashedId === undefined) continue;
     nodes.push({
@@ -140,31 +145,64 @@ export async function normalizeRoadmap(data: LinearRoadmapData): Promise<Normali
       kind: 'project',
       parentId: null,
       title: project.name,
-      status: bucketProjectStatus(project.stateType),
+      status: bucketStatus(project.stateType),
       type: null,
       progress: { done: 0, total: 0 },
     });
   }
+  return nodes;
+}
 
+interface IdHashes {
+  readonly issues: ReadonlyMap<string, string>;
+  readonly projects: ReadonlyMap<string, string>;
+  readonly orphan: string;
+}
+
+function buildIssueNodes(
+  filteredIssues: readonly LinearIssue[],
+  issuesById: Map<string, LinearIssue>,
+  hashes: IdHashes
+): NormalizedNode[] {
+  const nodes: NormalizedNode[] = [];
   for (const issue of filteredIssues) {
-    const hashedId = issueHashes.get(issue.id);
+    const hashedId = hashes.issues.get(issue.id);
     if (hashedId === undefined) continue;
     const projectId = issue.projectId ?? ORPHAN_PROJECT_ID;
-    const projectHash = projectHashes.get(projectId) ?? orphanHashId;
-
+    const projectHash = hashes.projects.get(projectId) ?? hashes.orphan;
     const ancestorId = findDepth1Ancestor(issue.id, issuesById);
     const isSubtask = ancestorId !== null;
-    const parentHash = isSubtask ? (issueHashes.get(ancestorId) ?? projectHash) : projectHash;
-
+    const parentHash = isSubtask ? (hashes.issues.get(ancestorId) ?? projectHash) : projectHash;
     nodes.push({
       id: hashedId,
       kind: isSubtask ? 'subtask' : 'task',
       parentId: parentHash,
       title: issue.title,
-      status: bucketIssueStatus(issue.stateType),
+      status: bucketStatus(issue.stateType),
       type: pickIssueType(issue.labelNames),
     });
   }
+  return nodes;
+}
+
+export async function normalizeRoadmap(data: LinearRoadmapData): Promise<NormalizedGraph> {
+  const issuesById = new Map<string, LinearIssue>();
+  for (const issue of data.issues) issuesById.set(issue.id, issue);
+
+  const filteredIssues = data.issues.filter((issue) => pickIssueType(issue.labelNames) !== null);
+  const orphanHashId = await hashLinearId(ORPHAN_PROJECT_ID);
+  const projectsToRender = collectProjectsToRender(data.projects, filteredIssues);
+  const projectHashes = await hashProjectIds(projectsToRender, orphanHashId);
+  const issueHashes = await hashIssueIds(filteredIssues);
+
+  const nodes: NormalizedNode[] = [
+    ...buildProjectNodes(projectsToRender, projectHashes),
+    ...buildIssueNodes(filteredIssues, issuesById, {
+      issues: issueHashes,
+      projects: projectHashes,
+      orphan: orphanHashId,
+    }),
+  ];
 
   rollUpStatuses(nodes);
   attachProgress(nodes);

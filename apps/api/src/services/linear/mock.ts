@@ -1,5 +1,5 @@
-import type { LinearClient, LinearRoadmapData } from './types.js';
 import { MOCK_PROJECTS, MOCK_ISSUES } from './mock-fixtures/roadmap.js';
+import type { LinearClient, LinearRoadmapData } from './types.js';
 
 /**
  * Mock Linear client used in local dev and E2E. Returns the committed

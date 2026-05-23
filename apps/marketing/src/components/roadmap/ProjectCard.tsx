@@ -1,7 +1,7 @@
 import * as React from 'react';
-import type { RoadmapNode } from '@hushbox/shared';
 import { ProgressBar } from './ProgressBar';
 import { TaskTree } from './TaskTree';
+import type { RoadmapNode } from '@hushbox/shared';
 import type { TaskWithSubtasks } from './types';
 import type { FilterType } from './use-filter-state';
 
@@ -45,17 +45,24 @@ interface HiddenSummary {
   readonly count: number;
 }
 
+function tallyHiddenInTask(
+  entry: TaskWithSubtasks,
+  activeTypes: ReadonlySet<FilterType>,
+  tally: Record<FilterType, number>
+): void {
+  const { task, subtasks } = entry;
+  if (task.type !== null && !activeTypes.has(task.type)) tally[task.type] += 1;
+  for (const subtask of subtasks) {
+    if (subtask.type !== null && !activeTypes.has(subtask.type)) tally[subtask.type] += 1;
+  }
+}
+
 function countHiddenItems(
   tasks: readonly TaskWithSubtasks[],
   activeTypes: ReadonlySet<FilterType>
 ): HiddenSummary | null {
   const tally: Record<FilterType, number> = { feature: 0, bug: 0 };
-  for (const { task, subtasks } of tasks) {
-    if (task.type !== null && !activeTypes.has(task.type)) tally[task.type] += 1;
-    for (const subtask of subtasks) {
-      if (subtask.type !== null && !activeTypes.has(subtask.type)) tally[subtask.type] += 1;
-    }
-  }
+  for (const entry of tasks) tallyHiddenInTask(entry, activeTypes, tally);
   // At most one type is filtered out at a time given the hook's auto-snap.
   if (tally.bug > 0) return { type: 'bug', count: tally.bug };
   if (tally.feature > 0) return { type: 'feature', count: tally.feature };

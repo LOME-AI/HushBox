@@ -9,18 +9,18 @@ import type { LinearClient } from '../linear/index.js';
 function makeStubRedis(): Redis {
   const store = new Map<string, unknown>();
   return {
-    get: async (key: string) => (store.has(key) ? store.get(key) : null),
-    set: async (key: string, value: unknown) => {
+    get: (key: string) => Promise.resolve(store.has(key) ? store.get(key) : null),
+    set: (key: string, value: unknown) => {
       store.set(key, value);
-      return 'OK';
+      return Promise.resolve('OK');
     },
   } as unknown as Redis;
 }
 
 function makeFixtureLinear(): LinearClient {
   return {
-    async fetchRoadmap() {
-      return { projects: MOCK_PROJECTS, issues: MOCK_ISSUES };
+    fetchRoadmap() {
+      return Promise.resolve({ projects: MOCK_PROJECTS, issues: MOCK_ISSUES });
     },
   };
 }

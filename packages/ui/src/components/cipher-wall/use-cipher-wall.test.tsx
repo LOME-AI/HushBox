@@ -289,7 +289,11 @@ describe('useCipherWall exclusionZone', () => {
     function TestExclusionSync({
       zone,
     }: Readonly<{ zone: Set<number> | null }>): React.JSX.Element {
-      const canvasRef = useCipherWall({ messages: TEST_MESSAGES_FOR_HOOK, themeOverride: DARK_THEME, exclusionZone: zone });
+      const canvasRef = useCipherWall({
+        messages: TEST_MESSAGES_FOR_HOOK,
+        themeOverride: DARK_THEME,
+        exclusionZone: zone,
+      });
       return (
         <div style={{ width: 800, height: 600 }}>
           <canvas ref={canvasRef} data-testid="sync-canvas" />
@@ -329,7 +333,11 @@ describe('useCipherWall exclusionZone', () => {
     function TestExclusionPrune({
       zone,
     }: Readonly<{ zone: Set<number> | null }>): React.JSX.Element {
-      const canvasRef = useCipherWall({ messages: TEST_MESSAGES_FOR_HOOK, themeOverride: DARK_THEME, exclusionZone: zone });
+      const canvasRef = useCipherWall({
+        messages: TEST_MESSAGES_FOR_HOOK,
+        themeOverride: DARK_THEME,
+        exclusionZone: zone,
+      });
       return (
         <div style={{ width: 800, height: 600 }}>
           <canvas ref={canvasRef} data-testid="prune-canvas" />

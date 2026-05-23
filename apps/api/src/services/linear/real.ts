@@ -102,7 +102,7 @@ const PROJECTS_QUERY = `
 const ISSUES_QUERY = `
   query PublicRoadmapIssues($teamKey: String!, $after: String) {
     issues(
-      first: ${ISSUE_PAGE_SIZE},
+      first: ${String(ISSUE_PAGE_SIZE)},
       after: $after,
       filter: {
         team: { key: { eq: $teamKey } }
@@ -163,30 +163,37 @@ async function fetchProjects(apiKey: string, teamKey: string): Promise<readonly 
   }));
 }
 
+type ParsedIssueNode = z.infer<typeof issuesResponseSchema>['data']['issues']['nodes'][number];
+
+function mapIssueNode(node: ParsedIssueNode): LinearIssue {
+  const relations: LinearRelation[] = [];
+  for (const relation of node.relations.nodes) {
+    if (
+      (relation.type === 'blocks' || relation.type === 'blocked_by') &&
+      relation.relatedIssue !== null
+    ) {
+      relations.push({ type: relation.type, relatedIssueId: relation.relatedIssue.id });
+    }
+  }
+  return {
+    id: node.id,
+    title: node.title,
+    stateName: node.state.name,
+    stateType: node.state.type,
+    labelNames: node.labels.nodes.map((l) => l.name),
+    parentId: node.parent?.id ?? null,
+    projectId: node.project?.id ?? null,
+    relations,
+  };
+}
+
 async function fetchIssues(apiKey: string, teamKey: string): Promise<readonly LinearIssue[]> {
   const all: LinearIssue[] = [];
   let cursor: string | null = null;
   do {
     const response = await postGraphQL(apiKey, ISSUES_QUERY, { teamKey, after: cursor });
     const parsed = issuesResponseSchema.parse(response);
-    for (const node of parsed.data.issues.nodes) {
-      const relations: LinearRelation[] = [];
-      for (const rel of node.relations.nodes) {
-        if ((rel.type === 'blocks' || rel.type === 'blocked_by') && rel.relatedIssue !== null) {
-          relations.push({ type: rel.type, relatedIssueId: rel.relatedIssue.id });
-        }
-      }
-      all.push({
-        id: node.id,
-        title: node.title,
-        stateName: node.state.name,
-        stateType: node.state.type,
-        labelNames: node.labels.nodes.map((l) => l.name),
-        parentId: node.parent?.id ?? null,
-        projectId: node.project?.id ?? null,
-        relations,
-      });
-    }
+    for (const node of parsed.data.issues.nodes) all.push(mapIssueNode(node));
     cursor = parsed.data.issues.pageInfo.hasNextPage ? parsed.data.issues.pageInfo.endCursor : null;
   } while (cursor !== null);
   return all;
