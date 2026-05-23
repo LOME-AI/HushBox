@@ -1,13 +1,18 @@
 import type { Redis } from '@upstash/redis';
 import type { RoadmapResponse } from '@hushbox/shared';
 import { redisGet, redisSet } from '../../lib/redis-registry.js';
-import { getLayoutVersion } from './layout-version.js';
+
+/**
+ * Schema version baked into the cache key. Bump this string when the
+ * public response shape changes so old isolates can't serve stale data
+ * with a different schema. Worker isolates that already cached against
+ * the old version key simply miss and refill.
+ */
+const ROADMAP_SCHEMA_VERSION = 'v2';
 
 /**
  * Read-through cache for the public roadmap response. Backed by Upstash
- * Redis with a 1 h TTL. Cache key incorporates the runtime layout-version
- * hash so a layout-code change produces a different key on the next
- * worker isolate boot — no manual invalidation needed.
+ * Redis with a 1 h TTL.
  *
  * If Linear is unreachable, callers receive an error; this cache layer
  * never returns stale data on upstream failure (the design decision was
@@ -20,12 +25,10 @@ export class RoadmapCache {
   ) {}
 
   async get(): Promise<RoadmapResponse | null> {
-    const version = await getLayoutVersion();
-    return redisGet(this.redis, 'roadmapCache', this.teamKey, version);
+    return redisGet(this.redis, 'roadmapCache', this.teamKey, ROADMAP_SCHEMA_VERSION);
   }
 
   async set(value: RoadmapResponse): Promise<void> {
-    const version = await getLayoutVersion();
-    await redisSet(this.redis, 'roadmapCache', value, this.teamKey, version);
+    await redisSet(this.redis, 'roadmapCache', value, this.teamKey, ROADMAP_SCHEMA_VERSION);
   }
 }

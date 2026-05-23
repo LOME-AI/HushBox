@@ -3,7 +3,6 @@ import faviconUrl from '@hushbox/ui/assets/favicon.ico';
 import { A11yProvider, AccessibilityWidget } from '@hushbox/ui/accessibility';
 import { A11Y_INIT_SCRIPT } from '@hushbox/ui/accessibility/init-script';
 import ThemeScript from '../components/ThemeScript.astro';
-import BaseBody from '../components/BaseBody.astro';
 import '../styles/global.css';
 
 interface Props {
@@ -73,9 +72,9 @@ const ogImage = image ?? `${String(Astro.site ?? 'https://hushbox.ai')}og-defaul
       )
     }
   </head>
-  <BaseBody>
+  <body class="bg-background text-foreground flex min-h-dvh flex-col antialiased">
     <slot />
     <A11yProvider client:load />
     <AccessibilityWidget client:load />
-  </BaseBody>
+  </body>
 </html>

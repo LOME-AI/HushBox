@@ -143,10 +143,14 @@ export function createApp() {
   base.use('/api/models/*', csrfProtection());
   base.use('/api/models/*', aiClientMiddleware());
 
-  // Public read-only roadmap. Unauthenticated; per-IP rate-limited inside
-  // the route. Needs Redis for both the rate limiter and the response
-  // cache, but no DB, session, or media-storage.
-  base.use('/api/roadmap/*', redisMiddleware());
+  // /api/public/* is the namespace for unauthenticated, CDN-cacheable read
+  // endpoints. CORS is wildcard for this prefix (see middleware/cors.ts) so
+  // pages on any origin — including the Astro marketing site in dev, where
+  // it runs on a different port — can fetch without an origin allowlist.
+  // Mounts redisMiddleware because both the per-IP rate limiter and the
+  // roadmap response cache need it; no DB, session, CSRF, or media-storage
+  // belong here by construction.
+  base.use('/api/public/*', redisMiddleware());
 
   base.use('/api/billing/*', csrfProtection());
   base.use('/api/billing/*', dbMiddleware());
@@ -207,7 +211,7 @@ export function createApp() {
     .route('/api/forks', forksRoute)
     .route('/api/trial', trialChatRoute)
     .route('/api/models', modelsRoute)
-    .route('/api/roadmap', roadmapRoute)
+    .route('/api/public/roadmap', roadmapRoute)
     .route('/api/billing', billingRoute)
     .route('/api/webhooks', webhooksRoute)
     .route('/api/ws', websocketRoute)

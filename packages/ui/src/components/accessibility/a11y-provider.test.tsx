@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 import { ACCESSIBILITY_PREFERENCES_DEFAULTS, type AccessibilityPreferences } from '@hushbox/shared';
@@ -64,6 +64,11 @@ beforeEach(() => {
   installMutePauserSpy.mockClear();
   installReducedMotionClassSpy.mockClear();
   activateFontSpy.mockReset();
+  vi.stubEnv('VITE_E2E', '');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('A11yProvider', () => {

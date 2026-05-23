@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import type { Redis } from '@upstash/redis';
 import { roadmapResponseSchema, type RoadmapResponse } from '@hushbox/shared';
 import { RoadmapCache } from './cache.js';
-import { getLayoutVersion } from './layout-version.js';
 
 interface RedisCall {
   op: 'get' | 'set';
@@ -32,27 +31,17 @@ const validId = '0123456789ab';
 
 function makeResponse(): RoadmapResponse {
   return roadmapResponseSchema.parse({
-    graph: {
-      nodes: [
-        {
-          id: validId,
-          kind: 'project',
-          parentId: null,
-          title: 'P',
-          status: 'in_progress',
-          type: null,
-          color: '#ec4755',
-        },
-      ],
-      edges: [],
-    },
-    layouts: {
-      wide: {
-        viewBox: [0, 0, 100, 100],
-        positions: { [validId]: { x: 50, y: 50, r: 10 } },
-        bfsOrder: [[validId]],
+    nodes: [
+      {
+        id: validId,
+        kind: 'project',
+        parentId: null,
+        title: 'P',
+        status: 'in_progress',
+        type: null,
+        progress: { done: 0, total: 1 },
       },
-    },
+    ],
   });
 }
 
@@ -67,12 +56,12 @@ describe('RoadmapCache', () => {
     expect(await cache.get()).toBeNull();
   });
 
-  it('writes the response under a key including the layout version', async () => {
+  it('writes the response under a key that lower-cases the team key', async () => {
     const cache = new RoadmapCache(stub.redis, 'HUS');
-    const response = makeResponse();
-    await cache.set(response);
-    const version = await getLayoutVersion();
-    expect(stub.store.has(`roadmap:hus:${version}`)).toBe(true);
+    await cache.set(makeResponse());
+    const written = [...stub.store.keys()];
+    expect(written).toHaveLength(1);
+    expect(written[0]).toContain(':hus:');
   });
 
   it('lowercases the team key for consistency', async () => {

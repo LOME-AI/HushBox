@@ -6,7 +6,7 @@ import { mergeMarketingIntoWeb } from './merge-marketing-into-web.js';
 
 let repoRoot: string;
 
-async function makeTempRoot(): Promise<string> {
+async function makeTemporaryRoot(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'merge-marketing-'));
 }
 
@@ -16,7 +16,7 @@ async function writeFile(filePath: string, content: string): Promise<void> {
 }
 
 beforeEach(async () => {
-  repoRoot = await makeTempRoot();
+  repoRoot = await makeTemporaryRoot();
   await fs.mkdir(path.join(repoRoot, 'apps/marketing/dist'), { recursive: true });
   await fs.mkdir(path.join(repoRoot, 'apps/web/dist'), { recursive: true });
 });
@@ -54,7 +54,7 @@ describe('mergeMarketingIntoWeb', () => {
     await mergeMarketingIntoWeb({ repoRoot });
     const merged = await fs.readFile(
       path.join(repoRoot, 'apps/web/dist/blog/post/index.html'),
-      'utf8',
+      'utf8'
     );
     expect(merged).toBe('<post>');
   });

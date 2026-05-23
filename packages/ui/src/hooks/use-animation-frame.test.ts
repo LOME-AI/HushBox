@@ -82,6 +82,7 @@ describe('useAnimationFrame', () => {
 
   beforeEach(() => {
     useA11yStore.getState().reset();
+    vi.stubEnv('VITE_E2E', '');
   });
 
   afterEach(() => {
@@ -101,6 +102,7 @@ describe('useAnimationFrame', () => {
       value: originalMatchMedia,
     });
     useA11yStore.getState().reset();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 

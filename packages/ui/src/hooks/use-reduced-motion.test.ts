@@ -32,6 +32,9 @@ describe('useReducedMotion', () => {
 
   beforeEach(() => {
     useA11yStore.getState().reset();
+    // Default VITE_E2E to empty so a contaminated local env (set after running
+    // e2e tests) doesn't short-circuit these matchMedia/store assertions.
+    vi.stubEnv('VITE_E2E', '');
   });
 
   afterEach(() => {
@@ -40,6 +43,7 @@ describe('useReducedMotion', () => {
       value: originalMatchMedia,
     });
     useA11yStore.getState().reset();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
@@ -207,6 +211,32 @@ describe('useReducedMotion', () => {
 
     expect(matchMediaSpy).not.toHaveBeenCalled();
   });
+
+  describe('VITE_E2E input', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('returns true when VITE_E2E is truthy even if media-query and store flag are off', () => {
+      createMockMatchMedia(false);
+      useA11yStore.getState().update({ stopAnimations: false });
+      vi.stubEnv('VITE_E2E', 'true');
+
+      const { result } = renderHook(() => useReducedMotion());
+
+      expect(result.current).toBe(true);
+    });
+
+    it('returns false when VITE_E2E is unset and no other input is on', () => {
+      createMockMatchMedia(false);
+      useA11yStore.getState().update({ stopAnimations: false });
+      vi.stubEnv('VITE_E2E', '');
+
+      const { result } = renderHook(() => useReducedMotion());
+
+      expect(result.current).toBe(false);
+    });
+  });
 });
 
 describe('shouldReduceMotion', () => {
@@ -230,6 +260,7 @@ describe('shouldReduceMotion', () => {
 
   beforeEach(() => {
     useA11yStore.getState().reset();
+    vi.stubEnv('VITE_E2E', '');
   });
 
   afterEach(() => {
@@ -238,6 +269,7 @@ describe('shouldReduceMotion', () => {
       value: originalMatchMedia,
     });
     useA11yStore.getState().reset();
+    vi.unstubAllEnvs();
   });
 
   it('returns false when neither input is on', () => {
@@ -260,6 +292,28 @@ describe('shouldReduceMotion', () => {
     stubMatchMedia(true);
     useA11yStore.getState().update({ stopAnimations: true });
     expect(shouldReduceMotion()).toBe(true);
+  });
+
+  describe('VITE_E2E input', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('returns true when VITE_E2E is truthy regardless of other inputs', () => {
+      stubMatchMedia(false);
+      useA11yStore.getState().update({ stopAnimations: false });
+      vi.stubEnv('VITE_E2E', 'true');
+
+      expect(shouldReduceMotion()).toBe(true);
+    });
+
+    it('falls through to other inputs when VITE_E2E is unset', () => {
+      stubMatchMedia(false);
+      useA11yStore.getState().update({ stopAnimations: false });
+      vi.stubEnv('VITE_E2E', '');
+
+      expect(shouldReduceMotion()).toBe(false);
+    });
   });
 });
 
@@ -299,6 +353,7 @@ describe('subscribeReducedMotion', () => {
 
   beforeEach(() => {
     useA11yStore.getState().reset();
+    vi.stubEnv('VITE_E2E', '');
   });
 
   afterEach(() => {
@@ -307,6 +362,7 @@ describe('subscribeReducedMotion', () => {
       value: originalMatchMedia,
     });
     useA11yStore.getState().reset();
+    vi.unstubAllEnvs();
   });
 
   it('fires the listener when the media query changes', () => {

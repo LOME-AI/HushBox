@@ -128,7 +128,7 @@ describe('TypographySection', () => {
   it('cycling Text size updates fontSize', () => {
     render(<TypographySection />);
     clickCard('Text size');
-    expect(storeState.update).toHaveBeenCalledWith({ fontSize: '125' });
+    expect(storeState.update).toHaveBeenCalledWith({ fontSize: '112' });
   });
 
   it('default Font label is "Merriweather (default)"', () => {

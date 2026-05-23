@@ -46,11 +46,11 @@ function makeTestApp(
     c.set('redis', opts.redis);
     await next();
   });
-  app.route('/api/roadmap', roadmapRoute);
+  app.route('/api/public/roadmap', roadmapRoute);
   return app;
 }
 
-describe('GET /api/roadmap', () => {
+describe('GET /api/public/roadmap', () => {
   let store: FakeStore;
   let app: Hono<AppEnv>;
 
@@ -60,7 +60,7 @@ describe('GET /api/roadmap', () => {
   });
 
   it('returns a 200 response that parses against the public schema', async () => {
-    const response = await app.request('/api/roadmap', {
+    const response = await app.request('/api/public/roadmap', {
       headers: { 'cf-connecting-ip': '1.2.3.4' },
     });
     expect(response.status).toBe(200);
@@ -69,48 +69,26 @@ describe('GET /api/roadmap', () => {
   });
 
   it('emits CDN cache headers', async () => {
-    const response = await app.request('/api/roadmap', {
+    const response = await app.request('/api/public/roadmap', {
       headers: { 'cf-connecting-ip': '1.2.3.4' },
     });
     expect(response.headers.get('cache-control')).toBe('public, s-maxage=300');
   });
 
-  it('returns both layouts by default', async () => {
-    const response = await app.request('/api/roadmap', {
+  it('returns nodes with progress attached to projects', async () => {
+    const response = await app.request('/api/public/roadmap', {
       headers: { 'cf-connecting-ip': '1.2.3.4' },
     });
     const body = (await response.json()) as RoadmapResponse;
-    expect(body.layouts.wide).toBeDefined();
-    expect(body.layouts.narrow).toBeDefined();
-  });
-
-  it('returns only wide when ?layout=wide', async () => {
-    const response = await app.request('/api/roadmap?layout=wide', {
-      headers: { 'cf-connecting-ip': '1.2.3.4' },
-    });
-    const body = (await response.json()) as RoadmapResponse;
-    expect(body.layouts.wide).toBeDefined();
-    expect(body.layouts.narrow).toBeUndefined();
-  });
-
-  it('returns only narrow when ?layout=narrow', async () => {
-    const response = await app.request('/api/roadmap?layout=narrow', {
-      headers: { 'cf-connecting-ip': '1.2.3.4' },
-    });
-    const body = (await response.json()) as RoadmapResponse;
-    expect(body.layouts.narrow).toBeDefined();
-    expect(body.layouts.wide).toBeUndefined();
-  });
-
-  it('rejects unknown ?layout values with a Zod validation error', async () => {
-    const response = await app.request('/api/roadmap?layout=gantt', {
-      headers: { 'cf-connecting-ip': '1.2.3.4' },
-    });
-    expect(response.status).toBe(400);
+    const projects = body.nodes.filter((n) => n.kind === 'project');
+    expect(projects.length).toBeGreaterThan(0);
+    for (const project of projects) {
+      expect(project.progress).toBeDefined();
+    }
   });
 
   it('rejects POST requests', async () => {
-    const response = await app.request('/api/roadmap', {
+    const response = await app.request('/api/public/roadmap', {
       method: 'POST',
       headers: { 'cf-connecting-ip': '1.2.3.4' },
     });
@@ -121,7 +99,7 @@ describe('GET /api/roadmap', () => {
     const headers = { 'cf-connecting-ip': '9.9.9.9' };
     let lastStatus = 200;
     for (let i = 0; i < 35; i += 1) {
-      const response = await app.request('/api/roadmap', { headers });
+      const response = await app.request('/api/public/roadmap', { headers });
       lastStatus = response.status;
       if (lastStatus === 429) break;
     }
@@ -130,9 +108,9 @@ describe('GET /api/roadmap', () => {
 
   it('returns a RATE_LIMITED code when throttled', async () => {
     const headers = { 'cf-connecting-ip': '8.8.8.8' };
-    let response = await app.request('/api/roadmap', { headers });
+    let response = await app.request('/api/public/roadmap', { headers });
     for (let i = 0; i < 50 && response.status !== 429; i += 1) {
-      response = await app.request('/api/roadmap', { headers });
+      response = await app.request('/api/public/roadmap', { headers });
     }
     expect(response.status).toBe(429);
     const body = (await response.json()) as { code: string };
@@ -140,9 +118,6 @@ describe('GET /api/roadmap', () => {
   });
 
   it('returns 503 SERVICE_UNAVAILABLE when the Linear fetch fails', async () => {
-    // Swap in a failing Linear client by spying on the factory. The route
-    // calls getLinearClient(c.env) which we route to a stub that throws on
-    // fetchRoadmap, simulating Linear being unreachable.
     const failingClient = {
       fetchRoadmap() {
         return Promise.reject(new Error('linear unreachable'));
@@ -150,7 +125,7 @@ describe('GET /api/roadmap', () => {
     };
     const spy = vi.spyOn(linearModule, 'getLinearClient').mockReturnValue(failingClient);
     try {
-      const response = await app.request('/api/roadmap', {
+      const response = await app.request('/api/public/roadmap', {
         headers: { 'cf-connecting-ip': '2.2.2.2' },
       });
       expect(response.status).toBe(503);
@@ -162,9 +137,6 @@ describe('GET /api/roadmap', () => {
   });
 
   it('uses the mock client implicitly (sanity check that the test infra works)', async () => {
-    // The default test env (NODE_ENV=test) returns the mock client via the
-    // factory. This confirms our happy-path tests above are exercising real
-    // wiring, not a stub.
     const client = linearModule.getLinearClient({ NODE_ENV: 'test' });
     const mock = createMockLinearClient();
     const fromFactory = await client.fetchRoadmap('HUS');
@@ -173,13 +145,11 @@ describe('GET /api/roadmap', () => {
   });
 
   it('uses the cache on subsequent requests within an IP', async () => {
-    // Two requests from two different IPs (to avoid rate limit) should both
-    // succeed; the second one reads from the cache.
-    const r1 = await app.request('/api/roadmap', {
+    const r1 = await app.request('/api/public/roadmap', {
       headers: { 'cf-connecting-ip': '5.5.5.5' },
     });
     expect(r1.status).toBe(200);
-    const r2 = await app.request('/api/roadmap', {
+    const r2 = await app.request('/api/public/roadmap', {
       headers: { 'cf-connecting-ip': '6.6.6.6' },
     });
     expect(r2.status).toBe(200);

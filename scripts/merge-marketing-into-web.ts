@@ -44,7 +44,7 @@ async function assertDirectoryExists(directory: string, label: string): Promise<
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
       throw new Error(
-        `${label} (${directory}) does not exist. Build ${label.toLowerCase()} before merging.`,
+        `${label} (${directory}) does not exist. Build ${label.toLowerCase()} before merging.`
       );
     }
     throw error;
@@ -65,9 +65,9 @@ export async function mergeMarketingIntoWeb(options: MergeOptions): Promise<Merg
 
   const entries = await fs.readdir(sourceDir, { withFileTypes: true });
   for (const entry of entries) {
-    const src = path.join(sourceDir, entry.name);
-    const dst = path.join(targetDir, entry.name);
-    await fs.cp(src, dst, { recursive: true, force: true });
+    const source = path.join(sourceDir, entry.name);
+    const destination = path.join(targetDir, entry.name);
+    await fs.cp(source, destination, { recursive: true, force: true });
   }
 
   const filesCopied = await countFiles(sourceDir);
@@ -81,7 +81,7 @@ if (isMainModule(import.meta.url)) {
     const repoRoot = path.resolve(scriptDir, '..');
     const result = await mergeMarketingIntoWeb({ repoRoot });
     console.log(
-      `Merged ${String(result.filesCopied)} files: ${result.sourceDir} -> ${result.targetDir}`,
+      `Merged ${String(result.filesCopied)} files: ${result.sourceDir} -> ${result.targetDir}`
     );
   });
 }

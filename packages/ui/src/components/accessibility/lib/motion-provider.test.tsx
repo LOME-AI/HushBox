@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 const motionConfigCalls: {
@@ -35,6 +35,11 @@ describe('MotionProvider', () => {
   beforeEach(() => {
     motionConfigCalls.length = 0;
     stopAnimationsRef.current = false;
+    vi.stubEnv('VITE_E2E', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('renders its children', () => {

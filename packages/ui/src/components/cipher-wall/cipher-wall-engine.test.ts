@@ -10,9 +10,7 @@ import {
   getCellColor,
   renderFrame,
   createFrozenSnapshot,
-  SPLASH_MESSAGE_INDICES,
   CIPHER_CHARS,
-  MESSAGES,
   CELL_WIDTH,
   CELL_HEIGHT,
   FONT_SIZE,
@@ -32,10 +30,46 @@ import {
 } from './cipher-wall-engine';
 import type { Cell, CipherWallState, ThemeColors } from './cipher-wall-engine';
 
-const longestMessage = Math.max(...MESSAGES.map((m) => m.length));
+/**
+ * The engine no longer ships a default message pool — every caller passes
+ * its own. Tests share this fixed list so they don't depend on a specific
+ * call site (welcome.astro, splash-screen.tsx, etc.) and individual tests
+ * stay readable.
+ */
+const TEST_MESSAGES: readonly string[] = [
+  'Encrypted By Default',
+  'Only You Hold The Key',
+  'Every Model, One Place',
+  'Private Group Chats',
+  'Zero-Knowledge Password',
+  'Switch Models Anytime',
+  'Your Messages, Your Control',
+  'No Subscriptions Required',
+  'One App, Every AI',
+  'Never Lose A Conversation',
+  'Stop Juggling Subscriptions',
+  'Try Any Model Instantly',
+  'Your Ideas Stay Yours',
+  'Simple, Honest Pricing',
+  'No More App Switching',
+  'Built For Your Workflow',
+];
+
+/** First four messages — used as the splash placement pool in frozen tests. */
+const TEST_SPLASH_MESSAGES: readonly string[] = TEST_MESSAGES.slice(0, 4);
+
+function makeGrid(cols: number, rows: number): CipherWallState {
+  return createGrid(cols, rows, TEST_MESSAGES);
+}
+
+function makeSnapshot(cols: number, rows: number, count: number): CipherWallState {
+  return createFrozenSnapshot(cols, rows, TEST_SPLASH_MESSAGES.slice(0, count));
+}
+
+const longestMessage = Math.max(...TEST_MESSAGES.map((m) => m.length));
 
 function wideGrid(): CipherWallState {
-  return createGrid(longestMessage + 2 * MARGIN_COLS + 10, 2 * MARGIN_ROWS + 20);
+  return makeGrid(longestMessage + 2 * MARGIN_COLS + 10, 2 * MARGIN_ROWS + 20);
 }
 
 function triggerReveal(state: CipherWallState): void {
@@ -94,24 +128,9 @@ describe('constants', () => {
     }
   });
 
-  it('has capitalized product-value MESSAGES', () => {
-    expect(MESSAGES.length).toBeGreaterThanOrEqual(16);
-    expect(MESSAGES).toContain('Encrypted By Default');
-    expect(MESSAGES).toContain('Only You Hold The Key');
-    expect(MESSAGES).toContain('Every Model, One Place');
-    expect(MESSAGES).toContain('Private Group Chats');
-    expect(MESSAGES).toContain('Zero-Knowledge Password');
-    expect(MESSAGES).toContain('Switch Models Anytime');
-    expect(MESSAGES).toContain('Your Messages, Your Control');
-    expect(MESSAGES).toContain('No Subscriptions Required');
-    expect(MESSAGES).toContain('One App, Every AI');
-    expect(MESSAGES).toContain('Never Lose A Conversation');
-    expect(MESSAGES).toContain('Stop Juggling Subscriptions');
-    expect(MESSAGES).toContain('Try Any Model Instantly');
-    expect(MESSAGES).toContain('Your Ideas Stay Yours');
-    expect(MESSAGES).toContain('Simple, Honest Pricing');
-    expect(MESSAGES).toContain('No More App Switching');
-    expect(MESSAGES).toContain('Built For Your Workflow');
+  it('stores the supplied messages on the state', () => {
+    const state = createGrid(10, 5, TEST_MESSAGES);
+    expect(state.messages).toBe(TEST_MESSAGES);
   });
 
   it('has positive numeric constants', () => {
@@ -151,21 +170,21 @@ describe('constants', () => {
 
 describe('createGrid', () => {
   it('creates flat cell array with expected total length', () => {
-    const state = createGrid(80, 30);
+    const state = makeGrid(80, 30);
     expect(state.cols).toBe(80);
     expect(state.rows).toBe(30);
     expect(state.cells).toHaveLength(80 * 30);
   });
 
   it('initializes every cell in cipher state', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     for (const cell of state.cells) {
       expect(cell.state).toBe('cipher');
     }
   });
 
   it('assigns a non-empty cipherChar from CIPHER_CHARS to every cell', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     for (const cell of state.cells) {
       expect(cell.cipherChar).toBeTruthy();
       expect(CIPHER_CHARS).toContain(cell.cipherChar);
@@ -173,21 +192,21 @@ describe('createGrid', () => {
   });
 
   it('initializes cells with empty targetChar', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     for (const cell of state.cells) {
       expect(cell.targetChar).toBe('');
     }
   });
 
   it('initializes cells with zero progress', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     for (const cell of state.cells) {
       expect(cell.progress).toBe(0);
     }
   });
 
   it('initializes cells with empty rollChar and color', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     for (const cell of state.cells) {
       expect(cell.rollChar).toBe('');
       expect(cell.color).toBe('');
@@ -195,17 +214,17 @@ describe('createGrid', () => {
   });
 
   it('starts with empty reveals array', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     expect(state.reveals).toEqual([]);
   });
 
   it('starts with revealTimer set to REVEAL_INTERVAL', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     expect(state.revealTimer).toBe(REVEAL_INTERVAL);
   });
 
   it('uses randomness for cipherChar — not all identical', () => {
-    const state = createGrid(40, 20);
+    const state = makeGrid(40, 20);
     const chars = new Set<string>();
     for (const cell of state.cells) {
       chars.add(cell.cipherChar);
@@ -213,15 +232,15 @@ describe('createGrid', () => {
     expect(chars.size).toBeGreaterThan(1);
   });
 
-  it('initializes messageQueue with MESSAGES.length indices', () => {
-    const state = createGrid(10, 5);
-    expect(state.messageQueue).toHaveLength(MESSAGES.length);
+  it('initializes messageQueue with TEST_MESSAGES.length indices', () => {
+    const state = makeGrid(10, 5);
+    expect(state.messageQueue).toHaveLength(TEST_MESSAGES.length);
     const sorted = state.messageQueue.toSorted((a, b) => a - b);
-    expect(sorted).toEqual(Array.from({ length: MESSAGES.length }, (_, index) => index));
+    expect(sorted).toEqual(Array.from({ length: TEST_MESSAGES.length }, (_, index) => index));
   });
 
   it('initializes exclusionZone as null', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     expect(state.exclusionZone).toBeNull();
   });
 
@@ -281,7 +300,7 @@ describe('createGrid', () => {
 
 describe('resizeCells', () => {
   it('is a no-op when dimensions are unchanged', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     const originalLength = state.cells.length;
     const firstCell = state.cells[0];
     resizeCells(state, 10, 5);
@@ -290,7 +309,7 @@ describe('resizeCells', () => {
   });
 
   it('expands the array when total increases', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     expect(state.cells).toHaveLength(50);
     resizeCells(state, 10, 8);
     expect(state.cells).toHaveLength(80);
@@ -299,7 +318,7 @@ describe('resizeCells', () => {
   });
 
   it('fills new cells with cipher state', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     resizeCells(state, 10, 8);
     for (let cellIndex = 50; cellIndex < 80; cellIndex++) {
       expect(state.cells[cellIndex]!.state).toBe('cipher');
@@ -308,7 +327,7 @@ describe('resizeCells', () => {
   });
 
   it('preserves existing cell identity on expansion', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     const references = state.cells.map((c) => c);
     resizeCells(state, 10, 8);
     for (let cellIndex = 0; cellIndex < 50; cellIndex++) {
@@ -317,7 +336,7 @@ describe('resizeCells', () => {
   });
 
   it('shrinks the array when total decreases', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     resizeCells(state, 10, 3);
     expect(state.cells).toHaveLength(30);
     expect(state.cols).toBe(10);
@@ -325,7 +344,7 @@ describe('resizeCells', () => {
   });
 
   it('preserves existing cell identity on shrink', () => {
-    const state = createGrid(10, 5);
+    const state = makeGrid(10, 5);
     const references = state.cells.slice(0, 30).map((c) => c);
     resizeCells(state, 10, 3);
     for (let cellIndex = 0; cellIndex < 30; cellIndex++) {
@@ -334,7 +353,7 @@ describe('resizeCells', () => {
   });
 
   it('prunes reveals that extend past the new total', () => {
-    const state = createGrid(80, 30);
+    const state = makeGrid(80, 30);
     // Manually place a reveal near the end
     state.reveals.push({
       startIndex: 80 * 29, // last row
@@ -350,7 +369,7 @@ describe('resizeCells', () => {
   });
 
   it('preserves reveals that are still within bounds', () => {
-    const state = createGrid(80, 30);
+    const state = makeGrid(80, 30);
     state.reveals.push({
       startIndex: 80 * 2 + 5, // row 2, safe
       text: 'Test',
@@ -365,7 +384,7 @@ describe('resizeCells', () => {
   });
 
   it('handles cols change correctly', () => {
-    const state = createGrid(80, 30);
+    const state = makeGrid(80, 30);
     resizeCells(state, 60, 30);
     expect(state.cells).toHaveLength(60 * 30);
     expect(state.cols).toBe(60);
@@ -459,7 +478,7 @@ describe('seedInitialReveals', () => {
   });
 
   it('places no reveals when grid is too small', () => {
-    const state = createGrid(5, 5);
+    const state = makeGrid(5, 5);
     seedInitialReveals(state);
     expect(state.reveals).toHaveLength(0);
   });
@@ -503,10 +522,10 @@ describe('updateState', () => {
       expect(state.reveals[0]!.state).toBe('decrypting');
     });
 
-    it('selects a message from MESSAGES array', () => {
+    it('selects a message from the supplied messages array', () => {
       const state = wideGrid();
       triggerReveal(state);
-      expect(MESSAGES).toContain(state.reveals[0]!.text);
+      expect(TEST_MESSAGES).toContain(state.reveals[0]!.text);
     });
 
     it('respects MAX_ACTIVE_REVEALS', () => {
@@ -819,7 +838,7 @@ describe('updateState', () => {
       const state = wideGrid();
       const seen: string[] = [];
 
-      for (let remaining = MESSAGES.length; remaining > 0; remaining--) {
+      for (let remaining = TEST_MESSAGES.length; remaining > 0; remaining--) {
         state.revealTimer = 0.001;
         updateState(state, 0.002);
         if (state.reveals.length > 0) {
@@ -829,7 +848,7 @@ describe('updateState', () => {
         resetCells(state);
       }
 
-      expect(new Set(seen).size).toBe(MESSAGES.length);
+      expect(new Set(seen).size).toBe(TEST_MESSAGES.length);
     });
   });
 });
@@ -999,7 +1018,7 @@ describe('renderFrame', () => {
 
   it('calls clearRect with full dimensions', () => {
     const ctx = mockCtx();
-    const state = createGrid(5, 3);
+    const state = makeGrid(5, 3);
     renderFrame({
       ctx,
       state,
@@ -1014,7 +1033,7 @@ describe('renderFrame', () => {
 
   it('calls fillText for every cell in the grid', () => {
     const ctx = mockCtx();
-    const state = createGrid(5, 3);
+    const state = makeGrid(5, 3);
     renderFrame({
       ctx,
       state,
@@ -1029,7 +1048,7 @@ describe('renderFrame', () => {
 
   it('sets font to FONT constant', () => {
     const ctx = mockCtx();
-    const state = createGrid(2, 2);
+    const state = makeGrid(2, 2);
     renderFrame({
       ctx,
       state,
@@ -1044,7 +1063,7 @@ describe('renderFrame', () => {
 
   it('uses brandRed fillStyle for readable cells', () => {
     const ctx = mockCtx();
-    const state = createGrid(5, 3);
+    const state = makeGrid(5, 3);
     // cell at row 1, col 2 = flat index 1*5+2 = 7
     state.cells[7]!.state = 'readable';
     state.cells[7]!.targetChar = 'H';
@@ -1066,7 +1085,7 @@ describe('renderFrame', () => {
 
   it('uses 0.8 opacity for cipher cells', () => {
     const ctx = mockCtx();
-    const state = createGrid(1, 1);
+    const state = makeGrid(1, 1);
     renderFrame({
       ctx,
       state,
@@ -1082,7 +1101,7 @@ describe('renderFrame', () => {
 
   it('boosts opacity for cells inside logo mask', () => {
     const ctx = mockCtx();
-    const state = createGrid(3, 2);
+    const state = makeGrid(3, 2);
     const logoMask = [
       [false, true, false],
       [false, false, false],
@@ -1102,7 +1121,7 @@ describe('renderFrame', () => {
 
   it('positions fillText at correct coordinates using CELL_WIDTH and CELL_HEIGHT', () => {
     const ctx = mockCtx();
-    const state = createGrid(2, 2);
+    const state = makeGrid(2, 2);
     renderFrame({
       ctx,
       state,
@@ -1127,7 +1146,7 @@ describe('renderFrame', () => {
 
   it('applies cipherOpacity to cipher cells', () => {
     const ctx = mockCtx();
-    const state = createGrid(1, 1);
+    const state = makeGrid(1, 1);
     renderFrame({
       ctx,
       state,
@@ -1143,7 +1162,7 @@ describe('renderFrame', () => {
 
   it('does not apply cipherOpacity to readable cells', () => {
     const ctx = mockCtx();
-    const state = createGrid(1, 1);
+    const state = makeGrid(1, 1);
     state.cells[0]!.state = 'readable';
     state.cells[0]!.targetChar = 'H';
     state.cells[0]!.progress = 1;
@@ -1163,7 +1182,7 @@ describe('renderFrame', () => {
 
   it('applies cipherOpacity to decrypting cells', () => {
     const ctx = mockCtx();
-    const state = createGrid(1, 1);
+    const state = makeGrid(1, 1);
     state.cells[0]!.state = 'decrypting';
     state.cells[0]!.progress = 0.5;
     state.cells[0]!.rollChar = 'X';
@@ -1183,7 +1202,7 @@ describe('renderFrame', () => {
 
   it('applies cipherOpacity to encrypting cells', () => {
     const ctx = mockCtx();
-    const state = createGrid(1, 1);
+    const state = makeGrid(1, 1);
     state.cells[0]!.state = 'encrypting';
     state.cells[0]!.progress = 0.5;
     state.cells[0]!.rollChar = 'X';
@@ -1203,7 +1222,7 @@ describe('renderFrame', () => {
 
   it('treats cipherOpacity of 1 as no change', () => {
     const ctx = mockCtx();
-    const state = createGrid(1, 1);
+    const state = makeGrid(1, 1);
     renderFrame({
       ctx,
       state,
@@ -1240,27 +1259,27 @@ describe('createFrozenSnapshot', () => {
   const centerCol = Math.floor(cols / 2);
 
   it('returns cells with correct dimensions', () => {
-    const state = createFrozenSnapshot(cols, rows, 4);
+    const state = makeSnapshot(cols, rows, 4);
     expect(state.cols).toBe(cols);
     expect(state.rows).toBe(rows);
     expect(state.cells).toHaveLength(cols * rows);
   });
 
   it('places 4 messages on 4 distinct rows', () => {
-    const state = createFrozenSnapshot(cols, rows, 4);
+    const state = makeSnapshot(cols, rows, 4);
     const readableRows = getReadableRows(state);
     expect(readableRows.size).toBe(4);
   });
 
   it('places messages at symmetric row offsets from center (±5 and ±8)', () => {
-    const state = createFrozenSnapshot(cols, rows, 4);
+    const state = makeSnapshot(cols, rows, 4);
     const readableRows = getReadableRows(state);
     const sorted = [...readableRows].toSorted((a, b) => a - b);
     expect(sorted).toEqual([centerRow - 8, centerRow - 5, centerRow + 5, centerRow + 8]);
   });
 
   it('centers each message by its middle character on the center column', () => {
-    const state = createFrozenSnapshot(cols, rows, 4);
+    const state = makeSnapshot(cols, rows, 4);
     for (let r = 0; r < state.rows; r++) {
       const span = findReadableSpan(state, r);
       if (!span) continue;
@@ -1270,9 +1289,8 @@ describe('createFrozenSnapshot', () => {
     }
   });
 
-  it('places messages matching SPLASH_MESSAGE_INDICES from MESSAGES', () => {
-    const state = createFrozenSnapshot(cols, rows, 4);
-    const expectedMessages = SPLASH_MESSAGE_INDICES.map((index) => MESSAGES[index]);
+  it('places the supplied splash messages in order', () => {
+    const state = makeSnapshot(cols, rows, 4);
     const placedMessages: string[] = [];
     for (let r = 0; r < state.rows; r++) {
       let rowText = '';
@@ -1282,20 +1300,16 @@ describe('createFrozenSnapshot', () => {
       }
       if (rowText.length > 0) placedMessages.push(rowText);
     }
-    expect(placedMessages).toEqual(expectedMessages);
-  });
-
-  it('SPLASH_MESSAGE_INDICES has 4 entries', () => {
-    expect(SPLASH_MESSAGE_INDICES).toHaveLength(4);
+    expect(placedMessages).toEqual([...TEST_SPLASH_MESSAGES]);
   });
 
   it('has no active reveals (static)', () => {
-    const state = createFrozenSnapshot(cols, rows, 4);
+    const state = makeSnapshot(cols, rows, 4);
     expect(state.reveals).toHaveLength(0);
   });
 
   it('all non-readable cells are in cipher state', () => {
-    const state = createFrozenSnapshot(cols, rows, 4);
+    const state = makeSnapshot(cols, rows, 4);
     for (const cell of state.cells) {
       if (cell.state !== 'readable') {
         expect(cell.state).toBe('cipher');
@@ -1304,24 +1318,24 @@ describe('createFrozenSnapshot', () => {
   });
 
   it('handles zero messageCount', () => {
-    const state = createFrozenSnapshot(cols, rows, 0);
+    const state = makeSnapshot(cols, rows, 0);
     expect(countReadableCells(state.cells)).toBe(0);
     expect(state.reveals).toHaveLength(0);
   });
 
   it('skips messages that do not fit in a small grid', () => {
-    const state = createFrozenSnapshot(cols, 5, 4);
+    const state = makeSnapshot(cols, 5, 4);
     const readableRows = getReadableRows(state);
     expect(readableRows.size).toBeLessThan(4);
   });
 
   it('skips messages that overflow columns in a narrow grid', () => {
-    const state = createFrozenSnapshot(10, rows, 4);
+    const state = makeSnapshot(10, rows, 4);
     expect(countReadableCells(state.cells)).toBe(0);
   });
 
   it('initializes exclusionZone as null', () => {
-    const state = createFrozenSnapshot(cols, rows, 4);
+    const state = makeSnapshot(cols, rows, 4);
     expect(state.exclusionZone).toBeNull();
   });
 });

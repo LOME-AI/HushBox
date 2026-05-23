@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeRoadmap, hashLinearId } from './normalize.js';
+import { normalizeRoadmap, hashLinearId, ORPHAN_PROJECT_ID } from './normalize.js';
 import type { LinearRoadmapData } from '../linear/types.js';
-import { LAYOUT_CONFIG } from './layout-config.js';
 
 function makeData(overrides: Partial<LinearRoadmapData>): LinearRoadmapData {
   return {
@@ -31,10 +30,9 @@ describe('hashLinearId', () => {
 });
 
 describe('normalizeRoadmap', () => {
-  it('emits an empty graph for empty input', async () => {
-    const graph = await normalizeRoadmap(makeData({}));
-    expect(graph.nodes).toHaveLength(0);
-    expect(graph.edges).toHaveLength(0);
+  it('emits an empty nodes array for empty input', async () => {
+    const result = await normalizeRoadmap(makeData({}));
+    expect(result.nodes).toHaveLength(0);
   });
 
   it('drops issues that lack a type:feature or type:bug label', async () => {
@@ -53,10 +51,8 @@ describe('normalizeRoadmap', () => {
         },
       ],
     });
-    const graph = await normalizeRoadmap(data);
-    // Project rendered only when it contains an issue we kept; here we drop all
-    // issues, so the project is not rendered either.
-    expect(graph.nodes).toHaveLength(0);
+    const result = await normalizeRoadmap(data);
+    expect(result.nodes).toHaveLength(0);
   });
 
   it('buckets state types into the three public statuses', async () => {
@@ -76,8 +72,8 @@ describe('normalizeRoadmap', () => {
         makeFeature('i-do', 'p-do', 'completed'),
       ],
     });
-    const graph = await normalizeRoadmap(data);
-    const projectStatuses = graph.nodes
+    const result = await normalizeRoadmap(data);
+    const projectStatuses = result.nodes
       .filter((n) => n.kind === 'project')
       .map((n) => `${n.title}=${n.status}`)
       .sort();
@@ -106,12 +102,12 @@ describe('normalizeRoadmap', () => {
         },
       ],
     });
-    const graph = await normalizeRoadmap(data);
-    const orphanHash = await hashLinearId(LAYOUT_CONFIG.orphanProject.id);
-    const orphanProject = graph.nodes.find((n) => n.id === orphanHash);
+    const result = await normalizeRoadmap(data);
+    const orphanHash = await hashLinearId(ORPHAN_PROJECT_ID);
+    const orphanProject = result.nodes.find((n) => n.id === orphanHash);
     expect(orphanProject?.title).toBe('Other');
     expect(orphanProject?.kind).toBe('project');
-    const task = graph.nodes.find((n) => n.kind === 'task');
+    const task = result.nodes.find((n) => n.kind === 'task');
     expect(task?.parentId).toBe(orphanHash);
   });
 
@@ -123,12 +119,12 @@ describe('normalizeRoadmap', () => {
       ],
       issues: [makeFeature('i-only', 'p-full', 'started')],
     });
-    const graph = await normalizeRoadmap(data);
-    const projectTitles = graph.nodes.filter((n) => n.kind === 'project').map((n) => n.title);
+    const result = await normalizeRoadmap(data);
+    const projectTitles = result.nodes.filter((n) => n.kind === 'project').map((n) => n.title);
     expect(projectTitles).toEqual(['Full']);
   });
 
-  it('builds hierarchy edges from project to task to subtask', async () => {
+  it('uses parentId to encode the project → task → subtask hierarchy', async () => {
     const data = makeData({
       projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
       issues: [
@@ -136,14 +132,14 @@ describe('normalizeRoadmap', () => {
         { ...makeFeature('sub', 'p1', 'started'), parentId: 'task' },
       ],
     });
-    const graph = await normalizeRoadmap(data);
-    const taskNode = graph.nodes.find((n) => n.title === 'task');
-    const subNode = graph.nodes.find((n) => n.title === 'sub');
-    expect(taskNode?.kind).toBe('task');
-    expect(subNode?.kind).toBe('subtask');
-    expect(subNode?.parentId).toBe(taskNode?.id);
-    const hierarchyEdges = graph.edges.filter((e) => e.kind === 'hierarchy');
-    expect(hierarchyEdges).toHaveLength(2);
+    const result = await normalizeRoadmap(data);
+    const project = result.nodes.find((n) => n.kind === 'project');
+    const task = result.nodes.find((n) => n.title === 'task');
+    const sub = result.nodes.find((n) => n.title === 'sub');
+    expect(task?.kind).toBe('task');
+    expect(task?.parentId).toBe(project?.id);
+    expect(sub?.kind).toBe('subtask');
+    expect(sub?.parentId).toBe(task?.id);
   });
 
   it('flattens deeper-than-2 hierarchies onto the depth-1 ancestor', async () => {
@@ -156,72 +152,13 @@ describe('normalizeRoadmap', () => {
         { ...makeFeature('subsubsub', 'p1', 'started'), parentId: 'subsub' },
       ],
     });
-    const graph = await normalizeRoadmap(data);
-    const taskNode = graph.nodes.find((n) => n.title === 'task');
-    const deepNodes = graph.nodes.filter((n) => n.title.startsWith('subsub'));
+    const result = await normalizeRoadmap(data);
+    const taskNode = result.nodes.find((n) => n.title === 'task');
+    const deepNodes = result.nodes.filter((n) => n.title.startsWith('subsub'));
     for (const node of deepNodes) {
       expect(node.kind).toBe('subtask');
       expect(node.parentId).toBe(taskNode?.id);
     }
-  });
-
-  it('builds dependency edges from blocks relations', async () => {
-    const data = makeData({
-      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
-      issues: [
-        {
-          ...makeFeature('blocker', 'p1', 'started'),
-          relations: [{ type: 'blocks', relatedIssueId: 'blocked' }],
-        },
-        makeFeature('blocked', 'p1', 'started'),
-      ],
-    });
-    const graph = await normalizeRoadmap(data);
-    const blocker = graph.nodes.find((n) => n.title === 'blocker');
-    const blocked = graph.nodes.find((n) => n.title === 'blocked');
-    const depEdges = graph.edges.filter((e) => e.kind === 'dependency');
-    expect(depEdges).toHaveLength(1);
-    expect(depEdges[0]?.source).toBe(blocker?.id);
-    expect(depEdges[0]?.target).toBe(blocked?.id);
-  });
-
-  it('canonicalises blocked_by into the same direction as blocks', async () => {
-    const data = makeData({
-      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
-      issues: [
-        makeFeature('blocker', 'p1', 'started'),
-        {
-          ...makeFeature('blocked', 'p1', 'started'),
-          relations: [{ type: 'blocked_by', relatedIssueId: 'blocker' }],
-        },
-      ],
-    });
-    const graph = await normalizeRoadmap(data);
-    const blocker = graph.nodes.find((n) => n.title === 'blocker');
-    const blocked = graph.nodes.find((n) => n.title === 'blocked');
-    const depEdges = graph.edges.filter((e) => e.kind === 'dependency');
-    expect(depEdges).toHaveLength(1);
-    expect(depEdges[0]?.source).toBe(blocker?.id);
-    expect(depEdges[0]?.target).toBe(blocked?.id);
-  });
-
-  it('deduplicates mirrored dependency relations (blocks + blocked_by between same pair)', async () => {
-    const data = makeData({
-      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
-      issues: [
-        {
-          ...makeFeature('a', 'p1', 'started'),
-          relations: [{ type: 'blocks', relatedIssueId: 'b' }],
-        },
-        {
-          ...makeFeature('b', 'p1', 'started'),
-          relations: [{ type: 'blocked_by', relatedIssueId: 'a' }],
-        },
-      ],
-    });
-    const graph = await normalizeRoadmap(data);
-    const depEdges = graph.edges.filter((e) => e.kind === 'dependency');
-    expect(depEdges).toHaveLength(1);
   });
 
   it('uses opaque 12-hex ids on the wire, never raw Linear ids', async () => {
@@ -229,8 +166,8 @@ describe('normalizeRoadmap', () => {
       projects: [{ id: 'p1-uuid-style', name: 'P', color: '#000000', stateType: 'started' }],
       issues: [makeFeature('i1-uuid-style', 'p1-uuid-style', 'started')],
     });
-    const graph = await normalizeRoadmap(data);
-    for (const node of graph.nodes) {
+    const result = await normalizeRoadmap(data);
+    for (const node of result.nodes) {
       expect(node.id).toMatch(/^[0-9a-f]{12}$/);
       expect(node.id).not.toContain('-');
       expect(node.id).not.toContain('uuid');
@@ -245,23 +182,194 @@ describe('normalizeRoadmap', () => {
         { ...makeFeature('bug', 'p1', 'started'), labelNames: ['type:bug'] },
       ],
     });
-    const graph = await normalizeRoadmap(data);
-    const feat = graph.nodes.find((n) => n.title === 'feat');
-    const bug = graph.nodes.find((n) => n.title === 'bug');
+    const result = await normalizeRoadmap(data);
+    const feat = result.nodes.find((n) => n.title === 'feat');
+    const bug = result.nodes.find((n) => n.title === 'bug');
     expect(feat?.type).toBe('feature');
     expect(bug?.type).toBe('bug');
   });
 
-  it('never sets a color on issue nodes (only projects carry color)', async () => {
+  it('rolls a planned project up to in_progress when it has an in_progress task', async () => {
     const data = makeData({
-      projects: [{ id: 'p1', name: 'P', color: '#ec4755', stateType: 'started' }],
-      issues: [makeFeature('i1', 'p1', 'started')],
+      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'planned' }],
+      issues: [makeFeature('t1', 'p1', 'started')],
     });
-    const graph = await normalizeRoadmap(data);
-    const project = graph.nodes.find((n) => n.kind === 'project');
-    const issue = graph.nodes.find((n) => n.kind === 'task');
-    expect(project?.color).toBe('#ec4755');
-    expect(issue?.color).toBeNull();
+    const result = await normalizeRoadmap(data);
+    const project = result.nodes.find((n) => n.kind === 'project');
+    expect(project?.status).toBe('in_progress');
+  });
+
+  it('rolls a planned project up to shipped when it has a shipped task', async () => {
+    const data = makeData({
+      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'planned' }],
+      issues: [makeFeature('t1', 'p1', 'completed')],
+    });
+    const result = await normalizeRoadmap(data);
+    const project = result.nodes.find((n) => n.kind === 'project');
+    expect(project?.status).toBe('shipped');
+  });
+
+  it('rolls in_progress project up to shipped when it has a shipped task', async () => {
+    const data = makeData({
+      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
+      issues: [makeFeature('t1', 'p1', 'completed')],
+    });
+    const result = await normalizeRoadmap(data);
+    const project = result.nodes.find((n) => n.kind === 'project');
+    expect(project?.status).toBe('shipped');
+  });
+
+  it('keeps a shipped project shipped even if a child task is planned (max of self + children)', async () => {
+    const data = makeData({
+      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'completed' }],
+      issues: [makeFeature('t1', 'p1', 'unstarted')],
+    });
+    const result = await normalizeRoadmap(data);
+    const project = result.nodes.find((n) => n.kind === 'project');
+    expect(project?.status).toBe('shipped');
+  });
+
+  it('rolls a planned task up to in_progress when it has an in_progress subtask', async () => {
+    const data = makeData({
+      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
+      issues: [
+        { ...makeFeature('task', 'p1', 'unstarted'), id: 'task' },
+        { ...makeFeature('sub', 'p1', 'started'), parentId: 'task' },
+      ],
+    });
+    const result = await normalizeRoadmap(data);
+    const task = result.nodes.find((n) => n.title === 'task');
+    expect(task?.status).toBe('in_progress');
+  });
+
+  it('rolls subtask status up the chain to the project', async () => {
+    const data = makeData({
+      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'planned' }],
+      issues: [
+        { ...makeFeature('task', 'p1', 'unstarted'), id: 'task' },
+        { ...makeFeature('sub', 'p1', 'started'), parentId: 'task' },
+      ],
+    });
+    const result = await normalizeRoadmap(data);
+    const project = result.nodes.find((n) => n.kind === 'project');
+    expect(project?.status).toBe('in_progress');
+  });
+
+  it('does not emit edges on the public response', async () => {
+    const data = makeData({
+      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
+      issues: [makeFeature('t1', 'p1', 'started')],
+    });
+    const result = await normalizeRoadmap(data);
+    expect(result).not.toHaveProperty('edges');
+  });
+
+  it('does not emit progress on task nodes', async () => {
+    const data = makeData({
+      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
+      issues: [makeFeature('t1', 'p1', 'started')],
+    });
+    const result = await normalizeRoadmap(data);
+    const task = result.nodes.find((n) => n.kind === 'task');
+    expect(task?.progress).toBeUndefined();
+  });
+
+  it('does not emit progress on subtask nodes', async () => {
+    const data = makeData({
+      projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
+      issues: [
+        { ...makeFeature('task', 'p1', 'unstarted'), id: 'task' },
+        { ...makeFeature('sub', 'p1', 'completed'), parentId: 'task' },
+      ],
+    });
+    const result = await normalizeRoadmap(data);
+    const sub = result.nodes.find((n) => n.kind === 'subtask');
+    expect(sub?.progress).toBeUndefined();
+  });
+
+  describe('progress', () => {
+    it('reports 0/0 on a project with no tasks (impossible in practice but defensive)', async () => {
+      const data = makeData({
+        projects: [{ id: 'p1', name: 'Empty', color: '#000000', stateType: 'planned' }],
+        issues: [],
+      });
+      const result = await normalizeRoadmap(data);
+      const project = result.nodes.find((n) => n.kind === 'project');
+      // Empty projects are omitted upstream, so the project shouldn't appear.
+      expect(project).toBeUndefined();
+    });
+
+    it('counts only top-level tasks (subtasks do not increase the denominator)', async () => {
+      const data = makeData({
+        projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
+        issues: [
+          { ...makeFeature('task', 'p1', 'unstarted'), id: 'task' },
+          { ...makeFeature('sub-a', 'p1', 'completed'), parentId: 'task' },
+          { ...makeFeature('sub-b', 'p1', 'completed'), parentId: 'task' },
+        ],
+      });
+      const result = await normalizeRoadmap(data);
+      const project = result.nodes.find((n) => n.kind === 'project');
+      // 1 task, fully rolled-up to shipped because all its subtasks are shipped.
+      expect(project?.progress).toEqual({ done: 1, total: 1 });
+    });
+
+    it('counts task as done when its rolled-up status is shipped', async () => {
+      const data = makeData({
+        projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
+        issues: [
+          makeFeature('a', 'p1', 'completed'),
+          makeFeature('b', 'p1', 'completed'),
+          makeFeature('c', 'p1', 'started'),
+          makeFeature('d', 'p1', 'unstarted'),
+        ],
+      });
+      const result = await normalizeRoadmap(data);
+      const project = result.nodes.find((n) => n.kind === 'project');
+      expect(project?.progress).toEqual({ done: 2, total: 4 });
+    });
+
+    it('counts a task with all-shipped subtasks as done in the project progress', async () => {
+      const data = makeData({
+        projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'started' }],
+        issues: [
+          { ...makeFeature('task-rolled', 'p1', 'unstarted'), id: 'task-rolled' },
+          { ...makeFeature('s1', 'p1', 'completed'), parentId: 'task-rolled' },
+          { ...makeFeature('s2', 'p1', 'completed'), parentId: 'task-rolled' },
+          makeFeature('task-todo', 'p1', 'unstarted'),
+        ],
+      });
+      const result = await normalizeRoadmap(data);
+      const project = result.nodes.find((n) => n.kind === 'project');
+      expect(project?.progress).toEqual({ done: 1, total: 2 });
+    });
+
+    it('returns 0/N when no tasks are shipped', async () => {
+      const data = makeData({
+        projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'planned' }],
+        issues: [
+          makeFeature('a', 'p1', 'unstarted'),
+          makeFeature('b', 'p1', 'unstarted'),
+          makeFeature('c', 'p1', 'unstarted'),
+        ],
+      });
+      const result = await normalizeRoadmap(data);
+      const project = result.nodes.find((n) => n.kind === 'project');
+      expect(project?.progress).toEqual({ done: 0, total: 3 });
+    });
+
+    it('returns N/N when every task is shipped', async () => {
+      const data = makeData({
+        projects: [{ id: 'p1', name: 'P', color: '#000000', stateType: 'completed' }],
+        issues: [
+          makeFeature('a', 'p1', 'completed'),
+          makeFeature('b', 'p1', 'completed'),
+        ],
+      });
+      const result = await normalizeRoadmap(data);
+      const project = result.nodes.find((n) => n.kind === 'project');
+      expect(project?.progress).toEqual({ done: 2, total: 2 });
+    });
   });
 });
 

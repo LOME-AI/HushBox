@@ -174,10 +174,10 @@ describe('A11Y_INIT_SCRIPT', () => {
 
   describe('class application — typography (non-font)', () => {
     it.each([
-      ['125', 'a11y-font-scale-125'],
-      ['150', 'a11y-font-scale-150'],
-      ['175', 'a11y-font-scale-175'],
-      ['200', 'a11y-font-scale-200'],
+      ['88', 'a11y-font-scale-88'],
+      ['112', 'a11y-font-scale-112'],
+      ['124', 'a11y-font-scale-124'],
+      ['141', 'a11y-font-scale-141'],
     ] as const)('fontSize %s applies %s', (value, className) => {
       setStoredPrefs({ fontSize: value });
       runInitScript();
@@ -430,7 +430,7 @@ describe('A11Y_INIT_SCRIPT', () => {
         contrast: 'high',
         saturation: '50',
         colorblindSimulate: 'protan',
-        fontSize: '150',
+        fontSize: '141',
         letterSpacing: '0.12',
         lineHeight: '2.0',
         paragraphSpacing: '2',
@@ -451,7 +451,7 @@ describe('A11Y_INIT_SCRIPT', () => {
         'a11y-focus-halo',
         'a11y-focus-strong',
         'a11y-font-override',
-        'a11y-font-scale-150',
+        'a11y-font-scale-141',
         'a11y-letter-spacing-loosest',
         'a11y-line-height-double',
         'a11y-para-spacing-double',

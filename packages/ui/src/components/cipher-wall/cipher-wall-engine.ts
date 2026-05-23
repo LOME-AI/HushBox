@@ -27,6 +27,16 @@ export interface CipherWallState {
   revealTimer: number;
   messageQueue: number[];
   exclusionZone: Set<number> | null;
+  /**
+   * The pool of strings the animation reveals and the frozen snapshot bakes
+   * in. Every caller of {@link createGrid} / {@link createFrozenSnapshot}
+   * must supply this — there is no module-level fallback, on purpose: the
+   * native splash PNG is byte-coupled to its specific 4-string pool and
+   * deserves an explicit declaration at its call site (see
+   * splash-screen.tsx), and each marketing page picks its own list to keep
+   * the cipher copy thematic to the page.
+   */
+  messages: readonly string[];
 }
 
 export interface ThemeColors {
@@ -49,30 +59,9 @@ export const ENCRYPT_TICK = 0.07;
 export const MAX_ACTIVE_REVEALS = 6;
 export const INITIAL_REVEALS = 3;
 export const LOGO_OPACITY_BOOST = 0.15;
-export const MARGIN_ROWS = 2;
+export const MARGIN_ROWS = 1;
 export const MARGIN_COLS = 5;
 export const EXCLUSION_STRIDE = 1024;
-
-export const MESSAGES: readonly string[] = [
-  'Encrypted By Default',
-  'Only You Hold The Key',
-  'Every Model, One Place',
-  'Private Group Chats',
-  'Zero-Knowledge Password',
-  'Switch Models Anytime',
-  'Your Messages, Your Control',
-  'No Subscriptions Required',
-  'One App, Every AI',
-  'Never Lose A Conversation',
-  'Stop Juggling Subscriptions',
-  'Try Any Model Instantly',
-  'Your Ideas Stay Yours',
-  'Simple, Honest Pricing',
-  'No More App Switching',
-  'Built For Your Workflow',
-];
-
-export const SPLASH_MESSAGE_INDICES = [0, 2, 3, 7] as const;
 
 export const CIPHER_CHARS: readonly string[] = [
   '0',
@@ -141,8 +130,8 @@ export function randomCipherChar(): string {
   return getSecureRandomElement(CIPHER_CHARS);
 }
 
-function createMessageQueue(): number[] {
-  const indices = Array.from({ length: MESSAGES.length }, (_, index) => index);
+function createMessageQueue(length: number): number[] {
+  const indices = Array.from({ length }, (_, index) => index);
   for (let index = indices.length - 1; index > 0; index--) {
     const index_ = getSecureRandomIndex(index + 1);
     const a = indices[index];
@@ -155,7 +144,11 @@ function createMessageQueue(): number[] {
   return indices;
 }
 
-export function createGrid(cols: number, rows: number): CipherWallState {
+export function createGrid(
+  cols: number,
+  rows: number,
+  messages: readonly string[]
+): CipherWallState {
   const total = cols * rows;
   const cells: Cell[] = [];
   for (let index = 0; index < total; index++) {
@@ -167,8 +160,9 @@ export function createGrid(cols: number, rows: number): CipherWallState {
     rows,
     reveals: [],
     revealTimer: REVEAL_INTERVAL,
-    messageQueue: createMessageQueue(),
+    messageQueue: createMessageQueue(messages.length),
     exclusionZone: null,
+    messages,
   };
 }
 
@@ -297,11 +291,11 @@ function overlapsExistingReveal(
 
 function tryPlaceReveal(state: CipherWallState): MessageReveal | undefined {
   if (state.messageQueue.length === 0) {
-    state.messageQueue = createMessageQueue();
+    state.messageQueue = createMessageQueue(state.messages.length);
   }
   const index = state.messageQueue[0];
   if (index === undefined) return undefined;
-  const text = MESSAGES[index];
+  const text = state.messages[index];
   if (!text) return undefined;
 
   const availableRows = state.rows - 2 * MARGIN_ROWS;
@@ -527,9 +521,7 @@ interface FrozenPlacement {
 }
 
 function placeFrozenMessage({ state, index, offsets, center }: FrozenPlacement): void {
-  const msgIndex = SPLASH_MESSAGE_INDICES[index];
-  if (msgIndex === undefined) return;
-  const text = MESSAGES[msgIndex];
+  const text = state.messages[index];
   if (!text) return;
 
   const offset = offsets[index];
@@ -551,16 +543,23 @@ function placeFrozenMessage({ state, index, offsets, center }: FrozenPlacement):
   }
 }
 
+/**
+ * Build a frozen snapshot for the native splash PNG. The `messages` array
+ * is laid out directly (no index indirection) — each `messages[i]` is
+ * placed at row `center.row + offsets[i]`, in order. The placement offsets
+ * are tuned for the four-message splash; passing more than 4 strings is
+ * a no-op for the extras.
+ */
 export function createFrozenSnapshot(
   cols: number,
   rows: number,
-  messageCount: number
+  messages: readonly string[]
 ): CipherWallState {
-  const state = createGrid(cols, rows);
+  const state = createGrid(cols, rows, messages);
   const center = { row: Math.floor(rows / 2), col: Math.floor(cols / 2) };
 
   const offsets = [-8, -5, 5, 8] as const;
-  const count = Math.min(messageCount, offsets.length, SPLASH_MESSAGE_INDICES.length);
+  const count = Math.min(messages.length, offsets.length);
 
   for (let index = 0; index < count; index++) {
     placeFrozenMessage({ state, index, offsets, center });

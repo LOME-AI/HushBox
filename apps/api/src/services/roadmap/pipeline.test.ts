@@ -54,9 +54,7 @@ describe('buildRoadmap', () => {
     const linear = makeFixtureLinear();
     const response = await buildRoadmap(linear, cache);
     const parsed: RoadmapResponse = roadmapResponseSchema.parse(response);
-    expect(parsed.graph.nodes.length).toBeGreaterThan(0);
-    expect(parsed.layouts.wide).toBeDefined();
-    expect(parsed.layouts.narrow).toBeDefined();
+    expect(parsed.nodes.length).toBeGreaterThan(0);
   });
 
   it('propagates Linear failures (no stale fallback)', async () => {
@@ -72,7 +70,7 @@ describe('buildRoadmap', () => {
   it('returns nodes with only opaque 12-hex ids', async () => {
     const linear = makeFixtureLinear();
     const response = await buildRoadmap(linear, cache);
-    for (const node of response.graph.nodes) {
+    for (const node of response.nodes) {
       expect(node.id).toMatch(/^[0-9a-f]{12}$/);
     }
   });
@@ -80,11 +78,32 @@ describe('buildRoadmap', () => {
   it('never includes a description or url field in any node', async () => {
     const linear = makeFixtureLinear();
     const response = await buildRoadmap(linear, cache);
-    for (const node of response.graph.nodes) {
+    for (const node of response.nodes) {
       expect(node).not.toHaveProperty('description');
       expect(node).not.toHaveProperty('url');
       expect(node).not.toHaveProperty('assignee');
       expect(node).not.toHaveProperty('dueDate');
+    }
+  });
+
+  it('attaches a progress object to every project node', async () => {
+    const linear = makeFixtureLinear();
+    const response = await buildRoadmap(linear, cache);
+    const projects = response.nodes.filter((n) => n.kind === 'project');
+    expect(projects.length).toBeGreaterThan(0);
+    for (const project of projects) {
+      expect(project.progress).toBeDefined();
+      expect(project.progress?.done).toBeGreaterThanOrEqual(0);
+      expect(project.progress?.total).toBeGreaterThanOrEqual(project.progress?.done ?? 0);
+    }
+  });
+
+  it('omits progress from task and subtask nodes', async () => {
+    const linear = makeFixtureLinear();
+    const response = await buildRoadmap(linear, cache);
+    const issues = response.nodes.filter((n) => n.kind === 'task' || n.kind === 'subtask');
+    for (const issue of issues) {
+      expect(issue.progress).toBeUndefined();
     }
   });
 });

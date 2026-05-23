@@ -18,7 +18,7 @@ export interface RoadmapQueryState {
 }
 
 /**
- * Minimal data-fetching hook for the /api/roadmap endpoint. We deliberately
+ * Minimal data-fetching hook for the /api/public/roadmap endpoint. We deliberately
  * don't pull in TanStack Query for the marketing site — one fetch on mount,
  * no refetch, no cache invalidation, no mutations. A 14-line `useEffect` is
  * cheaper and simpler than a 30KB library dependency.
@@ -39,7 +39,9 @@ export function useRoadmapQuery(): RoadmapQueryState {
     const controller = new AbortController();
     (async () => {
       try {
-        const response = await fetch(`${API_URL}/api/roadmap`, { signal: controller.signal });
+        const response = await fetch(`${API_URL}/api/public/roadmap`, {
+          signal: controller.signal,
+        });
         if (!response.ok) throw new Error(`roadmap request failed: ${String(response.status)}`);
         const raw: unknown = await response.json();
         const parsed = roadmapResponseSchema.parse(raw);

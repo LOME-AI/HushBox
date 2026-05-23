@@ -91,10 +91,19 @@ describe('SplashScreen', () => {
     expect(screen.getByText('Box')).toHaveStyle({ color: '#ec4755' });
   });
 
-  it('passes frozen and frozenMessageCount props to CipherWall', () => {
+  it('passes frozen + the 4 splash messages to CipherWall', () => {
     render(<SplashScreen variant="dark" />);
     const canvas = screen.getByTestId('cipher-wall');
     const props = JSON.parse(canvas.dataset['props']!);
-    expect(props).toMatchObject({ frozen: true, frozenMessageCount: 4, cipherOpacity: 0.5 });
+    expect(props).toMatchObject({
+      frozen: true,
+      cipherOpacity: 0.5,
+      messages: [
+        'Encrypted By Default',
+        'Every Model, One Place',
+        'Private Group Chats',
+        'No Subscriptions Required',
+      ],
+    });
   });
 });

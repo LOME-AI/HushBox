@@ -13,7 +13,7 @@ function formatStars(count: number): string {
 }
 ---
 
-<header class="border-border/50 bg-background/80 fixed top-0 z-50 w-full border-b backdrop-blur-md">
+<header class="border-border bg-background/80 fixed top-0 z-50 w-full border-b backdrop-blur-md">
   <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
     <a href={ROUTES.MARKETING} class="transition-opacity hover:opacity-80">
       <Logo />
@@ -33,6 +33,10 @@ function formatStars(count: number): string {
         </svg>
         <span>{formatStars(starCount)}</span>
       </a>
+      <a
+        href={ROUTES.MARKETING}
+        class="text-foreground-muted hover:text-foreground text-sm transition-colors">Welcome</a
+      >
       <a
         href={ROUTES.BLOG}
         class="text-foreground-muted hover:text-foreground text-sm transition-colors">Blog</a
@@ -94,6 +98,7 @@ function formatStars(count: number): string {
         </svg>
         <span>{formatStars(starCount)}</span>
       </a>
+      <a href={ROUTES.MARKETING} class="text-foreground-muted text-sm">Welcome</a>
       <a href={ROUTES.BLOG} class="text-foreground-muted text-sm">Blog</a>
       <a href={ROUTES.ROADMAP} class="text-foreground-muted text-sm">Roadmap</a>
       <a href={ROUTES.PRIVACY} class="text-foreground-muted text-sm">Privacy</a>

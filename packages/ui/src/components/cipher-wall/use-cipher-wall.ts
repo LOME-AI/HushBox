@@ -15,8 +15,14 @@ import type { CipherWallState, ThemeColors } from './cipher-wall-engine';
 const DPR_CAP = 2;
 
 export interface CipherWallOptions {
+  /**
+   * Required pool of strings the wall reveals (animated) or bakes in
+   * (frozen). Each caller declares its own list so the cipher copy stays
+   * thematic to the page; there is no shared default. See PageHero.astro
+   * (marketing) and splash-screen.tsx (native splash PNG) for examples.
+   */
+  messages: readonly string[];
   frozen?: boolean;
-  frozenMessageCount?: number;
   themeOverride?: ThemeColors;
   cipherOpacity?: number;
   exclusionZone?: Set<number> | null;
@@ -36,7 +42,7 @@ export function readThemeColors(): ThemeColors {
 }
 
 export function useCipherWall(
-  options?: CipherWallOptions,
+  options: CipherWallOptions,
   externalCanvasRef?: React.RefObject<HTMLCanvasElement | null>
 ): React.RefObject<HTMLCanvasElement | null> {
   const internalCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -46,11 +52,11 @@ export function useCipherWall(
   const rafIdRef = React.useRef<number>(0);
   const logoMaskRef = React.useRef<boolean[][] | null>(null);
 
-  const frozen = options?.frozen === true;
-  const frozenMessageCount = options?.frozenMessageCount ?? 4;
-  const themeOverride = options?.themeOverride;
-  const cipherOpacity = options?.cipherOpacity ?? 1;
-  const exclusionZone = options?.exclusionZone ?? null;
+  const messages = options.messages;
+  const frozen = options.frozen === true;
+  const themeOverride = options.themeOverride;
+  const cipherOpacity = options.cipherOpacity ?? 1;
+  const exclusionZone = options.exclusionZone ?? null;
 
   const exclusionZoneRef = React.useRef<Set<number> | null>(exclusionZone);
   exclusionZoneRef.current = exclusionZone;
@@ -108,7 +114,7 @@ export function useCipherWall(
     let lastRows = initRows;
 
     if (frozen) {
-      stateRef.current = createFrozenSnapshot(initCols, initRows, frozenMessageCount);
+      stateRef.current = createFrozenSnapshot(initCols, initRows, messages);
       tryRender();
 
       function handleFrozenResize(): void {
@@ -118,7 +124,7 @@ export function useCipherWall(
         sizeCanvas(w, h);
         const { cols, rows } = computeGridSize(w, h);
         if (cols !== lastCols || rows !== lastRows) {
-          stateRef.current = createFrozenSnapshot(cols, rows, frozenMessageCount);
+          stateRef.current = createFrozenSnapshot(cols, rows, messages);
           lastCols = cols;
           lastRows = rows;
         }
@@ -132,7 +138,7 @@ export function useCipherWall(
       };
     }
 
-    const state = createGrid(initCols, initRows);
+    const state = createGrid(initCols, initRows, messages);
     state.exclusionZone = exclusionZoneRef.current;
     seedInitialReveals(state);
     stateRef.current = state;
@@ -182,7 +188,7 @@ export function useCipherWall(
       cancelAnimationFrame(rafIdRef.current);
       mutationObserver.disconnect();
     };
-  }, [frozen, frozenMessageCount, themeOverride, cipherOpacity]);
+  }, [frozen, messages, themeOverride, cipherOpacity]);
 
   React.useEffect(() => {
     if (stateRef.current) {

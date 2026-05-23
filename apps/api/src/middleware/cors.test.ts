@@ -163,6 +163,76 @@ describe('cors middleware', () => {
     });
   });
 
+  describe('public namespace (/api/public/*)', () => {
+    // The /api/public/* prefix is the documented home for unauthenticated,
+    // CDN-cached endpoints (currently just /api/public/roadmap). Wildcard CORS
+    // without credentials is the correct policy: any origin can fetch, no
+    // cookies are ever sent, so there is no cross-origin authentication risk.
+    it('allows any origin under /api/public/', async () => {
+      const app = new Hono<{ Bindings: { FRONTEND_URL: string } }>();
+      app.use('*', cors());
+      app.get('/api/public/anything', (c) => c.json({ ok: true }));
+
+      const res = await app.request(
+        '/api/public/anything',
+        { headers: { Origin: 'http://localhost:4321' } },
+        { FRONTEND_URL: 'http://localhost:5173' }
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    });
+
+    it('omits Allow-Credentials under /api/public/ (wildcard requires no credentials)', async () => {
+      const app = new Hono<{ Bindings: { FRONTEND_URL: string } }>();
+      app.use('*', cors());
+      app.get('/api/public/roadmap', (c) => c.json({ ok: true }));
+
+      const res = await app.request(
+        '/api/public/roadmap',
+        { headers: { Origin: 'https://anyone.example' } },
+        { FRONTEND_URL: 'https://hushbox.ai' }
+      );
+
+      expect(res.headers.get('Access-Control-Allow-Credentials')).toBeNull();
+    });
+
+    it('handles preflight OPTIONS under /api/public/', async () => {
+      const app = new Hono<{ Bindings: { FRONTEND_URL: string } }>();
+      app.use('*', cors());
+      app.get('/api/public/roadmap', (c) => c.json({ ok: true }));
+
+      const res = await app.request(
+        '/api/public/roadmap',
+        {
+          method: 'OPTIONS',
+          headers: {
+            Origin: 'http://localhost:4321',
+            'Access-Control-Request-Method': 'GET',
+          },
+        },
+        { FRONTEND_URL: 'http://localhost:5173' }
+      );
+
+      expect(res.status).toBe(204);
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    });
+
+    it('does not relax CORS for non-public routes', async () => {
+      const app = new Hono<{ Bindings: { FRONTEND_URL: string } }>();
+      app.use('*', cors());
+      app.get('/api/conversations', (c) => c.json({ ok: true }));
+
+      const res = await app.request(
+        '/api/conversations',
+        { headers: { Origin: 'http://localhost:4321' } },
+        { FRONTEND_URL: 'http://localhost:5173' }
+      );
+
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    });
+  });
+
   describe('Capacitor native origins', () => {
     it('allows requests from capacitor://localhost', async () => {
       const app = new Hono<{ Bindings: { FRONTEND_URL: string } }>();

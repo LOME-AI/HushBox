@@ -58,10 +58,10 @@ export const A11Y_INIT_SCRIPT: string = String.raw`
     add('a11y-cb-achroma', s.colorblindSimulate === 'achroma');
     add('a11y-cb-achromatomaly', s.colorblindSimulate === 'achromatomaly');
 
-    add('a11y-font-scale-125', s.fontSize === '125');
-    add('a11y-font-scale-150', s.fontSize === '150');
-    add('a11y-font-scale-175', s.fontSize === '175');
-    add('a11y-font-scale-200', s.fontSize === '200');
+    add('a11y-font-scale-88', s.fontSize === '88');
+    add('a11y-font-scale-112', s.fontSize === '112');
+    add('a11y-font-scale-124', s.fontSize === '124');
+    add('a11y-font-scale-141', s.fontSize === '141');
 
     add('a11y-letter-spacing-loose', s.letterSpacing === '0.05');
     add('a11y-letter-spacing-loosest', s.letterSpacing === '0.12');

@@ -67,4 +67,25 @@ describe('useFilterState', () => {
     act(() => result.current.toggleStatus('shipped'));
     expect(window.location.search).not.toContain('status=');
   });
+
+  it('reset() restores both axes to all-on and clears URL params', () => {
+    window.history.replaceState(null, '', '/roadmap?status=in_progress&type=feature');
+    const { result } = renderHook(() => useFilterState());
+    expect(result.current.statuses.size).toBe(1);
+    act(() => result.current.reset());
+    expect(result.current.statuses.size).toBe(ALL_STATUSES.length);
+    expect(result.current.types.size).toBe(ALL_TYPES.length);
+    expect(window.location.search).toBe('');
+  });
+
+  it('isDefault is true when both axes are all-on', () => {
+    const { result } = renderHook(() => useFilterState());
+    expect(result.current.isDefault).toBe(true);
+  });
+
+  it('isDefault is false when any axis has a non-default selection', () => {
+    const { result } = renderHook(() => useFilterState());
+    act(() => result.current.toggleStatus('shipped'));
+    expect(result.current.isDefault).toBe(false);
+  });
 });

@@ -18,10 +18,10 @@ function buildToggles(prefs: AccessibilityPreferences): ClassToggle[] {
     ['a11y-cb-achroma', prefs.colorblindSimulate === 'achroma'],
     ['a11y-cb-achromatomaly', prefs.colorblindSimulate === 'achromatomaly'],
 
-    ['a11y-font-scale-125', prefs.fontSize === '125'],
-    ['a11y-font-scale-150', prefs.fontSize === '150'],
-    ['a11y-font-scale-175', prefs.fontSize === '175'],
-    ['a11y-font-scale-200', prefs.fontSize === '200'],
+    ['a11y-font-scale-88', prefs.fontSize === '88'],
+    ['a11y-font-scale-112', prefs.fontSize === '112'],
+    ['a11y-font-scale-124', prefs.fontSize === '124'],
+    ['a11y-font-scale-141', prefs.fontSize === '141'],
 
     ['a11y-letter-spacing-loose', prefs.letterSpacing === '0.05'],
     ['a11y-letter-spacing-loosest', prefs.letterSpacing === '0.12'],

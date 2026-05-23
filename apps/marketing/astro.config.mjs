@@ -20,6 +20,12 @@ export default defineConfig({
     // override in `apps/web/vite.config.ts` so both apps see the single
     // generated env file.
     envDir: '../..',
+    // Astro 5 overrides Vite's default `envPrefix` from `VITE_` to `PUBLIC_`,
+    // which would skip `VITE_API_URL` substitution in client islands. Restore
+    // `VITE_` alongside `PUBLIC_` so the var defined in envConfig (and shared
+    // with `apps/web`) reaches browser code. See
+    // node_modules/astro/dist/core/create-vite.js:147.
+    envPrefix: ['PUBLIC_', 'VITE_'],
     plugins: [
       tailwindcss(),
       {

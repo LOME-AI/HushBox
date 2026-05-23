@@ -65,7 +65,7 @@ export function PageHeader({
       <div
         ref={containerRef}
         data-testid={`${testId}-grid`}
-        className="grid h-full content-center items-center gap-y-0.5"
+        className="grid h-full min-h-9 content-center items-center gap-y-0.5"
         style={gridStyles[rows]}
       >
         <div

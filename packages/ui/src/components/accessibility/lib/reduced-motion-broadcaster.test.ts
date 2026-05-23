@@ -42,6 +42,7 @@ describe('installReducedMotionClass', () => {
   beforeEach(() => {
     useA11yStore.getState().reset();
     document.documentElement.classList.remove('reduced-motion');
+    vi.stubEnv('VITE_E2E', '');
   });
 
   afterEach(() => {
@@ -52,6 +53,7 @@ describe('installReducedMotionClass', () => {
     });
     useA11yStore.getState().reset();
     document.documentElement.classList.remove('reduced-motion');
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 

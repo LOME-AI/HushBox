@@ -11,7 +11,7 @@ export const accessibilityPreferencesSchema = z.object({
     .default('none'),
 
   // Typography
-  fontSize: z.enum(['100', '125', '150', '175', '200']).default('100'),
+  fontSize: z.enum(['88', '100', '112', '124', '141']).default('100'),
   letterSpacing: z.enum(['0', '0.05', '0.12']).default('0'),
   lineHeight: z.enum(['1.0', '1.5', '2.0']).default('1.5'),
   paragraphSpacing: z.enum(['1', '2']).default('1'),

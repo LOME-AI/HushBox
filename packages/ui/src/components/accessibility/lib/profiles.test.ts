@@ -53,7 +53,7 @@ describe('ACCESSIBILITY_PROFILES', () => {
   it('vision-friendly preset turns visual aids up', () => {
     const profile = getProfile('vision-friendly');
     expect(profile?.preset.contrast).toBe('high');
-    expect(profile?.preset.fontSize).toBe('150');
+    expect(profile?.preset.fontSize).toBe('141');
     expect(profile?.preset.focusHalo).toBe(true);
     expect(profile?.preset.cursorSize).toBe('large');
   });

@@ -5,6 +5,21 @@ import type { ThemeColors } from '@hushbox/ui';
 
 const BRAND_RED = '#ec4755';
 
+/**
+ * The four strings baked into the native splash PNG. Listed in placement
+ * order — index N renders at row offset `[-8, -5, 5, 8][N]` from center
+ * (see createFrozenSnapshot). PNG byte-identicality with the previously
+ * shipped splash relies on this order and these exact strings; do not
+ * reorder or edit without regenerating the splash assets via
+ * `pnpm tsx scripts/generate-assets.ts`.
+ */
+const SPLASH_MESSAGES: readonly string[] = [
+  'Encrypted By Default',
+  'Every Model, One Place',
+  'Private Group Chats',
+  'No Subscriptions Required',
+];
+
 const THEMES: Record<
   'dark' | 'light',
   { colors: ThemeColors; background: string; foreground: string }
@@ -53,7 +68,7 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
       <div style={{ position: 'absolute', inset: 0, transform: 'scale(1.5)' }}>
         <CipherWall
           frozen
-          frozenMessageCount={4}
+          messages={SPLASH_MESSAGES}
           themeOverride={theme.colors}
           cipherOpacity={0.5}
         />

@@ -11,6 +11,8 @@ export interface FilterState {
   types: ReadonlySet<FilterType>;
   toggleStatus: (status: FilterStatus) => void;
   toggleType: (type: FilterType) => void;
+  reset: () => void;
+  isDefault: boolean;
 }
 
 function readInitialFromUrl<T extends string>(key: string, allowed: readonly T[]): ReadonlySet<T> {
@@ -43,8 +45,10 @@ function writeToUrl(key: string, values: ReadonlySet<string>, defaults: readonly
  * canonical /roadmap URL stays clean and shareable filtered URLs look like
  * /roadmap?status=in_progress&type=feature.
  *
- * Skipping `nuqs` here on purpose — it requires a Next/React-Router adapter
- * we don't have on the Astro marketing app. A 40-line hook is cheaper.
+ * Toggle behavior auto-snaps back to all-on when the user removes the last
+ * member of either axis. "Show me nothing" isn't a meaningful operation;
+ * the empty state surfaces when a real filter combination yields no
+ * matching projects, not as a result of a single accidental toggle.
  */
 export function useFilterState(): FilterState {
   const [statuses, setStatuses] = React.useState<ReadonlySet<FilterStatus>>(() =>
@@ -76,7 +80,21 @@ export function useFilterState(): FilterState {
     });
   }, []);
 
-  return { statuses, types, toggleStatus, toggleType };
+  const reset = React.useCallback(() => {
+    setStatuses(new Set(ALL_STATUSES));
+    setTypes(new Set(ALL_TYPES));
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
+
+  const isDefault =
+    statuses.size === ALL_STATUSES.length &&
+    ALL_STATUSES.every((v) => statuses.has(v)) &&
+    types.size === ALL_TYPES.length &&
+    ALL_TYPES.every((v) => types.has(v));
+
+  return { statuses, types, toggleStatus, toggleType, reset, isDefault };
 }
 
 export { ALL_STATUSES, ALL_TYPES };

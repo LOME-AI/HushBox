@@ -326,15 +326,14 @@ export const REDIS_REGISTRY = {
     buildKey: (token: string) => `billing:login-token:${token}`,
   }),
 
-  // Public roadmap cache. Key is `roadmap:<teamKey>:<layoutVersion>` where
-  // layoutVersion is a SHA-256 prefix of the layout module source produced
-  // by `getLayoutVersion` at runtime — so a layout-code change automatically
-  // points future reads at a fresh key.
+  // Public roadmap cache. Key is `roadmap:<teamKey>:<schemaVersion>`; bump
+  // the literal schemaVersion when the response shape changes so old isolates
+  // can't serve stale data with a different schema.
   roadmapCache: defineKey({
     schema: roadmapResponseSchema,
     ttl: 60 * 60,
-    buildKey: (teamKey: string, layoutVersion: string) =>
-      `roadmap:${teamKey.toLowerCase()}:${layoutVersion}`,
+    buildKey: (teamKey: string, schemaVersion: string) =>
+      `roadmap:${teamKey.toLowerCase()}:${schemaVersion}`,
   }),
 
   // Session tracking

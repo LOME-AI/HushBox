@@ -5,8 +5,6 @@ const previewPort = process.env['HB_PREVIEW_PORT']!;
 const apiPort = process.env['HB_API_PORT']!;
 const previewUrl = `http://localhost:${previewPort}`;
 const apiUrl = `http://localhost:${apiPort}`;
-const dbReset = isCI ? '' : 'pnpm db:reset && ';
-const envGen = isCI ? '' : 'pnpm generate:env --mode=e2e && ';
 
 export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
@@ -27,26 +25,18 @@ export default defineConfig({
     trace: 'retain-on-first-failure',
     screenshot: isCI ? 'only-on-failure' : 'on',
     video: 'retain-on-failure',
-    // App's MotionProvider reads this and skipAnimations every motion.*.
-    reducedMotion: 'reduce',
   },
   webServer: [
     {
-      // Build web + marketing, then merge marketing on top of web's dist via
-      // the same scripts/merge-marketing-into-web.ts that CI (ci.yml and
-      // release.yml) calls. This makes `vite preview` serve exactly what
-      // Cloudflare Pages serves in production — /chat, /roadmap, /welcome,
-      // /blog all reachable from one origin — and removes the prior divergence
-      // where E2E only knew about the web app's routes.
-      command:
-        `tsx scripts/kill-ports.ts HB_PREVIEW_PORT && ${envGen}${dbReset}` +
-        `pnpm --filter @hushbox/marketing build --mode development && ` +
-        `pnpm --filter @hushbox/web build --mode development && ` +
-        `pnpm tsx scripts/merge-marketing-into-web.ts && ` +
-        `pnpm --filter @hushbox/web preview --port ${previewPort}`,
+      // Cross-platform orchestrator: kill-ports + generate:env in parallel,
+      // then marketing build + web build + db:reset in parallel, then merge,
+      // then `vite preview`. The merged dist is exactly what Cloudflare Pages
+      // serves in production (/chat, /roadmap, /welcome, /blog reachable from
+      // one origin), so E2E covers the same routing as users see.
+      command: 'tsx scripts/e2e-preview-up.ts',
       url: previewUrl,
       reuseExistingServer: false,
-      timeout: 120_000,
+      timeout: 180_000,
       name: 'Preview',
       stdout: 'pipe',
     },
@@ -54,7 +44,7 @@ export default defineConfig({
       command: `tsx scripts/kill-ports.ts HB_API_PORT && pnpm --filter @hushbox/api dev --log-level error`,
       url: `${apiUrl}/api/health`,
       reuseExistingServer: false,
-      timeout: 120_000,
+      timeout: 180_000,
       name: 'API',
       stdout: 'pipe',
     },

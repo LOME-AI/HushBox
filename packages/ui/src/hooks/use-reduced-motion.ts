@@ -8,18 +8,26 @@ function noop(): void {
 }
 
 /**
- * Reduced-motion is a derived signal from two independent inputs OR'd together:
+ * Reduced-motion is a derived signal from three independent inputs OR'd together:
  *   1. The OS `prefers-reduced-motion: reduce` media query (set in system settings).
  *   2. The in-app accessibility widget's `stopAnimations` toggle.
+ *   3. `VITE_E2E`, baked into the bundle when built for E2E tests — so Playwright
+ *      runs always behave as reduced-motion without relying on per-browser media
+ *      emulation, which doesn't reliably propagate to WebKit.
  *
- * Either source alone is enough to put the app into reduced-motion mode. All
- * three broadcasters (CSS class on `<html>`, Framer Motion's MotionConfig, and
- * this hook) derive from this single merged value so they cannot drift.
+ * Any source alone is enough to put the app into reduced-motion mode. All three
+ * broadcasters (CSS class on `<html>`, Framer Motion's MotionConfig, and this
+ * hook) derive from this single merged value so they cannot drift.
  */
+
+function isE2EBuild(): boolean {
+  return !!import.meta.env['VITE_E2E'];
+}
 
 /** Synchronous read for non-React callers (init script, class broadcaster). SSR-safe — returns false when window is absent. */
 export function shouldReduceMotion(): boolean {
   if (!('window' in globalThis)) return false;
+  if (isE2EBuild()) return true;
   const mediaPref =
     'matchMedia' in globalThis ? globalThis.matchMedia(REDUCED_MOTION_QUERY).matches : false;
   const stopAnimations = useA11yStore.getState().stopAnimations;
@@ -79,5 +87,5 @@ export function useReducedMotion(): boolean {
     };
   }, []);
 
-  return mediaPref || stopAnimations;
+  return isE2EBuild() || mediaPref || stopAnimations;
 }

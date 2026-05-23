@@ -1,0 +1,18 @@
+---
+interface Props {
+  /** YYYY-MM-DD effective date string from LegalDocumentMeta. */
+  date: string;
+}
+
+const { date } = Astro.props;
+---
+
+<div class="border-border mb-8 flex items-center gap-4">
+  <hr class="border-border flex-1" />
+  <span
+    class="text-foreground-muted font-mono text-xs tracking-widest uppercase whitespace-nowrap"
+  >
+    Effective: {date}
+  </span>
+  <hr class="border-border flex-1" />
+</div>

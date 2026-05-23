@@ -2,7 +2,19 @@
 import LandingLayout from '../layouts/LandingLayout.astro';
 import LandingHeader from '../components/LandingHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
-import { RoadmapIsland } from '../components/roadmap/RoadmapIsland';
+import PageHero from '../components/PageHero.astro';
+import { RoadmapBoard } from '../components/roadmap/RoadmapBoard';
+
+const ROADMAP_CIPHER_MESSAGES: readonly string[] = [
+  'Built In The Open',
+  'Shipping Constantly',
+  'Public Roadmap',
+  'Public Backlog',
+  'No Surprise Releases',
+  'No Vaporware',
+  'Receipts For Every Promise',
+  'Watch The Work Happen',
+];
 ---
 
 <LandingLayout
@@ -12,16 +24,10 @@ import { RoadmapIsland } from '../components/roadmap/RoadmapIsland';
   <LandingHeader />
 
   <main class="flex-1 pt-20">
-    <section class="mx-auto max-w-6xl px-6 py-12">
-      <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">Roadmap</h1>
-      <p class="text-foreground-muted mt-3 max-w-2xl">
-        What we're building, broken down by project. Pulled live from our Linear workspace and
-        cached for an hour.
-      </p>
+    <PageHero title="Roadmap" messages={ROADMAP_CIPHER_MESSAGES} />
 
-      <div class="mt-12 min-h-[60vh]" data-roadmap-container>
-        <RoadmapIsland client:visible />
-      </div>
+    <section class="mx-auto max-w-6xl px-6 pb-16" data-roadmap-container>
+      <RoadmapBoard client:visible />
     </section>
   </main>
 

@@ -114,10 +114,10 @@ describe('applySettings', () => {
 
   describe('fontSize', () => {
     it.each([
-      ['125', 'a11y-font-scale-125'],
-      ['150', 'a11y-font-scale-150'],
-      ['175', 'a11y-font-scale-175'],
-      ['200', 'a11y-font-scale-200'],
+      ['88', 'a11y-font-scale-88'],
+      ['112', 'a11y-font-scale-112'],
+      ['124', 'a11y-font-scale-124'],
+      ['141', 'a11y-font-scale-141'],
     ] as const)('applies %s as %s', (value, className) => {
       const root = createRoot();
       applySettings(makePrefs({ fontSize: value }), root);
@@ -315,7 +315,7 @@ describe('applySettings', () => {
       const root = createRoot();
       const prefs = makePrefs({
         contrast: 'high',
-        fontSize: '150',
+        fontSize: '141',
         cursorSize: 'large',
         cursorColor: 'white',
         focusWidth: '4',
@@ -361,7 +361,7 @@ describe('applySettings', () => {
           contrast: 'high',
           saturation: '0',
           colorblindSimulate: 'protan',
-          fontSize: '200',
+          fontSize: '141',
           letterSpacing: '0.12',
           lineHeight: '2.0',
           paragraphSpacing: '2',

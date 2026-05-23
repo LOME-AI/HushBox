@@ -1,15 +1,34 @@
-/* Font scaling — root font-size; Tailwind's rem cascades */
-html.a11y-font-scale-125 {
-  font-size: 20px;
-} /* base 16px * 1.25 */
-html.a11y-font-scale-150 {
-  font-size: 24px;
+/* Root font-size baseline. 106.25% of the browser's default font-size — yields
+   17px for the standard 16px browser default, but scales with users who have
+   explicitly raised their browser default for accessibility. Px would silently
+   override that user-level preference. CSS px is also a W3C reference pixel,
+   so all derived sizes are resolution-independent (same angular size on 1080p,
+   1440p, and 4K). */
+html {
+  font-size: 106.25%;
 }
-html.a11y-font-scale-175 {
-  font-size: 28px;
+
+/* Font scaling — Tailwind's rem utilities cascade from this root value.
+   Percentages multiply against the user's browser default. */
+html.a11y-font-scale-88 {
+  font-size: 93.75%;
 }
-html.a11y-font-scale-200 {
-  font-size: 32px;
+html.a11y-font-scale-112 {
+  font-size: 118.75%;
+}
+html.a11y-font-scale-124 {
+  font-size: 131.25%;
+}
+html.a11y-font-scale-141 {
+  font-size: 150%;
+}
+
+/* iOS Safari zooms the viewport on focus when a form-control's computed
+   font-size is < 16px. The 'Smaller' scale crosses that line; carve it out. */
+html.a11y-font-scale-88 input,
+html.a11y-font-scale-88 textarea,
+html.a11y-font-scale-88 select {
+  font-size: 16px;
 }
 
 /* Letter / line / paragraph spacing — scoped to text elements, not all */

@@ -1,0 +1,69 @@
+---
+import { CipherWall } from '@hushbox/ui';
+
+interface Props {
+  /**
+   * Headline rendered as the single centered <h1> inside the hero. When
+   * provided, the default slot is ignored. Use a slot instead when the
+   * centered area needs richer content (welcome page hero).
+   */
+  title?: string;
+  /**
+   * Cipher messages the wall reveals. Required — each page declares its
+   * own thematic list. See cipher-wall-engine for the rendering contract.
+   */
+  messages: readonly string[];
+  /**
+   * `true` makes the hero `min-h-svh` and flex-centers content (welcome).
+   * Default `false` produces a compact strip with a fixed 10rem (160 px)
+   * height — same on every device. Comfortably above the cipher engine's
+   * 66 px reveal-placement minimum with MARGIN_ROWS=1.
+   */
+  fullscreen?: boolean;
+}
+
+const { title, messages, fullscreen = false } = Astro.props;
+const hasSlotContent = Astro.slots.has('default');
+
+const sectionClass = [
+  'relative flex items-center justify-center overflow-hidden',
+  fullscreen ? 'min-h-svh' : 'min-h-[10rem]',
+].join(' ');
+
+const contentClass = 'relative z-10 mx-auto max-w-3xl px-6 text-center';
+---
+
+<section class={sectionClass}>
+  <style is:inline>
+    /* Astro wraps client islands in <astro-island>, which defaults to
+       display:contents — meaning it has no box. CipherWall reads its
+       parent's clientWidth/Height each frame, so we override that here
+       so the canvas can size itself correctly. */
+    [data-cipher-bg] > astro-island {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+
+  <div class="absolute inset-0" data-cipher-bg>
+    <CipherWall
+      client:load
+      messages={messages}
+      fadeMask="radial"
+      fadeMaskTarget="[data-page-hero-content]"
+    />
+  </div>
+
+  <div class={contentClass} data-page-hero-content>
+    {
+      hasSlotContent ? (
+        <slot />
+      ) : (
+        <h1 class="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">{title}</h1>
+      )
+    }
+  </div>
+
+  <slot name="below" />
+</section>

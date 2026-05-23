@@ -7,8 +7,10 @@ import { useCipherWall, readThemeColors } from './use-cipher-wall';
 import type { CipherWallOptions } from './use-cipher-wall';
 import type { ThemeColors } from './cipher-wall-engine';
 
-function TestCanvas(props: Readonly<CipherWallOptions>): React.JSX.Element {
-  const ref = useCipherWall(props);
+const TEST_MESSAGES_FOR_HOOK: readonly string[] = ['Test One', 'Test Two', 'Test Three'];
+
+function TestCanvas(props: Readonly<Partial<CipherWallOptions>>): React.JSX.Element {
+  const ref = useCipherWall({ messages: TEST_MESSAGES_FOR_HOOK, ...props });
   return (
     <div style={{ width: 800, height: 600 }}>
       <canvas ref={ref} data-testid="test-canvas" />
@@ -263,7 +265,7 @@ describe('useCipherWall exclusionZone', () => {
   it('accepts an external canvasRef parameter', () => {
     function TestExternalRef(): React.JSX.Element {
       const externalRef = React.useRef<HTMLCanvasElement | null>(null);
-      useCipherWall({ themeOverride: DARK_THEME }, externalRef);
+      useCipherWall({ messages: TEST_MESSAGES_FOR_HOOK, themeOverride: DARK_THEME }, externalRef);
       return (
         <div style={{ width: 800, height: 600 }}>
           <canvas ref={externalRef} data-testid="external-ref-canvas" />
@@ -287,7 +289,7 @@ describe('useCipherWall exclusionZone', () => {
     function TestExclusionSync({
       zone,
     }: Readonly<{ zone: Set<number> | null }>): React.JSX.Element {
-      const canvasRef = useCipherWall({ themeOverride: DARK_THEME, exclusionZone: zone });
+      const canvasRef = useCipherWall({ messages: TEST_MESSAGES_FOR_HOOK, themeOverride: DARK_THEME, exclusionZone: zone });
       return (
         <div style={{ width: 800, height: 600 }}>
           <canvas ref={canvasRef} data-testid="sync-canvas" />
@@ -327,7 +329,7 @@ describe('useCipherWall exclusionZone', () => {
     function TestExclusionPrune({
       zone,
     }: Readonly<{ zone: Set<number> | null }>): React.JSX.Element {
-      const canvasRef = useCipherWall({ themeOverride: DARK_THEME, exclusionZone: zone });
+      const canvasRef = useCipherWall({ messages: TEST_MESSAGES_FOR_HOOK, themeOverride: DARK_THEME, exclusionZone: zone });
       return (
         <div style={{ width: 800, height: 600 }}>
           <canvas ref={canvasRef} data-testid="prune-canvas" />

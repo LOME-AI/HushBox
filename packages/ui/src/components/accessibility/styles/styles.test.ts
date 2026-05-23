@@ -82,12 +82,24 @@ describe('accessibility styles bundle', () => {
     }
   });
 
+  it('typography.css sets the root baseline as a percentage (preserves user browser default)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    expect(contents).toMatch(/html\s*{\s*font-size:\s*106\.25%/);
+  });
+
   it('typography.css scales the html font-size for the four magnification steps', () => {
     const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
-    expect(contents).toMatch(/html\.a11y-font-scale-125\s*{\s*font-size:\s*20px/);
-    expect(contents).toMatch(/html\.a11y-font-scale-150\s*{\s*font-size:\s*24px/);
-    expect(contents).toMatch(/html\.a11y-font-scale-175\s*{\s*font-size:\s*28px/);
-    expect(contents).toMatch(/html\.a11y-font-scale-200\s*{\s*font-size:\s*32px/);
+    expect(contents).toMatch(/html\.a11y-font-scale-88\s*{\s*font-size:\s*93\.75%/);
+    expect(contents).toMatch(/html\.a11y-font-scale-112\s*{\s*font-size:\s*118\.75%/);
+    expect(contents).toMatch(/html\.a11y-font-scale-124\s*{\s*font-size:\s*131\.25%/);
+    expect(contents).toMatch(/html\.a11y-font-scale-141\s*{\s*font-size:\s*150%/);
+  });
+
+  it('typography.css carves form-control font-size up to 16px at the smallest scale to prevent iOS form-zoom', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    expect(contents).toMatch(
+      /html\.a11y-font-scale-88 input,\s*html\.a11y-font-scale-88 textarea,\s*html\.a11y-font-scale-88 select\s*{\s*font-size:\s*16px/
+    );
   });
 
   it('typography.css scopes paragraph spacing to non-trailing paragraphs', () => {

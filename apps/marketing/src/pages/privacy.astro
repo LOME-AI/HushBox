@@ -1,8 +1,39 @@
 ---
-import Layout from '../layouts/Layout.astro';
+import { PRIVACY_POLICY_META } from '@hushbox/shared/legal';
+import LandingLayout from '../layouts/LandingLayout.astro';
+import LandingHeader from '../components/LandingHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import PageHero from '../components/PageHero.astro';
+import EffectiveDateRule from '../components/EffectiveDateRule.astro';
 import { PrivacyDocument } from '../components/PrivacyDocument';
+
+const PRIVACY_CIPHER_MESSAGES: readonly string[] = [
+  'No Plaintext Stored',
+  'Keys Stay Local',
+  'Never Trained On',
+  'No Tracking Pixels',
+  'No Ads, Ever',
+  'You Hold The Recovery',
+  'Yours To Export',
+  'Yours To Delete',
+  'Zero Retention',
+];
 ---
 
-<Layout title="Privacy Policy" description="How HushBox collects, uses, and protects your data.">
-  <PrivacyDocument client:visible />
-</Layout>
+<LandingLayout
+  title={PRIVACY_POLICY_META.title}
+  description="How HushBox collects, uses, and protects your data."
+>
+  <LandingHeader />
+
+  <main class="flex-1 pt-20">
+    <PageHero title={PRIVACY_POLICY_META.title} messages={PRIVACY_CIPHER_MESSAGES} />
+
+    <section class="mx-auto max-w-3xl px-6 pb-12">
+      <EffectiveDateRule date={PRIVACY_POLICY_META.effectiveDate} />
+      <PrivacyDocument client:visible />
+    </section>
+  </main>
+
+  <SiteFooter />
+</LandingLayout>

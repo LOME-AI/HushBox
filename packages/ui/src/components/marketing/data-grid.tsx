@@ -36,7 +36,8 @@ function DataGrid({
       className={cn('border-border overflow-hidden rounded-lg border-2', className)}
       {...props}
     >
-      <table className="w-full border-collapse text-sm">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
         <thead>
           <tr>
             {columns.map((col, colIndex) => (
@@ -82,6 +83,7 @@ function DataGrid({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

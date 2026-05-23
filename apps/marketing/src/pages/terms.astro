@@ -1,9 +1,37 @@
 ---
 import { TERMS_OF_SERVICE_META, TERMS_SECTIONS } from '@hushbox/shared/legal';
-import Layout from '../layouts/Layout.astro';
+import LandingLayout from '../layouts/LandingLayout.astro';
+import LandingHeader from '../components/LandingHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import PageHero from '../components/PageHero.astro';
+import EffectiveDateRule from '../components/EffectiveDateRule.astro';
 import { LegalDocument } from '../components/LegalDocument';
+
+const TERMS_CIPHER_MESSAGES: readonly string[] = [
+  'No Lock-In',
+  'No Auto-Renew',
+  'Source Available',
+  'Your Data Travels With You',
+  'No Forced Arbitration',
+  'No Dark Patterns',
+  'Promises We Keep',
+];
 ---
 
-<Layout title="Terms of Service" description="Terms of Service for using HushBox.">
-  <LegalDocument client:visible meta={TERMS_OF_SERVICE_META} sections={TERMS_SECTIONS} />
-</Layout>
+<LandingLayout
+  title={TERMS_OF_SERVICE_META.title}
+  description="Terms of Service for using HushBox."
+>
+  <LandingHeader />
+
+  <main class="flex-1 pt-20">
+    <PageHero title={TERMS_OF_SERVICE_META.title} messages={TERMS_CIPHER_MESSAGES} />
+
+    <section class="mx-auto max-w-3xl px-6 pb-12">
+      <EffectiveDateRule date={TERMS_OF_SERVICE_META.effectiveDate} />
+      <LegalDocument client:visible meta={TERMS_OF_SERVICE_META} sections={TERMS_SECTIONS} />
+    </section>
+  </main>
+
+  <SiteFooter />
+</LandingLayout>

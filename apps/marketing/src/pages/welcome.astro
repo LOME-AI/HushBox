@@ -10,12 +10,13 @@ import {
 } from '@hushbox/shared';
 import {
   buttonVariants,
-  CipherWall,
   ScrollReveal,
   DataGrid,
   FeeBreakdown,
   CostPieChart,
 } from '@hushbox/ui';
+import { LANDING_CIPHER_MESSAGES } from '@hushbox/shared/cipher-messages';
+import PageHero from '../components/PageHero.astro';
 import { EncryptionDemo } from '../components/encryption-demo';
 import LandingLayout from '../layouts/LandingLayout.astro';
 import LandingHeader from '../components/LandingHeader.astro';
@@ -75,14 +76,8 @@ function iconSvg(lucideIcon: string): string {
 >
   <LandingHeader />
 
-  <section class="relative flex min-h-svh items-center justify-center overflow-hidden">
+  <PageHero messages={LANDING_CIPHER_MESSAGES} fullscreen>
     <style is:inline>
-      /* Override Astro's display:contents so CipherWall can read parent dimensions */
-      [data-cipher-bg] > astro-island {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
       @keyframes bounce-arrow {
         0%,
         100% {
@@ -97,67 +92,65 @@ function iconSvg(lucideIcon: string): string {
         transition: opacity 0.3s;
       }
     </style>
-    <div class="absolute inset-0" data-cipher-bg>
-      <CipherWall client:load fadeMask="radial" fadeMaskTarget="[data-hero-content]" />
+    <h1 class="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
+      One interface.<br />
+      Every feature.<br />
+      <span class="text-primary">Private.</span>
+    </h1>
+    <p class="text-foreground mx-auto mt-6 max-w-xl text-lg sm:text-xl">
+      Access the world's leading AI models from one private workspace. Your conversations stay
+      yours.
+    </p>
+    <div class="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+      <a href={ROUTES.CHAT} class={buttonVariants({ size: 'lg' })}> Try HushBox Free </a>
+      <a
+        href="#pillars"
+        class={`scroll-to-pillars ${buttonVariants({ variant: 'ghost', size: 'lg' })}`}
+      >
+        See How It Works &rarr;
+      </a>
     </div>
-    <div class="relative z-10 mx-auto max-w-3xl px-6 text-center" data-hero-content>
-      <h1 class="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-        One interface.<br />
-        Every feature.<br />
-        <span class="text-primary">Private.</span>
-      </h1>
-      <p class="text-foreground mx-auto mt-6 max-w-xl text-lg sm:text-xl">
-        Access the world's leading AI models from one private workspace. Your conversations stay
-        yours.
-      </p>
-      <div class="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-        <a href={ROUTES.CHAT} class={buttonVariants({ size: 'lg' })}> Try HushBox Free </a>
-        <a
-          href="#pillars"
-          class={`scroll-to-pillars ${buttonVariants({ variant: 'ghost', size: 'lg' })}`}
-        >
-          See How It Works &rarr;
-        </a>
-      </div>
-      <p class="text-foreground mt-4 text-sm">No account required to try.</p>
-    </div>
-    <a
-      id="scroll-arrow"
-      href="#pillars"
-      aria-label="Scroll to learn more"
-      class="scroll-arrow scroll-to-pillars absolute bottom-16 left-1/2 -translate-x-1/2 cursor-pointer"
-    >
-      <svg class="text-primary h-16 w-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"
-        ></path>
-      </svg>
-    </a>
-    <script is:inline>
-      (function () {
-        var arrow = document.getElementById('scroll-arrow');
-        if (!arrow) return;
-        window.addEventListener(
-          'scroll',
-          function () {
-            arrow.style.opacity = window.scrollY > 50 ? '0' : '1';
-          },
-          { passive: true }
-        );
-      })();
-      (function () {
-        var links = document.querySelectorAll('.scroll-to-pillars');
-        links.forEach(function (link) {
-          link.addEventListener('click', function (e) {
-            var target = document.getElementById('pillars');
-            if (!target) return;
-            e.preventDefault();
-            var offset = target.getBoundingClientRect().top + window.scrollY - 60;
-            window.scrollTo({ top: offset, behavior: 'smooth' });
+    <p class="text-foreground mt-4 text-sm">No account required to try.</p>
+
+    <Fragment slot="below">
+      <a
+        id="scroll-arrow"
+        href="#pillars"
+        aria-label="Scroll to learn more"
+        class="scroll-arrow scroll-to-pillars absolute bottom-16 left-1/2 -translate-x-1/2 cursor-pointer"
+      >
+        <svg class="text-primary h-16 w-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"
+          ></path>
+        </svg>
+      </a>
+      <script is:inline>
+        (function () {
+          var arrow = document.getElementById('scroll-arrow');
+          if (!arrow) return;
+          window.addEventListener(
+            'scroll',
+            function () {
+              arrow.style.opacity = window.scrollY > 50 ? '0' : '1';
+            },
+            { passive: true }
+          );
+        })();
+        (function () {
+          var links = document.querySelectorAll('.scroll-to-pillars');
+          links.forEach(function (link) {
+            link.addEventListener('click', function (e) {
+              var target = document.getElementById('pillars');
+              if (!target) return;
+              e.preventDefault();
+              var offset = target.getBoundingClientRect().top + window.scrollY - 60;
+              window.scrollTo({ top: offset, behavior: 'smooth' });
+            });
           });
-        });
-      })();
-    </script>
-  </section>
+        })();
+      </script>
+    </Fragment>
+  </PageHero>
 
   <section id="pillars" class="py-12">
     <div class="mx-auto max-w-5xl px-6">

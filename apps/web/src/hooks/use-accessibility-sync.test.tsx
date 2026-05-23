@@ -205,7 +205,7 @@ describe('useAccessibilitySync', () => {
       authed();
       const serverTs = '2026-05-16T12:00:00.000Z';
       mockedFetchJson.mockResolvedValueOnce({
-        preferences: { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, fontSize: '175' },
+        preferences: { ...ACCESSIBILITY_PREFERENCES_DEFAULTS, fontSize: '141' },
         updatedAt: serverTs,
       });
       resetStore();
@@ -218,7 +218,7 @@ describe('useAccessibilitySync', () => {
       );
 
       await waitFor(() => {
-        expect(useA11yStore.getState().fontSize).toBe('175');
+        expect(useA11yStore.getState().fontSize).toBe('141');
       });
       expect(useA11yStore.getState().updatedAt).toBe(serverTs);
       expect(mockedClient.api['user-preferences'].accessibility.$put).not.toHaveBeenCalled();
@@ -321,7 +321,7 @@ describe('useAccessibilitySync', () => {
         await vi.advanceTimersByTimeAsync(300);
       });
       act(() => {
-        useA11yStore.getState().update({ fontSize: '150' });
+        useA11yStore.getState().update({ fontSize: '141' });
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(300);
@@ -341,7 +341,7 @@ describe('useAccessibilitySync', () => {
         json: { preferences: { contrast: string; fontSize: string; magnifier: boolean } };
       };
       expect(putCall.json.preferences.contrast).toBe('high');
-      expect(putCall.json.preferences.fontSize).toBe('150');
+      expect(putCall.json.preferences.fontSize).toBe('141');
       expect(putCall.json.preferences.magnifier).toBe(true);
     });
   });

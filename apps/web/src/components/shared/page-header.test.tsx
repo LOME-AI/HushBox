@@ -109,6 +109,12 @@ describe('PageHeader', () => {
       expect(header).toHaveClass('py-2');
     });
 
+    it('grid has min-h-9 so content row matches sidebar header h-9 content', () => {
+      render(<PageHeader />);
+      const grid = screen.getByTestId('page-header-grid');
+      expect(grid).toHaveClass('min-h-9');
+    });
+
     it('assigns grid-area left to the left content group', () => {
       render(<PageHeader title="Test" />);
       const grid = screen.getByTestId('page-header-grid');

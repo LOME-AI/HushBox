@@ -1,11 +1,34 @@
 import type { LinearIssue, LinearProject, LinearRoadmapData } from '../linear/types.js';
-import type { NormalizedEdge, NormalizedGraph, NormalizedNode } from './types.js';
-import { LAYOUT_CONFIG } from './layout-config.js';
+import type { NormalizedGraph, NormalizedNode } from './types.js';
 
 const TYPE_LABEL_FEATURE = 'type:feature';
 const TYPE_LABEL_BUG = 'type:bug';
 
 type PublicStatus = 'in_progress' | 'planned' | 'shipped';
+
+/**
+ * Synthetic project id used to bucket orphan issues (no Linear project
+ * assigned). Exported so tests can hash this id and assert orphan routing.
+ */
+export const ORPHAN_PROJECT_ID = 'orphan';
+const ORPHAN_PROJECT_NAME = 'Other';
+const ORPHAN_PROJECT_COLOR = '#71717a';
+
+/**
+ * Status precedence for the parent roll-up. Visually shipped (green) is the
+ * loudest, then in_progress (red), then planned (grey). A parent's effective
+ * status is the max of its own status and all descendants' statuses, so the
+ * board never shows a parent in a "quieter" colour than one of its children.
+ */
+const STATUS_RANK: Readonly<Record<PublicStatus, number>> = {
+  planned: 0,
+  in_progress: 1,
+  shipped: 2,
+};
+
+function maxStatus(a: PublicStatus, b: PublicStatus): PublicStatus {
+  return STATUS_RANK[a] >= STATUS_RANK[b] ? a : b;
+}
 
 /**
  * Compute a 12-char hex SHA-256 prefix of a Linear id. Used as the opaque
@@ -19,22 +42,12 @@ export async function hashLinearId(linearId: string): Promise<string> {
     .join('');
 }
 
-/**
- * Bucket a Linear issue state type into the three customer-facing statuses
- * shown on the roadmap. Unstarted + backlog both fall under "planned" —
- * customers don't care about the internal distinction.
- */
 function bucketIssueStatus(stateType: LinearIssue['stateType']): PublicStatus {
   if (stateType === 'started') return 'in_progress';
   if (stateType === 'completed') return 'shipped';
   return 'planned';
 }
 
-/**
- * Bucket a Linear project state type into the three customer-facing
- * statuses. Paused projects are surfaced as planned (we are still planning
- * to ship; they're just on hold). Backlog projects are also planned.
- */
 function bucketProjectStatus(stateType: LinearProject['stateType']): PublicStatus {
   if (stateType === 'started') return 'in_progress';
   if (stateType === 'completed') return 'shipped';
@@ -58,7 +71,6 @@ function findDepth1Ancestor(issueId: string, issuesById: Map<string, LinearIssue
   const start = issuesById.get(issueId);
   if (start === undefined || start.parentId === null) return null;
 
-  // Walk up; the depth-1 ancestor is the issue whose parent is null.
   let cursor: LinearIssue | undefined = issuesById.get(start.parentId);
   let safetyDepth = 0;
   while (cursor !== undefined && cursor.parentId !== null && safetyDepth < 64) {
@@ -69,18 +81,15 @@ function findDepth1Ancestor(issueId: string, issuesById: Map<string, LinearIssue
 }
 
 /**
- * Normalize raw Linear data into the public node/edge graph. Steps:
+ * Normalize raw Linear data into the public node list. Steps:
  *
  * 1. Filter issues to features and bugs only (defensive — the GraphQL query
  *    already filters, but the mock fixture may contain other rows).
  * 2. Assign orphan issues (no Linear project) to a synthetic "Other" project.
  * 3. Build nodes for every project and issue with hashed opaque ids.
- * 4. Build hierarchy edges from issue parent ids and project containment.
- * 5. Build dependency edges from `blocks` / `blocked_by` relations. A
- *    `blocked_by` relation on issue X with related Y becomes an edge from
- *    Y → X (Y blocks X), so all dependency edges point from blocker to
- *    blocked. Duplicate edges are deduplicated.
- * 6. Flatten anything deeper than 2 levels onto its depth-1 ancestor.
+ * 4. Flatten anything deeper than 2 levels onto its depth-1 ancestor.
+ * 5. Roll status up: each parent's status = max(self, ...descendants).
+ * 6. Derive per-project progress from top-level task statuses.
  */
 export async function normalizeRoadmap(data: LinearRoadmapData): Promise<NormalizedGraph> {
   const issuesById = new Map<string, LinearIssue>();
@@ -90,8 +99,7 @@ export async function normalizeRoadmap(data: LinearRoadmapData): Promise<Normali
 
   const filteredIssues = data.issues.filter((issue) => pickIssueType(issue.labelNames) !== null);
 
-  const orphanProjectId = LAYOUT_CONFIG.orphanProject.id;
-  const orphanHashId = await hashLinearId(orphanProjectId);
+  const orphanHashId = await hashLinearId(ORPHAN_PROJECT_ID);
 
   const usedProjectIds = new Set<string>();
   const usedOrphan = filteredIssues.some((issue) => issue.projectId === null);
@@ -102,10 +110,10 @@ export async function normalizeRoadmap(data: LinearRoadmapData): Promise<Normali
   const projectsToRender: LinearProject[] = data.projects.filter((p) => usedProjectIds.has(p.id));
   if (usedOrphan) {
     projectsToRender.push({
-      id: orphanProjectId,
-      name: LAYOUT_CONFIG.orphanProject.name,
-      color: LAYOUT_CONFIG.orphanProject.color,
-      stateType: LAYOUT_CONFIG.orphanProject.stateType,
+      id: ORPHAN_PROJECT_ID,
+      name: ORPHAN_PROJECT_NAME,
+      color: ORPHAN_PROJECT_COLOR,
+      stateType: 'planned',
     });
   }
 
@@ -113,7 +121,7 @@ export async function normalizeRoadmap(data: LinearRoadmapData): Promise<Normali
   for (const project of projectsToRender) {
     projectHashes.set(
       project.id,
-      project.id === orphanProjectId ? orphanHashId : await hashLinearId(project.id)
+      project.id === ORPHAN_PROJECT_ID ? orphanHashId : await hashLinearId(project.id)
     );
   }
 
@@ -134,14 +142,14 @@ export async function normalizeRoadmap(data: LinearRoadmapData): Promise<Normali
       title: project.name,
       status: bucketProjectStatus(project.stateType),
       type: null,
-      color: project.color,
+      progress: { done: 0, total: 0 },
     });
   }
 
   for (const issue of filteredIssues) {
     const hashedId = issueHashes.get(issue.id);
     if (hashedId === undefined) continue;
-    const projectId = issue.projectId ?? orphanProjectId;
+    const projectId = issue.projectId ?? ORPHAN_PROJECT_ID;
     const projectHash = projectHashes.get(projectId) ?? orphanHashId;
 
     const ancestorId = findDepth1Ancestor(issue.id, issuesById);
@@ -155,39 +163,69 @@ export async function normalizeRoadmap(data: LinearRoadmapData): Promise<Normali
       title: issue.title,
       status: bucketIssueStatus(issue.stateType),
       type: pickIssueType(issue.labelNames),
-      color: null,
     });
   }
 
-  const edges: NormalizedEdge[] = [];
+  rollUpStatuses(nodes);
+  attachProgress(nodes);
+
+  return { nodes };
+}
+
+/**
+ * Walk the graph from subtasks → tasks → projects, mutating each non-leaf
+ * node's status to max(self, ...children). Subtasks are leaves (depth-1
+ * flattening earlier in the pipeline means there are no deeper levels) so
+ * the order is fixed and finite — no recursion needed. Tasks roll up first
+ * so projects see post-rolled task statuses when their turn comes.
+ */
+function rollUpStatuses(nodes: NormalizedNode[]): void {
+  const childrenByParent = new Map<string, NormalizedNode[]>();
   for (const node of nodes) {
-    if (node.parentId !== null) {
-      edges.push({ source: node.parentId, target: node.id, kind: 'hierarchy' });
-    }
+    if (node.parentId === null) continue;
+    const list = childrenByParent.get(node.parentId) ?? [];
+    list.push(node);
+    childrenByParent.set(node.parentId, list);
   }
 
-  // Build dependency edges, deduplicated. A `blocks` relation on X means
-  // X blocks the related issue. A `blocked_by` relation on X means the
-  // related issue blocks X. Both reduce to a single canonical direction:
-  // edge.source blocks edge.target.
-  const seenDeps = new Set<string>();
-  const issueIdSet = new Set(filteredIssues.map((i) => i.id));
-  for (const issue of filteredIssues) {
-    for (const relation of issue.relations) {
-      const otherId = relation.relatedIssueId;
-      if (!issueIdSet.has(otherId)) continue;
-      const otherHash = issueHashes.get(otherId);
-      const selfHash = issueHashes.get(issue.id);
-      if (otherHash === undefined || selfHash === undefined) continue;
-      const sourceHash = relation.type === 'blocks' ? selfHash : otherHash;
-      const targetHash = relation.type === 'blocks' ? otherHash : selfHash;
-      if (sourceHash === targetHash) continue;
-      const key = `${sourceHash}->${targetHash}`;
-      if (seenDeps.has(key)) continue;
-      seenDeps.add(key);
-      edges.push({ source: sourceHash, target: targetHash, kind: 'dependency' });
-    }
+  rollUpKind(nodes, childrenByParent, 'task');
+  rollUpKind(nodes, childrenByParent, 'project');
+}
+
+function rollUpKind(
+  nodes: NormalizedNode[],
+  childrenByParent: ReadonlyMap<string, readonly NormalizedNode[]>,
+  kind: NormalizedNode['kind']
+): void {
+  for (const node of nodes) {
+    if (node.kind !== kind) continue;
+    const kids = childrenByParent.get(node.id);
+    if (kids === undefined) continue;
+    let rolled: PublicStatus = node.status;
+    for (const kid of kids) rolled = maxStatus(rolled, kid.status);
+    node.status = rolled;
+  }
+}
+
+/**
+ * Compute progress on each project node. `done` and `total` count top-level
+ * tasks only — subtasks roll up into their parent task's status during
+ * {@link rollUpStatuses}, so counting them again would double-weight tasks
+ * that happen to have subtasks. The visible bullet list inside each project
+ * card matches what this fraction measures.
+ */
+function attachProgress(nodes: NormalizedNode[]): void {
+  const taskCountByProject = new Map<string, { done: number; total: number }>();
+  for (const node of nodes) {
+    if (node.kind !== 'task' || node.parentId === null) continue;
+    const counts = taskCountByProject.get(node.parentId) ?? { done: 0, total: 0 };
+    counts.total += 1;
+    if (node.status === 'shipped') counts.done += 1;
+    taskCountByProject.set(node.parentId, counts);
   }
 
-  return { nodes, edges };
+  for (const node of nodes) {
+    if (node.kind !== 'project') continue;
+    node.progress = taskCountByProject.get(node.id) ?? { done: 0, total: 0 };
+  }
 }

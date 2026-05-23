@@ -8,8 +8,12 @@ description: Audit recent git history against current Linear state. Propose new 
 You walk recent git history, classify each commit against current Linear state, and propose new tickets or updates. You write nothing without explicit per-item user approval.
 
 > Sync notes:
-> - The "Linear Usage" section below is duplicated in `.claude/agents/linear-task-manager.md`. Keep them in sync.
+> - The "Audience" and "Linear Usage" sections below are duplicated in `.claude/agents/linear-task-manager.md`. Keep them in sync.
 > - The "Anti-Slop Rules" section below is duplicated in `.claude/skills/anti-ai-writing/SKILL.md`, `.claude/skills/write-blog/SKILL.md`, and `.claude/agents/linear-task-manager.md`. Keep them in sync.
+
+## Audience
+
+Tickets in the HUS workspace surface on **hushbox.ai/roadmap**. Today only the **title** is shown publicly; description, labels, status colour mapping, and URLs stay internal (`packages/shared/src/schemas/api/roadmap.ts` strips the rest). Treat the title as marketing copy a non-technical visitor must understand. Treat the description as engineering notes for the teammate who picks the work up next.
 
 ## Linear Usage
 
@@ -61,11 +65,49 @@ Triage, Backlog, Todo, In Progress, In Review, Done.
 
 ### Hard rules for writing
 
-1. Never include information the user did not directly provide or explicitly approve. No inferred code paths, no inferred file refs, no assumed implementation details, no "this likely affects X". If you don't have it from the commit message or the user, it does not go in the ticket. Commit messages themselves are user-authored, so quoting them verbatim is fine.
-2. Title: imperative form, ≤70 chars, no trailing period.
-3. Description starts with commit-source context verbatim (commit SHA, message, scope). Add nothing on your own beyond the classification reason.
+1. Never include information the user did not directly provide or explicitly approve. No inferred code paths, no inferred file refs, no assumed implementation details, no "this likely affects X". If you don't have it from the commit message or the user, it does not go in the ticket. Commit messages themselves are user-authored, so quoting them verbatim is fine, and citing the files a commit touched is fine (those are facts from `git show`).
+2. Title: user-facing plain English, ≤70 chars, no trailing period.
+   - Frame as a change a HushBox customer would notice or care about.
+   - No internal jargon (see Banned Developer Jargon below).
+   - Bug titles describe the broken behaviour in user terms, not the code path.
+   - Imperative or noun-phrase, whichever a layperson reads faster.
+3. Description: write for engineers. Be as technical as the work demands.
+   - Lead with the load-bearing fact in one sentence: what changed, what broke, or what needs building.
+   - Then the minimum context a teammate needs to act: affected paths, failing test name, regression SHA, schema field, protocol step.
+   - File paths, function names, library names, error codes, table columns, env vars are encouraged when they save a future reader from re-discovering context.
+   - Quote commit messages and error output verbatim when they're the primary evidence.
+   - No padding, no throat-clearing, no restatement.
 4. Confirm parent placement before any `create_*`. Ambiguous parent → ask the user.
 5. Archive permitted; delete forbidden. Allowlist enforces this — do not attempt deletes.
+
+### Title Examples
+
+Titles tagged `type:feature` or `type:bug` reach the roadmap and need plain-English framing. Other types (`refactor`, `chore`, `doc`) stay internal and can be as technical as the description.
+
+| Reject (developer voice) | Accept (correct voice for the type) |
+|---|---|
+| Implement OPAQUE password change flow | Change your password without re-encrypting your history (feature) |
+| Fix Redis TTL on rate-limit keys | Rate limiter forgets recent failed attempts (bug) |
+| Refactor Drizzle queries to use uuidv7 | Move primary keys to uuidv7 in the issue and session tables (refactor, internal) |
+| Add Helcim webhook idempotency | Card top-ups never double-charge on retry (feature) |
+| Migrate marketing site to Astro 5 | Bump Astro to 5.x and migrate breaking config (chore, internal) |
+| Fix delete-account handler session leak | Deleted accounts sign you out of other devices (bug) |
+
+### Banned Developer Jargon (titles only)
+
+Titles surface on hushbox.ai/roadmap. Descriptions stay internal and may use any of these freely.
+
+- **Library / protocol names:** OPAQUE, AEAD, XChaCha20, Argon2, ECIES, X25519, BIP39, Drizzle, Hono, Zod, Wrangler, Vite, Astro, Capacitor, Sandpack, Durable Object, Iron Session, Helcim API, Vercel AI Gateway.
+- **Infra terms:** Worker, Redis, KV, R2 bucket, Postgres, Neon, Upstash, Cloudflare, queue, cron, cold start, edge cache, CDN, websocket.
+- **Code shapes:** middleware, handler, hook, mutation, schema, migration, endpoint, route, payload, fixture, mock, stub.
+- **HTTP / status codes:** 401, 403, 429, 503, "returns 200", "responds with".
+- **File-path or symbol references:** `apps/api/...`, `packages/crypto/...`, function names, table names, env-var names.
+
+Translate to behaviour in the title. Use the real names in the description.
+
+### Description Density (descriptions only)
+
+Anti-Slop rules target marketing-style padding in titles. Descriptions have a different failure mode: filler that adds words without adding signal. Reject "this PR addresses the issue where..." in favour of "Bug:". Reject "the following changes have been made:" in favour of a bare list. Cut every sentence that a teammate could delete without losing information.
 
 ## Anti-Slop Rules
 

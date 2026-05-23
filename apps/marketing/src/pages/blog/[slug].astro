@@ -2,6 +2,8 @@
 import { render } from 'astro:content';
 import { Badge } from '@hushbox/ui';
 import BlogLayout from '../../layouts/BlogLayout.astro';
+import LandingHeader from '../../components/LandingHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
 import BlogPostCard from '../../components/blog/BlogPostCard.astro';
 import { TableOfContents } from '../../components/blog/TableOfContents';
 import BlogDisclaimer from '../../components/blog/BlogDisclaimer.astro';
@@ -44,7 +46,9 @@ const initials = post.data.author
   tags={post.data.tags}
   image={post.data.image?.src}
 >
-  <div>
+  <LandingHeader />
+
+  <main class="mx-auto w-full max-w-5xl flex-1 px-6 pt-24 pb-12">
     <a
       href="/blog"
       class="text-foreground-muted hover:text-foreground inline-flex items-center gap-1 text-sm transition-colors"
@@ -126,5 +130,7 @@ const initials = post.data.author
         </div>
       )
     }
-  </div>
+  </main>
+
+  <SiteFooter />
 </BlogLayout>

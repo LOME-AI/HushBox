@@ -119,7 +119,7 @@ describe('accessibilityPreferencesSchema — full object', () => {
       contrast: 'high',
       saturation: '150',
       colorblindSimulate: 'protan',
-      fontSize: '200',
+      fontSize: '141',
       letterSpacing: '0.12',
       lineHeight: '2.0',
       paragraphSpacing: '2',
@@ -150,10 +150,10 @@ describe('accessibilityPreferencesSchema — full object', () => {
   it('preserves explicitly-set values that differ from defaults', () => {
     const parsed = accessibilityPreferencesSchema.parse({
       version: 1,
-      fontSize: '175',
+      fontSize: '124',
       ttsEnabled: true,
     });
-    expect(parsed.fontSize).toBe('175');
+    expect(parsed.fontSize).toBe('124');
     expect(parsed.ttsEnabled).toBe(true);
     expect(parsed.contrast).toBe('normal');
     expect(parsed.fontFamily).toBe('system');
@@ -193,6 +193,16 @@ describe('accessibilityPreferencesSchema — enum field rejections', () => {
 
   it('rejects invalid fontSize value', () => {
     expect(() => accessibilityPreferencesSchema.parse({ version: 1, fontSize: '300' })).toThrow();
+  });
+
+  it('rejects fontSize values from the previous scale (175, 200)', () => {
+    expect(() => accessibilityPreferencesSchema.parse({ version: 1, fontSize: '175' })).toThrow();
+    expect(() => accessibilityPreferencesSchema.parse({ version: 1, fontSize: '200' })).toThrow();
+  });
+
+  it('accepts the new sub-default fontSize 88', () => {
+    const parsed = accessibilityPreferencesSchema.parse({ version: 1, fontSize: '88' });
+    expect(parsed.fontSize).toBe('88');
   });
 
   it('rejects invalid letterSpacing value', () => {

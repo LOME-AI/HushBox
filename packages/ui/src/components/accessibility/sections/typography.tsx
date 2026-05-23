@@ -4,15 +4,16 @@ import { SettingCard } from '../controls/setting-card';
 import { activateFont } from '../lib/font-loader';
 import { useA11yStore } from '../store';
 
-// One-directional ramp (Normal → Huge). Labels are linear so each step reads
-// as bigger than the last.
+// Two-directional ramp around the 17px default (Smaller ← Normal → Largest).
+// Numeric value is the % of the 17px root: 88/100/112/124/141.
 const FONT_SIZE_OPTIONS = [
+  { value: '88', label: 'Smaller' },
   { value: '100', label: 'Normal' },
-  { value: '125', label: 'Larger' },
-  { value: '150', label: 'Even larger' },
-  { value: '175', label: 'Very large' },
-  { value: '200', label: 'Huge' },
+  { value: '112', label: 'Larger' },
+  { value: '124', label: 'Even larger' },
+  { value: '141', label: 'Largest' },
 ] as const;
+const FONT_SIZE_NEUTRAL_INDEX = 1;
 
 // One-directional: '0' is the browser default (no extra letter-spacing), so
 // Normal sits at index 0 and we ramp toward Wider. Adding negative letter-
@@ -63,6 +64,7 @@ export function TypographySection(): React.JSX.Element {
           title="Text size"
           options={FONT_SIZE_OPTIONS}
           value={fontSize}
+          neutralIndex={FONT_SIZE_NEUTRAL_INDEX}
           onChange={(v) => {
             update({ fontSize: v });
           }}

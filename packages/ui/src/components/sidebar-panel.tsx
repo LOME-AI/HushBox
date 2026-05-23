@@ -48,7 +48,7 @@ export function SidebarPanelHeader({
   );
 
   const titleGroup = (
-    <div className="flex items-center gap-2">
+    <div className="flex h-9 items-center gap-2">
       {side === 'left' && headerIcon}
       {headerTitle !== undefined && (
         <span className="text-primary text-lg font-bold">{headerTitle}</span>
@@ -59,7 +59,7 @@ export function SidebarPanelHeader({
 
   const testIdProps = testId === undefined ? {} : { 'data-testid': `${testId}-header` };
   const baseClasses =
-    'border-sidebar-border flex h-[53px] shrink-0 items-center border-b px-4 whitespace-nowrap';
+    'border-sidebar-border flex min-h-[53px] shrink-0 items-center border-b px-4 py-2 whitespace-nowrap';
 
   if (collapsed) {
     return (
@@ -67,7 +67,7 @@ export function SidebarPanelHeader({
         <button
           type="button"
           onClick={onClose}
-          className="hover:bg-sidebar-border/50 rounded p-1"
+          className="hover:bg-sidebar-border/50 flex h-9 items-center justify-center rounded p-1"
           aria-label="Expand sidebar"
         >
           <CollapsedIcon className="h-4 w-4" />
