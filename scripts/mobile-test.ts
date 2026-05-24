@@ -286,11 +286,9 @@ export async function startEmulator(): Promise<void> {
   // in exactly that state, and `compose up -d` is idempotent so it would
   // adopt the broken container instead of recreating it.
   console.log('Removing any leftover emulator container...');
-  await execa(
-    'docker',
-    ['compose', '--profile', 'mobile', 'rm', '-fsv', 'android-emulator'],
-    { stdio: 'inherit' }
-  ).catch(() => {
+  await execa('docker', ['compose', '--profile', 'mobile', 'rm', '-fsv', 'android-emulator'], {
+    stdio: 'inherit',
+  }).catch(() => {
     // rm fails if no container exists; that's fine.
   });
 
