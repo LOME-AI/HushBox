@@ -153,42 +153,42 @@ async function dumpBootDiagnostics(): Promise<void> {
   console.error('=== END DIAGNOSTICS ===');
 }
 
-async function pollEmulatorBoot(
+async function disconnectStaleAdb(adbPort: string): Promise<void> {
+  await execa('adb', ['disconnect', `localhost:${adbPort}`], { stdio: 'pipe' }).catch(() => {
+    // Disconnect can fail if there's no entry to remove; that's fine.
+  });
+}
+
+async function tryAdbConnect(adbPort: string, index: number): Promise<boolean> {
+  const connectResult = await execa('adb', ['connect', `localhost:${adbPort}`], {
+    stdio: 'pipe',
+  });
+  const connectOutput = connectResult.stdout.trim();
+  // adb connect returns exit 0 even on failure with output like
+  // "unable to connect", "failed to connect", or "device offline".
+  // "device offline" happens when adb's local device table holds a stale
+  // half-dead entry from a previous broken session — `adb disconnect`
+  // clears it so the next iteration's connect attempt starts clean.
+  const connectFailed =
+    !connectOutput.includes('connected to') ||
+    connectOutput.includes('unable') ||
+    connectOutput.includes('offline');
+  if (!connectFailed) {
+    return true;
+  }
+  if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
+    console.log(`[poll ${String(index)}] adb connect: ${connectOutput}`);
+  }
+  if (connectOutput.includes('offline')) {
+    await disconnectStaleAdb(adbPort);
+  }
+  return false;
+}
+
+async function checkBootCompleted(
   adbPort: string,
-  connected: boolean,
   index: number
 ): Promise<{ connected: boolean; booted: boolean }> {
-  if (!connected) {
-    const connectResult = await execa('adb', ['connect', `localhost:${adbPort}`], {
-      stdio: 'pipe',
-    });
-    const connectOutput = connectResult.stdout.trim();
-    // adb connect returns exit 0 even on failure with output like
-    // "unable to connect", "failed to connect", or "device offline".
-    // "device offline" happens when adb's local device table holds a stale
-    // half-dead entry from a previous broken session — `adb disconnect`
-    // clears it so the next iteration's connect attempt starts clean.
-    const connectFailed =
-      !connectOutput.includes('connected to') ||
-      connectOutput.includes('unable') ||
-      connectOutput.includes('offline');
-    if (connectFailed) {
-      if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
-        console.log(`[poll ${String(index)}] adb connect: ${connectOutput}`);
-      }
-      if (connectOutput.includes('offline')) {
-        await execa('adb', ['disconnect', `localhost:${adbPort}`], { stdio: 'pipe' }).catch(
-          () => {
-            // Disconnect can fail if there's no entry to remove; that's fine.
-          }
-        );
-      }
-      return { connected: false, booted: false };
-    }
-    console.log(`Connected to localhost:${adbPort}`);
-    connected = true;
-  }
-
   // Catch errors here rather than letting them propagate so the caller's
   // `connected` state survives. `getprop sys.boot_completed` legitimately
   // fails while the device is mid-boot; if we let it throw, the catch in
@@ -203,7 +203,7 @@ async function pollEmulatorBoot(
       'getprop',
       'sys.boot_completed',
     ]);
-    return { connected, booted: result.stdout.trim() === '1' };
+    return { connected: true, booted: result.stdout.trim() === '1' };
   } catch (error: unknown) {
     const detail = extractErrorDetail(error);
     // "device offline" / "device not found": the adb connection itself
@@ -212,14 +212,25 @@ async function pollEmulatorBoot(
       if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
         console.log(`[poll ${String(index)}] getprop: ${detail}`);
       }
-      await execa('adb', ['disconnect', `localhost:${adbPort}`], { stdio: 'pipe' }).catch(() => {
-        // Disconnect can fail if there's no entry to remove; that's fine.
-      });
+      await disconnectStaleAdb(adbPort);
       return { connected: false, booted: false };
     }
     // Benign mid-boot failure: keep the connection and try again.
-    return { connected, booted: false };
+    return { connected: true, booted: false };
   }
+}
+
+async function pollEmulatorBoot(
+  adbPort: string,
+  connected: boolean,
+  index: number
+): Promise<{ connected: boolean; booted: boolean }> {
+  if (!connected) {
+    const ok = await tryAdbConnect(adbPort, index);
+    if (!ok) return { connected: false, booted: false };
+    console.log(`Connected to localhost:${adbPort}`);
+  }
+  return checkBootCompleted(adbPort, index);
 }
 
 async function setupAdbReverse(adbPort: string): Promise<void> {
@@ -262,6 +273,26 @@ export async function startEmulator(): Promise<void> {
   // Detect host KVM group ID so the container user can access /dev/kvm
   const kvmStat = await execa('stat', ['-c', '%g', '/dev/kvm']);
   process.env['HB_KVM_GID'] = kvmStat.stdout.trim();
+
+  // Force-remove any leftover container before creating fresh. The
+  // budtmo/docker-android image runs `sudo sed -i '1d' /etc/passwd` during
+  // its one-time KVM permission setup (see
+  // /home/androidusr/docker-android/cli/src/device/emulator.py
+  // change_permission). Once root is stripped, supervisord cannot restart
+  // the device service on crash and the emulator is permanently wedged
+  // (adb-server stays up, every device interaction returns "device
+  // offline"). A previous run interrupted before its `stopEmulator`
+  // finally-block — Ctrl+C, OOM, or a hung script — leaves the container
+  // in exactly that state, and `compose up -d` is idempotent so it would
+  // adopt the broken container instead of recreating it.
+  console.log('Removing any leftover emulator container...');
+  await execa(
+    'docker',
+    ['compose', '--profile', 'mobile', 'rm', '-fsv', 'android-emulator'],
+    { stdio: 'inherit' }
+  ).catch(() => {
+    // rm fails if no container exists; that's fine.
+  });
 
   console.log('Starting Android emulator...');
   await execa('docker', ['compose', '--profile', 'mobile', 'up', '-d', 'android-emulator'], {

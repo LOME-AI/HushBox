@@ -23,7 +23,7 @@ import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useDecryptionActivityStore } from '@/stores/decryption-activity';
 import { useWebsocketInboundActivityStore } from '@/stores/websocket-inbound-activity';
 import { useAuthStore } from '@/lib/auth';
-import { useIsSettled } from './use-is-settled.js';
+import { useIsSettled, DEBOUNCE_MS } from './use-is-settled.js';
 
 const mockedUseStreamingActivityStore = vi.mocked(useStreamingActivityStore);
 const mockedUseDecryptionActivityStore = vi.mocked(useDecryptionActivityStore);
@@ -54,6 +54,10 @@ describe('useIsSettled', () => {
     vi.restoreAllMocks();
   });
 
+  it('debounces for 5 seconds', () => {
+    expect(DEBOUNCE_MS).toBe(5000);
+  });
+
   it('returns false initially even when idle (debounce has not fired)', () => {
     const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
 
@@ -64,7 +68,7 @@ describe('useIsSettled', () => {
     const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
 
     act(() => {
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
 
     expect(result.current).toBe(true);
@@ -110,7 +114,7 @@ describe('useIsSettled', () => {
     rerender();
 
     act(() => {
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
 
     expect(result.current).toBe(true);
@@ -132,7 +136,7 @@ describe('useIsSettled', () => {
     rerender();
 
     act(() => {
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
 
     expect(result.current).toBe(true);
@@ -189,7 +193,7 @@ describe('useIsSettled', () => {
     rerender();
 
     act(() => {
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
 
     expect(result.current).toBe(true);
@@ -200,10 +204,10 @@ describe('useIsSettled', () => {
 
     const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
 
-    // Past the 600ms debounce — if the WS counter wasn't part of isIdle, the
+    // Past the debounce — if the WS counter wasn't part of isIdle, the
     // debounce would have fired and settled would be true.
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
 
     expect(result.current).toBe(false);
@@ -217,7 +221,7 @@ describe('useIsSettled', () => {
     });
 
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
     expect(result.current).toBe(false);
 
@@ -225,7 +229,7 @@ describe('useIsSettled', () => {
     rerender();
 
     act(() => {
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
 
     expect(result.current).toBe(true);

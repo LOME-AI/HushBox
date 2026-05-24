@@ -3,8 +3,9 @@
  *
  * Automatically races locator/page assertions against the app's settled signal.
  * When the app settles (all TanStack Query fetches, mutations, and SSE streams
- * complete with 600ms debounce) and an assertion hasn't passed, it fails
- * immediately instead of waiting for the full timeout.
+ * complete with a debounce window — see DEBOUNCE_MS in use-is-settled.ts) and
+ * an assertion hasn't passed, it fails immediately instead of waiting for the
+ * full timeout.
  *
  * Opt out for assertions that wait for external events (webhooks, WebSocket):
  *   import { unsettledExpect } from './settled-expect.js';

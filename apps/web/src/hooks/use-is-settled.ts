@@ -5,7 +5,7 @@ import { useDecryptionActivityStore } from '@/stores/decryption-activity';
 import { useWebsocketInboundActivityStore } from '@/stores/websocket-inbound-activity';
 import { useAuthStore } from '@/lib/auth';
 
-const DEBOUNCE_MS = 600;
+export const DEBOUNCE_MS = 5000;
 
 export function useIsSettled(): boolean {
   const isFetching = useIsFetching();
