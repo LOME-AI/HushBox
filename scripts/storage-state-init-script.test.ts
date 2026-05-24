@@ -19,7 +19,7 @@ describe('buildStorageInitScript', () => {
     ).toBeNull();
   });
 
-  it('emits one setItem call guarded by origin check', () => {
+  it('emits one setItem call guarded by origin check and getItem === null', () => {
     const script = buildStorageInitScript({
       cookies: [],
       origins: [
@@ -30,8 +30,26 @@ describe('buildStorageInitScript', () => {
       ],
     });
     expect(script).toBe(
-      `if (location.origin === "http://localhost:4301") window.localStorage.setItem("k", "v");`
+      `if (location.origin === "http://localhost:4301" && window.localStorage.getItem("k") === null) window.localStorage.setItem("k", "v");`
     );
+  });
+
+  it('guards every setItem with a getItem === null check so reloads do not clobber test mutations', () => {
+    const script = buildStorageInitScript({
+      cookies: [],
+      origins: [
+        {
+          origin: 'http://localhost:4301',
+          localStorage: [
+            { name: 'a', value: '1' },
+            { name: 'b', value: '2' },
+          ],
+        },
+      ],
+    });
+    const guards = script?.match(/getItem\(/g) ?? [];
+    const setters = script?.match(/setItem\(/g) ?? [];
+    expect(guards).toHaveLength(setters.length);
   });
 
   it('emits one line per localStorage entry per origin', () => {

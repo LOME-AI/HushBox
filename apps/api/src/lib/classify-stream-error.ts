@@ -23,17 +23,7 @@ import {
   ERROR_CODE_RATE_LIMITED,
   ERROR_CODE_STREAM_ERROR,
 } from '@hushbox/shared';
-
-function messageHasUniqueViolation(message: string): boolean {
-  return message.includes('duplicate key') || message.includes('unique constraint');
-}
-
-function isUniqueViolationError(error: Error): boolean {
-  if (messageHasUniqueViolation(error.message)) return true;
-  const cause = (error as { cause?: unknown }).cause;
-  if (cause instanceof Error && messageHasUniqueViolation(cause.message)) return true;
-  return Boolean(cause && typeof cause === 'object' && 'code' in cause && cause.code === '23505');
-}
+import { isUniqueViolation } from './unique-violation.js';
 
 function extractStatusCode(error: Error): number | undefined {
   const candidates: unknown[] = [
@@ -94,7 +84,7 @@ export function classifyStreamErrorCode(error: unknown): string {
   if (!(error instanceof Error)) return ERROR_CODE_STREAM_ERROR;
   if (error.message.includes('context length')) return ERROR_CODE_CONTEXT_LENGTH_EXCEEDED;
   if (error.name === 'ForkTipConflictError') return ERROR_CODE_FORK_TIP_CONFLICT;
-  if (isUniqueViolationError(error)) return ERROR_CODE_DUPLICATE_MESSAGE;
+  if (isUniqueViolation(error)) return ERROR_CODE_DUPLICATE_MESSAGE;
 
   const status = extractStatusCode(error);
   if (isRateLimitError(error, status)) return ERROR_CODE_RATE_LIMITED;

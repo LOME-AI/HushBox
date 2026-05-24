@@ -1775,7 +1775,7 @@ describe('PromptInput', () => {
       const sendButton = screen.getByTestId('send-button');
       // AnimatedHeight always renders the wrapper now — MotionConfig at the
       // root collapses the animation to instant under reduced motion.
-      const motionWrapper = sendButton.closest('.overflow-hidden');
+      const motionWrapper = sendButton.closest('.overflow-y-hidden');
       expect(motionWrapper).not.toBeNull();
     });
   });
@@ -1792,6 +1792,8 @@ describe('PromptInput', () => {
         />
       );
       const banner = screen.getByText(/editing/i);
+      // Edit banner uses AnimatedHeight (`overflow-hidden`), not MorphHeight
+      // (`overflow-y-hidden`); the bottom-row test above checks MorphHeight.
       const motionWrapper = banner.closest('.overflow-hidden');
       expect(motionWrapper).not.toBeNull();
     });

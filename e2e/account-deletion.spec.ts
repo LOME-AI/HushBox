@@ -4,6 +4,7 @@ import {
   generateTOTPCode,
   signUpAndVerify,
   uniqueEmail,
+  uniqueUsername,
   navigateToSettings,
   clearAuthRateLimits,
   waitForNextTOTPCode,
@@ -33,7 +34,7 @@ async function provisionFreshUser(
   prefix: string
 ): Promise<FreshUser> {
   const email = uniqueEmail(prefix);
-  const username = `${prefix.slice(0, 3)}${String(Date.now()).slice(-6)}`;
+  const username = uniqueUsername(prefix);
   await signUpAndVerify(page, request, { username, email, password: FRESH_PASSWORD });
   return { email, username, password: FRESH_PASSWORD };
 }

@@ -16,6 +16,8 @@ import {
   ERROR_CODE_NO_PENDING_REGISTRATION,
   ERROR_CODE_REGISTRATION_FAILED,
   ERROR_CODE_USER_CREATION_FAILED,
+  ERROR_CODE_USERNAME_TAKEN,
+  ERROR_CODE_EMAIL_TAKEN,
   ERROR_CODE_EMAIL_NOT_VERIFIED,
   ERROR_CODE_NOT_AUTHENTICATED,
   ERROR_CODE_INCORRECT_PASSWORD,
@@ -56,6 +58,7 @@ import {
   deriveTotpEncryptionKey,
 } from '@hushbox/crypto';
 import { createErrorResponse } from '../lib/error-response.js';
+import { getUniqueViolationConstraint } from '../lib/unique-violation.js';
 import { getSessionOptions, type SessionData } from '../lib/session.js';
 import {
   checkRateLimit,
@@ -430,22 +433,39 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     const passwordWrappedPrivateKeyBytes = fromBase64(passwordWrappedPrivateKey);
     const recoveryWrappedPrivateKeyBytes = fromBase64(recoveryWrappedPrivateKey);
 
-    // Create user in database with pre-generated ID (unique email constraint prevents duplicates - idempotent)
-    const result = await db
-      .insert(users)
-      .values({
-        id: pending.userId,
-        email: pending.email,
-        username: pending.username,
-        opaqueRegistration: recordBytes,
-        publicKey: publicKeyBytes,
-        passwordWrappedPrivateKey: passwordWrappedPrivateKeyBytes,
-        recoveryWrappedPrivateKey: recoveryWrappedPrivateKeyBytes,
-        emailVerified: false,
-      })
-      .returning({ id: users.id });
+    // Catch users_username_unique / users_email_unique violations explicitly
+    // so a username race or an email-existence race past /init surfaces as a
+    // typed 409 the signup UI can render — without this, both fall through
+    // to the global handler as a generic INTERNAL 500.
+    let newUser: { id: string } | undefined;
+    try {
+      const result = await db
+        .insert(users)
+        .values({
+          id: pending.userId,
+          email: pending.email,
+          username: pending.username,
+          opaqueRegistration: recordBytes,
+          publicKey: publicKeyBytes,
+          passwordWrappedPrivateKey: passwordWrappedPrivateKeyBytes,
+          recoveryWrappedPrivateKey: recoveryWrappedPrivateKeyBytes,
+          emailVerified: false,
+        })
+        .returning({ id: users.id });
+      newUser = result[0];
+    } catch (error) {
+      const constraint = getUniqueViolationConstraint(error);
+      if (constraint === 'users_username_unique') {
+        return c.json(createErrorResponse(ERROR_CODE_USERNAME_TAKEN), 409);
+      }
+      if (constraint === 'users_email_unique') {
+        return c.json(createErrorResponse(ERROR_CODE_EMAIL_TAKEN), 409);
+      }
+      // Either a generic unique violation we can't discriminate, or an
+      // unrelated DB error. Let the global handler surface it as INTERNAL.
+      throw error;
+    }
 
-    const newUser = result[0];
     if (!newUser) {
       return c.json(createErrorResponse(ERROR_CODE_USER_CREATION_FAILED), 500);
     }

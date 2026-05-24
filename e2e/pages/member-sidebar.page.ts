@@ -45,7 +45,12 @@ export class MemberSidebarPage {
   }
 
   async expectMemberCount(n: number): Promise<void> {
-    await expect(this.sidebar.getByText(`MEMBERS (${String(n)})`)).toBeVisible();
+    // Count text updates after the members query refetches in response to a
+    // broadcast-driven invalidation; the React render can lag past settled+grace
+    // on mobile viewports. Same reasoning as expectMemberInSection below.
+    await unsettledExpect(this.sidebar.getByText(`MEMBERS (${String(n)})`)).toBeVisible({
+      timeout: 10_000,
+    });
   }
 
   section(privilege: string): Locator {

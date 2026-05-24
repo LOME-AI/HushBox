@@ -129,7 +129,23 @@ function simulateUnexpectedClose(ws: MockWebSocket): void {
 
 describe('ConversationWebSocket', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    // Include rAF in the fake-timer set because the inbound-activity tail
+    // is scheduled via requestAnimationFrame (post-paint) rather than
+    // setTimeout. Without this, tests that advance fake time won't fire
+    // the endProcessing tail and assertions on it will spuriously fail.
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'setInterval',
+        'clearInterval',
+        'setImmediate',
+        'clearImmediate',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'Date',
+      ],
+    });
     createdWebSockets = [];
     mockNetworkStore._reset();
     const TrackedMock = createMockWebSocketConstructor();
@@ -476,7 +492,13 @@ describe('ConversationWebSocket', () => {
       expect(mockStartProcessing).toHaveBeenCalledTimes(1);
       expect(mockEndProcessing).not.toHaveBeenCalled();
 
-      vi.advanceTimersByTime(100);
+      // The implementation uses two chained rAF calls so the inbound
+      // counter outlives the React render the listener triggered. Vitest's
+      // frame-advance flushes nested rAFs in one call, so a single
+      // advanceTimersToNextFrame() is enough to fire both.
+      // runAllTimers drains the nested rAF pair regardless of frame-pacing
+      // behavior across vitest/sinon versions.
+      vi.runAllTimers();
 
       expect(mockEndProcessing).toHaveBeenCalledTimes(1);
     });
@@ -494,7 +516,9 @@ describe('ConversationWebSocket', () => {
 
       expect(mockStartProcessing).toHaveBeenCalledTimes(1);
 
-      vi.advanceTimersByTime(100);
+      // runAllTimers drains the nested rAF pair regardless of frame-pacing
+      // behavior across vitest/sinon versions.
+      vi.runAllTimers();
 
       expect(mockEndProcessing).toHaveBeenCalledTimes(1);
     });

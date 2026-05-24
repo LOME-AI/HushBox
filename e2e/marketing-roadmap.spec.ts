@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openMobileLandingMenuIfNeeded } from './helpers/marketing-nav.js';
 
 /**
  * End-to-end coverage of the public /roadmap page. The page is built by
@@ -12,7 +13,11 @@ import { test, expect } from '@playwright/test';
 test.describe('Public roadmap', () => {
   test('renders, filters, and is reachable from landing nav', async ({ page }) => {
     await page.goto('/welcome');
-    await page.locator('nav.hidden a', { hasText: 'Roadmap' }).first().click();
+    await openMobileLandingMenuIfNeeded(page);
+    // `.filter({ visible: true })` picks whichever of the two nav variants
+    // (desktop nav or the now-open mobile drawer) is currently rendered;
+    // the other lives in DOM but with `display: none` via Tailwind.
+    await page.getByRole('link', { name: 'Roadmap' }).filter({ visible: true }).first().click();
     await expect(page).toHaveURL(/\/roadmap/);
 
     await expect(page.getByRole('heading', { name: 'Roadmap', level: 1 })).toBeVisible();

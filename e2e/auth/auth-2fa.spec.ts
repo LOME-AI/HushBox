@@ -10,6 +10,7 @@ import {
   generateTOTPCode,
   signUpAndVerify,
   uniqueEmail,
+  uniqueUsername,
   logoutViaUI,
   navigateToSettings,
   clearAuthRateLimits,
@@ -61,7 +62,7 @@ test.describe('Two-Factor Authentication', () => {
     test('setup → verify → logout → login with 2FA', async ({ unauthenticatedPage, request }) => {
       test.setTimeout(120_000);
       const email = uniqueEmail('e2e-2fa');
-      const username = `tfa${String(Date.now()).slice(-6)}`;
+      const username = uniqueUsername('tfa');
       const password = 'TestPassword123!';
       let totpSecret = '';
       let setupCode = '';
@@ -114,7 +115,7 @@ test.describe('Two-Factor Authentication', () => {
     test('enable → disable → login without 2FA', async ({ unauthenticatedPage, request }) => {
       test.setTimeout(120_000);
       const email = uniqueEmail('e2e-2fa-dis');
-      const username = `dis${String(Date.now()).slice(-6)}`;
+      const username = uniqueUsername('dis');
       const password = 'TestPassword123!';
       let totpSecret = '';
       let lastUsedCode = '';

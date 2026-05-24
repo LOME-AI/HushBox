@@ -69,7 +69,11 @@ describe('MorphHeight', () => {
     expect(screen.getByTestId('child')).toBeInTheDocument();
   });
 
-  it('wraps content in a motion.div with overflow-hidden', () => {
+  it('wraps content in a motion.div with overflow-y-hidden', () => {
+    // Only the vertical axis is clipped: horizontal clipping silently
+    // swallows clicks on overflowing children (see comment on
+    // morph-height.tsx). Asserting the precise class catches accidental
+    // regressions to `overflow-hidden`.
     render(
       <MorphHeight>
         <div data-testid="child">content</div>
@@ -77,7 +81,7 @@ describe('MorphHeight', () => {
     );
     const wrapper = screen.getByTestId('child').closest('[data-motion="true"]');
     expect(wrapper).not.toBeNull();
-    expect(wrapper).toHaveClass('overflow-hidden');
+    expect(wrapper).toHaveClass('overflow-y-hidden');
   });
 
   it('uses an easeInOut transition on height with a finite duration', () => {

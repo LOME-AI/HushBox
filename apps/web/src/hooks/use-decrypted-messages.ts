@@ -8,7 +8,7 @@ import {
 import { fromBase64 } from '@hushbox/shared';
 import { useAuthStore } from '@/lib/auth';
 import { getEpochKey, processKeyChain } from '@/lib/epoch-key-cache';
-import { useDecryptionActivityStore } from '@/stores/decryption-activity';
+import { useTrackedDecryption } from '@/hooks/use-tracked-decryption';
 import { keyChainQueryOptions } from '@/hooks/keys';
 import type { MessageResponse, ContentItemResponse } from '@hushbox/shared';
 import type { Message, MessageMediaItem } from '@/lib/api';
@@ -188,15 +188,7 @@ export function useDecryptedMessages(
     (messages?.length ?? 0) > 0 &&
     decrypted.length === 0;
 
-  const { markPending, markComplete } = useDecryptionActivityStore.getState();
-
-  useEffect(() => {
-    if (!isPending) return;
-    markPending();
-    return () => {
-      markComplete();
-    };
-  }, [isPending, markPending, markComplete]);
+  useTrackedDecryption(isPending);
 
   return decrypted;
 }

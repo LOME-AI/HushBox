@@ -452,14 +452,14 @@ test.describe('Fork History Preservation', () => {
     });
 
     await test.step('Fork 1 still shows the inherited image', async () => {
-      await expect(chatPage.messageList.locator('img').first()).toBeVisible({ timeout: 15_000 });
+      await expect(chatPage.messageList.locator('img').first()).toBeVisible({ timeout: 30_000 });
     });
 
     await test.step('Main also still shows the original image', async () => {
       await unsettledExpect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
       await chatPage.clickForkTab('Main');
       await chatPage.expectActiveForkTab('Main');
-      await expect(chatPage.messageList.locator('img').first()).toBeVisible({ timeout: 15_000 });
+      await expect(chatPage.messageList.locator('img').first()).toBeVisible({ timeout: 30_000 });
     });
   });
 

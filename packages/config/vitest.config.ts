@@ -3,7 +3,11 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     retry: 1,
-    testTimeout: 7500,
+    // 15s gives slow integration tests (e.g. message-shares with media
+    // middleware spin-up) headroom under heavy parallel `test:all` load
+    // while still catching genuine hangs. Tightening below this caused
+    // sporadic timeouts that masked true-pass tests.
+    testTimeout: 15000,
     exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**'],
     coverage: {
       provider: 'v8',

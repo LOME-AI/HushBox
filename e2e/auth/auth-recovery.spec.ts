@@ -30,7 +30,13 @@ test.describe('Recovery Phrase & Forgot Password', () => {
   }) => {
     test.setTimeout(120_000);
     const email = uniqueEmail('e2e-rec');
-    const username = `Rec Test ${String(Date.now()).slice(-6)}`;
+    // Display-cased input is the point of this test (exercises
+    // normalizeUsername path). Inline random hex for collision resistance —
+    // the helper returns canonical lowercase, which doesn't fit here.
+    const usernameRandom = [...crypto.getRandomValues(new Uint8Array(4))]
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const username = `Rec Test ${String(Date.now()).slice(-4)}${usernameRandom}`;
     const originalPassword = 'TestPassword123!';
     const recoveredPassword = 'RecoveredPassword789!';
     const usernameRecoveredPassword = 'UsernameRecovery456!';

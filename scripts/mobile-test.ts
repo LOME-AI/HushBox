@@ -164,11 +164,24 @@ async function pollEmulatorBoot(
     });
     const connectOutput = connectResult.stdout.trim();
     // adb connect returns exit 0 even on failure with output like
-    // "unable to connect" or "failed to connect". Only set connected
-    // when the output confirms an actual connection.
-    if (!connectOutput.includes('connected to') || connectOutput.includes('unable')) {
+    // "unable to connect", "failed to connect", or "device offline".
+    // "device offline" happens when adb's local device table holds a stale
+    // half-dead entry from a previous broken session — `adb disconnect`
+    // clears it so the next iteration's connect attempt starts clean.
+    const connectFailed =
+      !connectOutput.includes('connected to') ||
+      connectOutput.includes('unable') ||
+      connectOutput.includes('offline');
+    if (connectFailed) {
       if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
         console.log(`[poll ${String(index)}] adb connect: ${connectOutput}`);
+      }
+      if (connectOutput.includes('offline')) {
+        await execa('adb', ['disconnect', `localhost:${adbPort}`], { stdio: 'pipe' }).catch(
+          () => {
+            // Disconnect can fail if there's no entry to remove; that's fine.
+          }
+        );
       }
       return { connected: false, booted: false };
     }
@@ -176,14 +189,37 @@ async function pollEmulatorBoot(
     connected = true;
   }
 
-  const result = await execa('adb', [
-    '-s',
-    `localhost:${adbPort}`,
-    'shell',
-    'getprop',
-    'sys.boot_completed',
-  ]);
-  return { connected, booted: result.stdout.trim() === '1' };
+  // Catch errors here rather than letting them propagate so the caller's
+  // `connected` state survives. `getprop sys.boot_completed` legitimately
+  // fails while the device is mid-boot; if we let it throw, the catch in
+  // startEmulator would never reassign `connected = poll.connected` and the
+  // next iteration would re-run `adb connect`, spamming "Connected to ..."
+  // and wasting one connect per poll.
+  try {
+    const result = await execa('adb', [
+      '-s',
+      `localhost:${adbPort}`,
+      'shell',
+      'getprop',
+      'sys.boot_completed',
+    ]);
+    return { connected, booted: result.stdout.trim() === '1' };
+  } catch (error: unknown) {
+    const detail = extractErrorDetail(error);
+    // "device offline" / "device not found": the adb connection itself
+    // broke. Drop the entry and force the next iteration to re-connect.
+    if (detail.includes('offline') || detail.includes('not found')) {
+      if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
+        console.log(`[poll ${String(index)}] getprop: ${detail}`);
+      }
+      await execa('adb', ['disconnect', `localhost:${adbPort}`], { stdio: 'pipe' }).catch(() => {
+        // Disconnect can fail if there's no entry to remove; that's fine.
+      });
+      return { connected: false, booted: false };
+    }
+    // Benign mid-boot failure: keep the connection and try again.
+    return { connected, booted: false };
+  }
 }
 
 async function setupAdbReverse(adbPort: string): Promise<void> {

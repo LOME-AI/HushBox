@@ -1,7 +1,12 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage } from '../pages';
 import { BudgetHelper, setWalletBalance } from '../helpers/budget.js';
-import { signUpAndVerify, uniqueEmail, clearAuthRateLimits } from '../helpers/auth.js';
+import {
+  signUpAndVerify,
+  uniqueEmail,
+  uniqueUsername,
+  clearAuthRateLimits,
+} from '../helpers/auth.js';
 
 test.describe('Wallet Lifecycle', () => {
   test.beforeEach(async ({ request }, testInfo) => {
@@ -19,7 +24,7 @@ test.describe('Wallet Lifecycle', () => {
 
     const page = unauthenticatedPage;
     const email = uniqueEmail('e2e-wallet');
-    const username = `wal${String(Date.now()).slice(-6)}`;
+    const username = uniqueUsername('wal');
     const password = 'TestPassword123!';
 
     await test.step('sign up, verify email, and login', async () => {

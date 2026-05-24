@@ -189,8 +189,9 @@ test.describe('Fork and Regeneration Interaction', () => {
 
     await test.step('verify Main messages intact', async () => {
       await chatPage.expectMessageVisible(msg);
-      const count = await chatPage.countMessages();
-      expect(count).toBeGreaterThanOrEqual(2);
+      await expect
+        .poll(() => chatPage.countMessages(), { timeout: 5000 })
+        .toBeGreaterThanOrEqual(2);
     });
 
     await test.step('verify API message count decreased', async () => {

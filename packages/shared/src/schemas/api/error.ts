@@ -280,6 +280,16 @@ export const ERROR_CODE_FORK_NOT_FOUND = 'FORK_NOT_FOUND';
 /** Fork name already taken in this conversation */
 export const ERROR_CODE_FORK_NAME_TAKEN = 'FORK_NAME_TAKEN';
 
+/** Registration: requested username collides with an existing account. */
+export const ERROR_CODE_USERNAME_TAKEN = 'USERNAME_TAKEN';
+
+/**
+ * Registration: requested email is already registered. Today this is
+ * masked at /register/init for enumeration resistance; surfaces only if a
+ * race makes it past /init.
+ */
+export const ERROR_CODE_EMAIL_TAKEN = 'EMAIL_TAKEN';
+
 /** Maximum number of forks per conversation reached */
 export const ERROR_CODE_FORK_LIMIT_REACHED = 'FORK_LIMIT_REACHED';
 

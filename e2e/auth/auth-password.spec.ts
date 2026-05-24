@@ -3,6 +3,7 @@ import { LoginPage, SettingsPage, ChangePasswordModal } from '../pages';
 import {
   signUpAndVerify,
   uniqueEmail,
+  uniqueUsername,
   logoutViaUI,
   navigateToSettings,
   clearAuthRateLimits,
@@ -19,7 +20,7 @@ test.describe('Password Change', () => {
   test('change password → old fails → new succeeds', async ({ unauthenticatedPage, request }) => {
     test.setTimeout(120_000);
     const email = uniqueEmail('e2e-pwd');
-    const username = `pwd${String(Date.now()).slice(-6)}`;
+    const username = uniqueUsername('pwd');
     const originalPassword = 'TestPassword123!';
     const newPassword = 'NewSecurePassword456!';
 

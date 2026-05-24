@@ -96,6 +96,11 @@ function buildSharedContentItem(
  *    presigned URL plus metadata so the renderer can fetch + decrypt the
  *    ciphertext under the same contentKey.
  * 5. Items are returned sorted by `position`.
+ *
+ * Does NOT call `useTrackedDecryption`: the decrypt block runs inside the
+ * `useQuery` queryFn so `isFetching` already gates the settled signal for
+ * the entire fetch+decrypt window. Member-side `useDecryptedMessages`
+ * decrypts inside `useMemo` (outside any query) and must track itself.
  */
 export function useSharedMessage(
   shareId: string | null,

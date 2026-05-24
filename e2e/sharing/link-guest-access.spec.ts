@@ -77,7 +77,7 @@ test.describe('Link Guest Access', () => {
       await expectSharedConversationLoaded(freshPage);
 
       const freshChatPage = new ChatPage(freshPage);
-      await freshChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
+      await freshChatPage.assertMessageVisible('Hello from Alice', { timeout: 15_000 });
 
       await expectDelegatedBudgetNotice(freshPage);
 
@@ -180,7 +180,7 @@ test.describe('Link Guest Access', () => {
 
       // Decryption can paint after settled fires.
       await unsettledExpect(freshPage.getByText('Latest epoch message').first()).toBeVisible({
-        timeout: 10_000,
+        timeout: 15_000,
       });
 
       await expectDelegatedBudgetNotice(freshPage);

@@ -397,28 +397,19 @@ describe('MemberSidebar', () => {
 
       await user.click(screen.getByTestId('member-actions-m2'));
       await waitFor(() => {
-        expect(screen.getByTestId('member-change-privilege-m2')).toBeInTheDocument();
-      });
-      // Radix submenus open on pointer events
-      fireEvent.click(screen.getByTestId('member-change-privilege-m2'));
-      await waitFor(() => {
         expect(screen.getByTestId('privilege-option-m2-write')).toBeInTheDocument();
       });
-      // Radix DropdownMenuItem onSelect fires on click
+      // Flat radio group inside the main dropdown — no sub-menu hop.
       fireEvent.click(screen.getByTestId('privilege-option-m2-write'));
 
       expect(onChangePrivilege).toHaveBeenCalledWith('m2', 'write');
     });
 
-    it('does not show owner in privilege submenu options', async () => {
+    it('does not show owner in privilege options', async () => {
       const user = userEvent.setup();
       render(<MemberSidebar {...defaultProps} />);
 
       await user.click(screen.getByTestId('member-actions-m2'));
-      await waitFor(() => {
-        expect(screen.getByTestId('member-change-privilege-m2')).toBeInTheDocument();
-      });
-      fireEvent.click(screen.getByTestId('member-change-privilege-m2'));
       await waitFor(() => {
         expect(screen.getByTestId('privilege-option-m2-write')).toBeInTheDocument();
       });
@@ -623,15 +614,11 @@ describe('MemberSidebar', () => {
       expect(screen.queryByTestId('link-actions-link2')).not.toBeInTheDocument();
     });
 
-    it('shows Change Privilege submenu for links with read/write options', async () => {
+    it('shows privilege options for links with read/write options', async () => {
       const user = userEvent.setup();
       render(<MemberSidebar {...defaultProps} />);
 
       await user.click(screen.getByTestId('link-actions-link1'));
-      await waitFor(() => {
-        expect(screen.getByTestId('link-change-privilege-link1')).toBeInTheDocument();
-      });
-      fireEvent.click(screen.getByTestId('link-change-privilege-link1'));
       await waitFor(() => {
         expect(screen.getByTestId('link-privilege-option-link1-read')).toBeInTheDocument();
       });
@@ -647,10 +634,6 @@ describe('MemberSidebar', () => {
       render(<MemberSidebar {...defaultProps} onChangeLinkPrivilege={onChangeLinkPrivilege} />);
 
       await user.click(screen.getByTestId('link-actions-link1'));
-      await waitFor(() => {
-        expect(screen.getByTestId('link-change-privilege-link1')).toBeInTheDocument();
-      });
-      fireEvent.click(screen.getByTestId('link-change-privilege-link1'));
       await waitFor(() => {
         expect(screen.getByTestId('link-privilege-option-link1-write')).toBeInTheDocument();
       });

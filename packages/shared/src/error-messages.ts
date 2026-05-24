@@ -128,6 +128,8 @@ const ERROR_MESSAGES = {
     'Cannot regenerate — another user has replied after this message.',
   FORK_NOT_FOUND: 'Fork not found.',
   FORK_NAME_TAKEN: 'A fork with this name already exists.',
+  USERNAME_TAKEN: 'That username is already taken. Please choose another.',
+  EMAIL_TAKEN: 'An account with that email already exists. Try logging in instead.',
   FORK_LIMIT_REACHED: 'Maximum number of forks reached for this conversation.',
   FORK_ID_REQUIRED: 'Something went wrong. Please refresh the page and try again.',
   TARGET_MESSAGE_NOT_FOUND: 'Target message not found.',

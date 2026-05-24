@@ -11,6 +11,7 @@ import {
 import { createEnvUtilities } from '@hushbox/shared';
 import { opaqueAuthRoute } from './opaque-auth.js';
 import { createMockEmailClient, type MockEmailClient } from '../services/email/index.js';
+import { errorHandler } from '../middleware/error.js';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 
@@ -223,6 +224,9 @@ describe('OPAQUE auth routes', () => {
     });
 
     app.route('/api/auth', routes);
+    // Mirror production: unhandled throws become a JSON 500 with code INTERNAL
+    // instead of Hono's default plain-text body.
+    app.onError(errorHandler);
   });
 
   describe('POST /api/auth/register/init', () => {
@@ -564,6 +568,125 @@ describe('OPAQUE auth routes', () => {
       expect(insertSpy).not.toHaveBeenCalled();
       // No wallets created for existing email (fake registration)
       expect(mockEnsureWalletsExist).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 USERNAME_TAKEN when the users_username_unique constraint fires', async () => {
+      mockDb.returning = vi.fn().mockImplementation(() => {
+        throw Object.assign(new Error('duplicate key value violates unique constraint'), {
+          cause: { code: '23505', constraint: 'users_username_unique' },
+        });
+      });
+
+      const client = createOpaqueClient();
+      const { serialized } = await startRegistration(client, 'secure-password-123');
+
+      const initRes = await app.request('/api/auth/register/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'collision-username@example.com',
+          username: 'Taken Username',
+          registrationRequest: serialized,
+        }),
+      });
+      expect(initRes.status).toBe(200);
+      const initBody = await jsonBody<RegistrationInitResponse>(initRes);
+      const { record } = await finishRegistration(client, initBody.registrationResponse);
+
+      const finishRes = await app.request('/api/auth/register/finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'collision-username@example.com',
+          registrationRecord: record,
+          accountPublicKey: 'YmFzZTY0cHVia2V5',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+        }),
+      });
+
+      expect(finishRes.status).toBe(409);
+      const body = await jsonBody<{ code: string }>(finishRes);
+      expect(body.code).toBe('USERNAME_TAKEN');
+      // Wallet provisioning must not run when user creation failed
+      expect(mockEnsureWalletsExist).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 EMAIL_TAKEN when the users_email_unique constraint fires past /init', async () => {
+      mockDb.returning = vi.fn().mockImplementation(() => {
+        throw Object.assign(new Error('duplicate key value violates unique constraint'), {
+          cause: { code: '23505', constraint: 'users_email_unique' },
+        });
+      });
+
+      const client = createOpaqueClient();
+      const { serialized } = await startRegistration(client, 'secure-password-123');
+
+      const initRes = await app.request('/api/auth/register/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'collision-email@example.com',
+          username: 'Some User',
+          registrationRequest: serialized,
+        }),
+      });
+      const initBody = await jsonBody<RegistrationInitResponse>(initRes);
+      const { record } = await finishRegistration(client, initBody.registrationResponse);
+
+      const finishRes = await app.request('/api/auth/register/finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'collision-email@example.com',
+          registrationRecord: record,
+          accountPublicKey: 'YmFzZTY0cHVia2V5',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+        }),
+      });
+
+      expect(finishRes.status).toBe(409);
+      const body = await jsonBody<{ code: string }>(finishRes);
+      expect(body.code).toBe('EMAIL_TAKEN');
+      expect(mockEnsureWalletsExist).not.toHaveBeenCalled();
+    });
+
+    it('lets unknown DB errors surface as INTERNAL', async () => {
+      mockDb.returning = vi.fn().mockImplementation(() => {
+        throw new Error('something unrelated broke');
+      });
+
+      const client = createOpaqueClient();
+      const { serialized } = await startRegistration(client, 'secure-password-123');
+
+      const initRes = await app.request('/api/auth/register/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'unknown-err@example.com',
+          username: 'Unknown Err',
+          registrationRequest: serialized,
+        }),
+      });
+      const initBody = await jsonBody<RegistrationInitResponse>(initRes);
+      const { record } = await finishRegistration(client, initBody.registrationResponse);
+
+      const finishRes = await app.request('/api/auth/register/finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'unknown-err@example.com',
+          registrationRecord: record,
+          accountPublicKey: 'YmFzZTY0cHVia2V5',
+          passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+        }),
+      });
+
+      expect(finishRes.status).toBe(500);
+      const body = await jsonBody<{ code: string }>(finishRes);
+      expect(body.code).toBe('INTERNAL');
     });
   });
 

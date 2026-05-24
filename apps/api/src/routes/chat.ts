@@ -25,6 +25,7 @@ import {
 import { getSupportedVideoDurations, type Modality } from '@hushbox/shared/models';
 import { createEvent } from '@hushbox/realtime/events';
 import { getProcessedCatalog } from '../lib/processed-catalog.js';
+import { isUniqueViolation } from '../lib/unique-violation.js';
 import { validateLastMessageIsFromUser, saveUserOnlyMessage } from '../services/chat/index.js';
 import { canRegenerate } from '../services/chat/regeneration-guard.js';
 import { createErrorResponse } from '../lib/error-response.js';
@@ -62,23 +63,6 @@ export { computeWorstCaseCents } from '../lib/stream-pipeline.js';
 interface InferenceMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
-}
-
-function matchesUniqueViolationMessage(msg: string): boolean {
-  return msg.includes('duplicate key') || msg.includes('unique constraint');
-}
-
-/**
- * Detects Postgres unique-violation (SQLSTATE 23505) wrapped by Drizzle.
- * Used to surface PK / unique-index races as 409 rather than 500.
- */
-function isUniqueViolation(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  if (matchesUniqueViolationMessage(error.message)) return true;
-  const cause = (error as { cause?: unknown }).cause;
-  if (cause instanceof Error && matchesUniqueViolationMessage(cause.message)) return true;
-  if (cause && typeof cause === 'object' && 'code' in cause && cause.code === '23505') return true;
-  return false;
 }
 
 const noOpRelease = (): Promise<void> => Promise.resolve();

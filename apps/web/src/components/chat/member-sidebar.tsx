@@ -22,9 +22,10 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   SidebarPanel,
   useIsMobile,
 } from '@hushbox/ui';
@@ -705,23 +706,39 @@ function MemberRow({
               </DropdownMenuItem>
             ) : (
               <>
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger data-testid={`member-change-privilege-${member.id}`}>
-                    <Shield className="mr-2 h-4 w-4" />
-                    Change Privilege
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    {PRIVILEGE_ORDER.filter((p) => p !== 'owner').map((priv) => (
-                      <DropdownMenuItem
-                        key={priv}
-                        data-testid={`privilege-option-${member.id}-${priv}`}
-                        onSelect={() => onChangePrivilege?.(member.id, priv)}
-                      >
-                        {priv}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
+                <DropdownMenuLabel
+                  data-testid={`member-change-privilege-${member.id}`}
+                  className="flex items-center gap-2 text-xs font-normal"
+                >
+                  <Shield className="h-4 w-4" />
+                  Change privilege
+                </DropdownMenuLabel>
+                {/*
+                  Flattened radio group instead of a DropdownMenuSub. The Sub
+                  flow loses pointer events on Firefox (and on touch devices)
+                  because the SubContent's DismissableLayer can intercept the
+                  pointerdown and unmount the SubContent before the click
+                  reaches the inner item. RadioGroup inside the same content
+                  has no portal-within-portal, so the click path is reliable
+                  cross-browser. Each radio's value is the literal privilege
+                  string; the onValueChange handler invokes the same callback
+                  as the previous DropdownMenuItem.onSelect did.
+                */}
+                <DropdownMenuRadioGroup
+                  value={member.privilege}
+                  onValueChange={(next) => onChangePrivilege?.(member.id, next)}
+                >
+                  {PRIVILEGE_ORDER.filter((p) => p !== 'owner').map((priv) => (
+                    <DropdownMenuRadioItem
+                      key={priv}
+                      value={priv}
+                      data-testid={`privilege-option-${member.id}-${priv}`}
+                    >
+                      {priv}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   data-testid={`member-remove-action-${member.id}`}
                   className="text-destructive"
@@ -833,23 +850,28 @@ function LinkRow({
             </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger data-testid={`link-change-privilege-${link.id}`}>
-                <Shield className="mr-2 h-4 w-4" />
-                Change Privilege
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                {LINK_PRIVILEGE_OPTIONS.map((priv) => (
-                  <DropdownMenuItem
-                    key={priv}
-                    data-testid={`link-privilege-option-${link.id}-${priv}`}
-                    onSelect={() => onChangeLinkPrivilege?.(link.id, priv)}
-                  >
-                    {priv}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+            <DropdownMenuLabel
+              data-testid={`link-change-privilege-${link.id}`}
+              className="flex items-center gap-2 text-xs font-normal"
+            >
+              <Shield className="h-4 w-4" />
+              Change privilege
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={link.privilege}
+              onValueChange={(next) => onChangeLinkPrivilege?.(link.id, next)}
+            >
+              {LINK_PRIVILEGE_OPTIONS.map((priv) => (
+                <DropdownMenuRadioItem
+                  key={priv}
+                  value={priv}
+                  data-testid={`link-privilege-option-${link.id}-${priv}`}
+                >
+                  {priv}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               data-testid={`link-change-name-${link.id}`}
               onSelect={handleStartEdit}

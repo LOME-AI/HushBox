@@ -590,12 +590,21 @@ describe('mobile-test script', () => {
   });
 
   describe('stopEmulator', () => {
-    it('runs docker compose down with mobile profile', async () => {
+    it('stops and removes just the android-emulator container', async () => {
+      // Service-scoped stop+rm (not `compose down`) so a concurrent dev
+      // stack on the same compose project survives.
       await stopEmulator();
 
-      expect(mockExeca).toHaveBeenCalledWith('docker', ['compose', '--profile', 'mobile', 'down'], {
+      expect(mockExeca).toHaveBeenCalledWith('docker', ['compose', 'stop', 'android-emulator'], {
         stdio: 'inherit',
       });
+      expect(mockExeca).toHaveBeenCalledWith(
+        'docker',
+        ['compose', 'rm', '-f', 'android-emulator'],
+        {
+          stdio: 'inherit',
+        }
+      );
     });
 
     it('does not throw when docker compose down fails', async () => {
@@ -793,7 +802,11 @@ describe('mobile-test script', () => {
           result: { exitCode: 0, stdout: '' },
         },
         { cmd: 'zip', label: 'zip-ota' },
-        { cmd: 'docker', argument: 'down', label: 'stop-emulator' },
+        // stopEmulator() invokes `compose stop android-emulator` first; the
+        // matcher records the first command in callOrder, so we look for
+        // `'stop'`. The follow-up `compose rm -f android-emulator` would
+        // also match but only the first push per label matters for ordering.
+        { cmd: 'docker', argument: 'stop', label: 'stop-emulator' },
       ];
 
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
@@ -852,10 +865,14 @@ describe('mobile-test script', () => {
       await expect(main()).rejects.toThrow('Docker is not running');
 
       // stopEmulator should NOT be called since emulator was never started
-      const downCalls = mockExeca.mock.calls.filter(
-        (call) => call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('down')
+      const stopCalls = mockExeca.mock.calls.filter(
+        (call) =>
+          call[0] === 'docker' &&
+          Array.isArray(call[1]) &&
+          call[1].includes('stop') &&
+          call[1].includes('android-emulator')
       );
-      expect(downCalls).toHaveLength(0);
+      expect(stopCalls).toHaveLength(0);
     });
 
     it('stops emulator even when a later step fails (no ota)', async () => {
@@ -876,10 +893,15 @@ describe('mobile-test script', () => {
 
       await expect(main()).rejects.toThrow('build failed');
 
-      const downCalls = mockExeca.mock.calls.filter(
-        (call) => call[0] === 'docker' && Array.isArray(call[1]) && call[1].includes('down')
+      // stopEmulator runs `compose stop android-emulator` once.
+      const stopCalls = mockExeca.mock.calls.filter(
+        (call) =>
+          call[0] === 'docker' &&
+          Array.isArray(call[1]) &&
+          call[1].includes('stop') &&
+          call[1].includes('android-emulator')
       );
-      expect(downCalls).toHaveLength(1);
+      expect(stopCalls).toHaveLength(1);
     });
   });
 

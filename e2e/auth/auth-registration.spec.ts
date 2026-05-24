@@ -5,6 +5,7 @@ import {
   verifyEmailViaAPI,
   loginViaUI,
   uniqueEmail,
+  uniqueUsername,
   clearAuthRateLimits,
 } from '../helpers/auth.js';
 
@@ -19,7 +20,7 @@ test.describe('Registration & Verification', () => {
   test('signup → verify → login succeeds', async ({ unauthenticatedPage, request }) => {
     test.setTimeout(120_000);
     const email = uniqueEmail('e2e-reg');
-    const username = `reg${String(Date.now()).slice(-6)}`;
+    const username = uniqueUsername('reg');
     const password = 'TestPassword123!';
 
     await test.step('signup with valid credentials shows "Check your email"', async () => {
@@ -73,7 +74,7 @@ test.describe('Registration & Verification', () => {
     test('resend from signup success page', async ({ unauthenticatedPage, request }) => {
       test.setTimeout(120_000);
       const email = uniqueEmail('e2e-resend');
-      const username = `resend${String(Date.now()).slice(-6)}`;
+      const username = uniqueUsername('resend');
       const password = 'TestPassword123!';
 
       await test.step('sign up shows check-your-email with resend button', async () => {
@@ -108,7 +109,7 @@ test.describe('Registration & Verification', () => {
     }) => {
       test.setTimeout(120_000);
       const email = uniqueEmail('e2e-unverified');
-      const username = `unver${String(Date.now()).slice(-6)}`;
+      const username = uniqueUsername('unver');
       const password = 'TestPassword123!';
 
       await test.step('sign up but do not verify', async () => {

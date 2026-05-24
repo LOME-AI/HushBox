@@ -7,6 +7,11 @@
  * before any user script on every navigation, so injecting localStorage
  * this way is observably identical at constant CDP-level cost.
  *
+ * Each setItem is guarded by `getItem === null` so persona values seed only
+ * on first navigation; subsequent reloads preserve whatever the test wrote.
+ * Without this, persona-seeded keys like `hushbox-model-storage` clobber
+ * test mutations every reload, silently failing persistence assertions.
+ *
  * `null` return means there is nothing to inject (no origins, or all
  * origins have empty localStorage).
  */
@@ -24,11 +29,15 @@ export interface RawStorageState {
 export function buildStorageInitScript(raw: RawStorageState): string | null {
   const origins = raw.origins ?? [];
   const lines = origins.flatMap((o) =>
-    o.localStorage.map(
-      (item) =>
-        `if (location.origin === ${JSON.stringify(o.origin)}) ` +
-        `window.localStorage.setItem(${JSON.stringify(item.name)}, ${JSON.stringify(item.value)});`
-    )
+    o.localStorage.map((item) => {
+      const name = JSON.stringify(item.name);
+      const value = JSON.stringify(item.value);
+      return (
+        `if (location.origin === ${JSON.stringify(o.origin)} && ` +
+        `window.localStorage.getItem(${name}) === null) ` +
+        `window.localStorage.setItem(${name}, ${value});`
+      );
+    })
   );
   return lines.length === 0 ? null : lines.join('\n');
 }
