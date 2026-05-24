@@ -1,9 +1,11 @@
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import {
   test as base,
   expect as rawExpect,
   type Browser,
   type BrowserContext,
+  type BrowserContextOptions,
   type Page,
   type Request,
   type Response,
@@ -13,6 +15,10 @@ import {
 import { ChatPage } from './pages';
 import { requireEnv } from './helpers/env.js';
 import { clearUsageRateLimits } from './helpers/auth.js';
+import {
+  buildStorageInitScript,
+  type RawStorageState,
+} from '../scripts/storage-state-init-script.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
 
@@ -110,8 +116,34 @@ async function attachLabeledArtifact(
   });
 }
 
-type StorageState = string | { cookies: []; origins: [] };
+type StorageState = NonNullable<BrowserContextOptions['storageState']>;
+type StorageStateObject = Exclude<StorageState, string>;
 type FixtureSpec = { persona: string } | { state: StorageState };
+
+/**
+ * Strip `origins` (localStorage entries) out of a storage state JSON and
+ * return them as an equivalent `addInitScript` body. The default Playwright
+ * behavior — apply origins by navigating the new context to each origin and
+ * waiting for `load` — is the bottleneck in firefox `browser.newContext`
+ * and the root cause of Group C fixture timeouts. Init scripts run before
+ * any page script on every navigation, so the localStorage values are in
+ * place by the time React boots, identical observable behavior at a
+ * fraction of the cost.
+ */
+async function buildContextOptions(
+  storageState: StorageState
+): Promise<{ state: StorageState; initScript: string | null }> {
+  if (typeof storageState !== 'string') {
+    return { state: storageState, initScript: null };
+  }
+  const raw = JSON.parse(await readFile(storageState, 'utf8')) as RawStorageState;
+  const initScript = buildStorageInitScript(raw);
+  if (initScript === null) {
+    return { state: storageState, initScript: null };
+  }
+  const cookies = raw.cookies as StorageStateObject['cookies'];
+  return { state: { cookies, origins: [] }, initScript };
+}
 
 function createPageFixture(
   spec: FixtureSpec,
@@ -126,8 +158,9 @@ function createPageFixture(
     const isRetry = testInfo.retry > 0;
     const storageState =
       'persona' in spec ? `e2e/.auth/${testInfo.project.name}/${spec.persona}.json` : spec.state;
+    const { state, initScript } = await buildContextOptions(storageState);
     const context = await browser.newContext({
-      storageState,
+      storageState: state,
       ...(isRetry && {
         recordHar: {
           path: harPath,
@@ -136,6 +169,7 @@ function createPageFixture(
         },
       }),
     });
+    if (initScript !== null) await context.addInitScript({ content: initScript });
     const page = await context.newPage();
     const { errors, cleanup } = attachConsoleErrors(page);
     const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
@@ -301,12 +335,14 @@ export const test = base.extend<CustomFixtures>({
       counter++;
       const label = `unauthenticatedPage-${String(counter)}`;
       const harPath = testInfo.outputPath(`${label}.har`);
+      const { state, initScript } = await buildContextOptions(storageState);
       const context = await browser.newContext({
-        storageState,
+        storageState: state,
         ...(isRetry && {
           recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
         }),
       });
+      if (initScript !== null) await context.addInitScript({ content: initScript });
       const page = await context.newPage();
       const { errors, cleanup } = attachConsoleErrors(page);
       const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);

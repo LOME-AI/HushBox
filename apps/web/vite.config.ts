@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { createReadStream, readFileSync } from 'node:fs';
 import { resolve } from 'path';
 import { transformStreamdownSource } from './src/lib/inline-streamdown-lazy-imports';
+import { previewDirectoryIndexFallback } from './src/lib/preview-directory-index-fallback';
 
 const envDir = resolve(__dirname, '../..');
 
@@ -137,6 +138,7 @@ export default defineConfig(({ mode }) => {
       sharedFaviconPlugin(),
       devAssetsPlugin(),
       marketingRedirectPlugin(),
+      previewDirectoryIndexFallback(resolve(__dirname, 'dist')),
     ],
     build: {
       minify: mode !== 'development',

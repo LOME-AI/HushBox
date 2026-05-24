@@ -206,7 +206,14 @@ async function logPollError(error: unknown, connected: boolean, index: number): 
 export async function stopEmulator(): Promise<void> {
   console.log('Stopping Android emulator...');
   try {
-    await execa('docker', ['compose', '--profile', 'mobile', 'down'], {
+    // `compose --profile X down` removes the project network too — which
+    // detaches sibling containers (postgres, redis from `pnpm dev` running
+    // in parallel) and kills the dev API. Stop+rm just the emulator service
+    // instead so a concurrent dev stack survives.
+    await execa('docker', ['compose', 'stop', 'android-emulator'], {
+      stdio: 'inherit',
+    });
+    await execa('docker', ['compose', 'rm', '-f', 'android-emulator'], {
       stdio: 'inherit',
     });
   } catch (error: unknown) {
@@ -296,6 +303,7 @@ export async function startDevStack(): Promise<void> {
 }
 
 const GOOGLE_SERVICES_PATH = 'apps/web/android/app/google-services.json';
+const APK_APP_VERSION = 'local-mobile-test';
 
 export async function buildApk(): Promise<void> {
   const apiUrl = process.env['API_URL'];
@@ -322,7 +330,7 @@ export async function buildApk(): Promise<void> {
       TURBO_FORCE: 'true',
       VITE_API_URL: apiUrl,
       VITE_PLATFORM: 'android-direct',
-      VITE_APP_VERSION: 'local-mobile-test',
+      VITE_APP_VERSION: APK_APP_VERSION,
       VITE_OPAQUE_SERVER_ID: new URL(frontendUrl).host,
     },
   });
@@ -362,6 +370,35 @@ export async function installApk(): Promise<void> {
   });
 }
 
+/**
+ * Reset the dev API's in-memory version override to match the APK we built.
+ *
+ * The OTA test flow ({@link setupOtaUpdate}) at the end of a successful
+ * `pnpm mobile:test` run sets the override to `OTA_VERSION` and never clears
+ * it. The override lives in a module-level variable in the API
+ * (`apps/api/src/lib/version-override.ts`), and Wrangler dev is a long-lived
+ * process — so the next `pnpm mobile:test` invocation inherits that stale
+ * value. Without this reset, every authenticated request from the freshly
+ * built APK (which carries `X-App-Version=local-mobile-test`) fails with
+ * 426 Upgrade Required, the WebView flips into its offline-overlay state,
+ * and every post-login flow assertion misses the elements it needs.
+ *
+ * Called before each Maestro batch so the override is correct even when a
+ * prior run left it dirty.
+ */
+export async function resetVersionOverride(): Promise<void> {
+  const apiPort = process.env['HB_API_PORT'] ?? '8787';
+  console.log(`Resetting dev version override to ${APK_APP_VERSION}...`);
+  const res = await fetch(`http://localhost:${apiPort}/api/dev/set-version`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version: APK_APP_VERSION }),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to reset version override: HTTP ${String(res.status)}`);
+  }
+}
+
 export async function configureAppLinks(): Promise<void> {
   const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
 
@@ -398,6 +435,33 @@ export async function configureAppLinks(): Promise<void> {
     ],
     { stdio: 'inherit' }
   );
+}
+
+/**
+ * Prime the soft keyboard (Gboard on docker-android) by typing a dummy string
+ * through `adb shell input text` — which bypasses the IME state machine and
+ * lands characters via InputManager directly. Without this, Maestro's first
+ * `inputText` against a focused WebView field can stall on per-keystroke
+ * IME callbacks for the full 120s gRPC deadline. Once the IME process has
+ * dispatched any text successfully, subsequent Maestro key events flow
+ * normally.
+ *
+ * The dummy text is sent to whatever happens to have focus (typically the
+ * launcher when called between `installApk` and the first `launchApp`), so it
+ * has no effect on test state.
+ */
+export async function primeImeKeyboard(): Promise<void> {
+  const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
+  console.log('Priming soft keyboard IME...');
+  // Three passes so Gboard's dictionary/prediction caches stay warm for the
+  // whole flow batch. One pass works for an isolated flow but degrades
+  // across flows. Plain alphanumeric only — `adb shell input text` escaping
+  // for punctuation is shell-dependent.
+  for (const text of ['maestrowarmup', 'emailtestseed', 'passwordseed123']) {
+    await execa('adb', ['-s', `localhost:${adbPort}`, 'shell', 'input', 'text', text], {
+      stdio: 'inherit',
+    });
+  }
 }
 
 export async function runMaestro(smoke: boolean): Promise<void> {
@@ -442,6 +506,12 @@ export async function runMaestro(smoke: boolean): Promise<void> {
     ...flowArgs,
   ];
 
+  // Prime the IME immediately before invoking Maestro — Gboard's per-keystroke
+  // dispatch on docker-android stalls Maestro's first `inputText` for the
+  // full 120s gRPC deadline unless the IME has already processed text. We
+  // re-prime before the retry batch for the same reason.
+  await primeImeKeyboard();
+
   console.log(`Running Maestro tests${smoke ? ' (smoke)' : ''}...`);
   const result = await execa('maestro', args, {
     stdout: ['pipe', 'inherit'],
@@ -458,6 +528,7 @@ export async function runMaestro(smoke: boolean): Promise<void> {
   }
 
   console.log(`\nRetrying ${String(failedPaths.length)} failed flow(s)...`);
+  await primeImeKeyboard();
   await execa(
     'maestro',
     [
@@ -601,6 +672,7 @@ export async function main(): Promise<void> {
     await Promise.all([startEmulator(), startDevStack(), buildApk()]);
     await installApk();
     await configureAppLinks();
+    await resetVersionOverride();
     await runMaestro(smoke);
 
     if (!smoke) {

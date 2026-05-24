@@ -317,9 +317,7 @@ describe('kill-ports', () => {
     });
 
     it('reports "unknown" when the binary failed without stderr or shortMessage', async () => {
-      const execa = vi.fn(() =>
-        ok({ stdout: '', stderr: '', exitCode: null, failed: true })
-      );
+      const execa = vi.fn(() => ok({ stdout: '', stderr: '', exitCode: null, failed: true }));
       const deps = makeDeps({ execa: execa as unknown as KillerDeps['execa'] });
       await expect(darwinListenerPids(4301, deps)).rejects.toThrow(
         /lsof failed \(exit null\): unknown/

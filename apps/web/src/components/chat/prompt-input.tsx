@@ -459,7 +459,7 @@ function TextBottomRow({
         // so the toolbar+send group on the right never overflows the row on
         // narrow viewports. Without this, the bar's auto min-width pins the
         // left side and pushes the send button past the parent.
-        className="flex-1 min-w-0"
+        className="min-w-0 flex-1"
         data-testid="capacity-bar"
       />
       <div className="flex items-center gap-2">

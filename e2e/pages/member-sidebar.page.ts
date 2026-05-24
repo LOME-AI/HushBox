@@ -27,6 +27,17 @@ export class MemberSidebarPage {
     const isExpanded = await this.searchInput.isVisible().catch(() => false);
     if (!isExpanded) await this.facepile.click();
     await this.waitForLoaded();
+    // Mobile mounts the sidebar inside a Radix Sheet with a 500ms slide-in.
+    // Clicks dispatched mid-animation can land on a moving target and be
+    // dropped, so wait for any in-flight CSS animations on the sidebar
+    // subtree to finish before returning.
+    const viewport = this.page.viewportSize();
+    if (viewport && isMobileWidth(viewport.width)) {
+      await this.content
+        .evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+        // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional swallow
+        .catch(() => {});
+    }
   }
 
   async waitForLoaded(timeout = 10_000): Promise<void> {
@@ -67,8 +78,9 @@ export class MemberSidebarPage {
   async expectOnlineIndicator(entityId: string): Promise<void> {
     // WebSocket presence is an external event from the Durable Object — not tracked
     // by the settled indicator. Use unsettledExpect to wait the full timeout.
+    // 20s budget covers slower mobile-emulation WS connect + presence broadcast.
     await unsettledExpect(this.page.getByTestId(`member-online-${entityId}`)).toBeVisible({
-      timeout: 10_000,
+      timeout: 20_000,
     });
   }
 
@@ -93,8 +105,14 @@ export class MemberSidebarPage {
   }
 
   async clickChangePrivilege(memberId: string, newPriv: string): Promise<void> {
+    // Two-step Radix DropdownMenuSub: trigger expands a submenu, then we
+    // click an item inside it. Without an explicit visibility wait the
+    // second click can fire during the submenu's open animation and miss
+    // the onSelect handler (silent failure — no API call).
     await this.page.getByTestId(`member-change-privilege-${memberId}`).click();
-    await this.page.getByTestId(`privilege-option-${memberId}-${newPriv}`).click();
+    const option = this.page.getByTestId(`privilege-option-${memberId}-${newPriv}`);
+    await expect(option).toBeVisible();
+    await option.click();
   }
 
   async clickLeave(): Promise<void> {
@@ -121,7 +139,9 @@ export class MemberSidebarPage {
 
   async clickChangeLinkPrivilege(linkId: string, priv: string): Promise<void> {
     await this.page.getByTestId(`link-change-privilege-${linkId}`).click();
-    await this.page.getByTestId(`link-privilege-option-${linkId}-${priv}`).click();
+    const option = this.page.getByTestId(`link-privilege-option-${linkId}-${priv}`);
+    await expect(option).toBeVisible();
+    await option.click();
   }
 
   async clickNewMember(): Promise<void> {
