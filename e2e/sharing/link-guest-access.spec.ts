@@ -130,6 +130,9 @@ test.describe('Link Guest Access', () => {
       const newMessage = `Post-rotation message ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(newMessage);
       await chatPage.expectMessageVisible(newMessage);
+      // Stream + persistence runs under Workers waitUntil; the guest's GET
+      // below would otherwise race the DB write and see an empty messages array.
+      await chatPage.waitForStreamComplete();
     });
 
     await test.step('read guest does NOT see old messages, sees new message', async () => {
@@ -168,6 +171,7 @@ test.describe('Link Guest Access', () => {
       const latestMessage = `Latest epoch message ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(latestMessage);
       await chatPage.expectMessageVisible(latestMessage);
+      await chatPage.waitForStreamComplete();
     });
 
     await test.step('write guest sees only new messages and can send', async () => {
