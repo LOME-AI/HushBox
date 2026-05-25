@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures.js';
+import { SidebarPage } from '../pages/sidebar.page.js';
 
 test.describe('Inbox decline invite', () => {
   // Each test creates its own pending invite — the decline mutation is
@@ -34,7 +35,8 @@ test.describe('Inbox decline invite', () => {
     await testBobPage.locator('[data-app-stable="true"]').waitFor({ state: 'visible' });
 
     await test.step('Bob opens the Invites tab and sees the pending conversation', async () => {
-      await testBobPage.getByRole('button', { name: /Invites/ }).click();
+      const sidebar = new SidebarPage(testBobPage);
+      await sidebar.openInvitesTab();
       const inbox = testBobPage.getByTestId('inbox-content');
       await expect(inbox).toBeVisible();
       // The invite card is labelled by the conversation title — empty for a

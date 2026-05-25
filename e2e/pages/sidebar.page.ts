@@ -107,4 +107,9 @@ export class SidebarPage {
     const matchingLinks = this.sidebar.locator('a[href^="/chat/"]').filter({ hasText: text });
     return matchingLinks.count();
   }
+
+  async openInvitesTab(): Promise<void> {
+    await this.ensureSidebarExpanded();
+    await this.sidebar.getByRole('button', { name: /Invites/ }).click();
+  }
 }
