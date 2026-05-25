@@ -639,6 +639,60 @@ export const membersRoute = new Hono<AppEnv>()
       return c.json({ pinned }, 200);
     }
   )
+  .post(
+    '/:conversationId/decline',
+    zValidator('param', z.object({ conversationId: z.string() })),
+    requirePrivilege('read'),
+    async (c) => {
+      const user = c.get('user');
+      if (!user) throw new Error('User required after requirePrivilege');
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const requesterMember = c.get('members').get(conversationId);
+      if (!requesterMember) throw new Error('Member required after requirePrivilege');
+
+      // Decline is for pending invites only — accepted members must `/leave`
+      // (which requires rotation). One atomic UPDATE expresses the contract:
+      //   * `eq(id, requesterMember.id)` — only the caller's membership row.
+      //     The id comes from the middleware's session-scoped lookup, so no
+      //     other user's row is reachable.
+      //   * `isNull(acceptedAt)` — pending state only.
+      //   * `isNull(leftAt)` — belt-and-suspenders; requirePrivilege already
+      //     enforces this, but stating it in the WHERE keeps the contract
+      //     legible at the call site and makes the SQL re-runnable in
+      //     isolation. A replay attempt sees leftAt already set and matches
+      //     zero rows, so the operation is idempotent.
+      const result = await db
+        .update(conversationMembers)
+        .set({ leftAt: new Date() })
+        .where(
+          and(
+            eq(conversationMembers.id, requesterMember.id),
+            isNull(conversationMembers.acceptedAt),
+            isNull(conversationMembers.leftAt)
+          )
+        )
+        .returning({ id: conversationMembers.id });
+
+      if (result.length === 0) {
+        // Caller is an accepted member (acceptedAt set). They should use /leave
+        // with a rotation, not /decline.
+        return c.json(createErrorResponse(ERROR_CODE_VALIDATION), 400);
+      }
+
+      broadcastFireAndForget(
+        c.env,
+        conversationId,
+        createEvent('member:removed', {
+          conversationId,
+          memberId: requesterMember.id,
+          userId: user.id,
+        })
+      );
+
+      return c.json({ declined: true }, 200);
+    }
+  )
   .patch(
     '/:conversationId/accept',
     zValidator('param', z.object({ conversationId: z.string() })),

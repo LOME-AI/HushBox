@@ -1,13 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { wrapEpochKeyForNewMember } from '@hushbox/crypto';
-import {
-  fromBase64,
-  isOwner,
-  toBase64,
-  type MemberPrivilege,
-  type StreamChatRotation,
-} from '@hushbox/shared';
+import { fromBase64, toBase64, type MemberPrivilege } from '@hushbox/shared';
 import {
   useConversationMembers,
   useAddMember,
@@ -27,21 +21,12 @@ import { useRemoteStreaming } from './use-remote-streaming.js';
 import { useTypingIndicators } from './use-typing-indicators.js';
 import { useAdminLinkName } from './use-link-name.js';
 import { getCurrentEpoch, getEpochKey, subscribe, getSnapshot } from '../lib/epoch-key-cache.js';
+import { leaveConversation } from '../lib/leave-conversation.js';
 import { executeWithRotation } from '../lib/rotation.js';
 import type { MemberKeyResponse, RotationMember } from '../lib/rotation.js';
 import type { GroupChatProps } from '../components/chat/chat-layout.js';
 
 type RawMember = GroupChatProps['members'][number] & { linkId?: string | null };
-
-function filterOutCaller(callerId: string): (keys: MemberKeyResponse[]) => RotationMember[] {
-  return (keys) => {
-    const result: RotationMember[] = [];
-    for (const k of keys) {
-      if (k.userId !== callerId) result.push({ publicKey: fromBase64(k.publicKey) });
-    }
-    return result;
-  };
-}
 
 interface MemoPrerequisites {
   conversationId: string;
@@ -93,7 +78,7 @@ export function useGroupChat(
   const changePrivilege = useChangePrivilege();
   const revokeLink = useRevokeLink();
   const changeLinkPrivilege = useChangeLinkPrivilege();
-  const leaveConversation = useLeaveConversation();
+  const leaveMutation = useLeaveConversation();
   const addMember = useAddMember();
   const adminLinkName = useAdminLinkName();
 
@@ -115,8 +100,8 @@ export function useGroupChat(
   const changeLinkPrivilegeRef = React.useRef(changeLinkPrivilege.mutateAsync);
   changeLinkPrivilegeRef.current = changeLinkPrivilege.mutateAsync;
 
-  const leaveRef = React.useRef(leaveConversation.mutateAsync);
-  leaveRef.current = leaveConversation.mutateAsync;
+  const leaveRef = React.useRef(leaveMutation.mutateAsync);
+  leaveRef.current = leaveMutation.mutateAsync;
 
   const addMemberRef = React.useRef(addMember.mutateAsync);
   addMemberRef.current = addMember.mutateAsync;
@@ -231,21 +216,12 @@ export function useGroupChat(
         });
       },
       onLeave: async (): Promise<void> => {
-        if (isOwner(currentMember.privilege)) {
-          await leaveRef.current({ conversationId: resolvedConversationId });
-          void navigate({ to: '/chat' });
-          return;
-        }
-        const filter = filterOutCaller(resolvedCallerId);
-        const execute = (rotation: StreamChatRotation): Promise<unknown> =>
-          leaveRef.current({ conversationId: resolvedConversationId, rotation });
-        await executeWithRotation({
+        await leaveConversation({
           conversationId: resolvedConversationId,
-          currentEpochPrivateKey: epochKey,
-          currentEpochNumber: epochNumber,
+          callerId: resolvedCallerId,
           plaintextTitle: plaintextTitle ?? '',
-          filterMembers: filter,
-          execute,
+          privilege: currentMember.privilege as MemberPrivilege,
+          leave: leaveRef.current,
         });
         void navigate({ to: '/chat' });
       },

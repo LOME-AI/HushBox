@@ -1,0 +1,67 @@
+import { test, expect } from '../fixtures.js';
+
+test.describe('Inbox decline invite', () => {
+  // Each test creates its own pending invite — the decline mutation is
+  // destructive so sharing a fixture would leak state between tests.
+  test('Bob declines a pending invite from Alice', async ({
+    testBobPage,
+    authenticatedRequest,
+  }, testInfo) => {
+    const projectName = testInfo.project.name;
+    const aliceEmail = `test-alice-${projectName}@test.hushbox.ai`;
+    const bobEmail = `test-bob-${projectName}@test.hushbox.ai`;
+
+    // Seed a group conversation where Bob is invited but has NOT accepted —
+    // mirrors the production invite flow (Alice invites Bob; Bob sees a
+    // pending entry in his inbox until he chooses accept or decline).
+    const createResponse = await authenticatedRequest.post('/api/dev/group-chat', {
+      data: {
+        ownerEmail: aliceEmail,
+        memberEmails: [bobEmail],
+        pendingMemberEmails: [bobEmail],
+        messages: [
+          { senderEmail: aliceEmail, content: 'Welcome to the project!', senderType: 'user' },
+        ],
+      },
+    });
+    expect(
+      createResponse.ok(),
+      `dev group-chat creation failed: ${String(createResponse.status())}`
+    ).toBe(true);
+    const { conversationId } = (await createResponse.json()) as { conversationId: string };
+
+    await testBobPage.goto('/chat', { waitUntil: 'domcontentloaded' });
+    await testBobPage.locator('[data-app-stable="true"]').waitFor({ state: 'visible' });
+
+    await test.step('Bob opens the Invites tab and sees the pending conversation', async () => {
+      await testBobPage.getByRole('button', { name: /Invites/ }).click();
+      const inbox = testBobPage.getByTestId('inbox-content');
+      await expect(inbox).toBeVisible();
+      // The invite card is labelled by the conversation title — empty for a
+      // freshly-seeded chat, so we match the Decline button by aria-label
+      // prefix instead. The test seed creates exactly one invite; no .first().
+      await expect(testBobPage.getByRole('button', { name: /^Decline/ })).toBeVisible();
+    });
+
+    await test.step('Bob declines and confirms', async () => {
+      await testBobPage.getByRole('button', { name: /^Decline/ }).click();
+
+      const modal = testBobPage.getByTestId('leave-confirmation-modal');
+      await expect(modal).toBeVisible();
+
+      await testBobPage.getByTestId('leave-confirmation-confirm').click();
+      await expect(modal).not.toBeVisible({ timeout: 10_000 });
+    });
+
+    await test.step('the declined invite is removed from the inbox', async () => {
+      await expect(testBobPage.getByRole('button', { name: /^Decline/ })).not.toBeVisible({
+        timeout: 10_000,
+      });
+    });
+
+    await test.step('navigating to the declined conversation redirects away', async () => {
+      await testBobPage.goto(`/chat/${conversationId}`, { waitUntil: 'domcontentloaded' });
+      await expect(testBobPage).not.toHaveURL(new RegExp(conversationId), { timeout: 10_000 });
+    });
+  });
+});

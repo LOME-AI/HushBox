@@ -3,20 +3,10 @@ import { Link } from '@tanstack/react-router';
 import { Loader2 } from 'lucide-react';
 import { ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
-import { ChatItem } from './chat-item';
-
-interface Conversation {
-  id: string;
-  title: string;
-  currentEpoch: number;
-  updatedAt: string;
-  privilege: string;
-  muted: boolean;
-  pinned: boolean;
-}
+import { ChatItem, type SidebarConversation } from './chat-item';
 
 export interface ChatListProps {
-  conversations: Conversation[];
+  conversations: SidebarConversation[];
   activeId?: string | undefined;
   /** Whether the user is authenticated */
   isAuthenticated?: boolean | undefined;

@@ -32,6 +32,7 @@ vi.mock('../lib/api-client.js', () => ({
           privilege: { $patch: vi.fn() },
           leave: { $post: vi.fn() },
           accept: { $patch: vi.fn() },
+          decline: { $post: vi.fn() },
           mute: { $patch: vi.fn() },
           pin: { $patch: vi.fn() },
         },
@@ -62,6 +63,7 @@ import {
   useChangePrivilege,
   useLeaveConversation,
   useAcceptMembership,
+  useDeclineInvitation,
   useMuteConversation,
   usePinConversation,
 } from './use-conversation-members.js';
@@ -556,6 +558,87 @@ describe('useAcceptMembership', () => {
 
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: chatKeys.conversations(),
+    });
+  });
+});
+
+describe('useDeclineInvitation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedUseQueryClient.mockReturnValue({
+      invalidateQueries: vi.fn(),
+      removeQueries: vi.fn(),
+    } as unknown as ReturnType<typeof useQueryClient>);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('calls the decline endpoint with the conversationId', async () => {
+    mockedUseMutation.mockReturnValue({} as ReturnType<typeof useMutation>);
+
+    renderHook(() => useDeclineInvitation());
+
+    const mutationFunction = mockedUseMutation.mock.calls[0]![0].mutationFn as (args: {
+      conversationId: string;
+    }) => Promise<unknown>;
+
+    await mutationFunction({ conversationId: 'conv-1' });
+
+    expect(mockedClient.api.members[':conversationId'].decline.$post).toHaveBeenCalledWith({
+      param: { conversationId: 'conv-1' },
+    });
+    expect(mockedFetchJson).toHaveBeenCalled();
+  });
+
+  it('invalidates the conversations list on success', async () => {
+    const invalidateQueries = vi.fn();
+    const removeQueries = vi.fn();
+    mockedUseQueryClient.mockReturnValue({
+      invalidateQueries,
+      removeQueries,
+    } as unknown as ReturnType<typeof useQueryClient>);
+    mockedUseMutation.mockReturnValue({} as ReturnType<typeof useMutation>);
+
+    renderHook(() => useDeclineInvitation());
+
+    const onSuccess = mockedUseMutation.mock.calls[0]![0].onSuccess as (
+      data: unknown,
+      variables: { conversationId: string },
+      context: unknown
+    ) => Promise<void>;
+
+    // eslint-disable-next-line unicorn/no-useless-undefined -- onSuccess requires three arguments
+    await onSuccess({}, { conversationId: 'conv-1' }, undefined);
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: chatKeys.conversations(),
+    });
+  });
+
+  it('removes the conversation from cache on success', async () => {
+    const invalidateQueries = vi.fn();
+    const removeQueries = vi.fn();
+    mockedUseQueryClient.mockReturnValue({
+      invalidateQueries,
+      removeQueries,
+    } as unknown as ReturnType<typeof useQueryClient>);
+    mockedUseMutation.mockReturnValue({} as ReturnType<typeof useMutation>);
+
+    renderHook(() => useDeclineInvitation());
+
+    const onSuccess = mockedUseMutation.mock.calls[0]![0].onSuccess as (
+      data: unknown,
+      variables: { conversationId: string },
+      context: unknown
+    ) => Promise<void>;
+
+    // eslint-disable-next-line unicorn/no-useless-undefined -- onSuccess requires three arguments
+    await onSuccess({}, { conversationId: 'conv-1' }, undefined);
+
+    expect(removeQueries).toHaveBeenCalledWith({
+      queryKey: chatKeys.conversation('conv-1'),
     });
   });
 });

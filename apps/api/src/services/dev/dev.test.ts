@@ -537,6 +537,39 @@ describe('dev service', () => {
       expect(bobRow?.acceptedAt).toBeInstanceOf(Date);
     });
 
+    it('creates pending member with acceptedAt: null when listed in pendingMemberEmails', async () => {
+      const mockDb = createGroupChatMockDb([
+        {
+          id: 'alice-id',
+          username: 'alice',
+          email: 'alice@test.hushbox.ai',
+          publicKey: ALICE_PUBLIC_KEY,
+        },
+        { id: 'bob-id', username: 'bob', email: 'bob@test.hushbox.ai', publicKey: BOB_PUBLIC_KEY },
+      ]);
+
+      await createDevGroupChat(mockDb as never, {
+        ownerEmail: 'alice@test.hushbox.ai',
+        memberEmails: ['bob@test.hushbox.ai'],
+        pendingMemberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
+      });
+
+      const memberInsert = insertCalls.find((c) => c.table === conversationMembers);
+      const memberRows = memberInsert!.values as {
+        userId: string;
+        acceptedAt: Date | null;
+      }[];
+
+      const aliceRow = memberRows.find((r) => r.userId === 'alice-id');
+      const bobRow = memberRows.find((r) => r.userId === 'bob-id');
+      // Owner is never pending — staying as the always-accepted seeder.
+      expect(aliceRow?.acceptedAt).toBeInstanceOf(Date);
+      // Bob was listed in pendingMemberEmails, so the seed must leave his
+      // acceptedAt null. This is the row state the /decline E2E exercises.
+      expect(bobRow?.acceptedAt).toBeNull();
+    });
+
     it('encrypts and inserts messages when provided', async () => {
       const mockDb = createGroupChatMockDb([
         {

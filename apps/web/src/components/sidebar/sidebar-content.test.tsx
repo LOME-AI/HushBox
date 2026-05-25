@@ -53,6 +53,11 @@ vi.mock('@/hooks/chat', () => ({
   DECRYPTING_TITLE: 'Decrypting...',
 }));
 
+vi.mock('@/lib/auth', () => ({
+  useAuthStore: <T,>(selector: (s: { user: { id: string } | null }) => T): T =>
+    selector({ user: { id: 'user-1' } }),
+}));
+
 vi.mock('@/hooks/use-conversation-members', () => ({
   useAcceptMembership: () => ({
     mutate: vi.fn(),
@@ -60,6 +65,11 @@ vi.mock('@/hooks/use-conversation-members', () => ({
   }),
   useLeaveConversation: () => ({
     mutate: vi.fn(),
+    mutateAsync: vi.fn(() => Promise.resolve()),
+    isPending: false,
+  }),
+  useDeclineInvitation: () => ({
+    mutateAsync: vi.fn(() => Promise.resolve()),
     isPending: false,
   }),
   useMuteConversation: () => ({
@@ -79,7 +89,7 @@ describe('SidebarContent', () => {
       title: 'Test Conversation',
       currentEpoch: 1,
       updatedAt: new Date().toISOString(),
-      privilege: 'owner',
+      privilege: 'owner' as const,
       muted: false,
       pinned: false,
     },
@@ -156,7 +166,7 @@ describe('SidebarContent', () => {
         updatedAt: new Date().toISOString(),
         accepted: true,
         invitedByUsername: null,
-        privilege: 'owner',
+        privilege: 'owner' as const,
         muted: false,
         pinned: false,
       },
@@ -167,7 +177,7 @@ describe('SidebarContent', () => {
         updatedAt: new Date().toISOString(),
         accepted: true,
         invitedByUsername: null,
-        privilege: 'write',
+        privilege: 'write' as const,
         muted: false,
         pinned: false,
       },
@@ -181,7 +191,7 @@ describe('SidebarContent', () => {
         updatedAt: new Date().toISOString(),
         accepted: false,
         invitedByUsername: 'sarah',
-        privilege: 'write',
+        privilege: 'write' as const,
         muted: false,
         pinned: false,
       },
@@ -244,7 +254,7 @@ describe('SidebarContent', () => {
           title: 'Unpinned First',
           currentEpoch: 1,
           updatedAt: '2026-03-27T03:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: false,
         },
@@ -253,7 +263,7 @@ describe('SidebarContent', () => {
           title: 'Pinned Chat',
           currentEpoch: 1,
           updatedAt: '2026-03-27T01:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: true,
         },
@@ -262,7 +272,7 @@ describe('SidebarContent', () => {
           title: 'Unpinned Second',
           currentEpoch: 1,
           updatedAt: '2026-03-27T02:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: false,
         },
@@ -283,7 +293,7 @@ describe('SidebarContent', () => {
           title: 'Pinned Chat',
           currentEpoch: 1,
           updatedAt: '2026-03-27T01:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: true,
         },
@@ -292,7 +302,7 @@ describe('SidebarContent', () => {
           title: 'Unpinned Chat',
           currentEpoch: 1,
           updatedAt: '2026-03-27T02:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: false,
         },
@@ -316,7 +326,7 @@ describe('SidebarContent', () => {
           title: 'Pinned One',
           currentEpoch: 1,
           updatedAt: '2026-03-27T01:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: true,
         },
@@ -325,7 +335,7 @@ describe('SidebarContent', () => {
           title: 'Pinned Two',
           currentEpoch: 1,
           updatedAt: '2026-03-27T02:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: true,
         },

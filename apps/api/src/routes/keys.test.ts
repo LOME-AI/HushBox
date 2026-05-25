@@ -146,6 +146,7 @@ describe('keys routes', () => {
   let app: Hono<AppEnv>;
   let testUserId: string;
   let otherUserId: string;
+  let readMemberUserId: string;
   let nonMemberUserId: string;
 
   const RUN_ID = String(Date.now()).slice(-8);
@@ -153,6 +154,8 @@ describe('keys routes', () => {
   const TEST_USERNAME = `tk_${RUN_ID}`;
   const OTHER_EMAIL = `test-keys-other-${RUN_ID}@example.com`;
   const OTHER_USERNAME = `tko_${RUN_ID}`;
+  const READ_EMAIL = `test-keys-read-${RUN_ID}@example.com`;
+  const READ_USERNAME = `tkr_${RUN_ID}`;
   const NON_MEMBER_EMAIL = `test-keys-nonmember-${RUN_ID}@example.com`;
   const NON_MEMBER_USERNAME = `tkn_${RUN_ID}`;
 
@@ -165,6 +168,11 @@ describe('keys routes', () => {
 
     testUserId = await createTestUser({ db, email: TEST_EMAIL, username: TEST_USERNAME });
     otherUserId = await createTestUser({ db, email: OTHER_EMAIL, username: OTHER_USERNAME });
+    readMemberUserId = await createTestUser({
+      db,
+      email: READ_EMAIL,
+      username: READ_USERNAME,
+    });
     nonMemberUserId = await createTestUser({
       db,
       email: NON_MEMBER_EMAIL,
@@ -310,6 +318,15 @@ describe('keys routes', () => {
       visibleFromEpoch: 2,
     });
 
+    // Read-only member — covers the lowest-privilege case for /member-keys
+    // access (used by the leave-rotation flow).
+    await db.insert(conversationMembers).values({
+      conversationId: conv2.id,
+      userId: readMemberUserId,
+      privilege: 'read',
+      visibleFromEpoch: 2,
+    });
+
     // Shared link member on conv2 (link member has no userId, has linkId)
     const linkData = sharedLinkFactory.build({
       conversationId: conv2.id,
@@ -347,7 +364,7 @@ describe('keys routes', () => {
     if (createdConversationIds.length > 0) {
       await db.delete(conversations).where(inArray(conversations.id, createdConversationIds));
     }
-    const userIds = [testUserId, otherUserId, nonMemberUserId].filter(Boolean);
+    const userIds = [testUserId, otherUserId, readMemberUserId, nonMemberUserId].filter(Boolean);
     if (userIds.length > 0) {
       await db.delete(users).where(inArray(users.id, userIds));
     }
@@ -504,6 +521,32 @@ describe('keys routes', () => {
       expect(json.code).toBe('CONVERSATION_NOT_FOUND');
     });
 
+    it('allows write-privileged members to fetch keys (needed for leave rotation)', async () => {
+      // otherUserId is set up as a 'write' member of conversationWithChainId.
+      // A non-owner leave generates a rotation, which requires this endpoint
+      // — so locking it to admin+ would prevent regular members from leaving.
+      const res = await app.request(`/keys/${conversationWithChainId}/member-keys`, {
+        headers: getAuthHeaders(otherUserId),
+      });
+
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as MemberKeysResponse;
+      expect(json.members.length).toBeGreaterThan(0);
+    });
+
+    it('allows read-privileged members to fetch keys (lowest tier can still leave)', async () => {
+      // readMemberUserId is set up as a 'read' member of conversationWithChainId.
+      // Read is the lowest privilege level; if this passes, every member of
+      // the conversation can perform their own leave-with-rotation.
+      const res = await app.request(`/keys/${conversationWithChainId}/member-keys`, {
+        headers: getAuthHeaders(readMemberUserId),
+      });
+
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as MemberKeysResponse;
+      expect(json.members.length).toBeGreaterThan(0);
+    });
+
     it('returns member public keys with base64 encoding', async () => {
       const res = await app.request(`/keys/${conversationWithChainId}/member-keys`, {
         headers: getAuthHeaders(testUserId),
@@ -512,8 +555,9 @@ describe('keys routes', () => {
       expect(res.status).toBe(200);
       const json = (await res.json()) as MemberKeysResponse;
 
-      // Conv2 has 3 active members (testUser + otherUser + link member)
-      expect(json.members).toHaveLength(3);
+      // Conv2 has 4 active members: testUser (owner) + otherUser (write) +
+      // readMember (read) + link member.
+      expect(json.members).toHaveLength(4);
 
       // Verify each member has expected fields
       for (const member of json.members) {
@@ -561,8 +605,9 @@ describe('keys routes', () => {
       expect(res.status).toBe(200);
       const json = (await res.json()) as MemberKeysResponse;
 
-      // Conv2 has 2 user members + 1 link member = 3 active members
-      expect(json.members).toHaveLength(3);
+      // Conv2 has 3 user members (owner/write/read) + 1 link member = 4
+      // active members.
+      expect(json.members).toHaveLength(4);
 
       // Find the link member (userId is null, linkId is not null)
       const linkMember = json.members.find((m) => m.userId === null);

@@ -41,8 +41,17 @@ function mockConversationsHook(
 }
 
 vi.mock('@/hooks/use-conversation-members', () => ({
+  useAcceptMembership: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
   useLeaveConversation: () => ({
     mutate: vi.fn(),
+    mutateAsync: vi.fn(() => Promise.resolve()),
+    isPending: false,
+  }),
+  useDeclineInvitation: () => ({
+    mutateAsync: vi.fn(() => Promise.resolve()),
     isPending: false,
   }),
   useMuteConversation: () => ({
@@ -73,6 +82,8 @@ vi.mock('@/lib/auth', () => ({
     },
     isPending: false,
   })),
+  useAuthStore: <T,>(selector: (s: { user: { id: string } | null }) => T): T =>
+    selector({ user: { id: 'user-1' } }),
   signOutAndClearCache: vi.fn(),
 }));
 

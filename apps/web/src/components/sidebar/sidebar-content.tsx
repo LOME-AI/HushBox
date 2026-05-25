@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Search } from 'lucide-react';
 import { cn, Input, Separator } from '@hushbox/ui';
-import { FEATURE_FLAGS } from '@hushbox/shared';
+import { FEATURE_FLAGS, type ConversationListItem } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { NewChatButton } from './new-chat-button';
 import { ChatList } from './chat-list';
@@ -10,17 +10,18 @@ import { InboxContent } from './inbox-content';
 
 type SidebarTab = 'chats' | 'inbox';
 
-interface Conversation {
-  id: string;
-  title: string;
-  currentEpoch: number;
-  updatedAt: string;
-  privilege: string;
+// Sidebar-content needs the inbox-only fields (`accepted`, `invitedByUsername`)
+// in addition to the base sidebar conversation shape. The base shape is pulled
+// from the shared schema so `privilege` stays typed as `MemberPrivilege`; the
+// two inbox fields are kept optional here because the upstream conversations
+// query historically supplied them only for pending invites.
+type Conversation = Pick<
+  ConversationListItem,
+  'id' | 'title' | 'currentEpoch' | 'updatedAt' | 'privilege' | 'muted' | 'pinned'
+> & {
   accepted?: boolean;
   invitedByUsername?: string | null;
-  muted: boolean;
-  pinned: boolean;
-}
+};
 
 interface FilteredConversations {
   filteredAccepted: Conversation[];

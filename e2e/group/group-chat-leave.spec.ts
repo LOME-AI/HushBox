@@ -1,6 +1,6 @@
 import { test, expect } from '../fixtures.js';
 import { setupConversationWithSidebar } from '../helpers/group-test-setup.js';
-import { ChatPage, MemberSidebarPage } from '../pages/index.js';
+import { ChatPage, MemberSidebarPage, SidebarPage } from '../pages/index.js';
 
 test.describe('Group Chat Leave', () => {
   // Each test is destructive (leaving a conversation), so each gets its own groupConversation fixture
@@ -73,6 +73,66 @@ test.describe('Group Chat Leave', () => {
         timeout: 10_000,
       });
     });
+  });
+
+  test('non-owner leave from sidebar dropdown rotates epoch and navigates', async ({
+    testBobPage,
+    groupConversation,
+  }) => {
+    // Sidebar's per-conversation Leave action shares the same rotation code
+    // path as the member-sidebar Leave — both go through `leaveConversation()`
+    // in lib/leave-conversation.ts. Regression target: before the unification
+    // this path called `mutate({ conversationId })` without rotation and the
+    // server returned 400 ROTATION_REQUIRED.
+    const chatPage = new ChatPage(testBobPage);
+    await chatPage.gotoConversation(groupConversation.id);
+    await chatPage.waitForConversationLoaded();
+    await chatPage.expectMessageVisible('Hello from Alice');
+
+    const sidebar = new SidebarPage(testBobPage);
+    await sidebar.openMoreMenu(groupConversation.id);
+    await testBobPage.getByRole('menuitem', { name: 'Leave' }).click();
+
+    const modal = testBobPage.getByTestId('leave-confirmation-modal');
+    await expect(modal).toBeVisible();
+
+    await testBobPage.getByTestId('leave-confirmation-confirm').click();
+
+    // Leaving the active conversation redirects to /chat.
+    await expect(testBobPage).toHaveURL('/chat', { timeout: 10_000 });
+
+    // The leaving user can no longer open the conversation.
+    await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'domcontentloaded' });
+    await expect(testBobPage).not.toHaveURL(new RegExp(groupConversation.id), {
+      timeout: 10_000,
+    });
+  });
+
+  test('leave from sidebar of a non-active chat leaves URL unchanged', async ({
+    testBobPage,
+    groupConversation,
+  }) => {
+    // Bob lands on /chat (no conversation active) and leaves the group from the
+    // sidebar dropdown. The URL must NOT change to /chat — only the active
+    // chat's Leave should redirect.
+    await testBobPage.goto('/chat', { waitUntil: 'domcontentloaded' });
+    await testBobPage.locator('[data-app-stable="true"]').waitFor({ state: 'visible' });
+
+    const sidebar = new SidebarPage(testBobPage);
+    await sidebar.openMoreMenu(groupConversation.id);
+    await testBobPage.getByRole('menuitem', { name: 'Leave' }).click();
+
+    const modal = testBobPage.getByTestId('leave-confirmation-modal');
+    await expect(modal).toBeVisible();
+
+    await testBobPage.getByTestId('leave-confirmation-confirm').click();
+    await expect(modal).not.toBeVisible({ timeout: 10_000 });
+
+    // URL stays at /chat (the listing dashboard) — no forced redirect.
+    await expect(testBobPage).toHaveURL('/chat');
+
+    // And the conversation is gone from Bob's sidebar.
+    await expect(sidebar.getChatLink(groupConversation.id)).not.toBeVisible({ timeout: 10_000 });
   });
 
   test('cancel leave keeps user in conversation', async ({ testBobPage, groupConversation }) => {

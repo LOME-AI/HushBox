@@ -2458,4 +2458,208 @@ describe('members route', () => {
       expect(body.accepted).toBe(true);
     });
   });
+
+  // ── Decline mock infrastructure ──
+
+  interface DeclineMockDbConfig {
+    requesterMember?: { id: string; privilege: string; userId: string } | null;
+    /**
+     * Controls whether the conditional UPDATE returns a row.
+     * - 'pending' → UPDATE matches (acceptedAt IS NULL), returning the row.
+     * - 'accepted' → UPDATE matches zero rows (acceptedAt IS NOT NULL).
+     */
+    state?: 'pending' | 'accepted';
+  }
+
+  function createDeclineMockDb(config: DeclineMockDbConfig): unknown {
+    const indexRef = { value: 0 };
+    const selectResults: unknown[][] = [
+      config.requesterMember
+        ? [
+            {
+              conversationId: TEST_CONVERSATION_ID,
+              id: config.requesterMember.id,
+              privilege: config.requesterMember.privilege,
+              visibleFromEpoch: 1,
+            },
+          ]
+        : [],
+    ];
+    const createQueryChain = createQueryChainFactory(selectResults, indexRef);
+
+    return {
+      select: () => createQueryChain(),
+      update: () => ({
+        set: () => ({
+          where: () => ({
+            returning: () =>
+              Promise.resolve(
+                config.state === 'pending' && config.requesterMember
+                  ? [{ id: config.requesterMember.id }]
+                  : []
+              ),
+          }),
+        }),
+      }),
+    };
+  }
+
+  interface DeclineTestAppOptions {
+    user?: AppEnv['Variables']['user'] | null;
+    dbConfig?: DeclineMockDbConfig;
+  }
+
+  function createDeclineTestApp(options: DeclineTestAppOptions = {}): Hono<AppEnv> {
+    const { user = createMockUser(), dbConfig = {} } = options;
+    const app = new Hono<AppEnv>();
+
+    app.use('*', async (c, next) => {
+      c.env = {
+        NODE_ENV: 'test',
+      } as unknown as AppEnv['Bindings'];
+      c.set('user', user);
+      c.set('session', user ? createMockSession() : null);
+      c.set('sessionData', user ? createMockSession() : null);
+      c.set('db', createDeclineMockDb(dbConfig) as AppEnv['Variables']['db']);
+      await next();
+    });
+
+    app.route('/', membersRoute);
+    return app;
+  }
+
+  describe('POST /:conversationId/decline', () => {
+    beforeEach(() => {
+      mockBroadcastFireAndForget.mockClear();
+    });
+
+    it('returns 401 when not authenticated', async () => {
+      const app = createDeclineTestApp({ user: null });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/decline`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(401);
+      const body = await res.json<{ code: string }>();
+      expect(body.code).toBe('NOT_AUTHENTICATED');
+    });
+
+    it('returns 404 when not a member (middleware blocks)', async () => {
+      const app = createDeclineTestApp({
+        dbConfig: { requesterMember: null },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/decline`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(404);
+      const body = await res.json<{ code: string }>();
+      expect(body.code).toBe('CONVERSATION_NOT_FOUND');
+    });
+
+    it('declines a pending invite and returns declined:true', async () => {
+      const app = createDeclineTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-pending-1', privilege: 'write', userId: TEST_USER_ID },
+          state: 'pending',
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/decline`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json<{ declined: boolean }>();
+      expect(body.declined).toBe(true);
+    });
+
+    it('returns 400 when caller has already accepted (acceptedAt IS NOT NULL)', async () => {
+      const app = createDeclineTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-accepted-1', privilege: 'write', userId: TEST_USER_ID },
+          state: 'accepted',
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/decline`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json<{ code: string }>();
+      expect(body.code).toBe('VALIDATION');
+    });
+
+    it('broadcasts member:removed on successful decline', async () => {
+      const app = createDeclineTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-pending-2', privilege: 'write', userId: TEST_USER_ID },
+          state: 'pending',
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/decline`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(200);
+      const removedCalls = mockBroadcastFireAndForget.mock.calls.filter(
+        (call: unknown[]) =>
+          call[2] &&
+          typeof call[2] === 'object' &&
+          'type' in call[2] &&
+          call[2].type === 'member:removed'
+      );
+      expect(removedCalls).toHaveLength(1);
+      const event = removedCalls[0]![2] as { memberId: string; userId: string };
+      expect(event.memberId).toBe('member-pending-2');
+      expect(event.userId).toBe(TEST_USER_ID);
+    });
+
+    it('does not broadcast on rejected decline (already accepted)', async () => {
+      const app = createDeclineTestApp({
+        dbConfig: {
+          requesterMember: { id: 'member-accepted-2', privilege: 'write', userId: TEST_USER_ID },
+          state: 'accepted',
+        },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/decline`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(400);
+      const removedCalls = mockBroadcastFireAndForget.mock.calls.filter(
+        (call: unknown[]) =>
+          call[2] &&
+          typeof call[2] === 'object' &&
+          'type' in call[2] &&
+          call[2].type === 'member:removed'
+      );
+      expect(removedCalls).toHaveLength(0);
+    });
+
+    it('uses the session userId — caller cannot decline on another user behalf', async () => {
+      // The middleware looks up requesterMember by session.id, not URL/body.
+      // A different attacker user can never reach the handler with another
+      // user's member row. We mirror this by mocking requesterMember=null when
+      // the attacker isn't actually a member.
+      const base = createMockUser();
+      if (!base) throw new Error('createMockUser returned null');
+      const attacker: AppEnv['Variables']['user'] = { ...base, id: 'attacker-user-id' };
+      const app = createDeclineTestApp({
+        user: attacker,
+        dbConfig: { requesterMember: null },
+      });
+
+      const res = await app.request(`/${TEST_CONVERSATION_ID}/decline`, {
+        method: 'POST',
+      });
+
+      expect(res.status).toBe(404);
+    });
+  });
 });

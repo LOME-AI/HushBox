@@ -33,8 +33,7 @@ function isNavigableEnter(e: KeyboardEvent): e is KeyboardEvent & { target: HTML
 // (whose submit logic is on the button click handler, not the form's
 // onSubmit) route Enter through their primary action.
 function findSubmitButton(form: HTMLFormElement): HTMLButtonElement | null {
-  const submitSelector =
-    'button[type="submit"]:not([disabled]):not([aria-disabled="true"])';
+  const submitSelector = 'button[type="submit"]:not([disabled]):not([aria-disabled="true"])';
   const inside = form.querySelector<HTMLButtonElement>(submitSelector);
   if (inside) return inside;
   // Outside the form, scan all enabled submit buttons and use the native

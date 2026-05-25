@@ -148,6 +148,7 @@ export const devRoute = new Hono<AppEnv>()
       z.object({
         ownerEmail: z.email(),
         memberEmails: z.array(z.email()).min(1),
+        pendingMemberEmails: z.array(z.email()).optional(),
         messages: z
           .array(
             z.object({
@@ -162,11 +163,12 @@ export const devRoute = new Hono<AppEnv>()
     async (c) => {
       const db = c.get('db');
       const aiClient = c.get('aiClient');
-      const { messages: rawMessages, ...rest } = c.req.valid('json');
+      const { messages: rawMessages, pendingMemberEmails, ...rest } = c.req.valid('json');
       const seedAiModel = pickValueTextModel(await aiClient.listRawModels());
       const result = await createDevGroupChat(db, {
         ...rest,
         seedAiModel,
+        ...(pendingMemberEmails !== undefined && { pendingMemberEmails }),
         ...(rawMessages !== undefined && {
           messages: rawMessages.map(({ senderEmail, ...msgRest }) => ({
             ...msgRest,

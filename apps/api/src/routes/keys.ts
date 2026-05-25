@@ -86,7 +86,15 @@ export const keysRoute = new Hono<AppEnv>()
   .get(
     '/:conversationId/member-keys',
     zValidator('param', z.object({ conversationId: z.string() })),
-    requirePrivilege('admin'),
+    // 'read' (not 'admin') — non-owner leave generates a rotation client-side,
+    // and that rotation needs every active member's public key to re-wrap the
+    // new epoch key. Locking this to admin+ blocks regular members from
+    // leaving. The response is non-sensitive: every field except `publicKey`
+    // is already on `GET /:conversationId` for read-level members, and public
+    // keys are public crypto material by design. Mutations that USE the
+    // returned keys (add/remove/revoke) keep their own `requirePrivilege`
+    // gates independently.
+    requirePrivilege('read'),
     async (c) => {
       const user = c.get('user');
       if (!user) throw new Error('User required after requirePrivilege');

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Check, X } from 'lucide-react';
 import { IconButton } from '@hushbox/ui';
-import { useAcceptMembership, useLeaveConversation } from '@/hooks/use-conversation-members';
+import { useAcceptMembership, useDeclineInvitation } from '@/hooks/use-conversation-members';
 import { LeaveConfirmationModal } from '@/components/chat/leave-confirmation-modal';
 
 interface InboxConversation {
@@ -18,7 +18,7 @@ interface InboxContentProps {
 
 export function InboxContent({ conversations }: Readonly<InboxContentProps>): React.JSX.Element {
   const acceptMembership = useAcceptMembership();
-  const leaveConversation = useLeaveConversation();
+  const declineInvitation = useDeclineInvitation();
   const [declineTarget, setDeclineTarget] = React.useState<string | null>(null);
 
   if (conversations.length === 0) {
@@ -77,9 +77,14 @@ export function InboxContent({ conversations }: Readonly<InboxContentProps>): Re
           if (!open) setDeclineTarget(null);
         }}
         isOwner={false}
-        onConfirm={() => {
-          if (declineTarget) {
-            leaveConversation.mutate({ conversationId: declineTarget });
+        onConfirm={async () => {
+          // Capture before clearing — declineTarget is closure state and the
+          // modal close path (onOpenChange) nulls it before mutateAsync
+          // resolves. Awaiting forwards any thrown error to ActionModal's
+          // inline error region.
+          const conversationId = declineTarget;
+          if (conversationId) {
+            await declineInvitation.mutateAsync({ conversationId });
           }
         }}
       />

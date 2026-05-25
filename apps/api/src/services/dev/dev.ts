@@ -400,6 +400,12 @@ export interface CreateDevGroupChatParams {
   ownerEmail: string;
   memberEmails: string[];
   /**
+   * Members who should be created with `acceptedAt = null` — they appear as
+   * pending invitees and can `/decline` the invite. Must be a subset of
+   * `memberEmails`. Used by E2E tests that exercise the decline-invite flow.
+   */
+  pendingMemberEmails?: string[];
+  /**
    * Model id to stamp on seeded AI messages — see
    * {@link CreateDevConversationParams.seedAiModel} for context.
    */
@@ -489,7 +495,11 @@ export async function createDevGroupChat(
       })
     );
 
-    // Insert conversation members (acceptedAt set so they're not treated as pending invites)
+    // Insert conversation members. By default `acceptedAt` is stamped so the
+    // member is fully joined. Emails listed in `pendingMemberEmails` keep
+    // `acceptedAt = null` so they appear as pending invitees — used to seed
+    // the decline-invite flow in E2E tests.
+    const pendingSet = new Set(params.pendingMemberEmails);
     await tx.insert(conversationMembers).values(
       orderedUsers.map((user, index) => ({
         id: crypto.randomUUID(),
@@ -497,7 +507,10 @@ export async function createDevGroupChat(
         userId: user.id,
         privilege: index === 0 ? 'owner' : ('admin' as string),
         visibleFromEpoch: 1,
-        acceptedAt: new Date(),
+        // Owner is never pending; otherwise honour the pendingMemberEmails list.
+        // user.email may be null (deleted users) — treat as never pending.
+        acceptedAt:
+          index === 0 || user.email === null || !pendingSet.has(user.email) ? new Date() : null,
       }))
     );
 
