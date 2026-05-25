@@ -556,9 +556,7 @@ function MemberSidebarBody({
                   onChangeLinkPrivilege={
                     onChangeLinkPrivilege === undefined ? undefined : handleChangeLinkPrivilege
                   }
-                  onSaveLinkName={
-                    onSaveLinkName === undefined ? undefined : handleSaveLinkName
-                  }
+                  onSaveLinkName={onSaveLinkName === undefined ? undefined : handleSaveLinkName}
                   onRequestRevoke={handleRequestRevoke}
                 />
               ))}
@@ -757,7 +755,9 @@ function MemberRow({
               <DropdownMenuItem
                 data-testid="member-leave-action"
                 className="text-destructive"
-                onSelect={() => onLeaveClick?.()}
+                onSelect={() => {
+                  void onLeaveClick?.();
+                }}
               >
                 <LogOut className="mr-2 h-4 w-4" />
                 Leave

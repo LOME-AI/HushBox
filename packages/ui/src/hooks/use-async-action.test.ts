@@ -27,7 +27,7 @@ describe('useAsyncAction', () => {
       const { result } = renderHook(() => useAsyncAction());
       let returned: unknown;
       await act(async () => {
-        returned = await result.current.run(async () => 'value');
+        returned = await result.current.run(() => Promise.resolve('value'));
       });
       expect(returned).toEqual({ ok: true, value: 'value' });
     });
@@ -38,7 +38,7 @@ describe('useAsyncAction', () => {
       const { result } = renderHook(() => useAsyncAction());
       let returned: unknown;
       await act(async () => {
-        returned = await result.current.run(async () => undefined);
+        returned = await result.current.run(() => Promise.resolve());
       });
       expect(returned).toEqual({ ok: true, value: undefined });
     });
@@ -46,7 +46,7 @@ describe('useAsyncAction', () => {
     it('does not set error on success', async () => {
       const { result } = renderHook(() => useAsyncAction());
       await act(async () => {
-        await result.current.run(async () => 'ok');
+        await result.current.run(() => Promise.resolve('ok'));
       });
       expect(result.current.error).toBeNull();
     });
@@ -57,9 +57,7 @@ describe('useAsyncAction', () => {
       const { result } = renderHook(() => useAsyncAction());
       let returned: unknown = 'sentinel';
       await act(async () => {
-        returned = await result.current.run(async () => {
-          throw new Error('STALE_EPOCH');
-        });
+        returned = await result.current.run(() => Promise.reject(new Error('STALE_EPOCH')));
       });
       expect(returned).toEqual({ ok: false });
     });
@@ -67,9 +65,7 @@ describe('useAsyncAction', () => {
     it('translates error.message via friendlyErrorMessage', async () => {
       const { result } = renderHook(() => useAsyncAction());
       await act(async () => {
-        await result.current.run(async () => {
-          throw new Error('STALE_EPOCH');
-        });
+        await result.current.run(() => Promise.reject(new Error('STALE_EPOCH')));
       });
       expect(result.current.error).toBe(
         'Someone else just changed this conversation. Please try again.'
@@ -79,9 +75,7 @@ describe('useAsyncAction', () => {
     it('falls back to a generic message when no known code is on the error', async () => {
       const { result } = renderHook(() => useAsyncAction());
       await act(async () => {
-        await result.current.run(async () => {
-          throw new Error('TypeError: cannot read x');
-        });
+        await result.current.run(() => Promise.reject(new Error('TypeError: cannot read x')));
       });
       expect(result.current.error).toBe('Something went wrong. Please try again.');
     });
@@ -89,9 +83,7 @@ describe('useAsyncAction', () => {
     it('clears isPending in the finally branch', async () => {
       const { result } = renderHook(() => useAsyncAction());
       await act(async () => {
-        await result.current.run(async () => {
-          throw new Error('STALE_EPOCH');
-        });
+        await result.current.run(() => Promise.reject(new Error('STALE_EPOCH')));
       });
       expect(result.current.isPending).toBe(false);
     });
@@ -100,16 +92,12 @@ describe('useAsyncAction', () => {
       const { result } = renderHook(() => useAsyncAction());
 
       await act(async () => {
-        await result.current.run(async () => {
-          throw new Error('STALE_EPOCH');
-        });
+        await result.current.run(() => Promise.reject(new Error('STALE_EPOCH')));
       });
       const firstKey = result.current.errorKey;
 
       await act(async () => {
-        await result.current.run(async () => {
-          throw new Error('STALE_EPOCH');
-        });
+        await result.current.run(() => Promise.reject(new Error('STALE_EPOCH')));
       });
       expect(result.current.errorKey).toBeGreaterThan(firstKey);
     });
@@ -119,9 +107,7 @@ describe('useAsyncAction', () => {
     it('resets error to null', async () => {
       const { result } = renderHook(() => useAsyncAction());
       await act(async () => {
-        await result.current.run(async () => {
-          throw new Error('STALE_EPOCH');
-        });
+        await result.current.run(() => Promise.reject(new Error('STALE_EPOCH')));
       });
       expect(result.current.error).not.toBeNull();
 
@@ -134,9 +120,7 @@ describe('useAsyncAction', () => {
     it('does not bump errorKey (only new errors bump)', async () => {
       const { result } = renderHook(() => useAsyncAction());
       await act(async () => {
-        await result.current.run(async () => {
-          throw new Error('STALE_EPOCH');
-        });
+        await result.current.run(() => Promise.reject(new Error('STALE_EPOCH')));
       });
       const keyAfterError = result.current.errorKey;
 
@@ -183,9 +167,7 @@ describe('useAsyncAction', () => {
     it('calls toast.error with the friendly message on failure', async () => {
       const { result } = renderHook(() => useAsyncAction({ fallback: 'toast' }));
       await act(async () => {
-        await result.current.run(async () => {
-          throw new Error('STALE_EPOCH');
-        });
+        await result.current.run(() => Promise.reject(new Error('STALE_EPOCH')));
       });
       expect(toastErrorMock).toHaveBeenCalledWith(
         'Someone else just changed this conversation. Please try again.'
@@ -195,9 +177,7 @@ describe('useAsyncAction', () => {
     it("leaves local error null when fallback is 'toast'", async () => {
       const { result } = renderHook(() => useAsyncAction({ fallback: 'toast' }));
       await act(async () => {
-        await result.current.run(async () => {
-          throw new Error('STALE_EPOCH');
-        });
+        await result.current.run(() => Promise.reject(new Error('STALE_EPOCH')));
       });
       expect(result.current.error).toBeNull();
     });

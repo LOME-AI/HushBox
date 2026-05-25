@@ -106,14 +106,10 @@ describe('ConfirmationModal', () => {
     it('accepts a Promise-returning onConfirm and closes on resolve', async () => {
       const user = userEvent.setup();
       const onOpenChange = vi.fn();
-      const onConfirm = vi.fn(async () => Promise.resolve());
+      const onConfirm = vi.fn(() => Promise.resolve());
 
       render(
-        <ConfirmationModal
-          {...defaultProps}
-          onOpenChange={onOpenChange}
-          onConfirm={onConfirm}
-        />
+        <ConfirmationModal {...defaultProps} onOpenChange={onOpenChange} onConfirm={onConfirm} />
       );
       await user.click(screen.getByTestId('remove-member-confirm'));
 
@@ -127,16 +123,10 @@ describe('ConfirmationModal', () => {
     it('stays open with inline error when onConfirm rejects', async () => {
       const user = userEvent.setup();
       const onOpenChange = vi.fn();
-      const onConfirm = vi.fn(async () => {
-        throw new Error('STALE_EPOCH');
-      });
+      const onConfirm = vi.fn(() => Promise.reject(new Error('STALE_EPOCH')));
 
       render(
-        <ConfirmationModal
-          {...defaultProps}
-          onOpenChange={onOpenChange}
-          onConfirm={onConfirm}
-        />
+        <ConfirmationModal {...defaultProps} onOpenChange={onOpenChange} onConfirm={onConfirm} />
       );
       await user.click(screen.getByTestId('remove-member-confirm'));
 

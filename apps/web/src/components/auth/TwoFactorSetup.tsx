@@ -1,8 +1,17 @@
 import * as React from 'react';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { Copy, Check, Loader2 } from 'lucide-react';
 import { QRCode } from 'react-qrcode-logo';
-import { Overlay, OverlayContent, Button, ModalActions } from '@hushbox/ui';
+import {
+  Button,
+  InlineFormError,
+  ModalActions,
+  Overlay,
+  OverlayContent,
+  UserMessageError,
+  useAsyncAction,
+  type UseAsyncActionReturn,
+} from '@hushbox/ui';
 import logoUrl from '@hushbox/ui/assets/HushBoxLogo.png';
 import { errorResponseSchema } from '@hushbox/shared';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
@@ -29,8 +38,8 @@ interface StepContentProps {
   readonly totpData: TotpData | null;
   readonly copied: boolean;
   readonly otpValue: string;
-  readonly error: string | null;
-  readonly isFetching: boolean;
+  readonly otpError: string | null;
+  readonly fetchAction: UseAsyncActionReturn;
   readonly isVerifying: boolean;
   readonly onStart: () => void;
   readonly onCopy: () => void;
@@ -46,8 +55,8 @@ function StepContent({
   totpData,
   copied,
   otpValue,
-  error,
-  isFetching,
+  otpError,
+  fetchAction,
   isVerifying,
   onStart,
   onCopy,
@@ -58,7 +67,7 @@ function StepContent({
   onDone,
 }: Readonly<StepContentProps>): React.JSX.Element | null {
   if (step === 'loading') {
-    return <LoadingStep error={error} isLoading={isFetching} onStart={onStart} />;
+    return <LoadingStep fetchAction={fetchAction} onStart={onStart} />;
   }
 
   if (step === 'scan' && totpData) {
@@ -78,7 +87,7 @@ function StepContent({
         otpValue={otpValue}
         onOtpChange={setOtpValue}
         onOtpComplete={onOtpComplete}
-        error={error}
+        error={otpError}
         isVerifying={isVerifying}
         onVerify={onVerify}
       />
@@ -151,8 +160,7 @@ export function TwoFactorSetup({
   const [step, setStep] = useState<Step>('loading');
   const [totpData, setTotpData] = useState<TotpData | null>(null);
   const [copied, setCopied] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [isFetching, setIsFetching] = useState(false);
+  const fetchAction = useAsyncAction();
 
   const handleVerifySuccess = useCallback(() => {
     setStep('success');
@@ -171,36 +179,32 @@ export function TwoFactorSetup({
     onSuccess: handleVerifySuccess,
   });
 
-  useEffect(() => {
+  const { clearError: clearFetchError } = fetchAction;
+  React.useEffect(() => {
     if (open) {
       setStep('loading');
-      setFetchError(null);
+      clearFetchError();
       setCopied(false);
-      setIsFetching(false);
       setTotpData(null);
       resetOtp();
     }
-  }, [open, resetOtp]);
+  }, [open, resetOtp, clearFetchError]);
 
-  const handleStart = useCallback(() => {
-    setIsFetching(true);
-    setFetchError(null);
-    void (async () => {
+  const handleStart = useCallback((): void => {
+    void fetchAction.run(async () => {
+      let result: Awaited<ReturnType<typeof fetchTotpSetup>>;
       try {
-        const result = await fetchTotpSetup();
-        if (result.ok) {
-          setTotpData(result.data);
-          setStep('scan');
-        } else {
-          setFetchError(result.error);
-        }
+        result = await fetchTotpSetup();
       } catch {
-        setFetchError('Failed to initialize 2FA setup');
-      } finally {
-        setIsFetching(false);
+        throw new UserMessageError('Failed to initialize 2FA setup');
       }
-    })();
-  }, []);
+      if (!result.ok) {
+        throw new UserMessageError(result.error);
+      }
+      setTotpData(result.data);
+      setStep('scan');
+    });
+  }, [fetchAction]);
 
   const handleCopy = useCallback(() => {
     if (!totpData) return;
@@ -218,8 +222,8 @@ export function TwoFactorSetup({
 
   const handleBackToIntro = useCallback(() => {
     setStep('loading');
-    setFetchError(null);
-  }, []);
+    clearFetchError();
+  }, [clearFetchError]);
 
   const handleBackToScan = useCallback(() => {
     setStep('scan');
@@ -243,9 +247,7 @@ export function TwoFactorSetup({
   const showBackButton = step === 'scan' || step === 'verify';
 
   const handleBack = step === 'verify' ? handleBackToScan : handleBackToIntro;
-
-  // Loading step shows fetchError; verify step shows OTP verification error
-  const effectiveError = step === 'verify' ? otpError : fetchError;
+  const isBusy = fetchAction.isPending || isVerifying;
 
   return (
     <Overlay
@@ -254,6 +256,7 @@ export function TwoFactorSetup({
       ariaLabel="Two-factor authentication setup"
       onOpenAutoFocus={handleOpenAutoFocus}
       currentStep={currentStep}
+      dismissible={!isBusy}
       {...(showBackButton && { onBack: handleBack })}
     >
       <OverlayContent data-testid="two-factor-setup-modal" className="w-[75vw]">
@@ -262,8 +265,8 @@ export function TwoFactorSetup({
           totpData={totpData}
           copied={copied}
           otpValue={otpValue}
-          error={effectiveError}
-          isFetching={isFetching}
+          otpError={otpError}
+          fetchAction={fetchAction}
           isVerifying={isVerifying}
           onStart={handleStart}
           onCopy={handleCopy}
@@ -281,12 +284,12 @@ export function TwoFactorSetup({
 }
 
 interface LoadingStepProps {
-  error: string | null;
-  isLoading: boolean;
+  fetchAction: UseAsyncActionReturn;
   onStart: () => void;
 }
 
-function LoadingStep({ error, isLoading, onStart }: Readonly<LoadingStepProps>): React.JSX.Element {
+function LoadingStep({ fetchAction, onStart }: Readonly<LoadingStepProps>): React.JSX.Element {
+  const { isPending: isLoading, error, errorKey } = fetchAction;
   return (
     <div className="space-y-4">
       <div>
@@ -297,16 +300,16 @@ function LoadingStep({ error, isLoading, onStart }: Readonly<LoadingStepProps>):
         </p>
       </div>
 
-      {error && <p className="text-destructive text-center text-sm">{error}</p>}
+      <InlineFormError error={error} errorKey={errorKey} />
 
-      {!error && isLoading && (
+      {error === null && isLoading && (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
           <span className="text-muted-foreground ml-2">Loading...</span>
         </div>
       )}
 
-      {!error && !isLoading && (
+      {error === null && !isLoading && (
         <ModalActions
           primary={{
             label: 'Get Started →',

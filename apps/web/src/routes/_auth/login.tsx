@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useState, useRef, useCallback } from 'react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { ROUTES } from '@hushbox/shared';
+import { InlineFormError } from '@hushbox/ui';
 import { signIn, resetPasswordViaRecovery } from '@/lib/auth';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { CheckboxField } from '@/components/shared/checkbox-field';
@@ -10,7 +11,6 @@ import { AuthButton } from '@/components/auth/AuthButton';
 import { PasswordField, ConfirmPasswordField } from '@/components/auth/password-field';
 import { TwoFactorInput } from '@/components/auth/TwoFactorInput';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
-import { InlineFormError } from '@hushbox/ui';
 import { CheckYourEmail } from '@/components/auth/check-your-email';
 import {
   validateIdentifier,

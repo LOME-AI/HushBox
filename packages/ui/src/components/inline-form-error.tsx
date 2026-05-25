@@ -10,6 +10,11 @@ export interface InlineFormErrorProps {
    * which manages this counter automatically.
    */
   errorKey: number;
+  /**
+   * Optional id placed on the rendered element. Use to link an input to its
+   * error message via `aria-describedby` for assistive-tech announcements.
+   */
+  id?: string;
 }
 
 /**
@@ -21,11 +26,17 @@ export interface InlineFormErrorProps {
 export function InlineFormError({
   error,
   errorKey,
+  id,
 }: Readonly<InlineFormErrorProps>): React.JSX.Element | null {
   if (!error) return null;
 
   return (
-    <p key={errorKey} role="alert" className="text-destructive animate-shake text-center text-sm">
+    <p
+      key={errorKey}
+      role="alert"
+      className="text-destructive animate-shake text-center text-sm"
+      {...(id !== undefined && { id })}
+    >
       {error}
     </p>
   );

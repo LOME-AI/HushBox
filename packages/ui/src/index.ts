@@ -1,8 +1,5 @@
 export { Alert, alertVariants } from './components/alert';
-export {
-  InlineFormError,
-  type InlineFormErrorProps,
-} from './components/inline-form-error';
+export { InlineFormError, type InlineFormErrorProps } from './components/inline-form-error';
 export { Button, buttonVariants } from './components/button';
 export { IconButton } from './components/icon-button';
 export { Input, type InputProps } from './components/input';

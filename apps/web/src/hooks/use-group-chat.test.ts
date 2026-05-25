@@ -235,7 +235,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
-      result.current!.onRemoveMember!('m2');
+      void result.current!.onRemoveMember!('m2');
     });
 
     expect(mockExecuteWithRotation).toHaveBeenCalledWith(
@@ -254,7 +254,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
-      result.current!.onRemoveMember!('m2');
+      void result.current!.onRemoveMember!('m2');
     });
 
     const call = mockExecuteWithRotation.mock.calls[0]![0] as {
@@ -296,7 +296,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     act(() => {
-      result.current!.onChangePrivilege!('m2', 'admin');
+      void result.current!.onChangePrivilege!('m2', 'admin');
     });
 
     expect(mockChangeMutateAsync).toHaveBeenCalledWith({
@@ -310,7 +310,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
-      result.current!.onRevokeLinkClick!('l1');
+      void result.current!.onRevokeLinkClick!('l1');
     });
 
     expect(mockExecuteWithRotation).toHaveBeenCalledWith(
@@ -327,7 +327,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
-      result.current!.onRevokeLinkClick!('l1');
+      void result.current!.onRevokeLinkClick!('l1');
     });
 
     const call = mockExecuteWithRotation.mock.calls[0]![0] as {
@@ -368,7 +368,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     act(() => {
-      result.current!.onSaveLinkName!('l1', 'NewName');
+      void result.current!.onSaveLinkName!('l1', 'NewName');
     });
 
     expect(mockAdminNameMutateAsync).toHaveBeenCalledWith({
@@ -382,7 +382,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1'));
 
     act(() => {
-      result.current!.onChangeLinkPrivilege!('l1', 'write');
+      void result.current!.onChangeLinkPrivilege!('l1', 'write');
     });
 
     expect(mockChangeLinkPrivilegeMutateAsync).toHaveBeenCalledWith({
@@ -397,7 +397,7 @@ describe('useGroupChat', () => {
 
     // eslint-disable-next-line @typescript-eslint/require-await -- async needed so act() returns Promise and flushes .then() chain
     await act(async () => {
-      result.current!.onLeave!();
+      void result.current!.onLeave!();
     });
 
     // Owner leave — no rotation needed (deletes conversation)
@@ -423,7 +423,7 @@ describe('useGroupChat', () => {
 
     // eslint-disable-next-line @typescript-eslint/require-await -- async needed so act() returns Promise and flushes .then() chain
     await act(async () => {
-      result.current!.onLeave!();
+      void result.current!.onLeave!();
     });
 
     expect(mockExecuteWithRotation).toHaveBeenCalledWith(
@@ -452,7 +452,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
-      result.current!.onLeave!();
+      void result.current!.onLeave!();
     });
 
     const call = mockExecuteWithRotation.mock.calls[0]![0] as {
@@ -493,7 +493,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
-      result.current!.onAddMember!({
+      void result.current!.onAddMember!({
         userId: 'u3',
         username: 'charlie',
         publicKey: 'cGssPublic',
@@ -517,7 +517,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
-      result.current!.onAddMember!({
+      void result.current!.onAddMember!({
         userId: 'u3',
         username: 'charlie',
         publicKey: 'cGssPublic',
@@ -541,7 +541,7 @@ describe('useGroupChat', () => {
     const { result } = renderHook(() => useGroupChat('conv-1', 'u1', 'My Chat'));
 
     act(() => {
-      result.current!.onAddMember!({
+      void result.current!.onAddMember!({
         userId: 'u3',
         username: 'charlie',
         publicKey: 'cGssPublic',

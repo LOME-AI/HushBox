@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import { friendlyErrorMessage, type ErrorCode } from '@hushbox/shared';
 import { toast } from 'sonner';
+import { friendlyErrorMessage, type ErrorCode } from '@hushbox/shared';
 
 export interface UseAsyncActionOptions {
   /**
@@ -111,13 +111,13 @@ export function useAsyncAction(options?: UseAsyncActionOptions): UseAsyncActionR
       try {
         const value = await action();
         return { ok: true, value };
-      } catch (e: unknown) {
+      } catch (error_: unknown) {
         // UserMessageError carries a pre-localized message; use it verbatim.
         // Anything else goes through friendlyErrorMessage as an ErrorCode.
-        if (e instanceof UserMessageError) {
-          surfaceError(e.message);
+        if (error_ instanceof UserMessageError) {
+          surfaceError(error_.message);
         } else {
-          const code = extractErrorCode(e);
+          const code = extractErrorCode(error_);
           surfaceError(friendlyErrorMessage(code));
         }
         return { ok: false };

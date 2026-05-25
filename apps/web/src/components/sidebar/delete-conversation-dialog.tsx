@@ -17,11 +17,6 @@ export function DeleteConversationDialog({
 }: Readonly<DeleteConversationDialogProps>): React.JSX.Element {
   const asyncAction = useAsyncAction();
 
-  const handleSubmit = React.useCallback(async (): Promise<void> => {
-    const maybe = onConfirm();
-    if (maybe instanceof Promise) await maybe;
-  }, [onConfirm]);
-
   return (
     <ActionModal
       open={open}
@@ -33,7 +28,9 @@ export function DeleteConversationDialog({
         label: 'Delete',
         loadingLabel: 'Deleting…',
         variant: 'destructive',
-        onSubmit: handleSubmit,
+        onSubmit: async () => {
+          await onConfirm();
+        },
         testId: 'confirm-delete-button',
       }}
       cancel={{

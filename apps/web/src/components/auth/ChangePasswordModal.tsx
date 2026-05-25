@@ -92,7 +92,6 @@ export function ChangePasswordModal({
         onSubmit: handleSubmit,
         disabled: !isValid,
         testId: 'change-password-submit',
-        // Wire Enter-key implicit submission of the form to the primary action.
         type: 'submit',
         form: 'change-password-form',
       }}
@@ -102,7 +101,13 @@ export function ChangePasswordModal({
       <p className="text-muted-foreground text-sm">
         Enter your current password and choose a new one.
       </p>
-      <form id="change-password-form" ref={formRef} onSubmit={(e) => e.preventDefault()}>
+      <form
+        id="change-password-form"
+        ref={formRef}
+        onSubmit={(e) => {
+          e.preventDefault();
+        }}
+      >
         <div className="space-y-4">
           <AuthPasswordInput
             id="current-password"

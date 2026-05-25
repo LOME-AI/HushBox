@@ -27,7 +27,7 @@ function ActionModalHarness(options: SetupOptions = {}): React.JSX.Element {
       primary={{
         label: 'Submit',
         loadingLabel: 'Submitting…',
-        onSubmit: options.onSubmit ?? (async () => undefined),
+        onSubmit: options.onSubmit ?? (async () => {}),
         testId: 'action-submit',
       }}
       cancel={{ label: 'Cancel', testId: 'action-cancel' }}
@@ -78,7 +78,7 @@ describe('ActionModal', () => {
   describe('async submission', () => {
     it('invokes onSubmit when the primary button is clicked', async () => {
       const user = userEvent.setup();
-      const onSubmit = vi.fn(async () => undefined);
+      const onSubmit = vi.fn(async () => {});
       render(<ActionModalHarness onSubmit={onSubmit} />);
       await user.click(screen.getByTestId('action-submit'));
       await waitFor(() => {
@@ -88,7 +88,7 @@ describe('ActionModal', () => {
 
     it('closes the modal on successful submission', async () => {
       const user = userEvent.setup();
-      render(<ActionModalHarness onSubmit={async () => undefined} />);
+      render(<ActionModalHarness onSubmit={async () => {}} />);
       await user.click(screen.getByTestId('action-submit'));
       await waitFor(() => {
         expect(onOpenChangeMock).toHaveBeenCalledWith(false);
@@ -97,13 +97,7 @@ describe('ActionModal', () => {
 
     it('does NOT close the modal when onSubmit throws (stays open for retry)', async () => {
       const user = userEvent.setup();
-      render(
-        <ActionModalHarness
-          onSubmit={async () => {
-            throw new Error('STALE_EPOCH');
-          }}
-        />
-      );
+      render(<ActionModalHarness onSubmit={() => Promise.reject(new Error('STALE_EPOCH'))} />);
       await user.click(screen.getByTestId('action-submit'));
       // Give the rejection time to surface
       await waitFor(() => {
@@ -114,13 +108,7 @@ describe('ActionModal', () => {
 
     it('shows the inline error with the friendly message on failure', async () => {
       const user = userEvent.setup();
-      render(
-        <ActionModalHarness
-          onSubmit={async () => {
-            throw new Error('STALE_EPOCH');
-          }}
-        />
-      );
+      render(<ActionModalHarness onSubmit={() => Promise.reject(new Error('STALE_EPOCH'))} />);
       await user.click(screen.getByTestId('action-submit'));
       await waitFor(() => {
         expect(screen.getByRole('alert')).toHaveTextContent(
@@ -131,13 +119,7 @@ describe('ActionModal', () => {
 
     it('re-enables the primary button after failure for retry', async () => {
       const user = userEvent.setup();
-      render(
-        <ActionModalHarness
-          onSubmit={async () => {
-            throw new Error('STALE_EPOCH');
-          }}
-        />
-      );
+      render(<ActionModalHarness onSubmit={() => Promise.reject(new Error('STALE_EPOCH'))} />);
       await user.click(screen.getByTestId('action-submit'));
       await waitFor(() => {
         expect(screen.getByTestId('action-submit')).not.toBeDisabled();
@@ -189,13 +171,7 @@ describe('ActionModal', () => {
   describe('auto-clear-on-input', () => {
     it('clears the inline error when the user types in any child input', async () => {
       const user = userEvent.setup();
-      render(
-        <ActionModalHarness
-          onSubmit={async () => {
-            throw new Error('STALE_EPOCH');
-          }}
-        />
-      );
+      render(<ActionModalHarness onSubmit={() => Promise.reject(new Error('STALE_EPOCH'))} />);
       await user.click(screen.getByTestId('action-submit'));
       await waitFor(() => {
         expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -216,9 +192,7 @@ describe('ActionModal', () => {
     });
 
     it('renders one Simulate button per error code', () => {
-      render(
-        <ActionModalHarness devSimulateCodes={['STALE_EPOCH', 'WRAP_SET_MISMATCH']} />
-      );
+      render(<ActionModalHarness devSimulateCodes={['STALE_EPOCH', 'WRAP_SET_MISMATCH']} />);
       expect(screen.getByTestId('dev-simulate-failures')).toBeInTheDocument();
       expect(screen.getByTestId('dev-simulate-STALE_EPOCH')).toBeInTheDocument();
       expect(screen.getByTestId('dev-simulate-WRAP_SET_MISMATCH')).toBeInTheDocument();
@@ -236,10 +210,8 @@ describe('ActionModal', () => {
 
     it('does not fire the real onSubmit', async () => {
       const user = userEvent.setup();
-      const onSubmit = vi.fn(async () => undefined);
-      render(
-        <ActionModalHarness onSubmit={onSubmit} devSimulateCodes={['STALE_EPOCH']} />
-      );
+      const onSubmit = vi.fn(async () => {});
+      render(<ActionModalHarness onSubmit={onSubmit} devSimulateCodes={['STALE_EPOCH']} />);
       await user.click(screen.getByTestId('dev-simulate-STALE_EPOCH'));
       expect(onSubmit).not.toHaveBeenCalled();
     });

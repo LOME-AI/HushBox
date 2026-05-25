@@ -22,11 +22,6 @@ export function RenameConversationDialog({
   useFormEnterNav(formRef);
   const asyncAction = useAsyncAction();
 
-  const handleSubmit = React.useCallback(async (): Promise<void> => {
-    const maybe = onConfirm();
-    if (maybe instanceof Promise) await maybe;
-  }, [onConfirm]);
-
   return (
     <ActionModal
       open={open}
@@ -37,9 +32,13 @@ export function RenameConversationDialog({
       primary={{
         label: 'Save',
         loadingLabel: 'Saving…',
-        onSubmit: handleSubmit,
+        onSubmit: async () => {
+          await onConfirm();
+        },
         disabled: !value.trim(),
         testId: 'save-rename-button',
+        type: 'submit',
+        form: 'rename-conversation',
       }}
       cancel={{
         label: 'Cancel',
@@ -52,11 +51,11 @@ export function RenameConversationDialog({
         id="rename-conversation"
         ref={formRef}
         onSubmit={(e) => {
+          // Both Enter-key and primary-button submission route through
+          // ActionModal's onClick handler (via the button's `type=submit form=`
+          // linkage). The form's native submit fires too; preventDefault stops
+          // a page navigation and ActionModal owns the close-on-success path.
           e.preventDefault();
-          void handleSubmit().then(() => {
-            // Form submission delegates to the same handler; we don't auto-close
-            // here because ActionModal owns the success-close path.
-          });
         }}
       >
         <Input

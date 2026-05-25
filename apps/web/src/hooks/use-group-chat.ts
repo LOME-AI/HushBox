@@ -33,6 +33,16 @@ import type { GroupChatProps } from '../components/chat/chat-layout.js';
 
 type RawMember = GroupChatProps['members'][number] & { linkId?: string | null };
 
+function filterOutCaller(callerId: string): (keys: MemberKeyResponse[]) => RotationMember[] {
+  return (keys) => {
+    const result: RotationMember[] = [];
+    for (const k of keys) {
+      if (k.userId !== callerId) result.push({ publicKey: fromBase64(k.publicKey) });
+    }
+    return result;
+  };
+}
+
 interface MemoPrerequisites {
   conversationId: string;
   callerId: string;
@@ -226,14 +236,7 @@ export function useGroupChat(
           void navigate({ to: '/chat' });
           return;
         }
-        const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
-          const result: RotationMember[] = [];
-          for (const k of keys) {
-            if (k.userId !== resolvedCallerId)
-              result.push({ publicKey: fromBase64(k.publicKey) });
-          }
-          return result;
-        };
+        const filter = filterOutCaller(resolvedCallerId);
         const execute = (rotation: StreamChatRotation): Promise<unknown> =>
           leaveRef.current({ conversationId: resolvedConversationId, rotation });
         await executeWithRotation({

@@ -68,9 +68,7 @@ function renderButton(
   // skipped by the accessibility tree. The grid cell sizes to max(idle width,
   // loading width). Result: button width is identical in idle vs loading.
   const visibleContent = isLoading ? renderLoadingContent(config) : renderIdleContent(config);
-  const reservationContent = isLoading
-    ? renderIdleContent(config)
-    : renderLoadingContent(config);
+  const reservationContent = isLoading ? renderIdleContent(config) : renderLoadingContent(config);
 
   return (
     <Button

@@ -4,15 +4,18 @@ import LandingHeader from '../../components/LandingHeader.astro';
 import SiteFooter from '../../components/SiteFooter.astro';
 import PageHero from '../../components/PageHero.astro';
 import BlogPostCard from '../../components/blog/BlogPostCard.astro';
-import Pagination from '../../components/blog/Pagination.astro';
 import { BlogSearch } from '../../components/blog/BlogSearch';
-import { getPublishedPosts, getAllTags, POSTS_PER_PAGE, BLOG_DESCRIPTION } from '../../lib/blog';
+import { getPublishedPosts, getAllTags, BLOG_DESCRIPTION } from '../../lib/blog';
 
 const allPosts = await getPublishedPosts();
 const allTags = getAllTags(allPosts);
 
-const totalPages = Math.max(1, Math.ceil(allPosts.length / POSTS_PER_PAGE));
-const pagePosts = allPosts.slice(0, POSTS_PER_PAGE);
+const tagCounts: Record<string, number> = {};
+for (const post of allPosts) {
+  for (const tag of post.data.tags) {
+    tagCounts[tag] = (tagCounts[tag] ?? 0) + 1;
+  }
+}
 
 const BLOG_CIPHER_MESSAGES: readonly string[] = [
   'Open Notebook',
@@ -34,12 +37,12 @@ const BLOG_CIPHER_MESSAGES: readonly string[] = [
 
     <section class="mx-auto max-w-5xl px-6 pb-12">
       <div class="space-y-8">
-        <BlogSearch allTags={allTags} client:load />
+        <BlogSearch allTags={allTags} tagCounts={tagCounts} client:load />
 
         {
-          pagePosts.length > 0 && (
+          allPosts.length > 0 && (
             <div class="grid gap-6 pt-4 md:grid-cols-2">
-              {pagePosts.map((post) => (
+              {allPosts.map((post) => (
                 <BlogPostCard post={post} />
               ))}
             </div>
@@ -51,8 +54,6 @@ const BLOG_CIPHER_MESSAGES: readonly string[] = [
             <p class="text-foreground-muted py-12 text-center">No posts yet. Check back soon.</p>
           )
         }
-
-        <Pagination currentPage={1} totalPages={totalPages} basePath="/blog" />
       </div>
     </section>
   </main>

@@ -1,14 +1,17 @@
 import * as React from 'react';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import {
-  Alert,
   Checkbox,
+  InlineFormError,
   Input,
   Label,
   ModalActions,
   Overlay,
   OverlayContent,
   OverlayHeader,
+  UserMessageError,
+  useAsyncAction,
+  type UseAsyncActionReturn,
 } from '@hushbox/ui';
 import {
   createOpaqueClient,
@@ -55,6 +58,18 @@ function formatBalanceDollars(raw: string): string {
   const value = Number.parseFloat(raw);
   if (!Number.isFinite(value)) return '$0.00';
   return `$${value.toFixed(2)}`;
+}
+
+// Translate an arbitrary thrown error into a UserMessageError carrying a
+// user-facing message. Lockout payloads with a `retryAfterSeconds` detail
+// produce a duration-aware string; other ApiError bodies use their code's
+// friendly message; opaque errors fall back to INTERNAL's generic message.
+function mapOpaqueError(error: unknown): UserMessageError {
+  if (error instanceof UserMessageError) return error;
+  const body = getErrorBody(error);
+  return new UserMessageError(
+    body ? messageFor(body.code, body.details) : friendlyErrorMessage('INTERNAL')
+  );
 }
 
 function computeStepNumber(step: Step, hasBalance: boolean, totpEnabled: boolean): number {
@@ -156,20 +171,19 @@ function WalletStep({
 function PasswordStep({
   password,
   onPasswordChange,
-  error,
-  isSubmitting,
+  passwordAction,
   onSubmit,
   onCancel,
   formRef,
 }: Readonly<{
   password: string;
   onPasswordChange: (value: string) => void;
-  error: string | null;
-  isSubmitting: boolean;
+  passwordAction: UseAsyncActionReturn;
   onSubmit: () => void;
   onCancel: () => void;
   formRef: React.RefObject<HTMLFormElement | null>;
 }>): React.JSX.Element {
+  const { isPending: isSubmitting, error, errorKey, clearError } = passwordAction;
   const hasError = error !== null;
   return (
     <>
@@ -179,7 +193,6 @@ function PasswordStep({
         ref={formRef}
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit();
         }}
       >
         <AuthPasswordInput
@@ -188,21 +201,20 @@ function PasswordStep({
           value={password}
           onChange={(e) => {
             onPasswordChange(e.target.value);
+            if (hasError) clearError();
           }}
           aria-invalid={hasError}
           aria-describedby={hasError ? PASSWORD_ERROR_ID : undefined}
         />
       </form>
-      {hasError && <Alert id={PASSWORD_ERROR_ID}>{error}</Alert>}
+      <InlineFormError error={error} errorKey={errorKey} id={PASSWORD_ERROR_ID} />
       <ModalActions
         cancel={{ label: 'Cancel', onClick: onCancel }}
         primary={{
           label: 'Continue',
           type: 'submit',
           form: 'delete-account-password-form',
-          onClick: () => {
-            /* handled by form submit */
-          },
+          onClick: onSubmit,
           disabled: password.length === 0,
           loading: isSubmitting,
           loadingLabel: 'Verifying...',
@@ -249,10 +261,9 @@ function TotpStep({
 interface FinalStepProps {
   confirmation: string;
   onConfirmationChange: (value: string) => void;
-  error: string | null;
+  finishAction: UseAsyncActionReturn;
   showStartOver: boolean;
   phraseMatches: boolean;
-  isSubmitting: boolean;
   onSubmit: () => void;
   onCancel: () => void;
   onStartOver: () => void;
@@ -261,14 +272,14 @@ interface FinalStepProps {
 function FinalStep({
   confirmation,
   onConfirmationChange,
-  error,
+  finishAction,
   showStartOver,
   phraseMatches,
-  isSubmitting,
   onSubmit,
   onCancel,
   onStartOver,
 }: Readonly<FinalStepProps>): React.JSX.Element {
+  const { isPending: isSubmitting, error, errorKey, clearError } = finishAction;
   const hasError = error !== null;
   const primary = {
     label: 'Delete account permanently',
@@ -299,6 +310,7 @@ function FinalStep({
           value={confirmation}
           onChange={(e) => {
             onConfirmationChange(e.target.value);
+            if (hasError) clearError();
           }}
           aria-label="Confirmation"
           aria-invalid={hasError}
@@ -307,7 +319,7 @@ function FinalStep({
           autoComplete="off"
         />
       </div>
-      {hasError && <Alert id={CONFIRMATION_ERROR_ID}>{error}</Alert>}
+      <InlineFormError error={error} errorKey={errorKey} id={CONFIRMATION_ERROR_ID} />
       {showStartOver ? (
         <ModalActions
           cancel={{
@@ -337,14 +349,13 @@ export function DeleteAccountModal({
   const [step, setStep] = useState<Step>('intro');
   const [walletAcknowledged, setWalletAcknowledged] = useState(false);
   const [password, setPassword] = useState('');
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [isPasswordSubmitting, setIsPasswordSubmitting] = useState(false);
   const [otpValue, setOtpValue] = useState('');
   const [totpError, setTotpError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState('');
-  const [finishError, setFinishError] = useState<string | null>(null);
   const [showStartOver, setShowStartOver] = useState(false);
   const [ke3, setKe3] = useState<number[] | null>(null);
+  const passwordAction = useAsyncAction();
+  const finishAction = useAsyncAction();
 
   const balanceRaw = balanceQuery.data?.balance;
   const balanceNumber = balanceRaw ? Number.parseFloat(balanceRaw) : 0;
@@ -352,19 +363,21 @@ export function DeleteAccountModal({
   const balanceDisplay = balanceRaw ? formatBalanceDollars(balanceRaw) : '$0.00';
   const balanceLoading = balanceQuery.isPending;
 
+  const { clearError: clearPasswordError } = passwordAction;
+  const { clearError: clearFinishError } = finishAction;
+
   const resetState = useCallback(() => {
     setStep('intro');
     setWalletAcknowledged(false);
     setPassword('');
-    setPasswordError(null);
-    setIsPasswordSubmitting(false);
     setOtpValue('');
     setTotpError(null);
     setConfirmation('');
-    setFinishError(null);
     setShowStartOver(false);
     setKe3(null);
-  }, []);
+    clearPasswordError();
+    clearFinishError();
+  }, [clearPasswordError, clearFinishError]);
 
   React.useEffect(() => {
     if (open) {
@@ -376,10 +389,8 @@ export function DeleteAccountModal({
   useFormEnterNav(formRef);
   const handleOpenAutoFocus = useMobileAutoFocus();
 
-  const handlePasswordSubmit = useCallback(async () => {
+  const runPasswordSubmit = useCallback(async (): Promise<void> => {
     if (password.length === 0) return;
-    setIsPasswordSubmitting(true);
-    setPasswordError(null);
     // Mirrors the disable-2FA / change-password defense-in-depth pattern:
     // the encoded byte copy is zeroed on every exit path so a heap inspection
     // after the modal closes can't recover it. JS strings stay un-zeroable.
@@ -395,44 +406,28 @@ export function DeleteAccountModal({
       try {
         loginResult = await finishLogin(opaqueClient, ke2, OPAQUE_SERVER_IDENTIFIER);
       } catch {
-        setPasswordError(friendlyErrorMessage('INCORRECT_PASSWORD'));
-        return;
+        throw new UserMessageError(friendlyErrorMessage('INCORRECT_PASSWORD'));
       }
       setKe3([...loginResult.ke3]);
       setStep(totpEnabled ? 'totp' : 'final');
     } catch (error) {
-      const body = getErrorBody(error);
-      setPasswordError(
-        body ? messageFor(body.code, body.details) : friendlyErrorMessage('INTERNAL')
-      );
+      throw mapOpaqueError(error);
     } finally {
       passwordBytes.fill(0);
-      setIsPasswordSubmitting(false);
     }
   }, [password, initMutation, totpEnabled]);
+
+  const handlePasswordSubmit = useCallback((): void => {
+    void passwordAction.run(runPasswordSubmit);
+  }, [passwordAction, runPasswordSubmit]);
 
   const phraseMatches = useMemo(
     () => confirmation.trim().toLowerCase() === DELETE_ACCOUNT_CONFIRMATION_PHRASE,
     [confirmation]
   );
 
-  const handleFinishError = useCallback((error: unknown) => {
-    const body = getErrorBody(error);
-    const code = body?.code;
-    // Route TOTP-shape errors back to the TOTP step so the user sees the
-    // error next to the offending input, not on the unrelated final step.
-    if (code === 'INVALID_TOTP_CODE' || code === 'TOTP_CODE_REQUIRED') {
-      setTotpError(messageFor(code));
-      setStep('totp');
-      return;
-    }
-    setFinishError(body ? messageFor(body.code, body.details) : friendlyErrorMessage('INTERNAL'));
-    if (code === 'NO_PENDING_DELETE_ACCOUNT') setShowStartOver(true);
-  }, []);
-
-  const handleFinishSubmit = useCallback(async () => {
+  const runFinishSubmit = useCallback(async (): Promise<void> => {
     if (!phraseMatches || ke3 === null) return;
-    setFinishError(null);
     setTotpError(null);
     setShowStartOver(false);
     try {
@@ -447,9 +442,24 @@ export function DeleteAccountModal({
       globalThis.location.href = ROUTES.MARKETING;
       clearLocalAuthState();
     } catch (error) {
-      handleFinishError(error);
+      const code = getErrorBody(error)?.code;
+      // TOTP-shape errors get routed back to the TOTP step so the user sees
+      // the error next to the offending input. Don't throw — the final step
+      // won't be visible anyway, so a thrown UserMessageError would surface
+      // on a step the user isn't on.
+      if (code === 'INVALID_TOTP_CODE' || code === 'TOTP_CODE_REQUIRED') {
+        setTotpError(messageFor(code));
+        setStep('totp');
+        return;
+      }
+      if (code === 'NO_PENDING_DELETE_ACCOUNT') setShowStartOver(true);
+      throw mapOpaqueError(error);
     }
-  }, [phraseMatches, ke3, confirmation, totpEnabled, otpValue, finishMutation, handleFinishError]);
+  }, [phraseMatches, ke3, confirmation, totpEnabled, otpValue, finishMutation]);
+
+  const handleFinishSubmit = useCallback((): void => {
+    void finishAction.run(runFinishSubmit);
+  }, [finishAction, runFinishSubmit]);
 
   const previousStep = useCallback(
     (current: Step): Step => {
@@ -476,6 +486,8 @@ export function DeleteAccountModal({
 
   if (!open) return null;
 
+  const isBusy = passwordAction.isPending || finishAction.isPending;
+
   const stepBody = renderStepBody({
     step,
     hasBalance,
@@ -485,8 +497,7 @@ export function DeleteAccountModal({
     setWalletAcknowledged,
     password,
     setPassword,
-    passwordError,
-    isPasswordSubmitting,
+    passwordAction,
     handlePasswordSubmit,
     formRef,
     otpValue,
@@ -495,10 +506,9 @@ export function DeleteAccountModal({
     setStep,
     confirmation,
     setConfirmation,
-    finishError,
+    finishAction,
     showStartOver,
     phraseMatches,
-    finishIsPending: finishMutation.isPending,
     handleFinishSubmit,
     resetState,
     handleCancel,
@@ -511,6 +521,7 @@ export function DeleteAccountModal({
       ariaLabel="Delete account"
       onOpenAutoFocus={handleOpenAutoFocus}
       currentStep={stepNumber}
+      dismissible={!isBusy}
       {...(step !== 'intro' && { onBack: handleBack })}
     >
       <OverlayContent data-testid="delete-account-modal" className="w-[75vw]">
@@ -529,9 +540,8 @@ interface StepBodyArgs {
   setWalletAcknowledged: (value: boolean) => void;
   password: string;
   setPassword: (value: string) => void;
-  passwordError: string | null;
-  isPasswordSubmitting: boolean;
-  handlePasswordSubmit: () => Promise<void>;
+  passwordAction: UseAsyncActionReturn;
+  handlePasswordSubmit: () => void;
   formRef: React.RefObject<HTMLFormElement | null>;
   otpValue: string;
   setOtpValue: (value: string) => void;
@@ -539,11 +549,10 @@ interface StepBodyArgs {
   setStep: React.Dispatch<React.SetStateAction<Step>>;
   confirmation: string;
   setConfirmation: (value: string) => void;
-  finishError: string | null;
+  finishAction: UseAsyncActionReturn;
   showStartOver: boolean;
   phraseMatches: boolean;
-  finishIsPending: boolean;
-  handleFinishSubmit: () => Promise<void>;
+  handleFinishSubmit: () => void;
   resetState: () => void;
   handleCancel: () => void;
 }
@@ -578,11 +587,8 @@ function renderStepBody(args: Readonly<StepBodyArgs>): React.JSX.Element | null 
       <PasswordStep
         password={args.password}
         onPasswordChange={args.setPassword}
-        error={args.passwordError}
-        isSubmitting={args.isPasswordSubmitting}
-        onSubmit={() => {
-          void args.handlePasswordSubmit();
-        }}
+        passwordAction={args.passwordAction}
+        onSubmit={args.handlePasswordSubmit}
         onCancel={args.handleCancel}
         formRef={args.formRef}
       />
@@ -605,13 +611,10 @@ function renderStepBody(args: Readonly<StepBodyArgs>): React.JSX.Element | null 
     <FinalStep
       confirmation={args.confirmation}
       onConfirmationChange={args.setConfirmation}
-      error={args.finishError}
+      finishAction={args.finishAction}
       showStartOver={args.showStartOver}
       phraseMatches={args.phraseMatches}
-      isSubmitting={args.finishIsPending}
-      onSubmit={() => {
-        void args.handleFinishSubmit();
-      }}
+      onSubmit={args.handleFinishSubmit}
       onCancel={args.handleCancel}
       onStartOver={args.resetState}
     />

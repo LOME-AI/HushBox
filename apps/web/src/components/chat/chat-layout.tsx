@@ -62,9 +62,7 @@ export interface GroupChatProps {
     | ((memberId: string, newPrivilege: string) => void | Promise<void>)
     | undefined;
   readonly onRevokeLinkClick?: ((linkId: string) => void | Promise<void>) | undefined;
-  readonly onSaveLinkName?:
-    | ((linkId: string, newName: string) => void | Promise<void>)
-    | undefined;
+  readonly onSaveLinkName?: ((linkId: string, newName: string) => void | Promise<void>) | undefined;
   readonly onChangeLinkPrivilege?:
     | ((linkId: string, newPrivilege: string) => void | Promise<void>)
     | undefined;

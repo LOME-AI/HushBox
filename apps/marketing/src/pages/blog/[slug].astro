@@ -81,7 +81,7 @@ const initials = post.data.author
         post.data.tags.length > 0 && (
           <div class="mt-4 flex flex-wrap gap-1.5">
             {post.data.tags.map((tag) => (
-              <a href={`/blog/tag/${tag}`}>
+              <a href={`/blog?tag=${tag}`}>
                 <Badge variant="secondary" className="text-xs">
                   {tag}
                 </Badge>

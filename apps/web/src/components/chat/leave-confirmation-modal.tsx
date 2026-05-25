@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Alert, useAsyncAction } from '@hushbox/ui';
-import type { ErrorCode } from '@hushbox/shared';
 import { ActionModal } from '../shared/action-modal.js';
+import type { ErrorCode } from '@hushbox/shared';
 
 interface LeaveConfirmationModalProps {
   open: boolean;
@@ -26,11 +26,6 @@ export function LeaveConfirmationModal({
 }: Readonly<LeaveConfirmationModalProps>): React.JSX.Element {
   const asyncAction = useAsyncAction();
 
-  const handleSubmit = React.useCallback(async (): Promise<void> => {
-    const maybe = onConfirm();
-    if (maybe instanceof Promise) await maybe;
-  }, [onConfirm]);
-
   return (
     <ActionModal
       open={open}
@@ -42,7 +37,12 @@ export function LeaveConfirmationModal({
         label: 'Leave',
         loadingLabel: 'Leaving…',
         variant: 'destructive',
-        onSubmit: handleSubmit,
+        // `await` on a non-Promise resolves immediately, so we can adapt the
+        // void-or-Promise callback to ActionModal's Promise-returning
+        // contract without a runtime `instanceof Promise` check.
+        onSubmit: async () => {
+          await onConfirm();
+        },
         testId: 'leave-confirmation-confirm',
       }}
       cancel={{

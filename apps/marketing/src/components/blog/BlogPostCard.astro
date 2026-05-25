@@ -16,6 +16,8 @@ const formattedDate = formatPostDate(date, 'short');
 
 <a
   href={`/blog/${slug}`}
+  data-blog-card
+  data-tags={tags.join(',')}
   class="border-border bg-card hover:border-brand-red group flex flex-col rounded-xl border-2 p-6 transition-colors"
 >
   <h3

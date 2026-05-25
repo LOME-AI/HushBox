@@ -1,6 +1,14 @@
 import * as React from 'react';
 import { useState, useCallback, useRef } from 'react';
-import { Overlay, OverlayContent, OverlayHeader, ModalActions } from '@hushbox/ui';
+import {
+  InlineFormError,
+  ModalActions,
+  Overlay,
+  OverlayContent,
+  OverlayHeader,
+  UserMessageError,
+  useAsyncAction,
+} from '@hushbox/ui';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { useOtpVerification } from '@/hooks/use-otp-verification';
@@ -21,9 +29,8 @@ export function DisableTwoFactorModal({
 }: Readonly<DisableTwoFactorModalProps>): React.JSX.Element | null {
   const [step, setStep] = useState<'password' | 'code'>('password');
   const [password, setPassword] = useState('');
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [isPasswordSubmitting, setIsPasswordSubmitting] = useState(false);
   const [ke3, setKe3] = useState<number[] | null>(null);
+  const passwordAction = useAsyncAction();
 
   const disableVerify = useCallback(
     async (code: string): Promise<{ success: boolean; error?: string }> => {
@@ -47,38 +54,35 @@ export function DisableTwoFactorModal({
   useFormEnterNav(formRef);
   const handleOpenAutoFocus = useMobileAutoFocus();
 
+  const { clearError } = passwordAction;
   React.useEffect(() => {
     if (open) {
       setStep('password');
       setPassword('');
-      setPasswordError(null);
-      setIsPasswordSubmitting(false);
       setKe3(null);
+      clearError();
       resetOtp();
     }
-  }, [open, resetOtp]);
+  }, [open, resetOtp, clearError]);
 
-  const handlePasswordSubmit = useCallback(async () => {
+  const handlePasswordSubmit = useCallback(async (): Promise<void> => {
     if (password.length === 0) return;
-
-    setIsPasswordSubmitting(true);
-    setPasswordError(null);
-
+    let result: Awaited<ReturnType<typeof disable2FAInit>>;
     try {
-      const result = await disable2FAInit(password);
-
-      if (result.success) {
-        setKe3(result.ke3);
-        setStep('code');
-      } else {
-        setPasswordError(result.error);
-      }
+      result = await disable2FAInit(password);
     } catch {
-      setPasswordError('Failed to verify password. Please try again.');
-    } finally {
-      setIsPasswordSubmitting(false);
+      throw new UserMessageError('Failed to verify password. Please try again.');
     }
+    if (!result.success) {
+      throw new UserMessageError(result.error);
+    }
+    setKe3(result.ke3);
+    setStep('code');
   }, [password]);
+
+  const triggerPasswordSubmit = useCallback((): void => {
+    void passwordAction.run(handlePasswordSubmit);
+  }, [passwordAction, handlePasswordSubmit]);
 
   const handleBack = useCallback(() => {
     setStep('password');
@@ -87,6 +91,13 @@ export function DisableTwoFactorModal({
 
   if (!open) return null;
 
+  const {
+    isPending: isPasswordSubmitting,
+    error: passwordError,
+    errorKey: passwordErrorKey,
+  } = passwordAction;
+  const isBusy = isPasswordSubmitting || isVerifying;
+
   return (
     <Overlay
       open={open}
@@ -94,6 +105,7 @@ export function DisableTwoFactorModal({
       ariaLabel="Disable two-factor authentication"
       onOpenAutoFocus={handleOpenAutoFocus}
       currentStep={step === 'password' ? 1 : 2}
+      dismissible={!isBusy}
       {...(step === 'code' && { onBack: handleBack })}
     >
       <OverlayContent data-testid="disable-two-factor-modal" className="w-[75vw]">
@@ -109,7 +121,6 @@ export function DisableTwoFactorModal({
               ref={formRef}
               onSubmit={(e) => {
                 e.preventDefault();
-                void handlePasswordSubmit();
               }}
             >
               <AuthPasswordInput
@@ -118,20 +129,19 @@ export function DisableTwoFactorModal({
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
+                  if (passwordError !== null) clearError();
                 }}
               />
             </form>
 
-            {passwordError && <p className="text-destructive text-sm">{passwordError}</p>}
+            <InlineFormError error={passwordError} errorKey={passwordErrorKey} />
 
             <ModalActions
               primary={{
                 label: 'Continue',
                 type: 'submit',
                 form: 'disable-2fa-password-form',
-                onClick: () => {
-                  /* handled by form submit */
-                },
+                onClick: triggerPasswordSubmit,
                 disabled: password.length === 0,
                 loading: isPasswordSubmitting,
                 loadingLabel: 'Verifying...',

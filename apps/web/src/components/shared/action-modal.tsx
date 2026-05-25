@@ -6,11 +6,12 @@ import {
   Overlay,
   OverlayContent,
   OverlayHeader,
+  type ModalActionButton,
   type OverlayContentProps,
   type UseAsyncActionReturn,
 } from '@hushbox/ui';
-import type { ErrorCode } from '@hushbox/shared';
 import { DevOnly } from './dev-only';
+import type { ErrorCode } from '@hushbox/shared';
 
 export interface ActionModalPrimaryButton {
   label: string;
@@ -67,6 +68,85 @@ export interface ActionModalProps {
   size?: OverlayContentProps['size'];
 }
 
+function ActionTitle({
+  title,
+  titleTestId,
+}: Readonly<{ title: string; titleTestId: string | undefined }>): React.JSX.Element {
+  if (titleTestId === undefined) {
+    return <OverlayHeader title={title} />;
+  }
+  return (
+    <div data-testid={titleTestId}>
+      <OverlayHeader title={title} />
+    </div>
+  );
+}
+
+function DevSimulateButtons({
+  codes,
+  onSimulate,
+}: Readonly<{
+  codes: readonly (ErrorCode | (string & {}))[];
+  onSimulate: (code: ErrorCode | (string & {})) => void;
+}>): React.JSX.Element | null {
+  if (codes.length === 0) return null;
+  return (
+    <DevOnly>
+      <div className="flex flex-col gap-2" data-testid="dev-simulate-failures">
+        {codes.map((code) => (
+          <Button
+            key={code}
+            type="button"
+            variant="outline"
+            onClick={() => {
+              onSimulate(code);
+            }}
+            data-testid={`dev-simulate-${String(code)}`}
+            className="w-full"
+          >
+            Simulate {String(code)}
+          </Button>
+        ))}
+      </div>
+    </DevOnly>
+  );
+}
+
+function buildPrimaryConfig(
+  primary: ActionModalPrimaryButton,
+  onClick: () => void,
+  isPending: boolean
+): ModalActionButton {
+  // Optional fields are only added when defined — ModalActions distinguishes
+  // `prop: undefined` from `prop` not being there at all in a few places.
+  const config: ModalActionButton = {
+    label: primary.label,
+    onClick,
+    loading: isPending,
+    disabled: primary.disabled === true || isPending,
+  };
+  if (primary.loadingLabel !== undefined) config.loadingLabel = primary.loadingLabel;
+  if (primary.variant !== undefined) config.variant = primary.variant;
+  if (primary.testId !== undefined) config.testId = primary.testId;
+  if (primary.type !== undefined) config.type = primary.type;
+  if (primary.form !== undefined) config.form = primary.form;
+  return config;
+}
+
+function buildCancelConfig(
+  cancel: ActionModalCancelButton,
+  onClick: () => void,
+  isPending: boolean
+): ModalActionButton {
+  const config: ModalActionButton = {
+    label: cancel.label,
+    onClick,
+    disabled: isPending,
+  };
+  if (cancel.testId !== undefined) config.testId = cancel.testId;
+  return config;
+}
+
 /**
  * Composite modal for an async user action (add member, remove member, save
  * settings, etc.). Standardises the four properties that every action modal
@@ -118,13 +198,27 @@ export function ActionModal({
     onOpenChange(false);
   }, [cancel, onOpenChange]);
 
-  // Auto-clear-on-input: any change/input event from a descendant input,
-  // textarea, or select dismisses the inline error. NN/G recommendation
-  // (Error-Message Guidelines): the persistent message reads as stale once
-  // the user visibly retries by editing their input.
-  const handleChange = React.useCallback((): void => {
-    if (error !== null) clearError();
-  }, [error, clearError]);
+  // Auto-clear-on-input: only react when the change/input bubbled up from an
+  // actual form control. Catching arbitrary descendant change events would
+  // clear errors prematurely if a non-form widget (custom Switch, etc.)
+  // bubbles a synthetic `onChange`.
+  const handleChange = React.useCallback(
+    (event: React.SyntheticEvent): void => {
+      if (error === null) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) {
+        clearError();
+      }
+    },
+    [error, clearError]
+  );
+
+  const overlayProps = onOpenAutoFocus === undefined ? {} : { onOpenAutoFocus };
+  const contentProps = size === undefined ? {} : { size };
 
   return (
     <Overlay
@@ -132,16 +226,10 @@ export function ActionModal({
       onOpenChange={onOpenChange}
       ariaLabel={ariaLabel ?? title}
       dismissible={!isPending}
-      {...(onOpenAutoFocus !== undefined && { onOpenAutoFocus })}
+      {...overlayProps}
     >
-      <OverlayContent data-testid={testId} {...(size !== undefined && { size })}>
-        {titleTestId !== undefined ? (
-          <div data-testid={titleTestId}>
-            <OverlayHeader title={title} />
-          </div>
-        ) : (
-          <OverlayHeader title={title} />
-        )}
+      <OverlayContent data-testid={testId} {...contentProps}>
+        <ActionTitle title={title} titleTestId={titleTestId} />
 
         {/* Children form region. The `onChange` capture clears stale errors
             without each modal having to wire it manually. */}
@@ -152,46 +240,14 @@ export function ActionModal({
         <InlineFormError error={error} errorKey={errorKey} />
 
         <ModalActions
-          {...(cancel !== undefined && {
-            cancel: {
-              label: cancel.label,
-              onClick: handleCancel,
-              disabled: isPending,
-              ...(cancel.testId !== undefined && { testId: cancel.testId }),
-            },
-          })}
-          primary={{
-            label: primary.label,
-            onClick: handlePrimary,
-            loading: isPending,
-            disabled: primary.disabled === true || isPending,
-            ...(primary.loadingLabel !== undefined && { loadingLabel: primary.loadingLabel }),
-            ...(primary.variant !== undefined && { variant: primary.variant }),
-            ...(primary.testId !== undefined && { testId: primary.testId }),
-            ...(primary.type !== undefined && { type: primary.type }),
-            ...(primary.form !== undefined && { form: primary.form }),
-          }}
+          {...(cancel === undefined
+            ? {}
+            : { cancel: buildCancelConfig(cancel, handleCancel, isPending) })}
+          primary={buildPrimaryConfig(primary, handlePrimary, isPending)}
         />
 
-        {devSimulateCodes !== undefined && devSimulateCodes.length > 0 && (
-          <DevOnly>
-            <div className="flex flex-col gap-2" data-testid="dev-simulate-failures">
-              {devSimulateCodes.map((code) => (
-                <Button
-                  key={code}
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    simulateFailure(code);
-                  }}
-                  data-testid={`dev-simulate-${String(code)}`}
-                  className="w-full"
-                >
-                  Simulate {String(code)}
-                </Button>
-              ))}
-            </div>
-          </DevOnly>
+        {devSimulateCodes !== undefined && (
+          <DevSimulateButtons codes={devSimulateCodes} onSimulate={simulateFailure} />
         )}
       </OverlayContent>
     </Overlay>
