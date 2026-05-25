@@ -17,7 +17,7 @@ const PROJECTS_RESPONSE = {
             id: 'proj-1',
             name: 'Project 1',
             color: '#ec4755',
-            state: { type: 'started' },
+            status: { type: 'started' },
           },
         ],
       },
@@ -111,6 +111,23 @@ describe('createRealLinearClient', () => {
     expect(captured[0]?.url).toBe('https://api.linear.app/graphql');
   });
 
+  it('filters projects via status (current schema), not deprecated state', async () => {
+    const client = createRealLinearClient('test-key');
+    await client.fetchRoadmap('HUS');
+    const projectsRequest = captured.find((c) => c.body.query.includes('PublicRoadmapProjects'));
+    expect(projectsRequest?.body.query).toMatch(/status:\s*\{\s*type:\s*\{\s*neq:\s*"canceled"/);
+    expect(projectsRequest?.body.query).not.toMatch(/state:\s*\{\s*name:/);
+    expect(projectsRequest?.body.query).not.toContain('cancelled');
+  });
+
+  it('selects status { type } on project nodes (state is deprecated scalar)', async () => {
+    const client = createRealLinearClient('test-key');
+    await client.fetchRoadmap('HUS');
+    const projectsRequest = captured.find((c) => c.body.query.includes('PublicRoadmapProjects'));
+    expect(projectsRequest?.body.query).toMatch(/status\s*\{\s*type\s*\}/);
+    expect(projectsRequest?.body.query).not.toMatch(/state\s*\{\s*type\s*\}/);
+  });
+
   it('sends the API key as a raw Authorization header without Bearer prefix', async () => {
     const client = createRealLinearClient('test-key');
     await client.fetchRoadmap('HUS');
@@ -155,6 +172,47 @@ describe('createRealLinearClient', () => {
     vi.stubGlobal('fetch', () => Promise.resolve(new Response('forbidden', { status: 401 })));
     const client = createRealLinearClient('bad-key');
     await expect(client.fetchRoadmap('HUS')).rejects.toThrow(LinearApiError);
+  });
+
+  it('includes the Linear response body in the LinearApiError message', async () => {
+    const errorBody = JSON.stringify({
+      errors: [{ message: "Field 'foo' is not defined on type 'StringComparator'" }],
+    });
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response(errorBody, { status: 400 })));
+    const client = createRealLinearClient('test-key');
+    await expect(client.fetchRoadmap('HUS')).rejects.toThrow(
+      /Field 'foo' is not defined on type 'StringComparator'/
+    );
+  });
+
+  it('exposes the response body on the LinearApiError instance', async () => {
+    const errorBody = '{"errors":[{"message":"bad query"}]}';
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response(errorBody, { status: 400 })));
+    const client = createRealLinearClient('test-key');
+    try {
+      await client.fetchRoadmap('HUS');
+      expect.fail('expected fetchRoadmap to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(LinearApiError);
+      expect((error as LinearApiError).body).toBe(errorBody);
+      expect((error as LinearApiError).status).toBe(400);
+    }
+  });
+
+  it('truncates the body in the error message but preserves the full body on .body', async () => {
+    const longBody = 'x'.repeat(600);
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response(longBody, { status: 400 })));
+    const client = createRealLinearClient('test-key');
+    try {
+      await client.fetchRoadmap('HUS');
+      expect.fail('expected fetchRoadmap to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(LinearApiError);
+      const err = error as LinearApiError;
+      expect(err.body).toBe(longBody);
+      expect(err.message).toMatch(/…$/);
+      expect(err.message.length).toBeLessThan(longBody.length);
+    }
   });
 
   it('throws when Linear returns a payload that fails the response schema', async () => {

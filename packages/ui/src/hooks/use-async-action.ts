@@ -1,0 +1,154 @@
+import { useCallback, useState } from 'react';
+import { friendlyErrorMessage, type ErrorCode } from '@hushbox/shared';
+import { toast } from 'sonner';
+
+export interface UseAsyncActionOptions {
+  /**
+   * Where the friendly error message goes when the wrapped action throws.
+   * - `'throw'` (default): set local `error` state. Use when there is a UI
+   *   surface attached to the hook instance (e.g. an `ActionModal` that
+   *   renders the inline error region from `error` + `errorKey`).
+   * - `'toast'`: call `toast.error(friendly)` and leave local `error` null.
+   *   Use when there is no modal/inline surface to attach to (e.g. a
+   *   select-on-change action that lives in a sidebar).
+   */
+  fallback?: 'throw' | 'toast';
+}
+
+/** Discriminated result of `run()`. Lets the caller distinguish success-with-
+ *  undefined-return from caught failure (a check on `T | undefined` cannot). */
+export type AsyncActionResult<T> = { ok: true; value: T } | { ok: false };
+
+export interface UseAsyncActionReturn {
+  /** True while a `run()` call is awaiting its action. */
+  isPending: boolean;
+  /** Friendly error message after the most recent failure, or null. */
+  error: string | null;
+  /**
+   * Bumped on every new error so consumers can re-key animations. Without the
+   * bump, two consecutive identical errors would not retrigger CSS keyframe
+   * animations attached to the error element.
+   */
+  errorKey: number;
+  /**
+   * Run an async action with managed loading + error state. Resolves with a
+   * discriminated result — never rejects. Use `result.ok` to branch. On
+   * `ok: true`, `value` is the action's return value (may itself be undefined
+   * if the action returned undefined).
+   */
+  run: <T>(action: () => Promise<T>) => Promise<AsyncActionResult<T>>;
+  /** Clear the inline error (called by ActionModal on user input). */
+  clearError: () => void;
+  /**
+   * Force the error state without executing an action. Drives the dev
+   * failure-simulator buttons — exercises the exact same surface path as a
+   * real server-returned failure.
+   */
+  simulateFailure: (code: ErrorCode | (string & {})) => void;
+  /**
+   * Set the inline error directly with a pre-localized, user-facing string,
+   * bypassing `friendlyErrorMessage`. Use only when bridging legacy callbacks
+   * that already return a finished user-facing message (e.g. the old
+   * `{ success: false, error: 'Current password is incorrect' }` shape).
+   * New code should throw an `ErrorCode` and let the hook translate.
+   */
+  setError: (message: string) => void;
+}
+
+/**
+ * Throw this from a `run()` action when you already have a user-facing
+ * message (e.g. bridging a legacy `{ success: false, error: 'Current
+ * password is incorrect' }` callback). The hook uses `message` directly
+ * without routing through `friendlyErrorMessage` — that path is for raw
+ * ErrorCode strings only.
+ */
+export class UserMessageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UserMessageError';
+  }
+}
+
+// Extract a code-like string from an arbitrary thrown error. `ApiError` (from
+// apps/web/src/lib/api.ts) stores the API error code in `.message`, so this
+// covers the load-bearing case. Unknown shapes fall through to 'INTERNAL'
+// which `friendlyErrorMessage` already routes to the generic fallback.
+function extractErrorCode(error: unknown): string {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const m = (error as { message: unknown }).message;
+    if (typeof m === 'string' && m.length > 0) return m;
+  }
+  return 'INTERNAL';
+}
+
+export function useAsyncAction(options?: UseAsyncActionOptions): UseAsyncActionReturn {
+  const [isPending, setIsPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState(0);
+  const fallback = options?.fallback ?? 'throw';
+
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  const surfaceError = useCallback(
+    (message: string): void => {
+      if (fallback === 'toast') {
+        toast.error(message);
+        setError(null);
+      } else {
+        setError(message);
+      }
+      setErrorKey((k) => k + 1);
+    },
+    [fallback]
+  );
+
+  const run = useCallback(
+    async <T>(action: () => Promise<T>): Promise<AsyncActionResult<T>> => {
+      setIsPending(true);
+      setError(null);
+      try {
+        const value = await action();
+        return { ok: true, value };
+      } catch (e: unknown) {
+        // UserMessageError carries a pre-localized message; use it verbatim.
+        // Anything else goes through friendlyErrorMessage as an ErrorCode.
+        if (e instanceof UserMessageError) {
+          surfaceError(e.message);
+        } else {
+          const code = extractErrorCode(e);
+          surfaceError(friendlyErrorMessage(code));
+        }
+        return { ok: false };
+      } finally {
+        setIsPending(false);
+      }
+    },
+    [surfaceError]
+  );
+
+  const simulateFailure = useCallback(
+    (code: ErrorCode | (string & {})): void => {
+      surfaceError(friendlyErrorMessage(code));
+    },
+    [surfaceError]
+  );
+
+  const setErrorDirect = useCallback(
+    (message: string): void => {
+      surfaceError(message);
+    },
+    [surfaceError]
+  );
+
+  return {
+    isPending,
+    error,
+    errorKey,
+    run,
+    clearError,
+    simulateFailure,
+    setError: setErrorDirect,
+  };
+}

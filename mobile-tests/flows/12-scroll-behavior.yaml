@@ -4,8 +4,12 @@ tags:
   - should
 androidWebViewHierarchy: devtools
 env:
-  TEST_EMAIL: test-mobile@test.hushbox.ai
-  TEST_PASSWORD: password123
+  # See 10-core-user-flow.yaml for the full reasoning. Short version:
+  # Maestro 2.6.0 takes ~10 s per character on Capacitor WebViews on
+  # docker-android (issue #2718), so we use the shortest legal username
+  # (3 chars) instead of the 27-char email.
+  TEST_USERNAME: tmu
+  TEST_PASSWORD: pass1234
 ---
 - launchApp:
     clearState: true
@@ -21,7 +25,7 @@ env:
     visible: 'Welcome back'
     timeout: 10000
 - tapOn: 'Email or Username'
-- inputText: ${TEST_EMAIL}
+- inputText: ${TEST_USERNAME}
 - hideKeyboard
 - tapOn: 'Password'
 - inputText: ${TEST_PASSWORD}

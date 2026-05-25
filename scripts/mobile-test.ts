@@ -502,33 +502,6 @@ export async function configureAppLinks(): Promise<void> {
   );
 }
 
-/**
- * Prime the soft keyboard (Gboard on docker-android) by typing a dummy string
- * through `adb shell input text` — which bypasses the IME state machine and
- * lands characters via InputManager directly. Without this, Maestro's first
- * `inputText` against a focused WebView field can stall on per-keystroke
- * IME callbacks for the full 120s gRPC deadline. Once the IME process has
- * dispatched any text successfully, subsequent Maestro key events flow
- * normally.
- *
- * The dummy text is sent to whatever happens to have focus (typically the
- * launcher when called between `installApk` and the first `launchApp`), so it
- * has no effect on test state.
- */
-export async function primeImeKeyboard(): Promise<void> {
-  const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
-  console.log('Priming soft keyboard IME...');
-  // Three passes so Gboard's dictionary/prediction caches stay warm for the
-  // whole flow batch. One pass works for an isolated flow but degrades
-  // across flows. Plain alphanumeric only — `adb shell input text` escaping
-  // for punctuation is shell-dependent.
-  for (const text of ['maestrowarmup', 'emailtestseed', 'passwordseed123']) {
-    await execa('adb', ['-s', `localhost:${adbPort}`, 'shell', 'input', 'text', text], {
-      stdio: 'inherit',
-    });
-  }
-}
-
 export async function runMaestro(smoke: boolean): Promise<void> {
   const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
   const apiPort = process.env['HB_API_PORT'] ?? '8787';
@@ -571,12 +544,6 @@ export async function runMaestro(smoke: boolean): Promise<void> {
     ...flowArgs,
   ];
 
-  // Prime the IME immediately before invoking Maestro — Gboard's per-keystroke
-  // dispatch on docker-android stalls Maestro's first `inputText` for the
-  // full 120s gRPC deadline unless the IME has already processed text. We
-  // re-prime before the retry batch for the same reason.
-  await primeImeKeyboard();
-
   console.log(`Running Maestro tests${smoke ? ' (smoke)' : ''}...`);
   const result = await execa('maestro', args, {
     stdout: ['pipe', 'inherit'],
@@ -593,7 +560,6 @@ export async function runMaestro(smoke: boolean): Promise<void> {
   }
 
   console.log(`\nRetrying ${String(failedPaths.length)} failed flow(s)...`);
-  await primeImeKeyboard();
   await execa(
     'maestro',
     [

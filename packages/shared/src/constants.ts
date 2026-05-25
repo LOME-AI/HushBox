@@ -7,7 +7,7 @@ export const TOUCH_QUERY = '(pointer: coarse)';
 
 /** Shared password for all dev personas. Only for local development. */
 // eslint-disable-next-line sonarjs/no-hardcoded-passwords -- intentional dev-only password
-export const DEV_PASSWORD = 'password123';
+export const DEV_PASSWORD = 'pass1234';
 
 /** Email domain for development personas */
 export const DEV_EMAIL_DOMAIN = 'dev.hushbox.ai';

@@ -1,7 +1,15 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { Lock, Link as LinkIcon } from 'lucide-react';
-import { Overlay, ModalActions, Alert, OverlayContent, OverlayHeader } from '@hushbox/ui';
+import {
+  Overlay,
+  ModalActions,
+  Alert,
+  OverlayContent,
+  OverlayHeader,
+  InlineFormError,
+  useAsyncAction,
+} from '@hushbox/ui';
 import { useMessageShare } from '../../hooks/use-message-share.js';
 
 interface ShareMessageModalProps {
@@ -117,12 +125,14 @@ export function ShareMessageModal({
 
   const share = useMessageShare();
   const mutateAsync = share.mutateAsync;
-  const isPending = share.isPending;
+  const asyncAction = useAsyncAction();
+  const isPending = asyncAction.isPending;
 
   const [previousOpen, setPreviousOpen] = useState(open);
   if (open !== previousOpen) {
     setPreviousOpen(open);
     setGeneratedUrl(null);
+    asyncAction.clearError();
   }
 
   async function handleCreate(): Promise<void> {
@@ -134,14 +144,16 @@ export function ShareMessageModal({
       return;
     }
 
-    const result = await mutateAsync({
-      messageId,
-      conversationId,
-      epochNumber,
-      wrappedContentKey,
-    });
+    const result = await asyncAction.run(async () =>
+      mutateAsync({
+        messageId,
+        conversationId,
+        epochNumber,
+        wrappedContentKey,
+      })
+    );
 
-    setGeneratedUrl(result.url);
+    if (result.ok) setGeneratedUrl(result.value.url);
   }
 
   function handleCancel(): void {
@@ -149,7 +161,12 @@ export function ShareMessageModal({
   }
 
   return (
-    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Share Message">
+    <Overlay
+      open={open}
+      onOpenChange={onOpenChange}
+      ariaLabel="Share Message"
+      dismissible={!isPending}
+    >
       <OverlayContent data-testid="share-message-modal">
         <OverlayHeader title="Share Message" />
 
@@ -174,6 +191,8 @@ export function ShareMessageModal({
             }
           },
         })}
+
+        <InlineFormError error={asyncAction.error} errorKey={asyncAction.errorKey} />
       </OverlayContent>
     </Overlay>
   );

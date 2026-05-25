@@ -9,7 +9,7 @@ import { FormInput } from '@/components/shared/form-input';
 import { AuthButton } from '@/components/auth/AuthButton';
 import { PasswordField, ConfirmPasswordField } from '@/components/auth/password-field';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
-import { AuthShakeError } from '@/components/auth/auth-shake-error';
+import { InlineFormError } from '@hushbox/ui';
 import { CheckYourEmail } from '@/components/auth/check-your-email';
 import { ExternalPageLink } from '@/components/shared/external-page-link';
 import {
@@ -149,7 +149,7 @@ export function SignupPage(): React.JSX.Element {
           }}
         />
 
-        <AuthShakeError error={error} errorKey={errorKey} />
+        <InlineFormError error={error} errorKey={errorKey} />
 
         <p className="text-muted-foreground text-center text-xs">
           By creating an account, you agree to our{' '}

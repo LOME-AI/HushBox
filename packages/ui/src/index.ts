@@ -1,4 +1,8 @@
 export { Alert, alertVariants } from './components/alert';
+export {
+  InlineFormError,
+  type InlineFormErrorProps,
+} from './components/inline-form-error';
 export { Button, buttonVariants } from './components/button';
 export { IconButton } from './components/icon-button';
 export { Input, type InputProps } from './components/input';
@@ -122,6 +126,13 @@ export { useVisualViewportHeight } from './hooks/use-visual-viewport-height';
 export { useIsTouchDevice, TOUCH_QUERY } from './hooks/use-is-touch-device';
 export { useIsMobile } from './hooks/use-is-mobile';
 export { useAnimationFrame } from './hooks/use-animation-frame';
+export {
+  useAsyncAction,
+  UserMessageError,
+  type UseAsyncActionOptions,
+  type UseAsyncActionReturn,
+  type AsyncActionResult,
+} from './hooks/use-async-action';
 export {
   useReducedMotion,
   shouldReduceMotion,

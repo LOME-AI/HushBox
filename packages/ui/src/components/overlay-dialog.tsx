@@ -22,15 +22,23 @@ function OverlayDialog({
   showCloseButton = true,
   currentStep,
   onBack,
+  dismissible = true,
 }: Readonly<OverlayProps>): React.JSX.Element {
   const showBackButton = currentStep !== undefined && currentStep > 1 && onBack !== undefined;
+  // When undismissible, suppress the close button entirely — leaving it visible
+  // while it does nothing would be a UI lie.
+  const renderCloseButton = showCloseButton && dismissible;
 
-  const closeElement = showCloseButton ? (
+  const closeElement = renderCloseButton ? (
     <DialogPrimitive.Close data-slot="overlay-close" className={CLOSE_BUTTON_CLASS}>
       <XIcon />
       <span className="sr-only">Close</span>
     </DialogPrimitive.Close>
   ) : null;
+
+  const preventDismiss = (event: Event): void => {
+    if (!dismissible) event.preventDefault();
+  };
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -55,6 +63,9 @@ function OverlayDialog({
           )}
           aria-describedby={undefined}
           onOpenAutoFocus={onOpenAutoFocus}
+          onEscapeKeyDown={preventDismiss}
+          onPointerDownOutside={preventDismiss}
+          onInteractOutside={preventDismiss}
         >
           <DialogPrimitive.Title className="sr-only">{ariaLabel}</DialogPrimitive.Title>
           <OverlayNavButtons

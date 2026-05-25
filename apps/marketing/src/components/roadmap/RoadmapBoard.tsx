@@ -5,29 +5,28 @@ import { computeBoard } from './compute-board';
 import { FilterChips } from './FilterChips';
 import { StatusSection } from './StatusSection';
 import { EmptyState } from './EmptyState';
+import { placeholderRoadmap } from './placeholder-data';
 
 const STATUS_ORDER: readonly FilterStatus[] = ['in_progress', 'planned', 'shipped'];
 
 /**
  * Top-level React island for the public roadmap page. Owns the API query
- * and the filter state; everything below is presentational. The shell
- * renders a loading state and an error state — once data arrives, the
- * board is a stack of {@link StatusSection}s with {@link FilterChips}
- * pinned above and {@link EmptyState} substituted when filters yield no
- * visible projects.
+ * and the filter state; everything below is presentational. During loading
+ * the same component tree renders against a placeholder dataset wrapped in
+ * `data-skeleton` + `inert`; a global CSS rule masks the text into shimmer
+ * bars (see `src/styles/global.css`). Rendering the real tree as the
+ * skeleton means a future layout change to {@link ProjectCard} or
+ * {@link FilterChips} cannot drift away from what the skeleton displays.
  */
 export function RoadmapBoard(): React.JSX.Element {
   const { data, error, isLoading } = useRoadmapQuery();
   const { statuses, types, toggleStatus, toggleType, reset } = useFilterState();
 
-  const board = React.useMemo(() => {
-    if (data === null) return null;
-    return computeBoard(data.nodes);
-  }, [data]);
-
-  if (isLoading) {
-    return <BoardSkeleton />;
-  }
+  const effectiveData = isLoading ? placeholderRoadmap : data;
+  const board = React.useMemo(
+    () => (effectiveData === null ? null : computeBoard(effectiveData.nodes)),
+    [effectiveData]
+  );
 
   if (error !== null || board === null) {
     return <BoardError />;
@@ -39,8 +38,8 @@ export function RoadmapBoard(): React.JSX.Element {
     0
   );
 
-  return (
-    <div className="flex flex-col gap-8" data-roadmap-ready>
+  const body = (
+    <>
       <FilterChips
         statuses={statuses}
         types={types}
@@ -61,18 +60,29 @@ export function RoadmapBoard(): React.JSX.Element {
           />
         ))
       )}
-    </div>
+    </>
   );
-}
 
-function BoardSkeleton(): React.JSX.Element {
+  if (isLoading) {
+    return (
+      <div
+        className="flex flex-col gap-8"
+        data-testid="roadmap-loading"
+        data-skeleton
+        inert
+        role="status"
+        aria-label="Loading roadmap"
+        aria-busy={true}
+      >
+        {body}
+      </div>
+    );
+  }
+
   return (
-    <div
-      data-testid="roadmap-loading"
-      role="status"
-      aria-label="Loading roadmap"
-      className="border-border bg-background-subtle/40 flex h-64 animate-pulse items-center justify-center rounded-lg border"
-    />
+    <div className="flex flex-col gap-8" data-roadmap-ready>
+      {body}
+    </div>
   );
 }
 

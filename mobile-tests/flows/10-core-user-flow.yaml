@@ -4,8 +4,17 @@ tags:
   - should
 androidWebViewHierarchy: devtools
 env:
-  TEST_EMAIL: test-mobile@test.hushbox.ai
-  TEST_PASSWORD: password123
+  # Sign in with the shortest legal username instead of the 27-char email.
+  # Maestro 2.6.0 spends ~10 s per character on Capacitor WebView fields on
+  # docker-android — `UiDevice.pressKeyCode` calls `injectInputEvent`
+  # synchronously and the WebView's ack round-trip is ~10 s per event. The
+  # 120 s gRPC deadline then caps inputText to ~11 chars (see Maestro issue
+  # #2718). At 3 chars this call completes in ~30 s instead of ~110 s.
+  # `tmu` is the seeded MOBILE_TEST_PERSONA username (scripts/seed.ts);
+  # OPAQUE login by username runs the identical server path as by email
+  # (resolveIdentifierCondition in opaque-auth.ts), so assertions stay valid.
+  TEST_USERNAME: tmu
+  TEST_PASSWORD: pass1234
 ---
 - launchApp:
     clearState: true
@@ -23,7 +32,7 @@ env:
 
 # Fill login form
 - tapOn: 'Email or Username'
-- inputText: ${TEST_EMAIL}
+- inputText: ${TEST_USERNAME}
 - hideKeyboard
 
 - tapOn: 'Password'

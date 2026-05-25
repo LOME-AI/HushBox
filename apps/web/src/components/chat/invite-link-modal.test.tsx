@@ -296,7 +296,9 @@ describe('InviteLinkModal', () => {
     await userEvent.click(screen.getByTestId('invite-link-generate-button'));
 
     const copyButton = screen.getByTestId('invite-link-copy-button');
-    const doneButton = screen.getByText('Done');
+    // ModalActions renders label text twice per button (visible slot + width-
+    // reservation slot) so query by role to get the actual <button>.
+    const doneButton = screen.getByRole('button', { name: 'Done' });
 
     const container = copyButton.parentElement;
     expect(container).toHaveClass('flex');

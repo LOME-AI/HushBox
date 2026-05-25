@@ -36,6 +36,12 @@ vi.mock('@hushbox/ui', () => ({
       <input id={id} {...props} />
     </div>
   ),
+  InlineFormError: ({ error, errorKey }: { error: string | null; errorKey: number }) =>
+    error === null ? null : (
+      <p key={errorKey} role="alert">
+        {error}
+      </p>
+    ),
 }));
 
 vi.mock('@/components/shared/form-input', () => ({

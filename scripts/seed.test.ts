@@ -897,7 +897,7 @@ describe('seed script', () => {
     });
 
     it('has a varchar(20)-safe username', () => {
-      expect(MOBILE_TEST_PERSONA.username).toBe('test_mobile');
+      expect(MOBILE_TEST_PERSONA.username).toBe('tmu');
       expect(MOBILE_TEST_PERSONA.username.length).toBeLessThanOrEqual(20);
     });
 

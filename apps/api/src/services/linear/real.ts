@@ -39,7 +39,7 @@ const projectsResponseSchema = z.object({
               id: z.string().min(1),
               name: z.string().min(1),
               color: z.string().min(1),
-              state: z.object({
+              status: z.object({
                 type: projectStateTypeSchema,
               }),
             })
@@ -87,12 +87,12 @@ const issuesResponseSchema = z.object({
 const PROJECTS_QUERY = `
   query PublicRoadmapProjects($teamKey: String!) {
     team(key: $teamKey) {
-      projects(filter: { state: { name: { neq: "cancelled" } } }) {
+      projects(filter: { status: { type: { neq: "canceled" } } }) {
         nodes {
           id
           name
           color
-          state { type }
+          status { type }
         }
       }
     }
@@ -159,7 +159,7 @@ async function fetchProjects(apiKey: string, teamKey: string): Promise<readonly 
     id: node.id,
     name: node.name,
     color: node.color,
-    stateType: node.state.type,
+    stateType: node.status.type,
   }));
 }
 
@@ -213,14 +213,21 @@ async function postGraphQL(
     body: JSON.stringify({ query, variables }),
   });
   if (!response.ok) {
-    throw new LinearApiError(`Linear API responded with status ${String(response.status)}`);
+    const body = await response.text();
+    throw new LinearApiError(response.status, body);
   }
   return response.json();
 }
 
 export class LinearApiError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly status: number;
+  readonly body: string;
+
+  constructor(status: number, body: string) {
+    const truncated = body.length > 500 ? `${body.slice(0, 500)}…` : body;
+    super(`Linear API responded with status ${String(status)}: ${truncated}`);
     this.name = 'LinearApiError';
+    this.status = status;
+    this.body = body;
   }
 }

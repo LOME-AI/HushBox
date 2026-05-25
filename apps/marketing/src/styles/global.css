@@ -190,3 +190,75 @@
     opacity: 1;
   }
 }
+
+/*
+ * Ghost-UI skeleton. RoadmapBoard stamps [data-skeleton] on its wrapper
+ * while the API is in flight and renders the real component tree against
+ * a placeholder dataset. The rules below mask text into bars and mute
+ * coloured surfaces so the skeleton mirrors the loaded layout — adding a
+ * field to ProjectCard automatically appears in the skeleton, without a
+ * parallel skeleton component to keep in sync.
+ */
+
+[data-skeleton] {
+  position: relative;
+}
+
+[data-skeleton],
+[data-skeleton] * {
+  color: transparent !important;
+  text-shadow: none !important;
+}
+
+[data-skeleton] :is(button, [role='progressbar'] > *) {
+  background-color: var(--color-background-subtle) !important;
+  background-image: none !important;
+  border-color: var(--color-border) !important;
+  cursor: default !important;
+}
+
+[data-skeleton] :is(h1, h2, h3, h4, p, span):not(:has(*)) {
+  background-color: var(--color-foreground);
+  border-radius: 3px;
+  opacity: 0.18;
+}
+
+[data-skeleton] [aria-hidden='true']:not(:has(*)) {
+  background-color: var(--color-foreground) !important;
+  opacity: 0.18;
+}
+
+[data-skeleton] svg {
+  visibility: hidden;
+}
+
+/* The shimmer is disabled under reduced motion by the global rule in
+   packages/ui/src/components/accessibility/styles/motion.css, which
+   pins animation-duration to 0.01ms on every element + pseudo-element
+   when `html.reduced-motion` is set. That class is toggled by the
+   accessibility broadcaster off the merged OS preference + in-app
+   toggle, so a local `@media (prefers-reduced-motion)` here would
+   only catch half the signal. */
+[data-skeleton]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: hb-skeleton-shimmer 1.8s linear infinite;
+}
+
+@keyframes hb-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

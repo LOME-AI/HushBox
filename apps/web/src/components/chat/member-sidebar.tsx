@@ -27,6 +27,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   SidebarPanel,
+  useAsyncAction,
   useIsMobile,
 } from '@hushbox/ui';
 import {
@@ -57,13 +58,17 @@ interface LinkEntry {
 }
 
 interface MemberSidebarCallbacks {
-  onRemoveMember?: ((memberId: string) => void) | undefined;
-  onChangePrivilege?: ((memberId: string, newPrivilege: string) => void) | undefined;
-  onRevokeLinkClick?: ((linkId: string) => void) | undefined;
-  onSaveLinkName?: ((linkId: string, newName: string) => void) | undefined;
-  onChangeLinkPrivilege?: ((linkId: string, newPrivilege: string) => void) | undefined;
+  onRemoveMember?: ((memberId: string) => void | Promise<void>) | undefined;
+  onChangePrivilege?:
+    | ((memberId: string, newPrivilege: string) => void | Promise<void>)
+    | undefined;
+  onRevokeLinkClick?: ((linkId: string) => void | Promise<void>) | undefined;
+  onSaveLinkName?: ((linkId: string, newName: string) => void | Promise<void>) | undefined;
+  onChangeLinkPrivilege?:
+    | ((linkId: string, newPrivilege: string) => void | Promise<void>)
+    | undefined;
   onBudgetSettingsClick?: (() => void) | undefined;
-  onLeaveClick?: (() => void) | undefined;
+  onLeaveClick?: (() => void | Promise<void>) | undefined;
   onAddMember?: (() => void) | undefined;
   onInviteLink?: (() => void) | undefined;
 }
@@ -379,6 +384,44 @@ function MemberSidebarBody({
   } | null>(null);
   const isAdmin = canManageLinks(currentUserPrivilege);
 
+  // Inline-control mutations (privilege select-on-change, name inline-edit,
+  // link-privilege select-on-change) have no modal to attach an error to.
+  // Wrap each in useAsyncAction with fallback='toast' so failures still
+  // surface visibly instead of being silently swallowed by the void caller.
+  const changePrivilegeAction = useAsyncAction({ fallback: 'toast' });
+  const saveLinkNameAction = useAsyncAction({ fallback: 'toast' });
+  const changeLinkPrivilegeAction = useAsyncAction({ fallback: 'toast' });
+
+  const handleChangePrivilege = React.useCallback(
+    (memberId: string, newPrivilege: string): void => {
+      void changePrivilegeAction.run(async () => {
+        const maybe = onChangePrivilege?.(memberId, newPrivilege);
+        if (maybe instanceof Promise) await maybe;
+      });
+    },
+    [onChangePrivilege, changePrivilegeAction]
+  );
+
+  const handleSaveLinkName = React.useCallback(
+    (linkId: string, newName: string): void => {
+      void saveLinkNameAction.run(async () => {
+        const maybe = onSaveLinkName?.(linkId, newName);
+        if (maybe instanceof Promise) await maybe;
+      });
+    },
+    [onSaveLinkName, saveLinkNameAction]
+  );
+
+  const handleChangeLinkPrivilege = React.useCallback(
+    (linkId: string, newPrivilege: string): void => {
+      void changeLinkPrivilegeAction.run(async () => {
+        const maybe = onChangeLinkPrivilege?.(linkId, newPrivilege);
+        if (maybe instanceof Promise) await maybe;
+      });
+    },
+    [onChangeLinkPrivilege, changeLinkPrivilegeAction]
+  );
+
   const filteredMembers = React.useMemo(() => {
     if (searchQuery.trim() === '') return members;
     const normalizedQuery = normalizeUsername(searchQuery);
@@ -491,7 +534,9 @@ function MemberSidebarBody({
                   isOnline={onlineMemberIds.has(member.userId)}
                   isAdmin={isAdmin}
                   onRemoveMember={handleRequestRemove}
-                  onChangePrivilege={onChangePrivilege}
+                  onChangePrivilege={
+                    onChangePrivilege === undefined ? undefined : handleChangePrivilege
+                  }
                   onLeaveClick={
                     onLeaveClick === undefined
                       ? undefined
@@ -508,8 +553,12 @@ function MemberSidebarBody({
                   index={links.indexOf(link)}
                   isCurrentLink={currentUserLinkId !== null && link.id === currentUserLinkId}
                   isAdmin={isAdmin}
-                  onChangeLinkPrivilege={onChangeLinkPrivilege}
-                  onSaveLinkName={onSaveLinkName}
+                  onChangeLinkPrivilege={
+                    onChangeLinkPrivilege === undefined ? undefined : handleChangeLinkPrivilege
+                  }
+                  onSaveLinkName={
+                    onSaveLinkName === undefined ? undefined : handleSaveLinkName
+                  }
                   onRequestRevoke={handleRequestRevoke}
                 />
               ))}
@@ -522,7 +571,12 @@ function MemberSidebarBody({
         open={leaveModalOpen}
         onOpenChange={setLeaveModalOpen}
         isOwner={currentUserPrivilege === 'owner'}
-        onConfirm={() => onLeaveClick?.()}
+        onConfirm={async () => {
+          // Propagate the Promise so LeaveConfirmationModal's ActionModal
+          // can hold the inline-error region open on failure (instead of
+          // closing optimistically and losing the rotation result).
+          await onLeaveClick?.();
+        }}
       />
       <ConfirmationModal
         open={removeMemberTarget !== null}
@@ -532,8 +586,12 @@ function MemberSidebarBody({
         title={`Remove ${removeMemberTarget?.name ?? ''}?`}
         warning="This member will lose access to the conversation."
         confirmLabel="Remove"
-        onConfirm={() => {
-          if (removeMemberTarget) onRemoveMember?.(removeMemberTarget.id);
+        onConfirm={async () => {
+          // Awaiting onRemoveMember surfaces its Promise to ConfirmationModal's
+          // ActionModal. On success, both the explicit setState below and the
+          // modal's own onOpenChange close the overlay; on failure, the throw
+          // skips setState and the modal stays open with the inline error.
+          if (removeMemberTarget) await onRemoveMember?.(removeMemberTarget.id);
           setRemoveMemberTarget(null);
         }}
         ariaLabel="Remove Member"
@@ -547,8 +605,8 @@ function MemberSidebarBody({
         title={`Revoke ${revokeLinkTarget?.name ?? ''}?`}
         warning="Anyone with this link will lose access to the conversation."
         confirmLabel="Revoke"
-        onConfirm={() => {
-          if (revokeLinkTarget) onRevokeLinkClick?.(revokeLinkTarget.id);
+        onConfirm={async () => {
+          if (revokeLinkTarget) await onRevokeLinkClick?.(revokeLinkTarget.id);
           setRevokeLinkTarget(null);
         }}
         ariaLabel="Revoke Link"
@@ -651,7 +709,7 @@ interface MemberRowProps {
   isAdmin: boolean;
   onRemoveMember?: ((memberId: string) => void) | undefined;
   onChangePrivilege?: ((memberId: string, newPrivilege: string) => void) | undefined;
-  onLeaveClick?: (() => void) | undefined;
+  onLeaveClick?: (() => void | Promise<void>) | undefined;
 }
 
 function MemberRow({

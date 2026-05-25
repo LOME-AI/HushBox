@@ -426,7 +426,9 @@ describe('friendlyErrorMessage', () => {
   });
 
   it('maps EPOCH_NOT_FOUND to user-facing message', () => {
-    expect(friendlyErrorMessage('EPOCH_NOT_FOUND')).toBe('Current epoch not found.');
+    expect(friendlyErrorMessage('EPOCH_NOT_FOUND')).toBe(
+      'This conversation is out of sync. Please refresh the page.'
+    );
   });
 
   it('maps MESSAGE_NOT_FOUND to user-facing message', () => {
@@ -443,13 +445,19 @@ describe('friendlyErrorMessage', () => {
 
   it('maps WRAP_SET_MISMATCH to user-facing message', () => {
     expect(friendlyErrorMessage('WRAP_SET_MISMATCH')).toBe(
-      'Member wrap set does not match active members.'
+      'Members changed while you were working. Please try again.'
     );
   });
 
   it('maps ROTATION_REQUIRED to user-facing message', () => {
     expect(friendlyErrorMessage('ROTATION_REQUIRED')).toBe(
-      'Epoch rotation is required for this operation.'
+      "This action couldn't complete because the conversation changed. Please try again."
+    );
+  });
+
+  it('maps STALE_EPOCH to user-facing message naming the actual cause', () => {
+    expect(friendlyErrorMessage('STALE_EPOCH')).toBe(
+      'Someone else just changed this conversation. Please try again.'
     );
   });
 

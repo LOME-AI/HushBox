@@ -35,6 +35,24 @@ export interface ModalActionsProps {
   className?: string;
 }
 
+function renderIdleContent(config: ModalActionButton): React.JSX.Element {
+  return (
+    <>
+      {config.icon !== undefined && config.icon}
+      {config.label}
+    </>
+  );
+}
+
+function renderLoadingContent(config: ModalActionButton): React.JSX.Element {
+  return (
+    <>
+      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+      {config.loadingLabel ?? config.label}
+    </>
+  );
+}
+
 function renderButton(
   config: ModalActionButton,
   sizeClass: string,
@@ -43,29 +61,40 @@ function renderButton(
   const variant = config.variant ?? defaultVariant;
   const isDisabled = config.disabled === true || config.loading === true;
   const isLoading = config.loading === true;
-  const displayLabel = isLoading ? (config.loadingLabel ?? config.label) : config.label;
+
+  // Layout: two children share the same grid cell. The visible slot announces
+  // the accessible name; the reservation slot is `visibility: hidden` so it
+  // keeps layout (preventing width jumps when `loading` toggles) but is
+  // skipped by the accessibility tree. The grid cell sizes to max(idle width,
+  // loading width). Result: button width is identical in idle vs loading.
+  const visibleContent = isLoading ? renderLoadingContent(config) : renderIdleContent(config);
+  const reservationContent = isLoading
+    ? renderIdleContent(config)
+    : renderLoadingContent(config);
 
   return (
     <Button
       variant={variant}
-      className={sizeClass}
+      className={cn('grid', sizeClass)}
       onClick={config.onClick}
       disabled={isDisabled}
       type={config.type ?? 'button'}
       {...(config.form !== undefined && { form: config.form })}
       {...(config.testId !== undefined && { 'data-testid': config.testId })}
     >
-      {isLoading ? (
-        <>
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          {displayLabel}
-        </>
-      ) : (
-        <>
-          {config.icon !== undefined && config.icon}
-          {config.label}
-        </>
-      )}
+      <span
+        data-slot="button-visible"
+        className="col-start-1 row-start-1 flex items-center justify-center"
+      >
+        {visibleContent}
+      </span>
+      <span
+        data-slot="button-reservation"
+        aria-hidden="true"
+        className="invisible col-start-1 row-start-1 flex items-center justify-center"
+      >
+        {reservationContent}
+      </span>
     </Button>
   );
 }

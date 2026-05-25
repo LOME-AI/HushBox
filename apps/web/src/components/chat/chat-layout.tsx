@@ -57,11 +57,17 @@ export interface GroupChatProps {
   readonly typingUserIds?: Set<string> | undefined;
   readonly remoteStreamingMessages?: Map<string, PhantomMessage> | undefined;
   readonly ws?: ConversationWebSocket | undefined;
-  readonly onRemoveMember?: ((memberId: string) => void) | undefined;
-  readonly onChangePrivilege?: ((memberId: string, newPrivilege: string) => void) | undefined;
-  readonly onRevokeLinkClick?: ((linkId: string) => void) | undefined;
-  readonly onSaveLinkName?: ((linkId: string, newName: string) => void) | undefined;
-  readonly onChangeLinkPrivilege?: ((linkId: string, newPrivilege: string) => void) | undefined;
+  readonly onRemoveMember?: ((memberId: string) => void | Promise<void>) | undefined;
+  readonly onChangePrivilege?:
+    | ((memberId: string, newPrivilege: string) => void | Promise<void>)
+    | undefined;
+  readonly onRevokeLinkClick?: ((linkId: string) => void | Promise<void>) | undefined;
+  readonly onSaveLinkName?:
+    | ((linkId: string, newName: string) => void | Promise<void>)
+    | undefined;
+  readonly onChangeLinkPrivilege?:
+    | ((linkId: string, newPrivilege: string) => void | Promise<void>)
+    | undefined;
   readonly onAddMember?:
     | ((params: {
         userId: string;
@@ -69,9 +75,9 @@ export interface GroupChatProps {
         publicKey: string;
         privilege: string;
         giveFullHistory: boolean;
-      }) => void)
+      }) => void | Promise<void>)
     | undefined;
-  readonly onLeave?: (() => void) | undefined;
+  readonly onLeave?: (() => void | Promise<void>) | undefined;
 }
 
 interface ChatLayoutProps {

@@ -271,6 +271,13 @@ export const ERROR_CODE_WRAP_SET_MISMATCH = 'WRAP_SET_MISMATCH';
 /** Epoch rotation required */
 export const ERROR_CODE_ROTATION_REQUIRED = 'ROTATION_REQUIRED';
 
+/**
+ * Caller rotated against a stale `expectedEpoch` — another client committed a
+ * rotation first. 409. The frontend should surface this as "someone else
+ * changed this conversation" and let the user retry against the fresh epoch.
+ */
+export const ERROR_CODE_STALE_EPOCH = 'STALE_EPOCH';
+
 /** Regeneration blocked because another user replied after target message */
 export const ERROR_CODE_REGENERATION_BLOCKED_BY_OTHER_USER = 'REGENERATION_BLOCKED_BY_OTHER_USER';
 

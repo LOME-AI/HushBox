@@ -9,7 +9,12 @@ import {
   type Database,
   type DatabaseClient,
 } from '@hushbox/db';
-import { toBase64, fromBase64, ERROR_CODE_WRAP_SET_MISMATCH } from '@hushbox/shared';
+import {
+  toBase64,
+  fromBase64,
+  ERROR_CODE_STALE_EPOCH,
+  ERROR_CODE_WRAP_SET_MISMATCH,
+} from '@hushbox/shared';
 import { createErrorResponse } from '../../lib/error-response.js';
 import type { Context } from 'hono';
 import type { AppEnv } from '../../types.js';
@@ -361,7 +366,7 @@ function validateWrapSet(
 export function handleRotationError(error: unknown, c: Context<AppEnv>): Response {
   if (error instanceof StaleEpochError) {
     return c.json(
-      createErrorResponse('STALE_EPOCH', {
+      createErrorResponse(ERROR_CODE_STALE_EPOCH, {
         currentEpoch: error.currentEpoch,
       }),
       409

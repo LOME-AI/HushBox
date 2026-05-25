@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 312" width="100%">
-  <rect x="0.5" y="0.5" width="959" height="311" rx="12" fill="#faf9f6" stroke="#e5e3de"/>
+  <rect x="0.5" y="0.5" width="959" height="311" rx="12" fill="#faf9f6" stroke="#b5b1a8"/>
   <text x="440" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#525252" text-anchor="middle" letter-spacing="0.08em">TRIAL</text><text x="648" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#525252" text-anchor="middle" letter-spacing="0.08em">FREE</text><text x="856" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#ec4755" text-anchor="middle" letter-spacing="0.08em">PAID</text>
-  <line x1="0" y1="55" x2="960" y2="55" stroke="#e5e3de"/>
+  <line x1="0" y1="55" x2="960" y2="55" stroke="#b5b1a8"/>
   
     <rect x="0" y="56" width="960" height="48" fill="#faf5ed"/>
     <text x="24" y="85" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="15" font-weight="500" fill="#1a1a1a">Account required</text>

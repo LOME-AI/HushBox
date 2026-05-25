@@ -10,7 +10,7 @@ import { AuthButton } from '@/components/auth/AuthButton';
 import { PasswordField, ConfirmPasswordField } from '@/components/auth/password-field';
 import { TwoFactorInput } from '@/components/auth/TwoFactorInput';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
-import { AuthShakeError } from '@/components/auth/auth-shake-error';
+import { InlineFormError } from '@hushbox/ui';
 import { CheckYourEmail } from '@/components/auth/check-your-email';
 import {
   validateIdentifier,
@@ -271,7 +271,7 @@ function RecoveryNewPasswordForm({
           }}
         />
 
-        <AuthShakeError error={error} errorKey={errorKey} />
+        <InlineFormError error={error} errorKey={errorKey} />
 
         <AuthButton
           type="button"
@@ -508,7 +508,7 @@ export function LoginPage(): React.JSX.Element {
           </button>
         </div>
 
-        <AuthShakeError error={error} errorKey={errorKey} />
+        <InlineFormError error={error} errorKey={errorKey} />
 
         <AuthButton type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? 'Logging in...' : 'Log in'}

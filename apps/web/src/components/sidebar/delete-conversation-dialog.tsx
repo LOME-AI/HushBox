@@ -1,11 +1,12 @@
 import * as React from 'react';
-import { Overlay, OverlayContent, OverlayHeader, ModalActions } from '@hushbox/ui';
+import { useAsyncAction } from '@hushbox/ui';
+import { ActionModal } from '../shared/action-modal.js';
 
 interface DeleteConversationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 }
 
 export function DeleteConversationDialog({
@@ -14,31 +15,36 @@ export function DeleteConversationDialog({
   title,
   onConfirm,
 }: Readonly<DeleteConversationDialogProps>): React.JSX.Element {
+  const asyncAction = useAsyncAction();
+
+  const handleSubmit = React.useCallback(async (): Promise<void> => {
+    const maybe = onConfirm();
+    if (maybe instanceof Promise) await maybe;
+  }, [onConfirm]);
+
   return (
-    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Delete conversation dialog">
-      <OverlayContent>
-        <OverlayHeader
-          title="Delete conversation?"
-          description={
-            <>This will permanently delete &quot;{title}&quot;. This action cannot be undone.</>
-          }
-        />
-        <ModalActions
-          cancel={{
-            label: 'Cancel',
-            onClick: () => {
-              onOpenChange(false);
-            },
-            testId: 'cancel-delete-button',
-          }}
-          primary={{
-            label: 'Delete',
-            variant: 'destructive',
-            onClick: onConfirm,
-            testId: 'confirm-delete-button',
-          }}
-        />
-      </OverlayContent>
-    </Overlay>
+    <ActionModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete conversation?"
+      ariaLabel="Delete conversation dialog"
+      asyncAction={asyncAction}
+      primary={{
+        label: 'Delete',
+        loadingLabel: 'Deleting…',
+        variant: 'destructive',
+        onSubmit: handleSubmit,
+        testId: 'confirm-delete-button',
+      }}
+      cancel={{
+        label: 'Cancel',
+        testId: 'cancel-delete-button',
+      }}
+      testId="delete-conversation-dialog"
+    >
+      <p className="text-muted-foreground text-sm">
+        This will permanently delete &quot;{title}&quot;. This action cannot be undone.
+      </p>
+    </ActionModal>
   );
 }

@@ -38,6 +38,12 @@ function mockQuery(state: {
   vi.spyOn(queryModule, 'useRoadmapQuery').mockReturnValue(state);
 }
 
+function renderLoading(): HTMLElement {
+  mockQuery({ data: null, error: null, isLoading: true });
+  render(<RoadmapBoard />);
+  return screen.getByTestId('roadmap-loading');
+}
+
 describe('RoadmapBoard', () => {
   beforeEach(() => {
     globalThis.history.replaceState(null, '', '/roadmap');
@@ -45,9 +51,32 @@ describe('RoadmapBoard', () => {
   });
 
   it('renders a loading skeleton while data is loading', () => {
-    mockQuery({ data: null, error: null, isLoading: true });
-    render(<RoadmapBoard />);
-    expect(screen.getByTestId('roadmap-loading')).toBeInTheDocument();
+    expect(renderLoading()).toBeInTheDocument();
+  });
+
+  it('marks the loading wrapper with data-skeleton and inert', () => {
+    const wrapper = renderLoading();
+    expect(wrapper).toHaveAttribute('data-skeleton');
+    expect(wrapper).toHaveAttribute('inert');
+  });
+
+  it('exposes the loading wrapper to assistive tech as a status region', () => {
+    const wrapper = renderLoading();
+    expect(wrapper).toHaveAttribute('role', 'status');
+    expect(wrapper).toHaveAttribute('aria-label', 'Loading roadmap');
+    expect(wrapper).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('renders filter chips and project cards inside the loading wrapper', () => {
+    const wrapper = renderLoading();
+    expect(wrapper.querySelectorAll('button[data-status]').length).toBeGreaterThan(0);
+    expect(wrapper.querySelectorAll('button[data-type]').length).toBeGreaterThan(0);
+    expect(wrapper.querySelectorAll('article[data-project-id]').length).toBeGreaterThan(0);
+  });
+
+  it('does not mark the loading wrapper with data-roadmap-ready', () => {
+    renderLoading();
+    expect(document.querySelector('[data-roadmap-ready]')).toBeNull();
   });
 
   it('renders an error message when the query fails', () => {

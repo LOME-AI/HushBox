@@ -1,7 +1,16 @@
 import * as React from 'react';
 import { useState, useRef } from 'react';
 import { AlertTriangle, Link as LinkIcon } from 'lucide-react';
-import { Alert, Overlay, OverlayContent, OverlayHeader, ModalActions, Input } from '@hushbox/ui';
+import {
+  Alert,
+  Overlay,
+  OverlayContent,
+  OverlayHeader,
+  ModalActions,
+  Input,
+  InlineFormError,
+  useAsyncAction,
+} from '@hushbox/ui';
 import { createSharedLink } from '@hushbox/crypto';
 import { fromBase64, toBase64, MAX_CONVERSATION_MEMBERS } from '@hushbox/shared';
 import { CheckboxField } from '../shared/checkbox-field.js';
@@ -38,7 +47,12 @@ export function InviteLinkModal({
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const { mutateAsync, isPending } = useCreateLink();
+  const { mutateAsync } = useCreateLink();
+  // useAsyncAction wraps the generate flow: manages isPending + populates the
+  // inline error region on failure. We don't use ActionModal here because the
+  // success path transitions to the "show URL" phase rather than closing.
+  const asyncAction = useAsyncAction();
+  const { isPending, error, errorKey, run, clearError } = asyncAction;
 
   const [previousOpen, setPreviousOpen] = useState(open);
   if (open !== previousOpen) {
@@ -48,55 +62,58 @@ export function InviteLinkModal({
       setIncludeHistory(false);
       setGuestName('');
       setGeneratedUrl(null);
+      clearError();
     }
   }
 
   async function handleGenerate(): Promise<void> {
-    const result = createSharedLink(currentEpochPrivateKey);
+    const generateResult = await run(async () => {
+      const result = createSharedLink(currentEpochPrivateKey);
+      const trimmedName = guestName.trim();
+      const linkPublicKeyB64 = toBase64(result.linkPublicKey);
+      const memberWrapB64 = toBase64(result.linkWrap);
 
-    const trimmedName = guestName.trim();
-    const linkPublicKeyB64 = toBase64(result.linkPublicKey);
-    const memberWrapB64 = toBase64(result.linkWrap);
+      if (includeHistory) {
+        await mutateAsync({
+          conversationId,
+          linkPublicKey: linkPublicKeyB64,
+          memberWrap: memberWrapB64,
+          privilege,
+          giveFullHistory: true,
+          ...(trimmedName !== '' && { displayName: trimmedName }),
+        });
+      } else {
+        const linkPublicKey = result.linkPublicKey;
+        await executeWithRotation({
+          conversationId,
+          currentEpochPrivateKey,
+          currentEpochNumber,
+          plaintextTitle,
+          filterMembers: (keys: MemberKeyResponse[]): RotationMember[] => {
+            const members: RotationMember[] = [];
+            for (const k of keys) {
+              members.push({ publicKey: fromBase64(k.publicKey) });
+            }
+            members.push({ publicKey: linkPublicKey });
+            return members;
+          },
+          execute: (rotation) =>
+            mutateAsync({
+              conversationId,
+              linkPublicKey: linkPublicKeyB64,
+              memberWrap: memberWrapB64,
+              privilege,
+              giveFullHistory: false,
+              rotation,
+              ...(trimmedName !== '' && { displayName: trimmedName }),
+            }),
+        });
+      }
 
-    if (includeHistory) {
-      await mutateAsync({
-        conversationId,
-        linkPublicKey: linkPublicKeyB64,
-        memberWrap: memberWrapB64,
-        privilege,
-        giveFullHistory: true,
-        ...(trimmedName !== '' && { displayName: trimmedName }),
-      });
-    } else {
-      const linkPublicKey = result.linkPublicKey;
-      await executeWithRotation({
-        conversationId,
-        currentEpochPrivateKey,
-        currentEpochNumber,
-        plaintextTitle,
-        filterMembers: (keys: MemberKeyResponse[]): RotationMember[] => {
-          const members: RotationMember[] = [];
-          for (const k of keys) {
-            members.push({ publicKey: fromBase64(k.publicKey) });
-          }
-          members.push({ publicKey: linkPublicKey });
-          return members;
-        },
-        execute: (rotation) =>
-          mutateAsync({
-            conversationId,
-            linkPublicKey: linkPublicKeyB64,
-            memberWrap: memberWrapB64,
-            privilege,
-            giveFullHistory: false,
-            rotation,
-            ...(trimmedName !== '' && { displayName: trimmedName }),
-          }),
-      });
-    }
+      return `${globalThis.location.origin}/share/c/${conversationId}#${toBase64(result.linkSecret)}`;
+    });
 
-    const url = `${globalThis.location.origin}/share/c/${conversationId}#${toBase64(result.linkSecret)}`;
-    setGeneratedUrl(url);
+    if (generateResult.ok) setGeneratedUrl(generateResult.value);
   }
 
   function handleCancel(): void {
@@ -104,7 +121,12 @@ export function InviteLinkModal({
   }
 
   return (
-    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Invite via Link">
+    <Overlay
+      open={open}
+      onOpenChange={onOpenChange}
+      ariaLabel="Invite via Link"
+      dismissible={!isPending}
+    >
       <OverlayContent data-testid="invite-link-modal" size="md">
         <OverlayHeader title="Invite via Link" />
 
@@ -197,6 +219,8 @@ export function InviteLinkModal({
                 </p>
               )}
             </form>
+
+            <InlineFormError error={error} errorKey={errorKey} />
 
             <ModalActions
               cancel={{

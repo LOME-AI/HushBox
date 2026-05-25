@@ -157,7 +157,7 @@ export function useGroupChat(
       typingUserIds,
       remoteStreamingMessages,
       ws: ws ?? undefined,
-      onRemoveMember: (memberId: string): void => {
+      onRemoveMember: async (memberId: string): Promise<void> => {
         const removedUserId = resolvedMembers.find((m) => m.id === memberId)?.userId;
         const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
           const result: RotationMember[] = [];
@@ -171,7 +171,7 @@ export function useGroupChat(
           }
           return result;
         };
-        void executeWithRotation({
+        await executeWithRotation({
           conversationId: resolvedConversationId,
           currentEpochPrivateKey: epochKey,
           currentEpochNumber: epochNumber,
@@ -181,14 +181,14 @@ export function useGroupChat(
             removeMemberRef.current({ conversationId: resolvedConversationId, memberId, rotation }),
         });
       },
-      onChangePrivilege: (memberId: string, newPrivilege: string): void => {
-        void changePrivilegeRef.current({
+      onChangePrivilege: async (memberId: string, newPrivilege: string): Promise<void> => {
+        await changePrivilegeRef.current({
           conversationId: resolvedConversationId,
           memberId,
           privilege: newPrivilege,
         });
       },
-      onRevokeLinkClick: (linkId: string): void => {
+      onRevokeLinkClick: async (linkId: string): Promise<void> => {
         const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
           const result: RotationMember[] = [];
           for (const k of keys) {
@@ -196,7 +196,7 @@ export function useGroupChat(
           }
           return result;
         };
-        void executeWithRotation({
+        await executeWithRotation({
           conversationId: resolvedConversationId,
           currentEpochPrivateKey: epochKey,
           currentEpochNumber: epochNumber,
@@ -206,92 +206,88 @@ export function useGroupChat(
             revokeLinkRef.current({ conversationId: resolvedConversationId, linkId, rotation }),
         });
       },
-      onSaveLinkName: (linkId: string, newName: string): void => {
-        void adminNameRef.current({
+      onSaveLinkName: async (linkId: string, newName: string): Promise<void> => {
+        await adminNameRef.current({
           conversationId: resolvedConversationId,
           linkId,
           displayName: newName,
         });
       },
-      onChangeLinkPrivilege: (linkId: string, newPrivilege: string): void => {
-        void changeLinkPrivilegeRef.current({
+      onChangeLinkPrivilege: async (linkId: string, newPrivilege: string): Promise<void> => {
+        await changeLinkPrivilegeRef.current({
           conversationId: resolvedConversationId,
           linkId,
           privilege: newPrivilege as 'read' | 'write',
         });
       },
-      onLeave: (): void => {
+      onLeave: async (): Promise<void> => {
         if (isOwner(currentMember.privilege)) {
-          void (async (): Promise<void> => {
-            await leaveRef.current({ conversationId: resolvedConversationId });
-            void navigate({ to: '/chat' });
-          })();
-        } else {
-          const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
-            const result: RotationMember[] = [];
-            for (const k of keys) {
-              if (k.userId !== resolvedCallerId)
-                result.push({ publicKey: fromBase64(k.publicKey) });
-            }
-            return result;
-          };
-          const execute = (rotation: StreamChatRotation): Promise<unknown> =>
-            leaveRef.current({ conversationId: resolvedConversationId, rotation });
-          void (async (): Promise<void> => {
-            await executeWithRotation({
-              conversationId: resolvedConversationId,
-              currentEpochPrivateKey: epochKey,
-              currentEpochNumber: epochNumber,
-              plaintextTitle: plaintextTitle ?? '',
-              filterMembers: filter,
-              execute,
-            });
-            void navigate({ to: '/chat' });
-          })();
+          await leaveRef.current({ conversationId: resolvedConversationId });
+          void navigate({ to: '/chat' });
+          return;
         }
+        const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
+          const result: RotationMember[] = [];
+          for (const k of keys) {
+            if (k.userId !== resolvedCallerId)
+              result.push({ publicKey: fromBase64(k.publicKey) });
+          }
+          return result;
+        };
+        const execute = (rotation: StreamChatRotation): Promise<unknown> =>
+          leaveRef.current({ conversationId: resolvedConversationId, rotation });
+        await executeWithRotation({
+          conversationId: resolvedConversationId,
+          currentEpochPrivateKey: epochKey,
+          currentEpochNumber: epochNumber,
+          plaintextTitle: plaintextTitle ?? '',
+          filterMembers: filter,
+          execute,
+        });
+        void navigate({ to: '/chat' });
       },
-      onAddMember: (params: {
+      onAddMember: async (params: {
         userId: string;
         username: string;
         publicKey: string;
         privilege: string;
         giveFullHistory: boolean;
-      }): void => {
+      }): Promise<void> => {
         if (params.giveFullHistory) {
           const wrap = wrapEpochKeyForNewMember(epochKey, fromBase64(params.publicKey));
-          void addMemberRef.current({
+          await addMemberRef.current({
             conversationId: resolvedConversationId,
             userId: params.userId,
             wrap: toBase64(wrap),
             privilege: params.privilege,
             giveFullHistory: true,
           });
-        } else {
-          const newMemberKey = fromBase64(params.publicKey);
-          const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
-            const result: RotationMember[] = [];
-            for (const k of keys) {
-              result.push({ publicKey: fromBase64(k.publicKey) });
-            }
-            result.push({ publicKey: newMemberKey });
-            return result;
-          };
-          void executeWithRotation({
-            conversationId: resolvedConversationId,
-            currentEpochPrivateKey: epochKey,
-            currentEpochNumber: epochNumber,
-            plaintextTitle: plaintextTitle ?? '',
-            filterMembers: filter,
-            execute: (rotation) =>
-              addMemberRef.current({
-                conversationId: resolvedConversationId,
-                userId: params.userId,
-                privilege: params.privilege,
-                giveFullHistory: false,
-                rotation,
-              }),
-          });
+          return;
         }
+        const newMemberKey = fromBase64(params.publicKey);
+        const filter = (keys: MemberKeyResponse[]): RotationMember[] => {
+          const result: RotationMember[] = [];
+          for (const k of keys) {
+            result.push({ publicKey: fromBase64(k.publicKey) });
+          }
+          result.push({ publicKey: newMemberKey });
+          return result;
+        };
+        await executeWithRotation({
+          conversationId: resolvedConversationId,
+          currentEpochPrivateKey: epochKey,
+          currentEpochNumber: epochNumber,
+          plaintextTitle: plaintextTitle ?? '',
+          filterMembers: filter,
+          execute: (rotation) =>
+            addMemberRef.current({
+              conversationId: resolvedConversationId,
+              userId: params.userId,
+              privilege: params.privilege,
+              giveFullHistory: false,
+              rotation,
+            }),
+        });
       },
     };
   }, [

@@ -339,7 +339,12 @@ export const TEST_PERSONAS: SeededTestPersona[] = E2E_PROJECT_NAMES.flatMap((pro
 export const MOBILE_TEST_PERSONA: SeededTestPersona = {
   name: 'test-mobile',
   displayName: 'Test Mobile',
-  username: 'test_mobile',
+  // Username is the shortest legal value (3 chars, ^[a-z][a-z0-9_]{2,19}$).
+  // Maestro 2.6.0 spends ~10 s per character on Capacitor WebView inputs on
+  // docker-android (UiDevice.pressKeyCode synchronous dispatch — Maestro
+  // issue #2718), so trimming the username from 11 chars to 3 saves ~80 s
+  // per `inputText ${TEST_USERNAME}` call in mobile-tests/flows.
+  username: 'tmu',
   emailVerified: true,
   hasSampleData: true,
   totpSecret: null,

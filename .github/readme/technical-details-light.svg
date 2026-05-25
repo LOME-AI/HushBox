@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 424" width="100%">
-  <rect x="0.5" y="0.5" width="959" height="423" rx="12" fill="#faf9f6" stroke="#e5e3de"/>
+  <rect x="0.5" y="0.5" width="959" height="423" rx="12" fill="#faf9f6" stroke="#b5b1a8"/>
   <text x="24" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#525252" letter-spacing="0.08em">COMPONENT</text>
   <text x="307.2" y="35" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="13" font-weight="600" fill="#525252" letter-spacing="0.08em">IMPLEMENTATION</text>
-  <line x1="0" y1="55" x2="960" y2="55" stroke="#e5e3de"/>
+  <line x1="0" y1="55" x2="960" y2="55" stroke="#b5b1a8"/>
   
     <rect x="0" y="56" width="960" height="44" fill="#faf5ed"/>
     <text x="24" y="83" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' font-size="14" font-weight="500" fill="#1a1a1a">Message encryption</text>

@@ -117,12 +117,17 @@ const ERROR_MESSAGES = {
   CANNOT_REMOVE_SELF: 'Use the leave button to leave a conversation.',
   CANNOT_CHANGE_OWN_PRIVILEGE: 'Cannot change your own privilege.',
   LINK_NOT_FOUND: 'Link not found or already revoked.',
-  EPOCH_NOT_FOUND: 'Current epoch not found.',
+  EPOCH_NOT_FOUND: 'This conversation is out of sync. Please refresh the page.',
   MESSAGE_NOT_FOUND: 'Message not found.',
   SHARE_NOT_FOUND: 'Shared message not found.',
   SHARE_FORBIDDEN: "You can't share this message.",
-  WRAP_SET_MISMATCH: 'Member wrap set does not match active members.',
-  ROTATION_REQUIRED: 'Epoch rotation is required for this operation.',
+  // The next three describe the same underlying class of failure (concurrent
+  // edit to membership/epoch) from different surfaces. Match phrasing so users
+  // get a consistent retry signal regardless of which code the API returned.
+  STALE_EPOCH: 'Someone else just changed this conversation. Please try again.',
+  WRAP_SET_MISMATCH: 'Members changed while you were working. Please try again.',
+  ROTATION_REQUIRED:
+    "This action couldn't complete because the conversation changed. Please try again.",
 
   REGENERATION_BLOCKED_BY_OTHER_USER:
     'Cannot regenerate — another user has replied after this message.',

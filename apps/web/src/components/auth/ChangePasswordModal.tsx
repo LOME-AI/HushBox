@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { useState, useCallback, useMemo, useRef } from 'react';
-import { Alert, Overlay, OverlayContent, OverlayHeader, ModalActions } from '@hushbox/ui';
+import { UserMessageError, useAsyncAction } from '@hushbox/ui';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
+import { ActionModal } from '@/components/shared/action-modal';
 
 interface ChangePasswordModalProps {
   open: boolean;
@@ -26,8 +27,7 @@ export function ChangePasswordModal({
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const asyncAction = useAsyncAction();
 
   const passwordsMatch = useMemo(() => {
     if (confirmPassword === '') return true;
@@ -47,118 +47,98 @@ export function ChangePasswordModal({
     );
   }, [currentPassword, newPassword, confirmPassword]);
 
-  const handleSubmit = useCallback(async () => {
-    if (!isValid) return;
-
-    setIsSubmitting(true);
-    setError(null);
-
-    try {
-      const result = await onSubmit({
-        currentPassword,
-        newPassword,
-      });
-
-      if (result.success) {
-        onSuccess();
-      } else {
-        setError(result.error ?? 'Failed to change password');
-      }
-    } catch {
-      setError('Failed to change password. Please try again.');
-    } finally {
-      setIsSubmitting(false);
+  // Bridge to the legacy {success,error} shape. The error string is already
+  // user-facing, so throw a UserMessageError — useAsyncAction will route it
+  // straight to the inline error region without re-running it through
+  // friendlyErrorMessage (which only knows ErrorCode constants).
+  const handleSubmit = useCallback(async (): Promise<void> => {
+    const result = await onSubmit({ currentPassword, newPassword });
+    if (!result.success) {
+      throw new UserMessageError(result.error ?? 'Failed to change password. Please try again.');
     }
-  }, [isValid, currentPassword, newPassword, onSubmit, onSuccess]);
+    onSuccess();
+  }, [currentPassword, newPassword, onSubmit, onSuccess]);
 
   const formRef = useRef<HTMLFormElement>(null);
   useFormEnterNav(formRef);
   const handleOpenAutoFocus = useMobileAutoFocus();
 
+  // Destructure clearError (a stable useCallback) so the reset effect's deps
+  // don't transitively include `asyncAction` — which is a fresh object every
+  // render and would otherwise re-fire the effect, wiping form state on every
+  // keystroke.
+  const { clearError } = asyncAction;
   React.useEffect(() => {
     if (open) {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setError(null);
+      clearError();
     }
-  }, [open]);
+  }, [open, clearError]);
 
   if (!open) return null;
 
   return (
-    <Overlay
+    <ActionModal
       open={open}
       onOpenChange={onOpenChange}
+      title="Change Password"
       ariaLabel="Change password"
+      asyncAction={asyncAction}
+      primary={{
+        label: 'Change Password',
+        loadingLabel: 'Changing…',
+        onSubmit: handleSubmit,
+        disabled: !isValid,
+        testId: 'change-password-submit',
+        // Wire Enter-key implicit submission of the form to the primary action.
+        type: 'submit',
+        form: 'change-password-form',
+      }}
+      testId="change-password-modal"
       onOpenAutoFocus={handleOpenAutoFocus}
     >
-      <OverlayContent data-testid="change-password-modal" className="w-[75vw]">
-        <OverlayHeader
-          title="Change Password"
-          description="Enter your current password and choose a new one."
-        />
+      <p className="text-muted-foreground text-sm">
+        Enter your current password and choose a new one.
+      </p>
+      <form id="change-password-form" ref={formRef} onSubmit={(e) => e.preventDefault()}>
+        <div className="space-y-4">
+          <AuthPasswordInput
+            id="current-password"
+            label="Current Password"
+            value={currentPassword}
+            onChange={(e) => {
+              setCurrentPassword(e.target.value);
+            }}
+          />
 
-        {error && <Alert>{error}</Alert>}
+          <AuthPasswordInput
+            id="new-password"
+            label="New Password"
+            value={newPassword}
+            onChange={(e) => {
+              setNewPassword(e.target.value);
+            }}
+            showStrength
+            error={
+              passwordLongEnough
+                ? undefined
+                : `Password must be at least ${String(MIN_PASSWORD_LENGTH)} characters`
+            }
+          />
 
-        <form
-          id="change-password-form"
-          ref={formRef}
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handleSubmit();
-          }}
-        >
-          <div className="space-y-4">
-            <AuthPasswordInput
-              id="current-password"
-              label="Current Password"
-              value={currentPassword}
-              onChange={(e) => {
-                setCurrentPassword(e.target.value);
-              }}
-            />
-
-            <AuthPasswordInput
-              id="new-password"
-              label="New Password"
-              value={newPassword}
-              onChange={(e) => {
-                setNewPassword(e.target.value);
-              }}
-              showStrength
-              error={
-                passwordLongEnough
-                  ? undefined
-                  : `Password must be at least ${String(MIN_PASSWORD_LENGTH)} characters`
-              }
-            />
-
-            <AuthPasswordInput
-              id="confirm-password"
-              label="Confirm New Password"
-              value={confirmPassword}
-              onChange={(e) => {
-                setConfirmPassword(e.target.value);
-              }}
-              error={passwordsMatch ? undefined : 'Passwords do not match'}
-            />
-          </div>
-        </form>
-        <ModalActions
-          primary={{
-            label: 'Change Password',
-            type: 'submit',
-            form: 'change-password-form',
-            onClick: () => {
-              /* handled by form submit */
-            },
-            disabled: !isValid,
-            loading: isSubmitting,
-            loadingLabel: 'Changing...',
-          }}
-        />
-      </OverlayContent>
-    </Overlay>
+          <AuthPasswordInput
+            id="confirm-password"
+            label="Confirm New Password"
+            value={confirmPassword}
+            onChange={(e) => {
+              setConfirmPassword(e.target.value);
+            }}
+            error={passwordsMatch ? undefined : 'Passwords do not match'}
+          />
+        </div>
+      </form>
+    </ActionModal>
   );
 }

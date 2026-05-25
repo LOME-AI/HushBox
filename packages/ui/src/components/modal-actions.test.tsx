@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
 import { ModalActions } from './modal-actions';
@@ -155,11 +155,15 @@ describe('ModalActions', () => {
   });
 
   describe('disabled state', () => {
-    it('disables button without spinner when disabled is true', () => {
+    it('disables button without a visible spinner when disabled is true', () => {
       render(<ModalActions primary={{ label: 'Submit', onClick: vi.fn(), disabled: true }} />);
       const button = screen.getByRole('button', { name: 'Submit' });
       expect(button).toBeDisabled();
-      expect(button.querySelector('svg')).not.toBeInTheDocument();
+      // Spinner may exist in the hidden width-reservation slot; the visible
+      // content slot must be spinner-free when not loading.
+      const visible = button.querySelector('[data-slot="button-visible"]') as HTMLElement | null;
+      expect(visible).not.toBeNull();
+      expect(visible?.querySelector('svg')).not.toBeInTheDocument();
     });
   });
 
@@ -175,7 +179,7 @@ describe('ModalActions', () => {
       expect(button).toContainElement(screen.getByTestId('copy-icon'));
     });
 
-    it('hides icon and shows spinner during loading', () => {
+    it('hides icon and shows spinner in the visible slot during loading', () => {
       render(
         <ModalActions
           primary={{
@@ -187,10 +191,12 @@ describe('ModalActions', () => {
           }}
         />
       );
-      expect(screen.queryByTestId('copy-icon')).not.toBeInTheDocument();
-      expect(
-        screen.getByRole('button', { name: /Copying/ }).querySelector('svg')
-      ).toBeInTheDocument();
+      const button = screen.getByRole('button', { name: /Copying/ });
+      const visible = button.querySelector('[data-slot="button-visible"]') as HTMLElement;
+      // Visible slot shows the spinner and not the icon (icon is in the
+      // hidden reservation slot to keep button width stable across states).
+      expect(within(visible).queryByTestId('copy-icon')).not.toBeInTheDocument();
+      expect(visible.querySelector('svg')).toBeInTheDocument();
     });
   });
 
@@ -246,6 +252,108 @@ describe('ModalActions', () => {
       );
       const wrapper = container.firstElementChild as HTMLElement;
       expect(wrapper.className).toContain('mt-6');
+    });
+  });
+
+  // Both label and loadingLabel must occupy layout space simultaneously so the
+  // button's width does not change when `loading` toggles. We achieve this by
+  // rendering both contents stacked: one is visible, the other is invisible
+  // (visibility:hidden, still in flow) — the container sizes to max of both.
+  describe('width stability across loading states', () => {
+    it('renders both visible and reservation slots in idle state', () => {
+      render(
+        <ModalActions
+          primary={{ label: 'Save', loadingLabel: 'Saving...', onClick: vi.fn() }}
+        />
+      );
+      const button = screen.getByRole('button', { name: 'Save' });
+      expect(button.querySelector('[data-slot="button-visible"]')).not.toBeNull();
+      expect(button.querySelector('[data-slot="button-reservation"]')).not.toBeNull();
+    });
+
+    it('keeps both label texts in DOM regardless of loading state', () => {
+      const { rerender } = render(
+        <ModalActions
+          primary={{ label: 'Save', loadingLabel: 'Saving...', onClick: vi.fn() }}
+        />
+      );
+      const buttonIdle = screen.getByRole('button');
+      expect(buttonIdle.textContent).toContain('Save');
+      expect(buttonIdle.textContent).toContain('Saving...');
+
+      rerender(
+        <ModalActions
+          primary={{
+            label: 'Save',
+            loadingLabel: 'Saving...',
+            loading: true,
+            onClick: vi.fn(),
+          }}
+        />
+      );
+      const buttonLoading = screen.getByRole('button');
+      expect(buttonLoading.textContent).toContain('Save');
+      expect(buttonLoading.textContent).toContain('Saving...');
+    });
+
+    it('exposes only the visible state via the accessible name', () => {
+      const { rerender } = render(
+        <ModalActions
+          primary={{ label: 'Save', loadingLabel: 'Saving...', onClick: vi.fn() }}
+        />
+      );
+      // Idle: only "Save" should match by accessible name.
+      expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Saving...' })).not.toBeInTheDocument();
+
+      rerender(
+        <ModalActions
+          primary={{
+            label: 'Save',
+            loadingLabel: 'Saving...',
+            loading: true,
+            onClick: vi.fn(),
+          }}
+        />
+      );
+      // Loading: only "Saving..." should match.
+      expect(screen.getByRole('button', { name: 'Saving...' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+    });
+
+    it('marks the reservation slot aria-hidden so it does not announce', () => {
+      render(
+        <ModalActions
+          primary={{ label: 'Save', loadingLabel: 'Saving...', onClick: vi.fn() }}
+        />
+      );
+      const button = screen.getByRole('button');
+      const reservation = button.querySelector('[data-slot="button-reservation"]');
+      expect(reservation).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('uses visibility:hidden (Tailwind .invisible) on reservation so it keeps layout', () => {
+      render(
+        <ModalActions
+          primary={{ label: 'Save', loadingLabel: 'Saving...', onClick: vi.fn() }}
+        />
+      );
+      const button = screen.getByRole('button');
+      const reservation = button.querySelector('[data-slot="button-reservation"]') as HTMLElement;
+      expect(reservation.className).toContain('invisible');
+    });
+
+    it('falls back to label when loadingLabel is not provided', () => {
+      render(<ModalActions primary={{ label: 'Save', onClick: vi.fn() }} />);
+      const button = screen.getByRole('button', { name: 'Save' });
+      // Both slots still render — both contain "Save" since loadingLabel
+      // defaults to label. Accessible name is the visible "Save".
+      const visible = button.querySelector('[data-slot="button-visible"]') as HTMLElement;
+      const reservation = button.querySelector(
+        '[data-slot="button-reservation"]'
+      ) as HTMLElement;
+      expect(visible.textContent).toContain('Save');
+      expect(reservation.textContent).toContain('Save');
     });
   });
 });

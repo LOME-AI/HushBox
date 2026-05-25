@@ -23,6 +23,14 @@ interface OverlayProps {
   onBack?: () => void;
   /** Force bottom sheet presentation regardless of device. */
   forceBottomSheet?: boolean;
+  /**
+   * When false, blocks every user-initiated dismissal: Escape, backdrop click,
+   * mobile swipe-to-dismiss, the close button (which is hidden), and the
+   * mobile drag handle (also hidden). The back button is preserved — back is
+   * navigation, not dismissal. Defaults to true. Use this while an in-flight
+   * action owns the modal (e.g. `ActionModal` flips it during isPending).
+   */
+  dismissible?: boolean;
 }
 
 /**

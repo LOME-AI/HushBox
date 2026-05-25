@@ -106,6 +106,9 @@ test.describe('Auth User Using Link', () => {
       const newMessage = `Post no-history link ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(newMessage);
       await chatPage.expectMessageVisible(newMessage);
+      // Stream + persistence runs under Workers waitUntil; Bob's GET below
+      // would otherwise race the DB write and see an empty messages array.
+      await chatPage.waitForStreamComplete();
     });
 
     await test.step('Bob opens read link — sees only new messages, no errors', async () => {
@@ -141,6 +144,7 @@ test.describe('Auth User Using Link', () => {
       const latestMessage = `Latest for write link ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(latestMessage);
       await chatPage.expectMessageVisible(latestMessage);
+      await chatPage.waitForStreamComplete();
     });
 
     await test.step('Bob opens write link — sees only new, can send, no errors', async () => {
