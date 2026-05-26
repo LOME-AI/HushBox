@@ -31,12 +31,24 @@ export type LeaveCallback = (params: {
   rotation?: StreamChatRotation;
 }) => Promise<unknown>;
 
+/**
+ * Populates the epoch-key cache for a conversation the caller may not be
+ * viewing. The sidebar `Leave` flow can be triggered from any page; if the
+ * user hasn't visited this conversation yet `useDecryptedMessages` never ran
+ * `processKeyChain`, so `getCurrentEpoch` / `getEpochKey` below would be
+ * empty and the non-owner rotation path would throw INTERNAL with the modal
+ * stuck open. The callback owns fetching + unwrapping so this lib stays free
+ * of QueryClient / private-key knowledge.
+ */
+export type EnsureKeysCachedCallback = (conversationId: string) => Promise<void>;
+
 export interface LeaveConversationInput {
   conversationId: string;
   callerId: string;
   plaintextTitle: string;
   privilege: MemberPrivilege;
   leave: LeaveCallback;
+  ensureKeysCached?: EnsureKeysCachedCallback;
 }
 
 function filterOutCaller(callerId: string): (keys: MemberKeyResponse[]) => RotationMember[] {
@@ -50,12 +62,14 @@ function filterOutCaller(callerId: string): (keys: MemberKeyResponse[]) => Rotat
 }
 
 export async function leaveConversation(input: LeaveConversationInput): Promise<void> {
-  const { conversationId, callerId, plaintextTitle, privilege, leave } = input;
+  const { conversationId, callerId, plaintextTitle, privilege, leave, ensureKeysCached } = input;
 
   if (isOwner(privilege)) {
     await leave({ conversationId });
     return;
   }
+
+  if (ensureKeysCached) await ensureKeysCached(conversationId);
 
   const epochNumber = getCurrentEpoch(conversationId);
   if (epochNumber === undefined) {

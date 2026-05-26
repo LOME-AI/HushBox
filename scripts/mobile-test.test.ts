@@ -57,7 +57,9 @@ import { bakeImage } from './lib/mobile-image.js';
 import {
   parseArgs,
   parseFailedFlowNames,
-  partitionFlows,
+  flowWeight,
+  partitionByWeight,
+  INPUT_CHAR_WEIGHT,
   adbPortForShard,
   containerNameForShard,
   debugOutputForShard,
@@ -171,24 +173,70 @@ describe('mobile-test script', () => {
     });
   });
 
-  describe('partitionFlows', () => {
-    it('round-robins flows across n buckets', () => {
-      expect(partitionFlows(['a', 'b', 'c', 'd', 'e'], 2)).toEqual([
-        ['a', 'c', 'e'],
-        ['b', 'd'],
+  describe('flowWeight', () => {
+    it('counts top-level steps after the --- separator', () => {
+      const yaml = [
+        'appId: x',
+        'name: n',
+        'tags:',
+        '  - smoke',
+        '---',
+        '- launchApp:',
+        '    clearState: true',
+        '- back',
+        '- assertVisible: Hi',
+      ].join('\n');
+      expect(flowWeight(yaml)).toBe(3);
+    });
+
+    it('adds weight for literal inputText characters', () => {
+      const yaml = ['---', "- inputText: 'TestKeys'"].join('\n');
+      expect(flowWeight(yaml)).toBe(1 + 8 * INPUT_CHAR_WEIGHT);
+    });
+
+    it('resolves ${VAR} inputText against the flow env block', () => {
+      const yaml = ['env:', '  TEST_USERNAME: tmu', '---', '- inputText: ${TEST_USERNAME}'].join(
+        '\n'
+      );
+      expect(flowWeight(yaml)).toBe(1 + 3 * INPUT_CHAR_WEIGHT);
+    });
+
+    it('falls back to the token length when a var is unresolved', () => {
+      const yaml = ['---', '- inputText: ${MISSING}'].join('\n');
+      expect(flowWeight(yaml)).toBe(1 + '${MISSING}'.length * INPUT_CHAR_WEIGHT);
+    });
+
+    it('returns 0 for content with no step separator', () => {
+      expect(flowWeight('name: just a name\n')).toBe(0);
+    });
+  });
+
+  describe('partitionByWeight', () => {
+    it('balances total weight while keeping equal counts', () => {
+      const w = (f: string): number => ({ a: 10, b: 1, c: 9, d: 2 })[f] ?? 0;
+      // heaviest-first a(10),c(9),d(2),b(1); caps [2,2] → loads 11/11
+      expect(partitionByWeight(['a', 'b', 'c', 'd'], 2, w)).toEqual([
+        ['a', 'b'],
+        ['c', 'd'],
       ]);
     });
 
+    it('honors the count cap even when one shard is far heavier', () => {
+      const w = (f: string): number => ({ a: 100, b: 1, c: 1, d: 1 })[f] ?? 0;
+      const result = partitionByWeight(['a', 'b', 'c', 'd'], 2, w);
+      expect(result.map((s) => s.length)).toEqual([2, 2]);
+    });
+
     it('produces n buckets even when n > flows', () => {
-      expect(partitionFlows(['a', 'b'], 4)).toEqual([['a'], ['b'], [], []]);
+      expect(partitionByWeight(['a', 'b'], 4, () => 1)).toEqual([['a'], ['b'], [], []]);
     });
 
     it('returns one bucket for n=1', () => {
-      expect(partitionFlows(['a', 'b', 'c'], 1)).toEqual([['a', 'b', 'c']]);
+      expect(partitionByWeight(['a', 'b', 'c'], 1, () => 1)).toEqual([['a', 'b', 'c']]);
     });
 
     it('returns n empty buckets for empty flows', () => {
-      expect(partitionFlows([], 3)).toEqual([[], [], []]);
+      expect(partitionByWeight([], 3, () => 1)).toEqual([[], [], []]);
     });
   });
 
@@ -1072,7 +1120,7 @@ describe('mobile-test script', () => {
       );
       // OTA excluded; smoke vs non-smoke handled by listFlowsForRun
       expect(allFlows).not.toContain('mobile-tests/flows/13-ota-update.yaml');
-      // Each flow appears exactly once across all shards (round-robin)
+      // Each flow appears exactly once across all shards (weight-balanced partition)
       const flowCounts = new Map<string, number>();
       for (const flow of allFlows) {
         flowCounts.set(flow, (flowCounts.get(flow) ?? 0) + 1);
@@ -1099,7 +1147,7 @@ describe('mobile-test script', () => {
       expect(allFlows).toContain('mobile-tests/flows/01-app-launch.yaml');
       expect(allFlows).toContain('mobile-tests/flows/02-splash-screen.yaml');
       expect(allFlows).toContain('mobile-tests/flows/03-webview-renders.yaml');
-      // Smoke is 3 flows, n=2: shard 0 gets 01,03 (2 flows); shard 1 gets 02 (1 flow).
+      // Smoke is 3 flows, n=2: counts split 2/1 across shards.
       expect(allFlows).toHaveLength(3);
     });
 

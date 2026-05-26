@@ -509,15 +509,99 @@ export async function configureAllAppLinks(n: number): Promise<void> {
 }
 
 /**
- * Round-robin distribute flows across shards so wall-clock time stays balanced
- * even when individual flow durations differ widely. With round-robin a slow
- * flow at one index doesn't pile onto a single shard the way contiguous
- * chunking would.
+ * Per-character cost of an `inputText` step relative to one Maestro step.
+ * Typing into the Capacitor WebView runs ~10s/char on docker-android (Maestro
+ * #2718 — see 10-core-user-flow.yaml), so a typed character costs more wall-
+ * clock than a typical step. This is the single global dial for how heavily
+ * typing counts toward shard balance; it is not per-flow bookkeeping.
  */
-export function partitionFlows(flows: string[], n: number): string[][] {
-  return Array.from({ length: n }, (_, bucket) =>
-    flows.filter((_flow, index) => index % n === bucket)
+export const INPUT_CHAR_WEIGHT = 2;
+
+function stripQuotes(value: string): string {
+  return value.replaceAll(/^['"]|['"]$/g, '');
+}
+
+/**
+ * Resolve the typed length of an `inputText` value. `${VAR}` references resolve
+ * against the flow's own declarations (e.g. `${TEST_USERNAME}` → "tmu") so the
+ * count reflects what's actually typed, not the placeholder. An unresolved var
+ * falls back to the token's own length.
+ */
+function resolveInputLength(raw: string, content: string): number {
+  const variableName = /^\$\{(\w+)\}$/.exec(raw)?.[1];
+  if (variableName !== undefined) {
+    const decl = new RegExp(String.raw`^\s*${variableName}:\s*(.+)$`, 'm').exec(content);
+    if (decl?.[1] !== undefined) return stripQuotes(decl[1].trim()).length;
+    return raw.length;
+  }
+  return stripQuotes(raw).length;
+}
+
+/**
+ * Approximate execution cost of a flow, derived entirely from its YAML: the
+ * number of steps plus a per-character penalty for `inputText` typing. Adding
+ * or editing a flow reweights it automatically — no maintained timing table.
+ */
+export function flowWeight(content: string): number {
+  const separatorIndex = content.search(/^---\s*$/m);
+  const body = separatorIndex === -1 ? '' : content.slice(separatorIndex);
+  const stepCount = (body.match(/^-\s/gm) ?? []).length;
+
+  let inputChars = 0;
+  const inputRegex = /^-\s+inputText:\s*(.+)$/gm;
+  let match = inputRegex.exec(body);
+  while (match !== null) {
+    if (match[1] !== undefined) inputChars += resolveInputLength(match[1].trim(), content);
+    match = inputRegex.exec(body);
+  }
+  return stepCount + inputChars * INPUT_CHAR_WEIGHT;
+}
+
+/** Read each flow file and compute its weight. Pure I/O over flowWeight. */
+function weighFlows(flows: string[]): Map<string, number> {
+  const weights = new Map<string, number>();
+  for (const flow of flows) {
+    weights.set(flow, flowWeight(readFileSync(flow, 'utf8')));
+  }
+  return weights;
+}
+
+/** Index of the least-loaded shard that still has count capacity. */
+function leastLoadedWithCapacity(buckets: string[][], loads: number[], caps: number[]): number {
+  let target = -1;
+  for (const [index, bucket] of buckets.entries()) {
+    if (bucket.length >= (caps[index] ?? 0)) continue;
+    if (target === -1 || (loads[index] ?? 0) < (loads[target] ?? 0)) target = index;
+  }
+  return target;
+}
+
+/**
+ * Split flows across n shards so each shard runs a near-equal number of flows
+ * (counts differ by at most 1) while keeping total weight per shard as even as
+ * possible. Flows are placed heaviest-first onto the least-loaded shard that
+ * still has count capacity (count-constrained Longest-Processing-Time). This
+ * keeps wall-clock balanced when a few flows dominate; a plain round-robin by
+ * filename could pile the two slowest flows onto one shard.
+ */
+export function partitionByWeight(
+  flows: string[],
+  n: number,
+  weightOf: (flow: string) => number
+): string[][] {
+  const buckets: string[][] = Array.from({ length: n }, () => []);
+  const loads = Array.from({ length: n }, () => 0);
+  const caps = Array.from(
+    { length: n },
+    (_, index) => Math.floor(flows.length / n) + (index < flows.length % n ? 1 : 0)
   );
+  const ordered = flows.toSorted((a, b) => weightOf(b) - weightOf(a) || a.localeCompare(b));
+  for (const flow of ordered) {
+    const target = leastLoadedWithCapacity(buckets, loads, caps);
+    buckets[target]?.push(flow);
+    loads[target] = (loads[target] ?? 0) + weightOf(flow);
+  }
+  return buckets;
 }
 
 export function smokeFlows(): string[] {
@@ -601,7 +685,8 @@ export async function runMaestroShards(smoke: boolean, n: number): Promise<void>
   await prepareAdbServer(n);
 
   const flows = listFlowsForRun(smoke);
-  const partitions = partitionFlows(flows, n);
+  const weights = weighFlows(flows);
+  const partitions = partitionByWeight(flows, n, (flow) => weights.get(flow) ?? 0);
 
   console.log(`Running Maestro tests${smoke ? ' (smoke)' : ''} across ${String(n)} shard(s)...`);
   const results = await Promise.all(

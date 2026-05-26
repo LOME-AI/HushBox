@@ -225,8 +225,11 @@ test.describe('Multi-Model Chat', () => {
 
       await firstNonPremium.locator('button').first().click();
 
-      // Modal closed without needing a Use button click
-      await expect(modal).not.toBeVisible();
+      // Modal closed without needing a Use button click. Use unsettledExpect
+      // because the close is a Radix CSS animation — no in-flight queries,
+      // so the settled-aware expect short-circuits on slow webkit before the
+      // animation finishes painting the closed state.
+      await unsettledExpect(modal).not.toBeVisible({ timeout: 5_000 });
 
       // Header reflects the new pick — should NOT show "N models" since this is single mode
       const button = authenticatedPage.getByTestId('model-selector-button');

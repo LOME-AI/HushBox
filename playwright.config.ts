@@ -38,7 +38,7 @@ export default defineConfig({
       command: 'tsx scripts/e2e-preview-up.ts',
       url: previewUrl,
       reuseExistingServer: false,
-      timeout: 180_000,
+      timeout: 300_000,
       name: 'Preview',
       stdout: 'pipe',
     },

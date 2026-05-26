@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { setupConversationWithSidebar } from '../helpers/group-test-setup.js';
 import { ChatPage, MemberSidebarPage, SidebarPage } from '../pages/index.js';
 
@@ -155,7 +155,9 @@ test.describe('Group Chat Leave', () => {
     await expect(modal).toBeVisible();
 
     await testBobPage.getByTestId('leave-confirmation-cancel').click();
-    await expect(modal).not.toBeVisible();
+    // Radix Dialog close is CSS-animation only; the settled-aware `expect`
+    // can short-circuit on slow webkit before the animation completes.
+    await unsettledExpect(modal).not.toBeVisible({ timeout: 5_000 });
 
     // Close sidebar so message list is accessible on mobile
     await sidebar.closeSidebar();

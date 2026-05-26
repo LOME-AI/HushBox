@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
   BellOff,
@@ -22,8 +23,9 @@ import {
   useMuteConversation,
   usePinConversation,
 } from '@/hooks/use-conversation-members';
+import { keyChainQueryOptions } from '@/hooks/keys';
 import { useAuthStore } from '@/lib/auth';
-import { getEpochKey } from '@/lib/epoch-key-cache';
+import { getEpochKey, processKeyChain } from '@/lib/epoch-key-cache';
 import { leaveConversation } from '@/lib/leave-conversation';
 import { LeaveConfirmationModal } from '@/components/chat/leave-confirmation-modal';
 import { DeleteConversationDialog } from './delete-conversation-dialog';
@@ -137,8 +139,10 @@ export function ChatItem({
   isActive = false,
 }: Readonly<ChatItemProps>): React.JSX.Element {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
   const userId = useAuthStore((s) => s.user?.id);
+  const accountPrivateKey = useAuthStore((s) => s.privateKey);
   const deleteConversation = useDeleteConversation();
   const updateConversation = useUpdateConversation();
   const leaveMutation = useLeaveConversation();
@@ -176,18 +180,38 @@ export function ChatItem({
     // — bubble as a plain Error so it shows up in error tracking instead of
     // being dressed up as a user-facing message.
     if (!userId) throw new Error('chat-item leave invoked without authenticated user');
+    if (!accountPrivateKey) {
+      throw new Error('chat-item leave invoked without an unlocked account key');
+    }
     await leaveConversation({
       conversationId: conversation.id,
       callerId: userId,
       plaintextTitle: conversation.title,
       privilege: conversation.privilege,
       leave: leaveMutation.mutateAsync,
+      // Sidebar Leave can fire from /chat or any other page where the user
+      // has never opened this conversation, so its key chain may not yet be
+      // in the cache (`useDecryptedMessages` only runs on the active chat).
+      // Populate it on demand so the non-owner rotation path doesn't throw
+      // INTERNAL on first try.
+      ensureKeysCached: async (id) => {
+        const keyChain = await queryClient.ensureQueryData(keyChainQueryOptions(id));
+        processKeyChain(id, keyChain, accountPrivateKey);
+      },
     });
     // Only redirect when the user was actually viewing the chat that just
     // disappeared — leaving a non-active chat from the sidebar list should
     // leave the URL alone.
     if (isActive) void navigate({ to: ROUTES.CHAT });
-  }, [userId, conversation, leaveMutation, isActive, navigate]);
+  }, [
+    userId,
+    accountPrivateKey,
+    queryClient,
+    conversation,
+    leaveMutation,
+    isActive,
+    navigate,
+  ]);
 
   const handleConfirmRename = (): void => {
     const encrypted = encryptTitle(conversation.id, conversation.currentEpoch, renameValue);

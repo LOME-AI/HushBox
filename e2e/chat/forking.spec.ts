@@ -329,18 +329,25 @@ test.describe('Fork History Preservation', () => {
     await chatPage.waitForAppStable();
 
     await test.step('send 3 exchanges (6 messages total)', async () => {
+      // waitForAIResponse only checks for AI text becoming visible; the SSE
+      // stream may still be open. Sending the next message would cancel
+      // the in-flight POST → user/AI rows fail to persist via waitUntil().
+      // waitForStreamComplete waits for streaming-message-id state to drain.
       const msg1 = `History test 1 ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(msg1);
       await chatPage.waitForConversation();
       await chatPage.waitForAIResponse(msg1);
+      await chatPage.waitForStreamComplete();
 
       const msg2 = `History test 2 ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(msg2);
       await chatPage.waitForAIResponse(msg2);
+      await chatPage.waitForStreamComplete();
 
       const msg3 = `History test 3 ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(msg3);
       await chatPage.waitForAIResponse(msg3);
+      await chatPage.waitForStreamComplete();
     });
 
     const totalMessages = await chatPage.getMessageCountViaAPI();
@@ -382,15 +389,20 @@ test.describe('Fork History Preservation', () => {
     const msg3 = `After fork ${String(Date.now())}`;
 
     await test.step('send 3 exchanges', async () => {
+      // See note in 'send 3 exchanges (6 messages total)' above — must drain
+      // the SSE stream before sending the next message or persistence races.
       await chatPage.sendNewChatMessage(msg1);
       await chatPage.waitForConversation();
       await chatPage.waitForAIResponse(msg1);
+      await chatPage.waitForStreamComplete();
 
       await chatPage.sendFollowUpMessage(msg2);
       await chatPage.waitForAIResponse(msg2);
+      await chatPage.waitForStreamComplete();
 
       await chatPage.sendFollowUpMessage(msg3);
       await chatPage.waitForAIResponse(msg3);
+      await chatPage.waitForStreamComplete();
     });
 
     expect(await chatPage.getMessageCountViaAPI()).toBe(6);
