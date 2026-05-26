@@ -1,0 +1,265 @@
+diff --git a/lib/server/browserType.js b/lib/server/browserType.js
+index 84384f7fba3ec299db408da375e115417dbfaced..db9989fc91da9f8a4f1eeb5562adf1b99a8548fc 100644
+--- a/lib/server/browserType.js
++++ b/lib/server/browserType.js
+@@ -51,6 +51,63 @@ var import_socksClientCertificatesInterceptor = require("./socksClientCertificat
+ var import_transport = require("./transport");
+ var import_debugLogger = require("./utils/debugLogger");
+ const kNoXServerRunningError = "Looks like you launched a headed browser without having a XServer running.\nSet either 'headless: true' or use 'xvfb-run <your-playwright-app>' before running Playwright.\n\n<3 Playwright Team";
++// =============================================================================
++// LOCAL PATCH — Firefox launch concurrency throttle
++//   Patched by HushBox via patches/playwright-core@1.58.2.patch
++//
++// Bug being mitigated
++// -------------------
++// On headless Linux at high parallelism (>=6 simultaneous `firefox.launch()`
++// calls), Firefox content/GPU processes SIGSEGV with `ip == sp` NX-page faults
++// inside Mesa `llvmpipe-N` and `SkiaGPUWorker` threads. The firefoxUserPrefs
++// in e2e/firefox-launch-options.ts neutralize most of the JIT codegen path,
++// but a race window still exists between fork and Juggler-ready when many
++// Firefoxes initialize at once.
++//
++// Upstream tickets (all closed without a fix):
++//   https://github.com/microsoft/playwright/issues/3939   (2020)
++//   https://github.com/microsoft/playwright/issues/17876
++//   https://github.com/microsoft/playwright/issues/28896
++//   https://github.com/microsoft/playwright/issues/36551  (2025)
++// Playwright has no concurrency primitive in `BrowserType.launch`; only a
++// silent one-shot retry for glibc `ld.so` races at _innerLaunchWithRetries.
++//
++// What this patch does
++// --------------------
++// Caps concurrent firefox launches per Node worker to 3. Each Playwright
++// worker process has its own semaphore (module-scope state). Chromium and
++// WebKit are unaffected. Tests still run at the configured `workers` value;
++// only the in-flight `firefox.launch()` count is gated, so the throttle
++// applies only during the ~1s fork->Juggler-ready window.
++//
++// Why hardcoded N=3
++// -----------------
++// Matches the CI per-shard worker count (playwright.config.ts `isCI ? 3`)
++// and the patches config cap. Empirically the SIGSEGV rate goes to zero at
++// <=3 simultaneous Firefox launches in our environment; tuning is unnecessary.
++//
++// Removal criteria
++// ----------------
++// Delete this hunk when upstream Playwright either gates Firefox launches
++// itself or Mozilla ships a fix for the llvmpipe/Skia JIT race. Verify by
++// running `pnpm e2e --project=firefox` at workers='45%' on a 20-core box and
++// confirming zero SIGSEGV signals in the report.
++// =============================================================================
++const PW_FIREFOX_LAUNCH_CONCURRENCY = 3;
++let _ffLaunchInflight = 0;
++const _ffLaunchQueue = [];
++function _acquireFirefoxLaunchSlot() {
++  if (_ffLaunchInflight < PW_FIREFOX_LAUNCH_CONCURRENCY) {
++    _ffLaunchInflight++;
++    return Promise.resolve();
++  }
++  return new Promise((resolve) => _ffLaunchQueue.push(resolve));
++}
++function _releaseFirefoxLaunchSlot() {
++  const next = _ffLaunchQueue.shift();
++  if (next) next();
++  else _ffLaunchInflight--;
++}
+ class BrowserType extends import_instrumentation.SdkObject {
+   constructor(parent, browserName) {
+     super(parent, "browser-type");
+@@ -69,9 +126,15 @@ class BrowserType extends import_instrumentation.SdkObject {
+     const seleniumHubUrl = options.__testHookSeleniumRemoteURL || process.env.SELENIUM_REMOTE_URL;
+     if (seleniumHubUrl)
+       return this._launchWithSeleniumHub(progress, seleniumHubUrl, options);
+-    return this._innerLaunchWithRetries(progress, options, void 0, import_helper.helper.debugProtocolLogger(protocolLogger)).catch((e) => {
+-      throw this._rewriteStartupLog(e);
+-    });
++    const throttle = this._name === "firefox";
++    if (throttle) await _acquireFirefoxLaunchSlot();
++    try {
++      return await this._innerLaunchWithRetries(progress, options, void 0, import_helper.helper.debugProtocolLogger(protocolLogger)).catch((e) => {
++        throw this._rewriteStartupLog(e);
++      });
++    } finally {
++      if (throttle) _releaseFirefoxLaunchSlot();
++    }
+   }
+   async launchPersistentContext(progress, userDataDir, options) {
+     const launchOptions = this._validateLaunchOptions(options);
+@@ -82,6 +145,8 @@ class BrowserType extends import_instrumentation.SdkObject {
+       options = { ...options };
+       options.internalIgnoreHTTPSErrors = true;
+     }
++    const throttle = this._name === "firefox";
++    if (throttle) await _acquireFirefoxLaunchSlot();
+     try {
+       const browser = await this._innerLaunchWithRetries(progress, launchOptions, options, import_helper.helper.debugProtocolLogger(), userDataDir).catch((e) => {
+         throw this._rewriteStartupLog(e);
+@@ -92,6 +157,8 @@ class BrowserType extends import_instrumentation.SdkObject {
+       await clientCertificatesProxy?.close().catch(() => {
+       });
+       throw error;
++    } finally {
++      if (throttle) _releaseFirefoxLaunchSlot();
+     }
+   }
+   async _innerLaunchWithRetries(progress, options, persistent, protocolLogger, userDataDir) {
+diff --git a/lib/server/firefox/ffBrowser.js b/lib/server/firefox/ffBrowser.js
+index 118018e155d72dcff80ea17bd673de4ec9033a1c..43c65450ca6b0b66129060fb347dad6d37008387 100644
+--- a/lib/server/firefox/ffBrowser.js
++++ b/lib/server/firefox/ffBrowser.js
+@@ -219,15 +219,148 @@ class FFBrowserContext extends import_browserContext.BrowserContext {
+   possiblyUninitializedPages() {
+     return this._ffPages().map((ffPage) => ffPage._page);
+   }
++  // =============================================================================
++  // LOCAL PATCH — Firefox newPage race fix
++  //   Patched by HushBox via patches/playwright-core@1.58.2.patch
++  //
++  // Bug being fixed
++  // ---------------
++  // The upstream version of this function was:
++  //
++  //   async doCreateNewPage() {
++  //     const { targetId } = await this._browser.session.send('Browser.newPage', ...);
++  //     return this._browser._ffPages.get(targetId)._page;
++  //   }
++  //
++  // `_ffPages` is populated by `_onAttachedToTarget` (see ~line 114 in this
++  // file), a separate event handler bound in the FFBrowser constructor:
++  //
++  //   this.session.on('Browser.attachedToTarget', this._onAttachedToTarget.bind(this));
++  //
++  // The upstream code assumes that by the time the `Browser.newPage` response
++  // is resolved, the `Browser.attachedToTarget` event for the new target has
++  // already been processed and the map has an entry for `targetId`. That
++  // assumption is not guaranteed by Firefox's Juggler protocol. Both messages
++  // travel the same WebSocket and are inherently ordered by arrival, but
++  // Playwright's protocol layer can resume the awaiting send() before the
++  // queued attach-event handler runs. When the response wins, `.get(targetId)`
++  // returns undefined and `.{_page}` throws:
++  //
++  //   TypeError: Cannot read properties of undefined (reading '_page')
++  //
++  // The same race surfaces as "Target page, context or browser has been
++  // closed" when the target is attached then immediately detached before the
++  // upstream code reads from the map.
++  //
++  // Why Chromium and WebKit do not show this
++  // ----------------------------------------
++  // crBrowser.js (`doCreateNewPage` at ~line 317) and wkBrowser.js (~line 213)
++  // have identical code shape — `return this._browser._crPages/_wkPages
++  // .get(targetId)._page;`. They work because CDP and the WK Playwright
++  // protocol both guarantee the target-attached event is dispatched before
++  // the create-target reply resolves. Juggler does not make that guarantee.
++  //
++  // Why we patch instead of waiting for upstream
++  // --------------------------------------------
++  // Two upstream reports of this exact stack, both closed without fixes:
++  //   https://github.com/microsoft/playwright/issues/35125 (closed not-planned)
++  //   https://github.com/microsoft/playwright/issues/36594 (closed)
++  // A five-year-old longstanding family of "Firefox newPage hangs/times out":
++  //   #3939 (2020), #9788 (2021), #28431 (2023), #36551 (2025) — all closed
++  //   without a fix.
++  // The race is still present on main: PR #34002 (Dec 2024) refactored this
++  // code path but kept the same `_ffPages.get(targetId)._page` pattern.
++  // Maintainers do not appear to treat it as a real bug, so we ship the fix
++  // ourselves.
++  //
++  // What this patch does
++  // --------------------
++  // 1. Arms a deferred listener for `Browser.attachedToTarget` BEFORE sending
++  //    `Browser.newPage`. Setting up the listener after the response would
++  //    reintroduce the race we are trying to fix. The listener filters by
++  //    browserContextId so concurrent newPage calls on other contexts cannot
++  //    resolve our deferred.
++  // 2. Fast path: if the map is already populated when the response lands,
++  //    returns immediately — same behavior as upstream when the race wins.
++  // 3. Slow path: if the map is empty, waits for the attach event with a
++  //    30-second timeout. The timeout surfaces true protocol stalls (which
++  //    are a separate Firefox bug, see #3939) instead of hanging on the
++  //    default test timeout.
++  // 4. If the target was attached then immediately detached before init
++  //    completed, throws a clear error instead of the original cryptic
++  //    TypeError. (Symptom of `_onDetachedFromTarget` running between the
++  //    attach event and our map read.)
++  // 5. Cleans up the event listener in a `finally` block so we never leak.
++  //
++  // What this patch does NOT fix
++  // ----------------------------
++  // The separate "Browser.newPage hangs and never replies" failure mode
++  // (upstream #3939, #36551). That is a protocol-level stall inside Firefox,
++  // not a JS-layer race. Tests timing out on newPage hang for >45s are a
++  // different problem and need a different remedy.
++  //
++  // Removal criteria
++  // ----------------
++  // Delete this patch when:
++  //   (a) Upstream Playwright merges a fix that makes `doCreateNewPage`
++  //       deterministic — periodically check the linked issues, and
++  //   (b) `e2e/firefox-newpage-race.spec.ts` passes against the new
++  //       upstream version without the patch under heavy parallel load.
++  // =============================================================================
+   async doCreateNewPage() {
+-    const { targetId } = await this._browser.session.send("Browser.newPage", {
+-      browserContextId: this._browserContextId
+-    }).catch((e) => {
+-      if (e.message.includes("Failed to override timezone"))
+-        throw new Error(`Invalid timezone ID: ${this._options.timezoneId}`);
+-      throw e;
++    // Arm the wait BEFORE sending. The listener must already be on the
++    // session when the protocol response arrives, or the event can fire
++    // before we register and we reintroduce the race.
++    let onAttached;
++    const attachedPromise = new Promise((resolve) => {
++      onAttached = resolve;
+     });
+-    return this._browser._ffPages.get(targetId)._page;
++    const handler = (payload) => {
++      const info = payload.targetInfo;
++      if (info.type === "page" && info.browserContextId === this._browserContextId) {
++        onAttached(info.targetId);
++      }
++    };
++    this._browser.session.on("Browser.attachedToTarget", handler);
++
++    try {
++      const { targetId } = await this._browser.session.send("Browser.newPage", {
++        browserContextId: this._browserContextId
++      }).catch((e) => {
++        if (e.message.includes("Failed to override timezone"))
++          throw new Error(`Invalid timezone ID: ${this._options.timezoneId}`);
++        throw e;
++      });
++
++      // Fast path: attach event was processed before the response resolved.
++      let ffPage = this._browser._ffPages.get(targetId);
++      if (!ffPage) {
++        // Slow path: response beat the attach event. Wait for it.
++        await Promise.race([
++          attachedPromise,
++          new Promise((_, reject) => setTimeout(
++            () => reject(new Error(
++              `Firefox doCreateNewPage: target ${targetId} did not attach within 30s ` +
++              `(see patches/playwright-core@1.58.2.patch)`
++            )),
++            30000
++          ))
++        ]);
++        ffPage = this._browser._ffPages.get(targetId);
++      }
++
++      if (!ffPage) {
++        // Attached and then immediately detached. Surface this cleanly
++        // instead of the original cryptic TypeError.
++        throw new Error(
++          `Firefox doCreateNewPage: target ${targetId} was detached before ` +
++          `initialization completed (see patches/playwright-core@1.58.2.patch)`
++        );
++      }
++      return ffPage._page;
++    } finally {
++      this._browser.session.off("Browser.attachedToTarget", handler);
++    }
+   }
+   async doGetCookies(urls) {
+     const { cookies } = await this._browser.session.send("Browser.getCookies", { browserContextId: this._browserContextId });

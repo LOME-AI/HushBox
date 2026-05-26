@@ -89,21 +89,10 @@ services:
         mc mb -p local/hushbox-media-dev || true
       "
 
-  android-emulator:
-    image: budtmo/docker-android:emulator_14.0
-    privileged: true
-    devices:
-      - /dev/kvm
-    group_add:
-      - '${HB_KVM_GID:-kvm}'
-    ports:
-      - '${HB_EMULATOR_ADB_PORT:-5555}:5555'
-      - '${HB_EMULATOR_VNC_PORT:-6080}:6080'
-    environment:
-      EMULATOR_DEVICE: Samsung Galaxy S10
-      WEB_VNC: 'true'
-    profiles:
-      - mobile
+  # android-emulator: managed by scripts/mobile-test.ts via direct `docker run`
+  # so the script can scale to mobile-tests/config.ts SHARDS containers with
+  # distinct per-shard ADB ports and names. Compose stays for the dev-stack
+  # services above.
 
 volumes:
   postgres_data:

@@ -8,6 +8,11 @@ overrides:
   vite: ^7.3.1
   sharp: ^0.34.5
 
+patchedDependencies:
+  playwright-core@1.58.2:
+    hash: 3004dc7a9a30f8f54515bc2689639573400540031ab413f8662b3789d6952d48
+    path: patches/playwright-core@1.58.2.patch
+
 importers:
 
   .:
@@ -16873,11 +16878,11 @@ snapshots:
 
   platform@1.3.6: {}
 
-  playwright-core@1.58.2: {}
+  playwright-core@1.58.2(patch_hash=3004dc7a9a30f8f54515bc2689639573400540031ab413f8662b3789d6952d48): {}
 
   playwright@1.58.2:
     dependencies:
-      playwright-core: 1.58.2
+      playwright-core: 1.58.2(patch_hash=3004dc7a9a30f8f54515bc2689639573400540031ab413f8662b3789d6952d48)
     optionalDependencies:
       fsevents: 2.3.2
 

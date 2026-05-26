@@ -1,8 +1,10 @@
 /* eslint-disable no-restricted-syntax -- mobile-test.ts is gated to Linux via assertLinux() and intentionally shells out to mkdir/curl/unzip/bash for one-shot SDK installation on the CI runner. */
 import { execa } from 'execa';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { isMainModule } from './lib/is-main.js';
+import { bakeImage, detectKvmGid, runEmulatorContainer } from './lib/mobile-image.js';
+import { SHARDS } from '../mobile-tests/config.js';
 
 const APK_PATH = 'apps/web/android/app/build/outputs/apk/debug/app-debug.apk';
 const BOOT_TIMEOUT_POLLS = 120;
@@ -10,10 +12,42 @@ const BOOT_POLL_INTERVAL_MS = 2000;
 const BOOT_DIAGNOSTIC_INTERVAL = 10;
 const API_TIMEOUT_POLLS = 30;
 const API_POLL_INTERVAL_MS = 1000;
-const EMULATOR_SERVICE = 'android-emulator';
+const CONTAINER_NAME_PREFIX = 'hushbox-mobile-emulator-shard-';
+const DEFAULT_BASE_ADB_PORT = 5555;
+const FLOW_DIR = 'mobile-tests/flows';
+const OTA_FLOW = 'mobile-tests/flows/13-ota-update.yaml';
+const RESULTS_DIR = 'maestro-results';
+
+function baseAdbPort(): number {
+  // Honor HB_EMULATOR_ADB_PORT (set by scripts/generate-env per worktree slot)
+  // so multiple worktrees can run mobile tests on disjoint port ranges. Each
+  // worktree's base + 2*shard then spaces shards within the worktree.
+  const fromEnv = process.env['HB_EMULATOR_ADB_PORT'];
+  if (fromEnv === undefined) return DEFAULT_BASE_ADB_PORT;
+  const parsed = Number(fromEnv);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_BASE_ADB_PORT;
+}
 
 export function parseArgs(args: string[]): { smoke: boolean } {
   return { smoke: args.includes('--smoke') };
+}
+
+/**
+ * Each shard gets a distinct host ADB port. Emulators internally bind to
+ * 5554 (console) and 5555 (adb); we map 5555 → 5555 + 2*shard so adjacent
+ * shards don't collide and there's room for a per-shard console port if
+ * needed in the future.
+ */
+export function adbPortForShard(shard: number): number {
+  return baseAdbPort() + shard * 2;
+}
+
+export function containerNameForShard(shard: number): string {
+  return `${CONTAINER_NAME_PREFIX}${String(shard)}`;
+}
+
+export function debugOutputForShard(shard: number): string {
+  return path.join(RESULTS_DIR, `shard-${String(shard)}`);
 }
 
 /**
@@ -105,64 +139,20 @@ export async function installAndroidSdk(): Promise<void> {
   process.env['PATH'] = `${home}/platform-tools:${process.env['PATH'] ?? ''}`;
 }
 
-export async function getContainerStatus(): Promise<string> {
-  try {
-    const result = await execa(
-      'docker',
-      ['compose', '--profile', 'mobile', 'ps', '--format', 'json', EMULATOR_SERVICE],
-      { stdio: 'pipe' }
-    );
-    return result.stdout.trim() || 'no output';
-  } catch {
-    return 'failed to get container status';
-  }
-}
-
-export async function dumpContainerLogs(tail = 200): Promise<string> {
-  try {
-    const result = await execa(
-      'docker',
-      ['compose', '--profile', 'mobile', 'logs', '--tail', String(tail), EMULATOR_SERVICE],
-      { stdio: 'pipe' }
-    );
-    return result.stdout || result.stderr || 'no logs';
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    return `failed to get container logs: ${message}`;
-  }
-}
-
 function extractErrorDetail(error: unknown): string {
   const stderr = (error as { stderr?: string }).stderr ?? '';
   const shortMessage = (error as { shortMessage?: string }).shortMessage ?? '';
   return stderr || shortMessage || (error instanceof Error ? error.message : String(error));
 }
 
-async function dumpBootDiagnostics(): Promise<void> {
-  console.error('=== EMULATOR BOOT TIMEOUT DIAGNOSTICS ===');
-  console.error('--- Container logs (last 200 lines) ---');
-  console.error(await dumpContainerLogs());
-  console.error('--- Container status ---');
-  console.error(await getContainerStatus());
-  try {
-    const adbDevices = await execa('adb', ['devices'], { stdio: 'pipe' });
-    console.error(`--- ADB devices ---\n${adbDevices.stdout}`);
-  } catch {
-    console.error('--- ADB devices: failed to query ---');
-  }
-  console.error('=== END DIAGNOSTICS ===');
-}
-
-async function disconnectStaleAdb(adbPort: string): Promise<void> {
-  await execa('adb', ['disconnect', `localhost:${adbPort}`], { stdio: 'pipe' }).catch(() => {
+async function disconnectStaleAdb(host: string): Promise<void> {
+  await execa('adb', ['disconnect', host], { stdio: 'pipe' }).catch(() => {
     // Disconnect can fail if there's no entry to remove; that's fine.
   });
 }
 
-async function tryAdbConnect(adbPort: string, index: number): Promise<boolean> {
-  const connectResult = await execa('adb', ['connect', `localhost:${adbPort}`], {
-    stdio: 'pipe',
-  });
+async function tryAdbConnect(host: string, index: number): Promise<boolean> {
+  const connectResult = await execa('adb', ['connect', host], { stdio: 'pipe' });
   const connectOutput = connectResult.stdout.trim();
   // adb connect returns exit 0 even on failure with output like
   // "unable to connect", "failed to connect", or "device offline".
@@ -177,194 +167,226 @@ async function tryAdbConnect(adbPort: string, index: number): Promise<boolean> {
     return true;
   }
   if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
-    console.log(`[poll ${String(index)}] adb connect: ${connectOutput}`);
+    console.log(`[poll ${String(index)}] adb connect ${host}: ${connectOutput}`);
   }
   if (connectOutput.includes('offline')) {
-    await disconnectStaleAdb(adbPort);
+    await disconnectStaleAdb(host);
   }
   return false;
 }
 
 async function checkBootCompleted(
-  adbPort: string,
+  host: string,
   index: number
 ): Promise<{ connected: boolean; booted: boolean }> {
-  // Catch errors here rather than letting them propagate so the caller's
-  // `connected` state survives. `getprop sys.boot_completed` legitimately
-  // fails while the device is mid-boot; if we let it throw, the catch in
-  // startEmulator would never reassign `connected = poll.connected` and the
-  // next iteration would re-run `adb connect`, spamming "Connected to ..."
-  // and wasting one connect per poll.
   try {
-    const result = await execa('adb', [
-      '-s',
-      `localhost:${adbPort}`,
-      'shell',
-      'getprop',
-      'sys.boot_completed',
-    ]);
+    const result = await execa('adb', ['-s', host, 'shell', 'getprop', 'sys.boot_completed']);
     return { connected: true, booted: result.stdout.trim() === '1' };
   } catch (error: unknown) {
     const detail = extractErrorDetail(error);
-    // "device offline" / "device not found": the adb connection itself
-    // broke. Drop the entry and force the next iteration to re-connect.
     if (detail.includes('offline') || detail.includes('not found')) {
       if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
-        console.log(`[poll ${String(index)}] getprop: ${detail}`);
+        console.log(`[poll ${String(index)}] getprop ${host}: ${detail}`);
       }
-      await disconnectStaleAdb(adbPort);
+      await disconnectStaleAdb(host);
       return { connected: false, booted: false };
     }
-    // Benign mid-boot failure: keep the connection and try again.
     return { connected: true, booted: false };
   }
 }
 
 async function pollEmulatorBoot(
-  adbPort: string,
+  host: string,
   connected: boolean,
   index: number
 ): Promise<{ connected: boolean; booted: boolean }> {
   if (!connected) {
-    const ok = await tryAdbConnect(adbPort, index);
+    const ok = await tryAdbConnect(host, index);
     if (!ok) return { connected: false, booted: false };
-    console.log(`Connected to localhost:${adbPort}`);
+    console.log(`Connected to ${host}`);
   }
-  return checkBootCompleted(adbPort, index);
+  return checkBootCompleted(host, index);
 }
 
-async function setupAdbReverse(adbPort: string): Promise<void> {
-  // Set up reverse port forwarding so the emulator can reach the host API.
-  // In Docker, 10.0.2.2 maps to the container, not the host.
-  // adb reverse tunnels emulator localhost:PORT → host localhost:PORT.
+async function setupAdbReverse(host: string): Promise<void> {
   const apiPort = process.env['HB_API_PORT'] ?? '8787';
-  console.log(`Setting up adb reverse for API port ${apiPort}...`);
-  await execa('adb', ['-s', `localhost:${adbPort}`, 'reverse', `tcp:${apiPort}`, `tcp:${apiPort}`]);
+  console.log(`Setting up adb reverse for API port ${apiPort} on ${host}...`);
+  await execa('adb', ['-s', host, 'reverse', `tcp:${apiPort}`, `tcp:${apiPort}`]);
 }
 
-async function logPollError(error: unknown, connected: boolean, index: number): Promise<void> {
-  const detail = extractErrorDetail(error);
-  const phase = connected ? 'getprop' : 'adb connect';
-  console.log(`[poll ${String(index)}] ${phase} error: ${detail}`);
-  const status = await getContainerStatus();
-  console.log(`[poll ${String(index)}] container: ${status}`);
-}
-
-export async function stopEmulator(): Promise<void> {
-  console.log('Stopping Android emulator...');
-  try {
-    // `compose --profile X down` removes the project network too — which
-    // detaches sibling containers (postgres, redis from `pnpm dev` running
-    // in parallel) and kills the dev API. Stop+rm just the emulator service
-    // instead so a concurrent dev stack survives.
-    await execa('docker', ['compose', 'stop', 'android-emulator'], {
-      stdio: 'inherit',
-    });
-    await execa('docker', ['compose', 'rm', '-f', 'android-emulator'], {
-      stdio: 'inherit',
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to stop emulator: ${message}`);
-  }
-}
-
-export async function startEmulator(): Promise<void> {
-  // Detect host KVM group ID so the container user can access /dev/kvm
-  const kvmStat = await execa('stat', ['-c', '%g', '/dev/kvm']);
-  process.env['HB_KVM_GID'] = kvmStat.stdout.trim();
-
-  // Force-remove any leftover container before creating fresh. The
-  // budtmo/docker-android image runs `sudo sed -i '1d' /etc/passwd` during
-  // its one-time KVM permission setup (see
-  // /home/androidusr/docker-android/cli/src/device/emulator.py
-  // change_permission). Once root is stripped, supervisord cannot restart
-  // the device service on crash and the emulator is permanently wedged
-  // (adb-server stays up, every device interaction returns "device
-  // offline"). A previous run interrupted before its `stopEmulator`
-  // finally-block — Ctrl+C, OOM, or a hung script — leaves the container
-  // in exactly that state, and `compose up -d` is idempotent so it would
-  // adopt the broken container instead of recreating it.
-  console.log('Removing any leftover emulator container...');
-  await execa('docker', ['compose', '--profile', 'mobile', 'rm', '-fsv', 'android-emulator'], {
+export async function startEmulator(
+  shard: number,
+  imageTag: string,
+  kvmGid: string
+): Promise<void> {
+  const host = `localhost:${String(adbPortForShard(shard))}`;
+  console.log(`Starting Android emulator (shard ${String(shard)}) on ${host}...`);
+  await runEmulatorContainer({
+    name: containerNameForShard(shard),
+    hostAdbPort: adbPortForShard(shard),
+    imageTag,
+    kvmGid,
+    // Enables noVNC at port 6080 inside the container for live emulator
+    // viewing — useful for debugging a hung test interactively.
+    includeVnc: true,
     stdio: 'inherit',
-  }).catch(() => {
-    // rm fails if no container exists; that's fine.
   });
 
-  console.log('Starting Android emulator...');
-  await execa('docker', ['compose', '--profile', 'mobile', 'up', '-d', 'android-emulator'], {
-    stdio: 'inherit',
-    env: process.env,
-  });
-
-  const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
   let connected = false;
-
-  console.log('Waiting for emulator to boot...');
+  console.log(`Waiting for emulator on ${host} to boot...`);
   for (let index = 0; index < BOOT_TIMEOUT_POLLS; index++) {
     try {
-      const poll = await pollEmulatorBoot(adbPort, connected, index);
+      const poll = await pollEmulatorBoot(host, connected, index);
       connected = poll.connected;
       if (poll.booted) {
-        console.log('Emulator booted');
-        await setupAdbReverse(adbPort);
+        console.log(`Emulator booted on ${host}`);
+        await setupAdbReverse(host);
         return;
       }
     } catch (error: unknown) {
       if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
-        await logPollError(error, connected, index);
+        const detail = extractErrorDetail(error);
+        console.log(`[poll ${String(index)}] ${host} error: ${detail}`);
       }
     }
     await new Promise((resolve) => {
       setTimeout(resolve, BOOT_POLL_INTERVAL_MS);
     });
   }
-
-  await dumpBootDiagnostics();
-  throw new Error('Emulator failed to boot within timeout');
+  throw new Error(`Emulator on ${host} failed to boot within timeout`);
 }
 
-export async function startDevStack(): Promise<void> {
-  const apiPort = process.env['HB_API_PORT'] ?? '8787';
+export async function startEmulators(n: number, imageTag: string): Promise<void> {
+  const kvmGid = await detectKvmGid();
+  await Promise.all(
+    Array.from({ length: n }, (_, shard) => startEmulator(shard, imageTag, kvmGid))
+  );
+}
 
+export async function stopEmulator(shard: number): Promise<void> {
+  const name = containerNameForShard(shard);
+  console.log(`Stopping emulator shard ${String(shard)} (${name})...`);
+  try {
+    await execa('docker', ['rm', '-f', name], { stdio: 'inherit' });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to stop emulator ${name}: ${message}`);
+  }
+}
+
+export async function stopEmulators(n: number): Promise<void> {
+  await Promise.all(Array.from({ length: n }, (_, shard) => stopEmulator(shard)));
+}
+
+/**
+ * Tracks dev-stack resources WE started, so cleanup can selectively tear
+ * down only what's ours. If startDevStack reuses an already-running API
+ * (curl health check succeeds), both fields stay null/false and stopDevStack
+ * is a no-op — we never touch resources we didn't start.
+ */
+export interface DevStackHandle {
+  /** Wrangler dev subprocess we spawned; null when we reused a running API. */
+  apiProcess: ReturnType<typeof execa> | null;
+  /** True when we ran `pnpm db:up` (and therefore should run `pnpm db:down`). */
+  weStartedContainers: boolean;
+}
+
+const EMPTY_DEV_STACK_HANDLE: DevStackHandle = {
+  apiProcess: null,
+  weStartedContainers: false,
+};
+
+async function pollApiReady(apiPort: string): Promise<boolean> {
   try {
     await execa('curl', ['-sf', `http://localhost:${apiPort}/api/health`], { stdio: 'ignore' });
-    console.log('API server already running');
-    return;
+    return true;
   } catch {
-    // API not running, start it
+    return false;
+  }
+}
+
+export async function startDevStack(): Promise<DevStackHandle> {
+  const apiPort = process.env['HB_API_PORT'] ?? '8787';
+
+  if (await pollApiReady(apiPort)) {
+    console.log('API server already running — reusing existing dev stack (will not tear down)');
+    return EMPTY_DEV_STACK_HANDLE;
   }
 
   console.log('Starting dev stack...');
-  await execa('pnpm', ['db:up'], { stdio: 'inherit', env: process.env });
-  await execa('pnpm', ['db:migrate'], { stdio: 'inherit', env: process.env });
-  await execa('pnpm', ['db:seed'], { stdio: 'inherit', env: process.env });
+  let weStartedContainers = false;
+  let apiProcess: ReturnType<typeof execa> | null = null;
+  try {
+    await execa('pnpm', ['db:up'], { stdio: 'inherit', env: process.env });
+    // db:up succeeded (or partially started containers) — we own teardown
+    // from this point forward, even if a later step fails.
+    weStartedContainers = true;
+    await execa('pnpm', ['db:migrate'], { stdio: 'inherit', env: process.env });
+    await execa('pnpm', ['db:seed'], { stdio: 'inherit', env: process.env });
 
-  const apiProcess = execa('pnpm', ['--filter', '@hushbox/api', 'dev'], {
-    stdio: 'ignore',
-    env: process.env,
-    cleanup: false,
-  });
-  // eslint-disable-next-line promise/prefer-await-to-then, @typescript-eslint/no-empty-function -- fire-and-forget subprocess
-  apiProcess.catch(() => {});
-  // Allow the parent process to exit without waiting for the dev server
-  apiProcess.unref();
-
-  console.log('Waiting for API server...');
-  for (let index = 0; index < API_TIMEOUT_POLLS; index++) {
-    try {
-      await execa('curl', ['-sf', `http://localhost:${apiPort}/api/health`], { stdio: 'ignore' });
-      console.log('API server ready');
-      return;
-    } catch {
-      // Not ready yet
-    }
-    await new Promise((resolve) => {
-      setTimeout(resolve, API_POLL_INTERVAL_MS);
+    apiProcess = execa('pnpm', ['--filter', '@hushbox/api', 'dev'], {
+      stdio: 'ignore',
+      env: process.env,
     });
+    // eslint-disable-next-line promise/prefer-await-to-then, @typescript-eslint/no-empty-function -- fire-and-forget subprocess; explicit kill happens via stopDevStack
+    apiProcess.catch(() => {});
+    // unref so the parent's event loop can exit without waiting on the API.
+    // The explicit kill in stopDevStack handles graceful shutdown on the
+    // normal exit path; execa's default cleanup (forceKillAfterDelay) covers
+    // crash paths where finally doesn't run.
+    apiProcess.unref();
+
+    console.log('Waiting for API server...');
+    for (let index = 0; index < API_TIMEOUT_POLLS; index++) {
+      if (await pollApiReady(apiPort)) {
+        console.log('API server ready');
+        return { apiProcess, weStartedContainers };
+      }
+      await new Promise((resolve) => {
+        setTimeout(resolve, API_POLL_INTERVAL_MS);
+      });
+    }
+    throw new Error('API server failed to start within timeout');
+  } catch (error) {
+    // Partial start: tear down what we created so the failure doesn't leak
+    // containers or a wrangler subprocess. Then rethrow.
+    await stopDevStack({ apiProcess, weStartedContainers });
+    throw error;
   }
-  throw new Error('API server failed to start within timeout');
+}
+
+/**
+ * Tear down whatever WE started in this run. Resources we found already
+ * running (handle fields null/false) are left untouched — explicitly so we
+ * don't kill a sibling `pnpm dev` session.
+ *
+ * Best-effort: subprocess kill / container teardown failures are logged,
+ * not thrown, so a partial-cleanup hiccup doesn't mask the original error
+ * that triggered the cleanup.
+ */
+async function bestEffort(label: string, action: () => unknown): Promise<void> {
+  try {
+    await action();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${label}: ${message}`);
+  }
+}
+
+export async function stopDevStack(handle: DevStackHandle): Promise<void> {
+  if (handle.apiProcess) {
+    console.log('Stopping API server we started...');
+    // execa's .kill() is OS-agnostic: SIGTERM on POSIX, equivalent on
+    // Windows via TerminateProcess. forceKillAfterDelay (5s) handles
+    // children that ignore SIGTERM.
+    await bestEffort('Failed to stop API server', () => handle.apiProcess?.kill());
+  }
+  if (handle.weStartedContainers) {
+    console.log('Tearing down dev stack containers we started...');
+    await bestEffort('Failed to tear down dev stack', () =>
+      execa('pnpm', ['db:down'], { stdio: 'inherit', env: process.env })
+    );
+  }
 }
 
 const GOOGLE_SERVICES_PATH = 'apps/web/android/app/google-services.json';
@@ -426,30 +448,21 @@ export async function buildApk(): Promise<void> {
   });
 }
 
-export async function installApk(): Promise<void> {
-  const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
+export async function installApk(shard: number): Promise<void> {
+  const host = `localhost:${String(adbPortForShard(shard))}`;
+  console.log(`Installing APK on ${host}...`);
+  await execa('adb', ['-s', host, 'install', '-r', APK_PATH], { stdio: 'inherit' });
+}
 
-  console.log('Installing APK...');
-  await execa('adb', ['-s', `localhost:${adbPort}`, 'install', '-r', APK_PATH], {
-    stdio: 'inherit',
-  });
+export async function installApks(n: number): Promise<void> {
+  await Promise.all(Array.from({ length: n }, (_, shard) => installApk(shard)));
 }
 
 /**
  * Reset the dev API's in-memory version override to match the APK we built.
- *
- * The OTA test flow ({@link setupOtaUpdate}) at the end of a successful
- * `pnpm mobile:test` run sets the override to `OTA_VERSION` and never clears
- * it. The override lives in a module-level variable in the API
- * (`apps/api/src/lib/version-override.ts`), and Wrangler dev is a long-lived
- * process — so the next `pnpm mobile:test` invocation inherits that stale
- * value. Without this reset, every authenticated request from the freshly
- * built APK (which carries `X-App-Version=local-mobile-test`) fails with
- * 426 Upgrade Required, the WebView flips into its offline-overlay state,
- * and every post-login flow assertion misses the elements it needs.
- *
- * Called before each Maestro batch so the override is correct even when a
- * prior run left it dirty.
+ * See setupOtaUpdate() — without this reset, a stale override from a prior
+ * run causes every authenticated request from the freshly built APK to
+ * fail with 426 Upgrade Required.
  */
 export async function resetVersionOverride(): Promise<void> {
   const apiPort = process.env['HB_API_PORT'] ?? '8787';
@@ -464,15 +477,14 @@ export async function resetVersionOverride(): Promise<void> {
   }
 }
 
-export async function configureAppLinks(): Promise<void> {
-  const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
-
-  console.log('Configuring app link verification...');
+export async function configureAppLinks(shard: number): Promise<void> {
+  const host = `localhost:${String(adbPortForShard(shard))}`;
+  console.log(`Configuring app link verification on ${host}...`);
   await execa(
     'adb',
     [
       '-s',
-      `localhost:${adbPort}`,
+      host,
       'shell',
       'pm',
       'set-app-links-allowed',
@@ -484,90 +496,148 @@ export async function configureAppLinks(): Promise<void> {
     ],
     { stdio: 'inherit' }
   );
-
-  console.log('Disabling Chrome so deep links route to app...');
+  console.log(`Disabling Chrome on ${host} so deep links route to app...`);
   await execa(
     'adb',
-    [
-      '-s',
-      `localhost:${adbPort}`,
-      'shell',
-      'pm',
-      'disable-user',
-      '--user',
-      '0',
-      'com.android.chrome',
-    ],
+    ['-s', host, 'shell', 'pm', 'disable-user', '--user', '0', 'com.android.chrome'],
     { stdio: 'inherit' }
   );
 }
 
-export async function runMaestro(smoke: boolean): Promise<void> {
-  const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
-  const apiPort = process.env['HB_API_PORT'] ?? '8787';
+export async function configureAllAppLinks(n: number): Promise<void> {
+  await Promise.all(Array.from({ length: n }, (_, shard) => configureAppLinks(shard)));
+}
 
-  // Kill and restart the adb server with emulator port scanning disabled.
+/**
+ * Round-robin distribute flows across shards so wall-clock time stays balanced
+ * even when individual flow durations differ widely. With round-robin a slow
+ * flow at one index doesn't pile onto a single shard the way contiguous
+ * chunking would.
+ */
+export function partitionFlows(flows: string[], n: number): string[][] {
+  return Array.from({ length: n }, (_, bucket) =>
+    flows.filter((_flow, index) => index % n === bucket)
+  );
+}
+
+export function smokeFlows(): string[] {
+  return [
+    `${FLOW_DIR}/01-app-launch.yaml`,
+    `${FLOW_DIR}/02-splash-screen.yaml`,
+    `${FLOW_DIR}/03-webview-renders.yaml`,
+  ];
+}
+
+export function fullFlowsExcludingOta(): string[] {
+  return readdirSync(FLOW_DIR)
+    .filter((f) => f.endsWith('.yaml') && f !== path.basename(OTA_FLOW))
+    .toSorted((a, b) => a.localeCompare(b))
+    .map((f) => `${FLOW_DIR}/${f}`);
+}
+
+/* eslint-disable sonarjs/no-selector-parameter -- smoke is the user-facing CLI flag plumbed from parseArgs through main; splitting the caller would just move the same boolean selection one layer up */
+export function listFlowsForRun(smoke: boolean): string[] {
+  return smoke ? smokeFlows() : fullFlowsExcludingOta();
+}
+/* eslint-enable sonarjs/no-selector-parameter */
+
+async function prepareAdbServer(n: number): Promise<void> {
+  const apiPort = process.env['HB_API_PORT'] ?? '8787';
   // The adb server auto-discovers emulator ports (5554-5682) and creates
   // ghost "emulator-XXXX offline" entries that crash Maestro's dadb.
   // ADB_LOCAL_TRANSPORT_MAX_PORT=0 prevents the scan entirely.
   console.log('Restarting adb server without emulator port scanning...');
   await execa('adb', ['kill-server']).catch(() => {
-    // Ignored: kill-server fails if adb is not running
+    // Ignored: kill-server fails if adb is not running.
   });
-  const adbEnv = { ...process.env, ADB_LOCAL_TRANSPORT_MAX_PORT: '0' };
-  await execa('adb', ['start-server'], { env: adbEnv });
-  await execa('adb', ['connect', `localhost:${adbPort}`]);
-  await execa('adb', ['-s', `localhost:${adbPort}`, 'wait-for-device']);
+  await execa('adb', ['start-server'], {
+    env: { ...process.env, ADB_LOCAL_TRANSPORT_MAX_PORT: '0' },
+  });
+  for (let shard = 0; shard < n; shard++) {
+    const host = `localhost:${String(adbPortForShard(shard))}`;
+    await execa('adb', ['connect', host]);
+    await execa('adb', ['-s', host, 'wait-for-device']);
+    console.log(`Re-establishing adb reverse for API port ${apiPort} on ${host}...`);
+    await execa('adb', ['-s', host, 'reverse', `tcp:${apiPort}`, `tcp:${apiPort}`]);
+  }
+}
 
-  // Re-establish reverse port forwarding (lost when adb server was killed).
-  console.log(`Re-establishing adb reverse for API port ${apiPort}...`);
-  await execa('adb', ['-s', `localhost:${adbPort}`, 'reverse', `tcp:${apiPort}`, `tcp:${apiPort}`]);
+export interface ShardResult {
+  shard: number;
+  exitCode: number;
+  stdout: string;
+}
 
-  const FLOW_DIR = 'mobile-tests/flows';
-  const flowArgs = smoke
-    ? [
-        `${FLOW_DIR}/01-app-launch.yaml`,
-        `${FLOW_DIR}/02-splash-screen.yaml`,
-        `${FLOW_DIR}/03-webview-renders.yaml`,
-      ]
-    : readdirSync(FLOW_DIR)
-        .filter((f) => f.endsWith('.yaml') && f !== path.basename(OTA_FLOW))
-        .toSorted((a, b) => a.localeCompare(b))
-        .map((f) => `${FLOW_DIR}/${f}`);
+async function runMaestroOnShard(shard: number, flows: string[]): Promise<ShardResult> {
+  if (flows.length === 0) {
+    return { shard, exitCode: 0, stdout: '' };
+  }
+  const host = `localhost:${String(adbPortForShard(shard))}`;
+  const debugDir = debugOutputForShard(shard);
+  mkdirSync(debugDir, { recursive: true });
   const args = [
     'test',
     '--device',
-    `localhost:${adbPort}`,
+    host,
     '--debug-output',
-    'maestro-results',
+    debugDir,
     '--flatten-debug-output',
-    ...flowArgs,
+    ...flows,
   ];
-
-  console.log(`Running Maestro tests${smoke ? ' (smoke)' : ''}...`);
+  console.log(`[shard ${String(shard)}] maestro test on ${host} (${String(flows.length)} flows)`);
   const result = await execa('maestro', args, {
     stdout: ['pipe', 'inherit'],
     stderr: 'inherit',
     reject: false,
   });
+  return {
+    shard,
+    exitCode: typeof result.exitCode === 'number' ? result.exitCode : 1,
+    stdout: result.stdout,
+  };
+}
 
-  if (result.exitCode === 0) return;
+export async function runMaestroShards(smoke: boolean, n: number): Promise<void> {
+  await prepareAdbServer(n);
 
-  const failedPaths = getFailedFlowPaths(result.stdout);
+  const flows = listFlowsForRun(smoke);
+  const partitions = partitionFlows(flows, n);
+
+  console.log(`Running Maestro tests${smoke ? ' (smoke)' : ''} across ${String(n)} shard(s)...`);
+  const results = await Promise.all(
+    partitions.map((part, shard) => runMaestroOnShard(shard, part))
+  );
+
+  const allPassed = results.every((r) => r.exitCode === 0);
+  if (allPassed) return;
+
+  // Collect failures across all shards. Each shard's stdout is parsed
+  // independently; failed flow names map back to YAML paths the same way as
+  // the single-shard implementation.
+  const failedPaths = results.flatMap((r) => getFailedFlowPaths(r.stdout));
   if (failedPaths.length === 0) {
-    // Can't identify individual failures — fail without retry
-    throw new Error('Maestro tests failed');
+    // Some shard failed without identifying flows (e.g., maestro itself
+    // crashed). Fail without retry rather than re-running everything.
+    throw new Error('Maestro tests failed without identifiable flow failures');
   }
 
-  console.log(`\nRetrying ${String(failedPaths.length)} failed flow(s)...`);
+  console.log(`\nRetrying ${String(failedPaths.length)} failed flow(s) on shard 0...`);
+  const retryHost = `localhost:${String(adbPortForShard(0))}`;
+  // Per-shard maestro processes can disturb the host adb server's device
+  // table on exit (maestro#2167 — multi-device + non-default-port mode),
+  // surfacing as "Device localhost:PORT not connected" on retry. Re-attach
+  // before invoking the retry; `adb connect` is idempotent on an already-
+  // connected device, so this is safe in the happy path too.
+  await execa('adb', ['connect', retryHost]);
+  await execa('adb', ['-s', retryHost, 'wait-for-device']);
   await execa(
     'maestro',
     [
       'test',
       '--device',
-      `localhost:${adbPort}`,
+      retryHost,
       '--debug-output',
-      'maestro-results',
+      debugOutputForShard(0),
       '--flatten-debug-output',
       ...failedPaths,
     ],
@@ -592,13 +662,12 @@ function getFailedFlowPaths(output: string): string[] {
   const failedNames = parseFailedFlowNames(output);
   if (failedNames.length === 0) return [];
 
-  const flowDir = 'mobile-tests/flows';
   const nameToPath = new Map<string, string>();
-  for (const file of readdirSync(flowDir).filter((f) => f.endsWith('.yaml'))) {
-    const content = readFileSync(path.join(flowDir, file), 'utf8');
+  for (const file of readdirSync(FLOW_DIR).filter((f) => f.endsWith('.yaml'))) {
+    const content = readFileSync(path.join(FLOW_DIR, file), 'utf8');
     const nameMatch = /^name:\s*(.+)$/m.exec(content);
     if (nameMatch?.[1]) {
-      nameToPath.set(nameMatch[1].trim(), path.join(flowDir, file));
+      nameToPath.set(nameMatch[1].trim(), path.join(FLOW_DIR, file));
     }
   }
 
@@ -608,7 +677,6 @@ function getFailedFlowPaths(output: string): string[] {
 }
 
 const OTA_VERSION = 'ota-v2';
-const OTA_FLOW = 'mobile-tests/flows/13-ota-update.yaml';
 
 /**
  * Builds an OTA bundle, uploads to local R2, and sets the version override.
@@ -660,22 +728,20 @@ export async function setupOtaUpdate(): Promise<void> {
   console.log(`Version override set to ${OTA_VERSION}`);
 }
 
-async function runMaestroOta(): Promise<void> {
-  const adbPort = process.env['HB_EMULATOR_ADB_PORT'] ?? '5555';
-
-  console.log('Running OTA update Maestro flow...');
+export async function runMaestroOta(): Promise<void> {
+  // Run OTA on shard 0; it mutates global server state, so single-device is
+  // correct (no parallelism benefit, and concurrent runs would conflict).
+  const host = `localhost:${String(adbPortForShard(0))}`;
+  console.log(`Running OTA update Maestro flow on ${host}...`);
   try {
-    await execa('maestro', ['test', '--device', `localhost:${adbPort}`, OTA_FLOW], {
-      stdio: 'inherit',
-    });
+    await execa('maestro', ['test', '--device', host, OTA_FLOW], { stdio: 'inherit' });
   } catch (error: unknown) {
-    // Dump app-specific logcat before re-throwing so we can see Capgo/WebView errors
     console.log('\n=== Logcat dump for OTA test failure (Capacitor + CapgoUpdater) ===');
     await execa(
       'adb',
       [
         '-s',
-        `localhost:${adbPort}`,
+        host,
         'logcat',
         '-d',
         '-s',
@@ -685,7 +751,7 @@ async function runMaestroOta(): Promise<void> {
       ],
       { stdio: 'inherit' }
     ).catch(() => {
-      // Ignored: logcat dump is best-effort diagnostic output
+      // Ignored: logcat dump is best-effort diagnostic output.
     });
     throw error;
   }
@@ -694,17 +760,30 @@ async function runMaestroOta(): Promise<void> {
 export async function main(): Promise<void> {
   assertLinux();
   const { smoke } = parseArgs(process.argv.slice(2));
+  const n = SHARDS;
 
   await checkPrerequisites();
   await Promise.all([installMaestro(), installAndroidSdk()]);
 
+  // Resolve the image tag up front so we have a single source of truth across
+  // all shards. bakeImage handles local-cache / registry-pull / full-bake
+  // automatically; in CI on main this image was already pushed by the
+  // push-mobile-emulator-image job, so this is a pull. On PRs and local dev
+  // it may be a full bake (one-time cost per Dockerfile change).
+  const imageTag = await bakeImage({ push: false });
+
+  // Start the dev stack first (sequential) so its handle is captured before
+  // any later failure could short-circuit cleanup. The cost is ~30s in the
+  // cold case (fresh db:up + API ready-poll); near-zero when reusing an
+  // already-running API. The parallel speedup that mattered (emulator boot
+  // vs APK build) is preserved below.
+  const devStack = await startDevStack();
   try {
-    // Emulator boot, dev stack, and APK build are independent — run in parallel
-    await Promise.all([startEmulator(), startDevStack(), buildApk()]);
-    await installApk();
-    await configureAppLinks();
+    await Promise.all([startEmulators(n, imageTag), buildApk()]);
+    await installApks(n);
+    await configureAllAppLinks(n);
     await resetVersionOverride();
-    await runMaestro(smoke);
+    await runMaestroShards(smoke, n);
 
     if (!smoke) {
       await setupOtaUpdate();
@@ -713,7 +792,8 @@ export async function main(): Promise<void> {
 
     console.log('Mobile tests complete!');
   } finally {
-    await stopEmulator();
+    await stopEmulators(n);
+    await stopDevStack(devStack);
   }
 }
 

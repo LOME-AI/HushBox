@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock execa before importing the module
 vi.mock('execa', () => ({
   execa: vi.fn(),
 }));
@@ -22,47 +21,106 @@ vi.mock('node:fs', async () => {
       }
       return actual.readdirSync(dir);
     }),
+    readFileSync: vi.fn().mockImplementation((file: string, _enc?: string) => {
+      // getFailedFlowPaths reads each flow YAML to map the parsed `name:`
+      // back to a file path. Mock returns a name derived from the basename.
+      const basename = file.split('/').pop() ?? '';
+      const nameMap: Record<string, string> = {
+        '01-app-launch.yaml': 'App launches without crashing',
+        '02-splash-screen.yaml': 'Splash screen renders',
+        '03-webview-renders.yaml': 'WebView renders',
+        '04-back-button.yaml': 'Back button works',
+        '13-ota-update.yaml': 'OTA update downloads and applies',
+      };
+      return `name: ${nameMap[basename] ?? basename}\n`;
+    }),
     writeFileSync: vi.fn(),
+    mkdirSync: vi.fn(),
+  };
+});
+
+vi.mock('./lib/mobile-image.js', async () => {
+  // Keep the real detectKvmGid and runEmulatorContainer (they shell out via
+  // the mocked execa and fs/promises stat). Only stub bakeImage so tests
+  // never trigger an actual image build / pull cascade.
+  const actual =
+    await vi.importActual<typeof import('./lib/mobile-image.js')>('./lib/mobile-image.js');
+  return {
+    ...actual,
+    bakeImage: vi.fn().mockResolvedValue('ghcr.io/lome-ai/hushbox-android-emulator:testtag'),
   };
 });
 
 import { execa } from 'execa';
 import { existsSync, writeFileSync } from 'node:fs';
+import { bakeImage } from './lib/mobile-image.js';
 import {
   parseArgs,
   parseFailedFlowNames,
+  partitionFlows,
+  adbPortForShard,
+  containerNameForShard,
+  debugOutputForShard,
+  listFlowsForRun,
   checkPrerequisites,
   installMaestro,
   installAndroidSdk,
   startEmulator,
+  startEmulators,
   stopEmulator,
+  stopEmulators,
   startDevStack,
   buildApk,
   installApk,
-  runMaestro,
+  installApks,
+  configureAppLinks,
+  configureAllAppLinks,
+  runMaestroShards,
+  runMaestroOta,
   setupOtaUpdate,
+  stopDevStack,
   main,
 } from './mobile-test.js';
 
 const mockExeca = vi.mocked(execa);
 const mockExistsSync = vi.mocked(existsSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
+const mockBakeImage = vi.mocked(bakeImage);
 
-// execa returns a subprocess (ChildProcess + Promise). Tests need .unref() for startDevStack's fire-and-forget subprocess.
+// execa returns a subprocess (ChildProcess + Promise). Tests need .unref()
+// for startDevStack's fire-and-forget subprocess, and .kill() for the
+// stopDevStack cleanup path. We attach both as vi.fn() so tests can assert on
+// kill invocation when needed.
 function mockSubprocess(value: unknown = {}): never {
-  return Object.assign(Promise.resolve(value as never), { unref: vi.fn() }) as never;
+  return Object.assign(Promise.resolve(value as never), {
+    unref: vi.fn(),
+    kill: vi.fn(),
+  }) as never;
 }
 
 describe('mobile-test script', () => {
+  let savedEmulatorAdbPort: string | undefined;
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' } as never);
     mockExistsSync.mockReturnValue(true);
+    mockBakeImage.mockResolvedValue('ghcr.io/lome-ai/hushbox-android-emulator:testtag');
     vi.spyOn(console, 'log').mockImplementation(() => {});
+    // with-env.ts loads .env.development which may set HB_EMULATOR_ADB_PORT
+    // to a per-worktree slot port. Unset for tests so shard ports default to
+    // the documented 5555 base; restore after each test.
+    savedEmulatorAdbPort = process.env['HB_EMULATOR_ADB_PORT'];
+    delete process.env['HB_EMULATOR_ADB_PORT'];
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (savedEmulatorAdbPort === undefined) {
+      delete process.env['HB_EMULATOR_ADB_PORT'];
+    } else {
+      process.env['HB_EMULATOR_ADB_PORT'] = savedEmulatorAdbPort;
+    }
   });
 
   describe('parseArgs', () => {
@@ -76,6 +134,78 @@ describe('mobile-test script', () => {
 
     it('ignores other flags', () => {
       expect(parseArgs(['--other', '--smoke', '--flag'])).toEqual({ smoke: true });
+    });
+  });
+
+  describe('shard helpers', () => {
+    it('adbPortForShard spaces shards by 2 starting at 5555', () => {
+      expect(adbPortForShard(0)).toBe(5555);
+      expect(adbPortForShard(1)).toBe(5557);
+      expect(adbPortForShard(2)).toBe(5559);
+    });
+
+    it('adbPortForShard honors HB_EMULATOR_ADB_PORT as the base (worktree-isolated)', () => {
+      process.env['HB_EMULATOR_ADB_PORT'] = '6000';
+      expect(adbPortForShard(0)).toBe(6000);
+      expect(adbPortForShard(1)).toBe(6002);
+    });
+
+    it('adbPortForShard ignores non-numeric HB_EMULATOR_ADB_PORT and falls back to 5555', () => {
+      process.env['HB_EMULATOR_ADB_PORT'] = 'not-a-number';
+      expect(adbPortForShard(0)).toBe(5555);
+    });
+
+    it('adbPortForShard ignores zero/negative HB_EMULATOR_ADB_PORT and falls back to 5555', () => {
+      process.env['HB_EMULATOR_ADB_PORT'] = '0';
+      expect(adbPortForShard(0)).toBe(5555);
+    });
+
+    it('containerNameForShard uses the hushbox prefix', () => {
+      expect(containerNameForShard(0)).toBe('hushbox-mobile-emulator-shard-0');
+      expect(containerNameForShard(3)).toBe('hushbox-mobile-emulator-shard-3');
+    });
+
+    it('debugOutputForShard nests under maestro-results', () => {
+      expect(debugOutputForShard(0)).toBe('maestro-results/shard-0');
+      expect(debugOutputForShard(2)).toBe('maestro-results/shard-2');
+    });
+  });
+
+  describe('partitionFlows', () => {
+    it('round-robins flows across n buckets', () => {
+      expect(partitionFlows(['a', 'b', 'c', 'd', 'e'], 2)).toEqual([
+        ['a', 'c', 'e'],
+        ['b', 'd'],
+      ]);
+    });
+
+    it('produces n buckets even when n > flows', () => {
+      expect(partitionFlows(['a', 'b'], 4)).toEqual([['a'], ['b'], [], []]);
+    });
+
+    it('returns one bucket for n=1', () => {
+      expect(partitionFlows(['a', 'b', 'c'], 1)).toEqual([['a', 'b', 'c']]);
+    });
+
+    it('returns n empty buckets for empty flows', () => {
+      expect(partitionFlows([], 3)).toEqual([[], [], []]);
+    });
+  });
+
+  describe('listFlowsForRun', () => {
+    it('returns smoke subset when smoke=true', () => {
+      const flows = listFlowsForRun(true);
+      expect(flows).toEqual([
+        'mobile-tests/flows/01-app-launch.yaml',
+        'mobile-tests/flows/02-splash-screen.yaml',
+        'mobile-tests/flows/03-webview-renders.yaml',
+      ]);
+    });
+
+    it('excludes OTA flow from full run', () => {
+      const flows = listFlowsForRun(false);
+      expect(flows).not.toContain('mobile-tests/flows/13-ota-update.yaml');
+      expect(flows).toContain('mobile-tests/flows/01-app-launch.yaml');
     });
   });
 
@@ -307,75 +437,161 @@ describe('mobile-test script', () => {
 
   describe('startEmulator', () => {
     const emulatorMock = ((cmd: string, args?: readonly string[]) => {
-      if (cmd === 'stat') return Promise.resolve({ stdout: '993' } as never);
       if (cmd === 'adb' && Array.isArray(args) && args.includes('connect')) {
         return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
       }
       if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
         return Promise.resolve({ stdout: '1' } as never);
       }
-      return Promise.resolve({} as never);
+      // Default for docker calls — runEmulatorContainer reads stdout.trim()
+      // for the container id, so it must be a string.
+      return Promise.resolve({ stdout: '' } as never);
     }) as never;
 
-    it('detects KVM group ID before starting', async () => {
+    it('runs docker container with privileged mode and KVM device', async () => {
       mockExeca.mockImplementation(emulatorMock);
 
-      await startEmulator();
-
-      expect(mockExeca).toHaveBeenCalledWith('stat', ['-c', '%g', '/dev/kvm']);
-      expect(process.env['HB_KVM_GID']).toBe('993');
-
-      delete process.env['HB_KVM_GID'];
-    });
-
-    it('starts emulator via docker compose with mobile profile', async () => {
-      mockExeca.mockImplementation(emulatorMock);
-
-      await startEmulator();
+      await startEmulator(0, 'test-image', '993');
 
       expect(mockExeca).toHaveBeenCalledWith(
         'docker',
-        ['compose', '--profile', 'mobile', 'up', '-d', 'android-emulator'],
+        expect.arrayContaining([
+          'run',
+          '-d',
+          '--privileged',
+          '--name',
+          'hushbox-mobile-emulator-shard-0',
+          '--device',
+          '/dev/kvm',
+          '--group-add',
+          '993',
+        ]),
         expect.objectContaining({ stdio: 'inherit' })
       );
-
-      delete process.env['HB_KVM_GID'];
     });
 
-    it('connects adb to the emulator port', async () => {
-      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
+    it('maps shard 1 to ADB port 5557', async () => {
       mockExeca.mockImplementation(emulatorMock);
 
-      await startEmulator();
+      await startEmulator(1, 'test-image', '993');
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        'docker',
+        expect.arrayContaining(['-p', '5557:5555']),
+        expect.anything()
+      );
+    });
+
+    it('connects adb to the shard-specific port', async () => {
+      mockExeca.mockImplementation(emulatorMock);
+
+      await startEmulator(0, 'test-image', '993');
 
       expect(mockExeca).toHaveBeenCalledWith('adb', ['connect', 'localhost:5555'], {
         stdio: 'pipe',
       });
-
-      delete process.env['HB_EMULATOR_ADB_PORT'];
-      delete process.env['HB_KVM_GID'];
     });
 
     it('polls for boot completion', async () => {
       let pollCount = 0;
+      function getpropResponse(): Promise<unknown> {
+        pollCount++;
+        if (pollCount < 3) return Promise.reject(new Error('not ready'));
+        return Promise.resolve({ stdout: '1' });
+      }
+      function dispatchPollCall(cmd: string, args: readonly string[]): Promise<unknown> {
+        if (cmd === 'docker' && args.includes('run')) {
+          return Promise.resolve({ stdout: 'container-id' });
+        }
+        if (cmd === 'adb' && args.includes('connect')) {
+          return Promise.resolve({ stdout: 'connected to localhost:5555' });
+        }
+        if (cmd === 'adb' && args.includes('getprop')) return getpropResponse();
+        return Promise.resolve({ stdout: '' });
+      }
+      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) =>
+        dispatchPollCall(cmd, Array.isArray(args) ? args : [])) as never);
+
+      await startEmulator(0, 'test-image', '993');
+
+      expect(pollCount).toBe(3);
+    });
+
+    it('removes leftover container before starting fresh', async () => {
+      mockExeca.mockImplementation(emulatorMock);
+
+      await startEmulator(0, 'test-image', '993');
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        'docker',
+        ['rm', '-f', 'hushbox-mobile-emulator-shard-0'],
+        expect.objectContaining({ stdio: 'ignore' })
+      );
+    });
+  });
+
+  describe('startEmulators', () => {
+    it('starts n emulators in parallel with distinct container names', async () => {
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
-        if (cmd === 'stat') return Promise.resolve({ stdout: '993' } as never);
         if (cmd === 'adb' && Array.isArray(args) && args.includes('connect')) {
           return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
         }
         if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
-          pollCount++;
-          if (pollCount < 3) return Promise.reject(new Error('not ready'));
           return Promise.resolve({ stdout: '1' } as never);
         }
-        return Promise.resolve({} as never);
+        return Promise.resolve({ stdout: '' } as never);
       }) as never);
 
-      await startEmulator();
+      await startEmulators(2, 'test-image');
 
-      expect(pollCount).toBe(3);
+      // detectKvmGid uses fs.stat directly (not execa) — verified by the
+      // fact that docker run still fires N times, since startEmulator only
+      // proceeds after gid resolution.
+      const runCalls = mockExeca.mock.calls.filter(
+        (c) => c[0] === 'docker' && Array.isArray(c[1]) && c[1].includes('run')
+      );
+      expect(runCalls).toHaveLength(2);
+      const names = runCalls.map(
+        (c) => (c[1] as string[])[(c[1] as string[]).indexOf('--name') + 1]
+      );
+      expect(names).toContain('hushbox-mobile-emulator-shard-0');
+      expect(names).toContain('hushbox-mobile-emulator-shard-1');
+    });
 
-      delete process.env['HB_KVM_GID'];
+    it('propagates rejection when any shard fails to start', async () => {
+      // Shard 0's docker run succeeds; shard 1's rejects. Promise.all rejects
+      // immediately — the caller (main()) relies on this to break out of
+      // boot-time work and trigger its finally-block cleanup.
+      // We use a no-op setTimeout to skip the 2s boot-poll sleeps; without
+      // it shard 0 hangs polling for ~4 minutes after shard 1 rejects.
+      const originalSetTimeout = globalThis.setTimeout;
+      globalThis.setTimeout = ((function_: () => void) => {
+        function_();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout;
+      try {
+        mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
+          const argumentList = Array.isArray(args) ? args : [];
+          if (
+            cmd === 'docker' &&
+            argumentList.includes('run') &&
+            argumentList.includes('hushbox-mobile-emulator-shard-1')
+          ) {
+            return Promise.reject(new Error('docker run failed for shard 1'));
+          }
+          if (cmd === 'adb' && argumentList.includes('connect')) {
+            return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
+          }
+          if (cmd === 'adb' && argumentList.includes('getprop')) {
+            return Promise.resolve({ stdout: '1' } as never);
+          }
+          return Promise.resolve({ stdout: '' } as never);
+        }) as never);
+
+        await expect(startEmulators(2, 'test-image')).rejects.toThrow(/shard 1/);
+      } finally {
+        globalThis.setTimeout = originalSetTimeout;
+      }
     });
   });
 
@@ -461,6 +677,124 @@ describe('mobile-test script', () => {
       );
 
       delete process.env['HB_API_PORT'];
+    });
+
+    it('returns empty handle (no apiProcess, no containers) when reusing running API', async () => {
+      process.env['HB_API_PORT'] = '8787';
+
+      const handle = await startDevStack();
+
+      expect(handle.apiProcess).toBeNull();
+      expect(handle.weStartedContainers).toBe(false);
+
+      delete process.env['HB_API_PORT'];
+    });
+
+    it('returns handle with apiProcess and weStartedContainers=true when starting fresh', async () => {
+      process.env['HB_API_PORT'] = '8787';
+      let healthCheckCount = 0;
+      mockExeca.mockImplementation(((cmd: string, _args?: readonly string[]) => {
+        if (cmd === 'curl') {
+          healthCheckCount++;
+          if (healthCheckCount === 1) return Promise.reject(new Error('not running'));
+          return mockSubprocess();
+        }
+        return mockSubprocess();
+      }) as never);
+
+      const handle = await startDevStack();
+
+      expect(handle.apiProcess).not.toBeNull();
+      expect(handle.weStartedContainers).toBe(true);
+
+      delete process.env['HB_API_PORT'];
+    });
+
+    it('tears down its own state when API never becomes ready', async () => {
+      process.env['HB_API_PORT'] = '8787';
+      // Speed up the API ready polling so we don't wait 30s of real time.
+      const originalSetTimeout = globalThis.setTimeout;
+      globalThis.setTimeout = ((function_: () => void) => {
+        function_();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout;
+      try {
+        mockExeca.mockImplementation(((cmd: string, _args?: readonly string[]) => {
+          if (cmd === 'curl') return Promise.reject(new Error('API never ready'));
+          return mockSubprocess();
+        }) as never);
+
+        await expect(startDevStack()).rejects.toThrow(/failed to start within timeout/);
+
+        // db:down must have been called to tear down the containers we
+        // started, even though startDevStack itself failed.
+        const dbDownCalls = mockExeca.mock.calls.filter(
+          (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:down')
+        );
+        expect(dbDownCalls.length).toBeGreaterThanOrEqual(1);
+      } finally {
+        globalThis.setTimeout = originalSetTimeout;
+        delete process.env['HB_API_PORT'];
+      }
+    });
+  });
+
+  describe('stopDevStack', () => {
+    it('does nothing when handle has neither apiProcess nor containers', async () => {
+      await stopDevStack({ apiProcess: null, weStartedContainers: false });
+
+      const dbDownCalls = mockExeca.mock.calls.filter(
+        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:down')
+      );
+      expect(dbDownCalls).toHaveLength(0);
+    });
+
+    it('kills the apiProcess when present', async () => {
+      const fakeProcess = mockSubprocess() as unknown as ReturnType<typeof execa>;
+
+      await stopDevStack({ apiProcess: fakeProcess, weStartedContainers: false });
+
+      // The subprocess's kill method must have been invoked.
+      expect((fakeProcess as unknown as { kill: () => void }).kill).toHaveBeenCalled();
+    });
+
+    it('runs pnpm db:down when weStartedContainers=true', async () => {
+      await stopDevStack({ apiProcess: null, weStartedContainers: true });
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        'pnpm',
+        ['db:down'],
+        expect.objectContaining({ stdio: 'inherit' })
+      );
+    });
+
+    it('does not run db:down when weStartedContainers=false', async () => {
+      const fakeProcess = mockSubprocess() as unknown as ReturnType<typeof execa>;
+
+      await stopDevStack({ apiProcess: fakeProcess, weStartedContainers: false });
+
+      const dbDownCalls = mockExeca.mock.calls.filter(
+        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:down')
+      );
+      expect(dbDownCalls).toHaveLength(0);
+    });
+
+    it('does not throw when db:down itself fails (best-effort cleanup)', async () => {
+      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'pnpm' && Array.isArray(args) && args.includes('db:down')) {
+          return Promise.reject(new Error('compose down failed'));
+        }
+        return mockSubprocess();
+      }) as never);
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(
+        stopDevStack({ apiProcess: null, weStartedContainers: true })
+      ).resolves.toBeUndefined();
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to tear down dev stack')
+      );
     });
   });
 
@@ -568,100 +902,141 @@ describe('mobile-test script', () => {
   });
 
   describe('installApk', () => {
-    it('installs APK via adb', async () => {
-      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
-
-      await installApk();
+    it('installs APK via adb on the shard-specific port', async () => {
+      await installApk(1);
 
       expect(mockExeca).toHaveBeenCalledWith(
         'adb',
         [
           '-s',
-          'localhost:5555',
+          'localhost:5557',
           'install',
           '-r',
           'apps/web/android/app/build/outputs/apk/debug/app-debug.apk',
         ],
         { stdio: 'inherit' }
       );
+    });
+  });
 
-      delete process.env['HB_EMULATOR_ADB_PORT'];
+  describe('installApks', () => {
+    it('installs APK on all n shards', async () => {
+      await installApks(2);
+
+      const installCalls = mockExeca.mock.calls.filter(
+        (c) => c[0] === 'adb' && Array.isArray(c[1]) && c[1].includes('install')
+      );
+      expect(installCalls).toHaveLength(2);
+      const targetHosts = installCalls.map((c) => (c[1] as string[])[1]);
+      expect(targetHosts).toContain('localhost:5555');
+      expect(targetHosts).toContain('localhost:5557');
+    });
+  });
+
+  describe('configureAppLinks', () => {
+    it('targets the shard-specific adb host', async () => {
+      await configureAppLinks(1);
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        'adb',
+        expect.arrayContaining(['-s', 'localhost:5557', 'shell', 'pm', 'set-app-links-allowed']),
+        expect.objectContaining({ stdio: 'inherit' })
+      );
+    });
+  });
+
+  describe('configureAllAppLinks', () => {
+    it('configures app links on all n shards', async () => {
+      await configureAllAppLinks(2);
+
+      const setAppLinksCalls = mockExeca.mock.calls.filter(
+        (c) => c[0] === 'adb' && Array.isArray(c[1]) && c[1].includes('set-app-links-allowed')
+      );
+      expect(setAppLinksCalls).toHaveLength(2);
     });
   });
 
   describe('stopEmulator', () => {
-    it('stops and removes just the android-emulator container', async () => {
-      // Service-scoped stop+rm (not `compose down`) so a concurrent dev
-      // stack on the same compose project survives.
-      await stopEmulator();
+    it('removes the shard container with docker rm -f', async () => {
+      await stopEmulator(0);
 
-      expect(mockExeca).toHaveBeenCalledWith('docker', ['compose', 'stop', 'android-emulator'], {
-        stdio: 'inherit',
-      });
       expect(mockExeca).toHaveBeenCalledWith(
         'docker',
-        ['compose', 'rm', '-f', 'android-emulator'],
-        {
-          stdio: 'inherit',
-        }
+        ['rm', '-f', 'hushbox-mobile-emulator-shard-0'],
+        { stdio: 'inherit' }
       );
     });
 
-    it('does not throw when docker compose down fails', async () => {
+    it('targets the shard-specific container name', async () => {
+      await stopEmulator(1);
+
+      expect(mockExeca).toHaveBeenCalledWith(
+        'docker',
+        ['rm', '-f', 'hushbox-mobile-emulator-shard-1'],
+        { stdio: 'inherit' }
+      );
+    });
+
+    it('does not throw when docker rm fails', async () => {
       mockExeca.mockRejectedValueOnce(new Error('container not found'));
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      await expect(stopEmulator()).resolves.toBeUndefined();
+      await expect(stopEmulator(0)).resolves.toBeUndefined();
 
       expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to stop emulator'));
     });
   });
 
-  describe('runMaestro', () => {
-    it('kills adb server to clear ghost devices', async () => {
-      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
+  describe('stopEmulators', () => {
+    it('stops all n shards in parallel', async () => {
+      await stopEmulators(2);
+
+      const rmCalls = mockExeca.mock.calls.filter(
+        (c) =>
+          c[0] === 'docker' &&
+          Array.isArray(c[1]) &&
+          c[1][0] === 'rm' &&
+          (c[1][2] === 'hushbox-mobile-emulator-shard-0' ||
+            c[1][2] === 'hushbox-mobile-emulator-shard-1')
+      );
+      expect(rmCalls).toHaveLength(2);
+    });
+  });
+
+  describe('runMaestroShards', () => {
+    beforeEach(() => {
       process.env['HB_API_PORT'] = '8787';
+    });
 
-      await runMaestro(false);
-
-      expect(mockExeca).toHaveBeenCalledWith('adb', ['kill-server']);
-
-      delete process.env['HB_EMULATOR_ADB_PORT'];
+    afterEach(() => {
       delete process.env['HB_API_PORT'];
     });
 
-    it('restarts adb server with emulator scanning disabled', async () => {
-      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
-      process.env['HB_API_PORT'] = '8787';
+    it('kills adb server to clear ghost devices', async () => {
+      await runMaestroShards(false, 2);
 
-      await runMaestro(false);
+      expect(mockExeca).toHaveBeenCalledWith('adb', ['kill-server']);
+    });
+
+    it('restarts adb server with emulator scanning disabled', async () => {
+      await runMaestroShards(false, 2);
 
       expect(mockExeca).toHaveBeenCalledWith('adb', ['start-server'], {
         env: expect.objectContaining({ ADB_LOCAL_TRANSPORT_MAX_PORT: '0' }),
       });
-
-      delete process.env['HB_EMULATOR_ADB_PORT'];
-      delete process.env['HB_API_PORT'];
     });
 
-    it('reconnects to device after killing adb server', async () => {
-      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
-      process.env['HB_API_PORT'] = '8787';
-
-      await runMaestro(false);
+    it('connects adb to each shard after server restart', async () => {
+      await runMaestroShards(false, 2);
 
       expect(mockExeca).toHaveBeenCalledWith('adb', ['connect', 'localhost:5555']);
-      expect(mockExeca).toHaveBeenCalledWith('adb', ['-s', 'localhost:5555', 'wait-for-device']);
-
-      delete process.env['HB_EMULATOR_ADB_PORT'];
-      delete process.env['HB_API_PORT'];
+      expect(mockExeca).toHaveBeenCalledWith('adb', ['connect', 'localhost:5557']);
     });
 
-    it('re-establishes adb reverse for API port after server restart', async () => {
-      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
+    it('re-establishes adb reverse for API port on each shard', async () => {
       process.env['HB_API_PORT'] = '9999';
 
-      await runMaestro(false);
+      await runMaestroShards(false, 2);
 
       expect(mockExeca).toHaveBeenCalledWith('adb', [
         '-s',
@@ -670,63 +1045,169 @@ describe('mobile-test script', () => {
         'tcp:9999',
         'tcp:9999',
       ]);
-
-      delete process.env['HB_EMULATOR_ADB_PORT'];
-      delete process.env['HB_API_PORT'];
+      expect(mockExeca).toHaveBeenCalledWith('adb', [
+        '-s',
+        'localhost:5557',
+        'reverse',
+        'tcp:9999',
+        'tcp:9999',
+      ]);
     });
 
-    it('runs all flows except OTA with --device flag when smoke is false', async () => {
-      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
-      process.env['HB_API_PORT'] = '8787';
+    it('runs maestro on each shard with disjoint flow partitions', async () => {
       mockExeca.mockImplementation(((cmd: string) => {
         if (cmd === 'maestro') return mockSubprocess({ exitCode: 0, stdout: '' });
         return mockSubprocess();
       }) as never);
 
-      await runMaestro(false);
+      await runMaestroShards(false, 2);
 
-      const maestroCall = mockExeca.mock.calls.find(
-        (call) => call[0] === 'maestro' && Array.isArray(call[1]) && call[1].includes('test')
+      const maestroCalls = mockExeca.mock.calls.filter(
+        (c) => c[0] === 'maestro' && Array.isArray(c[1]) && c[1].includes('test')
       );
-      expect(maestroCall).toBeDefined();
-      const flowArgs = (maestroCall![1] as string[]).filter((a) => a.endsWith('.yaml'));
+      expect(maestroCalls).toHaveLength(2);
 
-      expect(flowArgs).toContain('mobile-tests/flows/01-app-launch.yaml');
-      // Excludes OTA flow (run separately after setupOtaUpdate)
-      expect(flowArgs).not.toContain('mobile-tests/flows/13-ota-update.yaml');
-
-      delete process.env['HB_EMULATOR_ADB_PORT'];
-      delete process.env['HB_API_PORT'];
+      const allFlows = maestroCalls.flatMap((c) =>
+        (c[1] as string[]).filter((argument) => argument.endsWith('.yaml'))
+      );
+      // OTA excluded; smoke vs non-smoke handled by listFlowsForRun
+      expect(allFlows).not.toContain('mobile-tests/flows/13-ota-update.yaml');
+      // Each flow appears exactly once across all shards (round-robin)
+      const flowCounts = new Map<string, number>();
+      for (const flow of allFlows) {
+        flowCounts.set(flow, (flowCounts.get(flow) ?? 0) + 1);
+      }
+      for (const count of flowCounts.values()) {
+        expect(count).toBe(1);
+      }
     });
 
     it('runs only smoke flows when smoke is true', async () => {
-      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
-      process.env['HB_API_PORT'] = '8787';
       mockExeca.mockImplementation(((cmd: string) => {
         if (cmd === 'maestro') return mockSubprocess({ exitCode: 0, stdout: '' });
         return mockSubprocess();
       }) as never);
 
-      await runMaestro(true);
+      await runMaestroShards(true, 2);
 
-      expect(mockExeca).toHaveBeenCalledWith(
-        'maestro',
-        [
-          'test',
-          '--device',
-          'localhost:5555',
-          '--debug-output',
-          'maestro-results',
-          '--flatten-debug-output',
-          'mobile-tests/flows/01-app-launch.yaml',
-          'mobile-tests/flows/02-splash-screen.yaml',
-          'mobile-tests/flows/03-webview-renders.yaml',
-        ],
-        { stdout: ['pipe', 'inherit'], stderr: 'inherit', reject: false }
+      const maestroCalls = mockExeca.mock.calls.filter(
+        (c) => c[0] === 'maestro' && Array.isArray(c[1]) && c[1].includes('test')
       );
+      const allFlows = maestroCalls.flatMap((c) =>
+        (c[1] as string[]).filter((argument) => argument.endsWith('.yaml'))
+      );
+      expect(allFlows).toContain('mobile-tests/flows/01-app-launch.yaml');
+      expect(allFlows).toContain('mobile-tests/flows/02-splash-screen.yaml');
+      expect(allFlows).toContain('mobile-tests/flows/03-webview-renders.yaml');
+      // Smoke is 3 flows, n=2: shard 0 gets 01,03 (2 flows); shard 1 gets 02 (1 flow).
+      expect(allFlows).toHaveLength(3);
+    });
 
-      delete process.env['HB_EMULATOR_ADB_PORT'];
-      delete process.env['HB_API_PORT'];
+    it('retries failed flows on shard 0', async () => {
+      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'maestro' && Array.isArray(args) && args.includes('test')) {
+          // First two are the per-shard runs; one of them returns a failure
+          return mockSubprocess({
+            exitCode: 1,
+            stdout: '[Failed] App launches without crashing (10s) (some reason)',
+          });
+        }
+        return mockSubprocess();
+      }) as never);
+
+      await runMaestroShards(false, 2);
+
+      const maestroTestCalls = mockExeca.mock.calls.filter(
+        (c) => c[0] === 'maestro' && Array.isArray(c[1]) && c[1].includes('test')
+      );
+      // 2 shard runs + 1 retry pass = 3 maestro test invocations
+      expect(maestroTestCalls.length).toBeGreaterThanOrEqual(3);
+      // Retry targets shard 0's host
+      const retry = maestroTestCalls.at(-1)!;
+      expect(retry[1] as string[]).toContain('localhost:5555');
+    });
+
+    it('re-connects adb to the retry shard before the retry maestro invocation', async () => {
+      // Per-shard maestro processes can disturb the host adb server's device
+      // table on exit (see maestro#2167), which makes the retry fail with
+      // "Device localhost:PORT not connected". The retry path must
+      // idempotently re-establish the connection before invoking maestro.
+      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'maestro' && Array.isArray(args) && args.includes('test')) {
+          return mockSubprocess({
+            exitCode: 1,
+            stdout: '[Failed] App launches without crashing (10s) (some reason)',
+          });
+        }
+        return mockSubprocess();
+      }) as never);
+
+      await runMaestroShards(false, 2);
+
+      // Find the index of the final (retry) maestro test call.
+      const callOrder = mockExeca.mock.calls.map((c, index) => ({
+        index,
+        cmd: c[0] as string,
+        args: Array.isArray(c[1]) ? (c[1] as string[]) : [],
+      }));
+      const retryIndex = callOrder.findLast(
+        (c) => c.cmd === 'maestro' && c.args.includes('test')
+      )!.index;
+
+      // adb connect localhost:5555 + wait-for-device must appear after the
+      // per-shard runs settle and before the retry maestro fires.
+      const reconnectIndex = callOrder.findIndex(
+        (c, index) =>
+          index < retryIndex &&
+          c.cmd === 'adb' &&
+          c.args[0] === 'connect' &&
+          c.args[1] === 'localhost:5555' &&
+          // Restrict to the LAST adb connect localhost:5555 before retry —
+          // prepareAdbServer's earlier connect doesn't count.
+          callOrder
+            .slice(index + 1, retryIndex)
+            .every((later) => !(later.cmd === 'adb' && later.args[0] === 'connect'))
+      );
+      expect(reconnectIndex).toBeGreaterThan(-1);
+
+      const waitForDeviceIndex = callOrder.findIndex(
+        (c, index) =>
+          index > reconnectIndex &&
+          index < retryIndex &&
+          c.cmd === 'adb' &&
+          c.args.includes('wait-for-device') &&
+          c.args.includes('localhost:5555')
+      );
+      expect(waitForDeviceIndex).toBeGreaterThan(reconnectIndex);
+    });
+
+    it('skips empty shards (no maestro invocation, no failures)', async () => {
+      // Round-robin 1 flow across 2 shards puts the flow in shard 0; shard 1
+      // has nothing to do. The script must not invoke maestro for shard 1 and
+      // must not treat its (empty) stdout as a missing-failure error.
+      mockExeca.mockImplementation(((cmd: string) => {
+        if (cmd === 'maestro') return mockSubprocess({ exitCode: 0, stdout: '' });
+        return mockSubprocess();
+      }) as never);
+
+      await runMaestroShards(true, 4);
+
+      const maestroCalls = mockExeca.mock.calls.filter(
+        (c) => c[0] === 'maestro' && Array.isArray(c[1]) && c[1].includes('test')
+      );
+      // smoke = 3 flows, n = 4: shards 0,1,2 each get 1 flow; shard 3 is empty
+      expect(maestroCalls).toHaveLength(3);
+    });
+
+    it('throws when shard fails without identifiable flow failures', async () => {
+      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'maestro' && Array.isArray(args) && args.includes('test')) {
+          return mockSubprocess({ exitCode: 1, stdout: 'unparseable output' });
+        }
+        return mockSubprocess();
+      }) as never);
+
+      await expect(runMaestroShards(false, 2)).rejects.toThrow(/without identifiable/);
     });
   });
 
@@ -736,127 +1217,45 @@ describe('mobile-test script', () => {
     beforeEach(() => {
       savedPath = process.env['PATH'];
       process.env['HB_API_PORT'] = '8787';
-      process.env['HB_EMULATOR_ADB_PORT'] = '5555';
       process.env['API_URL'] = 'http://localhost:8787';
       process.env['FRONTEND_URL'] = 'http://localhost:5173';
 
-      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
-        if (cmd === 'stat') return Promise.resolve({ stdout: '993' } as never);
-        if (cmd === 'adb' && Array.isArray(args) && args.includes('connect')) {
-          return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
+      function dispatchMainCall(cmd: string, args: readonly string[]): unknown {
+        if (cmd === 'stat') return Promise.resolve({ stdout: '993' });
+        if (cmd === 'adb' && args.includes('connect')) {
+          return Promise.resolve({ stdout: 'connected to localhost:5555' });
         }
-        if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
-          return Promise.resolve({ stdout: '1' } as never);
+        if (cmd === 'adb' && args.includes('getprop')) {
+          return Promise.resolve({ stdout: '1' });
         }
-        return Promise.resolve({} as never);
-      }) as never);
+        if (cmd === 'maestro' && args.includes('test')) {
+          return mockSubprocess({ exitCode: 0, stdout: '' });
+        }
+        // runEmulatorContainer reads stdout.trim() from docker run.
+        return Promise.resolve({ stdout: '' });
+      }
+      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) =>
+        dispatchMainCall(cmd, Array.isArray(args) ? args : [])) as never);
     });
 
     afterEach(() => {
       delete process.env['HB_API_PORT'];
-      delete process.env['HB_EMULATOR_ADB_PORT'];
       delete process.env['HB_KVM_GID'];
       delete process.env['API_URL'];
       delete process.env['FRONTEND_URL'];
       process.env['PATH'] = savedPath;
     });
 
-    it('runs prerequisites before parallel phase and sequential steps after', async () => {
+    it('calls bakeImage with push=false before starting emulators', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
       );
-      const callOrder: string[] = [];
-
-      const hasArgument = (args: readonly string[] | undefined, argument: string): boolean =>
-        Array.isArray(args) && args.includes(argument);
-
-      const matchers: {
-        cmd: string;
-        argument?: string;
-        label: string;
-        result?: { stdout: string; exitCode?: number };
-      }[] = [
-        { cmd: 'stat', label: 'detect-kvm-gid', result: { stdout: '993' } },
-        { cmd: 'docker', argument: 'info', label: 'check-docker' },
-        { cmd: 'maestro', argument: '--version', label: 'check-maestro' },
-        { cmd: 'docker', argument: 'up', label: 'start-emulator' },
-        {
-          cmd: 'adb',
-          argument: 'connect',
-          label: 'adb-connect',
-          result: { stdout: 'connected to localhost:5555' },
-        },
-        { cmd: 'adb', argument: 'getprop', label: 'wait-boot', result: { stdout: '1' } },
-        { cmd: 'curl', label: 'health-check' },
-        { cmd: 'pnpm', argument: 'build', label: 'build' },
-        { cmd: 'npx', label: 'cap-sync' },
-        { cmd: './gradlew', label: 'gradle' },
-        { cmd: 'adb', argument: 'install', label: 'install-apk' },
-        { cmd: 'adb', argument: 'kill-server', label: 'kill-adb-server' },
-        { cmd: 'adb', argument: 'start-server', label: 'start-adb-server' },
-        {
-          cmd: 'maestro',
-          argument: 'test',
-          label: 'run-maestro',
-          result: { exitCode: 0, stdout: '' },
-        },
-        { cmd: 'zip', label: 'zip-ota' },
-        // stopEmulator() invokes `compose stop android-emulator` first; the
-        // matcher records the first command in callOrder, so we look for
-        // `'stop'`. The follow-up `compose rm -f android-emulator` would
-        // also match but only the first push per label matters for ordering.
-        { cmd: 'docker', argument: 'stop', label: 'stop-emulator' },
-      ];
-
-      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
-        for (const matcher of matchers) {
-          if (cmd === matcher.cmd && (!matcher.argument || hasArgument(args, matcher.argument))) {
-            callOrder.push(matcher.label);
-            if (matcher.result) return mockSubprocess(matcher.result);
-          }
-        }
-        return mockSubprocess();
-      }) as never);
 
       await main();
 
       vi.unstubAllGlobals();
-
-      // Prerequisites run sequentially first
-      expect(callOrder[0]).toBe('check-docker');
-      expect(callOrder[1]).toBe('check-maestro');
-
-      const expectedLabels = [
-        'detect-kvm-gid',
-        'start-emulator',
-        'wait-boot',
-        'health-check',
-        'build',
-        'cap-sync',
-        'gradle',
-        'install-apk',
-        'run-maestro',
-        'stop-emulator',
-      ];
-      for (const label of expectedLabels) {
-        expect(callOrder).toContain(label);
-      }
-
-      // install-apk must come after the parallel phase completes
-      // (emulator booted, dev stack ready, APK built)
-      const installApkIndex = callOrder.indexOf('install-apk');
-      expect(installApkIndex).toBeGreaterThan(callOrder.indexOf('wait-boot'));
-      expect(installApkIndex).toBeGreaterThan(callOrder.indexOf('health-check'));
-      expect(installApkIndex).toBeGreaterThan(callOrder.indexOf('gradle'));
-
-      // run-maestro must come after install-apk
-      expect(callOrder.indexOf('run-maestro')).toBeGreaterThan(installApkIndex);
-
-      // stop-emulator must be last
-      expect(callOrder.at(-1)).toBe('stop-emulator');
-
-      // installAndroidSdk runs but only calls existsSync (no execa), so it won't appear in callOrder
+      expect(mockBakeImage).toHaveBeenCalledWith({ push: false });
     });
 
     it('stops execution if prerequisites fail', async () => {
@@ -864,26 +1263,30 @@ describe('mobile-test script', () => {
 
       await expect(main()).rejects.toThrow('Docker is not running');
 
-      // stopEmulator should NOT be called since emulator was never started
       const stopCalls = mockExeca.mock.calls.filter(
         (call) =>
           call[0] === 'docker' &&
           Array.isArray(call[1]) &&
-          call[1].includes('stop') &&
-          call[1].includes('android-emulator')
+          call[1][0] === 'rm' &&
+          typeof call[1][2] === 'string' &&
+          call[1][2].startsWith('hushbox-mobile-emulator-shard-')
       );
       expect(stopCalls).toHaveLength(0);
     });
 
-    it('stops emulator even when a later step fails (no ota)', async () => {
+    it('stops all emulators in finally even when a later step fails', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
+      );
 
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
         if (cmd === 'stat') return Promise.resolve({ stdout: '993' } as never);
         const argumentList = Array.isArray(args) ? [...args] : [];
         if (cmd === 'adb') {
           if (argumentList.includes('connect'))
-            return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
+            return Promise.resolve({ stdout: 'connected' } as never);
           if (argumentList.includes('getprop')) return Promise.resolve({ stdout: '1' } as never);
         }
         if (cmd === 'pnpm' && argumentList.includes('build'))
@@ -892,16 +1295,77 @@ describe('mobile-test script', () => {
       }) as never);
 
       await expect(main()).rejects.toThrow('build failed');
+      vi.unstubAllGlobals();
 
-      // stopEmulator runs `compose stop android-emulator` once.
+      // stopEmulators should fire for both shards (SHARDS=2)
       const stopCalls = mockExeca.mock.calls.filter(
         (call) =>
           call[0] === 'docker' &&
           Array.isArray(call[1]) &&
-          call[1].includes('stop') &&
-          call[1].includes('android-emulator')
+          call[1][0] === 'rm' &&
+          typeof call[1][2] === 'string' &&
+          call[1][2].startsWith('hushbox-mobile-emulator-shard-')
       );
-      expect(stopCalls).toHaveLength(1);
+      // Each shard gets at least one rm call from stopEmulators
+      const stoppedShards = new Set(stopCalls.map((c) => (c[1] as string[])[2]));
+      expect(stoppedShards.size).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('runMaestroOta', () => {
+    it('passes when maestro succeeds (no logcat dump)', async () => {
+      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'maestro' && Array.isArray(args) && args.includes('test')) {
+          return mockSubprocess({ exitCode: 0, stdout: '' });
+        }
+        return mockSubprocess();
+      }) as never);
+
+      await expect(runMaestroOta()).resolves.toBeUndefined();
+      const logcatCalls = mockExeca.mock.calls.filter(
+        (c) => c[0] === 'adb' && Array.isArray(c[1]) && c[1].includes('logcat')
+      );
+      expect(logcatCalls).toHaveLength(0);
+    });
+
+    it('dumps logcat and rethrows when maestro fails', async () => {
+      const otaError = new Error('OTA flow assertion failed');
+      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
+        const argumentList = Array.isArray(args) ? args : [];
+        if (cmd === 'maestro' && argumentList.includes('test')) return Promise.reject(otaError);
+        return mockSubprocess();
+      }) as never);
+
+      await expect(runMaestroOta()).rejects.toThrow('OTA flow assertion failed');
+      // logcat dump targets shard 0 with the Capacitor/CapgoUpdater filters.
+      expect(mockExeca).toHaveBeenCalledWith(
+        'adb',
+        expect.arrayContaining([
+          '-s',
+          'localhost:5555',
+          'logcat',
+          '-d',
+          '-s',
+          'Capacitor/Console:*',
+          'CapgoUpdater:*',
+          'SplashScreenView:*',
+        ]),
+        expect.anything()
+      );
+    });
+
+    it('still rethrows even if the logcat dump itself fails', async () => {
+      const otaError = new Error('OTA failed');
+      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
+        const argumentList = Array.isArray(args) ? args : [];
+        if (cmd === 'maestro' && argumentList.includes('test')) return Promise.reject(otaError);
+        if (cmd === 'adb' && argumentList.includes('logcat')) {
+          return Promise.reject(new Error('adb crashed too'));
+        }
+        return mockSubprocess();
+      }) as never);
+
+      await expect(runMaestroOta()).rejects.toThrow('OTA failed');
     });
   });
 

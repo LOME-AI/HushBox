@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { firefoxLaunchOptions } from './e2e/firefox-launch-options';
+
 const isCI = !!process.env['CI'];
 const previewPort = process.env['HB_PREVIEW_PORT']!;
 const apiPort = process.env['HB_API_PORT']!;
@@ -62,7 +64,7 @@ export default defineConfig({
     {
       name: 'setup-firefox',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Firefox'] },
+      use: { ...devices['Desktop Firefox'], launchOptions: firefoxLaunchOptions },
     },
     {
       name: 'setup-webkit',
@@ -105,7 +107,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/chromium/test-alice.json',
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**'],
+      testIgnore: ['**/mobile/**', '**/patches/**'],
       dependencies: ['setup-chromium'],
     },
     {
@@ -113,9 +115,10 @@ export default defineConfig({
       use: {
         ...devices['Desktop Firefox'],
         storageState: 'e2e/.auth/firefox/test-alice.json',
+        launchOptions: firefoxLaunchOptions,
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**'],
+      testIgnore: ['**/mobile/**', '**/patches/**'],
       dependencies: ['setup-firefox'],
     },
     {
@@ -125,7 +128,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/webkit/test-alice.json',
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**'],
+      testIgnore: ['**/mobile/**', '**/patches/**'],
       dependencies: ['setup-webkit'],
     },
     {
@@ -134,6 +137,7 @@ export default defineConfig({
         ...devices['iPhone 15'],
         storageState: 'e2e/.auth/iphone-15/test-alice.json',
       },
+      testIgnore: ['**/patches/**'],
       dependencies: ['setup-iphone-15'],
     },
     {
@@ -142,6 +146,7 @@ export default defineConfig({
         ...devices['Pixel 7'],
         storageState: 'e2e/.auth/pixel-7/test-alice.json',
       },
+      testIgnore: ['**/patches/**'],
       dependencies: ['setup-pixel-7'],
     },
     {
@@ -150,7 +155,13 @@ export default defineConfig({
         ...devices['iPad Pro 11'],
         storageState: 'e2e/.auth/ipad-pro/test-alice.json',
       },
+      testIgnore: ['**/patches/**'],
       dependencies: ['setup-ipad-pro'],
     },
+    // Note: tests that guard local playwright-core patches live in
+    // `e2e/patches/` and run via a separate config (`playwright.patches.config.ts`,
+    // invoked by `pnpm e2e:patches`). They are deliberately excluded from
+    // every project here via `testIgnore: ['**/patches/**']` so that
+    // `pnpm e2e` never picks them up.
   ],
 });

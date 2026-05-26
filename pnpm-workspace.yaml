@@ -6,3 +6,7 @@ packages:
   - 'e2e'
   - 'ops'
   - 'scripts'
+
+# Local patches. See the file's header comment for rationale.
+patchedDependencies:
+  'playwright-core@1.58.2': patches/playwright-core@1.58.2.patch

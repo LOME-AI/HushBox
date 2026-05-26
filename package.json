@@ -33,6 +33,7 @@
     "e2e:quick": "pnpm e2e:kill-servers && tsx scripts/with-env.ts playwright test --project=chromium --project=iphone-15",
     "e2e:fast": "pnpm e2e:kill-servers && tsx scripts/with-env.ts playwright test --project=iphone-15 --retries=0",
     "e2e:failed": "pnpm e2e:kill-servers && tsx scripts/with-env.ts playwright test --last-failed",
+    "e2e:patches": "tsx scripts/with-env.ts playwright test --config=playwright.patches.config.ts --retries=0",
     "e2e:auth": "pnpm e2e:kill-servers && tsx scripts/with-env.ts playwright test e2e/auth/ --project=chromium",
     "e2e:chat": "pnpm e2e:kill-servers && tsx scripts/with-env.ts playwright test e2e/chat/ --project=chromium",
     "e2e:billing": "pnpm e2e:kill-servers && tsx scripts/with-env.ts playwright test e2e/billing/ --project=chromium",
@@ -74,12 +75,10 @@
     "mutation": "tsx scripts/with-env.ts stryker run",
     "mutation:incremental": "tsx scripts/with-env.ts stryker run --incremental",
     "cap:test-update": "tsx scripts/with-env.ts tsx scripts/cap-test-update.ts",
-    "mobile:up": "tsx scripts/with-env.ts docker compose --profile mobile up -d android-emulator",
-    "mobile:down": "tsx scripts/with-env.ts docker compose --profile mobile down",
     "mobile:test": "tsx scripts/with-env.ts tsx scripts/mobile-test.ts",
     "mobile:test:smoke": "tsx scripts/with-env.ts tsx scripts/mobile-test.ts --smoke",
-    "mobile:studio": "maestro studio",
-    "mobile:vnc": "tsx scripts/with-env.ts tsx scripts/open-url.ts http://localhost: HB_EMULATOR_VNC_PORT"
+    "mobile:bake": "tsx scripts/with-env.ts tsx scripts/bake-mobile-image.ts",
+    "mobile:studio": "maestro studio"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
