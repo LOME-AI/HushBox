@@ -51,5 +51,12 @@
     "tw-animate-css"
   ],
   "ignoreBinaries": ["maestro", "adb", "cap", "wrangler", "drizzle-kit"],
-  "ignoreExportsUsedInFile": true
+  "ignoreExportsUsedInFile": true,
+  "playwright": {
+    "config": [
+      "playwright.config.{js,ts,mjs}",
+      "playwright.patches.config.{js,ts,mjs}",
+      "playwright-ct.config.{js,ts,mjs}"
+    ]
+  }
 }
