@@ -256,12 +256,28 @@ describe('mobile-image', () => {
         expect.arrayContaining(['run', '-d', '--privileged']),
         expect.anything()
       );
-      // Snapshot save through adb against the bake container's emulator
+      // Snapshot save runs inside the container: `adb emu` is a console command
+      // reachable only for the locally-managed emulator, not the host's TCP
+      // (localhost:5555) connection.
       expect(mockExeca).toHaveBeenCalledWith(
-        'adb',
-        expect.arrayContaining(['emu', 'avd', 'snapshot', 'save', 'default_boot']),
+        'docker',
+        expect.arrayContaining([
+          'exec',
+          'container-xyz',
+          'adb',
+          'emu',
+          'avd',
+          'snapshot',
+          'save',
+          'default_boot',
+        ]),
         expect.anything()
       );
+      // The host adb server must not be asked to run the emu console command.
+      const hostAdbEmu = mockExeca.mock.calls.some(
+        (c) => c[0] === 'adb' && Array.isArray(c[1]) && (c[1] as string[]).includes('emu')
+      );
+      expect(hostAdbEmu).toBe(false);
       expect(mockExeca).toHaveBeenCalledWith(
         'docker',
         expect.arrayContaining(['commit', 'container-xyz', tag]),

@@ -174,13 +174,20 @@ async function waitForBoot(adbPort: number): Promise<void> {
   throw new Error('Emulator failed to boot within timeout during image bake');
 }
 
-async function saveAvdSnapshot(adbPort: number): Promise<void> {
-  const host = `localhost:${String(adbPort)}`;
-  // adb emu's console protocol is synchronous: the emulator returns OK only
-  // after the snapshot is written to disk. docker commit then captures it.
-  await execa('adb', ['-s', host, 'emu', 'avd', 'snapshot', 'save', SNAPSHOT_NAME], {
-    stdio: 'inherit',
-  });
+async function saveAvdSnapshot(containerId: string): Promise<void> {
+  // `adb emu` is a console command, reachable only for an emulator the adb
+  // server manages locally (serial emulator-5554). The host connects over TCP
+  // (localhost:5555), which carries no console association and only publishes
+  // the adb port, so the save must run inside the container where the emulator
+  // is local. adb emu's console protocol is synchronous: the emulator returns
+  // OK only after the snapshot is written to disk; docker commit then captures it.
+  await execa(
+    'docker',
+    ['exec', containerId, 'adb', 'emu', 'avd', 'snapshot', 'save', SNAPSHOT_NAME],
+    {
+      stdio: 'inherit',
+    }
+  );
 }
 
 async function commitContainer(containerId: string, tag: string): Promise<void> {
@@ -228,7 +235,7 @@ export async function bakeImage(options: { push: boolean }): Promise<string> {
     console.log('[mobile-image] Waiting for emulator boot...');
     await waitForBoot(BAKE_ADB_PORT);
     console.log('[mobile-image] Saving AVD quick-boot snapshot...');
-    await saveAvdSnapshot(BAKE_ADB_PORT);
+    await saveAvdSnapshot(containerId);
     console.log(`[mobile-image] Committing warm image: ${tag}`);
     await commitContainer(containerId, tag);
   } finally {
