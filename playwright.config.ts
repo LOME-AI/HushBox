@@ -1,7 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
 
-import { firefoxLaunchOptions } from './e2e/firefox-launch-options';
-
 const isCI = !!process.env['CI'];
 const previewPort = process.env['HB_PREVIEW_PORT']!;
 const apiPort = process.env['HB_API_PORT']!;
@@ -43,7 +41,7 @@ export default defineConfig({
       stdout: 'pipe',
     },
     {
-      command: `tsx scripts/kill-ports.ts HB_API_PORT && pnpm --filter @hushbox/api dev --log-level error`,
+      command: `tsx scripts/kill-ports.ts HB_API_PORT && pnpm --filter @hushbox/api dev`,
       url: `${apiUrl}/api/health`,
       reuseExistingServer: false,
       timeout: 180_000,
@@ -64,7 +62,12 @@ export default defineConfig({
     {
       name: 'setup-firefox',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Firefox'], launchOptions: firefoxLaunchOptions },
+      use: { ...devices['Desktop Firefox'] },
+      // Per-project worker cap. Firefox content-process inits are race-prone
+      // on lower-spec CPUs (Ryzen 5 5500 without iGPU SIGSEGV'd at workers=5
+      // / 45% of cores in the firefox project specifically). Capping just
+      // the firefox projects keeps other projects at the full global pool.
+      workers: isCI ? 3 : '30%',
     },
     {
       name: 'setup-webkit',
@@ -115,11 +118,14 @@ export default defineConfig({
       use: {
         ...devices['Desktop Firefox'],
         storageState: 'e2e/.auth/firefox/test-alice.json',
-        launchOptions: firefoxLaunchOptions,
       },
       testDir: './e2e',
       testIgnore: ['**/mobile/**', '**/patches/**'],
       dependencies: ['setup-firefox'],
+      // See setup-firefox above for why firefox is capped below the global
+      // worker count. Other projects are unconstrained and can use the
+      // remaining slots while firefox tests are throttled.
+      workers: isCI ? 3 : '30%',
     },
     {
       name: 'webkit',

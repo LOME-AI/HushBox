@@ -1,9 +1,19 @@
 /* eslint-disable no-restricted-syntax -- mobile-test.ts is gated to Linux via assertLinux() and intentionally shells out to mkdir/curl/unzip/bash for one-shot SDK installation on the CI runner. */
 import { execa } from 'execa';
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+  mkdirSync,
+} from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { isMainModule } from './lib/is-main.js';
 import { bakeImage, detectKvmGid, runEmulatorContainer } from './lib/mobile-image.js';
+import { MARKER_PREFIX, extractRelevantSlice } from './lib/extract-mobile-api-log.js';
+import { wranglerLogPath } from './wrangler-dev.js';
 import { SHARDS } from '../mobile-tests/config.js';
 
 const APK_PATH = 'apps/web/android/app/build/outputs/apk/debug/app-debug.apk';
@@ -310,6 +320,9 @@ export async function startDevStack(): Promise<DevStackHandle> {
 
   if (await pollApiReady(apiPort)) {
     console.log('API server already running — reusing existing dev stack (will not tear down)');
+    // Idempotent upsert; cheap to repeat and protects against stale state
+    // (e.g. a DEV_PASSWORD change since the reused API was last seeded).
+    await execa('pnpm', ['db:seed'], { stdio: 'inherit', env: process.env });
     return EMPTY_DEV_STACK_HANDLE;
   }
 
@@ -390,7 +403,64 @@ export async function stopDevStack(handle: DevStackHandle): Promise<void> {
 }
 
 const GOOGLE_SERVICES_PATH = 'apps/web/android/app/google-services.json';
-const APK_APP_VERSION = 'local-mobile-test';
+export const APK_APP_VERSION = 'local-mobile-test';
+export const API_SLICE_PATH = path.join(RESULTS_DIR, 'api-during-mobile-test.log');
+const FAILURE_TAIL_LINES = 200;
+
+/**
+ * Brackets a block of maestro work with START/END markers in the wrangler dev
+ * log. scripts/lib/extract-mobile-api-log.ts uses those markers (combined
+ * with the X-App-Version filter) to slice out the API activity that belongs
+ * to *this* run when the API is shared with sibling sessions.
+ */
+export async function withMobileTestRun<T>(runId: string, body: () => Promise<T>): Promise<T> {
+  const apiPort = process.env['HB_API_PORT'] ?? '8787';
+  const logPath = wranglerLogPath(apiPort);
+  appendFileSync(logPath, `${MARKER_PREFIX} ${runId} START ${new Date().toISOString()} =====\n`);
+  try {
+    return await body();
+  } finally {
+    appendFileSync(logPath, `${MARKER_PREFIX} ${runId} END ${new Date().toISOString()} =====\n`);
+  }
+}
+
+/**
+ * Reads the raw wrangler log, slices out the section belonging to `runId`
+ * (filtered to APK traffic only via X-App-Version), and writes the slice to
+ * maestro-results/api-during-mobile-test.log — the post-hoc debug artifact.
+ *
+ * Assumes RESULTS_DIR exists; main() creates it before any work begins.
+ */
+export function writeApiSlice(runId: string): void {
+  const apiPort = process.env['HB_API_PORT'] ?? '8787';
+  const rawLog = readFileSync(wranglerLogPath(apiPort), 'utf8');
+  const slice = extractRelevantSlice({
+    rawLog,
+    runId,
+    mobileVersion: APK_APP_VERSION,
+  });
+  writeFileSync(API_SLICE_PATH, slice);
+}
+
+/**
+ * Echoes the tail of the slice file to stdout on failure so CI step output
+ * shows the API-side context without requiring the artifact download. Mirrors
+ * the post-mortem logcat dump pattern used by runMaestroOta() for OTA flows.
+ */
+export function dumpApiLogTail(tailLines: number = FAILURE_TAIL_LINES): void {
+  const content = readFileSync(API_SLICE_PATH, 'utf8');
+  if (content.length === 0) {
+    process.stdout.write('\n=== API log slice is empty ===\n');
+    return;
+  }
+  const lines = content.split('\n');
+  const tailStart = Math.max(0, lines.length - tailLines);
+  const tail = lines.slice(tailStart).join('\n');
+  const shown = lines.length - tailStart;
+  process.stdout.write(`\n=== last ${String(shown)} lines of API log ===\n`);
+  process.stdout.write(tail);
+  process.stdout.write('\n=== end of API log tail ===\n');
+}
 
 export async function buildApk(): Promise<void> {
   const apiUrl = process.env['API_URL'];
@@ -431,7 +501,10 @@ export async function buildApk(): Promise<void> {
 
   console.log('Building debug APK...');
   const gradlew = ['.', 'gradlew'].join('/');
-  await execa(gradlew, ['assembleDebug'], {
+  // `clean` is required: every run produces freshly content-hashed web assets, and AGP's
+  // incremental mergeDebugAssets retains the prior build's now-deleted files. compressDebugAssets
+  // then fails trying to overwrite their existing per-asset .jar ("already contains entry").
+  await execa(gradlew, ['clean', 'assembleDebug'], {
     stdio: 'inherit',
     cwd: 'apps/web/android',
     env: {
@@ -817,27 +890,19 @@ export async function runMaestroOta(): Promise<void> {
   // Run OTA on shard 0; it mutates global server state, so single-device is
   // correct (no parallelism benefit, and concurrent runs would conflict).
   const host = `localhost:${String(adbPortForShard(0))}`;
+  const debugDir = path.join(RESULTS_DIR, 'ota');
+  mkdirSync(debugDir, { recursive: true });
   console.log(`Running OTA update Maestro flow on ${host}...`);
   try {
-    await execa('maestro', ['test', '--device', host, OTA_FLOW], { stdio: 'inherit' });
-  } catch (error: unknown) {
-    console.log('\n=== Logcat dump for OTA test failure (Capacitor + CapgoUpdater) ===');
     await execa(
-      'adb',
-      [
-        '-s',
-        host,
-        'logcat',
-        '-d',
-        '-s',
-        'Capacitor/Console:*',
-        'CapgoUpdater:*',
-        'SplashScreenView:*',
-      ],
+      'maestro',
+      ['test', '--device', host, '--debug-output', debugDir, '--flatten-debug-output', OTA_FLOW],
       { stdio: 'inherit' }
-    ).catch(() => {
-      // Ignored: logcat dump is best-effort diagnostic output.
-    });
+    );
+  } catch (error: unknown) {
+    // Maestro's --debug-output captures the failure screenshot, UI hierarchy, and
+    // logs — a far cleaner source of truth than a raw Capacitor/CapgoUpdater logcat dump.
+    console.log(`\nOTA flow failed. Maestro debug artifacts (screenshot + hierarchy): ${debugDir}`);
     throw error;
   }
 }
@@ -863,16 +928,36 @@ export async function main(): Promise<void> {
   // already-running API. The parallel speedup that mattered (emulator boot
   // vs APK build) is preserved below.
   const devStack = await startDevStack();
+  mkdirSync(RESULTS_DIR, { recursive: true });
+  const runId = randomUUID().slice(0, 8);
   try {
     await Promise.all([startEmulators(n, imageTag), buildApk()]);
     await installApks(n);
     await configureAllAppLinks(n);
     await resetVersionOverride();
-    await runMaestroShards(smoke, n);
 
-    if (!smoke) {
-      await setupOtaUpdate();
-      await runMaestroOta();
+    let maestroFailed = false;
+    try {
+      await withMobileTestRun(runId, async () => {
+        await runMaestroShards(smoke, n);
+        if (!smoke) {
+          await setupOtaUpdate();
+          await runMaestroOta();
+        }
+      });
+    } catch (error) {
+      maestroFailed = true;
+      throw error;
+    } finally {
+      // Write the bounded slice regardless of outcome; on failure also echo
+      // the tail to stdout for fast CI/local triage.
+      try {
+        writeApiSlice(runId);
+        if (maestroFailed) dumpApiLogTail();
+      } catch (writeError: unknown) {
+        const message = writeError instanceof Error ? writeError.message : String(writeError);
+        console.error(`Failed to write API slice: ${message}`);
+      }
     }
 
     console.log('Mobile tests complete!');

@@ -5,11 +5,13 @@
  *
  * Hit/miss semantics:
  *   - Hit (cassette exists for hash): replay synthetically; never call upstream.
- *   - Miss + 2xx response: pass through to caller AND record the cassette.
- *   - Miss + 4xx response: same as 2xx — 4xx is part of the spec (rate limit,
- *     bad request, model deprecated) and tests can legitimately assert on it.
- *   - Miss + 5xx response: pass through; do NOT record. 5xx is transient and
- *     caching it would poison future runs until AI_RECORDING_VERSION is bumped.
+ *   - Miss + success (<400): pass through to caller AND record the cassette.
+ *   - Miss + error (>=400, i.e. 4xx or 5xx): pass through; do NOT record. A
+ *     failed gateway request bills nothing, so re-running it live every time is
+ *     free — whereas caching it would replay a stale, transient failure (auth /
+ *     plan / rate-limit / server) forever and poison every later run. Only
+ *     successful (billable) responses are worth recording. This is why a 403
+ *     ZdrUnauthorized must never be cached.
  *   - Network failure / throw: pass the error through; do NOT record.
  *
  * Sequence-of-exchanges: each fetch call generates its own cassette entry
@@ -48,7 +50,7 @@ export function createCassetteFetch(options: CreateCassetteFetchOptions): typeof
 
     const upstream = await realFetch(request);
 
-    if (upstream.status >= 500) {
+    if (upstream.status >= 400) {
       return upstream;
     }
 

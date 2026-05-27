@@ -3,11 +3,21 @@ import { useAppVersionStore } from './app-version';
 
 describe('useAppVersionStore', () => {
   beforeEach(() => {
-    useAppVersionStore.setState({ upgradeRequired: false });
+    useAppVersionStore.setState({ upgradeRequired: false, otaInProgress: false });
   });
 
   it('starts with upgradeRequired as false', () => {
     expect(useAppVersionStore.getState().upgradeRequired).toBe(false);
+  });
+
+  it('starts with otaInProgress as false', () => {
+    expect(useAppVersionStore.getState().otaInProgress).toBe(false);
+  });
+
+  it('sets otaInProgress to true', () => {
+    useAppVersionStore.getState().setOtaInProgress(true);
+
+    expect(useAppVersionStore.getState().otaInProgress).toBe(true);
   });
 
   it('sets upgradeRequired to true', () => {

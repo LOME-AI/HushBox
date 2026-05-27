@@ -29,8 +29,8 @@ The cassette is **invisible to test code**. Tests call `client.stream(request)` 
 
 | Upstream result | Action |
 |---|---|
-| 2xx (success) | Cache. Subsequent identical requests replay this response. |
-| 4xx (client error) | Cache. Tests can legitimately assert on rate limits, model deprecation, etc. |
+| 2xx / 3xx (success) | Cache. Subsequent identical requests replay this response. |
+| 4xx (client error) | **Do not cache.** A failed request isn't billed, so re-running it live is free — and caching a transient auth/plan/rate-limit failure (e.g. a `403` ZdrUnauthorized) would replay forever and poison every later run. |
 | 5xx (server error) | **Do not cache.** Transient — caching would poison future runs. |
 | Network error / throw | **Do not cache.** Pass error through. |
 

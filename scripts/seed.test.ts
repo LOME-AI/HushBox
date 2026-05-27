@@ -408,6 +408,25 @@ describe('seed script', () => {
       expect(firstUser?.id).toMatch(uuidRegex);
     });
 
+    it('derives deterministic, unique identities for filler users', () => {
+      const first = generateSeedData();
+      const second = generateSeedData();
+
+      const emails = first.users.map((u) => u.email);
+      const usernames = first.users.map((u) => u.username);
+
+      // Index-derived, so identical across runs and unique by construction.
+      // bulkUpsert conflicts only on id, so a colliding email/username (the
+      // factory's faker default) would abort the whole insert.
+      expect(first.users[0]?.email).toBe(`seed-user-1@${DEV_EMAIL_DOMAIN}`);
+      expect(first.users[0]?.username).toBe('seeduser1');
+      expect(first.users[4]?.username).toBe('seeduser5');
+      expect(second.users.map((u) => u.email)).toEqual(emails);
+      expect(second.users.map((u) => u.username)).toEqual(usernames);
+      expect(new Set(emails).size).toBe(emails.length);
+      expect(new Set(usernames).size).toBe(usernames.length);
+    });
+
     it('generates correct number of projects (2 per user)', () => {
       const data = generateSeedData();
       const expectedProjects = SEED_CONFIG.USER_COUNT * SEED_CONFIG.PROJECTS_PER_USER;

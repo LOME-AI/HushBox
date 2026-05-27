@@ -55,6 +55,24 @@ describe('createApp', () => {
     });
   });
 
+  describe('request log middleware', () => {
+    it('emits a [req] line for each request in dev mode', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        const app = createApp();
+        await app.request('/api/health');
+
+        const reqLines = consoleSpy.mock.calls.filter(
+          (call) => typeof call[0] === 'string' && call[0].startsWith('[req] ')
+        );
+        expect(reqLines.length).toBeGreaterThanOrEqual(1);
+        expect(reqLines[0]?.[0]).toContain(' GET /api/health 200 ');
+      } finally {
+        consoleSpy.mockRestore();
+      }
+    });
+  });
+
   describe('auth routes', () => {
     it('responds to /api/auth/* requests', async () => {
       const app = createApp();

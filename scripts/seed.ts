@@ -549,8 +549,17 @@ function buildSeedMessageAndContentItem(
 }
 
 function generateUserEntities(userIndex: number): UserEntities {
-  const userId = seedUUID(`seed-user-${String(userIndex + 1)}`);
-  const user = userFactory.build({ id: userId });
+  const seedKey = `seed-user-${String(userIndex + 1)}`;
+  const userId = seedUUID(seedKey);
+  // email and username are unique-constrained, so derive them from the stable
+  // seed key (like the id) instead of the factory's faker defaults. Faker values
+  // differ every run and can collide; bulkUpsert conflicts only on id and cannot
+  // absorb a duplicate email/username, which aborts the whole insert.
+  const user = userFactory.build({
+    id: userId,
+    email: `${seedKey}@${DEV_EMAIL_DOMAIN}`,
+    username: `seeduser${String(userIndex + 1)}`,
+  });
   const userPublicKey: Uint8Array = user.publicKey;
   const projects: ProjectWithId[] = [];
   const allConversations: ConversationWithId[] = [];

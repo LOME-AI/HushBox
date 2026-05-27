@@ -100,7 +100,7 @@ describe('createCassetteFetch', () => {
     expect(chunks).toEqual(['chunk1', 'chunk2', 'chunk3']);
   });
 
-  it('records 4xx responses — replay returns the same error', async () => {
+  it('does NOT record 4xx responses — replay re-calls realFetch', async () => {
     const realFetch = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(429, { error: 'rate limited' }))
@@ -114,8 +114,29 @@ describe('createCassetteFetch', () => {
     await readAll(first);
 
     const second = await fetch('https://x.test/p', { method: 'POST', body: '{}' });
-    expect(second.status).toBe(429); // replayed, NOT the 200 from the second mockResolvedValue
-    expect(realFetch).toHaveBeenCalledTimes(1);
+    expect(realFetch).toHaveBeenCalledTimes(2);
+    expect(second.status).toBe(200); // fresh real call, not a replayed 429
+  });
+
+  it('does NOT record a 403 auth/plan failure (ZDR-poisoning regression)', async () => {
+    // A 403 ZdrUnauthorized is transient — it clears the moment the plan is
+    // fixed, and costs nothing to re-run. Caching it replayed the stale failure
+    // on every later run and poisoned CI, which is the bug this guards against.
+    const realFetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(403, { error: { type: 'permission_denied' } }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+    const fetch = createCassetteFetch({
+      store: createCassetteStore({ rootDir }),
+      realFetch,
+    });
+    const first = await fetch('https://x.test/p', { method: 'POST', body: '{}' });
+    expect(first.status).toBe(403);
+    await readAll(first);
+
+    const second = await fetch('https://x.test/p', { method: 'POST', body: '{}' });
+    expect(realFetch).toHaveBeenCalledTimes(2);
+    expect(second.status).toBe(200); // a fixed plan is picked up live, never the stale 403
   });
 
   it('does NOT record 5xx responses — replay re-calls realFetch', async () => {

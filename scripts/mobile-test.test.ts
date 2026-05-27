@@ -22,9 +22,13 @@ vi.mock('node:fs', async () => {
       return actual.readdirSync(dir);
     }),
     readFileSync: vi.fn().mockImplementation((file: string, _enc?: string) => {
+      const filename = file.split('/').pop() ?? '';
+      if (filename.startsWith('.wrangler-') && filename.endsWith('.log')) {
+        // Default empty wrangler log; tests override with mockReturnValueOnce
+        return '';
+      }
       // getFailedFlowPaths reads each flow YAML to map the parsed `name:`
       // back to a file path. Mock returns a name derived from the basename.
-      const basename = file.split('/').pop() ?? '';
       const nameMap: Record<string, string> = {
         '01-app-launch.yaml': 'App launches without crashing',
         '02-splash-screen.yaml': 'Splash screen renders',
@@ -32,9 +36,10 @@ vi.mock('node:fs', async () => {
         '04-back-button.yaml': 'Back button works',
         '13-ota-update.yaml': 'OTA update downloads and applies',
       };
-      return `name: ${nameMap[basename] ?? basename}\n`;
+      return `name: ${nameMap[filename] ?? filename}\n`;
     }),
     writeFileSync: vi.fn(),
+    appendFileSync: vi.fn(),
     mkdirSync: vi.fn(),
   };
 });
@@ -52,7 +57,7 @@ vi.mock('./lib/mobile-image.js', async () => {
 });
 
 import { execa } from 'execa';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { bakeImage } from './lib/mobile-image.js';
 import {
   parseArgs,
@@ -81,12 +86,20 @@ import {
   runMaestroOta,
   setupOtaUpdate,
   stopDevStack,
+  withMobileTestRun,
+  writeApiSlice,
+  dumpApiLogTail,
+  APK_APP_VERSION,
+  API_SLICE_PATH,
   main,
 } from './mobile-test.js';
+import { MARKER_PREFIX } from './lib/extract-mobile-api-log.js';
 
 const mockExeca = vi.mocked(execa);
 const mockExistsSync = vi.mocked(existsSync);
+const mockReadFileSync = vi.mocked(readFileSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
+const mockAppendFileSync = vi.mocked(appendFileSync);
 const mockBakeImage = vi.mocked(bakeImage);
 
 // execa returns a subprocess (ChildProcess + Promise). Tests need .unref()
@@ -656,7 +669,7 @@ describe('mobile-test script', () => {
       delete process.env['HB_API_PORT'];
     });
 
-    it('skips startup when API is already running', async () => {
+    it('skips db:up/db:migrate when API is already running', async () => {
       process.env['HB_API_PORT'] = '8787';
 
       await startDevStack();
@@ -664,7 +677,26 @@ describe('mobile-test script', () => {
       const dbUpCalls = mockExeca.mock.calls.filter(
         (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:up')
       );
+      const dbMigrateCalls = mockExeca.mock.calls.filter(
+        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:migrate')
+      );
       expect(dbUpCalls).toHaveLength(0);
+      expect(dbMigrateCalls).toHaveLength(0);
+
+      delete process.env['HB_API_PORT'];
+    });
+
+    it('still runs db:seed when reusing a running API', async () => {
+      // Idempotent upsert; cheap to repeat and protects against stale state
+      // (e.g. a DEV_PASSWORD change since the reused API was last seeded).
+      process.env['HB_API_PORT'] = '8787';
+
+      await startDevStack();
+
+      const dbSeedCalls = mockExeca.mock.calls.filter(
+        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:seed')
+      );
+      expect(dbSeedCalls).toHaveLength(1);
 
       delete process.env['HB_API_PORT'];
     });
@@ -846,6 +878,154 @@ describe('mobile-test script', () => {
     });
   });
 
+  describe('withMobileTestRun', () => {
+    beforeEach(() => {
+      process.env['HB_API_PORT'] = '8915';
+    });
+    afterEach(() => {
+      delete process.env['HB_API_PORT'];
+    });
+
+    it('writes START marker before body executes', async () => {
+      const calls: string[] = [];
+      mockAppendFileSync.mockImplementation((_path, data) => {
+        calls.push(String(data));
+      });
+
+      const body = vi.fn(() => {
+        // Inspect at body-entry: START should already be written, END not yet
+        expect(calls.some((c) => c.includes(`${MARKER_PREFIX} run-1 START`))).toBe(true);
+        expect(calls.some((c) => c.includes(`${MARKER_PREFIX} run-1 END`))).toBe(false);
+        return Promise.resolve();
+      });
+
+      await withMobileTestRun('run-1', body);
+      expect(body).toHaveBeenCalledOnce();
+    });
+
+    it('writes END marker after body resolves', async () => {
+      const calls: string[] = [];
+      mockAppendFileSync.mockImplementation((_path, data) => {
+        calls.push(String(data));
+      });
+
+      await withMobileTestRun('run-2', async () => {});
+
+      expect(calls.some((c) => c.includes(`${MARKER_PREFIX} run-2 START`))).toBe(true);
+      expect(calls.some((c) => c.includes(`${MARKER_PREFIX} run-2 END`))).toBe(true);
+    });
+
+    it('writes END marker even when body throws', async () => {
+      const calls: string[] = [];
+      mockAppendFileSync.mockImplementation((_path, data) => {
+        calls.push(String(data));
+      });
+
+      await expect(
+        withMobileTestRun('run-3', () => Promise.reject(new Error('body failed')))
+      ).rejects.toThrow('body failed');
+
+      expect(calls.some((c) => c.includes(`${MARKER_PREFIX} run-3 END`))).toBe(true);
+    });
+
+    it('writes both markers to apps/api/.wrangler-<port>.log', async () => {
+      const paths: string[] = [];
+      mockAppendFileSync.mockImplementation((path) => {
+        paths.push(String(path));
+      });
+
+      await withMobileTestRun('run-4', async () => {});
+
+      expect(paths.every((p) => p.endsWith('apps/api/.wrangler-8915.log'))).toBe(true);
+      expect(paths).toHaveLength(2);
+    });
+  });
+
+  describe('writeApiSlice', () => {
+    beforeEach(() => {
+      process.env['HB_API_PORT'] = '8915';
+    });
+    afterEach(() => {
+      delete process.env['HB_API_PORT'];
+    });
+
+    it('extracts the slice and writes it to maestro-results/api-during-mobile-test.log', () => {
+      const runId = 'run-5';
+      const raw = [
+        '[wrangler:info] before',
+        `${MARKER_PREFIX} ${runId} START 2026-05-26T03:00:00.000Z =====`,
+        `[req] 2026-05-26T03:00:01.000Z POST /api/auth/login/init 200 100ms v=${APK_APP_VERSION}`,
+        `[req] 2026-05-26T03:00:02.000Z POST /api/auth/login/init 200 100ms v=dev-local`,
+        `${MARKER_PREFIX} ${runId} END 2026-05-26T03:01:00.000Z =====`,
+        '[wrangler:info] after',
+      ].join('\n');
+
+      mockReadFileSync.mockImplementationOnce(() => raw);
+
+      writeApiSlice(runId);
+
+      const writeCall = mockWriteFileSync.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].endsWith('api-during-mobile-test.log')
+      );
+      expect(writeCall).toBeDefined();
+      const sliceContent = writeCall?.[1] as string;
+      expect(sliceContent).toContain(`v=${APK_APP_VERSION}`);
+      expect(sliceContent).not.toContain('v=dev-local');
+      expect(sliceContent).not.toContain('before');
+      expect(sliceContent).not.toContain('after');
+    });
+
+    it('writes the slice at the documented API_SLICE_PATH constant', () => {
+      mockReadFileSync.mockImplementationOnce(() => '');
+
+      writeApiSlice('any-run-id');
+
+      const calls = mockWriteFileSync.mock.calls;
+      const target = calls.find(
+        (call) => typeof call[0] === 'string' && call[0] === API_SLICE_PATH
+      );
+      expect(target).toBeDefined();
+    });
+  });
+
+  describe('dumpApiLogTail', () => {
+    it('echoes the last N lines of the slice file to the process stdout', () => {
+      const sliceContent = Array.from({ length: 250 }, (_, index) => `line ${String(index)}`).join(
+        '\n'
+      );
+      mockReadFileSync.mockImplementationOnce((file) => {
+        if (String(file).endsWith('api-during-mobile-test.log')) return sliceContent;
+        return '';
+      });
+      const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+      try {
+        dumpApiLogTail(50);
+
+        const written = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
+        expect(written).toContain('=== last 50 lines of API log');
+        expect(written).toContain('line 249');
+        expect(written).not.toContain('line 199');
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+    });
+
+    it('emits a one-line notice when the slice file is empty', () => {
+      mockReadFileSync.mockImplementationOnce(() => '');
+      const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+      try {
+        dumpApiLogTail(50);
+
+        const written = stdoutSpy.mock.calls.map((call) => String(call[0])).join('');
+        expect(written).toContain('API log slice is empty');
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+    });
+  });
+
   describe('buildApk', () => {
     beforeEach(() => {
       process.env['API_URL'] = 'http://localhost:8787';
@@ -931,10 +1111,10 @@ describe('mobile-test script', () => {
       await expect(buildApk()).rejects.toThrow('GOOGLE_SERVICES_JSON_BASE64');
     });
 
-    it('runs gradle assembleDebug with version and keystore env vars', async () => {
+    it('runs gradle clean assembleDebug with version and keystore env vars', async () => {
       await buildApk();
 
-      expect(mockExeca).toHaveBeenCalledWith('./gradlew', ['assembleDebug'], {
+      expect(mockExeca).toHaveBeenCalledWith('./gradlew', ['clean', 'assembleDebug'], {
         stdio: 'inherit',
         cwd: 'apps/web/android',
         env: expect.objectContaining({
@@ -1361,7 +1541,7 @@ describe('mobile-test script', () => {
   });
 
   describe('runMaestroOta', () => {
-    it('passes when maestro succeeds (no logcat dump)', async () => {
+    it('runs the OTA flow with --debug-output and passes when maestro succeeds', async () => {
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
         if (cmd === 'maestro' && Array.isArray(args) && args.includes('test')) {
           return mockSubprocess({ exitCode: 0, stdout: '' });
@@ -1370,13 +1550,19 @@ describe('mobile-test script', () => {
       }) as never);
 
       await expect(runMaestroOta()).resolves.toBeUndefined();
-      const logcatCalls = mockExeca.mock.calls.filter(
-        (c) => c[0] === 'adb' && Array.isArray(c[1]) && c[1].includes('logcat')
+      expect(mockExeca).toHaveBeenCalledWith(
+        'maestro',
+        expect.arrayContaining([
+          'test',
+          '--debug-output',
+          'maestro-results/ota',
+          '--flatten-debug-output',
+        ]),
+        expect.anything()
       );
-      expect(logcatCalls).toHaveLength(0);
     });
 
-    it('dumps logcat and rethrows when maestro fails', async () => {
+    it('rethrows without dumping logcat when maestro fails', async () => {
       const otaError = new Error('OTA flow assertion failed');
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
         const argumentList = Array.isArray(args) ? args : [];
@@ -1384,36 +1570,12 @@ describe('mobile-test script', () => {
         return mockSubprocess();
       }) as never);
 
+      // Maestro's own --debug-output artifacts replace the post-mortem logcat dump.
       await expect(runMaestroOta()).rejects.toThrow('OTA flow assertion failed');
-      // logcat dump targets shard 0 with the Capacitor/CapgoUpdater filters.
-      expect(mockExeca).toHaveBeenCalledWith(
-        'adb',
-        expect.arrayContaining([
-          '-s',
-          'localhost:5555',
-          'logcat',
-          '-d',
-          '-s',
-          'Capacitor/Console:*',
-          'CapgoUpdater:*',
-          'SplashScreenView:*',
-        ]),
-        expect.anything()
+      const logcatCalls = mockExeca.mock.calls.filter(
+        (c) => c[0] === 'adb' && Array.isArray(c[1]) && c[1].includes('logcat')
       );
-    });
-
-    it('still rethrows even if the logcat dump itself fails', async () => {
-      const otaError = new Error('OTA failed');
-      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
-        const argumentList = Array.isArray(args) ? args : [];
-        if (cmd === 'maestro' && argumentList.includes('test')) return Promise.reject(otaError);
-        if (cmd === 'adb' && argumentList.includes('logcat')) {
-          return Promise.reject(new Error('adb crashed too'));
-        }
-        return mockSubprocess();
-      }) as never);
-
-      await expect(runMaestroOta()).rejects.toThrow('OTA failed');
+      expect(logcatCalls).toHaveLength(0);
     });
   });
 

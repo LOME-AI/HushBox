@@ -15,6 +15,7 @@ import {
   csrfProtection,
   securityHeaders,
   versionCheck,
+  requestLog,
 } from './middleware/index.js';
 import {
   healthRoute,
@@ -55,6 +56,7 @@ export function createApp() {
   base.use('*', securityHeaders());
   base.use('*', platformMiddleware());
   base.use('*', envMiddleware());
+  base.use('*', requestLog());
   base.use('*', versionCheck());
   base.onError(errorHandler);
 
