@@ -229,7 +229,7 @@ test.describe('Multi-Model Chat', () => {
       // because the close is a Radix CSS animation — no in-flight queries,
       // so the settled-aware expect short-circuits on slow webkit before the
       // animation finishes painting the closed state.
-      await unsettledExpect(modal).not.toBeVisible({ timeout: 5_000 });
+      await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
 
       // Header reflects the new pick — should NOT show "N models" since this is single mode
       const button = authenticatedPage.getByTestId('model-selector-button');

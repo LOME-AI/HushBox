@@ -157,7 +157,7 @@ test.describe('Group Chat Leave', () => {
     await testBobPage.getByTestId('leave-confirmation-cancel').click();
     // Radix Dialog close is CSS-animation only; the settled-aware `expect`
     // can short-circuit on slow webkit before the animation completes.
-    await unsettledExpect(modal).not.toBeVisible({ timeout: 5_000 });
+    await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
 
     // Close sidebar so message list is accessible on mobile
     await sidebar.closeSidebar();

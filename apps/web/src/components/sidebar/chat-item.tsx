@@ -203,15 +203,7 @@ export function ChatItem({
     // disappeared — leaving a non-active chat from the sidebar list should
     // leave the URL alone.
     if (isActive) void navigate({ to: ROUTES.CHAT });
-  }, [
-    userId,
-    accountPrivateKey,
-    queryClient,
-    conversation,
-    leaveMutation,
-    isActive,
-    navigate,
-  ]);
+  }, [userId, accountPrivateKey, queryClient, conversation, leaveMutation, isActive, navigate]);
 
   const handleConfirmRename = (): void => {
     const encrypted = encryptTitle(conversation.id, conversation.currentEpoch, renameValue);
