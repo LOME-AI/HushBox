@@ -61,7 +61,6 @@
   "playwright": {
     "config": [
       "playwright.config.{js,ts,mjs}",
-      "playwright.patches.config.{js,ts,mjs}",
       "playwright-ct.config.{js,ts,mjs}"
     ]
   }
