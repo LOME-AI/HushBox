@@ -1,8 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement, ReactNode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { useUIStore } from '@/stores/ui';
 import { ChatItem, type SidebarConversation } from './chat-item';
+
+function render(ui: ReactElement): ReturnType<typeof rtlRender> {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  }
+  Wrapper.displayName = 'TestWrapper';
+  return rtlRender(ui, { wrapper: Wrapper });
+}
 
 const mockNavigate = vi.fn();
 vi.mock('@tanstack/react-router', () => ({
@@ -49,6 +60,15 @@ const MOCK_EPOCH_KEY = new Uint8Array([99, 88, 77]);
 vi.mock('@/lib/epoch-key-cache', () => ({
   getEpochKey: vi.fn(() => MOCK_EPOCH_KEY),
   getCurrentEpoch: vi.fn(() => 2),
+  processKeyChain: vi.fn(),
+}));
+
+vi.mock('@/hooks/keys', () => ({
+  keyChainQueryOptions: vi.fn((conversationId: string) => ({
+    queryKey: ['keys', conversationId],
+    queryFn: () => Promise.resolve({}),
+    staleTime: 0,
+  })),
 }));
 
 const mockDeleteMutate = vi.fn();
@@ -92,8 +112,9 @@ vi.mock('@/lib/rotation', () => ({
 }));
 
 vi.mock('@/lib/auth', () => ({
-  useAuthStore: <T,>(selector: (s: { user: { id: string } | null }) => T): T =>
-    selector({ user: { id: 'caller-user-id' } }),
+  useAuthStore: <T,>(
+    selector: (s: { user: { id: string } | null; privateKey: Uint8Array }) => T
+  ): T => selector({ user: { id: 'caller-user-id' }, privateKey: new Uint8Array([7, 7, 7]) }),
 }));
 
 describe('ChatItem', () => {

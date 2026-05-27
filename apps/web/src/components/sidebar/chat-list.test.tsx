@@ -1,7 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render as rtlRender, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement, ReactNode } from 'react';
 import { useUIStore } from '@/stores/ui';
 import { ChatList } from './chat-list';
+
+function render(ui: ReactElement): ReturnType<typeof rtlRender> {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  }
+  Wrapper.displayName = 'TestWrapper';
+  return rtlRender(ui, { wrapper: Wrapper });
+}
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
