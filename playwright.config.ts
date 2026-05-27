@@ -110,7 +110,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/chromium/test-alice.json',
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**', '**/patches/**'],
+      testIgnore: ['**/mobile/**'],
       dependencies: ['setup-chromium'],
     },
     {
@@ -120,7 +120,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/firefox/test-alice.json',
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**', '**/patches/**'],
+      testIgnore: ['**/mobile/**'],
       dependencies: ['setup-firefox'],
       // See setup-firefox above for why firefox is capped below the global
       // worker count. Other projects are unconstrained and can use the
@@ -134,7 +134,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/webkit/test-alice.json',
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**', '**/patches/**'],
+      testIgnore: ['**/mobile/**'],
       dependencies: ['setup-webkit'],
     },
     {
@@ -143,7 +143,6 @@ export default defineConfig({
         ...devices['iPhone 15'],
         storageState: 'e2e/.auth/iphone-15/test-alice.json',
       },
-      testIgnore: ['**/patches/**'],
       dependencies: ['setup-iphone-15'],
     },
     {
@@ -152,7 +151,6 @@ export default defineConfig({
         ...devices['Pixel 7'],
         storageState: 'e2e/.auth/pixel-7/test-alice.json',
       },
-      testIgnore: ['**/patches/**'],
       dependencies: ['setup-pixel-7'],
     },
     {
@@ -161,13 +159,7 @@ export default defineConfig({
         ...devices['iPad Pro 11'],
         storageState: 'e2e/.auth/ipad-pro/test-alice.json',
       },
-      testIgnore: ['**/patches/**'],
       dependencies: ['setup-ipad-pro'],
     },
-    // Note: tests that guard local playwright-core patches live in
-    // `e2e/patches/` and run via a separate config (`playwright.patches.config.ts`,
-    // invoked by `pnpm e2e:patches`). They are deliberately excluded from
-    // every project here via `testIgnore: ['**/patches/**']` so that
-    // `pnpm e2e` never picks them up.
   ],
 });
