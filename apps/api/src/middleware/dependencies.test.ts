@@ -183,6 +183,28 @@ describe('sessionMiddleware', () => {
     expect(body).toEqual({ hasUser: false });
   });
 
+  it('passes through without setting user when link guest is identified via query param', async () => {
+    // WebSocket upgrades cannot set custom headers, so the link key arrives as a
+    // `?linkPublicKey=` query param — the same way resolveLinkGuest reads it.
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
+    app.use('*', sessionMiddleware());
+    app.get('/', (c) => {
+      const user = c.get('user');
+      return c.json({ hasUser: !!user });
+    });
+
+    const res = await app.request(
+      '/?linkPublicKey=some-base64-key',
+      {},
+      { DATABASE_URL: 'postgres://test' }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasUser: false });
+  });
+
   it('returns 401 when session is not active in Redis', async () => {
     const app = new Hono<AppEnv>();
     app.use('*', envMiddleware());

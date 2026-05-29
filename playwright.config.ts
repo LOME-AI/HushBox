@@ -33,7 +33,7 @@ export default defineConfig({
   },
   reporter: isCI
     ? [['list'], ['github'], ['html', { open: 'never' }]]
-    : [['list'], ['html', { open: 'on-failure' }], ['./scripts/e2e-reporter.ts']],
+    : [['dot'], ['html', { open: 'on-failure' }], ['./scripts/e2e-reporter.ts']],
   use: {
     baseURL: previewUrl,
     trace: 'retain-on-first-failure',
@@ -52,7 +52,7 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 300_000,
       name: 'Preview',
-      stdout: 'pipe',
+      stdout: 'ignore',
     },
     {
       command: `tsx scripts/kill-ports.ts HB_API_PORT && pnpm --filter @hushbox/api dev`,
@@ -60,7 +60,7 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 180_000,
       name: 'API',
-      stdout: 'pipe',
+      stdout: 'ignore',
     },
   ],
   projects: [

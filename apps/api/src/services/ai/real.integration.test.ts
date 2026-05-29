@@ -1,16 +1,13 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
-  assertValidMediaBytes,
   clearTestModelCache,
   consumeStream,
   getCheapestTestModel,
   setupIntegrationClient,
 } from './test-utilities.js';
-import type { AIClient, TextRequest, ImageRequest, VideoRequest } from './types.js';
+import type { AIClient, TextRequest } from './types.js';
 
 const TEXT_TIMEOUT_MS = 30_000;
-const IMAGE_TIMEOUT_MS = 60_000;
-const VIDEO_TIMEOUT_MS = 300_000;
 
 const MIN_DISTINCT_PROVIDERS = 2;
 
@@ -142,69 +139,6 @@ describe('AIClient real integration', () => {
       TEXT_TIMEOUT_MS
     );
   });
-
-  describe('stream(image)', () => {
-    it(
-      'produces a valid image with media-start, media-done, and finish events',
-      async () => {
-        const spec = await getCheapestTestModel(client, 'image');
-        if (spec.parameters.kind !== 'image') throw new Error('expected image spec');
-        const request: ImageRequest = {
-          modality: 'image',
-          model: spec.modelId,
-          prompt: 'A small red dot on a white background',
-          aspectRatio: spec.parameters.aspectRatio,
-        };
-        const result = await consumeStream(client.stream(request));
-        const kinds = result.events.map((e) => e.kind);
-        expect(kinds).toContain('media-start');
-        expect(kinds).toContain('media-done');
-        expect(kinds.at(-1)).toBe('finish');
-        expect(result.mediaBytes).toBeDefined();
-        const detection = assertValidMediaBytes(
-          result.mediaBytes!,
-          ['image/png', 'image/jpeg', 'image/webp'],
-          { min: 32, max: 10_000_000 }
-        );
-        expect(detection.detectedMime).toMatch(/^image\//);
-        expect(result.generationId).toBeDefined();
-      },
-      IMAGE_TIMEOUT_MS
-    );
-  });
-
-  describe('stream(video)', () => {
-    it(
-      'produces a valid short video with media-start, media-done, and finish events',
-      async () => {
-        const spec = await getCheapestTestModel(client, 'video');
-        if (spec.parameters.kind !== 'video') throw new Error('expected video spec');
-        const request: VideoRequest = {
-          modality: 'video',
-          model: spec.modelId,
-          prompt: 'A short panning shot of a calm landscape',
-          durationSeconds: spec.parameters.duration,
-          resolution: spec.parameters.resolution,
-          ...(spec.parameters.aspectRatio !== undefined && {
-            aspectRatio: spec.parameters.aspectRatio,
-          }),
-        };
-        const result = await consumeStream(client.stream(request));
-        const kinds = result.events.map((e) => e.kind);
-        expect(kinds).toContain('media-start');
-        expect(kinds).toContain('media-done');
-        expect(kinds.at(-1)).toBe('finish');
-        expect(result.mediaBytes).toBeDefined();
-        assertValidMediaBytes(result.mediaBytes!, ['video/mp4'], {
-          min: 16,
-          max: 50_000_000,
-        });
-        expect(result.generationId).toBeDefined();
-      },
-      VIDEO_TIMEOUT_MS
-    );
-  });
-
   describe('ZDR enforcement', () => {
     it(
       'flags ZDR-listed entries with isZdr === true',

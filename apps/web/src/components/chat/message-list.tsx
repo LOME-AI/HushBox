@@ -257,6 +257,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         data-testid="message-list-empty"
         data-message-count={0}
         data-decrypted-count={0}
+        data-streaming-count={0}
         data-messages-ready={String(messagesReady)}
         className="flex flex-1 items-center justify-center"
       >
@@ -338,6 +339,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       data-testid="message-list"
       data-assistant-count={assistantCount}
       data-cost-count={costCount}
+      data-streaming-count={streamingMessageIds?.size ?? 0}
       data-message-count={messages.length}
       data-decrypted-count={decryptedCount}
       data-rows-count={rows.length}

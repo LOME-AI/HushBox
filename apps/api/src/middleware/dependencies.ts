@@ -96,17 +96,20 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
     const sessionData = c.get('sessionData');
-    const hasLinkHeader = !!c.req.header(LINK_PUBLIC_KEY_HEADER);
+    // WebSocket upgrades can't set custom headers, so link guests pass the key
+    // as a `?linkPublicKey=` query param — accept it here the same way
+    // resolveLinkGuest does, or the WS guest path stays unreachable behind a 401.
+    const hasLinkKey = !!(c.req.header(LINK_PUBLIC_KEY_HEADER) ?? c.req.query('linkPublicKey'));
 
     if (!sessionData?.userId) {
-      if (hasLinkHeader) return next();
+      if (hasLinkKey) return next();
       return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
     }
 
     const rejection = await validateSessionState(sessionData, c.get('redis'), c.req.path);
     if (rejection) {
       // 2FA_REQUIRED (403): do NOT fall back to link guest — user must complete 2FA
-      if (hasLinkHeader && rejection.code !== ERROR_CODE_2FA_REQUIRED) {
+      if (hasLinkKey && rejection.code !== ERROR_CODE_2FA_REQUIRED) {
         return next();
       }
       return c.json(createErrorResponse(rejection.code), rejection.status);
@@ -127,7 +130,7 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
       .where(eq(users.id, sessionData.userId));
 
     if (!user) {
-      if (hasLinkHeader) return next();
+      if (hasLinkKey) return next();
       return c.json(createErrorResponse(ERROR_CODE_USER_NOT_FOUND), 404);
     }
 

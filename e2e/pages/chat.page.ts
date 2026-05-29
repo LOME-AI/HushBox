@@ -371,10 +371,38 @@ export class ChatPage {
     await expect(this.messageList.locator('[data-testid="message-cost"]').first()).toBeVisible();
   }
 
-  /** Wait for the current stream to fully complete (cost visible = billing + persistence done). */
+  /**
+   * Wait for the active streaming turn (text or media) to complete and persist.
+   * Gates on the message list's live `data-streaming-count` — the size of the
+   * client's `streamingMessageIds`, which only returns to 0 after the SSE `done`
+   * event, i.e. after the turn's messages are persisted server-side.
+   *
+   * The previous implementation waited for the LAST `[data-testid="message-cost"]`
+   * badge to be visible; a prior reply's badge already satisfied that, so a
+   * second message in the same conversation resolved instantly — before its
+   * reply was persisted — and a reader fetching from another context (a link
+   * guest) saw an empty thread.
+   */
   async waitForStreamComplete(timeout = 15_000): Promise<void> {
-    const costBadge = this.messageList.locator('[data-testid="message-cost"]').last();
-    await unsettledExpect(costBadge).toBeVisible({ timeout });
+    const streamingCount = async (): Promise<number> =>
+      Number((await this.messageList.getAttribute('data-streaming-count')) ?? '0');
+
+    // A send/regenerate starts its stream a tick after submit (inside the async
+    // send path), so a bare drain check could read the pre-start 0 and return
+    // early. Wait briefly for the stream to register; if it never does (the turn
+    // already finished before this call), fall through — the drain assertion
+    // below is then already satisfied.
+    await expect
+      .poll(streamingCount, { timeout: 2000 })
+      .toBeGreaterThan(0)
+      .catch(() => {
+        // No stream registered within the grace window — the turn already
+        // finished before this call; the drain assertion below is satisfied.
+      });
+
+    await unsettledExpect(this.messageList).toHaveAttribute('data-streaming-count', '0', {
+      timeout,
+    });
   }
 
   /** Switch the prompt input to image generation modality. Click the image icon button. */

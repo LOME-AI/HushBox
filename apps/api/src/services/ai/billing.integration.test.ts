@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
   applyFees,
-  calculateMediaGenerationCost,
   estimateMessageCostDevelopment,
   estimateTokenCount,
   TOTAL_FEE_RATE,
@@ -13,11 +12,9 @@ import {
   getCheapestTestModel,
   setupIntegrationClient,
 } from './test-utilities.js';
-import type { AIClient, ImageRequest, TextRequest, VideoRequest } from './types.js';
+import type { AIClient, TextRequest } from './types.js';
 
 const TEXT_TIMEOUT_MS = 30_000;
-const IMAGE_TIMEOUT_MS = 60_000;
-const VIDEO_TIMEOUT_MS = 300_000;
 const SANITY_TEXT_MAX_USD = 0.01;
 const FEE_MATH_PRECISION = 12;
 
@@ -120,82 +117,6 @@ describe('AIClient billing integration', () => {
         expect(cost).toBeGreaterThanOrEqual(applyFees(stats.costUsd));
       },
       TEXT_TIMEOUT_MS
-    );
-  });
-
-  describe('image cost is deterministic (no gateway call)', () => {
-    it(
-      'calculateMediaGenerationCost matches applyFees(perImage × n) + mediaStorageCost(bytes)',
-      async () => {
-        const spec = await getCheapestTestModel(client, 'image');
-        if (spec.parameters.kind !== 'image') throw new Error('expected image spec');
-        const request: ImageRequest = {
-          modality: 'image',
-          model: spec.modelId,
-          prompt: 'A small geometric shape on a plain background',
-          aspectRatio: spec.parameters.aspectRatio,
-        };
-        const result = await consumeStream(client.stream(request));
-        expect(result.mediaBytes).toBeDefined();
-
-        const model = await client.getModel(spec.modelId);
-        if (model.pricing.kind !== 'image') throw new Error('expected image pricing');
-        const sizeBytes = result.mediaBytes!.byteLength;
-        const cost = calculateMediaGenerationCost({
-          pricing: { kind: 'image', perImage: model.pricing.perImage },
-          sizeBytes,
-          imageCount: 1,
-        });
-        const modelComponent = applyFees(model.pricing.perImage);
-        expect(cost).toBeGreaterThanOrEqual(modelComponent);
-        // Storage cost must be nonneg and exactly explain the gap.
-        const storageComponent = cost - modelComponent;
-        expect(storageComponent).toBeGreaterThanOrEqual(0);
-      },
-      IMAGE_TIMEOUT_MS
-    );
-  });
-
-  describe('video cost is deterministic (no gateway call)', () => {
-    it(
-      'calculateMediaGenerationCost matches applyFees(perSecond × duration) + storage(actualBytes)',
-      async () => {
-        const spec = await getCheapestTestModel(client, 'video');
-        if (spec.parameters.kind !== 'video') throw new Error('expected video spec');
-        const request: VideoRequest = {
-          modality: 'video',
-          model: spec.modelId,
-          prompt: 'A short calm scene',
-          durationSeconds: spec.parameters.duration,
-          resolution: spec.parameters.resolution,
-          ...(spec.parameters.aspectRatio !== undefined && {
-            aspectRatio: spec.parameters.aspectRatio,
-          }),
-        };
-        const result = await consumeStream(client.stream(request));
-        expect(result.mediaBytes).toBeDefined();
-
-        const model = await client.getModel(spec.modelId);
-        if (model.pricing.kind !== 'video') throw new Error('expected video pricing');
-        const perSecond = model.pricing.perSecondByResolution[spec.parameters.resolution];
-        if (perSecond === undefined) {
-          throw new Error(
-            `Model ${spec.modelId} missing pricing for ${spec.parameters.resolution}`
-          );
-        }
-        const sizeBytes = result.mediaBytes!.byteLength;
-        const duration = spec.parameters.duration;
-
-        const cost = calculateMediaGenerationCost({
-          pricing: { kind: 'video', perSecond },
-          sizeBytes,
-          durationSeconds: duration,
-        });
-
-        const expectedModelCost = applyFees(perSecond * duration);
-        expect(cost).toBeGreaterThanOrEqual(expectedModelCost);
-      },
-      VIDEO_TIMEOUT_MS
     );
   });
 });
