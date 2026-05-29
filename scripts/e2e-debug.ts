@@ -17,6 +17,8 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
+import type { ResourceReport, ResourceSummary } from './resource-sampler.js';
+import type { ResourceScan } from './resource-scan.js';
 
 export interface PlaywrightError {
   message?: string;
@@ -157,6 +159,8 @@ export interface DebugReport {
   passed: PassedTest[];
   flaky: FlakyTest[];
   failed: FailedTest[];
+  /** Resource time-series + log-scan, attached by the reporter when sampled. */
+  resources?: ResourceReport;
 }
 
 export interface JsonTestEntry {
@@ -186,12 +190,19 @@ export interface JsonPassedEntry {
   duration: number;
 }
 
+/** Lean resource view for report.json (full series lives in resource-timeline.json). */
+export interface JsonResources {
+  summary: ResourceSummary;
+  scan: ResourceScan;
+}
+
 export interface JsonReport {
   timestamp: string;
   summary: DebugReportSummary;
   failed: JsonTestEntry[];
   flaky: JsonTestEntry[];
   passed: JsonPassedEntry[];
+  resources?: JsonResources;
 }
 
 // eslint-disable-next-line no-control-regex, sonarjs/no-control-regex
@@ -454,6 +465,33 @@ function renderHeader(summary: DebugReportSummary): string[] {
   ];
 }
 
+export function renderResourceSection(resources?: ResourceReport): string[] {
+  if (!resources) return [];
+  const { summary, scan } = resources;
+  const gib = (summary.totalMemBytes / 1024 ** 3).toFixed(1);
+  const lines = [
+    '',
+    '## Resource Usage',
+    '',
+    `**Window:** ${formatDuration(summary.durationMs)} · ${String(summary.cores)} cores · ${gib}G RAM · ${String(summary.sampleCount)} samples`,
+    '',
+    '| Metric | Peak | Avg |',
+    '| --- | --- | --- |',
+    `| CPU | ${String(summary.cpu.peak)}% | ${String(summary.cpu.avg)}% |`,
+    `| Memory | ${String(summary.mem.peak)}% | ${String(summary.mem.avg)}% |`,
+    `| Load (1m) | ${String(summary.load.peak)} | — |`,
+  ];
+
+  if (scan.totalHits > 0) {
+    lines.push('', `**Resource-limit errors:** ${String(scan.totalHits)}`);
+    for (const c of scan.categories) {
+      lines.push(`- ${c.name} ×${String(c.count)} (tests: ${c.tests.join(', ')})`);
+    }
+  }
+
+  return lines;
+}
+
 function truncateError(rawError: string): string {
   const error = stripAnsi(rawError);
   if (error.length > MAX_ERROR_LENGTH) {
@@ -595,6 +633,7 @@ function renderPassedTests(passed: PassedTest[]): string[] {
 export function generateMarkdownReport(report: DebugReport): string {
   const lines: string[] = [
     ...renderHeader(report.summary),
+    ...renderResourceSection(report.resources),
     ...renderFailedTests(report.failed),
     ...renderFlakyTests(report.flaky),
     ...renderPassedTests(report.passed),
@@ -641,6 +680,12 @@ export function generateJsonReport(report: DebugReport): JsonReport {
       project: test.project,
       duration: test.duration,
     })),
+    ...(report.resources && {
+      resources: {
+        summary: report.resources.summary,
+        scan: report.resources.scan,
+      },
+    }),
   };
 }
 
@@ -757,6 +802,14 @@ export function writeReport(report: DebugReport, baseDir: string): string {
 
   const jsonReport = generateJsonReport(report);
   writeFileSync(path.join(reportDir, 'report.json'), JSON.stringify(jsonReport, null, 2), 'utf8');
+
+  if (report.resources) {
+    writeFileSync(
+      path.join(reportDir, 'resource-timeline.json'),
+      JSON.stringify(report.resources.samples, null, 2),
+      'utf8'
+    );
+  }
 
   enforceRetentionLimit(baseDir, MAX_REPORTS);
 

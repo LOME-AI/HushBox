@@ -10,17 +10,21 @@ interface CapturedRequest {
 
 const PROJECTS_RESPONSE = {
   data: {
-    team: {
-      projects: {
-        nodes: [
-          {
-            id: 'proj-1',
-            name: 'Project 1',
-            color: '#ec4755',
-            status: { type: 'started' },
+    teams: {
+      nodes: [
+        {
+          projects: {
+            nodes: [
+              {
+                id: 'proj-1',
+                name: 'Project 1',
+                color: '#ec4755',
+                status: { type: 'started' },
+              },
+            ],
           },
-        ],
-      },
+        },
+      ],
     },
   },
 };
@@ -109,6 +113,17 @@ describe('createRealLinearClient', () => {
     const client = createRealLinearClient('test-key');
     await client.fetchRoadmap('HUS');
     expect(captured[0]?.url).toBe('https://api.linear.app/graphql');
+  });
+
+  it('looks up the team by key via a teams filter, not the invalid team(key:) argument', async () => {
+    const client = createRealLinearClient('test-key');
+    await client.fetchRoadmap('HUS');
+    const projectsRequest = captured.find((c) => c.body.query.includes('PublicRoadmapProjects'));
+    expect(projectsRequest?.body.query).toMatch(
+      /teams\s*\(\s*filter:\s*\{\s*key:\s*\{\s*eq:\s*\$teamKey\s*\}\s*\}\s*\)/
+    );
+    expect(projectsRequest?.body.query).not.toMatch(/team\s*\(\s*key:/);
+    expect(projectsRequest?.body.variables['teamKey']).toBe('HUS');
   });
 
   it('filters projects via status (current schema), not deprecated state', async () => {
@@ -223,12 +238,12 @@ describe('createRealLinearClient', () => {
     await expect(client.fetchRoadmap('HUS')).rejects.toThrow();
   });
 
-  it('returns an empty project list when the team is null', async () => {
+  it('returns an empty project list when no team matches the key', async () => {
     vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
       const bodyText = init.body as string;
       const parsed = JSON.parse(bodyText) as { query: string };
       if (parsed.query.includes('PublicRoadmapProjects')) {
-        return Promise.resolve(Response.json({ data: { team: null } }, { status: 200 }));
+        return Promise.resolve(Response.json({ data: { teams: { nodes: [] } } }, { status: 200 }));
       }
       return Promise.resolve(
         Response.json(

@@ -7,10 +7,15 @@ import {
   darwinListenerPids,
   windowsListenerPids,
   selectListenerLookup,
+  linuxPgid,
+  darwinPgid,
+  windowsPgid,
+  selectPgidResolver,
   killPort,
   killPorts,
   type KillerDeps,
   type ProcessKiller,
+  type PgidResolver,
 } from './kill-ports.js';
 
 function makeDeps(overrides: Partial<KillerDeps> = {}): KillerDeps {
@@ -33,6 +38,11 @@ function makeKiller(): { kill: ReturnType<typeof vi.fn<ProcessKiller['kill']>> }
 const ok = <T>(value: T): Promise<T> => Promise.resolve(value);
 // eslint-disable-next-line promise/no-promise-in-callback -- intentional rejection helper for typed mocks
 const fail = (error: Error): Promise<never> => Promise.reject(error);
+
+// Resolver that never finds a PGID, forcing killPort's pid-fallback path (and,
+// when used as the default resolver, a null self-PGID so the self-guard is
+// inert). Used by tests asserting direct pid kills so they avoid real /proc.
+const noPgid: PgidResolver = () => ok(null);
 
 describe('kill-ports', () => {
   beforeEach(() => {
@@ -386,11 +396,106 @@ describe('kill-ports', () => {
     });
   });
 
+  describe('linuxPgid', () => {
+    it('returns the process group from /proc/<pid>/stat', async () => {
+      const readFile = vi.fn(() => ok('649954 (workerd) S 649860 649773 649773 0 -1 4194560'));
+      const deps = makeDeps({ readFile });
+      await expect(linuxPgid(649_954, deps)).resolves.toBe(649_773);
+      expect(readFile).toHaveBeenCalledWith('/proc/649954/stat', 'utf8');
+    });
+
+    it('parses pgrp when the comm field itself contains parentheses', async () => {
+      // comm (field 2) is "(weird ) (name)"; pgrp is the 3rd field after the LAST ')'
+      const readFile = vi.fn(() => ok('42 (weird ) (name) S 7 1234 1234 0 -1 0'));
+      const deps = makeDeps({ readFile });
+      await expect(linuxPgid(42, deps)).resolves.toBe(1234);
+    });
+
+    it('returns null when /proc/<pid>/stat cannot be read (process exited)', async () => {
+      const readFile = vi.fn(() => fail(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })));
+      const deps = makeDeps({ readFile });
+      await expect(linuxPgid(999, deps)).resolves.toBeNull();
+    });
+
+    it('returns null when the stat line has no closing paren', async () => {
+      const readFile = vi.fn(() => ok('garbage-without-paren'));
+      const deps = makeDeps({ readFile });
+      await expect(linuxPgid(1, deps)).resolves.toBeNull();
+    });
+
+    it('returns null when the pgrp field is non-numeric', async () => {
+      const readFile = vi.fn(() => ok('42 (comm) S 7 notanumber 0 0'));
+      const deps = makeDeps({ readFile });
+      await expect(linuxPgid(42, deps)).resolves.toBeNull();
+    });
+
+    it('returns null when pgrp is not positive', async () => {
+      const readFile = vi.fn(() => ok('42 (comm) S 7 0 0 0'));
+      const deps = makeDeps({ readFile });
+      await expect(linuxPgid(42, deps)).resolves.toBeNull();
+    });
+  });
+
+  describe('darwinPgid', () => {
+    it('shells `ps -o pgid=` and parses the group id', async () => {
+      const execa = vi.fn(() =>
+        ok({ stdout: ' 649773\n', stderr: '', exitCode: 0, failed: false })
+      );
+      const deps = makeDeps({ execa: execa as unknown as KillerDeps['execa'] });
+      await expect(darwinPgid(649_954, deps)).resolves.toBe(649_773);
+      expect(execa).toHaveBeenCalledWith('ps', ['-o', 'pgid=', '-p', '649954'], { reject: false });
+    });
+
+    it('returns null when ps prints nothing (no such pid)', async () => {
+      const execa = vi.fn(() => ok({ stdout: '', stderr: '', exitCode: 1, failed: true }));
+      const deps = makeDeps({ execa: execa as unknown as KillerDeps['execa'] });
+      await expect(darwinPgid(999, deps)).resolves.toBeNull();
+    });
+
+    it('returns null when ps cannot be spawned', async () => {
+      const execa = vi.fn(() =>
+        fail(Object.assign(new Error('spawn ps ENOENT'), { code: 'ENOENT' }))
+      );
+      const deps = makeDeps({ execa: execa as unknown as KillerDeps['execa'] });
+      await expect(darwinPgid(999, deps)).resolves.toBeNull();
+    });
+  });
+
+  describe('windowsPgid', () => {
+    it('always returns null (POSIX process groups are not used on Windows)', async () => {
+      await expect(windowsPgid()).resolves.toBeNull();
+    });
+  });
+
+  describe('selectPgidResolver', () => {
+    it('returns the Linux resolver on linux', () => {
+      expect(selectPgidResolver('linux')).toBe(linuxPgid);
+    });
+
+    it('returns the macOS resolver on darwin', () => {
+      expect(selectPgidResolver('darwin')).toBe(darwinPgid);
+    });
+
+    it('returns the Windows resolver on win32', () => {
+      expect(selectPgidResolver('win32')).toBe(windowsPgid);
+    });
+
+    it('throws on unsupported platforms', () => {
+      expect(() => selectPgidResolver('aix' as NodeJS.Platform)).toThrow(
+        /unsupported platform "aix"/
+      );
+    });
+
+    it('defaults to process.platform when no argument is passed', () => {
+      expect(typeof selectPgidResolver()).toBe('function');
+    });
+  });
+
   describe('killPort', () => {
     it('SIGKILLs every PID returned by the lookup', async () => {
       const killer = makeKiller();
       const lookup = vi.fn(() => ok([111, 222]));
-      const result = await killPort(4301, { lookup, killer });
+      const result = await killPort(4301, { lookup, killer, pgid: noPgid });
       expect(lookup).toHaveBeenCalledWith(4301, undefined);
       expect(killer.kill).toHaveBeenNthCalledWith(1, 111, 'SIGKILL');
       expect(killer.kill).toHaveBeenNthCalledWith(2, 222, 'SIGKILL');
@@ -400,7 +505,7 @@ describe('kill-ports', () => {
     it('returns empty array and does not kill when port has no listener', async () => {
       const killer = makeKiller();
       const lookup = vi.fn(() => ok([] as number[]));
-      await expect(killPort(4301, { lookup, killer })).resolves.toEqual([]);
+      await expect(killPort(4301, { lookup, killer, pgid: noPgid })).resolves.toEqual([]);
       expect(killer.kill).not.toHaveBeenCalled();
     });
 
@@ -410,7 +515,7 @@ describe('kill-ports', () => {
         throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
       });
       const lookup = vi.fn(() => ok([111]));
-      await expect(killPort(4301, { lookup, killer })).resolves.toEqual([111]);
+      await expect(killPort(4301, { lookup, killer, pgid: noPgid })).resolves.toEqual([111]);
     });
 
     it('throws when process.kill fails for a reason other than ESRCH', async () => {
@@ -419,7 +524,7 @@ describe('kill-ports', () => {
         throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
       });
       const lookup = vi.fn(() => ok([111]));
-      await expect(killPort(4301, { lookup, killer })).rejects.toThrow(
+      await expect(killPort(4301, { lookup, killer, pgid: noPgid })).rejects.toThrow(
         /failed to SIGKILL pid 111 \(port 4301\): EPERM/
       );
     });
@@ -431,7 +536,7 @@ describe('kill-ports', () => {
         throw 'unexpected-string-throw';
       });
       const lookup = vi.fn(() => ok([222]));
-      await expect(killPort(4301, { lookup, killer })).rejects.toThrow(
+      await expect(killPort(4301, { lookup, killer, pgid: noPgid })).rejects.toThrow(
         /failed to SIGKILL pid 222 \(port 4301\): unexpected-string-throw/
       );
     });
@@ -440,7 +545,7 @@ describe('kill-ports', () => {
       const killer = makeKiller();
       const lookup = vi.fn(() => ok([] as number[]));
       const deps = makeDeps();
-      await killPort(4301, { lookup, killer, deps });
+      await killPort(4301, { lookup, killer, deps, pgid: noPgid });
       expect(lookup).toHaveBeenCalledWith(4301, deps);
     });
 
@@ -452,11 +557,105 @@ describe('kill-ports', () => {
     });
   });
 
+  describe('killPort — process group escalation', () => {
+    it("SIGKILLs the listener's process group (negative PGID), not just the pid", async () => {
+      const killer = makeKiller();
+      const lookup = vi.fn(() => ok([649_954])); // workerd listening on the port
+      const pgid = vi.fn(() => ok(649_773)); // its wrangler-led process group
+      const result = await killPort(8915, { lookup, pgid, killer, selfPgid: null });
+      expect(killer.kill).toHaveBeenCalledTimes(1);
+      expect(killer.kill).toHaveBeenCalledWith(-649_773, 'SIGKILL');
+      // Returns the discovered listener pids (for logging), not the group.
+      expect(result).toEqual([649_954]);
+    });
+
+    it('kills a shared process group once when several listeners belong to it', async () => {
+      const killer = makeKiller();
+      const lookup = vi.fn(() => ok([100, 101])); // two workerd in one wrangler group
+      const pgid = vi.fn(() => ok(900));
+      await killPort(8915, { lookup, pgid, killer, selfPgid: null });
+      expect(killer.kill).toHaveBeenCalledTimes(1);
+      expect(killer.kill).toHaveBeenCalledWith(-900, 'SIGKILL');
+    });
+
+    it('kills each distinct process group when listeners span multiple groups', async () => {
+      const killer = makeKiller();
+      const lookup = vi.fn(() => ok([100, 200]));
+      const pgid = vi.fn((pid: number) => ok(pid === 100 ? 900 : 901));
+      await killPort(8915, { lookup, pgid, killer, selfPgid: null });
+      expect(killer.kill).toHaveBeenNthCalledWith(1, -900, 'SIGKILL');
+      expect(killer.kill).toHaveBeenNthCalledWith(2, -901, 'SIGKILL');
+    });
+
+    it('falls back to killing the listener pid when the PGID cannot be resolved', async () => {
+      const killer = makeKiller();
+      const lookup = vi.fn(() => ok([111]));
+      const pgid = vi.fn(() => ok(null));
+      await killPort(8915, { lookup, pgid, killer, selfPgid: null });
+      expect(killer.kill).toHaveBeenCalledTimes(1);
+      expect(killer.kill).toHaveBeenCalledWith(111, 'SIGKILL');
+    });
+
+    it('names the process group in the error when a group kill fails', async () => {
+      const killer = makeKiller();
+      killer.kill.mockImplementation(() => {
+        throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+      });
+      const lookup = vi.fn(() => ok([100]));
+      const pgid = vi.fn(() => ok(900));
+      await expect(killPort(8915, { lookup, pgid, killer, selfPgid: null })).rejects.toThrow(
+        /failed to SIGKILL process group 900 \(port 8915\): EPERM/
+      );
+    });
+
+    it('tolerates ESRCH when the group already exited', async () => {
+      const killer = makeKiller();
+      killer.kill.mockImplementation(() => {
+        throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
+      });
+      const lookup = vi.fn(() => ok([100]));
+      const pgid = vi.fn(() => ok(900));
+      await expect(killPort(8915, { lookup, pgid, killer, selfPgid: null })).resolves.toEqual([
+        100,
+      ]);
+    });
+
+    it('never signals our own process group (self-guard)', async () => {
+      const killer = makeKiller();
+      const lookup = vi.fn(() => ok([100])); // a listener that lives in OUR group
+      const pgid = vi.fn(() => ok(900));
+      const result = await killPort(8915, { lookup, pgid, killer, selfPgid: 900 });
+      expect(killer.kill).not.toHaveBeenCalled();
+      expect(result).toEqual([100]);
+    });
+
+    it('resolves our own PGID via the resolver when selfPgid is not provided', async () => {
+      const killer = makeKiller();
+      const lookup = vi.fn(() => ok([100]));
+      // Resolver returns our own group for process.pid, a different group for the listener.
+      const pgid = vi.fn((pid: number) => ok(pid === process.pid ? 900 : 901));
+      await killPort(8915, { lookup, pgid, killer });
+      expect(pgid).toHaveBeenCalledWith(process.pid, undefined);
+      expect(killer.kill).toHaveBeenCalledTimes(1);
+      expect(killer.kill).toHaveBeenCalledWith(-901, 'SIGKILL');
+    });
+
+    it('does not resolve our own PGID when there are no listeners', async () => {
+      const killer = makeKiller();
+      const lookup = vi.fn(() => ok([] as number[]));
+      const pgid = vi.fn(() => ok(900));
+      const result = await killPort(8915, { lookup, pgid, killer });
+      expect(pgid).not.toHaveBeenCalled();
+      expect(killer.kill).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
+    });
+  });
+
   describe('killPorts', () => {
     it('kills every port in order', async () => {
       const killer = makeKiller();
       const lookup = vi.fn((port: number) => ok([port * 10]));
-      await killPorts([4301, 8915], { lookup, killer });
+      await killPorts([4301, 8915], { lookup, killer, pgid: noPgid });
       // vitest matches call arity exactly; lookup is invoked as (port, undefined).
       // eslint-disable-next-line unicorn/no-useless-undefined
       expect(lookup).toHaveBeenNthCalledWith(1, 4301, undefined);
@@ -472,7 +671,9 @@ describe('kill-ports', () => {
         if (pid === 43_010) throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
       });
       const lookup = vi.fn((port: number) => ok([port * 10]));
-      await expect(killPorts([4301, 8915], { lookup, killer })).rejects.toThrow(/EPERM/);
+      await expect(killPorts([4301, 8915], { lookup, killer, pgid: noPgid })).rejects.toThrow(
+        /EPERM/
+      );
       expect(lookup).toHaveBeenCalledTimes(1);
     });
 

@@ -31,22 +31,24 @@ const relationKindSchema = z.enum(['blocks', 'blocked_by', 'related', 'duplicate
 
 const projectsResponseSchema = z.object({
   data: z.object({
-    team: z
-      .object({
-        projects: z.object({
-          nodes: z.array(
-            z.object({
-              id: z.string().min(1),
-              name: z.string().min(1),
-              color: z.string().min(1),
-              status: z.object({
-                type: projectStateTypeSchema,
-              }),
-            })
-          ),
-        }),
-      })
-      .nullable(),
+    teams: z.object({
+      nodes: z.array(
+        z.object({
+          projects: z.object({
+            nodes: z.array(
+              z.object({
+                id: z.string().min(1),
+                name: z.string().min(1),
+                color: z.string().min(1),
+                status: z.object({
+                  type: projectStateTypeSchema,
+                }),
+              })
+            ),
+          }),
+        })
+      ),
+    }),
   }),
 });
 
@@ -84,15 +86,20 @@ const issuesResponseSchema = z.object({
   }),
 });
 
+// Linear's `Query.team` takes only `id: String!` (a UUID), not the team key.
+// We hold the key ("HUS"), so resolve via the `teams` connection filtered by
+// key — the same lookup the issues query uses (`team: { key: { eq } }`).
 const PROJECTS_QUERY = `
   query PublicRoadmapProjects($teamKey: String!) {
-    team(key: $teamKey) {
-      projects(filter: { status: { type: { neq: "canceled" } } }) {
-        nodes {
-          id
-          name
-          color
-          status { type }
+    teams(filter: { key: { eq: $teamKey } }) {
+      nodes {
+        projects(filter: { status: { type: { neq: "canceled" } } }) {
+          nodes {
+            id
+            name
+            color
+            status { type }
+          }
         }
       }
     }
@@ -154,8 +161,9 @@ export function createRealLinearClient(apiKey: string): LinearClient {
 async function fetchProjects(apiKey: string, teamKey: string): Promise<readonly LinearProject[]> {
   const response = await postGraphQL(apiKey, PROJECTS_QUERY, { teamKey });
   const parsed = projectsResponseSchema.parse(response);
-  if (parsed.data.team === null) return [];
-  return parsed.data.team.projects.nodes.map((node) => ({
+  const team = parsed.data.teams.nodes[0];
+  if (team === undefined) return [];
+  return team.projects.nodes.map((node) => ({
     id: node.id,
     name: node.name,
     color: node.color,

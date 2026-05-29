@@ -6,7 +6,16 @@ const apiPort = process.env['HB_API_PORT']!;
 const previewUrl = `http://localhost:${previewPort}`;
 const apiUrl = `http://localhost:${apiPort}`;
 
+// Chromium-only launch flag, scoped to chromium-based projects (WebKit rejects
+// unknown flags and fails to launch). --disable-dev-shm-usage keeps Chromium
+// off the small /dev/shm tmpfs; the DevBox entrypoint also grows /dev/shm. GPU
+// acceleration is intentionally left enabled so the iGPU offloads rendering —
+// the renderer each engine resolves to is printed once per run by
+// e2e/global-setup.ts.
+const chromiumLaunchOptions = { args: ['--disable-dev-shm-usage'] };
+
 export default defineConfig({
+  globalSetup: './e2e/global-setup.ts',
   globalTeardown: './e2e/global-teardown.ts',
   testDir: './e2e',
   fullyParallel: true,
@@ -14,6 +23,11 @@ export default defineConfig({
   retries: isCI ? 2 : 1,
   workers: isCI ? 3 : '45%',
   timeout: 45_000,
+  // Backstop so a wedged run can't hang forever. Playwright aborts via its
+  // normal shutdown, which group-kills each webServer — so it won't leak orphan
+  // dev servers the way a hard Ctrl+C of a stuck run does. Sized above the
+  // observed full local matrix (~46m); raise if that grows.
+  globalTimeout: 75 * 60_000,
   expect: {
     timeout: 10_000,
   },
@@ -57,7 +71,7 @@ export default defineConfig({
     {
       name: 'setup-chromium',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], launchOptions: chromiumLaunchOptions },
     },
     {
       name: 'setup-firefox',
@@ -67,7 +81,7 @@ export default defineConfig({
       // on lower-spec CPUs (Ryzen 5 5500 without iGPU SIGSEGV'd at workers=5
       // / 45% of cores in the firefox project specifically). Capping just
       // the firefox projects keeps other projects at the full global pool.
-      workers: isCI ? 3 : '30%',
+      workers: isCI ? 2 : '30%',
     },
     {
       name: 'setup-webkit',
@@ -82,7 +96,7 @@ export default defineConfig({
     {
       name: 'setup-pixel-7',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Pixel 7'] },
+      use: { ...devices['Pixel 7'], launchOptions: chromiumLaunchOptions },
     },
     {
       name: 'setup-ipad-pro',
@@ -92,7 +106,7 @@ export default defineConfig({
     {
       name: 'setup-auth-tests',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], launchOptions: chromiumLaunchOptions },
     },
     {
       name: 'auth-tests',
@@ -100,6 +114,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         storageState: 'e2e/.auth/auth-tests/test-alice.json',
+        launchOptions: chromiumLaunchOptions,
       },
       dependencies: ['setup-auth-tests'],
     },
@@ -108,6 +123,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         storageState: 'e2e/.auth/chromium/test-alice.json',
+        launchOptions: chromiumLaunchOptions,
       },
       testDir: './e2e',
       testIgnore: ['**/mobile/**'],
@@ -125,7 +141,7 @@ export default defineConfig({
       // See setup-firefox above for why firefox is capped below the global
       // worker count. Other projects are unconstrained and can use the
       // remaining slots while firefox tests are throttled.
-      workers: isCI ? 3 : '30%',
+      workers: isCI ? 2 : '30%',
     },
     {
       name: 'webkit',
@@ -150,6 +166,7 @@ export default defineConfig({
       use: {
         ...devices['Pixel 7'],
         storageState: 'e2e/.auth/pixel-7/test-alice.json',
+        launchOptions: chromiumLaunchOptions,
       },
       dependencies: ['setup-pixel-7'],
     },

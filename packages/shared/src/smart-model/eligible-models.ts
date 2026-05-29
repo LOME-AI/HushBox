@@ -11,11 +11,15 @@ import type { Model } from '../schemas/api/models.js';
 import type { UserTier } from '../tiers.js';
 
 /**
- * Hard cap on classifier output tokens. The classifier should emit a single
- * model id (~10–30 tokens). 50 leaves slack for stop-token quirks while
- * tightly bounding worst-case spend on the routing call itself.
+ * Output cap for the classifier call. Reasoning-class models (e.g.
+ * `openai/gpt-5-nano`, the cheapest ZDR text model) spend output tokens on
+ * hidden reasoning before emitting the model id, so the cap must cover
+ * worst-case reasoning headroom plus the ~10–30-token id. A tight cap yields
+ * an empty completion — reasoning consumes the whole budget and no visible
+ * text is emitted. Also drives `classifierWorstCaseCents`: the user is
+ * reserved this worst case but billed actual usage via `getGenerationStats`.
  */
-export const CLASSIFIER_OUTPUT_TOKEN_CAP = 50;
+export const CLASSIFIER_OUTPUT_TOKEN_CAP = 2048;
 
 /**
  * Legacy fallback constant. Retained as a backstop for paths that still need

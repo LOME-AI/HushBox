@@ -101,7 +101,7 @@ function pickCheapestTextModel(candidates: readonly TextModelView[]): TestModelS
   if (cheapest === undefined) {
     throw new Error('No paid non-premium text model available.');
   }
-  return { modelId: cheapest.id, parameters: { kind: 'text', maxOutputTokens: 10 } };
+  return { modelId: cheapest.id, parameters: { kind: 'text', maxOutputTokens: 2048 } };
 }
 
 function pickCheapestImageModel(candidates: readonly ImageModelView[]): TestModelSpec {

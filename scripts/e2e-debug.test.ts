@@ -12,6 +12,8 @@ import {
   formatDuration,
   buildRerunCommand,
   generateMarkdownReport,
+  generateJsonReport,
+  renderResourceSection,
   renderSteps,
   serializeTestForJson,
   writeReport,
@@ -2020,6 +2022,78 @@ describe('e2e-debug', () => {
       expect(() => {
         enforceRetentionLimit('/nonexistent/path', 10);
       }).not.toThrow();
+    });
+  });
+
+  describe('resource usage', () => {
+    const resources = {
+      summary: {
+        durationMs: 125_000,
+        sampleCount: 3,
+        cores: 24,
+        totalMemBytes: 32 * 1024 ** 3,
+        cpu: { peak: 62, avg: 38 },
+        mem: { peak: 44, avg: 30 },
+        load: { peak: 19 },
+      },
+      samples: [{ t: 0, cpuPct: 62, memPct: 44, load1: 19 }],
+      scan: {
+        totalHits: 7,
+        categories: [{ name: 'process/thread limit', count: 7, tests: ['a.spec.ts › b'] }],
+      },
+    };
+
+    const emptyReport = (): DebugReport =>
+      generateDebugReport({ suites: [], config: {}, stats: { duration: 1000 } });
+
+    it('renderResourceSection returns nothing without resources', () => {
+      expect(renderResourceSection()).toEqual([]);
+    });
+
+    it('renderResourceSection renders the table and error breakdown', () => {
+      const md = renderResourceSection(resources).join('\n');
+      expect(md).toContain('## Resource Usage');
+      expect(md).toContain('| CPU | 62% | 38% |');
+      expect(md).toContain('**Resource-limit errors:** 7');
+      expect(md).toContain('process/thread limit ×7');
+    });
+
+    it('renderResourceSection omits the error block when there are no hits', () => {
+      const md = renderResourceSection({
+        ...resources,
+        scan: { totalHits: 0, categories: [] },
+      }).join('\n');
+      expect(md).not.toContain('Resource-limit errors');
+      expect(md).toContain('## Resource Usage');
+    });
+
+    it('generateMarkdownReport includes the resource section when present', () => {
+      const report = emptyReport();
+      report.resources = resources;
+      expect(generateMarkdownReport(report)).toContain('## Resource Usage');
+    });
+
+    it('generateJsonReport embeds a lean resources object (no samples)', () => {
+      const report = emptyReport();
+      report.resources = resources;
+      const json = generateJsonReport(report);
+      expect(json.resources?.scan.totalHits).toBe(7);
+      expect(json.resources?.summary.cpu.peak).toBe(62);
+      expect(json.resources).not.toHaveProperty('samples');
+    });
+
+    it('writeReport emits resource-timeline.json when resources are present', () => {
+      const report = emptyReport();
+      report.resources = resources;
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'e2e-res-'));
+      try {
+        const out = writeReport(report, dir);
+        const timeline = path.join(out, 'resource-timeline.json');
+        expect(existsSync(timeline)).toBe(true);
+        expect(JSON.parse(readFileSync(timeline, 'utf8'))).toHaveLength(1);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 });

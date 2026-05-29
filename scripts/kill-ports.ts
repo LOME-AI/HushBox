@@ -218,6 +218,84 @@ export function selectListenerLookup(platform: NodeJS.Platform = process.platfor
   }
 }
 
+export type PgidResolver = (pid: number, deps?: KillerDeps) => Promise<number | null>;
+
+/**
+ * Resolve a PID's process-group ID from /proc/<pid>/stat (Linux).
+ *
+ * The process listening on a port is often a supervised child — e.g. `workerd`
+ * under `wrangler dev`. Killing only that child lets the supervisor respawn it
+ * onto the same port (an endless loop that defeats port cleanup). Playwright and
+ * our dev scripts launch each server detached as its own process group, so the
+ * listener's PGID leads the whole tree; signalling the group (see
+ * {@link killPort}) tears everything down with nothing left to respawn.
+ *
+ * Returns null when the process is gone or the line is unparseable; the caller
+ * then falls back to killing the listener PID directly.
+ */
+export async function linuxPgid(
+  pid: number,
+  deps: KillerDeps = defaultDeps
+): Promise<number | null> {
+  let stat: string;
+  try {
+    stat = await deps.readFile(`/proc/${String(pid)}/stat`, 'utf8');
+  } catch {
+    return null;
+  }
+  // Format: "pid (comm) state ppid pgrp ...". comm is parenthesized and may
+  // itself contain spaces and ')', so parse the fields after the LAST ')'.
+  const rparen = stat.lastIndexOf(')');
+  if (rparen === -1) return null;
+  // Fields after comm: [state, ppid, pgrp, ...] — pgrp is index 2.
+  const fields = stat
+    .slice(rparen + 1)
+    .trim()
+    .split(/\s+/);
+  const pgrp = Number(fields[2]);
+  return Number.isFinite(pgrp) && pgrp > 0 ? pgrp : null;
+}
+
+/** Resolve a PID's process-group ID via `ps -o pgid=` (macOS). See {@link linuxPgid}. */
+export async function darwinPgid(
+  pid: number,
+  deps: KillerDeps = defaultDeps
+): Promise<number | null> {
+  let res: ExecaResultLike;
+  try {
+    res = (await deps.execa('ps', ['-o', 'pgid=', '-p', String(pid)], {
+      reject: false,
+    })) as ExecaResultLike;
+  } catch {
+    // ps failed to spawn — degrade to null (pid-fallback), matching linuxPgid.
+    return null;
+  }
+  const pgid = Number(String(res.stdout).trim());
+  return Number.isFinite(pgid) && pgid > 0 ? pgid : null;
+}
+
+/** Windows lacks POSIX process groups; signal the listener PID directly. */
+export function windowsPgid(): Promise<number | null> {
+  return Promise.resolve(null);
+}
+
+export function selectPgidResolver(platform: NodeJS.Platform = process.platform): PgidResolver {
+  switch (platform) {
+    case 'linux': {
+      return linuxPgid;
+    }
+    case 'darwin': {
+      return darwinPgid;
+    }
+    case 'win32': {
+      return windowsPgid;
+    }
+    default: {
+      throw new Error(`kill-ports: unsupported platform "${platform}"`);
+    }
+  }
+}
+
 export interface ProcessKiller {
   kill(pid: number, signal: NodeJS.Signals): void;
 }
@@ -232,25 +310,79 @@ const realProcessKiller: ProcessKiller = {
 
 export interface KillPortOptions {
   lookup?: ListenerLookup;
+  pgid?: PgidResolver;
+  /**
+   * Our own process group, used by the self-guard. Defaults to resolving the
+   * current process's PGID via the platform resolver. Pass `null` to disable the
+   * guard (e.g. in tests), or an explicit value to assert guard behavior.
+   */
+  selfPgid?: number | null;
   deps?: KillerDeps;
   killer?: ProcessKiller;
 }
 
+/**
+ * Map listener PIDs to SIGKILL targets. On POSIX each target is a negative PGID
+ * (kills the whole process group, so a supervisor like `wrangler dev` dies too
+ * instead of respawning the listener). Groups are de-duplicated so a group with
+ * several listeners is signalled once. A listener whose PGID can't be resolved
+ * falls back to its own PID. Our own group (`ownPgid`) is never targeted — that
+ * would kill the cleanup process and, in a `kill-ports && start-server` chain,
+ * the server about to launch.
+ */
+async function resolveKillTargets(
+  pids: readonly number[],
+  pgidResolver: PgidResolver,
+  ownPgid: number | null,
+  deps?: KillerDeps
+): Promise<number[]> {
+  const groups = new Set<number>();
+  const pidFallbacks: number[] = [];
+  for (const pid of pids) {
+    const pgid = await pgidResolver(pid, deps);
+    if (pgid === null) {
+      pidFallbacks.push(pid);
+      continue;
+    }
+    if (pgid === ownPgid) continue; // self-guard: never signal our own group
+    groups.add(pgid);
+  }
+  return [...[...groups].map((pgid) => -pgid), ...pidFallbacks];
+}
+
+function describeTarget(target: number): string {
+  return target < 0 ? `process group ${String(-target)}` : `pid ${String(target)}`;
+}
+
+/** SIGKILL one target (negative => process group). ESRCH is a benign race. */
+function killTarget(killer: ProcessKiller, target: number, port: number): void {
+  try {
+    killer.kill(target, 'SIGKILL');
+  } catch (error) {
+    // ESRCH = process/group exited between discovery and kill; we won the race.
+    if (hasErrnoCode(error) && error.code === 'ESRCH') return;
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `kill-ports: failed to SIGKILL ${describeTarget(target)} (port ${String(port)}): ${msg}`
+    );
+  }
+}
+
 export async function killPort(port: number, options: KillPortOptions = {}): Promise<number[]> {
   const lookup = options.lookup ?? selectListenerLookup();
+  const pgidResolver = options.pgid ?? selectPgidResolver();
   const killer = options.killer ?? realProcessKiller;
   const pids = await lookup(port, options.deps);
-  for (const pid of pids) {
-    try {
-      killer.kill(pid, 'SIGKILL');
-    } catch (error) {
-      // ESRCH = process exited between discovery and kill; we won the race.
-      if (hasErrnoCode(error) && error.code === 'ESRCH') continue;
-      const msg = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `kill-ports: failed to SIGKILL pid ${String(pid)} (port ${String(port)}): ${msg}`
-      );
-    }
+  // Resolve PGIDs and kill only when something is listening — skips a needless
+  // /proc read or `ps` spawn on the common "already free" path before a server
+  // starts. (Selecting the resolver above is free; calling it is the cost.)
+  if (pids.length > 0) {
+    const ownPgid =
+      options.selfPgid === undefined
+        ? await pgidResolver(process.pid, options.deps)
+        : options.selfPgid;
+    const targets = await resolveKillTargets(pids, pgidResolver, ownPgid, options.deps);
+    for (const target of targets) killTarget(killer, target, port);
   }
   return pids;
 }
