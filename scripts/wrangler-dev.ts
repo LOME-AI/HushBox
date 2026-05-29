@@ -1,5 +1,6 @@
 import { execa } from 'execa';
 import { createWriteStream } from 'node:fs';
+import { Transform } from 'node:stream';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMainModule } from './lib/is-main.js';
@@ -16,6 +17,70 @@ function teeStreamErrorHandler(label: string): (error: Error) => void {
   return (error) => {
     console.warn(`wrangler-dev tee ${label} error: ${error.message}`);
   };
+}
+
+/**
+ * workerd emits these on the API process's stderr whenever a client drops a
+ * connection mid-response — routine under E2E, where Playwright closes pages
+ * while chat SSE streams are still in flight. They originate in workerd's C++
+ * I/O layer, below the JS `await` point, so the app's own disconnect guards
+ * (the SSE writer's connection check, fire-and-forget's catch, the billing
+ * `waitUntil(...).catch`) can't intercept them. They are not failures.
+ *
+ * Matched lines are dropped from the *terminal* only. The raw stderr is still
+ * teed verbatim to apps/api/.wrangler-<port>.log, so nothing is hidden — this
+ * de-noises the interactive view without losing the record. Patterns are
+ * deliberately narrow so a genuine error is never swallowed.
+ */
+const SUPPRESSED_STDERR_PATTERNS: readonly RegExp[] = [
+  // kj socket write to an already-closed peer: "disconnected: ::write(...): Broken pipe".
+  /disconnected:.*Broken pipe/,
+  // Companion frame of the broken-pipe report: a "stack:" line of raw workerd
+  // address frames (each token ends in @<hex>). A real JS stack is "  at ...",
+  // never this shape, so it stays visible.
+  /^\s*stack:\s+\S+@[0-9a-f]+(?:\s+\S+@[0-9a-f]+)*\s*$/,
+  // A pending subrequest canceled when the request context tears down after the
+  // client disconnects; surfaced by workerd as an uncaught rejection, no JS stack.
+  /Uncaught (?:\(in promise\) )?Error: Network connection lost/,
+  // Workerd brackets error blocks with blank lines. With the error message
+  // itself suppressed above, those bare blanks would still pass through and
+  // surface in Playwright's webServer output as `[API]` prefix with nothing
+  // after it (the prefix is added per stderr line regardless of content). A
+  // blank stderr line carries no information; the log file retains everything
+  // verbatim, so dropping them from the terminal is purely cosmetic de-noising.
+  /^\s*$/,
+];
+
+export function isSuppressedStderrLine(line: string): boolean {
+  return SUPPRESSED_STDERR_PATTERNS.some((pattern) => pattern.test(line));
+}
+
+/**
+ * Line-buffering Transform that drops {@link isSuppressedStderrLine} matches.
+ * Buffers across chunk boundaries so a line split between two writes is matched
+ * as a whole; the trailing partial line (no newline yet) is held until flush.
+ */
+export function createStderrFilter(): Transform {
+  let buffer = '';
+  return new Transform({
+    transform(chunk: unknown, _encoding, callback): void {
+      buffer += Buffer.isBuffer(chunk) ? chunk.toString() : String(chunk);
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!isSuppressedStderrLine(line)) {
+          this.push(`${line}\n`);
+        }
+      }
+      callback();
+    },
+    flush(callback): void {
+      if (buffer.length > 0 && !isSuppressedStderrLine(buffer)) {
+        this.push(buffer);
+      }
+      callback();
+    },
+  });
 }
 
 /**
@@ -54,15 +119,22 @@ export async function runWranglerDev(extraArgs: string[]): Promise<number> {
   // the log file (preserving content for post-hoc debugging). `end: false`
   // keeps the destination open across both stdout and stderr ends; we close
   // the log stream explicitly in the finally block.
+  //
+  // stderr reaches the terminal through a filter that drops benign workerd
+  // disconnect noise (see SUPPRESSED_STDERR_PATTERNS); the log file still
+  // receives the unfiltered stderr, so the record is complete.
+  const stderrFilter = createStderrFilter();
   subprocess.stdout.pipe(process.stdout, { end: false });
   subprocess.stdout.pipe(logStream, { end: false });
-  subprocess.stderr.pipe(process.stderr, { end: false });
+  stderrFilter.pipe(process.stderr, { end: false });
+  subprocess.stderr.pipe(stderrFilter);
   subprocess.stderr.pipe(logStream, { end: false });
 
   // Defensive: surface stream errors (disk full, EACCES on apps/api/) as a
   // single warn line instead of an unhandled 'error' event that would crash
   // the dev process. The terminal stream stays usable either way.
   logStream.on('error', teeStreamErrorHandler('log'));
+  stderrFilter.on('error', teeStreamErrorHandler('stderr-filter'));
   subprocess.stdout.on('error', teeStreamErrorHandler('stdout'));
   subprocess.stderr.on('error', teeStreamErrorHandler('stderr'));
 

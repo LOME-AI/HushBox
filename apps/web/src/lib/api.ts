@@ -12,7 +12,9 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
-    public data?: unknown
+    public data?: unknown,
+    /** Parsed `Retry-After` (ms) for 429/503 responses; drives the retry backoff. */
+    public retryAfterMs?: number
   ) {
     super(message);
     this.name = 'ApiError';

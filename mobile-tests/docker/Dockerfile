@@ -2,17 +2,16 @@
 #
 # This Dockerfile intentionally builds nothing on top of budtmo — the upstream
 # image already ships the emulator, Android system image, AVD, and in-container
-# adb. The value of having our own image is two-fold:
+# adb. Its only job is to pin the budtmo version reproducibly: the hash of this
+# file is the image tag (computed by scripts/lib/mobile-image.ts), so CI and
+# local dev resolve to the exact same content.
 #
-#   1. The hash of this file pins the budtmo version reproducibly. Both CI and
-#      local dev resolve to the exact same content via the content-hash tag
-#      computed by scripts/lib/mobile-image.ts.
-#
-#   2. scripts/bake-mobile-image.ts layers an AVD quick-boot snapshot on top
-#      via `docker commit` at deploy time, cutting emulator boot from ~60-120s
-#      (cold) to ~5-15s (quick-boot from snapshot). That layer cannot be
-#      expressed in a Dockerfile because the snapshot requires booting a
-#      privileged + /dev/kvm container, which Docker build sandbox forbids.
+# Emulators cold-boot from this image on each run (~30-60s, within the boot-wait
+# timeout). We deliberately do NOT bake an AVD quick-boot snapshot via
+# `docker commit`: committing a live, privileged + /dev/kvm emulator captures a
+# snapshot that restores unreliably in a fresh container — the emulator wedges
+# "device offline" and never reaches sys.boot_completed. A reliable cold boot
+# beats a flaky fast boot.
 #
 # Any change to this file (including the FROM tag) produces a new content
 # hash, invalidating cached images everywhere — CI rebuilds + pushes on the

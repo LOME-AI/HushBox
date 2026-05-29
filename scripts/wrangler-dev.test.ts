@@ -6,7 +6,12 @@ vi.mock('node:fs', () => ({ createWriteStream: vi.fn() }));
 
 import { execa } from 'execa';
 import { createWriteStream } from 'node:fs';
-import { runWranglerDev, wranglerLogPath } from './wrangler-dev.js';
+import {
+  runWranglerDev,
+  wranglerLogPath,
+  isSuppressedStderrLine,
+  createStderrFilter,
+} from './wrangler-dev.js';
 
 const mockExeca = vi.mocked(execa);
 const mockCreateWriteStream = vi.mocked(createWriteStream);
@@ -165,5 +170,156 @@ describe('wrangler-dev', () => {
     await expect(runWranglerDev([])).rejects.toThrow(
       'HB_API_PORT is not set — run pnpm generate:env first'
     );
+  });
+
+  it('filters benign disconnect noise from the terminal but keeps it in the log', async () => {
+    process.env['HB_API_PORT'] = '8915';
+    const log = mockLogStream();
+    mockCreateWriteStream.mockReturnValue(log as never);
+    const { subprocess, stderr } = mockSubprocess(0);
+    mockExeca.mockReturnValue(subprocess as never);
+
+    const originalWrite = process.stderr.write;
+    const termChunks: string[] = [];
+    process.stderr.write = vi.fn((chunk: string | Uint8Array) => {
+      termChunks.push(chunk.toString());
+      return true;
+    }) as never;
+    const logChunks: Buffer[] = [];
+    log.on('data', (chunk: Buffer) => logChunks.push(chunk));
+
+    try {
+      const runPromise = runWranglerDev([]);
+      stderr.write('[ERROR] Uncaught Error: Network connection lost\nreal failure\n');
+      stderr.end();
+      await runPromise;
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+
+    const term = termChunks.join('');
+    const logged = Buffer.concat(logChunks).toString();
+    expect(term).not.toContain('Network connection lost');
+    expect(term).toContain('real failure');
+    expect(logged).toContain('Network connection lost');
+    expect(logged).toContain('real failure');
+  });
+});
+
+describe('isSuppressedStderrLine', () => {
+  it('suppresses the workerd broken-pipe disconnect message', () => {
+    expect(
+      isSuppressedStderrLine(
+        'kj::getCaughtExceptionAsKj() = kj/async-io-unix.c++:186: disconnected: ::write(fd, buffer.begin(), buffer.size()): Broken pipe'
+      )
+    ).toBe(true);
+  });
+
+  it('suppresses the workerd address-frame stack continuation line', () => {
+    expect(
+      isSuppressedStderrLine(
+        '  stack: /a/bin/workerd@4f0cd3e /a/bin/workerd@4f0d8e1 /a/bin/workerd@34b832f'
+      )
+    ).toBe(true);
+  });
+
+  it('suppresses the Network connection lost uncaught error', () => {
+    expect(isSuppressedStderrLine('[ERROR] Uncaught Error: Network connection lost')).toBe(true);
+  });
+
+  it('suppresses the in-promise variant of Network connection lost', () => {
+    expect(
+      isSuppressedStderrLine('✘ [ERROR] Uncaught (in promise) Error: Network connection lost')
+    ).toBe(true);
+  });
+
+  it('keeps unrelated error lines', () => {
+    expect(isSuppressedStderrLine('[ERROR] TypeError: cannot read properties of undefined')).toBe(
+      false
+    );
+  });
+
+  it('keeps normal JS stack frames', () => {
+    expect(isSuppressedStderrLine('    at handler (apps/api/src/routes/chat.ts:42:7)')).toBe(false);
+  });
+
+  it('keeps a prose line that merely mentions a stack', () => {
+    expect(isSuppressedStderrLine('  stack: something went wrong')).toBe(false);
+  });
+
+  it('keeps an unrelated broken-pipe-free disconnect line', () => {
+    expect(isSuppressedStderrLine('disconnected: peer reset the channel')).toBe(false);
+  });
+
+  it('suppresses empty lines (Playwright would prefix them as bare [API])', () => {
+    expect(isSuppressedStderrLine('')).toBe(true);
+  });
+
+  it('suppresses whitespace-only lines', () => {
+    expect(isSuppressedStderrLine('   \t  ')).toBe(true);
+  });
+});
+
+describe('createStderrFilter', () => {
+  it('drops suppressed lines and forwards the rest, splitting on newlines', async () => {
+    const filter = createStderrFilter();
+    const out: string[] = [];
+    filter.on('data', (chunk: Buffer) => out.push(chunk.toString()));
+    filter.write('keep me\n[ERROR] Uncaught Error: Network connection lost\nkeep me too\n');
+    filter.end();
+    await new Promise((resolve) => filter.on('end', resolve));
+
+    const joined = out.join('');
+    expect(joined).toContain('keep me');
+    expect(joined).toContain('keep me too');
+    expect(joined).not.toContain('Network connection lost');
+  });
+
+  it('forwards a partial final line that has no trailing newline on flush', async () => {
+    const filter = createStderrFilter();
+    const out: string[] = [];
+    filter.on('data', (chunk: Buffer) => out.push(chunk.toString()));
+    filter.write('partial without newline');
+    filter.end();
+    await new Promise((resolve) => filter.on('end', resolve));
+
+    expect(out.join('')).toContain('partial without newline');
+  });
+
+  it('drops a suppressed partial final line on flush', async () => {
+    const filter = createStderrFilter();
+    const out: string[] = [];
+    filter.on('data', (chunk: Buffer) => out.push(chunk.toString()));
+    filter.write('[ERROR] Uncaught Error: Network connection lost');
+    filter.end();
+    await new Promise((resolve) => filter.on('end', resolve));
+
+    expect(out.join('')).toBe('');
+  });
+
+  it('drops blank lines surrounding a suppressed error block', async () => {
+    const filter = createStderrFilter();
+    const out: string[] = [];
+    filter.on('data', (chunk: Buffer) => out.push(chunk.toString()));
+    filter.write('\n[ERROR] Uncaught Error: Network connection lost\n\nafter\n');
+    filter.end();
+    await new Promise((resolve) => filter.on('end', resolve));
+
+    expect(out.join('')).toBe('after\n');
+  });
+
+  it('reassembles a line split across two chunks', async () => {
+    const filter = createStderrFilter();
+    const out: string[] = [];
+    filter.on('data', (chunk: Buffer) => out.push(chunk.toString()));
+    filter.write('Uncaught Error: Network ');
+    filter.write('connection lost\nkept\n');
+    filter.end();
+    await new Promise((resolve) => filter.on('end', resolve));
+
+    const joined = out.join('');
+    expect(joined).not.toContain('Network connection lost');
+    expect(joined).toContain('kept');
   });
 });

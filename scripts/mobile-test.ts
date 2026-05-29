@@ -1,4 +1,5 @@
 /* eslint-disable no-restricted-syntax -- mobile-test.ts is gated to Linux via assertLinux() and intentionally shells out to mkdir/curl/unzip/bash for one-shot SDK installation on the CI runner. */
+import AdmZip from 'adm-zip';
 import { execa } from 'execa';
 import {
   appendFileSync,
@@ -239,7 +240,6 @@ export async function startEmulator(
     // Enables noVNC at port 6080 inside the container for live emulator
     // viewing — useful for debugging a hung test interactively.
     includeVnc: true,
-    stdio: 'inherit',
   });
 
   let connected = false;
@@ -857,8 +857,14 @@ export async function setupOtaUpdate(): Promise<void> {
   });
 
   console.log('Uploading OTA bundle to local R2...');
+  // Zip the bundle in-process with adm-zip (pure JS) instead of shelling out to
+  // a `zip` binary, which isn't guaranteed installed on a dev machine. Mirrors
+  // `zip -r ota-bundle.zip .`: dist-ota's contents sit at the archive root.
+  const otaDir = 'apps/web/dist-ota';
   const zipPath = 'ota-bundle.zip';
-  await execa('zip', ['-r', zipPath, '.'], { cwd: 'apps/web/dist-ota', stdio: 'inherit' });
+  const otaZip = new AdmZip();
+  otaZip.addLocalFolder(otaDir, '', (filename) => !filename.endsWith(zipPath));
+  otaZip.writeZip(path.join(otaDir, zipPath));
   await execa(
     'pnpm',
     [
@@ -916,10 +922,10 @@ export async function main(): Promise<void> {
   await Promise.all([installMaestro(), installAndroidSdk()]);
 
   // Resolve the image tag up front so we have a single source of truth across
-  // all shards. bakeImage handles local-cache / registry-pull / full-bake
-  // automatically; in CI on main this image was already pushed by the
+  // all shards. bakeImage resolves it via local-cache / registry-pull /
+  // cold-build; in CI on main this image was already pushed by the
   // push-mobile-emulator-image job, so this is a pull. On PRs and local dev
-  // it may be a full bake (one-time cost per Dockerfile change).
+  // it may be a cold build (one-time cost per Dockerfile change).
   const imageTag = await bakeImage({ push: false });
 
   // Start the dev stack first (sequential) so its handle is captured before

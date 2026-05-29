@@ -274,7 +274,7 @@ function useStreamScrollEffect(
     if (!wasStreaming && isNowStreaming && isFirstMessage) {
       // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
       });
     }
   }, [streamingMessageIds, messagesLength, virtuosoRef]);
@@ -644,7 +644,7 @@ function useSubmitUserOnly(
       virtuosoRef.current?.resetScrollBreakaway();
       // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
       });
     }
   }, [onSubmitUserOnly, virtuosoRef]);
@@ -907,7 +907,7 @@ export function ChatLayout({
       virtuosoRef.current?.resetScrollBreakaway();
       // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
       });
     },
     [onSubmit]

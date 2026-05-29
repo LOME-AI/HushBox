@@ -10,12 +10,6 @@ export const IMAGE_NAMESPACE = 'ghcr.io/lome-ai/hushbox-android-emulator';
 // Absolute path so docker build and the hash computation work regardless of
 // the caller's cwd (tests run from scripts/; the CLI runs from repo root).
 export const MOBILE_IMAGE_CONTEXT = path.join(REPO_ROOT, 'mobile-tests', 'docker');
-const BAKE_CONTAINER_NAME = 'hushbox-mobile-emulator-bake';
-const BAKE_ADB_PORT = 5555;
-const BOOT_TIMEOUT_POLLS = 120;
-const BOOT_POLL_INTERVAL_MS = 2000;
-const BOOT_DIAGNOSTIC_INTERVAL = 10;
-const SNAPSHOT_NAME = 'default_boot';
 
 async function listFilesRecursive(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
@@ -96,23 +90,17 @@ export interface RunEmulatorOptions {
   kvmGid: string;
   /** Set WEB_VNC=true so the noVNC viewer at port 6080 is enabled. */
   includeVnc: boolean;
-  /**
-   * 'pipe' captures container id on stdout (caller needs it for `docker commit`);
-   * 'inherit' streams docker run output to the parent so users see progress.
-   */
-  stdio: 'pipe' | 'inherit';
 }
 
 /**
  * Force-remove any leftover container with the given name, then `docker run -d`
- * a new budtmo emulator. Shared between bake (single ephemeral container) and
- * mobile-test shards (N persistent containers).
+ * a new budtmo emulator. Used to launch the mobile-test shard emulators.
  *
  * budtmo's first-boot privilege drop (sudo sed -i '1d' /etc/passwd) wedges
  * the container permanently if a prior run died mid-boot; pre-remove is the
  * only recovery path.
  */
-export async function runEmulatorContainer(options: RunEmulatorOptions): Promise<string> {
+export async function runEmulatorContainer(options: RunEmulatorOptions): Promise<void> {
   await execa('docker', ['rm', '-f', options.name], { stdio: 'ignore' }).catch(() => {
     // Ignored: no leftover container is fine.
   });
@@ -122,7 +110,7 @@ export async function runEmulatorContainer(options: RunEmulatorOptions): Promise
     'EMULATOR_DEVICE=Samsung Galaxy S10',
   ];
   if (options.includeVnc) envArgs.push('-e', 'WEB_VNC=true');
-  const result = await execa(
+  await execa(
     'docker',
     [
       'run',
@@ -139,65 +127,8 @@ export async function runEmulatorContainer(options: RunEmulatorOptions): Promise
       ...envArgs,
       options.imageTag,
     ],
-    { stdio: options.stdio }
+    { stdio: 'inherit' }
   );
-  // execa returns undefined stdout when stdio is 'inherit' (output streams
-  // straight to the parent). Callers that need the container id must pass
-  // stdio: 'pipe'.
-  return (result.stdout ?? '').trim();
-}
-
-async function pollBootOnce(host: string, index: number): Promise<boolean> {
-  try {
-    await execa('adb', ['connect', host], { stdio: 'pipe' });
-    const result = await execa('adb', ['-s', host, 'shell', 'getprop', 'sys.boot_completed']);
-    return result.stdout.trim() === '1';
-  } catch (error: unknown) {
-    // Polling failure during boot is expected, but log periodically so a
-    // 4-minute timeout doesn't end with zero diagnostic context.
-    if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.log(`[bake poll ${String(index)}] ${host}: ${message}`);
-    }
-    return false;
-  }
-}
-
-async function waitForBoot(adbPort: number): Promise<void> {
-  const host = `localhost:${String(adbPort)}`;
-  for (let index = 0; index < BOOT_TIMEOUT_POLLS; index++) {
-    if (await pollBootOnce(host, index)) return;
-    await new Promise((resolve) => {
-      setTimeout(resolve, BOOT_POLL_INTERVAL_MS);
-    });
-  }
-  throw new Error('Emulator failed to boot within timeout during image bake');
-}
-
-async function saveAvdSnapshot(containerId: string): Promise<void> {
-  // `adb emu` is a console command, reachable only for an emulator the adb
-  // server manages locally (serial emulator-5554). The host connects over TCP
-  // (localhost:5555), which carries no console association and only publishes
-  // the adb port, so the save must run inside the container where the emulator
-  // is local. adb emu's console protocol is synchronous: the emulator returns
-  // OK only after the snapshot is written to disk; docker commit then captures it.
-  await execa(
-    'docker',
-    ['exec', containerId, 'adb', 'emu', 'avd', 'snapshot', 'save', SNAPSHOT_NAME],
-    {
-      stdio: 'inherit',
-    }
-  );
-}
-
-async function commitContainer(containerId: string, tag: string): Promise<void> {
-  await execa('docker', ['commit', containerId, tag], { stdio: 'inherit' });
-}
-
-async function removeContainer(containerId: string): Promise<void> {
-  await execa('docker', ['rm', '-f', containerId], { stdio: 'pipe' }).catch(() => {
-    // Best-effort cleanup; container may already be gone.
-  });
 }
 
 async function pushImage(tag: string): Promise<void> {
@@ -217,30 +148,13 @@ export async function bakeImage(options: { push: boolean }): Promise<string> {
     return tag;
   }
 
-  console.log(`[mobile-image] Cache miss: baking ${tag}`);
+  // Build the content-hashed budtmo image only. Emulators cold-boot from it on
+  // each run; we deliberately do NOT bake an AVD quick-boot snapshot via
+  // `docker commit`, because a snapshot captured from a live, privileged
+  // emulator restores unreliably in a fresh container — it wedges "device
+  // offline" and never reaches sys.boot_completed. See mobile-tests/docker/Dockerfile.
+  console.log(`[mobile-image] Cache miss: building ${tag}`);
   await buildCold(tag);
-  const kvmGid = await detectKvmGid();
-  const containerId = await runEmulatorContainer({
-    name: BAKE_CONTAINER_NAME,
-    hostAdbPort: BAKE_ADB_PORT,
-    imageTag: tag,
-    kvmGid,
-    // No VNC during bake — nothing to display interactively, and we want the
-    // committed image's port surface to match the runtime emulator.
-    includeVnc: false,
-    // 'pipe' so we can capture the container id for the commit + cleanup.
-    stdio: 'pipe',
-  });
-  try {
-    console.log('[mobile-image] Waiting for emulator boot...');
-    await waitForBoot(BAKE_ADB_PORT);
-    console.log('[mobile-image] Saving AVD quick-boot snapshot...');
-    await saveAvdSnapshot(containerId);
-    console.log(`[mobile-image] Committing warm image: ${tag}`);
-    await commitContainer(containerId, tag);
-  } finally {
-    await removeContainer(containerId);
-  }
 
   if (options.push) {
     console.log(`[mobile-image] Pushing to registry: ${tag}`);

@@ -173,35 +173,17 @@ describe('mobile-image', () => {
         : Promise.reject(new Error('manifest unknown'));
     }
 
-    function dockerBakeResponse(
-      args: readonly string[],
-      options: { localHit?: boolean; remoteHit?: boolean }
-    ): Promise<unknown> | undefined {
-      if (args[0] === 'images' && args[1] === '-q') return dockerImagesResponse(options);
-      if (args[0] === 'manifest' && args[1] === 'inspect') return manifestResponse(options);
-      if (args[0] === 'run' && args.includes('-d')) {
-        return Promise.resolve({ stdout: 'container-xyz' });
-      }
-      return undefined;
-    }
-
-    function adbBakeResponse(args: readonly string[]): Promise<unknown> | undefined {
-      if (args.includes('getprop')) return Promise.resolve({ stdout: '1' });
-      if (args.includes('connect')) {
-        return Promise.resolve({ stdout: 'connected to localhost:5555' });
-      }
-      return undefined;
-    }
-
     function dispatchBakeCall(
       cmd: string,
       args: readonly string[],
       options: { localHit?: boolean; remoteHit?: boolean }
     ): Promise<unknown> {
-      const docker = cmd === 'docker' ? dockerBakeResponse(args, options) : undefined;
-      if (docker) return docker;
-      const adb = cmd === 'adb' ? adbBakeResponse(args) : undefined;
-      if (adb) return adb;
+      if (cmd === 'docker' && args[0] === 'images' && args[1] === '-q') {
+        return dockerImagesResponse(options);
+      }
+      if (cmd === 'docker' && args[0] === 'manifest' && args[1] === 'inspect') {
+        return manifestResponse(options);
+      }
       return Promise.resolve({ exitCode: 0, stdout: '' });
     }
 
@@ -241,7 +223,7 @@ describe('mobile-image', () => {
       expect(calls.some((c) => c.includes('build'))).toBe(false);
     });
 
-    it('performs a full bake when both local and remote miss', async () => {
+    it('builds the content-hashed image (cold-boot, no snapshot) when local and remote miss', async () => {
       setupBakePath({ localHit: false, remoteHit: false });
 
       const tag = await bakeImage({ push: false });
@@ -251,50 +233,14 @@ describe('mobile-image', () => {
         expect.arrayContaining(['build', '-t', tag, MOBILE_IMAGE_CONTEXT]),
         expect.anything()
       );
-      expect(mockExeca).toHaveBeenCalledWith(
-        'docker',
-        expect.arrayContaining(['run', '-d', '--privileged']),
-        expect.anything()
+      // Cold-boot model: the bake builds the image only — no emulator run,
+      // snapshot save, or commit (those produced an unbootable committed image).
+      const calls = mockExeca.mock.calls.map(
+        (c) => `${String(c[0])} ${(c[1] as string[]).join(' ')}`
       );
-      // Snapshot save runs inside the container: `adb emu` is a console command
-      // reachable only for the locally-managed emulator, not the host's TCP
-      // (localhost:5555) connection.
-      expect(mockExeca).toHaveBeenCalledWith(
-        'docker',
-        expect.arrayContaining([
-          'exec',
-          'container-xyz',
-          'adb',
-          'emu',
-          'avd',
-          'snapshot',
-          'save',
-          'default_boot',
-        ]),
-        expect.anything()
-      );
-      // The host adb server must not be asked to run the emu console command.
-      const hostAdbEmu = mockExeca.mock.calls.some(
-        (c) => c[0] === 'adb' && Array.isArray(c[1]) && (c[1] as string[]).includes('emu')
-      );
-      expect(hostAdbEmu).toBe(false);
-      expect(mockExeca).toHaveBeenCalledWith(
-        'docker',
-        expect.arrayContaining(['commit', 'container-xyz', tag]),
-        expect.anything()
-      );
-    });
-
-    it('removes the bake container after committing', async () => {
-      setupBakePath({ localHit: false, remoteHit: false });
-
-      await bakeImage({ push: false });
-
-      expect(mockExeca).toHaveBeenCalledWith(
-        'docker',
-        expect.arrayContaining(['rm', '-f', 'container-xyz']),
-        expect.anything()
-      );
+      expect(calls.some((c) => c.includes('run -d') || c.includes('--privileged'))).toBe(false);
+      expect(calls.some((c) => c.includes('snapshot'))).toBe(false);
+      expect(calls.some((c) => c.includes('commit'))).toBe(false);
     });
 
     it('pushes when push=true', async () => {
@@ -331,63 +277,19 @@ describe('mobile-image', () => {
       expect(calls.some((c) => c.startsWith('docker push'))).toBe(false);
     });
 
-    it('cleans up the bake container even if commit fails', async () => {
-      function dispatchCommitFailCall(cmd: string, args: readonly string[]): Promise<unknown> {
-        if (cmd === 'docker' && args[0] === 'commit') {
-          return Promise.reject(new Error('commit failed'));
-        }
-        if (cmd === 'docker' && args[0] === 'run' && args.includes('-d')) {
-          return Promise.resolve({ stdout: 'container-zzz' });
-        }
-        return dispatchBakeCall(cmd, args, { localHit: false, remoteHit: false });
-      }
-      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) =>
-        dispatchCommitFailCall(cmd, Array.isArray(args) ? args : [])) as never);
+    it('does not run/commit a container during the build (cold-boot model)', async () => {
+      setupBakePath({ localHit: false, remoteHit: false });
 
-      await expect(bakeImage({ push: false })).rejects.toThrow('commit failed');
-      expect(mockExeca).toHaveBeenCalledWith(
-        'docker',
-        expect.arrayContaining(['rm', '-f', 'container-zzz']),
-        expect.anything()
+      await bakeImage({ push: false });
+
+      const ranContainer = mockExeca.mock.calls.some(
+        (c) => c[0] === 'docker' && Array.isArray(c[1]) && (c[1] as string[])[0] === 'run'
       );
-    });
-
-    it('throws when the emulator never reaches boot_completed within the timeout', async () => {
-      // Build + run succeed, but every adb poll rejects forever. waitForBoot
-      // exhausts its iteration cap. We monkey-patch setTimeout to be a no-op
-      // so the 240s of real-time sleeps complete instantly. (vi.useFakeTimers
-      // + advanceTimersByTimeAsync also works but with 120 iterations × the
-      // microtask flush cost per advance, it exceeds the default 15s budget.)
-      const originalSetTimeout = globalThis.setTimeout;
-      globalThis.setTimeout = ((function_: () => void) => {
-        function_();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
-      try {
-        function dispatchAlwaysBootFail(cmd: string, args: readonly string[]): Promise<unknown> {
-          if (cmd === 'docker' && args[0] === 'images') return Promise.resolve({ stdout: '' });
-          if (cmd === 'docker' && args[0] === 'manifest') {
-            return Promise.reject(new Error('manifest unknown'));
-          }
-          if (cmd === 'docker' && args[0] === 'run' && args.includes('-d')) {
-            return Promise.resolve({ stdout: 'container-stuck' });
-          }
-          if (cmd === 'adb') return Promise.reject(new Error('device not yet booted'));
-          return Promise.resolve({ exitCode: 0, stdout: '' });
-        }
-        mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) =>
-          dispatchAlwaysBootFail(cmd, Array.isArray(args) ? args : [])) as never);
-
-        await expect(bakeImage({ push: false })).rejects.toThrow(/failed to boot within timeout/);
-        // The bake container must still be removed even on boot timeout.
-        expect(mockExeca).toHaveBeenCalledWith(
-          'docker',
-          expect.arrayContaining(['rm', '-f', 'container-stuck']),
-          expect.anything()
-        );
-      } finally {
-        globalThis.setTimeout = originalSetTimeout;
-      }
+      const committed = mockExeca.mock.calls.some(
+        (c) => c[0] === 'docker' && Array.isArray(c[1]) && (c[1] as string[])[0] === 'commit'
+      );
+      expect(ranContainer).toBe(false);
+      expect(committed).toBe(false);
     });
   });
 });

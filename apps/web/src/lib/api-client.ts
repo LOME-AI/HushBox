@@ -2,6 +2,7 @@ import { hc } from 'hono/client';
 import { useAppVersionStore } from '@/stores/app-version.js';
 import { getPlatform } from '@/capacitor/platform.js';
 import { ApiError, getApiUrl } from './api.js';
+import { parseRetryAfterMs } from './retry.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
 import type { AppType } from '@hushbox/api';
 
@@ -50,7 +51,8 @@ export async function fetchJson<T>(responsePromise: Promise<Response>): Promise<
     if (res.status === 426) {
       useAppVersionStore.getState().setUpgradeRequired(true);
     }
-    throw new ApiError(code, res.status, body);
+    const retryAfterMs = parseRetryAfterMs(res.headers.get('Retry-After'));
+    throw new ApiError(code, res.status, body, retryAfterMs ?? undefined);
   }
   // 204 No Content has no body; treat as undefined. Callers that expect a
   // payload should use a 200/201 endpoint instead.

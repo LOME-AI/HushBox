@@ -33,7 +33,7 @@ export default defineConfig({
   },
   reporter: isCI
     ? [['list'], ['github'], ['html', { open: 'never' }]]
-    : [['dot'], ['html', { open: 'on-failure' }], ['./scripts/e2e-reporter.ts']],
+    : [['list'], ['html', { open: 'on-failure' }], ['./scripts/e2e-reporter.ts']],
   use: {
     baseURL: previewUrl,
     trace: 'retain-on-first-failure',

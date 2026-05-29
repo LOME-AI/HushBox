@@ -4,6 +4,13 @@ vi.mock('execa', () => ({
   execa: vi.fn(),
 }));
 
+vi.mock('adm-zip', () => ({
+  default: class {
+    addLocalFolder(): void {}
+    writeZip(): void {}
+  },
+}));
+
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
   return {
@@ -504,8 +511,7 @@ describe('mobile-test script', () => {
       if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
         return Promise.resolve({ stdout: '1' } as never);
       }
-      // Default for docker calls — runEmulatorContainer reads stdout.trim()
-      // for the container id, so it must be a string.
+      // Default for any other docker/adb call in this mock.
       return Promise.resolve({ stdout: '' } as never);
     }) as never;
 

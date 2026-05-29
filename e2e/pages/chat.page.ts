@@ -158,6 +158,22 @@ export class ChatPage {
       .waitFor({ timeout: 10_000 });
 
     const stateCount = Number(await this.messageList.getAttribute('data-message-count'));
+
+    // A fork-switch (or fresh navigation) remounts the virtualized list; Virtuoso
+    // mounts its rows asynchronously, so the DOM `[data-message-id]` count briefly
+    // lags the authoritative `data-message-count`. Wait for the DOM to catch up
+    // before comparing — otherwise the mismatch drops us into the scroll-collect
+    // path below, which then reads a transient under-count mid-remount (the
+    // fork-switch "0/0/1 instead of 3" flake). A long virtualized list never fully
+    // mounts, so this times out and falls through to scroll-collect as before.
+    if (stateCount > 0) {
+      await unsettledExpect(this.messageList.locator('[data-message-id]'))
+        .toHaveCount(stateCount, { timeout: 3000 })
+        .catch(() => {
+          // Long virtualized list never mounts all rows — fall through to scroll-collect.
+        });
+    }
+
     const domCount = await this.messageList.locator('[data-message-id]').count();
 
     // Happy path: every message is already rendered, no scrolling needed.
