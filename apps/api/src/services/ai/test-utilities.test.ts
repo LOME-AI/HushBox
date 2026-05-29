@@ -110,7 +110,7 @@ describe('getCheapestTestModel', () => {
     clearTestModelCache();
   });
 
-  it('returns cheapest non-premium text model with maxOutputTokens=10', async () => {
+  it('returns cheapest non-premium text model with maxOutputTokens=2048', async () => {
     const client = makeStubClient({
       text: [
         tokenModel('p/free', 0, 0),
@@ -120,7 +120,7 @@ describe('getCheapestTestModel', () => {
     });
     const spec = await getCheapestTestModel(client, 'text');
     expect(spec.modelId).toBe('p/cheap');
-    expect(spec.parameters).toEqual({ kind: 'text', maxOutputTokens: 10 });
+    expect(spec.parameters).toEqual({ kind: 'text', maxOutputTokens: 2048 });
   });
 
   it('falls back to cheapest paid non-premium text model when none fit the threshold', async () => {
