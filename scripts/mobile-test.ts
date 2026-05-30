@@ -193,6 +193,15 @@ async function tryAdbConnect(host: string, index: number): Promise<boolean> {
   return false;
 }
 
+async function probeBootProperty(host: string, property: string, index: number): Promise<boolean> {
+  const result = await execa('adb', ['-s', host, 'shell', 'getprop', property]);
+  if (result.stdout.trim() === '1') return true;
+  if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
+    console.log(`[poll ${String(index)}] ${host}: ${property} not yet '1'`);
+  }
+  return false;
+}
+
 async function checkBootCompleted(
   host: string,
   index: number
@@ -207,22 +216,12 @@ async function checkBootCompleted(
     // that maps to "an Activity can render." Per-flow timeouts in
     // `mobile-tests/flows/*.yaml` absorb the residual WebView warm-up
     // window so that probe set doesn't need to model it directly.
-    const kernel = await execa('adb', ['-s', host, 'shell', 'getprop', 'sys.boot_completed']);
-    if (kernel.stdout.trim() !== '1') {
-      if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
-        console.log(`[poll ${String(index)}] ${host}: sys.boot_completed not yet '1'`);
-      }
+    if (!(await probeBootProperty(host, 'sys.boot_completed', index))) {
       return { connected: true, booted: false };
     }
-
-    const anim = await execa('adb', ['-s', host, 'shell', 'getprop', 'service.bootanim.exit']);
-    if (anim.stdout.trim() !== '1') {
-      if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
-        console.log(`[poll ${String(index)}] ${host}: service.bootanim.exit not yet '1'`);
-      }
+    if (!(await probeBootProperty(host, 'service.bootanim.exit', index))) {
       return { connected: true, booted: false };
     }
-
     return { connected: true, booted: true };
   } catch (error: unknown) {
     const detail = extractErrorDetail(error);
