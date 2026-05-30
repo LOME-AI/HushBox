@@ -15,7 +15,7 @@ attribution requirement (see <https://samplelib.com/license.html>).
 | --------------- | ----------------------------------------------------------- | ------------------ |
 | `test-image.ts` | <https://www.samplelib.com/jpeg/sample-clouds-400x300.jpg>  | 400×300 JPEG       |
 | `test-audio.ts` | <https://www.samplelib.com/mp3/sample-3s.mp3>               | 3-second MP3       |
-| `test-video.ts` | <https://www.samplelib.com/mp4/sample-5s-360p.mp4>          | 320×180 H.264 baseline MP4, 3 s, no audio (see regen recipe) |
+| `test-video.ts` | <https://www.samplelib.com/mp4/sample-5s-360p.mp4>          | 320×180 VP9 WebM, 3 s, no audio (see regen recipe) |
 
 ## Why base64
 
@@ -31,19 +31,21 @@ curl -sSL -o image.jpg https://www.samplelib.com/jpeg/sample-clouds-400x300.jpg
 printf "/* prettier-ignore */\n/* eslint-disable */\nexport const TEST_IMAGE_JPEG_BASE64 =\n  '%s';\n" "$(base64 -w 0 image.jpg)" > test-image.ts
 ```
 
-The video fixture's encoder flags are load-bearing for the e2e tests: baseline
-H.264 + `yuv420p` for browser-engine compatibility, `+faststart` so `<video>`
-elements reach `readyState >= 1` before bytes finish loading, no audio (tests
-don't assert on it). Keep these flags when regenerating.
+The video fixture is encoded as VP9 in WebM, not H.264 in MP4. Playwright's
+bundled Firefox on Linux has no H.264 decoder (it relies on system ffmpeg or
+an async-downloaded OpenH264 GMP, neither of which is reliably available on
+CI runners); VP9 is statically linked into `libmozavcodec.so` and decodes
+out of the box. Chromium and Capacitor's Android WebView decode both, so
+the swap is one-way safe. Keep these flags when regenerating.
 
 ```sh
 curl -sSL -o video-source.mp4 https://www.samplelib.com/mp4/sample-5s-360p.mp4
 ffmpeg -y -i video-source.mp4 \
   -t 3 -vf "scale=320:-2:flags=lanczos,fps=15" \
-  -c:v libx264 -profile:v baseline -level 3.0 -preset slow -crf 30 \
-  -pix_fmt yuv420p -an -movflags +faststart \
-  video.mp4
-printf "/* prettier-ignore */\n/* eslint-disable no-secrets/no-secrets */\nexport const TEST_VIDEO_MP4_BASE64 =\n  '%s';\n" "$(base64 -w 0 video.mp4)" > test-video.ts
+  -c:v libvpx-vp9 -crf 40 -b:v 0 -cpu-used 4 -row-mt 1 \
+  -pix_fmt yuv420p -an \
+  video.webm
+printf "/* prettier-ignore */\n/* eslint-disable no-secrets/no-secrets */\nexport const TEST_VIDEO_WEBM_BASE64 =\n  '%s';\n" "$(base64 -w 0 video.webm)" > test-video.ts
 ```
 
 Update `index.ts` constants (`TEST_IMAGE_WIDTH`, `_DURATION_MS`, etc.) if the

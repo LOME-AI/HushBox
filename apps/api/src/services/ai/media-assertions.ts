@@ -2,7 +2,7 @@
  * Magic-byte media validators for integration test assertions.
  *
  * Hand-rolled magic-byte checks for the formats AI providers actually emit
- * (PNG, JPEG, WebP, MP4) — no new dependency. Adding a new format means
+ * (PNG, JPEG, WebP, MP4, WebM) — no new dependency. Adding a new format means
  * appending a signature constant and a case in `detectMimeFromBytes`.
  */
 
@@ -51,6 +51,7 @@ const JPEG_SIGNATURE = [0xff, 0xd8, 0xff] as const;
 const RIFF_SIGNATURE = [0x52, 0x49, 0x46, 0x46] as const;
 const WEBP_SIGNATURE = [0x57, 0x45, 0x42, 0x50] as const;
 const FTYP_SIGNATURE = [0x66, 0x74, 0x79, 0x70] as const;
+const EBML_SIGNATURE = [0x1a, 0x45, 0xdf, 0xa3] as const;
 
 function detectMimeFromBytes(bytes: Uint8Array): string | undefined {
   if (bytes.length < 12) return undefined;
@@ -60,5 +61,6 @@ function detectMimeFromBytes(bytes: Uint8Array): string | undefined {
     return 'image/webp';
   }
   if (startsWith(bytes, FTYP_SIGNATURE, 4)) return 'video/mp4';
+  if (startsWith(bytes, EBML_SIGNATURE)) return 'video/webm';
   return undefined;
 }

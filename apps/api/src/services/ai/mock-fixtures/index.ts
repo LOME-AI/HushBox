@@ -1,6 +1,6 @@
 import { TEST_IMAGE_JPEG_BASE64 } from './test-image.js';
 import { TEST_AUDIO_MP3_BASE64 } from './test-audio.js';
-import { TEST_VIDEO_MP4_BASE64 } from './test-video.js';
+import { TEST_VIDEO_WEBM_BASE64 } from './test-video.js';
 
 /**
  * Real CC0 sample media used by the mock AI client. Source: samplelib.com,
@@ -23,11 +23,11 @@ function decodeBase64(input: string): Uint8Array {
 
 export const TEST_IMAGE_BYTES = decodeBase64(TEST_IMAGE_JPEG_BASE64);
 export const TEST_AUDIO_BYTES = decodeBase64(TEST_AUDIO_MP3_BASE64);
-export const TEST_VIDEO_BYTES = decodeBase64(TEST_VIDEO_MP4_BASE64);
+export const TEST_VIDEO_BYTES = decodeBase64(TEST_VIDEO_WEBM_BASE64);
 
 export const TEST_IMAGE_MIME = 'image/jpeg' as const;
 export const TEST_AUDIO_MIME = 'audio/mpeg' as const;
-export const TEST_VIDEO_MIME = 'video/mp4' as const;
+export const TEST_VIDEO_MIME = 'video/webm' as const;
 
 export const TEST_IMAGE_WIDTH = 400;
 export const TEST_IMAGE_HEIGHT = 300;

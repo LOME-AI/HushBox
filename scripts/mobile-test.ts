@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { createEnvUtilities } from '@hushbox/shared';
 import { isMainModule } from './lib/is-main.js';
 import { bakeImage, detectKvmGid, runEmulatorContainer } from './lib/mobile-image.js';
 import { MARKER_PREFIX, extractRelevantSlice } from './lib/extract-mobile-api-log.js';
@@ -192,23 +193,19 @@ async function checkBootCompleted(
 ): Promise<{ connected: boolean; booted: boolean }> {
   try {
     // `sys.boot_completed=1` fires at kernel-level handoff, well before
-    // Android is interactively ready: package-manager dexopt, the boot
-    // animation, and the WebView APK's registration can all still be in
-    // flight. Probing boot-animation exit and WebView package registration
-    // alongside the kernel flag ensures `clearState: true` + `am start`
-    // from a Maestro flow runs against an interactively-ready emulator,
-    // not one that's past kernel init but still warming the WebView.
+    // Android is interactively ready: the boot animation can still be
+    // running and the system UI may not have settled. Probing
+    // `service.bootanim.exit=1` alongside the kernel flag tightens
+    // readiness to "boot animation has actually finished," which on
+    // budtmo/docker-android is the closest universally-available signal
+    // that maps to "an Activity can render." Per-flow timeouts in
+    // `mobile-tests/flows/*.yaml` absorb the residual WebView warm-up
+    // window so that probe set doesn't need to model it directly.
     const kernel = await execa('adb', ['-s', host, 'shell', 'getprop', 'sys.boot_completed']);
     if (kernel.stdout.trim() !== '1') return { connected: true, booted: false };
 
     const anim = await execa('adb', ['-s', host, 'shell', 'getprop', 'service.bootanim.exit']);
     if (anim.stdout.trim() !== '1') return { connected: true, booted: false };
-
-    // `pm path` prints `package:/path/to.apk` once the WebView APK has
-    // been registered with PackageManager; empty output means the WebView
-    // backend is not yet loadable by an app's `<WebView>` component.
-    const webView = await execa('adb', ['-s', host, 'shell', 'pm', 'path', 'com.android.webview']);
-    if (!webView.stdout.trim().startsWith('package:')) return { connected: true, booted: false };
 
     return { connected: true, booted: true };
   } catch (error: unknown) {
@@ -413,6 +410,14 @@ export async function stopDevStack(handle: DevStackHandle): Promise<void> {
     await bestEffort('Failed to stop API server', () => handle.apiProcess?.kill());
   }
   if (handle.weStartedContainers) {
+    // In CI, the workflow's "Stop services" step runs `pnpm db:down` after
+    // this script returns (see .github/workflows/ci.yml — mobile-test job),
+    // so running it here would tear the stack down twice. Skip the in-script
+    // teardown and let the workflow own it.
+    if (createEnvUtilities(process.env).isCI) {
+      console.log('Skipping dev stack teardown in CI — workflow owns it');
+      return;
+    }
     console.log('Tearing down dev stack containers we started...');
     await bestEffort('Failed to tear down dev stack', () =>
       execa('pnpm', ['db:down'], { stdio: 'inherit', env: process.env })

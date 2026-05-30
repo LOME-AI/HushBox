@@ -120,17 +120,14 @@ function mockSubprocess(value: unknown = {}): never {
   }) as never;
 }
 
-// Mirrors the three readiness probes in `checkBootCompleted`: adb connect,
-// any `getprop` (sys.boot_completed and service.bootanim.exit both want '1'),
-// and `pm path com.android.webview` returning a `package:` line. Returning
-// null lets callers chain their own dispatch logic for non-readiness calls.
+// Mirrors the readiness probes in `checkBootCompleted`: adb connect and any
+// `getprop` (sys.boot_completed and service.bootanim.exit both want '1').
+// Returning null lets callers chain their own dispatch logic for non-readiness
+// calls.
 function bootReadinessMock(cmd: string, args: readonly string[]): { stdout: string } | null {
   if (cmd !== 'adb') return null;
   if (args.includes('connect')) return { stdout: 'connected to localhost:5555' };
   if (args.includes('getprop')) return { stdout: '1' };
-  if (args.includes('pm') && args.includes('path')) {
-    return { stdout: 'package:/system/app/webview/webview.apk' };
-  }
   return null;
 }
 
@@ -833,6 +830,20 @@ describe('mobile-test script', () => {
   });
 
   describe('stopDevStack', () => {
+    // The CI workflow's "Stop services" step runs `pnpm db:down` after the
+    // mobile-test script returns, so the script's own teardown must skip it
+    // in CI. These tests pin process.env.CI explicitly so behavior doesn't
+    // depend on whether the test runner itself happens to be running in CI.
+    let savedCI: string | undefined;
+    beforeEach(() => {
+      savedCI = process.env['CI'];
+      delete process.env['CI'];
+    });
+    afterEach(() => {
+      if (savedCI === undefined) delete process.env['CI'];
+      else process.env['CI'] = savedCI;
+    });
+
     it('does nothing when handle has neither apiProcess nor containers', async () => {
       await stopDevStack({ apiProcess: null, weStartedContainers: false });
 
@@ -865,6 +876,17 @@ describe('mobile-test script', () => {
       const fakeProcess = mockSubprocess() as unknown as ReturnType<typeof execa>;
 
       await stopDevStack({ apiProcess: fakeProcess, weStartedContainers: false });
+
+      const dbDownCalls = mockExeca.mock.calls.filter(
+        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:down')
+      );
+      expect(dbDownCalls).toHaveLength(0);
+    });
+
+    it('skips pnpm db:down in CI even with weStartedContainers=true', async () => {
+      process.env['CI'] = '1';
+
+      await stopDevStack({ apiProcess: null, weStartedContainers: true });
 
       const dbDownCalls = mockExeca.mock.calls.filter(
         (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:down')

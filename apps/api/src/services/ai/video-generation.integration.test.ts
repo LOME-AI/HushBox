@@ -51,7 +51,7 @@ describe('AIClient video generation integration', () => {
     expect(kinds).toContain('media-done');
     expect(kinds.at(-1)).toBe('finish');
     expect(generated.mediaBytes).toBeDefined();
-    assertValidMediaBytes(generated.mediaBytes!, ['video/mp4'], {
+    assertValidMediaBytes(generated.mediaBytes!, ['video/mp4', 'video/webm'], {
       min: 16,
       max: 50_000_000,
     });

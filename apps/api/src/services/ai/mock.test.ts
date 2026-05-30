@@ -458,7 +458,7 @@ describe('createMockAIClient', () => {
       expect(kinds).toEqual(['media-start', 'media-done', 'finish']);
     });
 
-    it('emits media-start with video mediaType and video/mp4 mimeType', async () => {
+    it('emits media-start with video mediaType and video/webm mimeType', async () => {
       const request: VideoRequest = {
         modality: 'video',
         model: 'google/veo-3.1',
@@ -472,7 +472,7 @@ describe('createMockAIClient', () => {
 
       expect(start).toBeDefined();
       expect(start!.mediaType).toBe('video');
-      expect(start!.mimeType).toBe('video/mp4');
+      expect(start!.mimeType).toBe('video/webm');
     });
 
     it('emits media-done with bytes and durationMs matching the canned video', async () => {
@@ -489,16 +489,16 @@ describe('createMockAIClient', () => {
 
       expect(done).toBeDefined();
       expect(done!.bytes.length).toBeGreaterThan(0);
-      expect(done!.mimeType).toBe('video/mp4');
+      expect(done!.mimeType).toBe('video/webm');
       expect(done!.durationMs).toBe(3000);
     });
 
-    it('canned video bytes carry the ISO BMFF ftyp box at offset 4', () => {
+    it('canned video bytes carry the EBML header signature at offset 0', () => {
       expect(CANNED_VIDEO.length).toBeGreaterThan(0);
-      expect(CANNED_VIDEO[4]).toBe(0x66); // f
-      expect(CANNED_VIDEO[5]).toBe(0x74); // t
-      expect(CANNED_VIDEO[6]).toBe(0x79); // y
-      expect(CANNED_VIDEO[7]).toBe(0x70); // p
+      expect(CANNED_VIDEO[0]).toBe(0x1a);
+      expect(CANNED_VIDEO[1]).toBe(0x45);
+      expect(CANNED_VIDEO[2]).toBe(0xdf);
+      expect(CANNED_VIDEO[3]).toBe(0xa3);
     });
   });
 
