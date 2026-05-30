@@ -42,15 +42,20 @@ export default defineConfig({
   },
   webServer: [
     {
-      // Build + merge happens in e2e/global-setup.ts (runs once before all
-      // tests). The webServer just serves the already-built dist. The merged
-      // dist is exactly what Cloudflare Pages serves in production
-      // (/chat, /roadmap, /welcome, /blog reachable from one origin) so E2E
-      // covers the same routing as users see.
-      command: `pnpm --filter @hushbox/web preview --port ${previewPort}`,
+      // Builds marketing + web, merges them, then serves the result. The merged
+      // dist is exactly what Cloudflare Pages serves in production (/chat,
+      // /roadmap, /welcome, /blog reachable from one origin), so E2E covers the
+      // same routing as users see. The build is inside the webServer command
+      // (not globalSetup) because Playwright spawns webServer in parallel with
+      // globalSetup — `vite preview` would race against the build otherwise.
+      command:
+        `pnpm --filter @hushbox/marketing build --mode development && ` +
+        `pnpm --filter @hushbox/web build --mode development && ` +
+        `tsx scripts/merge-marketing-into-web.ts && ` +
+        `pnpm --filter @hushbox/web preview --port ${previewPort}`,
       url: previewUrl,
       reuseExistingServer: false,
-      timeout: 60_000,
+      timeout: 300_000,
       name: 'Preview',
       stdout: 'ignore',
     },

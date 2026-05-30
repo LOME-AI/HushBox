@@ -10,8 +10,6 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import concurrently from 'concurrently';
-import { execa } from 'execa';
 import { chromium, firefox, webkit } from '@playwright/test';
 import { touchHeartbeat } from '../scripts/lib/idle-killer.js';
 import type { BrowserType } from '@playwright/test';
@@ -59,31 +57,8 @@ async function tickStackHeartbeat(): Promise<void> {
   }
 }
 
-async function runParallelBuilds(): Promise<void> {
-  // marketing + web build in parallel — these are independent. The webServer
-  // entry in playwright.config.ts is just `vite preview` of the merged dist,
-  // so the build must complete before any test starts.
-  const { result } = concurrently(
-    [
-      { name: 'marketing', command: 'pnpm --filter @hushbox/marketing build --mode development' },
-      { name: 'web', command: 'pnpm --filter @hushbox/web build --mode development' },
-    ],
-    { killOthers: ['failure'], prefix: 'name' }
-  );
-  await result;
-}
-
-async function mergeMarketingIntoWeb(): Promise<void> {
-  await execa('tsx', ['scripts/merge-marketing-into-web.ts'], { stdio: 'inherit' });
-}
-
 export default async function globalSetup(): Promise<void> {
   await tickStackHeartbeat();
-
-  // Build + merge before any browser starts — Playwright's webServer for
-  // Preview is now a trivial `vite preview`, so the dist must exist first.
-  await runParallelBuilds();
-  await mergeMarketingIntoWeb();
 
   const lines = ['', 'GPU renderers (this run):'];
   for (const { name, type } of ENGINES) {

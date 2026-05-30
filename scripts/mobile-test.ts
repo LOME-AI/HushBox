@@ -905,10 +905,11 @@ export async function main(): Promise<void> {
   // it may be a cold build (one-time cost per Dockerfile change).
   const imageTag = await bakeImage({ push: false });
 
-  // ensure-stack (invoked by the package.json script before us) has already
-  // brought up containers, migrations, and seed. Start a wrangler-dev API
-  // process so the emulator has something to talk to. The idle-killer daemon
-  // reaps containers later if this process crashes without explicit teardown.
+  // Containers, migrations, and seed are the caller's responsibility — locally
+  // via `pnpm ensure-stack`, in CI via the workflow's db:up/db:migrate/db:seed
+  // steps. Start a wrangler-dev API so the emulator has something to talk to.
+  // The idle-killer daemon reaps containers later if this process crashes
+  // without explicit teardown.
   const devApi = await startDevApi();
   mkdirSync(RESULTS_DIR, { recursive: true });
   const runId = randomUUID().slice(0, 8);
