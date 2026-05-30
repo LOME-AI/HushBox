@@ -511,6 +511,9 @@ describe('mobile-test script', () => {
       if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
         return Promise.resolve({ stdout: '1' } as never);
       }
+      if (cmd === 'adb' && Array.isArray(args) && args.includes('pm') && args.includes('path')) {
+        return Promise.resolve({ stdout: 'package:/system/app/webview/webview.apk' } as never);
+      }
       // Default for any other docker/adb call in this mock.
       return Promise.resolve({ stdout: '' } as never);
     }) as never;
@@ -561,7 +564,7 @@ describe('mobile-test script', () => {
 
     it('polls for boot completion', async () => {
       let pollCount = 0;
-      function getpropResponse(): Promise<unknown> {
+      function sysBootCompletedResponse(): Promise<unknown> {
         pollCount++;
         if (pollCount < 3) return Promise.reject(new Error('not ready'));
         return Promise.resolve({ stdout: '1' });
@@ -573,7 +576,15 @@ describe('mobile-test script', () => {
         if (cmd === 'adb' && args.includes('connect')) {
           return Promise.resolve({ stdout: 'connected to localhost:5555' });
         }
-        if (cmd === 'adb' && args.includes('getprop')) return getpropResponse();
+        if (cmd === 'adb' && args.includes('getprop') && args.includes('sys.boot_completed')) {
+          return sysBootCompletedResponse();
+        }
+        if (cmd === 'adb' && args.includes('getprop')) {
+          return Promise.resolve({ stdout: '1' });
+        }
+        if (cmd === 'adb' && args.includes('pm') && args.includes('path')) {
+          return Promise.resolve({ stdout: 'package:/system/app/webview/webview.apk' });
+        }
         return Promise.resolve({ stdout: '' });
       }
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) =>
@@ -605,6 +616,11 @@ describe('mobile-test script', () => {
         }
         if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
           return Promise.resolve({ stdout: '1' } as never);
+        }
+        if (cmd === 'adb' && Array.isArray(args) && args.includes('pm') && args.includes('path')) {
+          return Promise.resolve({
+            stdout: 'package:/system/app/webview/webview.apk',
+          } as never);
         }
         return Promise.resolve({ stdout: '' } as never);
       }) as never);
@@ -1461,6 +1477,9 @@ describe('mobile-test script', () => {
         }
         if (cmd === 'adb' && args.includes('getprop')) {
           return Promise.resolve({ stdout: '1' });
+        }
+        if (cmd === 'adb' && args.includes('pm') && args.includes('path')) {
+          return Promise.resolve({ stdout: 'package:/system/app/webview/webview.apk' });
         }
         if (cmd === 'maestro' && args.includes('test')) {
           return mockSubprocess({ exitCode: 0, stdout: '' });
