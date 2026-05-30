@@ -11,7 +11,7 @@ import { config as loadDotenv } from 'dotenv';
 import { execa } from 'execa';
 import { sql } from 'drizzle-orm';
 import { createDb, LOCAL_NEON_DEV_CONFIG } from '@hushbox/db';
-import { createEnvUtilities, Mode, type EnvMode } from '@hushbox/shared';
+import { Mode, type EnvMode } from '@hushbox/shared';
 import { fileFingerprint, treeFingerprint, composeFingerprint } from './lib/fingerprint.js';
 import { installDevOnlyTracking, readMeta, markClean, type SqlExecutor } from './lib/stack-meta.js';
 import { touchHeartbeat, ensureDaemonRunning } from './lib/idle-killer.js';
@@ -213,10 +213,11 @@ function buildDeps(envMode: EnvMode): EnsureStackDeps {
 }
 
 function buildOptions(args: { pristine: boolean; wipe: boolean }): EnsureStackOptions {
-  // Pristine policy: per the design conversation, ensureStack is always
-  // pristine. `--pristine` is accepted as an explicit no-op for clarity.
+  // `--pristine` is accepted as an explicit no-op — every ensureStack run is
+  // pristine by design. Reference args.pristine so the unused-param check
+  // doesn't fire when callers omit the flag.
   if (args.pristine) {
-    // intentionally a no-op — see comment above.
+    /* explicit no-op */
   }
   const slotRaw = process.env['HB_STACK_SLOT'];
   const slot = slotRaw === undefined ? 0 : Number(slotRaw);
@@ -227,13 +228,11 @@ function buildOptions(args: { pristine: boolean; wipe: boolean }): EnsureStackOp
   if (!Number.isFinite(idleDaemonPort) || idleDaemonPort <= 0) {
     throw new Error('ensure-stack: HB_IDLE_DAEMON_PORT not set (run pnpm generate:env)');
   }
-  const env = createEnvUtilities(process.env);
   const ttlOverride = process.env['HB_STACK_IDLE_TTL_MS'];
   const idleTtlMs = ttlOverride === undefined ? DEFAULT_IDLE_TTL_MS : Number(ttlOverride);
   return {
     repoRoot: REPO_ROOT,
     slot,
-    isCI: env.isCI,
     daemonScriptPath: DAEMON_SCRIPT,
     idleTtlMs,
     idleDaemonPort,
@@ -243,6 +242,16 @@ function buildOptions(args: { pristine: boolean; wipe: boolean }): EnsureStackOp
 
 async function main(): Promise<void> {
   const args = parseCliArgs(process.argv.slice(2));
+
+  // CI is a no-op. CI workflows generate env files in a CI-specific mode
+  // (with GitHub-secret bindings) before invoking any consumer; regenerating
+  // here would overwrite those with Mode.Development values and drop the
+  // secrets the tests depend on. Database lifecycle is likewise owned by the
+  // workflow steps in CI.
+  if (process.env['CI']) {
+    if (!args.quiet) console.log('Stack ready (CI no-op).');
+    return;
+  }
 
   // Generate env first so HB_STACK_SLOT etc. are available, then load it.
   // Otherwise we'd need worktree detection in two places.

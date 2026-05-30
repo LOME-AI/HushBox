@@ -8,7 +8,7 @@
  *     prevents the idle daemon from tearing down between our check and our
  *     subsequent work)
  *   - env file regeneration (cheap, always runs)
- *   - `pnpm install --frozen-lockfile` when pnpm-lock.yaml changes
+ *   - `pnpm install` when pnpm-lock.yaml changes
  *   - orphaned-compose cleanup (cheap when none exist)
  *   - container bring-up (compose up --wait, idempotent)
  *   - schema migration (skip when schema fingerprint hasn't changed)
@@ -16,10 +16,10 @@
  *   - seed (skip when seed fingerprint matches AND meta.dirty == false)
  *   - idle daemon spawn (skip when already alive)
  *
- * CI is a no-op: workflows already have explicit `db:up`/`db:migrate`/`db:seed`/
- * `db:down` steps with per-step caching and timing. ensureStack only ticks the
- * heartbeat and returns when isCI=true so a locally-shaped consumer still has
- * its activity recorded.
+ * The orchestrator assumes it has been invoked. The CI no-op decision lives
+ * one layer up in `ensure-stack-cli.ts`, because in CI we must not even
+ * regenerate env files — the workflow has already written CI-mode values
+ * and any regen here would clobber them.
  */
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
@@ -29,7 +29,6 @@ import type { EnsureDaemonOptions } from './lib/idle-killer.js';
 export interface EnsureStackOptions {
   repoRoot: string;
   slot: number;
-  isCI: boolean;
   daemonScriptPath: string;
   idleTtlMs: number;
   idleDaemonPort: number;
@@ -157,8 +156,6 @@ export async function ensureStack(
   // Heartbeat first — covers the race where the idle daemon polls between
   // our checks and our subsequent work. See conversation notes.
   await deps.touchHeartbeat(heartbeatPathFor(cacheDir));
-
-  if (options.isCI) return;
 
   if (options.wipe) {
     await deps.composeDown(options.repoRoot, { volumes: true });

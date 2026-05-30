@@ -38,7 +38,6 @@ function makeOptions(overrides: Partial<EnsureStackOptions> = {}): EnsureStackOp
   return {
     repoRoot: workDir,
     slot: SLOT,
-    isCI: false,
     daemonScriptPath: '/fake/daemon.ts',
     idleTtlMs: 3_600_000,
     idleDaemonPort: 7707,
@@ -70,18 +69,6 @@ describe('ensureStack', () => {
     });
     await ensureStack(makeOptions(), deps);
     expect(order[0]).toBe('touchHeartbeat');
-  });
-
-  it('is a no-op (only ticks heartbeat) when isCI is true', async () => {
-    const deps = makeDeps();
-    await ensureStack(makeOptions({ isCI: true }), deps);
-    expect(deps.touchHeartbeat).toHaveBeenCalled();
-    expect(deps.generateEnvFiles).not.toHaveBeenCalled();
-    expect(deps.installDeps).not.toHaveBeenCalled();
-    expect(deps.ensureContainersHealthy).not.toHaveBeenCalled();
-    expect(deps.runMigrations).not.toHaveBeenCalled();
-    expect(deps.runSeed).not.toHaveBeenCalled();
-    expect(deps.ensureDaemonRunning).not.toHaveBeenCalled();
   });
 
   it('regenerates env files always (cheap, sub-100ms)', async () => {
