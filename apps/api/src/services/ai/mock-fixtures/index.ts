@@ -33,6 +33,6 @@ export const TEST_IMAGE_WIDTH = 400;
 export const TEST_IMAGE_HEIGHT = 300;
 
 export const TEST_AUDIO_DURATION_MS = 3000;
-export const TEST_VIDEO_DURATION_MS = 5000;
-export const TEST_VIDEO_WIDTH = 640;
-export const TEST_VIDEO_HEIGHT = 360;
+export const TEST_VIDEO_DURATION_MS = 3000;
+export const TEST_VIDEO_WIDTH = 320;
+export const TEST_VIDEO_HEIGHT = 180;

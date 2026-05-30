@@ -191,13 +191,38 @@ async function checkBootCompleted(
   index: number
 ): Promise<{ connected: boolean; booted: boolean }> {
   try {
-    const result = await execa('adb', ['-s', host, 'shell', 'getprop', 'sys.boot_completed']);
-    return { connected: true, booted: result.stdout.trim() === '1' };
+    // `sys.boot_completed=1` fires at kernel-level handoff, well before
+    // Android is interactively ready: package-manager dexopt, the boot
+    // animation, and the WebView APK's registration can all still be in
+    // flight. Probing boot-animation exit and WebView package registration
+    // alongside the kernel flag ensures `clearState: true` + `am start`
+    // from a Maestro flow runs against an interactively-ready emulator,
+    // not one that's past kernel init but still warming the WebView.
+    const kernel = await execa('adb', ['-s', host, 'shell', 'getprop', 'sys.boot_completed']);
+    if (kernel.stdout.trim() !== '1') return { connected: true, booted: false };
+
+    const anim = await execa('adb', ['-s', host, 'shell', 'getprop', 'service.bootanim.exit']);
+    if (anim.stdout.trim() !== '1') return { connected: true, booted: false };
+
+    // `pm path` prints `package:/path/to.apk` once the WebView APK has
+    // been registered with PackageManager; empty output means the WebView
+    // backend is not yet loadable by an app's `<WebView>` component.
+    const webView = await execa('adb', [
+      '-s',
+      host,
+      'shell',
+      'pm',
+      'path',
+      'com.android.webview',
+    ]);
+    if (!webView.stdout.trim().startsWith('package:')) return { connected: true, booted: false };
+
+    return { connected: true, booted: true };
   } catch (error: unknown) {
     const detail = extractErrorDetail(error);
     if (detail.includes('offline') || detail.includes('not found')) {
       if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
-        console.log(`[poll ${String(index)}] getprop ${host}: ${detail}`);
+        console.log(`[poll ${String(index)}] readiness ${host}: ${detail}`);
       }
       await disconnectStaleAdb(host);
       return { connected: false, booted: false };

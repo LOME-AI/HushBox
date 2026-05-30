@@ -11,4 +11,4 @@ tags:
 # If the app crashes, Maestro will fail here.
 # Wait for the Android activity to settle.
 - waitForAnimationToEnd:
-    timeout: 10000
+    timeout: 45000

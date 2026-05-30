@@ -17,7 +17,7 @@ env:
 # Wait for app to stabilize
 - extendedWaitUntil:
     visible: 'Sign up'
-    timeout: 15000
+    timeout: 45000
 
 # Navigate to login page via deep link (avoids WebView tap issues with sidebar Sheet)
 - openLink: https://hushbox.ai/login

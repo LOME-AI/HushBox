@@ -55,6 +55,7 @@ describe('AIClient image generation integration', () => {
   });
 
   it('calculateMediaGenerationCost matches applyFees(perImage × n) + mediaStorageCost(bytes)', async () => {
+    expect(generated.mediaBytes).toBeDefined();
     if (spec.parameters.kind !== 'image') throw new Error('expected image spec');
     const model = await client.getModel(spec.modelId);
     if (model.pricing.kind !== 'image') throw new Error('expected image pricing');

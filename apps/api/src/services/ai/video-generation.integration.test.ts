@@ -59,6 +59,7 @@ describe('AIClient video generation integration', () => {
   });
 
   it('calculateMediaGenerationCost matches applyFees(perSecond × duration) + storage(actualBytes)', async () => {
+    expect(generated.mediaBytes).toBeDefined();
     if (spec.parameters.kind !== 'video') throw new Error('expected video spec');
     const model = await client.getModel(spec.modelId);
     if (model.pricing.kind !== 'video') throw new Error('expected video pricing');
