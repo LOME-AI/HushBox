@@ -802,6 +802,11 @@ describe('mobile-test script', () => {
 
     it('tears down its own state when API never becomes ready', async () => {
       process.env['HB_API_PORT'] = '8787';
+      // db:down is intentionally skipped under CI=true (the workflow's own
+      // teardown handles it). This test asserts the non-CI teardown path, so
+      // CI is forced unset for the test body and restored after.
+      const savedCI = process.env['CI'];
+      delete process.env['CI'];
       // Speed up the API ready polling so we don't wait 30s of real time.
       const originalSetTimeout = globalThis.setTimeout;
       globalThis.setTimeout = ((function_: () => void) => {
@@ -825,6 +830,8 @@ describe('mobile-test script', () => {
       } finally {
         globalThis.setTimeout = originalSetTimeout;
         delete process.env['HB_API_PORT'];
+        if (savedCI === undefined) delete process.env['CI'];
+        else process.env['CI'] = savedCI;
       }
     });
   });
