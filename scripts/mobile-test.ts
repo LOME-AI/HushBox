@@ -207,14 +207,7 @@ async function checkBootCompleted(
     // `pm path` prints `package:/path/to.apk` once the WebView APK has
     // been registered with PackageManager; empty output means the WebView
     // backend is not yet loadable by an app's `<WebView>` component.
-    const webView = await execa('adb', [
-      '-s',
-      host,
-      'shell',
-      'pm',
-      'path',
-      'com.android.webview',
-    ]);
+    const webView = await execa('adb', ['-s', host, 'shell', 'pm', 'path', 'com.android.webview']);
     if (!webView.stdout.trim().startsWith('package:')) return { connected: true, booted: false };
 
     return { connected: true, booted: true };
