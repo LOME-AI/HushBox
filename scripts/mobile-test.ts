@@ -207,19 +207,19 @@ async function checkBootCompleted(
   index: number
 ): Promise<{ connected: boolean; booted: boolean }> {
   try {
-    // `sys.boot_completed=1` fires at kernel-level handoff, well before
-    // Android is interactively ready: the boot animation can still be
-    // running and the system UI may not have settled. Probing
-    // `service.bootanim.exit=1` alongside the kernel flag tightens
-    // readiness to "boot animation has actually finished," which on
-    // budtmo/docker-android is the closest universally-available signal
-    // that maps to "an Activity can render." Per-flow timeouts in
-    // `mobile-tests/flows/*.yaml` absorb the residual WebView warm-up
-    // window so that probe set doesn't need to model it directly.
+    // `sys.boot_completed=1` matches budtmo/docker-android's own
+    // `wait_until_ready` (see budtmo's cli/src/device/emulator.py). Earlier
+    // versions of this code also polled `service.bootanim.exit==1` but that
+    // property is a transient signal: SurfaceFlinger writes it as `"1"` to
+    // tell bootanimation to exit, then bootanimation immediately clears it
+    // back to `"0"` on the way out (AOSP `BootAnimation.cpp` EXIT_PROP_NAME
+    // + `SurfaceFlinger.cpp` bootFinished()). At a 2 s poll interval the
+    // brief `"1"` window is missed deterministically, which is what wedged
+    // both shards in CI run 26672463871. The residual WebView warm-up
+    // window is absorbed at the flow level by the 45 s `extendedWaitUntil`
+    // timeouts in `mobile-tests/flows/*.yaml`, mirroring the 15 s sleep +
+    // `dumpsys window` follow-up that budtmo adds after `sys.boot_completed`.
     if (!(await probeBootProperty(host, 'sys.boot_completed', index))) {
-      return { connected: true, booted: false };
-    }
-    if (!(await probeBootProperty(host, 'service.bootanim.exit', index))) {
       return { connected: true, booted: false };
     }
     return { connected: true, booted: true };
