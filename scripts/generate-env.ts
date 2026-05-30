@@ -92,7 +92,11 @@ function generatePortLines(
   if (worktree) {
     lines.push(`COMPOSE_PROJECT_NAME=${escapeEnvValue(worktree.projectName)}`);
   }
+  // HB_STACK_SLOT is the worktree slot (0 for main, 1..199 for worktrees).
+  // ensure-stack.ts and its helpers use it to scope per-slot cache/heartbeat
+  // paths and the idle-daemon TCP sentinel.
   lines.push(
+    `HB_STACK_SLOT=${escapeEnvValue(String(worktree?.slot ?? 0))}`,
     `HB_VITE_PORT=${escapeEnvValue(String(ports.vite))}`,
     `HB_PREVIEW_PORT=${escapeEnvValue(String(ports.preview))}`,
     `HB_API_PORT=${escapeEnvValue(String(ports.api))}`,
@@ -106,7 +110,8 @@ function generatePortLines(
     `HB_README_PREVIEW_PORT=${escapeEnvValue(String(ports.readmePreview))}`,
     `HB_MINIO_API_PORT=${escapeEnvValue(String(ports.minioApi))}`,
     `HB_MINIO_CONSOLE_PORT=${escapeEnvValue(String(ports.minioConsole))}`,
-    `HB_STUDIO_PORT=${escapeEnvValue(String(ports.studio))}`
+    `HB_STUDIO_PORT=${escapeEnvValue(String(ports.studio))}`,
+    `HB_IDLE_DAEMON_PORT=${escapeEnvValue(String(ports.idleDaemon))}`
   );
   return lines;
 }

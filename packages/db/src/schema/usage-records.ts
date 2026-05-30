@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, index, numeric } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, index, numeric, boolean } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 import { users } from './users';
@@ -13,6 +13,7 @@ export const usageRecords = pgTable(
     type: text('type').notNull(),
     status: text('status').notNull().default('pending'),
     cost: numeric('cost', { precision: 20, scale: 8 }).notNull(),
+    isEstimated: boolean('is_estimated').notNull().default(false),
     sourceType: text('source_type').notNull(),
     sourceId: text('source_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

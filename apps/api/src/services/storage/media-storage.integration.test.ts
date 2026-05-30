@@ -12,7 +12,7 @@ const R2_BUCKET_MEDIA = process.env['R2_BUCKET_MEDIA'];
 
 if (!R2_S3_ENDPOINT || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET_MEDIA) {
   throw new Error(
-    'R2 env vars (R2_S3_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_MEDIA) are required for storage integration tests — run pnpm db:up'
+    'R2 env vars (R2_S3_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_MEDIA) are required for storage integration tests — run pnpm ensure-stack from the repo root'
   );
 }
 

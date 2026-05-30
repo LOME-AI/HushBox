@@ -5,6 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMainModule } from './lib/is-main.js';
 import { runMain } from './lib/run-main.js';
+import { touchHeartbeat } from './lib/idle-killer.js';
+import { createHeartbeatTicker, isApiRequestLogLine } from './lib/heartbeat-source.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -56,6 +58,31 @@ export function isSuppressedStderrLine(line: string): boolean {
 }
 
 /**
+ * Line-buffering Transform that fires `onLine` for each complete line passing
+ * through. Pass-through stream — every chunk reaches downstream unchanged.
+ * Used to peek at API stdout for `[req]` request-log lines (each one ticks
+ * the heartbeat without blocking the original pipe).
+ */
+export function createLineObserver(onLine: (line: string) => void): Transform {
+  let buffer = '';
+  return new Transform({
+    transform(chunk: unknown, _encoding, callback): void {
+      const text = Buffer.isBuffer(chunk) ? chunk.toString() : String(chunk);
+      this.push(chunk);
+      buffer += text;
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) onLine(line);
+      callback();
+    },
+    flush(callback): void {
+      if (buffer.length > 0) onLine(buffer);
+      callback();
+    },
+  });
+}
+
+/**
  * Line-buffering Transform that drops {@link isSuppressedStderrLine} matches.
  * Buffers across chunk boundaries so a line split between two writes is matched
  * as a whole; the trailing partial line (no newline yet) is held until flush.
@@ -101,6 +128,14 @@ export function createStderrFilter(): Transform {
  * headers and would duplicate the per-request log emitted by the request-log
  * middleware in apps/api/src/middleware/request-log.ts).
  */
+function heartbeatPathFromEnv(): string | null {
+  const slotRaw = process.env['HB_STACK_SLOT'];
+  if (slotRaw === undefined) return null;
+  const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(scriptsDir, '..');
+  return path.join(repoRoot, 'scripts', '.cache', 'local', slotRaw, 'heartbeat');
+}
+
 export async function runWranglerDev(extraArgs: string[]): Promise<number> {
   const port = process.env['HB_API_PORT'];
   if (!port) {
@@ -115,6 +150,19 @@ export async function runWranglerDev(extraArgs: string[]): Promise<number> {
     { stdio: ['inherit', 'pipe', 'pipe'], reject: false }
   );
 
+  // Heartbeat ticker. Each [req] line from the API request-log middleware
+  // (apps/api/src/middleware/request-log.ts) counts as user activity →
+  // the slot's heartbeat file gets utimes-touched (bucketed to 1/5s).
+  // wrangler being alive but unused does NOT tick — only observed requests do.
+  const heartbeatPath = heartbeatPathFromEnv();
+  const tickHeartbeat =
+    heartbeatPath === null ? null : createHeartbeatTicker({ heartbeatPath, touch: touchHeartbeat });
+  const lineObserver = createLineObserver((line) => {
+    if (tickHeartbeat && isApiRequestLogLine(line)) {
+      void tickHeartbeat();
+    }
+  });
+
   // Tee both pipes to the terminal (preserving the interactive UX) and to
   // the log file (preserving content for post-hoc debugging). `end: false`
   // keeps the destination open across both stdout and stderr ends; we close
@@ -124,8 +172,9 @@ export async function runWranglerDev(extraArgs: string[]): Promise<number> {
   // disconnect noise (see SUPPRESSED_STDERR_PATTERNS); the log file still
   // receives the unfiltered stderr, so the record is complete.
   const stderrFilter = createStderrFilter();
-  subprocess.stdout.pipe(process.stdout, { end: false });
-  subprocess.stdout.pipe(logStream, { end: false });
+  subprocess.stdout.pipe(lineObserver);
+  lineObserver.pipe(process.stdout, { end: false });
+  lineObserver.pipe(logStream, { end: false });
   stderrFilter.pipe(process.stderr, { end: false });
   subprocess.stderr.pipe(stderrFilter);
   subprocess.stderr.pipe(logStream, { end: false });

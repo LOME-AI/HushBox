@@ -42,20 +42,22 @@ export default defineConfig({
   },
   webServer: [
     {
-      // Cross-platform orchestrator: kill-ports + generate:env in parallel,
-      // then marketing build + web build + db:reset in parallel, then merge,
-      // then `vite preview`. The merged dist is exactly what Cloudflare Pages
-      // serves in production (/chat, /roadmap, /welcome, /blog reachable from
-      // one origin), so E2E covers the same routing as users see.
-      command: 'tsx scripts/e2e-preview-up.ts',
+      // Build + merge happens in e2e/global-setup.ts (runs once before all
+      // tests). The webServer just serves the already-built dist. The merged
+      // dist is exactly what Cloudflare Pages serves in production
+      // (/chat, /roadmap, /welcome, /blog reachable from one origin) so E2E
+      // covers the same routing as users see.
+      command: `pnpm --filter @hushbox/web preview --port ${previewPort}`,
       url: previewUrl,
       reuseExistingServer: false,
-      timeout: 300_000,
+      timeout: 60_000,
       name: 'Preview',
       stdout: 'ignore',
     },
     {
-      command: `tsx scripts/kill-ports.ts HB_API_PORT && pnpm --filter @hushbox/api dev`,
+      // ensure-stack (run before `playwright test`) brings up containers,
+      // migrations, and seed. The webServer just spawns wrangler dev.
+      command: 'pnpm --filter @hushbox/api dev',
       url: `${apiUrl}/api/health`,
       reuseExistingServer: false,
       timeout: 180_000,

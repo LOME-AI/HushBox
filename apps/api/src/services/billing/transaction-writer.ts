@@ -47,6 +47,13 @@ export interface ChargeForUsageParams {
   cachedTokens?: number | undefined;
   sourceType: string;
   sourceId: string;
+  /**
+   * True when `cost` was produced by the gateway-lookup → estimate fallback
+   * (`getGenerationStats` exhausted retries). Persisted to
+   * `usage_records.is_estimated` so dashboards and CI guardrails can flag
+   * silent billing drift. Defaults to false for all other callers.
+   */
+  isEstimated?: boolean;
 }
 
 export interface ChargeResult {
@@ -319,6 +326,7 @@ export async function chargeForUsage(
     cachedTokens = 0,
     sourceType,
     sourceId,
+    isEstimated = false,
   } = params;
 
   const numericCost = validateCost(cost);
@@ -331,6 +339,7 @@ export async function chargeForUsage(
         type: 'llm_completion',
         status: 'pending',
         cost,
+        isEstimated,
         sourceType,
         sourceId,
       })

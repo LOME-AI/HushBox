@@ -293,6 +293,7 @@ local_protocol = "http"
       generateEnvFiles(TEST_DIR_ENV, 'e2e');
 
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.scripts'), 'utf8');
+      expect(content).toContain('HB_STACK_SLOT="0"');
       expect(content).toContain('HB_VITE_PORT="5173"');
       expect(content).toContain('HB_PREVIEW_PORT="4173"');
       expect(content).toContain('HB_API_PORT="8787"');
@@ -307,6 +308,7 @@ local_protocol = "http"
       expect(content).toContain('HB_MINIO_API_PORT="9000"');
       expect(content).toContain('HB_MINIO_CONSOLE_PORT="9001"');
       expect(content).toContain('HB_STUDIO_PORT="4983"');
+      expect(content).toContain('HB_IDLE_DAEMON_PORT="7700"');
     });
 
     it('applies worktree detection like development mode', () => {
@@ -881,6 +883,7 @@ local_protocol = "http"
 
       const content = readFileSync(path.join(TEST_DIR_WT, '.env.scripts'), 'utf8');
       expect(content).toContain('COMPOSE_PROJECT_NAME="hushbox"');
+      expect(content).toContain('HB_STACK_SLOT="0"');
       expect(content).toContain('HB_VITE_PORT="5173"');
       expect(content).toContain('HB_PREVIEW_PORT="4173"');
       expect(content).toContain('HB_API_PORT="8787"');
@@ -895,6 +898,7 @@ local_protocol = "http"
       expect(content).toContain('HB_MINIO_API_PORT="9000"');
       expect(content).toContain('HB_MINIO_CONSOLE_PORT="9001"');
       expect(content).toContain('HB_STUDIO_PORT="4983"');
+      expect(content).toContain('HB_IDLE_DAEMON_PORT="7700"');
     });
   });
 

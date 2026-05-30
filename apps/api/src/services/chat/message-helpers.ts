@@ -244,6 +244,11 @@ export interface ChargeAndTrackUsageParams {
   outputTokens: number;
   cachedTokens?: number;
   groupBillingContext?: { memberId: string };
+  /**
+   * True when `cost` came from the gateway-lookup fallback estimate rather
+   * than an exact gateway call. Propagated to `usage_records.is_estimated`.
+   */
+  isEstimated?: boolean;
 }
 
 export interface ChargeAndTrackUsageResult {
@@ -285,6 +290,7 @@ export async function chargeAndTrackUsage(
     cachedTokens: params.cachedTokens,
     sourceType: 'message',
     sourceId: params.assistantMessageId,
+    ...(params.isEstimated !== undefined && { isEstimated: params.isEstimated }),
   });
 
   await applyGroupSpending(tx, params.conversationId, params.groupBillingContext, params.cost);

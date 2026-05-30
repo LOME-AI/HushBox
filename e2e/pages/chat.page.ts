@@ -377,6 +377,7 @@ export class ChatPage {
       : assistantMessages.getByText(/^Echo:/).first();
 
     await unsettledExpect(target).toBeVisible({ timeout });
+    await this.waitForStreamComplete();
   }
 
   async expectAssistantMessageContains(text: string): Promise<void> {

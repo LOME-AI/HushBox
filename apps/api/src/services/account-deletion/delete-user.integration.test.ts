@@ -41,11 +41,13 @@ const R2_SECRET_ACCESS_KEY = process.env['R2_SECRET_ACCESS_KEY'];
 const R2_BUCKET_MEDIA = process.env['R2_BUCKET_MEDIA'];
 
 if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL is required for delete-user integration tests — run pnpm db:up');
+  throw new Error(
+    'DATABASE_URL is required for delete-user integration tests — run pnpm ensure-stack from the repo root'
+  );
 }
 if (!R2_S3_ENDPOINT || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET_MEDIA) {
   throw new Error(
-    'R2 env vars (R2_S3_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_MEDIA) are required for delete-user integration tests — run pnpm db:up'
+    'R2 env vars (R2_S3_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_MEDIA) are required for delete-user integration tests — run pnpm ensure-stack from the repo root'
   );
 }
 

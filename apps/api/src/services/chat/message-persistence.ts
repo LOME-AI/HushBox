@@ -29,6 +29,12 @@ export interface PreInferenceBillingPersistence {
   costDollars: number;
   inputTokens: number;
   outputTokens: number;
+  /**
+   * True when this stage's cost came from the gateway-lookup fallback
+   * estimate rather than an exact gateway call. Persisted to
+   * `usage_records.is_estimated` for this stage's row.
+   */
+  isEstimated: boolean;
 }
 
 export interface SaveUserOnlyMessageParams {
@@ -132,6 +138,12 @@ export interface TextAssistantMessageInput {
   outputTokens: number;
   cachedTokens?: number;
   /**
+   * True when this message's main cost came from the gateway-lookup fallback
+   * estimate rather than an exact gateway call. Persisted to the main
+   * `usage_records.is_estimated`. Per-stage flags live on `preInferenceBillings`.
+   */
+  isEstimated: boolean;
+  /**
    * Marks the content item as produced via a routing stage (Smart Model).
    * Drives the "Smart" chip on the message nametag. Off by default.
    */
@@ -232,6 +244,7 @@ function normalizeAssistantMessages(params: SaveChatTurnParams): AssistantMessag
       cost: params.totalCost,
       inputTokens: params.inputTokens,
       outputTokens: params.outputTokens,
+      isEstimated: false,
       ...(params.cachedTokens !== undefined && { cachedTokens: params.cachedTokens }),
     },
   ];
@@ -299,6 +312,7 @@ async function persistTextAssistant(
     conversationId: context.conversationId,
     inputTokens: msg.inputTokens,
     outputTokens: msg.outputTokens,
+    isEstimated: msg.isEstimated,
     ...(msg.cachedTokens !== undefined && { cachedTokens: msg.cachedTokens }),
     ...(context.groupBillingContext !== undefined && {
       groupBillingContext: context.groupBillingContext,
@@ -316,6 +330,7 @@ async function persistTextAssistant(
       conversationId: context.conversationId,
       inputTokens: billing.inputTokens,
       outputTokens: billing.outputTokens,
+      isEstimated: billing.isEstimated,
       ...(context.groupBillingContext !== undefined && {
         groupBillingContext: context.groupBillingContext,
       }),

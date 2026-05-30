@@ -253,6 +253,13 @@
       "when": 1779037650111,
       "tag": "0035_premium_rumiko_fujikawa",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1780116699612,
+      "tag": "0036_usage_records_is_estimated",
+      "breakpoints": true
     }
   ]
 }

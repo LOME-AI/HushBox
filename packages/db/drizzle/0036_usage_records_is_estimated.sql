@@ -1,0 +1,1 @@
+ALTER TABLE "usage_records" ADD COLUMN "is_estimated" boolean DEFAULT false NOT NULL;

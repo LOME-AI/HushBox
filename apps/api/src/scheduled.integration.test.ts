@@ -19,7 +19,9 @@ import type { Bindings } from './types.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL is required for scheduled integration tests — run pnpm db:up');
+  throw new Error(
+    'DATABASE_URL is required for scheduled integration tests — run pnpm ensure-stack from the repo root'
+  );
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;

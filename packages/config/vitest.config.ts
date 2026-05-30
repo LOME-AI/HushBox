@@ -1,4 +1,8 @@
 import { defineConfig } from 'vitest/config';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export default defineConfig({
   test: {
@@ -9,6 +13,10 @@ export default defineConfig({
     // sporadic timeouts that masked true-pass tests.
     testTimeout: 15000,
     exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**'],
+    // Ticks the ensure-stack heartbeat on every Vitest worker start so a long
+    // test run isn't reaped by the idle-killer daemon mid-run. No-op when
+    // HB_STACK_SLOT is unset (e.g. CI, where ensure-stack itself is a no-op).
+    setupFiles: [path.join(REPO_ROOT, 'scripts/lib/vitest-setup.ts')],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

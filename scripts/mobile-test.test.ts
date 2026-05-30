@@ -83,7 +83,7 @@ import {
   startEmulators,
   stopEmulator,
   stopEmulators,
-  startDevStack,
+  startDevApi,
   buildApk,
   installApk,
   installApks,
@@ -92,7 +92,7 @@ import {
   runMaestroShards,
   runMaestroOta,
   setupOtaUpdate,
-  stopDevStack,
+  stopDevApi,
   withMobileTestRun,
   writeApiSlice,
   dumpApiLogTail,
@@ -110,8 +110,8 @@ const mockAppendFileSync = vi.mocked(appendFileSync);
 const mockBakeImage = vi.mocked(bakeImage);
 
 // execa returns a subprocess (ChildProcess + Promise). Tests need .unref()
-// for startDevStack's fire-and-forget subprocess, and .kill() for the
-// stopDevStack cleanup path. We attach both as vi.fn() so tests can assert on
+// for startDevApi's fire-and-forget subprocess, and .kill() for the
+// stopDevApi cleanup path. We attach both as vi.fn() so tests can assert on
 // kill invocation when needed.
 function mockSubprocess(value: unknown = {}): never {
   return Object.assign(Promise.resolve(value as never), {
@@ -666,121 +666,31 @@ describe('mobile-test script', () => {
     });
   });
 
-  describe('startDevStack', () => {
-    it('checks if API is already running', async () => {
+  describe('startDevApi', () => {
+    it('reuses an existing healthy API and returns null apiProcess', async () => {
       process.env['HB_API_PORT'] = '8787';
-
-      await startDevStack();
-
-      expect(mockExeca).toHaveBeenCalledWith('curl', ['-sf', 'http://localhost:8787/api/health'], {
-        stdio: 'ignore',
-      });
-
-      delete process.env['HB_API_PORT'];
+      try {
+        const handle = await startDevApi();
+        expect(mockExeca).toHaveBeenCalledWith(
+          'curl',
+          ['-sf', 'http://localhost:8787/api/health'],
+          { stdio: 'ignore' }
+        );
+        expect(handle.apiProcess).toBeNull();
+        const apiDevCalls = mockExeca.mock.calls.filter(
+          (call) =>
+            call[0] === 'pnpm' &&
+            Array.isArray(call[1]) &&
+            call[1].includes('--filter') &&
+            call[1].includes('@hushbox/api')
+        );
+        expect(apiDevCalls).toHaveLength(0);
+      } finally {
+        delete process.env['HB_API_PORT'];
+      }
     });
 
-    it('skips db:up/db:migrate when API is already running', async () => {
-      process.env['HB_API_PORT'] = '8787';
-
-      await startDevStack();
-
-      const dbUpCalls = mockExeca.mock.calls.filter(
-        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:up')
-      );
-      const dbMigrateCalls = mockExeca.mock.calls.filter(
-        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:migrate')
-      );
-      expect(dbUpCalls).toHaveLength(0);
-      expect(dbMigrateCalls).toHaveLength(0);
-
-      delete process.env['HB_API_PORT'];
-    });
-
-    it('still runs db:seed when reusing a running API', async () => {
-      // Idempotent upsert; cheap to repeat and protects against stale state
-      // (e.g. a DEV_PASSWORD change since the reused API was last seeded).
-      process.env['HB_API_PORT'] = '8787';
-
-      await startDevStack();
-
-      const dbSeedCalls = mockExeca.mock.calls.filter(
-        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:seed')
-      );
-      expect(dbSeedCalls).toHaveLength(1);
-
-      delete process.env['HB_API_PORT'];
-    });
-
-    it('starts full stack when API is not running', async () => {
-      process.env['HB_API_PORT'] = '8787';
-      let healthCheckCount = 0;
-
-      mockExeca.mockImplementation(((cmd: string, _args?: readonly string[]) => {
-        if (cmd === 'curl') {
-          healthCheckCount++;
-          if (healthCheckCount === 1) return Promise.reject(new Error('not running'));
-          return mockSubprocess();
-        }
-        return mockSubprocess();
-      }) as never);
-
-      await startDevStack();
-
-      expect(mockExeca).toHaveBeenCalledWith(
-        'pnpm',
-        ['db:up'],
-        expect.objectContaining({ stdio: 'inherit' })
-      );
-      expect(mockExeca).toHaveBeenCalledWith(
-        'pnpm',
-        ['db:migrate'],
-        expect.objectContaining({ stdio: 'inherit' })
-      );
-      expect(mockExeca).toHaveBeenCalledWith(
-        'pnpm',
-        ['db:seed'],
-        expect.objectContaining({ stdio: 'inherit' })
-      );
-
-      delete process.env['HB_API_PORT'];
-    });
-
-    it('starts API server in background when stack is not running', async () => {
-      process.env['HB_API_PORT'] = '8787';
-      let healthCheckCount = 0;
-
-      mockExeca.mockImplementation(((cmd: string, _args?: readonly string[]) => {
-        if (cmd === 'curl') {
-          healthCheckCount++;
-          if (healthCheckCount === 1) return Promise.reject(new Error('not running'));
-          return mockSubprocess();
-        }
-        return mockSubprocess();
-      }) as never);
-
-      await startDevStack();
-
-      expect(mockExeca).toHaveBeenCalledWith(
-        'pnpm',
-        ['--filter', '@hushbox/api', 'dev'],
-        expect.objectContaining({ stdio: 'ignore' })
-      );
-
-      delete process.env['HB_API_PORT'];
-    });
-
-    it('returns empty handle (no apiProcess, no containers) when reusing running API', async () => {
-      process.env['HB_API_PORT'] = '8787';
-
-      const handle = await startDevStack();
-
-      expect(handle.apiProcess).toBeNull();
-      expect(handle.weStartedContainers).toBe(false);
-
-      delete process.env['HB_API_PORT'];
-    });
-
-    it('returns handle with apiProcess and weStartedContainers=true when starting fresh', async () => {
+    it('spawns wrangler dev as a background subprocess when API is not ready', async () => {
       process.env['HB_API_PORT'] = '8787';
       let healthCheckCount = 0;
       mockExeca.mockImplementation(((cmd: string, _args?: readonly string[]) => {
@@ -791,132 +701,59 @@ describe('mobile-test script', () => {
         }
         return mockSubprocess();
       }) as never);
-
-      const handle = await startDevStack();
-
-      expect(handle.apiProcess).not.toBeNull();
-      expect(handle.weStartedContainers).toBe(true);
-
-      delete process.env['HB_API_PORT'];
+      try {
+        const handle = await startDevApi();
+        expect(handle.apiProcess).not.toBeNull();
+        expect(mockExeca).toHaveBeenCalledWith(
+          'pnpm',
+          ['--filter', '@hushbox/api', 'dev'],
+          expect.objectContaining({ stdio: 'ignore' })
+        );
+      } finally {
+        delete process.env['HB_API_PORT'];
+      }
     });
 
-    it('tears down its own state when API never becomes ready', async () => {
+    it('throws when the API never becomes ready', async () => {
       process.env['HB_API_PORT'] = '8787';
-      // db:down is intentionally skipped under CI=true (the workflow's own
-      // teardown handles it). This test asserts the non-CI teardown path, so
-      // CI is forced unset for the test body and restored after.
-      const savedCI = process.env['CI'];
-      delete process.env['CI'];
-      // Speed up the API ready polling so we don't wait 30s of real time.
       const originalSetTimeout = globalThis.setTimeout;
       globalThis.setTimeout = ((function_: () => void) => {
         function_();
         return 0 as unknown as ReturnType<typeof setTimeout>;
       }) as typeof setTimeout;
       try {
-        mockExeca.mockImplementation(((cmd: string, _args?: readonly string[]) => {
+        mockExeca.mockImplementation(((cmd: string) => {
           if (cmd === 'curl') return Promise.reject(new Error('API never ready'));
           return mockSubprocess();
         }) as never);
-
-        await expect(startDevStack()).rejects.toThrow(/failed to start within timeout/);
-
-        // db:down must have been called to tear down the containers we
-        // started, even though startDevStack itself failed.
-        const dbDownCalls = mockExeca.mock.calls.filter(
-          (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:down')
-        );
-        expect(dbDownCalls.length).toBeGreaterThanOrEqual(1);
+        await expect(startDevApi()).rejects.toThrow(/failed to start within timeout/);
       } finally {
         globalThis.setTimeout = originalSetTimeout;
         delete process.env['HB_API_PORT'];
-        if (savedCI === undefined) delete process.env['CI'];
-        else process.env['CI'] = savedCI;
       }
     });
   });
 
-  describe('stopDevStack', () => {
-    // The CI workflow's "Stop services" step runs `pnpm db:down` after the
-    // mobile-test script returns, so the script's own teardown must skip it
-    // in CI. These tests pin process.env.CI explicitly so behavior doesn't
-    // depend on whether the test runner itself happens to be running in CI.
-    let savedCI: string | undefined;
-    beforeEach(() => {
-      savedCI = process.env['CI'];
-      delete process.env['CI'];
-    });
-    afterEach(() => {
-      if (savedCI === undefined) delete process.env['CI'];
-      else process.env['CI'] = savedCI;
-    });
-
-    it('does nothing when handle has neither apiProcess nor containers', async () => {
-      await stopDevStack({ apiProcess: null, weStartedContainers: false });
-
-      const dbDownCalls = mockExeca.mock.calls.filter(
-        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:down')
-      );
-      expect(dbDownCalls).toHaveLength(0);
+  describe('stopDevApi', () => {
+    it('is a no-op when apiProcess is null', async () => {
+      await expect(stopDevApi({ apiProcess: null })).resolves.toBeUndefined();
     });
 
     it('kills the apiProcess when present', async () => {
       const fakeProcess = mockSubprocess() as unknown as ReturnType<typeof execa>;
-
-      await stopDevStack({ apiProcess: fakeProcess, weStartedContainers: false });
-
-      // The subprocess's kill method must have been invoked.
+      await stopDevApi({ apiProcess: fakeProcess });
       expect((fakeProcess as unknown as { kill: () => void }).kill).toHaveBeenCalled();
     });
 
-    it('runs pnpm db:down when weStartedContainers=true', async () => {
-      await stopDevStack({ apiProcess: null, weStartedContainers: true });
-
-      expect(mockExeca).toHaveBeenCalledWith(
-        'pnpm',
-        ['db:down'],
-        expect.objectContaining({ stdio: 'inherit' })
-      );
-    });
-
-    it('does not run db:down when weStartedContainers=false', async () => {
-      const fakeProcess = mockSubprocess() as unknown as ReturnType<typeof execa>;
-
-      await stopDevStack({ apiProcess: fakeProcess, weStartedContainers: false });
-
-      const dbDownCalls = mockExeca.mock.calls.filter(
-        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:down')
-      );
-      expect(dbDownCalls).toHaveLength(0);
-    });
-
-    it('skips pnpm db:down in CI even with weStartedContainers=true', async () => {
-      process.env['CI'] = '1';
-
-      await stopDevStack({ apiProcess: null, weStartedContainers: true });
-
-      const dbDownCalls = mockExeca.mock.calls.filter(
-        (call) => call[0] === 'pnpm' && Array.isArray(call[1]) && call[1].includes('db:down')
-      );
-      expect(dbDownCalls).toHaveLength(0);
-    });
-
-    it('does not throw when db:down itself fails (best-effort cleanup)', async () => {
-      mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
-        if (cmd === 'pnpm' && Array.isArray(args) && args.includes('db:down')) {
-          return Promise.reject(new Error('compose down failed'));
-        }
-        return mockSubprocess();
-      }) as never);
+    it('does not throw when kill itself fails (best-effort cleanup)', async () => {
+      const fakeProcess = {
+        kill: vi.fn(() => {
+          throw new Error('already exited');
+        }),
+      } as unknown as ReturnType<typeof execa>;
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      await expect(
-        stopDevStack({ apiProcess: null, weStartedContainers: true })
-      ).resolves.toBeUndefined();
-
-      expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to tear down dev stack')
-      );
+      await expect(stopDevApi({ apiProcess: fakeProcess })).resolves.toBeUndefined();
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to stop API server'));
     });
   });
 

@@ -103,18 +103,23 @@ describe('AIClient billing integration', () => {
         const generationId = stream.generationId!;
         const outputContent = stream.textContent;
 
-        const cost = await calculateMessageCost({
+        const result = await calculateMessageCost({
           aiClient: client,
           generationId,
+          modelId: spec.modelId,
           inputContent,
           outputContent,
         });
 
-        expect(cost).toBeGreaterThan(0);
+        expect(result.totalDollars).toBeGreaterThan(0);
+        // CI guardrail: the retry layer must cover the gateway eventual-consistency
+        // window. A `true` here means production-style estimation fallback fired in
+        // CI, which masks billing inaccuracy — fail loudly.
+        expect(result.wasEstimated).toBe(false);
         const stats = await client.getGenerationStats(generationId);
         // calculateMessageCost = applyFees(gateway) + (inputChars + outputChars) * storage
         // The storage component is small but positive, so cost > applyFees(gatewayCost).
-        expect(cost).toBeGreaterThanOrEqual(applyFees(stats.costUsd));
+        expect(result.totalDollars).toBeGreaterThanOrEqual(applyFees(stats.costUsd));
       },
       TEXT_TIMEOUT_MS
     );

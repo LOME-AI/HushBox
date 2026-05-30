@@ -1235,6 +1235,7 @@ describe('saveChatTurn', () => {
             cost: 0.002,
             inputTokens: 100,
             outputTokens: 80,
+            isEstimated: false,
           },
           {
             modality: 'text' as const,
@@ -1244,6 +1245,7 @@ describe('saveChatTurn', () => {
             cost: 0.003,
             inputTokens: 100,
             outputTokens: 120,
+            isEstimated: false,
           },
         ],
         parentMessageId: null,
@@ -1303,6 +1305,7 @@ describe('saveChatTurn', () => {
             cost: 0.002,
             inputTokens: 100,
             outputTokens: 80,
+            isEstimated: false,
           },
           {
             modality: 'text' as const,
@@ -1312,6 +1315,7 @@ describe('saveChatTurn', () => {
             cost: 0.003,
             inputTokens: 100,
             outputTokens: 120,
+            isEstimated: false,
           },
         ],
         parentMessageId: null,
@@ -1363,6 +1367,7 @@ describe('saveChatTurn', () => {
             cost: 0.001,
             inputTokens: 50,
             outputTokens: 30,
+            isEstimated: false,
           },
         ],
         parentMessageId: null,
@@ -1445,6 +1450,7 @@ describe('saveChatTurn', () => {
             cost: 0.002,
             inputTokens: 100,
             outputTokens: 80,
+            isEstimated: false,
           },
           {
             modality: 'text' as const,
@@ -1454,6 +1460,7 @@ describe('saveChatTurn', () => {
             cost: 0.003,
             inputTokens: 100,
             outputTokens: 120,
+            isEstimated: false,
           },
         ],
         parentMessageId: null,
@@ -1498,6 +1505,7 @@ describe('saveChatTurn', () => {
             cost: 0.001,
             inputTokens: 10,
             outputTokens: 10,
+            isEstimated: false,
           },
           {
             modality: 'text',
@@ -1507,6 +1515,7 @@ describe('saveChatTurn', () => {
             cost: 0.001,
             inputTokens: 10,
             outputTokens: 10,
+            isEstimated: false,
           },
           {
             modality: 'text',
@@ -1516,6 +1525,7 @@ describe('saveChatTurn', () => {
             cost: 0.001,
             inputTokens: 10,
             outputTokens: 10,
+            isEstimated: false,
           },
         ],
       });
@@ -1551,6 +1561,7 @@ describe('saveChatTurn', () => {
             cost: 0.001,
             inputTokens: 10,
             outputTokens: 10,
+            isEstimated: false,
           },
         ],
       });
@@ -1586,6 +1597,7 @@ describe('saveChatTurn', () => {
             cost: 0.001,
             inputTokens: 10,
             outputTokens: 10,
+            isEstimated: false,
           },
           {
             modality: 'text',
@@ -1595,6 +1607,7 @@ describe('saveChatTurn', () => {
             cost: 0.001,
             inputTokens: 10,
             outputTokens: 10,
+            isEstimated: false,
           },
         ],
       });
@@ -1630,6 +1643,7 @@ describe('saveChatTurn', () => {
             cost: 0.001,
             inputTokens: 10,
             outputTokens: 10,
+            isEstimated: false,
           },
         ],
       });
@@ -2069,6 +2083,7 @@ describe('saveUserOnlyMessage', () => {
           cost: 0.001,
           inputTokens: 100,
           outputTokens: 50,
+          isEstimated: false,
         },
         {
           modality: 'image',
@@ -2145,8 +2160,10 @@ describe('saveUserOnlyMessage', () => {
               costDollars: 0.0005,
               inputTokens: 1400,
               outputTokens: 20,
+              isEstimated: false,
             },
           ],
+          isEstimated: false,
         },
       ],
     });
@@ -2214,6 +2231,7 @@ describe('saveUserOnlyMessage', () => {
           inputTokens: 100,
           outputTokens: 50,
           isSmartModel: true,
+          isEstimated: false,
         },
       ],
     });

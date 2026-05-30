@@ -11,7 +11,6 @@ import {
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { createEnvUtilities } from '@hushbox/shared';
 import { isMainModule } from './lib/is-main.js';
 import { bakeImage, detectKvmGid, runEmulatorContainer } from './lib/mobile-image.js';
 import { MARKER_PREFIX, extractRelevantSlice } from './lib/extract-mobile-api-log.js';
@@ -319,23 +318,12 @@ export async function stopEmulators(n: number): Promise<void> {
 }
 
 /**
- * Tracks dev-stack resources WE started, so cleanup can selectively tear
- * down only what's ours. If startDevStack reuses an already-running API
- * (curl health check succeeds), both fields stay null/false and stopDevStack
- * is a no-op — we never touch resources we didn't start.
+ * Spawn a wrangler-dev subprocess to serve the API while mobile tests run.
+ * The dev stack itself (containers + migrations + seed) is the responsibility
+ * of `pnpm ensure-stack`, which runs before this script. We just need a live
+ * API process to point the emulator at. The subprocess is killed on exit
+ * (or rolled up by the idle-killer daemon if this process crashes).
  */
-export interface DevStackHandle {
-  /** Wrangler dev subprocess we spawned; null when we reused a running API. */
-  apiProcess: ReturnType<typeof execa> | null;
-  /** True when we ran `pnpm db:up` (and therefore should run `pnpm db:down`). */
-  weStartedContainers: boolean;
-}
-
-const EMPTY_DEV_STACK_HANDLE: DevStackHandle = {
-  apiProcess: null,
-  weStartedContainers: false,
-};
-
 async function pollApiReady(apiPort: string): Promise<boolean> {
   try {
     await execa('curl', ['-sf', `http://localhost:${apiPort}/api/health`], { stdio: 'ignore' });
@@ -345,98 +333,49 @@ async function pollApiReady(apiPort: string): Promise<boolean> {
   }
 }
 
-export async function startDevStack(): Promise<DevStackHandle> {
+export interface DevApiHandle {
+  apiProcess: ReturnType<typeof execa> | null;
+}
+
+export async function startDevApi(): Promise<DevApiHandle> {
   const apiPort = process.env['HB_API_PORT'] ?? '8787';
 
   if (await pollApiReady(apiPort)) {
-    console.log('API server already running — reusing existing dev stack (will not tear down)');
-    // Idempotent upsert; cheap to repeat and protects against stale state
-    // (e.g. a DEV_PASSWORD change since the reused API was last seeded).
-    await execa('pnpm', ['db:seed'], { stdio: 'inherit', env: process.env });
-    return EMPTY_DEV_STACK_HANDLE;
+    console.log('API server already running — reusing existing process');
+    return { apiProcess: null };
   }
 
-  console.log('Starting dev stack...');
-  let weStartedContainers = false;
-  let apiProcess: ReturnType<typeof execa> | null = null;
-  try {
-    await execa('pnpm', ['db:up'], { stdio: 'inherit', env: process.env });
-    // db:up succeeded (or partially started containers) — we own teardown
-    // from this point forward, even if a later step fails.
-    weStartedContainers = true;
-    await execa('pnpm', ['db:migrate'], { stdio: 'inherit', env: process.env });
-    await execa('pnpm', ['db:seed'], { stdio: 'inherit', env: process.env });
+  console.log('Starting API server...');
+  const apiProcess = execa('pnpm', ['--filter', '@hushbox/api', 'dev'], {
+    stdio: 'ignore',
+    env: process.env,
+  });
+  // eslint-disable-next-line promise/prefer-await-to-then, @typescript-eslint/no-empty-function -- fire-and-forget subprocess; explicit kill happens via stopDevApi
+  apiProcess.catch(() => {});
+  apiProcess.unref();
 
-    apiProcess = execa('pnpm', ['--filter', '@hushbox/api', 'dev'], {
-      stdio: 'ignore',
-      env: process.env,
-    });
-    // eslint-disable-next-line promise/prefer-await-to-then, @typescript-eslint/no-empty-function -- fire-and-forget subprocess; explicit kill happens via stopDevStack
-    apiProcess.catch(() => {});
-    // unref so the parent's event loop can exit without waiting on the API.
-    // The explicit kill in stopDevStack handles graceful shutdown on the
-    // normal exit path; execa's default cleanup (forceKillAfterDelay) covers
-    // crash paths where finally doesn't run.
-    apiProcess.unref();
-
-    console.log('Waiting for API server...');
-    for (let index = 0; index < API_TIMEOUT_POLLS; index++) {
-      if (await pollApiReady(apiPort)) {
-        console.log('API server ready');
-        return { apiProcess, weStartedContainers };
-      }
-      await new Promise((resolve) => {
-        setTimeout(resolve, API_POLL_INTERVAL_MS);
-      });
+  for (let index = 0; index < API_TIMEOUT_POLLS; index++) {
+    if (await pollApiReady(apiPort)) {
+      console.log('API server ready');
+      return { apiProcess };
     }
-    throw new Error('API server failed to start within timeout');
-  } catch (error) {
-    // Partial start: tear down what we created so the failure doesn't leak
-    // containers or a wrangler subprocess. Then rethrow.
-    await stopDevStack({ apiProcess, weStartedContainers });
-    throw error;
+    await new Promise((resolve) => {
+      setTimeout(resolve, API_POLL_INTERVAL_MS);
+    });
   }
+  await stopDevApi({ apiProcess });
+  throw new Error('API server failed to start within timeout');
 }
 
-/**
- * Tear down whatever WE started in this run. Resources we found already
- * running (handle fields null/false) are left untouched — explicitly so we
- * don't kill a sibling `pnpm dev` session.
- *
- * Best-effort: subprocess kill / container teardown failures are logged,
- * not thrown, so a partial-cleanup hiccup doesn't mask the original error
- * that triggered the cleanup.
- */
-async function bestEffort(label: string, action: () => unknown): Promise<void> {
+// eslint-disable-next-line @typescript-eslint/require-await -- kept async to match call sites; the kill is synchronous but the API may grow async cleanup
+export async function stopDevApi(handle: DevApiHandle): Promise<void> {
+  if (!handle.apiProcess) return;
+  console.log('Stopping API server we started...');
   try {
-    await action();
+    handle.apiProcess.kill();
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`${label}: ${message}`);
-  }
-}
-
-export async function stopDevStack(handle: DevStackHandle): Promise<void> {
-  if (handle.apiProcess) {
-    console.log('Stopping API server we started...');
-    // execa's .kill() is OS-agnostic: SIGTERM on POSIX, equivalent on
-    // Windows via TerminateProcess. forceKillAfterDelay (5s) handles
-    // children that ignore SIGTERM.
-    await bestEffort('Failed to stop API server', () => handle.apiProcess?.kill());
-  }
-  if (handle.weStartedContainers) {
-    // In CI, the workflow's "Stop services" step runs `pnpm db:down` after
-    // this script returns (see .github/workflows/ci.yml — mobile-test job),
-    // so running it here would tear the stack down twice. Skip the in-script
-    // teardown and let the workflow own it.
-    if (createEnvUtilities(process.env).isCI) {
-      console.log('Skipping dev stack teardown in CI — workflow owns it');
-      return;
-    }
-    console.log('Tearing down dev stack containers we started...');
-    await bestEffort('Failed to tear down dev stack', () =>
-      execa('pnpm', ['db:down'], { stdio: 'inherit', env: process.env })
-    );
+    console.error(`Failed to stop API server: ${message}`);
   }
 }
 
@@ -966,12 +905,11 @@ export async function main(): Promise<void> {
   // it may be a cold build (one-time cost per Dockerfile change).
   const imageTag = await bakeImage({ push: false });
 
-  // Start the dev stack first (sequential) so its handle is captured before
-  // any later failure could short-circuit cleanup. The cost is ~30s in the
-  // cold case (fresh db:up + API ready-poll); near-zero when reusing an
-  // already-running API. The parallel speedup that mattered (emulator boot
-  // vs APK build) is preserved below.
-  const devStack = await startDevStack();
+  // ensure-stack (invoked by the package.json script before us) has already
+  // brought up containers, migrations, and seed. Start a wrangler-dev API
+  // process so the emulator has something to talk to. The idle-killer daemon
+  // reaps containers later if this process crashes without explicit teardown.
+  const devApi = await startDevApi();
   mkdirSync(RESULTS_DIR, { recursive: true });
   const runId = randomUUID().slice(0, 8);
   try {
@@ -993,8 +931,6 @@ export async function main(): Promise<void> {
       maestroFailed = true;
       throw error;
     } finally {
-      // Write the bounded slice regardless of outcome; on failure also echo
-      // the tail to stdout for fast CI/local triage.
       try {
         writeApiSlice(runId);
         if (maestroFailed) dumpApiLogTail();
@@ -1007,7 +943,7 @@ export async function main(): Promise<void> {
     console.log('Mobile tests complete!');
   } finally {
     await stopEmulators(n);
-    await stopDevStack(devStack);
+    await stopDevApi(devApi);
   }
 }
 

@@ -458,6 +458,7 @@ describe('Smart Model full DB persistence integration', () => {
             cost: inferenceCostDollars,
             inputTokens: tokensFromChars(inferenceInputChars),
             outputTokens: tokensFromChars(inference.textContent.length),
+            isEstimated: false,
             isSmartModel: true,
             preInferenceBillings: [
               {
@@ -466,6 +467,7 @@ describe('Smart Model full DB persistence integration', () => {
                 costDollars: classifierCostDollars,
                 inputTokens: tokensFromChars(classifierInputChars),
                 outputTokens: tokensFromChars(classifierOutputChars),
+                isEstimated: false,
               },
             ],
           },
@@ -481,6 +483,11 @@ describe('Smart Model full DB persistence integration', () => {
       for (const row of usageRows) {
         expect(row.type).toBe('llm_completion');
         expect(Number(row.cost)).toBeGreaterThan(0);
+        // CI guardrail: retry must cover the gateway eventual-consistency window
+        // so we always bill the EXACT gateway cost, never the estimate. A `true`
+        // here means production-style fallback fired in CI, which silently
+        // masks billing accuracy — fail loudly.
+        expect(row.isEstimated).toBe(false);
       }
 
       const usageRecordIds = usageRows.map((r) => r.id);
@@ -593,6 +600,7 @@ describe('Smart Model full DB persistence integration', () => {
             cost: inferenceCostDollars,
             inputTokens: tokensFromChars(inferenceInputChars),
             outputTokens: tokensFromChars(inference.textContent.length),
+            isEstimated: false,
             isSmartModel: true,
             // No preInferenceBillings: billing was null on throw-fallback.
           },
@@ -610,6 +618,8 @@ describe('Smart Model full DB persistence integration', () => {
       expect(usageRow!.sourceId).toBe(assistantMsgId);
       expect(usageRow!.type).toBe('llm_completion');
       expect(Number(usageRow!.cost)).toBeGreaterThan(0);
+      // CI guardrail: see comment in earlier test — retry must avoid the estimate path.
+      expect(usageRow!.isEstimated).toBe(false);
 
       const llmRows = await dbInstance
         .select()

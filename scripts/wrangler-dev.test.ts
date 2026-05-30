@@ -11,6 +11,7 @@ import {
   wranglerLogPath,
   isSuppressedStderrLine,
   createStderrFilter,
+  createLineObserver,
 } from './wrangler-dev.js';
 
 const mockExeca = vi.mocked(execa);
@@ -172,6 +173,24 @@ describe('wrangler-dev', () => {
     );
   });
 
+  it('does not crash when HB_STACK_SLOT is set (heartbeat tick wiring exercises the slot branch)', async () => {
+    process.env['HB_API_PORT'] = '8915';
+    process.env['HB_STACK_SLOT'] = '0';
+    mockCreateWriteStream.mockReturnValue(mockLogStream() as never);
+    const { subprocess, stdout } = mockSubprocess(0);
+    mockExeca.mockReturnValue(subprocess as never);
+    process.stdout.write = vi.fn(() => true) as never;
+    try {
+      const runPromise = runWranglerDev([]);
+      stdout.write('[req] 2026-05-29T01:00:00Z GET /api/health 200 5ms v=none\n');
+      stdout.end();
+      const exitCode = await runPromise;
+      expect(exitCode).toBe(0);
+    } finally {
+      delete process.env['HB_STACK_SLOT'];
+    }
+  });
+
   it('filters benign disconnect noise from the terminal but keeps it in the log', async () => {
     process.env['HB_API_PORT'] = '8915';
     const log = mockLogStream();
@@ -204,6 +223,52 @@ describe('wrangler-dev', () => {
     expect(term).toContain('real failure');
     expect(logged).toContain('Network connection lost');
     expect(logged).toContain('real failure');
+  });
+});
+
+describe('createLineObserver', () => {
+  it('passes chunks through unchanged', async () => {
+    const observed: string[] = [];
+    const observer = createLineObserver((line) => observed.push(line));
+    const out: Buffer[] = [];
+    observer.on('data', (chunk: Buffer) => out.push(chunk));
+    observer.write('first line\npart');
+    observer.write('ial\nlast line\n');
+    observer.end();
+    await new Promise<void>((resolve) =>
+      observer.on('end', () => {
+        resolve();
+      })
+    );
+    expect(Buffer.concat(out).toString()).toBe('first line\npartial\nlast line\n');
+  });
+
+  it('fires onLine once per complete line', async () => {
+    const observed: string[] = [];
+    const observer = createLineObserver((line) => observed.push(line));
+    observer.on('data', () => {});
+    observer.write('a\nb\nc\n');
+    observer.end();
+    await new Promise<void>((resolve) =>
+      observer.on('end', () => {
+        resolve();
+      })
+    );
+    expect(observed).toEqual(['a', 'b', 'c']);
+  });
+
+  it('handles a trailing partial line via flush', async () => {
+    const observed: string[] = [];
+    const observer = createLineObserver((line) => observed.push(line));
+    observer.on('data', () => {});
+    observer.write('partial');
+    observer.end();
+    await new Promise<void>((resolve) =>
+      observer.on('end', () => {
+        resolve();
+      })
+    );
+    expect(observed).toEqual(['partial']);
   });
 });
 

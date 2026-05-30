@@ -1156,6 +1156,7 @@ interface AssistantPersistInput {
   cost: number;
   inputTokens: number;
   outputTokens: number;
+  isEstimated: boolean;
   isSmartModel?: boolean;
   preInferenceBillings?: PreInferenceBillingPersistence[];
 }
@@ -1180,6 +1181,7 @@ function baseAssistantPersist(input: {
   cost: number;
   inputContent: string;
   isSmartModel: boolean;
+  isEstimated: boolean;
 }): AssistantPersistInput {
   return {
     modality: 'text' as const,
@@ -1189,6 +1191,7 @@ function baseAssistantPersist(input: {
     cost: input.cost,
     inputTokens: estimateTokenCount(input.inputContent),
     outputTokens: estimateTokenCount(input.fullContent),
+    isEstimated: input.isEstimated,
     ...(input.isSmartModel && { isSmartModel: true }),
   };
 }
@@ -1207,6 +1210,7 @@ async function buildStagedPersistInput(
   const costResult = await calculateMessageCostWithStages({
     aiClient,
     mainGenerationId: generationId,
+    mainModelId: modelId,
     stageBillings: meta.preInferenceBillings,
     inputContent,
     outputContent: result.fullContent,
@@ -1217,6 +1221,7 @@ async function buildStagedPersistInput(
     costDollars: b.costDollars,
     inputTokens: estimateTokenCount(b.billing.inputContent),
     outputTokens: estimateTokenCount(b.billing.outputContent),
+    isEstimated: b.wasEstimated,
   }));
   return {
     ...baseAssistantPersist({
@@ -1226,6 +1231,7 @@ async function buildStagedPersistInput(
       cost: costResult.mainCostDollars,
       inputContent,
       isSmartModel: true,
+      isEstimated: costResult.mainWasEstimated,
     }),
     preInferenceBillings: stagePersistence,
   };
@@ -1244,6 +1250,7 @@ async function buildSlotPersistInput(input: SlotAssistantInput): Promise<Assista
       cost: 0,
       inputContent,
       isSmartModel: meta.isSmartModel,
+      isEstimated: false,
     });
   }
 
@@ -1263,24 +1270,26 @@ async function buildSlotPersistInput(input: SlotAssistantInput): Promise<Assista
     return persisted;
   }
 
-  const totalCost = await calculateMessageCost({
+  const { totalDollars, wasEstimated } = await calculateMessageCost({
     aiClient,
     generationId: result.generationId,
+    modelId: meta.resolvedModelId,
     inputContent,
     outputContent: result.fullContent,
   });
   await recordBillingMismatchIfExceeded({
     estimateUsd: input.slotEstimateUsd,
-    actualUsd: totalCost,
+    actualUsd: totalDollars,
     evidence: input.evidence,
   });
   return baseAssistantPersist({
     assistantMessageId,
     fullContent: result.fullContent,
     persistedModelId: meta.resolvedModelId,
-    cost: totalCost,
+    cost: totalDollars,
     inputContent,
     isSmartModel: meta.isSmartModel,
+    isEstimated: wasEstimated,
   });
 }
 

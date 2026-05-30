@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type {
   InferenceEvent,
   TextRequest,
@@ -976,6 +976,257 @@ describe('createRealAIClient', () => {
         id: 'gen-abc-123',
       });
       expect(stats.costUsd).toBe(0.0042);
+    });
+  });
+
+  describe('getGenerationStats retry behavior', () => {
+    // The AI Gateway has eventual consistency on /v1/generation: a generation
+    // just streamed isn't immediately queryable. The retry budget below covers
+    // the gateway's Redis-flush window; see plan in docs.
+
+    function makeGatewayError(statusCode?: number): Error & { statusCode?: number } {
+      const err = new Error(`gateway error ${String(statusCode)}`) as Error & {
+        statusCode?: number;
+        responseBody?: string;
+      };
+      if (statusCode !== undefined) err.statusCode = statusCode;
+      err.responseBody = 'opaque error body — do NOT match on this';
+      return err;
+    }
+
+    /**
+     * Returns a promise that resolves to whatever value the input promise
+     * settled with — rejection value or the resolved value on success. Used so
+     * a test can advance fake timers while a rejection is pending without
+     * leaking an unhandled-rejection.
+     */
+    async function captureSettlement<T>(promise: Promise<T>): Promise<unknown> {
+      try {
+        return await promise;
+      } catch (error) {
+        return error;
+      }
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('returns cost on first attempt without sleeping', async () => {
+      mockGatewayInstance.getGenerationInfo.mockResolvedValue({ totalCost: 0.01 });
+
+      const stats = await client.getGenerationStats('gen-1');
+
+      expect(stats.costUsd).toBe(0.01);
+      expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries once on 404, then succeeds (1 sleep of 500ms)', async () => {
+      mockGatewayInstance.getGenerationInfo
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockResolvedValueOnce({ totalCost: 0.02 });
+
+      const promise = client.getGenerationStats('gen-1');
+      await vi.advanceTimersByTimeAsync(499);
+      expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      const stats = await promise;
+      expect(stats.costUsd).toBe(0.02);
+      expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(2);
+    });
+
+    it('exponential backoff: 500ms → 1s → 2s → 4s → 8s = 15.5s total', async () => {
+      mockGatewayInstance.getGenerationInfo
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockResolvedValueOnce({ totalCost: 0.03 });
+
+      const promise = client.getGenerationStats('gen-1');
+      await vi.advanceTimersByTimeAsync(15_500);
+      const stats = await promise;
+      expect(stats.costUsd).toBe(0.03);
+      expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(6);
+    });
+
+    it('throws the original error after exhausting 5 retries on persistent 404', async () => {
+      const lastErr = makeGatewayError(404);
+      mockGatewayInstance.getGenerationInfo
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(lastErr);
+
+      const promise = captureSettlement(client.getGenerationStats('gen-1'));
+      await vi.advanceTimersByTimeAsync(15_500);
+      const caught = await promise;
+      expect(caught).toBe(lastErr);
+      expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(6);
+    });
+
+    it.each([408, 429, 500, 502, 503, 504, 599])(
+      'retries on transient status %i then succeeds',
+      async (status) => {
+        mockGatewayInstance.getGenerationInfo
+          .mockRejectedValueOnce(makeGatewayError(status))
+          .mockResolvedValueOnce({ totalCost: 0.04 });
+
+        const promise = client.getGenerationStats('gen-1');
+        await vi.advanceTimersByTimeAsync(500);
+        const stats = await promise;
+        expect(stats.costUsd).toBe(0.04);
+        expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(2);
+      }
+    );
+
+    it.each([400, 401, 403, 422])(
+      'does NOT retry on non-retryable status %i — throws immediately',
+      async (status) => {
+        const err = makeGatewayError(status);
+        mockGatewayInstance.getGenerationInfo.mockRejectedValue(err);
+
+        await expect(client.getGenerationStats('gen-1')).rejects.toBe(err);
+        expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('retries on network error (rejected error with no statusCode)', async () => {
+      mockGatewayInstance.getGenerationInfo
+        .mockRejectedValueOnce(makeGatewayError())
+        .mockResolvedValueOnce({ totalCost: 0.05 });
+
+      const promise = client.getGenerationStats('gen-1');
+      await vi.advanceTimersByTimeAsync(500);
+      const stats = await promise;
+      expect(stats.costUsd).toBe(0.05);
+      expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(2);
+    });
+
+    it('handles mixed transient sequence 404 → 500 → 404 → success', async () => {
+      mockGatewayInstance.getGenerationInfo
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(500))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockResolvedValueOnce({ totalCost: 0.06 });
+
+      const promise = client.getGenerationStats('gen-1');
+      await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
+      const stats = await promise;
+      expect(stats.costUsd).toBe(0.06);
+      expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(4);
+    });
+
+    it('preserves original error properties when propagating after exhaustion', async () => {
+      const finalErr = makeGatewayError(404);
+      mockGatewayInstance.getGenerationInfo.mockRejectedValue(finalErr);
+
+      const promise = captureSettlement(client.getGenerationStats('gen-1'));
+      await vi.advanceTimersByTimeAsync(15_500);
+      const caught = (await promise) as Error & { statusCode?: number; responseBody?: string };
+      expect(caught.statusCode).toBe(404);
+      expect(caught.responseBody).toBe('opaque error body — do NOT match on this');
+    });
+
+    it('emits exactly one console.warn per call on first retry only, with structured payload', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockGatewayInstance.getGenerationInfo
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockResolvedValueOnce({ totalCost: 0.07 });
+
+      const promise = client.getGenerationStats('gen-1');
+      await vi.advanceTimersByTimeAsync(500 + 1000 + 2000);
+      await promise;
+
+      // Log dashboards key off this payload shape; assert both that the
+      // structured object is present AND that it carries the fields ops needs
+      // (generationId for correlation, statusCode for bucketing 404 vs 5xx).
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const [, payload] = warnSpy.mock.calls[0] ?? [];
+      expect(payload).toMatchObject({ generationId: 'gen-1', statusCode: 404 });
+      warnSpy.mockRestore();
+    });
+
+    it('does not record evidence on retry attempts — only on final success', async () => {
+      const insertValues = vi.fn(() => Promise.resolve([]));
+      const insert = vi.fn(() => ({ values: insertValues }));
+      const db = { insert } as never;
+      const evidenceClient = createRealAIClient({
+        apiKey: 'test-api-key',
+        publicModelsUrl: 'https://test.example/v1/models',
+        evidence: { db, isCI: true },
+      });
+      mockGatewayInstance.getGenerationInfo
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockRejectedValueOnce(makeGatewayError(404))
+        .mockResolvedValueOnce({ totalCost: 0.08 });
+
+      const promise = evidenceClient.getGenerationStats('gen-1');
+      await vi.advanceTimersByTimeAsync(500 + 1000);
+      await promise;
+
+      expect(insert).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not record evidence when retries exhaust and call throws', async () => {
+      const insertValues = vi.fn(() => Promise.resolve([]));
+      const insert = vi.fn(() => ({ values: insertValues }));
+      const db = { insert } as never;
+      const evidenceClient = createRealAIClient({
+        apiKey: 'test-api-key',
+        publicModelsUrl: 'https://test.example/v1/models',
+        evidence: { db, isCI: true },
+      });
+      mockGatewayInstance.getGenerationInfo.mockRejectedValue(makeGatewayError(404));
+
+      const promise = captureSettlement(evidenceClient.getGenerationStats('gen-1'));
+      await vi.advanceTimersByTimeAsync(15_500);
+      await promise;
+
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('concurrent calls have independent retry budgets', async () => {
+      // Two parallel calls start synchronously, so A consumes mock #1 and B
+      // consumes mock #2. After A's 500ms backoff, A consumes mock #3. This
+      // proves the retry state is per-call (A's failure doesn't block B).
+      mockGatewayInstance.getGenerationInfo
+        .mockRejectedValueOnce(makeGatewayError(404)) // A's first attempt
+        .mockResolvedValueOnce({ totalCost: 0.2 }) // B's first attempt
+        .mockResolvedValueOnce({ totalCost: 0.1 }); // A's second attempt
+
+      const [first, second] = [
+        client.getGenerationStats('gen-A'),
+        client.getGenerationStats('gen-B'),
+      ];
+      await vi.advanceTimersByTimeAsync(500);
+      const results = await Promise.all([first, second]);
+      expect(results[0].costUsd).toBe(0.1); // A retried successfully
+      expect(results[1].costUsd).toBe(0.2); // B succeeded on first try
+      expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(3);
+    });
+
+    it('subsequent calls start with a fresh retry budget after a previous failure', async () => {
+      mockGatewayInstance.getGenerationInfo.mockRejectedValue(makeGatewayError(404));
+
+      const firstPromise = captureSettlement(client.getGenerationStats('gen-1'));
+      await vi.advanceTimersByTimeAsync(15_500);
+      await firstPromise;
+      expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(6);
+
+      mockGatewayInstance.getGenerationInfo.mockReset().mockResolvedValueOnce({ totalCost: 0.11 });
+      const second = await client.getGenerationStats('gen-2');
+      expect(second.costUsd).toBe(0.11);
+      expect(mockGatewayInstance.getGenerationInfo).toHaveBeenCalledTimes(1);
     });
   });
 

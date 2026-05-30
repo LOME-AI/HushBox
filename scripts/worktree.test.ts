@@ -153,6 +153,7 @@ describe('getWorktreeConfig', () => {
       expect(config.ports.minioApi).toBe(BASE_PORTS.minioApi + slot);
       expect(config.ports.minioConsole).toBe(BASE_PORTS.minioConsole + slot);
       expect(config.ports.studio).toBe(BASE_PORTS.studio + slot);
+      expect(config.ports.idleDaemon).toBe(BASE_PORTS.idleDaemon + slot);
     });
 
     it('produces different slots for different worktree names', () => {

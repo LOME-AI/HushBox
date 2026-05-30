@@ -34,6 +34,43 @@ import type {
   AudioRequest,
 } from './types.js';
 
+/**
+ * Backoff delays before each retry of `gateway.getGenerationInfo`.
+ *
+ * The AI Gateway batches usage events to per-region Redis after the streaming
+ * response closes, so `/v1/generation?id=…` can 404 for a brief window after a
+ * generation completes. The SDK does no retry of its own for this method.
+ *
+ * Budget: 15.5s across 5 retries (6 total attempts). Cap on individual delay
+ * keeps the worst-case wait reasonable for the user-facing chat path.
+ */
+const GATEWAY_LOOKUP_RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000] as const;
+
+/**
+ * Whether a failed `getGenerationInfo` call is worth retrying.
+ *
+ * Status-code only — never matches on response body. Body strings are not
+ * part of the gateway's contract and can change without notice.
+ *   - `undefined` status → network / DNS / abort (no HTTP response): retry.
+ *   - 404 → eventual-consistency window for /v1/generation: retry.
+ *   - 408, 429 → transient client-side timeout / rate-limit: retry.
+ *   - 5xx → gateway server error: retry.
+ *   - any other 4xx → permanent (auth, malformed): fail fast.
+ */
+export function isRetryableGatewayError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const status = (err as { statusCode?: unknown }).statusCode;
+  if (status === undefined) return true;
+  if (typeof status !== 'number') return false;
+  return status === 404 || status === 408 || status === 429 || status >= 500;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function imageProviderOptions(modelId: string): {
   gateway: { zeroDataRetention: true };
   google?: { sampleImageSize: ImagenSampleSize };
@@ -368,10 +405,27 @@ export function createRealAIClient(options: CreateRealAIClientOptions): AIClient
     },
 
     async getGenerationStats(generationId: string): Promise<{ costUsd: number }> {
-      const info = await gateway.getGenerationInfo({ id: generationId });
-      const result = { costUsd: info.totalCost };
-      await recordEvidence();
-      return result;
+      let warned = false;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const info = await gateway.getGenerationInfo({ id: generationId });
+          const result = { costUsd: info.totalCost };
+          await recordEvidence();
+          return result;
+        } catch (error) {
+          const nextDelayMs = GATEWAY_LOOKUP_RETRY_DELAYS_MS[attempt];
+          if (nextDelayMs === undefined || !isRetryableGatewayError(error)) throw error;
+          if (!warned) {
+            warned = true;
+            const status = (error as { statusCode?: number }).statusCode;
+            console.warn('[ai-gateway] getGenerationInfo retryable failure, retrying', {
+              generationId,
+              statusCode: status,
+            });
+          }
+          await sleep(nextDelayMs);
+        }
+      }
     },
   };
 }
