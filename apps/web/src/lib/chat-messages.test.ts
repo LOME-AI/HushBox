@@ -142,9 +142,9 @@ describe('chat-messages', () => {
     });
 
     it('includes modelName when provided', () => {
-      const message = createTrialMessage('assistant', '', 'msg-id', 'openrouter/auto');
+      const message = createTrialMessage('assistant', '', 'msg-id', 'smart-model');
 
-      expect(message.modelName).toBe('openrouter/auto');
+      expect(message.modelName).toBe('smart-model');
     });
 
     it('omits modelName when not provided', () => {

@@ -11,8 +11,9 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
-import type { Workspace } from './workspaces.js';
 import { discoverWorkspaces } from './workspaces.js';
+import { isMainModule } from './lib/is-main.js';
+import type { Workspace } from './workspaces.js';
 
 const EXCLUDED_DIRS = new Set([
   'node_modules',
@@ -33,13 +34,11 @@ const EXCLUDED_FILES = new Set(['routeTree.gen.ts']);
 export function findAllTsconfigs(rootDirectory: string, workspaces?: Workspace[]): string[] {
   const tsconfigs: string[] = [];
 
-  // Root tsconfig
   const rootTsconfig = path.join(rootDirectory, 'tsconfig.json');
   if (existsSync(rootTsconfig)) {
     tsconfigs.push(rootTsconfig);
   }
 
-  // Workspace tsconfigs
   const resolvedWorkspaces = workspaces ?? discoverWorkspaces(rootDirectory);
   for (const workspace of resolvedWorkspaces) {
     const workspaceDirectory = path.join(rootDirectory, workspace.path);
@@ -95,7 +94,7 @@ export function getFilesFromTsconfig(tsconfigPath: string): string[] {
   return program
     .getSourceFiles()
     .map((sourceFile) => sourceFile.fileName)
-    .filter((fileName) => !fileName.includes('/node_modules/'));
+    .filter((fileName) => !fileName.replaceAll('\\', '/').includes('/node_modules/'));
 }
 
 function isExcludedDirectory(name: string): boolean {
@@ -219,7 +218,7 @@ function main(): void {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
+if (isMainModule(import.meta.url)) {
   try {
     main();
   } catch (error: unknown) {

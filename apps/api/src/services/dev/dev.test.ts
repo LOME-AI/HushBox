@@ -5,10 +5,18 @@ import {
   cleanupTestData,
   resetTrialUsage,
   resetAuthRateLimits,
+  resetUsageRateLimits,
   createDevGroupChat,
   createDevConversation,
   setWalletBalance,
 } from './dev.js';
+
+/**
+ * Sentinel seed model id passed by these unit tests. The production route
+ * derives this from `pickValueTextModel(rawModels)` at request time; we don't
+ * exercise that selection here.
+ */
+const TEST_SEED_AI_MODEL = 'anthropic/claude-haiku-4.5';
 
 vi.mock('../billing/index.js', () => ({
   checkUserBalance: vi.fn().mockResolvedValue({
@@ -30,11 +38,11 @@ vi.mock('../chat/index.js', () => ({
 
 const mockAssignSequenceNumbers = vi.fn();
 const mockFetchEpochPublicKey = vi.fn();
-const mockInsertEncryptedMessage = vi.fn();
+const mockInsertEnvelopeTextMessage = vi.fn();
 vi.mock('../chat/message-helpers.js', () => ({
   assignSequenceNumbers: (...args: unknown[]) => mockAssignSequenceNumbers(...args),
   fetchEpochPublicKey: (...args: unknown[]) => mockFetchEpochPublicKey(...args),
-  insertEncryptedMessage: (...args: unknown[]) => mockInsertEncryptedMessage(...args),
+  insertEnvelopeTextMessage: (...args: unknown[]) => mockInsertEnvelopeTextMessage(...args),
 }));
 
 const mockCreateFirstEpoch = vi.fn();
@@ -42,7 +50,7 @@ const mockEncryptMessageForStorage = vi.fn();
 
 vi.mock('@hushbox/crypto', () => ({
   createFirstEpoch: (...args: unknown[]) => mockCreateFirstEpoch(...args),
-  encryptMessageForStorage: (...args: unknown[]) => mockEncryptMessageForStorage(...args),
+  encryptTextForEpoch: (...args: unknown[]) => mockEncryptMessageForStorage(...args),
 }));
 
 describe('dev service', () => {
@@ -70,7 +78,6 @@ describe('dev service', () => {
     });
 
     it('returns personas with stats for dev users', async () => {
-      // First call: get users (no longer includes balance - uses wallet-based checkUserBalance)
       mockDb.select
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
@@ -84,13 +91,11 @@ describe('dev service', () => {
             ]),
           }),
         })
-        // Conversation count
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue([{ count: 5 }]),
           }),
         })
-        // Message count
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
             innerJoin: vi.fn().mockReturnValue({
@@ -98,7 +103,6 @@ describe('dev service', () => {
             }),
           }),
         })
-        // Project count
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue([{ count: 2 }]),
@@ -143,26 +147,22 @@ describe('dev service', () => {
     });
 
     it('deletes messages and conversations for test users', async () => {
-      // Get test users
       mockDb.select
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue([{ id: 'test-user-1' }]),
           }),
         })
-        // Get conversations for test users
         .mockReturnValueOnce({
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue([{ id: 'conv-1' }, { id: 'conv-2' }]),
           }),
         });
 
-      // Delete messages returns rowCount
       mockDb.delete
         .mockReturnValueOnce({
           where: vi.fn().mockResolvedValue({ rowCount: 10 }),
         })
-        // Delete conversations
         .mockReturnValueOnce({
           where: vi.fn().mockResolvedValue({ rowCount: 2 }),
         });
@@ -282,6 +282,81 @@ describe('dev service', () => {
     });
   });
 
+  describe('resetUsageRateLimits', () => {
+    let mockRedis: {
+      scan: ReturnType<typeof vi.fn>;
+      del: ReturnType<typeof vi.fn>;
+    };
+
+    beforeEach(() => {
+      mockRedis = {
+        scan: vi.fn(),
+        del: vi.fn().mockResolvedValue(0),
+      };
+    });
+
+    it('deletes usage rate limit keys plus reservation buckets across every cleared prefix', async () => {
+      mockRedis.scan
+        .mockResolvedValueOnce(['0', ['chat:stream:user:ratelimit:alice']]) // chat stream
+        .mockResolvedValueOnce(['0', ['media:download:user:ratelimit:bob']]) // media download
+        .mockResolvedValueOnce(['0', ['share:create:user:ratelimit:carol']]) // share create
+        .mockResolvedValueOnce(['0', ['chat:reserved:alice']]) // personal reservation
+        .mockResolvedValueOnce(['0', ['chat:group-reserved:conv-1:member-1']]) // group member
+        .mockResolvedValueOnce(['0', ['chat:conversation-reserved:conv-1']]); // group conversation
+
+      const result = await resetUsageRateLimits(mockRedis as never);
+
+      expect(result).toEqual({ deleted: 6 });
+      expect(mockRedis.del).toHaveBeenCalledTimes(6);
+    });
+
+    it('returns zero when no usage rate limit keys exist', async () => {
+      mockRedis.scan.mockResolvedValue(['0', []]);
+
+      const result = await resetUsageRateLimits(mockRedis as never);
+
+      expect(result).toEqual({ deleted: 0 });
+      expect(mockRedis.del).not.toHaveBeenCalled();
+    });
+
+    it('does not scan trial or IP-scoped buckets that other tests depend on', async () => {
+      mockRedis.scan.mockResolvedValue(['0', []]);
+
+      await resetUsageRateLimits(mockRedis as never);
+
+      const matchedPatterns = mockRedis.scan.mock.calls.map(
+        (call: unknown[]) => (call[1] as { match: string }).match
+      );
+      expect(matchedPatterns).not.toContain('trial:chat:stream:ip:ratelimit:*');
+      expect(matchedPatterns).not.toContain('share:get:ip:ratelimit:*');
+    });
+
+    it('handles multi-page scan results within a single prefix', async () => {
+      mockRedis.scan
+        .mockResolvedValueOnce(['99', ['chat:stream:user:ratelimit:alice']])
+        .mockResolvedValueOnce(['0', ['chat:stream:user:ratelimit:bob']])
+        .mockResolvedValue(['0', []]);
+
+      const result = await resetUsageRateLimits(mockRedis as never);
+
+      expect(result).toEqual({ deleted: 2 });
+      expect(mockRedis.del).toHaveBeenCalledTimes(2);
+    });
+
+    it('clears speculative reservation buckets so a fresh setWalletBalance reflects the actual available balance', async () => {
+      mockRedis.scan.mockResolvedValue(['0', []]);
+
+      await resetUsageRateLimits(mockRedis as never);
+
+      const matchedPatterns = mockRedis.scan.mock.calls.map(
+        (call: unknown[]) => (call[1] as { match: string }).match
+      );
+      expect(matchedPatterns).toContain('chat:reserved:*');
+      expect(matchedPatterns).toContain('chat:group-reserved:*');
+      expect(matchedPatterns).toContain('chat:conversation-reserved:*');
+    });
+  });
+
   describe('createDevGroupChat', () => {
     const ALICE_PUBLIC_KEY = new Uint8Array([1, 2, 3, 4]);
     const BOB_PUBLIC_KEY = new Uint8Array([5, 6, 7, 8]);
@@ -364,6 +439,7 @@ describe('dev service', () => {
       const result = await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       expect(result.conversationId).toBeDefined();
@@ -399,6 +475,7 @@ describe('dev service', () => {
       await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       expect(mockCreateFirstEpoch).toHaveBeenCalledWith([ALICE_PUBLIC_KEY, BOB_PUBLIC_KEY]);
@@ -418,6 +495,7 @@ describe('dev service', () => {
       await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       const tables = insertCalls.map((c) => c.table);
@@ -441,6 +519,7 @@ describe('dev service', () => {
       await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       const memberInsert = insertCalls.find((c) => c.table === conversationMembers);
@@ -458,6 +537,39 @@ describe('dev service', () => {
       expect(bobRow?.acceptedAt).toBeInstanceOf(Date);
     });
 
+    it('creates pending member with acceptedAt: null when listed in pendingMemberEmails', async () => {
+      const mockDb = createGroupChatMockDb([
+        {
+          id: 'alice-id',
+          username: 'alice',
+          email: 'alice@test.hushbox.ai',
+          publicKey: ALICE_PUBLIC_KEY,
+        },
+        { id: 'bob-id', username: 'bob', email: 'bob@test.hushbox.ai', publicKey: BOB_PUBLIC_KEY },
+      ]);
+
+      await createDevGroupChat(mockDb as never, {
+        ownerEmail: 'alice@test.hushbox.ai',
+        memberEmails: ['bob@test.hushbox.ai'],
+        pendingMemberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
+      });
+
+      const memberInsert = insertCalls.find((c) => c.table === conversationMembers);
+      const memberRows = memberInsert!.values as {
+        userId: string;
+        acceptedAt: Date | null;
+      }[];
+
+      const aliceRow = memberRows.find((r) => r.userId === 'alice-id');
+      const bobRow = memberRows.find((r) => r.userId === 'bob-id');
+      // Owner is never pending — staying as the always-accepted seeder.
+      expect(aliceRow?.acceptedAt).toBeInstanceOf(Date);
+      // Bob was listed in pendingMemberEmails, so the seed must leave his
+      // acceptedAt null. This is the row state the /decline E2E exercises.
+      expect(bobRow?.acceptedAt).toBeNull();
+    });
+
     it('encrypts and inserts messages when provided', async () => {
       const mockDb = createGroupChatMockDb([
         {
@@ -472,37 +584,27 @@ describe('dev service', () => {
       await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
         messages: [
           { senderEmail: 'alice@test.hushbox.ai', content: 'Hello from Alice', senderType: 'user' },
           { content: 'Echo: Hello', senderType: 'ai' },
         ],
       });
 
-      const msgInsert = insertCalls.find((c) => c.table === messages);
-      expect(msgInsert).toBeDefined();
-      expect(mockEncryptMessageForStorage).toHaveBeenCalledTimes(3);
+      expect(mockEncryptMessageForStorage).toHaveBeenCalledTimes(1);
       expect(mockEncryptMessageForStorage).toHaveBeenCalledWith(EPOCH_PUBLIC_KEY, '');
-      expect(mockEncryptMessageForStorage).toHaveBeenCalledWith(
-        EPOCH_PUBLIC_KEY,
-        'Hello from Alice'
-      );
-      expect(mockEncryptMessageForStorage).toHaveBeenCalledWith(EPOCH_PUBLIC_KEY, 'Echo: Hello');
 
-      const msgRows = msgInsert!.values as {
-        senderType: string;
-        senderId: string | null;
-        sequenceNumber: number;
-        modelName?: string;
-      }[];
-      expect(msgRows).toHaveLength(2);
-      expect(msgRows[0]?.senderType).toBe('user');
-      expect(msgRows[0]?.senderId).toBe('alice-id');
-      expect(msgRows[0]?.sequenceNumber).toBe(1);
-      expect(msgRows[0]?.modelName).toBeUndefined();
-      expect(msgRows[1]?.senderType).toBe('ai');
-      expect(msgRows[1]?.senderId).toBeNull();
-      expect(msgRows[1]?.sequenceNumber).toBe(2);
-      expect(msgRows[1]?.modelName).toBe('anthropic/claude-3.5-sonnet');
+      expect(mockInsertEnvelopeTextMessage).toHaveBeenCalledTimes(2);
+
+      const call0 = mockInsertEnvelopeTextMessage.mock.calls[0]![1] as Record<string, unknown>;
+      expect(call0['senderType']).toBe('user');
+      expect(call0['senderId']).toBe('alice-id');
+      expect(call0['sequenceNumber']).toBe(1);
+
+      const call1 = mockInsertEnvelopeTextMessage.mock.calls[1]![1] as Record<string, unknown>;
+      expect(call1['senderType']).toBe('ai');
+      expect(call1['sequenceNumber']).toBe(2);
+      expect(call1['modelName']).toBe(TEST_SEED_AI_MODEL);
     });
 
     it('does not insert messages when none provided', async () => {
@@ -519,6 +621,7 @@ describe('dev service', () => {
       await createDevGroupChat(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
         memberEmails: ['bob@test.hushbox.ai'],
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       const msgInsert = insertCalls.find((c) => c.table === messages);
@@ -536,6 +639,7 @@ describe('dev service', () => {
         createDevGroupChat(mockDb as never, {
           ownerEmail: 'alice@test.hushbox.ai',
           memberEmails: ['bob@test.hushbox.ai'],
+          seedAiModel: TEST_SEED_AI_MODEL,
         })
       ).rejects.toThrow('Owner not found');
     });
@@ -643,7 +747,7 @@ describe('dev service', () => {
       mockSaveUserOnlyMessage.mockReset();
       mockAssignSequenceNumbers.mockReset();
       mockFetchEpochPublicKey.mockReset();
-      mockInsertEncryptedMessage.mockReset();
+      mockInsertEnvelopeTextMessage.mockReset();
 
       mockCreateFirstEpoch.mockReturnValue({
         epochPublicKey: EPOCH_PUBLIC_KEY,
@@ -656,7 +760,7 @@ describe('dev service', () => {
         epochPublicKey: EPOCH_PUBLIC_KEY,
         epochNumber: 1,
       });
-      mockInsertEncryptedMessage.mockClear();
+      mockInsertEnvelopeTextMessage.mockClear();
     });
 
     function createMockDb(
@@ -694,6 +798,7 @@ describe('dev service', () => {
 
       const result = await createDevConversation(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       expect(result.conversationId).toBe('conv-123');
@@ -714,7 +819,10 @@ describe('dev service', () => {
       const mockDb = createMockDb([]);
 
       await expect(
-        createDevConversation(mockDb as never, { ownerEmail: 'nobody@test.hushbox.ai' })
+        createDevConversation(mockDb as never, {
+          ownerEmail: 'nobody@test.hushbox.ai',
+          seedAiModel: TEST_SEED_AI_MODEL,
+        })
       ).rejects.toThrow('User not found: nobody@test.hushbox.ai');
     });
 
@@ -736,13 +844,13 @@ describe('dev service', () => {
 
       await createDevConversation(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
+        seedAiModel: TEST_SEED_AI_MODEL,
         messages: [
           { content: 'Hello', senderType: 'user' },
           { content: 'Echo: Hello', senderType: 'ai' },
         ],
       });
 
-      // User messages use saveUserOnlyMessage
       expect(mockSaveUserOnlyMessage).toHaveBeenCalledWith(
         mockDb,
         expect.objectContaining({
@@ -770,6 +878,7 @@ describe('dev service', () => {
 
       const result = await createDevConversation(mockDb as never, {
         ownerEmail: 'alice@test.hushbox.ai',
+        seedAiModel: TEST_SEED_AI_MODEL,
       });
 
       expect(result.conversationId).toBe('conv-456');

@@ -1,5 +1,5 @@
-import type { LegalSection, LegalDocumentMeta } from './types.js';
 import { PRIVACY_POLICY_EFFECTIVE_DATE, PRIVACY_CONTACT_EMAIL } from '../constants.js';
+import type { LegalSection, LegalDocumentMeta } from './types.js';
 
 export const PRIVACY_POLICY_META: LegalDocumentMeta = {
   title: 'Privacy Policy',
@@ -38,7 +38,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     points: [
       'We route your messages through third-party AI providers to generate responses. Your messages are sent using HushBox\u2019s credentials, not yours \u2014 providers cannot identify you personally.',
       'Message content is visible to AI providers during processing. This is inherent to how AI models work. Avoid including sensitive personal information (names, addresses, financial details) in your messages.',
-      'We use OpenRouter as our AI gateway service. You can review their privacy practices at openrouter.ai/privacy.',
+      'We route all AI model requests through a single AI gateway service that enforces zero-data-retention across providers. We never grant model providers access to your account, billing information, or long-term conversation history.',
       'Our payment processor handles all payment transactions. We never receive or store your credit card number or bank details.',
     ],
   },
@@ -58,11 +58,13 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     id: 'data-retention',
     title: 'Data Retention & Deletion',
     simplyPut:
-      'Messages are stored while your account is active. You can delete conversations at any time.',
+      'You can delete your account at any time. Your messages and personal data are erased. Anonymized billing records are kept for accounting and tax reasons.',
     points: [
-      'Your messages are stored in encrypted form for as long as your account is active.',
-      'You can delete individual conversations at any time. Deletion is permanent \u2014 deleted data cannot be recovered.',
-      'Anonymized billing records (transaction amounts, dates) are retained for financial and legal compliance.',
+      'You can delete your account at any time from your Settings page.',
+      'When you delete your account, we permanently remove your conversations, files, custom instructions, and the encryption keys we held for you. Without those keys, your stored data cannot be read by anyone, including us.',
+      'We keep anonymized records of past payments and credit usage \u2014 the amounts and dates remain, but your identity is removed. We keep these to meet legal and tax requirements.',
+      'Encrypted backups of our database take up to 30 days to rotate. Your data inside those backups is unreadable without your encryption keys, which are permanently destroyed when your account is deleted.',
+      'We keep an anonymized record of the deletion event itself for 90 days so we can help if you contact us about it.',
     ],
   },
   {

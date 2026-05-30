@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { cn, buttonVariants } from '@hushbox/ui';
-import { generateKeyPair, encryptMessageForStorage } from '@hushbox/crypto';
+import { generateKeyPair, encryptTextForEpoch } from '@hushbox/crypto';
 
 type EncryptionDemoProps = React.ComponentProps<'div'>;
 
@@ -16,7 +16,7 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
 
   const cipherHex = React.useMemo(() => {
     try {
-      const blob = encryptMessageForStorage(demoPublicKey, text || 'demo');
+      const blob = encryptTextForEpoch(demoPublicKey, text || 'demo');
       return toHex(blob);
     } catch {
       return '(encryption unavailable)';
@@ -32,15 +32,17 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
       <h3 className="font-semibold">See it for yourself</h3>
 
       <div>
-        <label className="text-muted-foreground text-xs">What you type:</label>
-        <input
-          type="text"
-          value={text}
-          onChange={(e): void => {
-            setText(e.target.value);
-          }}
-          className="bg-background mt-1 w-full rounded-md border px-3 py-2 text-sm"
-        />
+        <label className="text-muted-foreground block text-xs">
+          What you type:
+          <input
+            type="text"
+            value={text}
+            onChange={(e): void => {
+              setText(e.target.value);
+            }}
+            className="bg-background mt-1 w-full rounded-md border px-3 py-2 text-sm"
+          />
+        </label>
       </div>
 
       <button

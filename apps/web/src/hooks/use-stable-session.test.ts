@@ -6,7 +6,6 @@ vi.unmock('@/providers/stability-provider');
 
 import { useStableSession } from './use-stable-session';
 
-// Mock dependencies
 vi.mock('@/lib/auth', () => ({
   useSession: vi.fn(),
 }));

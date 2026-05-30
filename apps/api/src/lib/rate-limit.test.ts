@@ -8,8 +8,8 @@ import {
   checkDualRateLimit,
   recordDualFailedAttempt,
 } from './rate-limit.js';
-import type { RateLimitConfig } from './rate-limit.js';
 import { REDIS_REGISTRY } from './redis-registry.js';
+import type { RateLimitConfig } from './rate-limit.js';
 
 function createMockRedis(): {
   store: Map<string, unknown>;
@@ -232,7 +232,9 @@ describe('rate-limit', () => {
       );
 
       expect(result.lockedOut).toBe(true);
-      expect(result.retryAfterSeconds).toBeGreaterThan(0);
+      if (result.lockedOut) {
+        expect(result.retryAfterSeconds).toBeGreaterThan(0);
+      }
     });
 
     it('returns false when lockout has expired', async () => {

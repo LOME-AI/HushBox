@@ -11,7 +11,6 @@ const { mockUseStableSession, mockNavigate, mockUseBalance, mockUseStability } =
   mockUseStability: vi.fn(),
 }));
 
-// Mock tanstack router
 vi.mock('@tanstack/react-router', async () => {
   const actual = await vi.importActual('@tanstack/react-router');
   return {
@@ -21,17 +20,14 @@ vi.mock('@tanstack/react-router', async () => {
   };
 });
 
-// Mock stable session hook
 vi.mock('@/hooks/use-stable-session', () => ({
   useStableSession: mockUseStableSession,
 }));
 
-// Mock stability provider
 vi.mock('@/providers/stability-provider', () => ({
   useStability: mockUseStability,
 }));
 
-// Mock billing
 vi.mock('@/hooks/billing', () => ({
   useBalance: mockUseBalance,
   billingKeys: {
@@ -39,7 +35,6 @@ vi.mock('@/hooks/billing', () => ({
   },
 }));
 
-// Mock api module — `api` object was removed; module now exports getApiUrl + ApiError
 vi.mock('@/lib/api', () => ({
   getApiUrl: vi.fn(() => 'http://localhost:8787'),
   ApiError: class ApiError extends Error {
@@ -54,28 +49,25 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-// Mock chat error store
 const mockClearError = vi.fn();
+const mockClearAll = vi.fn();
 vi.mock('@/stores/chat-error', () => ({
+  MAIN_FORK_KEY: 'main',
   useChatErrorStore: Object.assign(() => null, {
     getState: () => ({
-      error: null,
+      errorsByFork: {},
       setError: vi.fn(),
       clearError: mockClearError,
+      clearAll: mockClearAll,
     }),
   }),
 }));
 
-// Mock hooks used by PromptInput
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
-  return {
-    ...actual,
-    useModelStore: vi.fn(() => ({
-      selectedModels: [{ id: 'test-model', name: 'Test Model' }],
-      setSelectedModel: vi.fn(),
-    })),
-  };
+  const { createModelStoreStub, selectorFromState } = await import('@/test-utils/model-store-mock');
+  const state = createModelStoreStub();
+  return { ...actual, useModelStore: vi.fn(selectorFromState(state)) };
 });
 
 vi.mock('@/hooks/models', async (importOriginal) => {
@@ -118,7 +110,6 @@ vi.mock('@/hooks/use-prompt-budget', () => ({
   }),
 }));
 
-// Mock framer-motion
 vi.mock('framer-motion', async () => {
   const react = await import('react');
 
@@ -130,7 +121,6 @@ vi.mock('framer-motion', async () => {
     );
   };
 
-  // AnimatePresence just renders children
   const AnimatePresence = ({ children }: { children?: React.ReactNode }) => {
     return react.createElement(react.Fragment, null, children);
   };
@@ -171,7 +161,6 @@ vi.stubGlobal('crypto', {
 describe('ChatIndex', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default mock values
     mockUseBalance.mockReturnValue({ data: { balance: '0.00' } });
     mockUseStability.mockReturnValue({
       isAuthStable: true,
@@ -190,7 +179,6 @@ describe('ChatIndex', () => {
 
     render(<ChatIndex />, { wrapper: createWrapper() });
 
-    // Should show loading state, not the greeting
     expect(screen.getByTestId('chat-welcome')).toHaveAttribute('data-loading', 'true');
   });
 
@@ -213,7 +201,6 @@ describe('ChatIndex', () => {
   });
 
   it('does not re-render greeting when session becomes stable', async () => {
-    // Start with pending session
     mockUseStableSession.mockReturnValue({
       session: null,
       isAuthenticated: false,
@@ -223,7 +210,6 @@ describe('ChatIndex', () => {
 
     const { rerender } = render(<ChatIndex />, { wrapper: createWrapper() });
 
-    // Session becomes available and stable
     mockUseStableSession.mockReturnValue({
       session: {
         user: { email: 'test@example.com' },
@@ -258,17 +244,14 @@ describe('ChatIndex', () => {
 
       render(<ChatIndex />, { wrapper: createWrapper() });
 
-      // Find the input and type a message
       const textarea = screen.getByRole('textbox');
       const userEventModule = await import('@testing-library/user-event');
       const user = userEventModule.default;
       await user.setup().type(textarea, 'Hello AI!{enter}');
 
-      // Verify the pending message was stored
       const state = usePendingChatStore.getState();
       expect(state.pendingMessage).toBe('Hello AI!');
 
-      // Verify navigation to /chat/new
       expect(mockNavigate).toHaveBeenCalledWith({
         to: '/chat/$id',
         params: { id: 'new' },
@@ -327,7 +310,7 @@ describe('ChatIndex', () => {
 
       render(<ChatIndex />, { wrapper: createWrapper() });
 
-      expect(mockClearError).toHaveBeenCalled();
+      expect(mockClearAll).toHaveBeenCalled();
     });
 
     it('clears chat error when sending a message', async () => {
@@ -343,14 +326,14 @@ describe('ChatIndex', () => {
 
       render(<ChatIndex />, { wrapper: createWrapper() });
 
-      mockClearError.mockClear();
+      mockClearAll.mockClear();
 
       const textarea = screen.getByRole('textbox');
       const userEventModule = await import('@testing-library/user-event');
       const user = userEventModule.default;
       await user.setup().type(textarea, 'Hello AI!{enter}');
 
-      expect(mockClearError).toHaveBeenCalled();
+      expect(mockClearAll).toHaveBeenCalled();
     });
   });
 });

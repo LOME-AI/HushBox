@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { seedUUID } from './seed.js';
+import { isMainModule } from './lib/is-main.js';
 
 interface ScreenshotConfig {
   name: string;
@@ -380,9 +381,8 @@ export async function generateSingleScreenshot(
   console.log(`Generated ${config.name} at ${String(resolutionConfigs.length)} resolutions`);
 }
 
-// CLI entry point
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   /* v8 ignore next 9 */
   const screenshotName = process.argv[2];

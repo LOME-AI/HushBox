@@ -8,6 +8,15 @@
         "X-MCP-Readonly": "true",
         "X-MCP-Toolsets": "pull_requests,actions,repos"
       }
+    },
+    "linear-server": {
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp"
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
     }
   }
 }

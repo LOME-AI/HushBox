@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { scheduleMockWebhook } from './mock-webhook.js';
 import { signHmacSha256Webhook } from '@hushbox/crypto';
+import { scheduleMockWebhook } from './mock-webhook.js';
 import { verifyWebhookSignatureAsync } from './helcim.js';
 
 describe('mock-webhook', () => {
@@ -18,10 +18,8 @@ describe('mock-webhook', () => {
         webhookId,
       });
 
-      // Signature should be in versioned format "v1,base64signature"
       expect(signature).toMatch(/^v1,.+$/);
 
-      // Signature should be verifiable
       const isValid = await verifyWebhookSignatureAsync({
         webhookVerifier,
         payload,

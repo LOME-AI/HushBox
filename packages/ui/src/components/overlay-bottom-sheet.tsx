@@ -6,8 +6,8 @@ import { XIcon } from 'lucide-react';
 
 import { cn } from '../lib/utilities';
 import { useVisualViewportHeight } from '../hooks/use-visual-viewport-height';
-import type { OverlayProps } from './overlay';
 import { OverlayNavButtons, CLOSE_BUTTON_CLASS } from './overlay-nav-buttons';
+import type { OverlayProps } from './overlay';
 
 /**
  * Bottom sheet renderer for Overlay — slide-up drawer with drag-to-dismiss.
@@ -23,8 +23,13 @@ function OverlayBottomSheet({
   showCloseButton = true,
   currentStep,
   onBack,
+  dismissible = true,
 }: Readonly<OverlayProps>): React.JSX.Element {
   const showBackButton = currentStep !== undefined && currentStep > 1 && onBack !== undefined;
+  // Hide close button + drag handle together when undismissible: the drag
+  // handle implies swipe-to-dismiss (which vaul disables via `dismissible`),
+  // and a visible close button you can't use is a UI lie.
+  const renderCloseButton = showCloseButton && dismissible;
   const viewportHeight = useVisualViewportHeight();
   const contentRef = React.useRef<HTMLDivElement>(null);
 
@@ -70,7 +75,7 @@ function OverlayBottomSheet({
   const keyboardStyle = isKeyboardOpen ? { maxHeight: viewportHeight * 0.9 } : undefined;
 
   return (
-    <Drawer.Root open={open} onOpenChange={onOpenChange}>
+    <Drawer.Root open={open} onOpenChange={onOpenChange} dismissible={dismissible}>
       <Drawer.Portal>
         <Drawer.Overlay
           data-slot="overlay-backdrop"
@@ -94,10 +99,13 @@ function OverlayBottomSheet({
         >
           <Drawer.Title className="sr-only">{ariaLabel}</Drawer.Title>
 
-          {/* Drag handle */}
-          <div className="flex shrink-0 justify-center pt-3 pb-1">
-            <div className="bg-muted-foreground/30 h-1 w-10 rounded-full" />
-          </div>
+          {/* Drag handle — implies swipe-to-dismiss, so hide it when vaul's
+              `dismissible={false}` disables that affordance. */}
+          {dismissible && (
+            <div className="flex shrink-0 justify-center pt-3 pb-1">
+              <div className="bg-muted-foreground/30 h-1 w-10 rounded-full" />
+            </div>
+          )}
 
           {/* Content wrapper — pt-2 matches DialogPrimitive.Content padding so buttons align identically */}
           <div
@@ -108,7 +116,7 @@ function OverlayBottomSheet({
               showBackButton={showBackButton}
               onBack={onBack}
               closeElement={
-                showCloseButton ? (
+                renderCloseButton ? (
                   <Drawer.Close data-slot="overlay-close" className={CLOSE_BUTTON_CLASS}>
                     <XIcon />
                     <span className="sr-only">Close</span>

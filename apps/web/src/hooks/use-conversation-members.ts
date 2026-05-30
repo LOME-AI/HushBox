@@ -1,9 +1,9 @@
-import type { QueryClient } from '@tanstack/react-query';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { StreamChatRotation } from '@hushbox/shared';
 import { client, fetchJson } from '../lib/api-client.js';
 import { budgetKeys } from './use-conversation-budgets.js';
 import { chatKeys } from './chat.js';
+import type { StreamChatRotation } from '@hushbox/shared';
+import type { QueryClient } from '@tanstack/react-query';
 
 export function useMuteConversation() {
   const queryClient = useQueryClient();
@@ -202,6 +202,34 @@ export function useAcceptMembership() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: chatKeys.conversations(),
+      });
+    },
+  });
+}
+
+/**
+ * Decline a pending invitation. Server-side this requires `acceptedAt IS NULL`
+ * — once the user has accepted, declining is no longer valid and they must
+ * `leaveConversation` (which rotates the epoch). The inbox UI only shows the
+ * decline button while the invite is pending, so this path is reached from
+ * exactly one place.
+ */
+export function useDeclineInvitation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ conversationId }: { conversationId: string }) =>
+      fetchJson(
+        client.api.members[':conversationId'].decline.$post({
+          param: { conversationId },
+        })
+      ),
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: chatKeys.conversations(),
+      });
+      queryClient.removeQueries({
+        queryKey: chatKeys.conversation(variables.conversationId),
       });
     },
   });

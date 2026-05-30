@@ -2,9 +2,28 @@ import * as React from 'react';
 import { Link, Outlet, createFileRoute, redirect } from '@tanstack/react-router';
 import { Logo } from '@hushbox/ui';
 import { ROUTES } from '@hushbox/shared';
+import { CipherWall } from '@hushbox/ui';
 import { authClient } from '@/lib/auth';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
-import { CipherWall } from '@hushbox/ui';
+
+const AUTH_CIPHER_MESSAGES: readonly string[] = [
+  'Encrypted By Default',
+  'Only You Hold The Key',
+  'Every Model, One Place',
+  'Private Group Chats',
+  'Zero-Knowledge Password',
+  'Switch Models Anytime',
+  'Your Messages, Your Control',
+  'No Subscriptions Required',
+  'One App, Every AI',
+  'Never Lose A Conversation',
+  'Stop Juggling Subscriptions',
+  'Try Any Model Instantly',
+  'Your Ideas Stay Yours',
+  'Simple, Honest Pricing',
+  'No More App Switching',
+  'Built For Your Workflow',
+];
 
 export const Route = createFileRoute('/_auth')({
   beforeLoad: async () => {
@@ -36,7 +55,7 @@ export function AuthLayout(): React.JSX.Element {
       </div>
 
       <div className="hidden overflow-hidden lg:block lg:flex-1">
-        <CipherWall />
+        <CipherWall messages={AUTH_CIPHER_MESSAGES} />
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import { createEnvUtilities, type EnvContext } from '@hushbox/shared';
-import type { PushClient } from './types.js';
 import { createConsolePushClient } from './console.js';
 import { createFcmPushClient } from './fcm.js';
+import type { PushClient } from './types.js';
 
 interface PushEnv extends EnvContext {
   FCM_PROJECT_ID?: string;

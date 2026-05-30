@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import type { Model } from '@hushbox/shared';
 import { useSelectedModelCapabilities } from './use-selected-model-capabilities.js';
+import type { Model } from '@hushbox/shared';
 
 vi.mock('@/stores/model', () => ({
   useModelStore: vi.fn(),
@@ -12,44 +12,42 @@ vi.mock('@/hooks/models', () => ({
   useModels: vi.fn(),
 }));
 
-vi.mock('@hushbox/shared', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@hushbox/shared')>();
-  return {
-    ...original,
-    modelSupportsCapability: vi.fn(),
-  };
-});
-
 import { useModelStore, getPrimaryModel } from '@/stores/model';
 import { useModels } from '@/hooks/models';
-import { modelSupportsCapability } from '@hushbox/shared';
 
 const mockedUseModelStore = vi.mocked(useModelStore);
 const mockedGetPrimaryModel = vi.mocked(getPrimaryModel);
 const mockedUseModels = vi.mocked(useModels);
-const mockedModelSupportsCapability = vi.mocked(modelSupportsCapability);
 
 const testModel: Model = {
   id: 'test-model',
   name: 'Test Model',
   description: 'A test model',
   provider: 'TestProvider',
+  modality: 'text' as const,
   contextLength: 100_000,
   pricePerInputToken: 0.000_01,
   pricePerOutputToken: 0.000_03,
+  pricePerImage: 0,
+  pricePerSecondByResolution: {},
+  pricePerSecond: 0,
   capabilities: [],
-  supportedParameters: ['web_search'],
+  supportedParameters: [],
   created: Math.floor(Date.now() / 1000),
 };
 
-const testModelNoSearch: Model = {
-  id: 'no-search-model',
-  name: 'No Search Model',
-  description: 'A model without search',
+const testModelAlt: Model = {
+  id: 'alt-model',
+  name: 'Alt Model',
+  description: 'Another model',
   provider: 'TestProvider',
+  modality: 'text' as const,
   contextLength: 100_000,
   pricePerInputToken: 0.000_01,
   pricePerOutputToken: 0.000_03,
+  pricePerImage: 0,
+  pricePerSecondByResolution: {},
+  pricePerSecond: 0,
   capabilities: [],
   supportedParameters: [],
   created: Math.floor(Date.now() / 1000),
@@ -69,7 +67,6 @@ describe('useSelectedModelCapabilities', () => {
     mockedUseModels.mockReturnValue({
       data: { models: [testModel], premiumIds },
     } as ReturnType<typeof useModels>);
-    mockedModelSupportsCapability.mockReturnValue(false);
 
     const { result } = renderHook(() => useSelectedModelCapabilities());
 
@@ -87,45 +84,19 @@ describe('useSelectedModelCapabilities', () => {
     expect(result.current.models).toEqual([]);
     expect(result.current.premiumIds).toEqual(new Set());
     expect(result.current.selectedModel).toBeUndefined();
-    expect(result.current.supportsSearch).toBe(false);
   });
 
   it('finds the selected model from the models list', () => {
     mockedUseModels.mockReturnValue({
-      data: { models: [testModel, testModelNoSearch], premiumIds: new Set() },
+      data: { models: [testModel, testModelAlt], premiumIds: new Set() },
     } as ReturnType<typeof useModels>);
-    mockedModelSupportsCapability.mockReturnValue(false);
 
     const { result } = renderHook(() => useSelectedModelCapabilities());
 
     expect(result.current.selectedModel).toBe(testModel);
   });
 
-  it('returns supportsSearch true when model supports web-search', () => {
-    mockedUseModels.mockReturnValue({
-      data: { models: [testModel], premiumIds: new Set() },
-    } as ReturnType<typeof useModels>);
-    mockedModelSupportsCapability.mockReturnValue(true);
-
-    const { result } = renderHook(() => useSelectedModelCapabilities());
-
-    expect(result.current.supportsSearch).toBe(true);
-    expect(mockedModelSupportsCapability).toHaveBeenCalledWith(testModel, 'web-search');
-  });
-
-  it('returns supportsSearch false when model does not support web-search', () => {
-    mockedGetPrimaryModel.mockReturnValue({ id: 'no-search-model', name: 'No Search Model' });
-    mockedUseModels.mockReturnValue({
-      data: { models: [testModelNoSearch], premiumIds: new Set() },
-    } as ReturnType<typeof useModels>);
-    mockedModelSupportsCapability.mockReturnValue(false);
-
-    const { result } = renderHook(() => useSelectedModelCapabilities());
-
-    expect(result.current.supportsSearch).toBe(false);
-  });
-
-  it('returns supportsSearch false when selected model is not found', () => {
+  it('returns undefined selectedModel when primary model is not found', () => {
     mockedGetPrimaryModel.mockReturnValue({ id: 'missing-model', name: 'Missing' });
     mockedUseModels.mockReturnValue({
       data: { models: [testModel], premiumIds: new Set() },
@@ -134,7 +105,5 @@ describe('useSelectedModelCapabilities', () => {
     const { result } = renderHook(() => useSelectedModelCapabilities());
 
     expect(result.current.selectedModel).toBeUndefined();
-    expect(result.current.supportsSearch).toBe(false);
-    expect(mockedModelSupportsCapability).not.toHaveBeenCalled();
   });
 });

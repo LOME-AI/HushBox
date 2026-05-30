@@ -14,6 +14,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { createEnvUtilities, type EnvContext, type EnvUtilities } from '@hushbox/shared';
+import { isMainModule } from './lib/is-main.js';
 import { parseOrExit } from './lib/run-cli.js';
 
 export type Mode = 'development' | 'ciVitest' | 'e2e' | 'ciE2E' | 'production';
@@ -85,7 +86,6 @@ function buildEnvContext(variables: Record<string, string>): EnvContext {
 export async function parseWranglerToml(filePath: string): Promise<EnvContext> {
   const content = await readFile(filePath, 'utf8');
 
-  // Simple TOML parsing for [vars] section
   const variablesMatch = /\[vars\]([\s\S]*?)(?:\[|$)/.exec(content);
   if (!variablesMatch?.[1]) {
     return {};
@@ -414,8 +414,7 @@ async function main(): Promise<void> {
   console.log('\n✓ All environment verifications passed');
 }
 
-// Only run main when executed directly (not when imported for testing)
-if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
+if (isMainModule(import.meta.url)) {
   void (async () => {
     try {
       await main();

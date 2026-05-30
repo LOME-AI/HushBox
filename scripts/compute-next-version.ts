@@ -1,11 +1,6 @@
-import { appendFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
-import { semverToCode } from './extract-version.js';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { semverToCode, writeGithubOutput } from './extract-version.js';
 
 interface Semver {
   major: number;
@@ -25,10 +20,6 @@ interface ComputeVersionResult {
   versionName: string;
   versionCode: number;
 }
-
-// ---------------------------------------------------------------------------
-// Pure functions
-// ---------------------------------------------------------------------------
 
 const STRICT_SEMVER = /^v?(\d+)\.(\d+)\.(\d+)$/;
 
@@ -82,14 +73,10 @@ export function computeNextVersion(input: ComputeVersionInput): ComputeVersionRe
   return { version, versionName: version, versionCode: semverToCode(version) };
 }
 
-// ---------------------------------------------------------------------------
-// IO functions (side-effectful — tested with mocks)
-// ---------------------------------------------------------------------------
-
 /** Find the latest stable git tag matching vX.Y.Z (no pre-release). */
 export function findLatestStableTag(): string | null {
   // eslint-disable-next-line sonarjs/no-os-command-from-path -- git is a standard tool in CI runners
-  const output = execSync('git tag --list "v*" --sort=-version:refname', {
+  const output = execFileSync('git', ['tag', '--list', 'v*', '--sort=-version:refname'], {
     encoding: 'utf8',
   }).trim();
 
@@ -129,15 +116,10 @@ export async function findMergedPrLabels(
   return (pulls[0]?.labels ?? []).map((l) => l.name);
 }
 
-// ---------------------------------------------------------------------------
-// CLI entrypoint
-// ---------------------------------------------------------------------------
-
 async function main(): Promise<void> {
   const token = process.env['GITHUB_TOKEN'];
   const repository = process.env['GITHUB_REPOSITORY'];
   const sha = process.env['GITHUB_SHA'];
-  const outputFile = process.env['GITHUB_OUTPUT'];
 
   if (!token) throw new Error('GITHUB_TOKEN is required');
   if (!repository) throw new Error('GITHUB_REPOSITORY is required');
@@ -147,21 +129,11 @@ async function main(): Promise<void> {
   const labels = await findMergedPrLabels(repository, sha, token);
   const result = computeNextVersion({ latestTag, labels });
 
-  const lines = [
+  writeGithubOutput([
     `version=${result.version}`,
     `version_name=${result.versionName}`,
     `version_code=${String(result.versionCode)}`,
-  ];
-
-  if (outputFile) {
-    for (const line of lines) {
-      appendFileSync(outputFile, `${line}\n`);
-    }
-  }
-
-  for (const line of lines) {
-    console.log(line);
-  }
+  ]);
 }
 
 const scriptPath = process.argv[1] ?? '';

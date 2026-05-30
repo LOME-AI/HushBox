@@ -2,8 +2,6 @@
  * Renders the "Powered by Helcim" logo as SVG.
  * This component ensures we have the proper attribution
  * for our payment processing partner.
- *
- * Converted from MUI to Tailwind/React.
  */
 export function HelcimLogo(): React.JSX.Element {
   return (

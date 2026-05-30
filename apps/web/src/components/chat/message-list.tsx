@@ -1,16 +1,33 @@
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import { MessageItem } from './message-item';
-import type { Message } from '@/lib/api';
 import { groupConsecutiveMessages, type MessageGroup } from '@/lib/chat-sender';
-import type { LinkInfo } from '@/lib/chat-sender';
-import { isMultiModelResponse, canRegenerateMessage } from '@/lib/chat-regeneration';
+import { getMultiModelMessageIds, canRegenerateMessage } from '@/lib/chat-regeneration';
 import {
   resolveMessageActions,
   buildChatContext,
   type MessageContext,
 } from '@/lib/message-actions';
+import { omitUndefined } from '@/lib/optional-props';
+import { env } from '@/lib/env';
+import { MessageItem } from './message-item';
+import type { Message } from '@/lib/api';
+import type { LinkInfo } from '@/lib/chat-sender';
 import type { MemberPrivilege } from '@hushbox/shared';
+
+declare global {
+  // Test-only escape hatch exposed by `MessageList` in dev/E2E builds. Calls
+  // Virtuoso's native `scrollIntoView({ index, done })` and resolves when the
+  // row is measured and rendered.
+  var __virtuosoScrollToIndex: ((index: number) => Promise<void>) | undefined;
+}
 
 /**
  * Data row for a single Virtuoso item. Wraps the message (or group) together
@@ -68,6 +85,15 @@ interface MessageListProps {
   isLinkGuest?: boolean;
   /** The caller's privilege level */
   callerPrivilege?: MemberPrivilege | undefined;
+  /**
+   * Parent-derived signal that the message list reflects the final data for
+   * the current conversation/fork — conversation query loaded, fork resolved,
+   * decryption pass complete. Tests wait on this attribute before reading
+   * `data-message-count` to avoid the "stable at 0 mid-decryption" race that
+   * the legacy polling helper had. Defaults to `false` so a missing prop
+   * never lets a test trust an in-flight render.
+   */
+  messagesReady?: boolean | undefined;
 }
 
 export interface MessageListHandle extends VirtuosoHandle {
@@ -107,6 +133,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     isAuthenticated,
     isLinkGuest,
     callerPrivilege,
+    messagesReady = false,
   },
   ref
 ) {
@@ -136,6 +163,29 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       },
     };
   });
+
+  // Playwright-only escape hatch for parking a virtualized row in view.
+  // `align: 'start'` (not 'center') because center-alignment for rows
+  // taller than half the viewport clamps to the scroll edge and Virtuoso
+  // can treat that as a no-op. `userScrolledAwayRef = true` before the
+  // scroll so a follow-up refetch's `followOutput()` doesn't re-pin to
+  // the bottom and unmount the just-scrolled-to row.
+  useEffect(() => {
+    if (!env.isLocalDev && !env.isE2E) return;
+    globalThis.__virtuosoScrollToIndex = (index: number): Promise<void> =>
+      new Promise((resolve) => {
+        const handle = virtuosoRef.current;
+        if (!handle) {
+          resolve();
+          return;
+        }
+        userScrolledAwayRef.current = true;
+        handle.scrollIntoView({ index, align: 'start', behavior: 'auto', done: resolve });
+      });
+    return () => {
+      globalThis.__virtuosoScrollToIndex = undefined;
+    };
+  }, []);
 
   const handleAtBottomStateChange = useCallback((atBottom: boolean): void => {
     if (!atBottom) {
@@ -167,6 +217,10 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     () => (isGroupChat ? groupConsecutiveMessages(messages) : null),
     [isGroupChat, messages]
   );
+
+  // O(N) precompute so the render mapper does O(1) lookups per row instead of
+  // calling isMultiModelResponse per message (each itself O(N) → O(N²) total).
+  const multiModelIds = useMemo(() => getMultiModelMessageIds(messages), [messages]);
 
   // Bake per-row render state into the data array. When streamingMessageIds
   // or errorMessageId changes, this produces a fresh array with fresh row
@@ -201,6 +255,10 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         role="log"
         aria-label="Chat messages"
         data-testid="message-list-empty"
+        data-message-count={0}
+        data-decrypted-count={0}
+        data-streaming-count={0}
+        data-messages-ready={String(messagesReady)}
         className="flex flex-1 items-center justify-center"
       >
         <p className="text-muted-foreground">No messages yet</p>
@@ -213,14 +271,16 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   ): Partial<React.ComponentProps<typeof MessageItem>> {
     return {
       ...(group !== undefined && { group, isGroupChat: true as const }),
-      ...(currentUserId !== undefined && { currentUserId }),
-      ...(members !== undefined && { members }),
-      ...(links !== undefined && { links }),
-      ...(modelName !== undefined && { modelName }),
-      ...(onShare !== undefined && { onShare }),
-      ...(onRegenerate !== undefined && { onRegenerate }),
-      ...(onEdit !== undefined && { onEdit }),
-      ...(onFork !== undefined && { onFork }),
+      ...omitUndefined({
+        currentUserId,
+        members,
+        links,
+        modelName,
+        onShare,
+        onRegenerate,
+        onEdit,
+        onFork,
+      }),
     };
   }
 
@@ -234,7 +294,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       message,
       isStreaming,
       isError,
-      isMultiModel: isMultiModelResponse(messages, message.id),
+      isMultiModel: multiModelIds.has(message.id),
       canRegenerate: canRegenerateMessage(
         messages,
         message.id,
@@ -243,6 +303,15 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       ),
     };
     const allowedActions = resolveMessageActions(chatContext, msgContext);
+    // retry-error outer RetryButton routes through the same handleRegenerate
+    // as a per-tile click: resolveRegenerateTarget detects multi-model context
+    // and sets replaceAssistantId so only this failed tile gets re-run.
+    const onRetry =
+      isError && onRegenerate
+        ? (): void => {
+            onRegenerate(message.id);
+          }
+        : undefined;
     return (
       <MessageItem
         key={group?.id ?? message.id}
@@ -250,6 +319,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         allowedActions={allowedActions}
         isStreaming={isStreaming}
         isError={isError}
+        {...omitUndefined({ onRetry })}
         {...buildOptionalMessageProps(group)}
       />
     );
@@ -257,6 +327,10 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
 
   const assistantCount = messages.filter((m) => m.role === 'assistant').length;
   const costCount = messages.filter((m) => m.cost != null).length;
+  // `useDecryptedMessages` writes a sentinel content prefix when the wrap-
+  // once envelope can't be opened; exclude those so the count reflects
+  // text-ready messages.
+  const decryptedCount = messages.filter((m) => !m.content.startsWith('[decryption failed')).length;
 
   return (
     <div
@@ -265,18 +339,31 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       data-testid="message-list"
       data-assistant-count={assistantCount}
       data-cost-count={costCount}
+      data-streaming-count={streamingMessageIds?.size ?? 0}
       data-message-count={messages.length}
+      data-decrypted-count={decryptedCount}
+      data-rows-count={rows.length}
       data-virtuoso-scrolling={String(isVirtuosoScrolling)}
+      data-messages-ready={String(messagesReady)}
       className="h-full min-h-0 flex-1"
     >
       <Virtuoso<MessageRow>
         ref={virtuosoRef}
         data={rows}
+        initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
         computeItemKey={computeItemKey}
         isScrolling={handleIsScrolling}
         followOutput={followOutput}
         atBottomStateChange={handleAtBottomStateChange}
         atBottomThreshold={atBottomThreshold}
+        // Keep rows mounted ~one viewport above and below the visible area.
+        // Accessibility: screen readers + browser find-in-page need
+        // off-screen content in the DOM. Also closes a race where a tile's
+        // post-stream size grows (e.g. media bytes arriving) pushes the
+        // previous-bottom row outside the visible area; without overscan
+        // Virtuoso unmounts it before the user (or an E2E assertion) can
+        // see it.
+        increaseViewportBy={{ top: 800, bottom: 800 }}
         itemContent={(_index, row) => {
           if (row.message === undefined) return null;
           return renderMessageItem(row.message, row.isStreaming, row.isError, row.group);

@@ -1,9 +1,9 @@
 import * as React from 'react';
 import {
-  HUSHBOX_FEE_RATE,
-  CREDIT_CARD_FEE_RATE,
-  PROVIDER_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
+  FEE_BUCKET_BY_ID,
+  FEE_CATEGORIES,
+  type FeeBucketId,
 } from '@hushbox/shared';
 
 export interface CostPieChartProps {
@@ -20,11 +20,10 @@ interface PieSlice {
   testId: string;
 }
 
-// Explicit colors for categories
 const COLORS = {
-  SERVICE_VALUE: '#3b82f6', // Blue
-  TRANSACTION_COSTS: '#f59e0b', // Amber
-  PLATFORM_FEE: '#ec4755', // brand red
+  SERVICE_VALUE: '#3b82f6',
+  TRANSACTION_COSTS: '#f59e0b',
+  PLATFORM_FEE: '#ec4755',
 };
 
 interface ArcParams {
@@ -73,20 +72,24 @@ function polarToCartesian(
   };
 }
 
+function sumFeeValues(bucket: FeeBucketId, depositAmount: number): number {
+  return FEE_CATEGORIES.filter((c) => FEE_BUCKET_BY_ID[c.id] === bucket).reduce(
+    (sum, c) => sum + depositAmount * c.rate,
+    0
+  );
+}
+
 export function CostPieChart({
   depositAmount,
   estimatedCharacters = 1_000_000,
 }: Readonly<CostPieChartProps>): React.JSX.Element {
-  const hushboxFee = depositAmount * HUSHBOX_FEE_RATE;
-  const ccFee = depositAmount * CREDIT_CARD_FEE_RATE;
-  const providerFee = depositAmount * PROVIDER_FEE_RATE;
+  const totalFees = FEE_CATEGORIES.reduce((sum, c) => sum + depositAmount * c.rate, 0);
   const storageFee = estimatedCharacters * STORAGE_COST_PER_CHARACTER;
-  const modelUsage = depositAmount - hushboxFee - ccFee - providerFee - storageFee;
+  const modelUsage = depositAmount - totalFees - storageFee;
 
-  // Group into 3 categories
+  const transactionCosts = sumFeeValues('transaction-costs', depositAmount);
+  const platformFee = sumFeeValues('platform-fee', depositAmount);
   const serviceValue = modelUsage + storageFee;
-  const transactionCosts = ccFee + providerFee;
-  const platformFee = hushboxFee;
 
   const slices: PieSlice[] = [
     {
@@ -95,19 +98,23 @@ export function CostPieChart({
       color: COLORS.SERVICE_VALUE,
       testId: 'slice-service-value',
     },
-    {
+  ];
+  if (transactionCosts > 0) {
+    slices.push({
       label: 'Transaction Costs',
       value: transactionCosts,
       color: COLORS.TRANSACTION_COSTS,
       testId: 'slice-transaction-costs',
-    },
-    {
+    });
+  }
+  if (platformFee > 0) {
+    slices.push({
       label: 'Platform Fee',
       value: platformFee,
       color: COLORS.PLATFORM_FEE,
       testId: 'slice-platform-fee',
-    },
-  ];
+    });
+  }
 
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
   const cx = 100;
@@ -118,7 +125,6 @@ export function CostPieChart({
 
   return (
     <div data-testid="cost-pie-chart" className="flex items-center justify-center">
-      {/* SVG Pie Chart - no legend, no center text */}
       <svg width="240" height="240" viewBox="0 0 200 200" className="flex-shrink-0">
         {slices.map((slice) => {
           const sliceAngle = (slice.value / total) * 360;
@@ -126,7 +132,6 @@ export function CostPieChart({
           const endAngle = currentAngle + sliceAngle;
           currentAngle = endAngle;
 
-          // Skip if slice is too small
           if (sliceAngle < 0.5) return null;
 
           return (
@@ -140,7 +145,6 @@ export function CostPieChart({
             />
           );
         })}
-        {/* Center hole for donut effect - transparent to show background */}
         <circle cx={cx} cy={cy} r={40} fill="transparent" />
       </svg>
     </div>

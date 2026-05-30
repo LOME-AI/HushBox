@@ -1,6 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { redirect } from '@tanstack/react-router';
+import { SMART_MODEL_ID } from '@hushbox/shared';
+import {
+  createOpaqueClient,
+  startLogin,
+  finishLogin,
+  startRegistration,
+  finishRegistration,
+  createAccount,
+  unwrapAccountKeyWithPassword,
+  rewrapAccountKeyForPasswordChange,
+  recoverAccountFromMnemonic,
+  decryptTextFromEpoch,
+} from '@hushbox/crypto';
+import { toBase64 } from '@hushbox/shared';
 import {
   useAuthStore,
   useSession,
@@ -11,6 +25,7 @@ import {
   disable2FAInit,
   disable2FAFinish,
   signOutAndClearCache,
+  clearLocalAuthState,
   authClient,
   initAuth,
   requireAuth,
@@ -19,13 +34,11 @@ import {
   type UserData,
 } from './auth';
 
-/** Runtime non-null assertion for test values captured by mocks. */
 function defined<T>(value: T | null | undefined, label = 'value'): NonNullable<T> {
   if (value == null) throw new Error(`Expected ${label} to be defined`);
   return value;
 }
 
-// Test user data
 const testUser: UserData = {
   id: 'user-123',
   email: 'test@example.com',
@@ -40,7 +53,6 @@ const testUser2FA: UserData = {
   totpEnabled: true,
 };
 
-// Mock modules
 vi.mock('@tanstack/react-router', () => ({
   redirect: vi.fn((options) => options),
 }));
@@ -105,7 +117,7 @@ vi.mock('@hushbox/crypto', () => ({
   unwrapAccountKeyWithPassword: vi.fn(() => new Uint8Array([60, 61, 62])),
   rewrapAccountKeyForPasswordChange: vi.fn(() => new Uint8Array([70, 71, 72])),
   recoverAccountFromMnemonic: vi.fn(() => Promise.resolve(new Uint8Array([80, 81, 82]))),
-  decryptMessage: vi.fn(() => 'decrypted instructions'),
+  decryptTextFromEpoch: vi.fn(() => 'decrypted instructions'),
   getPublicKeyFromPrivate: vi.fn(() => new Uint8Array([90, 91, 92])),
 }));
 
@@ -118,28 +130,13 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-// Import mocked modules for type safety
 import { persistExportKey, getStoredAuth, clearStoredAuth, restoreSession } from './auth-client.js';
-import {
-  createOpaqueClient,
-  startLogin,
-  finishLogin,
-  startRegistration,
-  finishRegistration,
-  createAccount,
-  unwrapAccountKeyWithPassword,
-  rewrapAccountKeyForPasswordChange,
-  recoverAccountFromMnemonic,
-  decryptMessage,
-} from '@hushbox/crypto';
-import { toBase64 } from '@hushbox/shared';
 import { getLinkGuestAuth } from './link-guest-auth.js';
 
 const mockedGetLinkGuestAuth = vi.mocked(getLinkGuestAuth);
 
 describe('auth', () => {
   beforeEach(() => {
-    // Reset store state
     useAuthStore.setState({
       user: null,
       privateKey: null,
@@ -149,7 +146,6 @@ describe('auth', () => {
     resetInitPromise();
     vi.clearAllMocks();
 
-    // Setup default fetch mock
     globalThis.fetch = vi.fn();
   });
 
@@ -209,10 +205,8 @@ describe('auth', () => {
     });
 
     it('should clear user and set isAuthenticated to false when user is null', () => {
-      // First set a user
       useAuthStore.setState({ user: testUser, isAuthenticated: true });
 
-      // Then clear it
       useAuthStore.getState().setUser(null);
 
       const state = useAuthStore.getState();
@@ -427,7 +421,6 @@ describe('auth', () => {
 
       await signIn.email({ identifier: 'John Smith', password: 'password123' });
 
-      // Verify the API received normalized "john_smith", not raw "John Smith"
       expect(capturedInitBody).toContain('john_smith');
       expect(capturedInitBody).not.toContain('John Smith');
       expect(capturedFinishBody).toContain('john_smith');
@@ -475,7 +468,6 @@ describe('auth', () => {
 
       await signIn.email({ identifier: 'User@Example.com', password: 'password123' });
 
-      // Email should be preserved as-is (not normalized)
       expect(capturedInitBody).toContain('User@Example.com');
     });
 
@@ -1190,7 +1182,6 @@ describe('auth', () => {
     const newPassword = 'newPassword456';
 
     beforeEach(() => {
-      // Set privateKey in store for password change tests
       const mockPrivateKey = new Uint8Array([60, 61, 62]);
       useAuthStore.setState({ privateKey: mockPrivateKey });
     });
@@ -1245,7 +1236,6 @@ describe('auth', () => {
         kek: new Uint8Array([19, 20, 21]),
       });
 
-      // Mock localStorage to simulate keepSignedIn = true
       Object.defineProperty(globalThis, 'localStorage', {
         value: {
           getItem: vi.fn((key) => (key === 'hushbox_auth_kek' ? 'some_value' : null)),
@@ -1392,7 +1382,6 @@ describe('auth', () => {
       const result = await changePassword(currentPassword, newPassword);
 
       expect(result.success).toBe(false);
-      // Password zeroing is tested implicitly through the error handling
     });
 
     it('should zero both password bytes when rewrapAccountKeyForPasswordChange throws error', async () => {
@@ -1513,25 +1502,65 @@ describe('auth', () => {
       await expect(signOutAndClearCache()).rejects.toThrow('Network error');
     });
 
-    it('should reset model selection to single model', async () => {
+    it('should reset model selections on sign out', async () => {
       const { useModelStore } = await import('@/stores/model');
 
-      // Set up multiple selected models
       useModelStore.setState({
-        selectedModels: [
-          { id: 'model-a', name: 'Model A' },
-          { id: 'model-b', name: 'Model B' },
-          { id: 'model-c', name: 'Model C' },
-        ],
+        selections: {
+          text: [
+            { id: 'model-a', name: 'Model A' },
+            { id: 'model-b', name: 'Model B' },
+            { id: 'model-c', name: 'Model C' },
+          ],
+          image: [{ id: 'imagen', name: 'Imagen' }],
+          audio: [],
+          video: [{ id: 'veo', name: 'Veo' }],
+        },
       });
 
       vi.mocked(fetch).mockResolvedValue({ ok: true } as Response);
 
       await signOutAndClearCache();
 
-      const { selectedModels } = useModelStore.getState();
-      expect(selectedModels).toHaveLength(1);
-      expect(selectedModels[0]?.id).toBe('model-a');
+      const { selections } = useModelStore.getState();
+      expect(selections.text).toHaveLength(1);
+      expect(selections.text[0]?.id).toBe(SMART_MODEL_ID);
+      expect(selections.image).toEqual([]);
+      expect(selections.video).toEqual([]);
+    });
+  });
+
+  describe('clearLocalAuthState', () => {
+    it('clears auth, query, and model state without calling the logout endpoint', async () => {
+      const mockPrivateKey = new Uint8Array([1, 2, 3, 4]);
+      useAuthStore.setState({
+        user: testUser,
+        privateKey: mockPrivateKey,
+        isAuthenticated: true,
+      });
+      const { useModelStore } = await import('@/stores/model');
+      useModelStore.setState({
+        selections: {
+          text: [{ id: 'model-a', name: 'Model A' }],
+          image: [{ id: 'imagen', name: 'Imagen' }],
+          audio: [],
+          video: [],
+        },
+      });
+
+      clearLocalAuthState();
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(clearStoredAuth).toHaveBeenCalled();
+      expect(mockQueryClientClear).toHaveBeenCalled();
+      const auth = useAuthStore.getState();
+      expect(auth.user).toBeNull();
+      expect(auth.privateKey).toBeNull();
+      expect(auth.isAuthenticated).toBe(false);
+      expect(mockPrivateKey[0]).toBe(0);
+      const { selections } = useModelStore.getState();
+      expect(selections.text[0]?.id).toBe(SMART_MODEL_ID);
+      expect(selections.image).toEqual([]);
     });
   });
 
@@ -1620,12 +1649,10 @@ describe('auth', () => {
 
       vi.mocked(getStoredAuth).mockReturnValue({ userId: 'user-123', kek: mockKEK });
 
-      // First call: restoreSession returns null (transient failure)
       vi.mocked(restoreSession).mockResolvedValue(null);
       await initAuth();
       expect(useAuthStore.getState().user).toBeNull();
 
-      // Second call: restoreSession succeeds — should retry, not return cached failure
       vi.mocked(restoreSession).mockResolvedValue({
         privateKey: mockPrivateKey,
         userId: 'user-123',
@@ -1645,12 +1672,10 @@ describe('auth', () => {
 
       vi.mocked(getStoredAuth).mockReturnValue({ userId: 'user-123', kek: mockKEK });
 
-      // First call: restoreSession throws (network error)
       vi.mocked(restoreSession).mockRejectedValue(new Error('Network error'));
       await initAuth();
       expect(useAuthStore.getState().user).toBeNull();
 
-      // Second call: restoreSession succeeds — should retry
       vi.mocked(restoreSession).mockResolvedValue({
         privateKey: mockPrivateKey,
         userId: 'user-123',
@@ -1675,11 +1700,9 @@ describe('auth', () => {
         customInstructionsEncrypted: null,
       });
 
-      // First call: succeeds
       await initAuth();
       expect(useAuthStore.getState().user).toEqual(testUser);
 
-      // Second call: should return cached result, not call restoreSession again
       await initAuth();
 
       expect(restoreSession).toHaveBeenCalledTimes(1);
@@ -1696,11 +1719,11 @@ describe('auth', () => {
         user: testUser,
         customInstructionsEncrypted: 'encrypted-blob-base64',
       });
-      vi.mocked(decryptMessage).mockReturnValue('Be concise and direct');
+      vi.mocked(decryptTextFromEpoch).mockReturnValue('Be concise and direct');
 
       await initAuth();
 
-      expect(decryptMessage).toHaveBeenCalled();
+      expect(decryptTextFromEpoch).toHaveBeenCalled();
       expect(useAuthStore.getState().customInstructions).toBe('Be concise and direct');
     });
 
@@ -1718,7 +1741,7 @@ describe('auth', () => {
 
       await initAuth();
 
-      expect(decryptMessage).not.toHaveBeenCalled();
+      expect(decryptTextFromEpoch).not.toHaveBeenCalled();
       expect(useAuthStore.getState().customInstructions).toBeNull();
     });
 
@@ -1733,7 +1756,7 @@ describe('auth', () => {
         user: testUser,
         customInstructionsEncrypted: 'corrupted-data',
       });
-      vi.mocked(decryptMessage).mockImplementation(() => {
+      vi.mocked(decryptTextFromEpoch).mockImplementation(() => {
         throw new Error('Decryption failed');
       });
 
@@ -1994,7 +2017,6 @@ describe('auth', () => {
 
       await resetPasswordViaRecovery('user@example.com', recoveryPhrase, newPassword);
 
-      // Verify get-wrapped-key sends identifier (not email)
       const getKeyCall = vi
         .mocked(fetch)
         .mock.calls.find(
@@ -2032,7 +2054,6 @@ describe('auth', () => {
 
       await resetPasswordViaRecovery('Test User', recoveryPhrase, newPassword);
 
-      // Username should be normalized: lowercased, spaces→underscores
       const getKeyCall = vi
         .mocked(fetch)
         .mock.calls.find(

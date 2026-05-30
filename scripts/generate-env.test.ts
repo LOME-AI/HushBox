@@ -11,14 +11,12 @@ const TEST_DIR_EDGE = path.resolve(__dirname, '__test-fixtures-edge__');
 
 describe('generateEnvFiles', () => {
   beforeEach(() => {
-    // Create test directory structure
     mkdirSync(TEST_DIR_ENV, { recursive: true });
     mkdirSync(path.join(TEST_DIR_ENV, 'apps/api'), { recursive: true });
 
     // Simulate main repo (.git as directory) for worktree detection
     mkdirSync(path.join(TEST_DIR_ENV, '.git'), { recursive: true });
 
-    // Create minimal wrangler.toml
     writeFileSync(
       path.join(TEST_DIR_ENV, 'apps/api/wrangler.toml'),
       `# Wrangler configuration
@@ -30,12 +28,10 @@ local_protocol = "http"
 `
     );
 
-    // Suppress console output during tests
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    // Clean up test directory
     rmSync(TEST_DIR_ENV, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
@@ -110,6 +106,7 @@ local_protocol = "http"
 
       const content = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
       expect(content).toContain('VITE_API_URL="http://localhost:8787"');
+      expect(content).toContain('VITE_DRIZZLE_STUDIO_URL="http://localhost:4983"');
     });
 
     it('does NOT include backend vars', () => {
@@ -209,7 +206,6 @@ local_protocol = "http"
       expect(content).toContain('OPAQUE_MASTER_SECRET');
       expect(content).toContain('IRON_SESSION_SECRET');
       expect(content).toContain('RESEND_API_KEY');
-      expect(content).toContain('OPENROUTER_API_KEY');
       expect(content).toContain('HELCIM_API_TOKEN');
       expect(content).toContain('HELCIM_WEBHOOK_VERIFIER');
     });
@@ -252,7 +248,6 @@ local_protocol = "http"
 
   describe('e2e mode', () => {
     beforeEach(() => {
-      // Set up mock CI secrets in process.env
       process.env['RESEND_API_KEY'] = 'test-resend-key';
       process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test-helcim-token';
       process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test-helcim-verifier';
@@ -309,6 +304,9 @@ local_protocol = "http"
       expect(content).toContain('HB_EMULATOR_ADB_PORT="5555"');
       expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
       expect(content).toContain('HB_README_PREVIEW_PORT="6419"');
+      expect(content).toContain('HB_MINIO_API_PORT="9000"');
+      expect(content).toContain('HB_MINIO_CONSOLE_PORT="9001"');
+      expect(content).toContain('HB_STUDIO_PORT="4983"');
     });
 
     it('applies worktree detection like development mode', () => {
@@ -331,7 +329,19 @@ local_protocol = "http"
   });
 
   describe('ciE2E mode', () => {
-    it('throws if required ciE2E secrets are missing', () => {
+    beforeEach(() => {
+      process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test-helcim-token';
+      process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test-helcim-verifier';
+      process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test-vite-helcim-token';
+    });
+
+    afterEach(() => {
+      delete process.env['HELCIM_API_TOKEN_SANDBOX'];
+      delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
+      delete process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'];
+    });
+
+    it('throws if a required ciE2E secret is missing', () => {
       delete process.env['HELCIM_API_TOKEN_SANDBOX'];
 
       expect(() => {
@@ -348,6 +358,33 @@ local_protocol = "http"
       }).toThrow(
         'Missing required secrets in process.env: HELCIM_API_TOKEN_SANDBOX, HELCIM_WEBHOOK_VERIFIER_SANDBOX'
       );
+    });
+
+    it('does NOT require AI_GATEWAY_API_KEY in ciE2E (factory mocks when isE2E=true)', () => {
+      delete process.env['AI_GATEWAY_API_KEY'];
+      delete process.env['AI_GATEWAY_API_KEY_RESTRICTED'];
+
+      expect(() => {
+        generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
+      }).not.toThrow();
+    });
+  });
+
+  describe('ciVitest mode', () => {
+    beforeEach(() => {
+      process.env['AI_GATEWAY_API_KEY_RESTRICTED'] = 'test-ai-gateway-restricted';
+    });
+
+    afterEach(() => {
+      delete process.env['AI_GATEWAY_API_KEY_RESTRICTED'];
+    });
+
+    it('throws when AI_GATEWAY_API_KEY_RESTRICTED is missing', () => {
+      delete process.env['AI_GATEWAY_API_KEY_RESTRICTED'];
+
+      expect(() => {
+        generateEnvFiles(TEST_DIR_ENV, 'ciVitest');
+      }).toThrow('Missing required secrets in process.env: AI_GATEWAY_API_KEY_RESTRICTED');
     });
   });
 });
@@ -486,9 +523,7 @@ old content
       expect(content).toContain(
         'echo "${{ secrets.RESEND_API_KEY }}" | pnpm exec wrangler secret put RESEND_API_KEY'
       );
-      expect(content).toContain(
-        'echo "${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}" | pnpm exec wrangler secret put OPENROUTER_API_KEY'
-      );
+      expect(content).not.toContain('OPENROUTER_API_KEY');
     });
 
     it('uses version job output for APP_VERSION instead of secret', () => {
@@ -555,8 +590,90 @@ old content
 
       const content = readCiYml();
       expect(content).toContain(
-        'for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do'
+        'for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY AI_GATEWAY_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON HELCIM_API_TOKEN LINEAR_API_KEY_READ HELCIM_WEBHOOK_VERIFIER R2_S3_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do'
       );
+    });
+  });
+
+  describe('ops-env section', () => {
+    it('generates env block using canonical worker keys (not GitHub secret names)', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // Worker key (canonical) on LHS, GitHub secret name on RHS — for aliased secrets.
+      expect(content).toContain('AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY_PRODUCTION }}');
+      expect(content).toContain('HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}');
+      // Same name on both sides — for non-aliased secrets.
+      expect(content).toContain('DATABASE_URL: ${{ secrets.DATABASE_URL }}');
+      expect(content).toContain('R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}');
+      expect(content).toContain('R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}');
+      expect(content).toContain('R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}');
+    });
+
+    it('emits non-secret production literals (e.g. R2_BUCKET_MEDIA) so runner scripts have them too', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // R2_BUCKET_MEDIA is a literal string in production mode (not a secret).
+      // It lives in wrangler.toml [vars] for the Worker AND here in the env
+      // block so ops scripts running on the GitHub runner see it via process.env.
+      expect(content).toContain('R2_BUCKET_MEDIA: hushbox-media');
+      // It must NOT use a secrets reference (no GitHub secret of this name exists).
+      expect(content).not.toContain('R2_BUCKET_MEDIA: ${{');
+    });
+
+    it('does not emit frontend-only secrets (e.g. VITE_HELCIM_JS_TOKEN)', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).not.toContain('VITE_HELCIM_JS_TOKEN');
+    });
+
+    it('overrides APP_VERSION to use the version job output (not the empty GitHub secret)', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // APP_VERSION is computed by the version job at workflow time, not stored
+      // as a GitHub secret. The deploy job's env block uses the same override
+      // already applied in deploy-secrets so ops scripts see a real value.
+      expect(content).toContain('APP_VERSION: ${{ needs.version.outputs.version }}');
+      expect(content).not.toContain('APP_VERSION: ${{ secrets.APP_VERSION }}');
+    });
+
+    it('preserves content outside markers', () => {
+      createCiYml(`name: CI
+before
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env
+after`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).toContain('name: CI');
+      expect(content).toContain('before');
+      expect(content).toContain('after');
     });
   });
 
@@ -611,7 +728,6 @@ describe('updateWorkflows edge cases', () => {
   it('handles file with no markers gracefully', () => {
     writeFileSync(path.join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'name: CI\njobs: {}');
 
-    // Should not throw
     updateWorkflows(TEST_DIR_EDGE);
 
     const content = readFileSync(path.join(TEST_DIR_EDGE, '.github/workflows/ci.yml'), 'utf8');
@@ -621,9 +737,7 @@ describe('updateWorkflows edge cases', () => {
   it('does nothing if ci.yml does not exist', () => {
     rmSync(path.join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true, force: true });
     mkdirSync(path.join(TEST_DIR_EDGE, '.github/workflows'), { recursive: true });
-    // ci.yml doesn't exist
 
-    // Should not throw
     expect(() => {
       updateWorkflows(TEST_DIR_EDGE);
     }).not.toThrow();
@@ -778,6 +892,9 @@ local_protocol = "http"
       expect(content).toContain('HB_EMULATOR_ADB_PORT="5555"');
       expect(content).toContain('HB_EMULATOR_VNC_PORT="6080"');
       expect(content).toContain('HB_README_PREVIEW_PORT="6419"');
+      expect(content).toContain('HB_MINIO_API_PORT="9000"');
+      expect(content).toContain('HB_MINIO_CONSOLE_PORT="9001"');
+      expect(content).toContain('HB_STUDIO_PORT="4983"');
     });
   });
 
@@ -793,7 +910,6 @@ local_protocol = "http"
       generateEnvFiles(TEST_DIR_WT);
 
       const content = readFileSync(path.join(TEST_DIR_WT, 'apps/api/.dev.vars'), 'utf8');
-      // Should NOT contain base ports
       expect(content).not.toContain('localhost:8787');
       expect(content).not.toContain('localhost:5173');
       expect(content).not.toContain('localhost:4444');
@@ -805,6 +921,7 @@ local_protocol = "http"
 
       const content = readFileSync(path.join(TEST_DIR_WT, '.env.development'), 'utf8');
       expect(content).not.toContain('localhost:8787');
+      expect(content).not.toContain('localhost:4983');
     });
 
     it('offsets ports in .env.scripts', () => {
@@ -825,7 +942,6 @@ local_protocol = "http"
     });
 
     it('does not offset ports in CI modes', () => {
-      // Set up required CI secrets
       process.env['HELCIM_API_TOKEN_SANDBOX'] = 'test';
       process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'] = 'test';
       process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'] = 'test';
@@ -836,6 +952,7 @@ local_protocol = "http"
       expect(content).toContain('localhost:8787');
       expect(content).toContain('localhost:5173');
 
+      delete process.env['AI_GATEWAY_API_KEY'];
       delete process.env['HELCIM_API_TOKEN_SANDBOX'];
       delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
       delete process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'];

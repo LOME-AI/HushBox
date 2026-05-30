@@ -1,10 +1,11 @@
 import * as React from 'react';
 import { useState, useCallback } from 'react';
-import { Alert, Overlay, OverlayContent, OverlayHeader, ModalActions, Textarea } from '@hushbox/ui';
+import { Textarea, UserMessageError, useAsyncAction } from '@hushbox/ui';
 import { toBase64 } from '@hushbox/shared';
-import { encryptMessageForStorage, getPublicKeyFromPrivate } from '@hushbox/crypto';
+import { encryptTextForEpoch, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { useAuthStore } from '@/lib/auth';
 import { client, fetchJson } from '@/lib/api-client';
+import { ActionModal } from '@/components/shared/action-modal';
 
 const MAX_LENGTH = 5000;
 
@@ -21,94 +22,81 @@ export function CustomInstructionsModal({
 }: Readonly<CustomInstructionsModalProps>): React.JSX.Element | null {
   const currentInstructions = useAuthStore((s) => s.customInstructions);
   const [value, setValue] = useState(currentInstructions ?? '');
-  const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const asyncAction = useAsyncAction();
 
-  // Reset state when modal opens
+  const { clearError } = asyncAction;
   React.useEffect(() => {
     if (open) {
       setValue(currentInstructions ?? '');
-      setError(null);
+      clearError();
     }
-  }, [open, currentInstructions]);
+  }, [open, currentInstructions, clearError]);
 
-  const handleSave = useCallback(async () => {
-    setIsSaving(true);
-    setError(null);
+  const handleSave = useCallback(async (): Promise<void> => {
+    const trimmed = value.trim();
+    let encryptedBase64: string | null = null;
+
+    if (trimmed.length > 0) {
+      const privateKey = useAuthStore.getState().privateKey;
+      if (!privateKey) {
+        throw new UserMessageError('Encryption key not available. Please sign in again.');
+      }
+      const publicKey = getPublicKeyFromPrivate(privateKey);
+      const encrypted = encryptTextForEpoch(publicKey, trimmed);
+      encryptedBase64 = toBase64(encrypted);
+    }
 
     try {
-      const trimmed = value.trim();
-      let encryptedBase64: string | null = null;
-
-      if (trimmed.length > 0) {
-        const privateKey = useAuthStore.getState().privateKey;
-        if (!privateKey) {
-          setError('Encryption key not available. Please sign in again.');
-          return;
-        }
-        const publicKey = getPublicKeyFromPrivate(privateKey);
-        const encrypted = encryptMessageForStorage(publicKey, trimmed);
-        encryptedBase64 = toBase64(encrypted);
-      }
-
       await fetchJson(
         client.api.users['custom-instructions'].$patch({
           json: { customInstructionsEncrypted: encryptedBase64 },
         })
       );
-
-      useAuthStore.getState().setCustomInstructions(trimmed.length > 0 ? trimmed : null);
-      onSuccess();
     } catch {
-      setError('Failed to save custom instructions. Please try again.');
-    } finally {
-      setIsSaving(false);
+      throw new UserMessageError('Failed to save custom instructions. Please try again.');
     }
+
+    useAuthStore.getState().setCustomInstructions(trimmed.length > 0 ? trimmed : null);
+    onSuccess();
   }, [value, onSuccess]);
 
   if (!open) return null;
 
   return (
-    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Custom instructions">
-      <OverlayContent data-testid="custom-instructions-modal" size="md" className="w-[75vw]">
-        <OverlayHeader
-          title="Custom Instructions"
-          description={
-            <>
-              These instructions are included in every conversation. Tell the AI about yourself and
-              {"how you'd like it to respond."}
-            </>
-          }
-        />
-
-        {error && <Alert>{error}</Alert>}
-
-        <div className="space-y-2">
-          <Textarea
-            value={value}
-            onChange={(e) => {
-              setValue(e.target.value);
-            }}
-            maxLength={MAX_LENGTH}
-            rows={6}
-            placeholder="e.g., I'm a software engineer. Be concise and use code examples."
-            className="resize-none overflow-y-auto"
-            style={{ height: 'calc(6 * 1.5em + 1rem)' }}
-          />
-          <p className="text-muted-foreground text-right text-xs">
-            {value.length.toLocaleString()} / {MAX_LENGTH.toLocaleString()}
-          </p>
-        </div>
-
-        <ModalActions
-          primary={{
-            label: 'Save',
-            onClick: () => void handleSave(),
-            loading: isSaving,
-            loadingLabel: 'Saving...',
+    <ActionModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Custom Instructions"
+      ariaLabel="Custom instructions"
+      asyncAction={asyncAction}
+      primary={{
+        label: 'Save',
+        loadingLabel: 'Saving...',
+        onSubmit: handleSave,
+      }}
+      testId="custom-instructions-modal"
+      size="md"
+    >
+      <p className="text-muted-foreground text-sm">
+        These instructions are included in every conversation. Tell the AI about yourself and
+        {"how you'd like it to respond."}
+      </p>
+      <div className="space-y-2">
+        <Textarea
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
           }}
+          maxLength={MAX_LENGTH}
+          rows={6}
+          placeholder="e.g., I'm a software engineer. Be concise and use code examples."
+          className="resize-none overflow-y-auto"
+          style={{ height: 'calc(6 * 1.5em + 1rem)' }}
         />
-      </OverlayContent>
-    </Overlay>
+        <p className="text-muted-foreground text-right text-xs">
+          {value.length.toLocaleString()} / {MAX_LENGTH.toLocaleString()}
+        </p>
+      </div>
+    </ActionModal>
   );
 }

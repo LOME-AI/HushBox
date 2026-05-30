@@ -23,7 +23,10 @@ vi.mock('@/hooks/chat', () => ({
 vi.mock('@/hooks/use-chat-page', () => ({}));
 vi.mock('@/hooks/use-optimistic-messages', () => ({}));
 vi.mock('@/hooks/use-decrypted-messages', () => ({}));
-vi.mock('@/hooks/use-is-mobile', () => ({ useIsMobile: () => false }));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return { ...actual, useIsMobile: () => false };
+});
 vi.mock('@/hooks/forks', () => ({}));
 vi.mock('@/hooks/use-fork-messages', () => ({}));
 vi.mock('@/hooks/billing', () => ({}));
@@ -44,6 +47,7 @@ import {
   computeRenderState,
   pruneMessagesAfterTarget,
   mergeMessages,
+  shouldClearStateOnConversationSwitch,
   DECRYPTING_TITLE,
 } from './use-authenticated-chat';
 
@@ -223,6 +227,24 @@ describe('computeRenderState', () => {
   });
 });
 
+describe('shouldClearStateOnConversationSwitch', () => {
+  it('does not clear during create mode', () => {
+    expect(shouldClearStateOnConversationSwitch(true, 'new', null)).toBe(false);
+  });
+
+  it('does not clear when route and real ids already match', () => {
+    expect(shouldClearStateOnConversationSwitch(false, 'abc-123', 'abc-123')).toBe(false);
+  });
+
+  it('does not clear during create→real with realConversationId still null', () => {
+    expect(shouldClearStateOnConversationSwitch(false, 'abc-123', null)).toBe(false);
+  });
+
+  it('clears when switching between two distinct real conversations', () => {
+    expect(shouldClearStateOnConversationSwitch(false, 'abc-123', 'def-456')).toBe(true);
+  });
+});
+
 describe('mergeMessages', () => {
   it('sets modelName on error message from primaryModelId', () => {
     const result = mergeMessages({
@@ -232,11 +254,11 @@ describe('mergeMessages', () => {
       decryptedApiMessages: [],
       optimisticMessages: [],
       chatError: { id: 'err-1', content: 'Something went wrong' },
-      primaryModelId: 'openrouter/auto',
+      primaryModelId: 'smart-model',
     });
     const errorMsg = result.find((m) => m.id === 'err-1');
     expect(errorMsg).toBeDefined();
-    expect(errorMsg?.modelName).toBe('openrouter/auto');
+    expect(errorMsg?.modelName).toBe('smart-model');
   });
 
   it('does not add error message when chatError is null', () => {
@@ -247,7 +269,7 @@ describe('mergeMessages', () => {
       decryptedApiMessages: [],
       optimisticMessages: [],
       chatError: null,
-      primaryModelId: 'openrouter/auto',
+      primaryModelId: 'smart-model',
     });
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe('u1');

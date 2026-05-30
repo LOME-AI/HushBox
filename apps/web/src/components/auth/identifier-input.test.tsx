@@ -38,7 +38,6 @@ describe('IdentifierInput', () => {
 
   it('passes success to FormInput', async () => {
     render(<IdentifierInput value="test" onChange={vi.fn()} success="Valid" />);
-    // Focus the input to trigger success display
     await userEvent.setup().click(screen.getByLabelText('Email or Username'));
     expect(screen.getByText('Valid')).toBeInTheDocument();
   });

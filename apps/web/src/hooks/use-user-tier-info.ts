@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { getUserTier, type UserBalanceState, type UserTierInfo } from '@hushbox/shared';
-import { useBalance } from './billing.js';
 import { getLinkGuestAuth } from '@/lib/link-guest-auth.js';
+import { useBalance } from './billing.js';
 
 /**
  * Hook that derives the user's balance state and tier info from balance data.

@@ -54,8 +54,35 @@ vi.mock('@/lib/auth', () => ({
   requireAuth: vi.fn().mockImplementation(() => Promise.resolve()),
   changePassword: (...args: unknown[]) => mockChangePassword(...args),
   useAuthStore: useAuthStoreMock,
+  useSession: vi.fn(() => ({ data: null, isPending: false })),
   disable2FAInit: (...args: unknown[]) => mockDisable2FAInit(...args),
   disable2FAFinish: (...args: unknown[]) => mockDisable2FAFinish(...args),
+}));
+
+vi.mock('@/hooks/billing', () => ({
+  useBalance: vi.fn(() => ({ data: undefined, isLoading: false })),
+}));
+
+vi.mock('@/hooks/useDeleteAccount', () => ({
+  useDeleteAccountInit: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+  useDeleteAccountFinish: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
+}));
+
+vi.mock('@/hooks/auth-mutations', () => ({
+  useChangePassword: vi.fn(() => ({
+    mutateAsync: async (variables: {
+      currentPassword: string;
+      newPassword: string;
+    }): Promise<{ success: boolean; error?: string }> => {
+      const result = (await mockChangePassword(
+        variables.currentPassword,
+        variables.newPassword
+      )) as { success: boolean; error?: string };
+      if (!result.success) throw new Error(result.error ?? 'CHANGE_PASSWORD_FAILED');
+      return result;
+    },
+    isPending: false,
+  })),
 }));
 
 // RecoveryPhraseModal imports getApiUrl from @/lib/api
@@ -63,9 +90,13 @@ vi.mock('@/lib/api', () => ({
   getApiUrl: vi.fn(() => 'http://localhost:8787'),
 }));
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: vi.fn(() => false),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: vi.fn(() => false),
+  };
+});
 
 vi.mock('@/components/settings/CustomInstructionsModal', () => ({
   CustomInstructionsModal: ({
@@ -81,6 +112,11 @@ vi.mock('@/components/settings/CustomInstructionsModal', () => ({
         <button onClick={onSuccess}>Mock Save</button>
       </div>
     ) : null,
+}));
+
+vi.mock('@/components/settings/DeleteAccountModal', () => ({
+  DeleteAccountModal: ({ open }: { open: boolean; onOpenChange: (open: boolean) => void }) =>
+    open ? <div data-testid="delete-account-modal-stub">Delete account flow</div> : null,
 }));
 
 vi.mock('@hushbox/crypto', () => ({
@@ -350,18 +386,15 @@ describe('SettingsPage', () => {
       const user = userEvent.setup();
       render(<SettingsPage />);
 
-      // Open 2FA modal
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*extra/i }));
 
       // Click "Get Started" to trigger TOTP fetch and transition to scan step
       await user.click(await screen.findByRole('button', { name: /get started/i }));
 
-      // Wait for scan step
       await waitFor(() => {
         expect(screen.getByText('Scan QR Code')).toBeInTheDocument();
       });
 
-      // Continue to verify
       await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Enter code (auto-submits on complete)
@@ -369,15 +402,12 @@ describe('SettingsPage', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Wait for success step
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();
       });
 
-      // Click Done
       await user.click(screen.getByRole('button', { name: /done/i }));
 
-      // Verify user state was updated with totpEnabled: true
       await waitFor(() => {
         expect(useAuthStoreMock.getState().setUser).toHaveBeenCalledWith(
           expect.objectContaining({ totpEnabled: true })
@@ -402,18 +432,15 @@ describe('SettingsPage', () => {
       const user = userEvent.setup();
       render(<SettingsPage />);
 
-      // Open 2FA disable modal
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*manage/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId('disable-two-factor-modal')).toBeInTheDocument();
       });
 
-      // Enter password and submit
       await user.type(screen.getByLabelText(/current password/i), 'mypassword');
       await user.click(screen.getByRole('button', { name: /continue/i }));
 
-      // Wait for code step
       await waitFor(() => {
         expect(screen.getByText('Enter Verification Code')).toBeInTheDocument();
       });
@@ -423,7 +450,6 @@ describe('SettingsPage', () => {
       await user.click(otpInput);
       await user.keyboard('123456');
 
-      // Verify user state was updated with totpEnabled: false
       await waitFor(() => {
         expect(useAuthStoreMock.getState().setUser).toHaveBeenCalledWith(
           expect.objectContaining({ totpEnabled: false })
@@ -483,6 +509,34 @@ describe('SettingsPage', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('custom-instructions-modal')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('danger zone', () => {
+    it('renders the Danger zone card with destructive styling', () => {
+      render(<SettingsPage />);
+      expect(screen.getByText('Danger zone')).toBeInTheDocument();
+      expect(
+        screen.getByText(/permanently delete your account and all associated data/i)
+      ).toBeInTheDocument();
+    });
+
+    it('renders a Delete account button under the Danger zone card', () => {
+      render(<SettingsPage />);
+      expect(screen.getByTestId('delete-account-trigger')).toBeInTheDocument();
+      expect(screen.getByTestId('delete-account-trigger')).toHaveTextContent(/^Delete Account$/);
+    });
+
+    it('opens the DeleteAccountModal when the Delete account button is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SettingsPage />);
+      expect(screen.queryByTestId('delete-account-modal-stub')).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId('delete-account-trigger'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('delete-account-modal-stub')).toBeInTheDocument();
       });
     });
   });
@@ -547,7 +601,6 @@ describe('SettingsPage', () => {
         }
       );
 
-      // Mock fetch for recovery save endpoint
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true }),
@@ -557,18 +610,14 @@ describe('SettingsPage', () => {
       const user = userEvent.setup();
       render(<SettingsPage />);
 
-      // Open recovery phrase modal
       await user.click(screen.getByRole('button', { name: /recovery phrase.*protect/i }));
 
-      // Wait for phrase to be displayed
       await waitFor(() => {
         expect(screen.getByTestId('word-grid')).toBeInTheDocument();
       });
 
-      // Click "I've saved it"
       await user.click(screen.getByRole('button', { name: /i've saved it/i }));
 
-      // Wait for verify step
       await waitFor(() => {
         expect(screen.getByText('Verify Your Phrase')).toBeInTheDocument();
       });
@@ -579,18 +628,14 @@ describe('SettingsPage', () => {
       await user.type(inputs[1]!, 'brave');
       await user.type(inputs[2]!, 'candy');
 
-      // Click Verify
       await user.click(screen.getByRole('button', { name: /verify/i }));
 
-      // Wait for success step
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();
       });
 
-      // Click Done
       await user.click(screen.getByRole('button', { name: /done/i }));
 
-      // Verify user state was updated with hasAcknowledgedPhrase: true
       await waitFor(() => {
         expect(useAuthStoreMock.getState().setUser).toHaveBeenCalledWith(
           expect.objectContaining({ hasAcknowledgedPhrase: true })

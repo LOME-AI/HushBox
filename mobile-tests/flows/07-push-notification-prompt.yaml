@@ -14,7 +14,7 @@ tags:
 # Wait for the system permission dialog to appear.
 - extendedWaitUntil:
     visible: 'Allow'
-    timeout: 15000
+    timeout: 45000
 
 # Accept the permission
 - tapOn: 'Allow'

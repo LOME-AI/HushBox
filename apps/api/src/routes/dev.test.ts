@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { devRoute } from './dev.js';
 import { WELCOME_CREDIT_BALANCE } from '@hushbox/shared';
+import { devRoute } from './dev.js';
 import { getVersionOverride, clearVersionOverride } from '../lib/version-override.js';
 import type { DevPersonasResponse } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
@@ -11,11 +11,53 @@ async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> 
   return (await res.json()) as T;
 }
 
+/**
+ * Stub AI client returning a minimal text-model catalog. The route's call to
+ * `aiClient.listRawModels()` feeds `pickValueTextModel`; the selector needs at
+ * least one non-premium text entry (old enough to escape the recency premium
+ * check, priced above MIN_PRICE_PER_1K_TOKENS, with text I/O modalities).
+ */
+const TEST_AI_CLIENT_STUB = {
+  listRawModels: vi.fn().mockResolvedValue([
+    {
+      id: 'anthropic/claude-haiku-4.5',
+      name: 'Claude Haiku',
+      description: 'Test stub model',
+      modality: 'text',
+      context_length: 100_000,
+      pricing: { prompt: '0.000001', completion: '0.000001' },
+      supported_parameters: ['temperature'],
+      // Two years ago in seconds — escapes both the recency premium check
+      // (<6mo) and the standard-criteria age exclusion (>2y).
+      created: Math.floor((Date.now() - 365 * 24 * 60 * 60 * 1000) / 1000),
+      architecture: {
+        input_modalities: ['text'],
+        output_modalities: ['text'],
+      },
+    },
+    {
+      id: 'openai/gpt-5',
+      name: 'GPT-5',
+      description: 'Test stub premium model',
+      modality: 'text',
+      context_length: 100_000,
+      pricing: { prompt: '0.000004', completion: '0.000004' },
+      supported_parameters: ['temperature'],
+      created: Math.floor((Date.now() - 365 * 24 * 60 * 60 * 1000) / 1000),
+      architecture: {
+        input_modalities: ['text'],
+        output_modalities: ['text'],
+      },
+    },
+  ]),
+};
+
 /** Shared test app factory for dev routes that only need a db stub. */
 function createDevApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use('*', async (c, next) => {
     c.set('db', {} as AppEnv['Variables']['db']);
+    c.set('aiClient', TEST_AI_CLIENT_STUB as unknown as AppEnv['Variables']['aiClient']);
     await next();
   });
   app.route('/dev', devRoute);
@@ -356,7 +398,6 @@ describe('devRoute', () => {
       const res = await app.request('/dev/personas');
 
       expect(res.status).toBe(200);
-      // Default behavior should query dev domain
       expect(mockDb.select).toHaveBeenCalled();
     });
 
@@ -597,25 +638,28 @@ describe('devRoute', () => {
     });
   });
 
+  function createRateLimitResetApp(keys: string[]): {
+    app: Hono<AppEnv>;
+    mockRedis: { scan: ReturnType<typeof vi.fn>; del: ReturnType<typeof vi.fn> };
+  } {
+    const mockRedis = {
+      scan: vi.fn().mockResolvedValue(['0', keys]),
+      del: vi.fn().mockResolvedValue(keys.length),
+    };
+
+    const app = new Hono<AppEnv>();
+    app.use('*', async (c, next) => {
+      c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+      c.set('db', {} as unknown as AppEnv['Variables']['db']);
+      await next();
+    });
+    app.route('/dev', devRoute);
+    return { app, mockRedis };
+  }
+
   describe('DELETE /auth-rate-limits', () => {
-    function createAuthRateLimitsApp(keys: string[]) {
-      const mockRedis = {
-        scan: vi.fn().mockResolvedValue(['0', keys]),
-        del: vi.fn().mockResolvedValue(keys.length),
-      };
-
-      const app = new Hono<AppEnv>();
-      app.use('*', async (c, next) => {
-        c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
-        c.set('db', {} as unknown as AppEnv['Variables']['db']);
-        await next();
-      });
-      app.route('/dev', devRoute);
-      return { app, mockRedis };
-    }
-
     it('returns success with count of deleted keys', async () => {
-      const { app } = createAuthRateLimitsApp([
+      const { app } = createRateLimitResetApp([
         'login:user:ratelimit:alice',
         'login:lockout:alice',
       ]);
@@ -628,13 +672,91 @@ describe('devRoute', () => {
     });
 
     it('returns success with zero when no keys exist', async () => {
-      const { app } = createAuthRateLimitsApp([]);
+      const { app } = createRateLimitResetApp([]);
       const res = await app.request('/dev/auth-rate-limits', { method: 'DELETE' });
 
       expect(res.status).toBe(200);
       const body: TrialUsageResetResponse = await res.json();
       expect(body.success).toBe(true);
       expect(body.deleted).toBe(0);
+    });
+  });
+
+  describe('DELETE /usage-rate-limits', () => {
+    it('returns success with count of deleted keys across all per-user prefixes', async () => {
+      const { app } = createRateLimitResetApp([
+        'chat:stream:user:ratelimit:alice',
+        'media:download:user:ratelimit:bob',
+      ]);
+      const res = await app.request('/dev/usage-rate-limits', { method: 'DELETE' });
+
+      expect(res.status).toBe(200);
+      const body: TrialUsageResetResponse = await res.json();
+      expect(body.success).toBe(true);
+      expect(typeof body.deleted).toBe('number');
+    });
+
+    it('returns success with zero when no keys exist', async () => {
+      const { app } = createRateLimitResetApp([]);
+      const res = await app.request('/dev/usage-rate-limits', { method: 'DELETE' });
+
+      expect(res.status).toBe(200);
+      const body: TrialUsageResetResponse = await res.json();
+      expect(body.success).toBe(true);
+      expect(body.deleted).toBe(0);
+    });
+  });
+
+  describe('GET /message-payers/:conversationId', () => {
+    function createMessagePayersApp(
+      rows: { messageId: string; payerId: string | null; sequenceNumber: number }[]
+    ) {
+      const orderBy = vi.fn().mockResolvedValue(rows);
+      const where = vi.fn().mockReturnValue({ orderBy });
+      const leftJoin = vi.fn().mockReturnValue({ where });
+      const from = vi.fn().mockReturnValue({ leftJoin });
+      const select = vi.fn().mockReturnValue({ from });
+      const mockDb = { select };
+      return createTestAppWithMockDb(mockDb);
+    }
+
+    it('returns AI messages with their resolved payerId from usage_records', async () => {
+      const app = createMessagePayersApp([
+        { messageId: 'msg-1', payerId: 'user-alice', sequenceNumber: 1 },
+        { messageId: 'msg-2', payerId: 'user-bob', sequenceNumber: 3 },
+      ]);
+      const res = await app.request('/dev/message-payers/conv-1');
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{
+        payers: { messageId: string; payerId: string | null }[];
+      }>(res);
+      expect(body.payers).toEqual([
+        { messageId: 'msg-1', payerId: 'user-alice' },
+        { messageId: 'msg-2', payerId: 'user-bob' },
+      ]);
+    });
+
+    it('surfaces null payerId for AI messages with no matching usage_records row', async () => {
+      const app = createMessagePayersApp([
+        { messageId: 'msg-only', payerId: null, sequenceNumber: 1 },
+      ]);
+      const res = await app.request('/dev/message-payers/conv-empty');
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{
+        payers: { messageId: string; payerId: string | null }[];
+      }>(res);
+      expect(body.payers).toEqual([{ messageId: 'msg-only', payerId: null }]);
+    });
+
+    it('returns an empty list when the conversation has no AI messages', async () => {
+      const app = createMessagePayersApp([]);
+      const res = await app.request('/dev/message-payers/conv-none');
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ payers: unknown[] }>(res);
+      expect(body.payers).toEqual([]);
     });
   });
 

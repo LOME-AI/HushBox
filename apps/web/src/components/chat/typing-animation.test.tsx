@@ -2,9 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { TypingAnimation } from './typing-animation';
 
+const reducedMotionRef = { current: false };
+
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useReducedMotion: () => reducedMotionRef.current,
+  };
+});
+
 describe('TypingAnimation', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    reducedMotionRef.current = false;
   });
 
   afterEach(() => {
@@ -16,14 +27,19 @@ describe('TypingAnimation', () => {
     expect(screen.getByTestId('typing-animation')).toBeInTheDocument();
   });
 
-  it('renders full text invisibly as layout spacer', () => {
+  it('renders full text in an invisible layout spacer that is announced (not aria-hidden)', () => {
     render(<TypingAnimation text="Hello World" />);
     const container = screen.getByTestId('typing-animation');
-    // Invisible spacer contains full text to reserve layout space
-    const spacer = container.querySelector('[aria-hidden="true"]');
+    const spacer = container.querySelector('.invisible');
     expect(spacer).toBeInTheDocument();
     expect(spacer).toHaveTextContent('Hello World');
-    expect(spacer).toHaveClass('invisible');
+    expect(spacer).not.toHaveAttribute('aria-hidden');
+  });
+
+  it('marks the live typed-text span aria-hidden so screen readers do not announce partials', () => {
+    render(<TypingAnimation text="Hello World" />);
+    const typed = screen.getByTestId('typed-text');
+    expect(typed).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('displays cursor', () => {
@@ -34,16 +50,13 @@ describe('TypingAnimation', () => {
   it('progressively types out the text', () => {
     render(<TypingAnimation text="Hi" typingSpeed={75} />);
 
-    // Initially empty
     expect(screen.getByTestId('typed-text').textContent).toBe('');
 
-    // After first character
     act(() => {
       vi.advanceTimersByTime(75);
     });
     expect(screen.getByTestId('typed-text').textContent).toBe('H');
 
-    // After second character
     act(() => {
       vi.advanceTimersByTime(75);
     });
@@ -53,13 +66,11 @@ describe('TypingAnimation', () => {
   it('hides cursor when complete and loop is false', () => {
     render(<TypingAnimation text="Hi" typingSpeed={75} loop={false} />);
 
-    // Type 'H'
     act(() => {
       vi.advanceTimersByTime(75);
     });
     expect(screen.getByTestId('typing-cursor')).toBeInTheDocument();
 
-    // Type 'i' — cursor disappears immediately, no intermediate frame
     act(() => {
       vi.advanceTimersByTime(75);
     });
@@ -69,12 +80,10 @@ describe('TypingAnimation', () => {
   it('keeps cursor visible when loop is true', () => {
     render(<TypingAnimation text="Hi" typingSpeed={75} loop={true} />);
 
-    // Advance past typing
     act(() => {
       vi.advanceTimersByTime(200);
     });
 
-    // Cursor should still be visible
     expect(screen.getByTestId('typing-cursor')).toBeInTheDocument();
   });
 
@@ -87,7 +96,6 @@ describe('TypingAnimation', () => {
     const onComplete = vi.fn();
     render(<TypingAnimation text="Hi" typingSpeed={75} loop={false} onComplete={onComplete} />);
 
-    // Type out "Hi"
     act(() => {
       vi.advanceTimersByTime(75);
     });
@@ -97,5 +105,313 @@ describe('TypingAnimation', () => {
       vi.advanceTimersByTime(75);
     });
     expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  describe('skipInitialTyping (no first-mount animation)', () => {
+    it('renders the full text immediately on initial mount', () => {
+      render(<TypingAnimation text="Hello" typingSpeed={75} skipInitialTyping />);
+      expect(screen.getByTestId('typed-text').textContent).toBe('Hello');
+    });
+
+    it('hides the cursor on initial mount when loop is false', () => {
+      render(<TypingAnimation text="Hello" typingSpeed={75} loop={false} skipInitialTyping />);
+      expect(screen.queryByTestId('typing-cursor')).not.toBeInTheDocument();
+    });
+
+    it('does not call onStateChange("typing") on initial mount', () => {
+      const onStateChange = vi.fn();
+      render(
+        <TypingAnimation
+          text="Hello"
+          typingSpeed={75}
+          loop={false}
+          skipInitialTyping
+          onStateChange={onStateChange}
+        />
+      );
+      expect(onStateChange).not.toHaveBeenCalledWith('typing');
+    });
+
+    it('still runs delete-then-type when text prop changes after mount', () => {
+      const { rerender } = render(
+        <TypingAnimation text="hello" typingSpeed={75} deletionSpeed={45} skipInitialTyping />
+      );
+      expect(screen.getByTestId('typed-text').textContent).toBe('hello');
+
+      rerender(
+        <TypingAnimation text="world" typingSpeed={75} deletionSpeed={45} skipInitialTyping />
+      );
+
+      for (let index = 0; index < 5; index++) {
+        act(() => {
+          vi.advanceTimersByTime(45);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('');
+
+      for (let index = 0; index < 5; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('world');
+    });
+  });
+
+  describe('delete-then-retype state machine', () => {
+    it('deletes existing text at deletionSpeed then types new text at typingSpeed', () => {
+      const { rerender } = render(
+        <TypingAnimation text="hello" typingSpeed={75} deletionSpeed={45} />
+      );
+
+      for (let index = 0; index < 5; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('hello');
+
+      rerender(<TypingAnimation text="world" typingSpeed={75} deletionSpeed={45} />);
+
+      act(() => {
+        vi.advanceTimersByTime(45);
+      });
+      expect(screen.getByTestId('typed-text').textContent).toBe('hell');
+
+      for (let index = 0; index < 4; index++) {
+        act(() => {
+          vi.advanceTimersByTime(45);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('');
+
+      act(() => {
+        vi.advanceTimersByTime(75);
+      });
+      expect(screen.getByTestId('typed-text').textContent).toBe('w');
+
+      for (let index = 0; index < 4; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('world');
+    });
+
+    it('only deletes when new text is empty string', () => {
+      const { rerender } = render(
+        <TypingAnimation text="hello" typingSpeed={75} deletionSpeed={45} />
+      );
+
+      for (let index = 0; index < 5; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('hello');
+
+      rerender(<TypingAnimation text="" typingSpeed={75} deletionSpeed={45} />);
+
+      for (let index = 0; index < 5; index++) {
+        act(() => {
+          vi.advanceTimersByTime(45);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('');
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.getByTestId('typed-text').textContent).toBe('');
+    });
+
+    it('only types when starting from empty (no deletion)', () => {
+      const { rerender } = render(<TypingAnimation text="" typingSpeed={75} deletionSpeed={45} />);
+
+      expect(screen.getByTestId('typed-text').textContent).toBe('');
+
+      rerender(<TypingAnimation text="world" typingSpeed={75} deletionSpeed={45} />);
+
+      act(() => {
+        vi.advanceTimersByTime(75);
+      });
+      expect(screen.getByTestId('typed-text').textContent).toBe('w');
+
+      for (let index = 0; index < 4; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('world');
+    });
+
+    it('handles rapid double change: most recent text wins, no orphan timers', () => {
+      const { rerender } = render(
+        <TypingAnimation text="hello" typingSpeed={75} deletionSpeed={45} />
+      );
+
+      for (let index = 0; index < 5; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('hello');
+
+      rerender(<TypingAnimation text="world" typingSpeed={75} deletionSpeed={45} />);
+      act(() => {
+        vi.advanceTimersByTime(45);
+      });
+      expect(screen.getByTestId('typed-text').textContent).toBe('hell');
+
+      rerender(<TypingAnimation text="foo" typingSpeed={75} deletionSpeed={45} />);
+
+      for (let index = 0; index < 4; index++) {
+        act(() => {
+          vi.advanceTimersByTime(45);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('');
+
+      for (let index = 0; index < 3; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(screen.getByTestId('typed-text').textContent).toBe('foo');
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.getByTestId('typed-text').textContent).toBe('foo');
+    });
+
+    it('fires onComplete on mount when useReducedMotion is true (text is already settled)', () => {
+      reducedMotionRef.current = true;
+      const onComplete = vi.fn();
+
+      render(<TypingAnimation text="hello" onComplete={onComplete} />);
+
+      expect(onComplete).toHaveBeenCalled();
+    });
+
+    it('fires onComplete when text changes while useReducedMotion is true', () => {
+      reducedMotionRef.current = true;
+      const onComplete = vi.fn();
+      const { rerender } = render(<TypingAnimation text="hello" onComplete={onComplete} />);
+
+      const callsAfterMount = onComplete.mock.calls.length;
+      rerender(<TypingAnimation text="world" onComplete={onComplete} />);
+
+      expect(onComplete.mock.calls.length).toBeGreaterThan(callsAfterMount);
+    });
+
+    it('snaps instantly to new text when useReducedMotion is true', () => {
+      reducedMotionRef.current = true;
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      const { rerender } = render(
+        <TypingAnimation text="hello" typingSpeed={75} deletionSpeed={45} />
+      );
+
+      expect(screen.getByTestId('typed-text').textContent).toBe('hello');
+      const callsBeforeChange = setTimeoutSpy.mock.calls.length;
+
+      rerender(<TypingAnimation text="world" typingSpeed={75} deletionSpeed={45} />);
+
+      expect(screen.getByTestId('typed-text').textContent).toBe('world');
+      expect(setTimeoutSpy.mock.calls.length).toBe(callsBeforeChange);
+
+      setTimeoutSpy.mockRestore();
+    });
+
+    it('fires onDeleteComplete when deletion finishes', () => {
+      const onDeleteComplete = vi.fn();
+      const { rerender } = render(
+        <TypingAnimation
+          text="hello"
+          typingSpeed={75}
+          deletionSpeed={45}
+          onDeleteComplete={onDeleteComplete}
+        />
+      );
+
+      for (let index = 0; index < 5; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(onDeleteComplete).not.toHaveBeenCalled();
+
+      rerender(
+        <TypingAnimation
+          text="world"
+          typingSpeed={75}
+          deletionSpeed={45}
+          onDeleteComplete={onDeleteComplete}
+        />
+      );
+
+      for (let index = 0; index < 4; index++) {
+        act(() => {
+          vi.advanceTimersByTime(45);
+        });
+      }
+      expect(onDeleteComplete).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(45);
+      });
+      expect(onDeleteComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires onStateChange when transitioning between states', () => {
+      const onStateChange = vi.fn();
+      const { rerender } = render(
+        <TypingAnimation
+          text="hi"
+          typingSpeed={75}
+          deletionSpeed={45}
+          loop={false}
+          onStateChange={onStateChange}
+        />
+      );
+
+      expect(onStateChange).toHaveBeenCalledWith('typing');
+
+      for (let index = 0; index < 2; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(onStateChange).toHaveBeenCalledWith('idle');
+
+      onStateChange.mockClear();
+
+      rerender(
+        <TypingAnimation
+          text="bye"
+          typingSpeed={75}
+          deletionSpeed={45}
+          loop={false}
+          onStateChange={onStateChange}
+        />
+      );
+
+      expect(onStateChange).toHaveBeenCalledWith('deleting');
+
+      for (let index = 0; index < 2; index++) {
+        act(() => {
+          vi.advanceTimersByTime(45);
+        });
+      }
+      expect(onStateChange).toHaveBeenCalledWith('typing');
+
+      for (let index = 0; index < 3; index++) {
+        act(() => {
+          vi.advanceTimersByTime(75);
+        });
+      }
+      expect(onStateChange).toHaveBeenCalledWith('idle');
+    });
   });
 });

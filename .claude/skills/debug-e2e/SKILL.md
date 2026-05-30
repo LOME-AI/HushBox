@@ -33,45 +33,53 @@ For every failed and flaky test in the report:
 
 ## Step 3 — Deep Investigation Per Failure
 
-For EACH failed AND flaky test, do ALL of the following:
+For EACH failed AND flaky test, do ALL of the following. Failed tests live under `e2e/report/<latest>/failed/<test-slug>/`; flaky tests under `.../flaky/<test-slug>/`. Each test dir also has a `trace/` subdir with the extracted Playwright trace (`*.trace`, `*.stacks`, `resources/src@*.txt`, `resources/<sha>` response bodies) — read these when the other artifacts aren't enough.
 
 ### 3a. Read the full error
-- Read `e2e/report/<latest>/failed/<test-slug>/error.txt`
+
+- Read `error.txt`
 - Identify the assertion or timeout that failed
 - Note the exact expected vs actual values
 
 ### 3b. Read the test code
+
 - Open the test file at the line indicated in the report
 - Understand what the test is trying to verify
 - Read the full `test()` or `it()` block, including setup and teardown
 - Identify which page objects, fixtures, or helpers the test uses
 
 ### 3c. Trace the execution steps
-- Read `e2e/report/<latest>/failed/<test-slug>/steps.json`
+
+- Read `steps.json`
 - Identify the last successful step before the failure
 - Note any steps with unusually long durations (potential flakiness)
 
 ### 3d. Examine API calls
-- Read `e2e/report/<latest>/failed/<test-slug>/network.har`
+
+- Read `network.har`
 - Look for: failed API responses (4xx/5xx), slow responses, missing responses
 - For each relevant API endpoint, trace it to the backend route handler
 
 ### 3e. Examine console errors
-- Read `e2e/report/<latest>/failed/<test-slug>/console-errors.txt`
+
+- Read `console-errors.txt`
 - Correlate console errors with the test failure — are they the cause or a symptom?
 
 ### 3f. Examine the page state
-- Read `e2e/report/<latest>/failed/<test-slug>/page-snapshot.txt`
+
+- Read `page-snapshot.txt`
 - Check: was the expected element present? Was the page in the right state?
 - Look for unexpected modals, loading spinners, or error banners
 
 ### 3g. Read the domain code
+
 - For each API endpoint involved, read the route handler in `apps/api/`
 - For each UI component involved, read the component in `apps/web/`
 - For shared logic, read the relevant package in `packages/`
 - Understand the full data flow: frontend action → API call → database → response → UI update
 
 ### 3h. Check for recent changes
+
 - Run `git log --oneline -20 -- <relevant-files>` for files involved in the failure
 - Run `git diff <file>` for any files with uncommitted changes — these are the most likely culprits
 - If a file was recently changed, read the diff to see if the change could have caused the failure
@@ -86,6 +94,7 @@ For each failure, determine ONE of:
 4. **Stale test** — test doesn't match current behavior after a legitimate change
 
 **When tests and application behavior disagree, do NOT assume either is correct.** Ask the user which represents the intended behavior. Present both sides:
+
 - "The test expects X because [reason from test code]"
 - "The application does Y because [reason from domain code]"
 - "Which is the intended behavior?"
@@ -99,7 +108,7 @@ For each failure, include a checklist of every file in that test's artifact dire
 - [x] `error.txt`
 - [x] `network.har`
 - [x] `screenshot.png`
-- [ ] `trace.zip` (not readable)
+- [x] `trace/`
 ```
 
 Then present:
@@ -115,12 +124,14 @@ Then present:
 [2-3 sentence narrative of the failure, tracing from user action to error]
 
 **Evidence:**
+
 - [Step X] succeeded at [time] → [Step Y] failed because [specific reason]
 - API call to `POST /api/...` returned [status] with [relevant detail]
 - Console error: [relevant error]
 - Page state: [what was/wasn't visible]
 
 **Code involved:**
+
 - `apps/api/src/routes/chat.ts:42` — [what this code does relevant to the failure]
 - `apps/web/src/hooks/use-chat-stream.ts:87` — [what this code does]
 

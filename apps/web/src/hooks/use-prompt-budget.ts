@@ -1,30 +1,27 @@
 import * as React from 'react';
 import {
   buildSystemPrompt,
-  applyFees,
+  worstCaseSearchCost,
   getModelPricing,
   generateNotifications,
-  type CapabilityId,
+  type ModelFeatureId,
   type BudgetError,
   type FundingSource,
   type MemberPrivilege,
 } from '@hushbox/shared';
 import { useBudgetCalculation } from '@/hooks/use-budget-calculation';
 import { useConversationBudgets } from '@/hooks/use-conversation-budgets';
+import { useMediaCostEstimate } from '@/hooks/use-media-cost-estimate';
 import { useResolveBilling } from '@/hooks/use-resolve-billing';
-import { useModelStore, getPrimaryModel } from '@/stores/model';
+import { useModelStore } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
 import { useModels } from '@/hooks/models';
 import { useSession, useAuthStore } from '@/lib/auth';
 
-// ============================================================================
-// Types
-// ============================================================================
-
 interface PromptBudgetInput {
   value: string;
   historyCharacters: number;
-  capabilities: CapabilityId[];
+  capabilities: ModelFeatureId[];
   /** Conversation ID for group budget lookup. Omit or null for solo conversations. */
   conversationId?: string | null;
   /** Current user's privilege in the group conversation. Omit for solo conversations. */
@@ -58,19 +55,115 @@ function resolveHasDelegatedBudget(
   return isGroupMember && groupBudgetData != null && groupBudgetData.memberBudgetDollars > 0;
 }
 
-function resolveWebSearchCost(
-  webSearchEnabled: boolean,
-  webSearchPrice: number | undefined
-): number {
-  if (webSearchEnabled && webSearchPrice != null && webSearchPrice > 0) {
-    return applyFees(webSearchPrice);
+/**
+ * Construct the input shape `useResolveBilling` expects, conditionally
+ * including the optional `group` field. Hoisted out of the hook so the
+ * conditional spread doesn't bump the hook's cyclomatic complexity past
+ * the lint threshold.
+ */
+function buildBillingResolverInput(args: {
+  estimatedCostCents: number;
+  isPremiumModel: boolean;
+  isAuthenticated: boolean;
+  groupContext: GroupBillingContext | undefined;
+}): {
+  estimatedMinimumCostCents: number;
+  isPremiumModel: boolean;
+  isAuthenticated: boolean;
+  group?: GroupBillingContext;
+} {
+  const { estimatedCostCents, isPremiumModel, isAuthenticated, groupContext } = args;
+  if (groupContext === undefined) {
+    return { estimatedMinimumCostCents: estimatedCostCents, isPremiumModel, isAuthenticated };
   }
-  return 0;
+  return {
+    estimatedMinimumCostCents: estimatedCostCents,
+    isPremiumModel,
+    isAuthenticated,
+    group: groupContext,
+  };
 }
 
-// ============================================================================
-// Hook
-// ============================================================================
+interface GroupBudgetData {
+  effectiveDollars: number;
+  ownerTier: import('@hushbox/shared').UserTier;
+  ownerBalanceDollars: number;
+  memberBudgetDollars: number;
+}
+
+interface GroupBillingContext {
+  effectiveCents: number;
+  ownerTier: import('@hushbox/shared').UserTier;
+  ownerBalanceCents: number;
+}
+
+/**
+ * Build the group billing context that {@link useResolveBilling} expects.
+ * Returns undefined for solo conversations and non-member roles (owners), so
+ * the resolver falls back to the per-user balance check.
+ */
+function useGroupBillingContext(
+  isGroupMember: boolean,
+  data: GroupBudgetData | undefined
+): GroupBillingContext | undefined {
+  return React.useMemo(() => {
+    if (!isGroupMember || !data) return;
+    return {
+      effectiveCents: data.effectiveDollars * 100,
+      ownerTier: data.ownerTier,
+      ownerBalanceCents: data.ownerBalanceDollars * 100,
+    };
+  }, [isGroupMember, data]);
+}
+
+/**
+ * A user is a "group member" for billing purposes when they're a non-owner
+ * participant in a group conversation. Owners pay from their own balance
+ * regardless; only members route through the group budget gate.
+ */
+function resolveIsGroupMember(
+  conversationId: string | null | undefined,
+  privilege: MemberPrivilege | undefined
+): boolean {
+  if (conversationId == null) return false;
+  if (privilege == null) return false;
+  return privilege !== 'owner';
+}
+
+interface MediaPriceArrays {
+  pricesPerImage: number[];
+  pricesPerVideoSecond: number[];
+  pricesPerAudioSecond: number[];
+}
+
+interface CatalogModel {
+  id: string;
+  pricePerImage?: number | undefined;
+  pricePerSecond?: number | undefined;
+  pricePerSecondByResolution?: Record<string, number> | undefined;
+}
+
+/**
+ * Pull per-model price arrays from the live model catalog. The arrays mirror
+ * `selectedModels` order so each entry's price corresponds to the model the
+ * user picked. Missing prices fall back to 0 (model not yet loaded, wrong
+ * modality), which makes the resulting cost estimate $0 instead of NaN.
+ */
+function buildMediaPriceArrays(
+  selectedModels: readonly { id: string }[],
+  modelCatalog: readonly CatalogModel[] | undefined,
+  videoResolution: string
+): MediaPriceArrays {
+  const findModel = (id: string): CatalogModel | undefined =>
+    modelCatalog?.find((m) => m.id === id);
+  return {
+    pricesPerImage: selectedModels.map((sm) => findModel(sm.id)?.pricePerImage ?? 0),
+    pricesPerVideoSecond: selectedModels.map(
+      (sm) => findModel(sm.id)?.pricePerSecondByResolution?.[videoResolution] ?? 0
+    ),
+    pricesPerAudioSecond: selectedModels.map((sm) => findModel(sm.id)?.pricePerSecond ?? 0),
+  };
+}
 
 interface PromptBudgetDisplayInputs {
   capacityPercent: number;
@@ -112,14 +205,30 @@ function computePromptBudgetDisplay(inputs: PromptBudgetDisplayInputs): PromptBu
   };
 }
 
-export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
-  const { selectedModels } = useModelStore();
-  const { webSearchEnabled } = useSearchStore();
-  const { data: modelsData } = useModels();
-  const { data: session, isPending: isSessionPending } = useSession();
+interface ModelTokenPricing {
+  modelInputPricePerToken: number;
+  modelOutputPricePerToken: number;
+  contextLength: number;
+}
 
-  const modelsPricing = selectedModels.map((sm) => {
-    const model = modelsData?.models.find((m) => m.id === sm.id);
+interface TokenPricingCatalogEntry {
+  id: string;
+  pricePerInputToken: number;
+  pricePerOutputToken: number;
+  contextLength: number;
+}
+
+/**
+ * Map each selected model to its per-token pricing tuple. Missing models
+ * (catalog still loading) collapse to zero prices, which produces a $0
+ * estimate rather than NaN downstream.
+ */
+function buildModelTokenPricing(
+  selectedModels: readonly { id: string }[],
+  modelCatalog: readonly TokenPricingCatalogEntry[] | undefined
+): ModelTokenPricing[] {
+  return selectedModels.map((sm) => {
+    const model = modelCatalog?.find((m) => m.id === sm.id);
     const pricing = getModelPricing(
       model?.pricePerInputToken ?? 0,
       model?.pricePerOutputToken ?? 0,
@@ -129,20 +238,70 @@ export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
       modelInputPricePerToken: pricing.inputPricePerToken,
       modelOutputPricePerToken: pricing.outputPricePerToken,
       contextLength: pricing.contextLength,
-      webSearchPrice: model?.webSearchPrice,
     };
   });
+}
+
+/**
+ * Build the modality-specific input shape that {@link useMediaCostEstimate}
+ * accepts. Returns no media-pricing keys for `text`, in which case the cost
+ * estimate is 0 and the caller falls back to the token-derived cost.
+ */
+function buildMediaCostInput(args: {
+  activeModality: 'text' | 'image' | 'video' | 'audio';
+  prices: MediaPriceArrays;
+  videoDurationSeconds: number;
+  audioMaxDurationSeconds: number;
+}): {
+  modality: 'text' | 'image' | 'video' | 'audio';
+  imagePricing?: { pricesPerImage: number[] };
+  videoPricing?: { pricesPerSecond: number[]; durationSeconds: number };
+  audioPricing?: { pricesPerSecond: number[]; durationSeconds: number };
+} {
+  const { activeModality, prices, videoDurationSeconds, audioMaxDurationSeconds } = args;
+  if (activeModality === 'image') {
+    return { modality: 'image', imagePricing: { pricesPerImage: prices.pricesPerImage } };
+  }
+  if (activeModality === 'video') {
+    return {
+      modality: 'video',
+      videoPricing: {
+        pricesPerSecond: prices.pricesPerVideoSecond,
+        durationSeconds: videoDurationSeconds,
+      },
+    };
+  }
+  if (activeModality === 'audio') {
+    return {
+      modality: 'audio',
+      audioPricing: {
+        pricesPerSecond: prices.pricesPerAudioSecond,
+        durationSeconds: audioMaxDurationSeconds,
+      },
+    };
+  }
+  return { modality: activeModality };
+}
+
+export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
+  const activeModality = useModelStore((state) => state.activeModality);
+  const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
+  // imageConfig has aspect ratio only — image cost is per-image regardless of
+  // ratio, so no need to read it here. Video and audio configs DO drive cost
+  // (resolution and duration are billed).
+  const videoConfig = useModelStore((state) => state.videoConfig);
+  const audioConfig = useModelStore((state) => state.audioConfig);
+  const { webSearchEnabled } = useSearchStore();
+  const { data: modelsData } = useModels();
+  const { data: session, isPending: isSessionPending } = useSession();
+
+  const modelsPricing = buildModelTokenPricing(selectedModels, modelsData?.models);
   const modelContextLength = Math.min(...modelsPricing.map((m) => m.contextLength));
   const isAuthenticated = !isSessionPending && Boolean(session?.user);
   const customInstructions = useAuthStore((s) => s.customInstructions);
-  const primaryModel = modelsData?.models.find((m) => m.id === getPrimaryModel(selectedModels).id);
-  const webSearchCost = resolveWebSearchCost(webSearchEnabled, primaryModel?.webSearchPrice);
+  const webSearchCost = webSearchEnabled ? worstCaseSearchCost() : 0;
 
-  // Group budget: only fetch for non-owner group members
-  const isGroupMember =
-    input.conversationId != null &&
-    input.currentUserPrivilege != null &&
-    input.currentUserPrivilege !== 'owner';
+  const isGroupMember = resolveIsGroupMember(input.conversationId, input.currentUserPrivilege);
 
   const { data: groupBudgetData, isPending: isGroupBudgetPending } = useConversationBudgets(
     resolveGroupBudgetArgument(isGroupMember, input.conversationId)
@@ -166,29 +325,41 @@ export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
     webSearchCost,
   });
 
-  // 2. Build group context for billing resolution
-  const groupContext = React.useMemo(() => {
-    if (!isGroupMember || !groupBudgetData) {
-      return;
-    }
-    const data = groupBudgetData;
-    return {
-      effectiveCents: data.effectiveDollars * 100,
-      ownerTier: data.ownerTier,
-      ownerBalanceCents: data.ownerBalanceDollars * 100,
-    };
-  }, [isGroupMember, groupBudgetData]);
+  const groupContext = useGroupBillingContext(isGroupMember, groupBudgetData);
+
+  // 2.5. Media cost — for image/video/audio modalities, the token-based budget
+  // result is irrelevant (token prices are 0). Use the same per-modality
+  // helpers the backend uses for reservation, so the displayed cost matches
+  // the value the server-side balance gate compares against. Returns 0 for
+  // text, in which case `estimatedCostCents` falls through to the token-based
+  // computation below.
+  const mediaPrices = buildMediaPriceArrays(
+    selectedModels,
+    modelsData?.models,
+    videoConfig.resolution
+  );
+  const mediaCost = useMediaCostEstimate(
+    buildMediaCostInput({
+      activeModality,
+      prices: mediaPrices,
+      videoDurationSeconds: videoConfig.durationSeconds,
+      audioMaxDurationSeconds: audioConfig.maxDurationSeconds,
+    })
+  );
 
   // 3. Resolve billing: who pays or why denied
   const isPremiumModel = selectedModels.some((sm) => modelsData?.premiumIds.has(sm.id) ?? false);
-  const estimatedCostCents = budgetResult.estimatedMinimumCost * 100;
+  const estimatedCostCents =
+    activeModality === 'text' ? budgetResult.estimatedMinimumCost * 100 : mediaCost.estimatedCents;
 
-  const billingResult = useResolveBilling({
-    estimatedMinimumCostCents: estimatedCostCents,
-    isPremiumModel,
-    isAuthenticated,
-    ...(groupContext !== undefined && { group: groupContext }),
-  });
+  const billingResult = useResolveBilling(
+    buildBillingResolverInput({
+      estimatedCostCents,
+      isPremiumModel,
+      isAuthenticated,
+      groupContext,
+    })
+  );
 
   // 4. Generate notifications
   const hasDelegatedBudget = resolveHasDelegatedBudget(isGroupMember, groupBudgetData);

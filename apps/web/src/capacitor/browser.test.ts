@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { MARKETING_BASE_URL } from '@hushbox/shared';
 
 vi.mock('@capacitor/browser', () => ({
   Browser: {
@@ -70,7 +71,7 @@ describe('openExternalPage', () => {
     await openExternalPage('/privacy');
 
     expect(Browser.open).toHaveBeenCalledWith({
-      url: 'https://hushbox.ai/privacy',
+      url: `${MARKETING_BASE_URL}/privacy`,
     });
     expect(windowOpenSpy).not.toHaveBeenCalled();
   });
@@ -96,7 +97,7 @@ describe('openExternalPage', () => {
     await openExternalPage('/terms');
 
     expect(Browser.open).toHaveBeenCalledWith({
-      url: 'https://hushbox.ai/terms',
+      url: `${MARKETING_BASE_URL}/terms`,
     });
   });
 });

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { randomBytes } from '@noble/hashes/utils.js';
 import { createSharedLink, deriveKeysFromLinkSecret, LINK_INFO } from './link.js';
 import { generateKeyPair } from './sharing.js';
 import { createFirstEpoch, unwrapEpochKey } from './epoch.js';
 import { DecryptionError } from './errors.js';
-import { randomBytes } from '@noble/hashes/utils.js';
 
 describe('link', () => {
   it('uses link-keypair-v1 as HKDF info string', () => {

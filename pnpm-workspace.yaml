@@ -4,4 +4,5 @@ packages:
   - 'services/*'
   - 'mocks/*'
   - 'e2e'
+  - 'ops'
   - 'scripts'

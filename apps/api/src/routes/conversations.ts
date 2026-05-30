@@ -1,17 +1,16 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { eq } from 'drizzle-orm';
 import {
   createConversationRequestSchema,
   updateConversationRequestSchema,
-  conversationResponseSchema,
-  messageResponseSchema,
   ERROR_CODE_CONVERSATION_NOT_FOUND,
   toBase64,
   fromBase64,
+  contentTypeSchema,
+  senderTypeSchema,
 } from '@hushbox/shared';
-import { eq } from 'drizzle-orm';
-import type { Conversation, Message, Database } from '@hushbox/db';
 import { conversationForks } from '@hushbox/db';
 
 type ConversationFork = typeof conversationForks.$inferSelect;
@@ -25,6 +24,13 @@ import {
   updateConversation,
   deleteConversation,
 } from '../services/conversations/index.js';
+import type { Conversation, ContentItem, Database } from '@hushbox/db';
+import type { MessageWithContent } from '../services/conversations/conversations.js';
+import type {
+  conversationResponseSchema,
+  messageResponseSchema,
+  contentItemResponseSchema,
+} from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 
 /** Serialize a conversation entity for API responses. */
@@ -41,22 +47,40 @@ function serializeConversation(conv: Conversation): z.infer<typeof conversationR
   };
 }
 
-/** Serialize a message entity for API responses. */
-function serializeMessage(msg: Message): z.infer<typeof messageResponseSchema> {
+/** Serialize a content item for API responses. */
+function serializeContentItem(item: ContentItem): z.infer<typeof contentItemResponseSchema> {
+  return {
+    id: item.id,
+    contentType: contentTypeSchema.parse(item.contentType),
+    position: item.position,
+    encryptedBlob: item.encryptedBlob ? toBase64(item.encryptedBlob) : null,
+    storageKey: item.storageKey,
+    mimeType: item.mimeType,
+    sizeBytes: item.sizeBytes,
+    width: item.width,
+    height: item.height,
+    durationMs: item.durationMs,
+    modelName: item.modelName,
+    cost: item.cost,
+    isSmartModel: item.isSmartModel,
+  };
+}
+
+/** Serialize a message with its content items for API responses. */
+function serializeMessage(msg: MessageWithContent): z.infer<typeof messageResponseSchema> {
   return {
     id: msg.id,
     conversationId: msg.conversationId,
-    encryptedBlob: toBase64(msg.encryptedBlob),
-    // DB CHECK constraint guarantees senderType IN ('user', 'ai')
-    senderType: msg.senderType as 'user' | 'ai',
+    wrappedContentKey: toBase64(msg.wrappedContentKey),
+    // DB CHECK constraint guarantees this set; re-parse so a rogue row fails loud.
+    senderType: senderTypeSchema.parse(msg.senderType),
     senderId: msg.senderId ?? null,
-    modelName: msg.modelName ?? null,
-    payerId: msg.payerId ?? null,
-    cost: msg.cost ?? null,
     epochNumber: msg.epochNumber,
     sequenceNumber: msg.sequenceNumber,
     parentMessageId: msg.parentMessageId ?? null,
+    batchId: msg.batchId,
     createdAt: msg.createdAt.toISOString(),
+    contentItems: msg.contentItems.map((ci) => serializeContentItem(ci)),
   };
 }
 
@@ -178,12 +202,10 @@ export const conversationsRoute = new Hono<AppEnv>()
       userPublicKey: user.publicKey,
     });
 
-    // Service returns null = ID exists but belongs to different user
     if (!result) {
       return c.json(createErrorResponse(ERROR_CODE_CONVERSATION_NOT_FOUND), 404);
     }
 
-    // Fetch forks (empty for new conversations, may exist for idempotent returns)
     const existingForks = result.isNew ? [] : await fetchForks(db, result.conversation.id);
 
     const response = {
@@ -195,7 +217,6 @@ export const conversationsRoute = new Hono<AppEnv>()
       invitedByUsername: null as string | null,
     };
 
-    // HTTP status based on whether new or existing
     const status = result.isNew ? 201 : 200;
     return c.json(response, status);
   })

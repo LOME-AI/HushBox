@@ -16,6 +16,9 @@ import {
   readdirSync,
 } from 'node:fs';
 import path from 'node:path';
+import AdmZip from 'adm-zip';
+import type { ResourceReport, ResourceSummary } from './resource-sampler.js';
+import type { ResourceScan } from './resource-scan.js';
 
 export interface PlaywrightError {
   message?: string;
@@ -121,6 +124,7 @@ export interface FailedTestArtifacts {
   screenshot: string | undefined;
   video: string | undefined;
   consoleErrors: string | undefined;
+  apiErrors: string | undefined;
   pageSnapshot: string | undefined;
   harFiles: string[];
 }
@@ -155,6 +159,8 @@ export interface DebugReport {
   passed: PassedTest[];
   flaky: FlakyTest[];
   failed: FailedTest[];
+  /** Resource time-series + log-scan, attached by the reporter when sampled. */
+  resources?: ResourceReport;
 }
 
 export interface JsonTestEntry {
@@ -171,6 +177,7 @@ export interface JsonTestEntry {
     trace: string | undefined;
     video: string | undefined;
     consoleErrors: string | undefined;
+    apiErrors: string | undefined;
     pageSnapshot: string | undefined;
     harFiles: string[];
   };
@@ -183,12 +190,19 @@ export interface JsonPassedEntry {
   duration: number;
 }
 
+/** Lean resource view for report.json (full series lives in resource-timeline.json). */
+export interface JsonResources {
+  summary: ResourceSummary;
+  scan: ResourceScan;
+}
+
 export interface JsonReport {
   timestamp: string;
   summary: DebugReportSummary;
   failed: JsonTestEntry[];
   flaky: JsonTestEntry[];
   passed: JsonPassedEntry[];
+  resources?: JsonResources;
 }
 
 // eslint-disable-next-line no-control-regex, sonarjs/no-control-regex
@@ -338,6 +352,7 @@ export function extractArtifactPaths(test: FlattenedTestResult): FailedTestArtif
     screenshot: findPath('screenshot'),
     video: findPath('video'),
     consoleErrors: collectLabeledBodies('console-errors'),
+    apiErrors: collectLabeledBodies('api-errors'),
     pageSnapshot: collectLabeledBodies('page-snapshot'),
     harFiles: collectLabeledPaths('har'),
   };
@@ -450,6 +465,33 @@ function renderHeader(summary: DebugReportSummary): string[] {
   ];
 }
 
+export function renderResourceSection(resources?: ResourceReport): string[] {
+  if (!resources) return [];
+  const { summary, scan } = resources;
+  const gib = (summary.totalMemBytes / 1024 ** 3).toFixed(1);
+  const lines = [
+    '',
+    '## Resource Usage',
+    '',
+    `**Window:** ${formatDuration(summary.durationMs)} · ${String(summary.cores)} cores · ${gib}G RAM · ${String(summary.sampleCount)} samples`,
+    '',
+    '| Metric | Peak | Avg |',
+    '| --- | --- | --- |',
+    `| CPU | ${String(summary.cpu.peak)}% | ${String(summary.cpu.avg)}% |`,
+    `| Memory | ${String(summary.mem.peak)}% | ${String(summary.mem.avg)}% |`,
+    `| Load (1m) | ${String(summary.load.peak)} | — |`,
+  ];
+
+  if (scan.totalHits > 0) {
+    lines.push('', `**Resource-limit errors:** ${String(scan.totalHits)}`);
+    for (const c of scan.categories) {
+      lines.push(`- ${c.name} ×${String(c.count)} (tests: ${c.tests.join(', ')})`);
+    }
+  }
+
+  return lines;
+}
+
 function truncateError(rawError: string): string {
   const error = stripAnsi(rawError);
   if (error.length > MAX_ERROR_LENGTH) {
@@ -501,12 +543,18 @@ function renderSingleTest(test: RenderableTest, artifactDir: 'failed' | 'flaky')
     lines.push('', `**Console Errors:** See \`${artifactDir}/${slug}/console-errors.txt\``);
   }
 
+  if (test.artifacts.apiErrors) {
+    lines.push(`**API Errors:** See \`${artifactDir}/${slug}/api-errors.txt\``);
+  }
+
   if (test.artifacts.pageSnapshot) {
     lines.push(`**Page Snapshot:** See \`${artifactDir}/${slug}/page-snapshot.txt\``);
   }
 
   if (test.artifacts.trace) {
-    lines.push(`**Trace:** \`npx playwright show-trace ${test.artifacts.trace}\``);
+    lines.push(
+      `**Trace:** \`${artifactDir}/${slug}/trace/\` (extracted) or \`npx playwright show-trace ${test.artifacts.trace}\` (viewer)`
+    );
   }
 
   if (test.artifacts.screenshot) {
@@ -585,6 +633,7 @@ function renderPassedTests(passed: PassedTest[]): string[] {
 export function generateMarkdownReport(report: DebugReport): string {
   const lines: string[] = [
     ...renderHeader(report.summary),
+    ...renderResourceSection(report.resources),
     ...renderFailedTests(report.failed),
     ...renderFlakyTests(report.flaky),
     ...renderPassedTests(report.passed),
@@ -597,52 +646,46 @@ export function generateMarkdownReport(report: DebugReport): string {
   return lines.join('\n');
 }
 
+export function serializeTestForJson(test: FailedTest | FlakyTest): JsonTestEntry {
+  return {
+    title: test.title,
+    file: test.file,
+    line: test.line,
+    project: test.project,
+    duration: test.duration,
+    error: stripAnsi(test.error),
+    rerunCommand: buildRerunCommand(test),
+    steps: test.steps,
+    artifacts: {
+      screenshot: test.artifacts.screenshot,
+      trace: test.artifacts.trace,
+      video: test.artifacts.video,
+      consoleErrors: test.artifacts.consoleErrors,
+      apiErrors: test.artifacts.apiErrors,
+      pageSnapshot: test.artifacts.pageSnapshot,
+      harFiles: test.artifacts.harFiles,
+    },
+  };
+}
+
 export function generateJsonReport(report: DebugReport): JsonReport {
   return {
     timestamp: new Date().toISOString(),
     summary: report.summary,
-    failed: report.failed.map((test) => ({
-      title: test.title,
-      file: test.file,
-      line: test.line,
-      project: test.project,
-      duration: test.duration,
-      error: stripAnsi(test.error),
-      rerunCommand: buildRerunCommand(test),
-      steps: test.steps,
-      artifacts: {
-        screenshot: test.artifacts.screenshot,
-        trace: test.artifacts.trace,
-        video: test.artifacts.video,
-        consoleErrors: test.artifacts.consoleErrors,
-        pageSnapshot: test.artifacts.pageSnapshot,
-        harFiles: test.artifacts.harFiles,
-      },
-    })),
-    flaky: report.flaky.map((test) => ({
-      title: test.title,
-      file: test.file,
-      line: test.line,
-      project: test.project,
-      duration: test.duration,
-      error: stripAnsi(test.error),
-      rerunCommand: buildRerunCommand(test),
-      steps: test.steps,
-      artifacts: {
-        screenshot: test.artifacts.screenshot,
-        trace: test.artifacts.trace,
-        video: test.artifacts.video,
-        consoleErrors: test.artifacts.consoleErrors,
-        pageSnapshot: test.artifacts.pageSnapshot,
-        harFiles: test.artifacts.harFiles,
-      },
-    })),
+    failed: report.failed.map((test) => serializeTestForJson(test)),
+    flaky: report.flaky.map((test) => serializeTestForJson(test)),
     passed: report.passed.map((test) => ({
       title: test.title,
       file: test.file,
       project: test.project,
       duration: test.duration,
     })),
+    ...(report.resources && {
+      resources: {
+        summary: report.resources.summary,
+        scan: report.resources.scan,
+      },
+    }),
   };
 }
 
@@ -664,6 +707,21 @@ export function mergeHarFiles(harPaths: string[], outputPath: string): void {
   writeFileSync(outputPath, JSON.stringify(merged, null, 2), 'utf8');
 }
 
+const TRACE_FRAME_JPEG = /^resources\/page@[^/]+\.jpeg$/;
+
+export function extractTraceArchive(zipPath: string, destinationDir: string): void {
+  if (!existsSync(zipPath)) return;
+  mkdirSync(destinationDir, { recursive: true });
+  // Drop the visual frame screenshots (resources/page@*.jpeg); the DOM
+  // snapshots (in *.trace) and captured sources (resources/src@*.txt) remain.
+  const zip = new AdmZip(zipPath);
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory) continue;
+    if (TRACE_FRAME_JPEG.test(entry.entryName)) continue;
+    zip.extractEntryTo(entry, destinationDir, true, true);
+  }
+}
+
 export function writePerTestArtifacts(test: FailedTest, testDir: string): void {
   mkdirSync(testDir, { recursive: true });
 
@@ -672,6 +730,10 @@ export function writePerTestArtifacts(test: FailedTest, testDir: string): void {
 
   if (test.artifacts.consoleErrors) {
     writeFileSync(path.join(testDir, 'console-errors.txt'), test.artifacts.consoleErrors, 'utf8');
+  }
+
+  if (test.artifacts.apiErrors) {
+    writeFileSync(path.join(testDir, 'api-errors.txt'), test.artifacts.apiErrors, 'utf8');
   }
 
   if (test.artifacts.pageSnapshot) {
@@ -684,6 +746,10 @@ export function writePerTestArtifacts(test: FailedTest, testDir: string): void {
 
   if (test.artifacts.harFiles.length > 0) {
     mergeHarFiles(test.artifacts.harFiles, path.join(testDir, 'network.har'));
+  }
+
+  if (test.artifacts.trace) {
+    extractTraceArchive(test.artifacts.trace, path.join(testDir, 'trace'));
   }
 }
 
@@ -736,6 +802,14 @@ export function writeReport(report: DebugReport, baseDir: string): string {
 
   const jsonReport = generateJsonReport(report);
   writeFileSync(path.join(reportDir, 'report.json'), JSON.stringify(jsonReport, null, 2), 'utf8');
+
+  if (report.resources) {
+    writeFileSync(
+      path.join(reportDir, 'resource-timeline.json'),
+      JSON.stringify(report.resources.samples, null, 2),
+      'utf8'
+    );
+  }
 
   enforceRetentionLimit(baseDir, MAX_REPORTS);
 

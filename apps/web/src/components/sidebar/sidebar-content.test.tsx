@@ -1,9 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { SidebarContent } from './sidebar-content';
+import { render as rtlRender, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement, ReactNode } from 'react';
 import { useUIStore } from '@/stores/ui';
+import { SidebarContent } from './sidebar-content';
 
-// Mock @hushbox/shared with feature flags (partial mock)
+function render(ui: ReactElement): ReturnType<typeof rtlRender> {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  }
+  Wrapper.displayName = 'TestWrapper';
+  return rtlRender(ui, { wrapper: Wrapper });
+}
+
 vi.mock('@hushbox/shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@hushbox/shared')>();
   return {
@@ -15,7 +25,6 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-// Mock router
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useLocation: () => ({ pathname: '/chat/some-id' }),
@@ -35,12 +44,14 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ conversationId: undefined }),
 }));
 
-// Mock useIsMobile (used by NewChatButton)
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: () => false,
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: () => false,
+  };
+});
 
-// Mock chat hooks used by ChatItem
 vi.mock('@/hooks/chat', () => ({
   useDeleteConversation: () => ({
     mutate: vi.fn(),
@@ -53,7 +64,11 @@ vi.mock('@/hooks/chat', () => ({
   DECRYPTING_TITLE: 'Decrypting...',
 }));
 
-// Mock member hooks used by InboxContent
+vi.mock('@/lib/auth', () => ({
+  useAuthStore: <T,>(selector: (s: { user: { id: string } | null }) => T): T =>
+    selector({ user: { id: 'user-1' } }),
+}));
+
 vi.mock('@/hooks/use-conversation-members', () => ({
   useAcceptMembership: () => ({
     mutate: vi.fn(),
@@ -61,6 +76,11 @@ vi.mock('@/hooks/use-conversation-members', () => ({
   }),
   useLeaveConversation: () => ({
     mutate: vi.fn(),
+    mutateAsync: vi.fn(() => Promise.resolve()),
+    isPending: false,
+  }),
+  useDeclineInvitation: () => ({
+    mutateAsync: vi.fn(() => Promise.resolve()),
     isPending: false,
   }),
   useMuteConversation: () => ({
@@ -80,7 +100,7 @@ describe('SidebarContent', () => {
       title: 'Test Conversation',
       currentEpoch: 1,
       updatedAt: new Date().toISOString(),
-      privilege: 'owner',
+      privilege: 'owner' as const,
       muted: false,
       pinned: false,
     },
@@ -157,7 +177,7 @@ describe('SidebarContent', () => {
         updatedAt: new Date().toISOString(),
         accepted: true,
         invitedByUsername: null,
-        privilege: 'owner',
+        privilege: 'owner' as const,
         muted: false,
         pinned: false,
       },
@@ -168,7 +188,7 @@ describe('SidebarContent', () => {
         updatedAt: new Date().toISOString(),
         accepted: true,
         invitedByUsername: null,
-        privilege: 'write',
+        privilege: 'write' as const,
         muted: false,
         pinned: false,
       },
@@ -182,7 +202,7 @@ describe('SidebarContent', () => {
         updatedAt: new Date().toISOString(),
         accepted: false,
         invitedByUsername: 'sarah',
-        privilege: 'write',
+        privilege: 'write' as const,
         muted: false,
         pinned: false,
       },
@@ -226,7 +246,6 @@ describe('SidebarContent', () => {
 
     it('keeps chat list in DOM during slide (both panels render)', () => {
       render(<SidebarContent conversations={mixedConvs} />);
-      // Both panels exist in the DOM simultaneously for slide animation
       expect(screen.getByText('Design Chat')).toBeInTheDocument();
       expect(screen.getByTestId('inbox-content')).toBeInTheDocument();
     });
@@ -246,7 +265,7 @@ describe('SidebarContent', () => {
           title: 'Unpinned First',
           currentEpoch: 1,
           updatedAt: '2026-03-27T03:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: false,
         },
@@ -255,7 +274,7 @@ describe('SidebarContent', () => {
           title: 'Pinned Chat',
           currentEpoch: 1,
           updatedAt: '2026-03-27T01:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: true,
         },
@@ -264,7 +283,7 @@ describe('SidebarContent', () => {
           title: 'Unpinned Second',
           currentEpoch: 1,
           updatedAt: '2026-03-27T02:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: false,
         },
@@ -285,7 +304,7 @@ describe('SidebarContent', () => {
           title: 'Pinned Chat',
           currentEpoch: 1,
           updatedAt: '2026-03-27T01:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: true,
         },
@@ -294,7 +313,7 @@ describe('SidebarContent', () => {
           title: 'Unpinned Chat',
           currentEpoch: 1,
           updatedAt: '2026-03-27T02:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: false,
         },
@@ -318,7 +337,7 @@ describe('SidebarContent', () => {
           title: 'Pinned One',
           currentEpoch: 1,
           updatedAt: '2026-03-27T01:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: true,
         },
@@ -327,7 +346,7 @@ describe('SidebarContent', () => {
           title: 'Pinned Two',
           currentEpoch: 1,
           updatedAt: '2026-03-27T02:00:00Z',
-          privilege: 'owner',
+          privilege: 'owner' as const,
           muted: false,
           pinned: true,
         },

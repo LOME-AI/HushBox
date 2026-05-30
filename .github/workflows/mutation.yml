@@ -32,6 +32,9 @@ jobs:
             done
           fi
 
+      - name: Generate environment files
+        run: pnpm generate:env
+
       - name: Start database
         run: pnpm db:up
 

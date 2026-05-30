@@ -18,6 +18,9 @@ describe('ShareMessageModal', () => {
     onOpenChange: vi.fn(),
     messageId: 'msg-123',
     messageContent: 'Here is the final API design for the encryption layer.',
+    conversationId: 'conv-1',
+    epochNumber: 1,
+    wrappedContentKey: 'base64-wrapped-content-key',
   };
 
   beforeEach(() => {
@@ -59,14 +62,16 @@ describe('ShareMessageModal', () => {
     expect(isolationInfo).toHaveAttribute('role', 'alert');
   });
 
-  it('calls useMessageShare on Create Link click', async () => {
+  it('calls useMessageShare with envelope metadata on Create Link click', async () => {
     render(<ShareMessageModal {...defaultProps} />);
 
     await userEvent.click(screen.getByTestId('share-message-create-button'));
 
     expect(mockMutateAsync).toHaveBeenCalledWith({
       messageId: 'msg-123',
-      plaintextContent: 'Here is the final API design for the encryption layer.',
+      conversationId: 'conv-1',
+      epochNumber: 1,
+      wrappedContentKey: 'base64-wrapped-content-key',
     });
   });
 
@@ -77,6 +82,17 @@ describe('ShareMessageModal', () => {
 
     expect(screen.getByTestId('share-message-url')).toBeInTheDocument();
     expect(screen.getByTestId('share-message-copy-button')).toBeInTheDocument();
+  });
+
+  it('announces share-link success via role="status" / aria-live="polite"', async () => {
+    render(<ShareMessageModal {...defaultProps} />);
+
+    await userEvent.click(screen.getByTestId('share-message-create-button'));
+
+    const success = screen.getByTestId('share-message-success');
+    expect(success).toHaveAttribute('role', 'status');
+    expect(success).toHaveAttribute('aria-live', 'polite');
+    expect(success).toHaveTextContent('Share link created!');
   });
 
   it('displays the generated URL', async () => {
@@ -109,5 +125,23 @@ describe('ShareMessageModal', () => {
 
     expect(screen.getByTestId('share-message-create-button')).toBeInTheDocument();
     expect(screen.queryByTestId('share-message-url')).not.toBeInTheDocument();
+  });
+
+  it('creates a share link for media-only messages whose textual content is empty', async () => {
+    // Image / video / audio assistant messages have an empty `messageContent` —
+    // the bytes live in encrypted contentItems, addressed by `messageId` server-side.
+    // The share API only needs envelope metadata, so the modal must not gate
+    // on text content being present.
+    render(<ShareMessageModal {...defaultProps} messageContent="" />);
+
+    await userEvent.click(screen.getByTestId('share-message-create-button'));
+
+    expect(mockMutateAsync).toHaveBeenCalledWith({
+      messageId: 'msg-123',
+      conversationId: 'conv-1',
+      epochNumber: 1,
+      wrappedContentKey: 'base64-wrapped-content-key',
+    });
+    expect(screen.getByTestId('share-message-url')).toBeInTheDocument();
   });
 });

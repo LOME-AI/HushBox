@@ -65,31 +65,16 @@ const ACTION_GUARDS: Partial<
 > = {
   copy: (_chat, msg) => !msg.isStreaming && !msg.isError,
   regenerate: (_chat, msg) =>
-    msg.message.role === 'assistant' &&
-    !msg.isStreaming &&
-    !msg.isError &&
-    !msg.isMultiModel &&
-    msg.canRegenerate,
+    msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
   retry: (_chat, msg) =>
-    msg.message.role === 'user' &&
-    !msg.isStreaming &&
-    !msg.isError &&
-    !msg.isMultiModel &&
-    msg.canRegenerate,
+    msg.message.role === 'user' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
   edit: (_chat, msg) =>
-    msg.message.role === 'user' &&
-    !msg.isStreaming &&
-    !msg.isError &&
-    !msg.isMultiModel &&
-    msg.canRegenerate,
+    msg.message.role === 'user' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
   fork: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
   share: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
   'retry-error': (_chat, msg) => msg.isError,
 };
 
-/**
- * Pure function: given chat context + message context, returns the set of allowed actions.
- */
 export function resolveMessageActions(chat: ChatContext, msg: MessageContext): Set<MessageAction> {
   const privilegeKey = chat.privilege ?? 'none';
   const baseActions = BASE_PERMISSIONS[chat.mode][privilegeKey] ?? [];
@@ -106,7 +91,6 @@ export function resolveMessageActions(chat: ChatContext, msg: MessageContext): S
     allowed.delete('edit');
   }
 
-  // Apply dynamic guards
   const result = new Set<MessageAction>();
   for (const action of allowed) {
     const guard = ACTION_GUARDS[action];
@@ -117,9 +101,6 @@ export function resolveMessageActions(chat: ChatContext, msg: MessageContext): S
   return result;
 }
 
-/**
- * Builds a ChatContext from the available props in the component tree.
- */
 export function buildChatContext(options: {
   isAuthenticated: boolean;
   isLinkGuest: boolean;

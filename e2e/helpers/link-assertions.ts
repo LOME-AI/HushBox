@@ -1,5 +1,5 @@
-import type { Page } from '@playwright/test';
 import { expect, unsettledExpect } from './settled-expect.js';
+import type { Page } from '@playwright/test';
 
 /** Wait for the shared conversation loading spinner to appear then disappear. */
 export async function expectSharedConversationLoaded(page: Page): Promise<void> {
@@ -27,9 +27,14 @@ export async function expectSendInputDisabled(
 
 /** Assert the read-only notice is visible and no trial/guest errors are shown. */
 export async function expectReadOnlyNotice(page: Page): Promise<void> {
-  await expect(page.getByTestId('budget-message-read_only_notice')).toBeVisible();
-  await expect(page.getByTestId('budget-message-trial_notice')).not.toBeVisible();
-  await expect(page.getByTestId('budget-message-guest_budget_exhausted')).not.toBeVisible();
+  // Budget query paints independently of conversation query.
+  await unsettledExpect(page.getByTestId('budget-message-read_only_notice')).toBeVisible({
+    timeout: 15_000,
+  });
+  await unsettledExpect(page.getByTestId('budget-message-trial_notice')).not.toBeVisible();
+  await unsettledExpect(
+    page.getByTestId('budget-message-guest_budget_exhausted')
+  ).not.toBeVisible();
 }
 
 /** Assert the delegated budget notice is visible and no trial/guest errors are shown. */
@@ -60,5 +65,6 @@ export async function sendMessageAsGuest(
   await expect(sendButton).toBeEnabled({ timeout: 5000 });
   await sendButton.click();
 
-  await expect(page.getByText(message).first()).toBeVisible({ timeout: 10_000 });
+  // Encrypt → POST → SSE → decrypt may complete after settled fires.
+  await unsettledExpect(page.getByText(message).first()).toBeVisible({ timeout: 10_000 });
 }

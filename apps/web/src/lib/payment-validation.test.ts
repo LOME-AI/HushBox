@@ -54,7 +54,6 @@ describe('payment-validation', () => {
       expect(result.success).toBe('Valid amount');
     });
 
-    // Decimal edge cases
     it('validates "5.11" as $5.11 (not $511)', () => {
       const result = validateAmount('5.11');
       expect(result.isValid).toBe(true);
@@ -66,7 +65,6 @@ describe('payment-validation', () => {
       expect(result.isValid).toBe(true);
     });
 
-    // Extra decimal places (3+ decimals) - should be rejected
     it('rejects "5.111" with 3 decimal places', () => {
       const result = validateAmount('5.111');
       expect(result.isValid).toBe(false);
@@ -103,7 +101,6 @@ describe('payment-validation', () => {
       expect(result.error).toBe('Amount cannot have more than 2 decimal places');
     });
 
-    // Leading zeros
     it('handles leading zeros "05.11"', () => {
       const result = validateAmount('05.11');
       expect(result.isValid).toBe(true);
@@ -114,7 +111,6 @@ describe('payment-validation', () => {
       expect(result.isValid).toBe(true);
     });
 
-    // Boundary values with decimals
     it('rejects "4.999" with 3 decimal places', () => {
       const result = validateAmount('4.999');
       expect(result.isValid).toBe(false);

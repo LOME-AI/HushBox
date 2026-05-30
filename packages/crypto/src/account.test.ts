@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { randomBytes } from '@noble/hashes/utils.js';
 import {
   createAccount,
   unwrapAccountKeyWithPassword,
@@ -7,7 +8,6 @@ import {
   regenerateRecoveryPhrase,
 } from './account.js';
 import { validatePhrase } from './recovery-phrase.js';
-import { randomBytes } from '@noble/hashes/utils.js';
 
 describe('account', () => {
   const exportKey = randomBytes(64);

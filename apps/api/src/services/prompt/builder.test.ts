@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildPrompt } from './builder.js';
-import type { CapabilityId } from '@hushbox/shared';
+import type { ModelFeatureId } from '@hushbox/shared';
 
 describe('buildPrompt', () => {
   beforeEach(() => {
-    // Mock Date to ensure consistent output
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-15'));
   });
@@ -114,7 +113,7 @@ describe('buildPrompt', () => {
 
   describe('multiple capabilities', () => {
     it('includes all modules for supported capabilities', () => {
-      const capabilities: CapabilityId[] = ['python-execution', 'javascript-execution'];
+      const capabilities: ModelFeatureId[] = ['python-execution', 'javascript-execution'];
       const result = buildPrompt({
         modelId: 'test/model',
         supportedCapabilities: capabilities,
@@ -126,7 +125,7 @@ describe('buildPrompt', () => {
     });
 
     it('includes all tools from active modules', () => {
-      const capabilities: CapabilityId[] = ['python-execution', 'javascript-execution'];
+      const capabilities: ModelFeatureId[] = ['python-execution', 'javascript-execution'];
       const result = buildPrompt({
         modelId: 'test/model',
         supportedCapabilities: capabilities,
@@ -145,7 +144,6 @@ describe('buildPrompt', () => {
         supportedCapabilities: ['python-execution'],
       });
 
-      // Base and Python sections should be separated by double newline
       expect(result.systemPrompt).toMatch(/HushBox[\s\S]*\n\n[\s\S]*Python/);
     });
   });

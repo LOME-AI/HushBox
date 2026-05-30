@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { getUserTier, type UserTierInfo } from '@hushbox/shared';
 import { useSession } from '@/lib/auth';
-import { useBalance } from './billing.js';
 import { getLinkGuestAuth } from '@/lib/link-guest-auth.js';
+import { useBalance } from './billing.js';
 
 /**
  * Hook to get user tier info including canAccessPremium.

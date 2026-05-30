@@ -1,5 +1,5 @@
-import type { StartEventData } from './sse-client';
 import { createAssistantMessage } from './chat-messages';
+import type { StartEventData } from './sse-client';
 import type { Message } from './api';
 
 export interface ProcessStartEventResult {
@@ -8,7 +8,6 @@ export interface ProcessStartEventResult {
   assistantMessageIds: string[];
 }
 
-/** Build model→message map and create assistant messages from a stream start event. */
 export function processStartEvent(
   data: StartEventData,
   conversationId: string,

@@ -7,9 +7,12 @@ import { checkForUpdate, applyUpdate } from '@/capacitor/live-update';
 
 export function UpgradeRequiredModal(): React.JSX.Element | null {
   const upgradeRequired = useAppVersionStore((s) => s.upgradeRequired);
+  const otaInProgress = useAppVersionStore((s) => s.otaInProgress);
   const [isUpdating, setIsUpdating] = React.useState(false);
 
-  if (!upgradeRequired) return null;
+  // While an OTA is being checked/applied, a version-mismatch 426 may have set
+  // upgradeRequired; stay hidden and let Capgo's silent reload resolve it.
+  if (!upgradeRequired || otaInProgress) return null;
 
   const handleRefresh = (): void => {
     if (!isNative()) {

@@ -2,10 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { getSenderLabel, isOwnMessage, groupConsecutiveMessages } from './chat-sender';
 import type { Message } from '@/lib/api';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function createMessage(overrides: Partial<Message> = {}): Message {
   return {
     id: crypto.randomUUID(),
@@ -21,10 +17,6 @@ const members = [
   { id: 'member-1', userId: 'user-1', username: 'alice', privilege: 'owner' },
   { id: 'member-2', userId: 'user-2', username: 'bob', privilege: 'admin' },
 ];
-
-// ---------------------------------------------------------------------------
-// getSenderLabel
-// ---------------------------------------------------------------------------
 
 describe('getSenderLabel', () => {
   it('returns undefined when not in group chat', () => {
@@ -138,10 +130,6 @@ describe('getSenderLabel', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// isOwnMessage
-// ---------------------------------------------------------------------------
-
 describe('isOwnMessage', () => {
   it('returns true when senderId matches currentUserId', () => {
     expect(isOwnMessage('user-1', 'user-1')).toBe(true);
@@ -155,10 +143,6 @@ describe('isOwnMessage', () => {
     expect(isOwnMessage(undefined, 'user-1')).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// groupConsecutiveMessages
-// ---------------------------------------------------------------------------
 
 describe('groupConsecutiveMessages', () => {
   it('returns empty array for empty input', () => {
@@ -230,31 +214,26 @@ describe('groupConsecutiveMessages', () => {
 
     expect(groups).toHaveLength(5);
 
-    // Group 1: alice×2
     const g1 = groups[0]!;
     expect(g1.id).toBe('a1');
     expect(g1.senderId).toBe('alice');
     expect(g1.messages).toHaveLength(2);
 
-    // Group 2: AI (standalone)
     const g2 = groups[1]!;
     expect(g2.id).toBe('ai1');
     expect(g2.role).toBe('assistant');
     expect(g2.messages).toHaveLength(1);
 
-    // Group 3: bob×1
     const g3 = groups[2]!;
     expect(g3.id).toBe('b1');
     expect(g3.senderId).toBe('bob');
     expect(g3.messages).toHaveLength(1);
 
-    // Group 4: alice×3
     const g4 = groups[3]!;
     expect(g4.id).toBe('a3');
     expect(g4.senderId).toBe('alice');
     expect(g4.messages).toHaveLength(3);
 
-    // Group 5: AI (standalone)
     const g5 = groups[4]!;
     expect(g5.id).toBe('ai2');
     expect(g5.role).toBe('assistant');

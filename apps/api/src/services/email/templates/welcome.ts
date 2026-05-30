@@ -1,10 +1,25 @@
 import { z } from 'zod';
+import { FEE_CATEGORIES, formatFeePercent, TOTAL_FEE_RATE } from '@hushbox/shared';
 import { COLORS } from './base.js';
 import { defineEmailTemplate } from './builder.js';
 
 const schema = z.object({
   userName: z.string().optional(),
 });
+
+const totalFeePercent = formatFeePercent(TOTAL_FEE_RATE);
+
+const feeRowsHtml = FEE_CATEGORIES.map(
+  (category) => `
+      <tr>
+        <td style="color: ${COLORS.accent}; font-size: 14px; padding: 2px 8px 2px 0; vertical-align: top;">&#8226;</td>
+        <td style="color: ${COLORS.textSecondary}; font-size: 14px; line-height: 1.5;">${formatFeePercent(category.rate)} &mdash; ${category.shortLabel}</td>
+      </tr>`
+).join('');
+
+const feeBulletsText = FEE_CATEGORIES.map(
+  (category) => `  - ${formatFeePercent(category.rate)} - ${category.shortLabel}`
+).join('\n');
 
 export const welcomeEmail = defineEmailTemplate({
   schema,
@@ -30,21 +45,9 @@ export const welcomeEmail = defineEmailTemplate({
       HushBox is pay-as-you-go. No subscriptions, no recurring charges. Add credits when you need them &mdash; they never expire.
     </p>
     <p style="margin: 0 0 4px 0; color: ${COLORS.textSecondary}; font-size: 14px; line-height: 1.5;">
-      We charge a transparent 15% fee on AI model usage:
+      We charge a transparent ${totalFeePercent} fee on AI model usage:
     </p>
-    <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 0 0 16px 16px;">
-      <tr>
-        <td style="color: ${COLORS.accent}; font-size: 14px; padding: 2px 8px 2px 0; vertical-align: top;">&#8226;</td>
-        <td style="color: ${COLORS.textSecondary}; font-size: 14px; line-height: 1.5;">5% &mdash; HushBox</td>
-      </tr>
-      <tr>
-        <td style="color: ${COLORS.accent}; font-size: 14px; padding: 2px 8px 2px 0; vertical-align: top;">&#8226;</td>
-        <td style="color: ${COLORS.textSecondary}; font-size: 14px; line-height: 1.5;">4.5% &mdash; Card processing</td>
-      </tr>
-      <tr>
-        <td style="color: ${COLORS.accent}; font-size: 14px; padding: 2px 8px 2px 0; vertical-align: top;">&#8226;</td>
-        <td style="color: ${COLORS.textSecondary}; font-size: 14px; line-height: 1.5;">5.5% &mdash; AI provider overhead</td>
-      </tr>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 0 0 16px 16px;">${feeRowsHtml}
     </table>
 
     <h2 style="margin: 0 0 8px 0; color: ${COLORS.textPrimary}; font-size: 18px; font-weight: 600;">
@@ -73,10 +76,8 @@ How Billing Works
 -----------------
 HushBox is pay-as-you-go. No subscriptions, no recurring charges. Add credits when you need them - they never expire.
 
-We charge a transparent 15% fee on AI model usage:
-  - 5% - HushBox
-  - 4.5% - Card processing
-  - 5.5% - AI provider overhead
+We charge a transparent ${totalFeePercent} fee on AI model usage:
+${feeBulletsText}
 
 Adding Credits
 --------------

@@ -1,15 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import React, { createElement, type ReactNode } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { useDecryptedMessages } from './use-decrypted-messages';
 import type { MessageResponse } from '@hushbox/shared';
 import { clearEpochKeyCache, getCacheSize } from '@/lib/epoch-key-cache';
 import { useDecryptionActivityStore } from '@/stores/decryption-activity';
-
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
 
 vi.mock('@/lib/api-client', () => ({
   client: {
@@ -25,19 +21,25 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 import { fetchJson } from '@/lib/api-client';
+import type React from 'react';
 
 const mockFetchJson = vi.mocked(fetchJson);
 
 const mockUnwrapEpochKey = vi.fn<(accountPrivateKey: Uint8Array, wrap: Uint8Array) => Uint8Array>();
 const mockTraverseChainLink =
   vi.fn<(newerEpochPrivateKey: Uint8Array, chainLink: Uint8Array) => Uint8Array>();
-const mockDecryptMessage = vi.fn<(epochPrivateKey: Uint8Array, blob: Uint8Array) => string>();
+const mockOpenMessageEnvelope =
+  vi.fn<(epochPrivateKey: Uint8Array, wrappedContentKey: Uint8Array) => Uint8Array>();
+const mockDecryptTextWithContentKey =
+  vi.fn<(contentKey: Uint8Array, ciphertext: Uint8Array) => string>();
 const mockFromBase64 = vi.fn<(b64: string) => Uint8Array>();
 
 vi.mock('@hushbox/crypto', () => ({
   unwrapEpochKey: (...args: [Uint8Array, Uint8Array]) => mockUnwrapEpochKey(...args),
   traverseChainLink: (...args: [Uint8Array, Uint8Array]) => mockTraverseChainLink(...args),
-  decryptMessage: (...args: [Uint8Array, Uint8Array]) => mockDecryptMessage(...args),
+  openMessageEnvelope: (...args: [Uint8Array, Uint8Array]) => mockOpenMessageEnvelope(...args),
+  decryptTextWithContentKey: (...args: [Uint8Array, Uint8Array]) =>
+    mockDecryptTextWithContentKey(...args),
   verifyEpochKeyConfirmation: () => true,
 }));
 
@@ -68,10 +70,6 @@ vi.mock('@/lib/auth', () => {
   return { useAuthStore: store };
 });
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -85,35 +83,69 @@ function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
   return Wrapper;
 }
 
-function createMessageResponse(overrides: Partial<MessageResponse> = {}): MessageResponse {
+interface MessageResponseOverrides extends Partial<Omit<MessageResponse, 'contentItems'>> {
+  /** Shortcut: base64 encrypted blob for the single default text content item. */
+  encryptedBlob?: string;
+  /** Shortcut: model_name on the default text content item (AI messages). */
+  modelName?: string | null;
+  /** Shortcut: cost on the default text content item. */
+  cost?: string | null;
+  contentItems?: MessageResponse['contentItems'];
+}
+
+function createMessageResponse(overrides: MessageResponseOverrides = {}): MessageResponse {
+  const {
+    encryptedBlob: encryptedBlobOverride,
+    modelName: modelNameOverride,
+    cost: costOverride,
+    contentItems: contentItemsOverride,
+    ...rest
+  } = overrides;
+
   return {
     id: 'msg-1',
     conversationId: 'conv-1',
-    encryptedBlob: 'base64-blob',
+    wrappedContentKey: 'base64-wrapped',
     senderType: 'user',
     senderId: 'user-1',
-    modelName: null,
-    payerId: null,
-    cost: null,
     epochNumber: 1,
     sequenceNumber: 0,
     parentMessageId: null,
+    batchId: 'batch-1',
     createdAt: '2026-01-01T00:00:00Z',
-    ...overrides,
+    contentItems: contentItemsOverride ?? [
+      {
+        id: `${rest.id ?? 'msg-1'}-ci`,
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: encryptedBlobOverride ?? 'base64-blob',
+        storageKey: null,
+        mimeType: null,
+        sizeBytes: null,
+        width: null,
+        height: null,
+        durationMs: null,
+        modelName: modelNameOverride ?? null,
+        cost: costOverride ?? null,
+        isSmartModel: false,
+      },
+    ],
+    ...rest,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useDecryptedMessages', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearEpochKeyCache();
     mockPrivateKey = new Uint8Array([99, 98, 97]);
-    // Default fromBase64 implementation: return a Uint8Array with a simple marker
     mockFromBase64.mockImplementation((b64: string) => new TextEncoder().encode(b64));
+    mockOpenMessageEnvelope.mockImplementation(
+      (epochPriv: Uint8Array, _wrapped: Uint8Array) => epochPriv
+    );
+    mockDecryptTextWithContentKey.mockImplementation(
+      (_contentKey: Uint8Array, _ciphertext: Uint8Array) => ''
+    );
   });
 
   it('returns empty array when conversationId is null', () => {
@@ -159,7 +191,9 @@ describe('useDecryptedMessages', () => {
   it('decrypts single-epoch messages correctly', async () => {
     const epochKey = new Uint8Array([10, 20, 30]);
     mockUnwrapEpochKey.mockReturnValue(epochKey);
-    mockDecryptMessage.mockImplementation((_key: Uint8Array, _blob: Uint8Array) => 'Hello world');
+    mockDecryptTextWithContentKey.mockImplementation(
+      (_key: Uint8Array, _blob: Uint8Array) => 'Hello world'
+    );
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -214,7 +248,7 @@ describe('useDecryptedMessages', () => {
 
   it('maps senderType "user" to role "user"', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-    mockDecryptMessage.mockReturnValue('content');
+    mockDecryptTextWithContentKey.mockReturnValue('content');
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -247,7 +281,7 @@ describe('useDecryptedMessages', () => {
 
   it('maps senderType "ai" to role "assistant"', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-    mockDecryptMessage.mockReturnValue('ai content');
+    mockDecryptTextWithContentKey.mockReturnValue('ai content');
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -284,7 +318,7 @@ describe('useDecryptedMessages', () => {
 
     mockUnwrapEpochKey.mockReturnValue(epoch2Key);
     mockTraverseChainLink.mockReturnValue(epoch1Key);
-    mockDecryptMessage.mockImplementation((key: Uint8Array) =>
+    mockDecryptTextWithContentKey.mockImplementation((key: Uint8Array) =>
       key[0] === 20 ? 'epoch2-msg' : 'epoch1-msg'
     );
 
@@ -315,17 +349,14 @@ describe('useDecryptedMessages', () => {
       expect(result.current).toHaveLength(2);
     });
 
-    // Epoch 1 message decrypted with traversed key
     const oldMsg = result.current[0];
     if (!oldMsg) throw new Error('Expected old message');
     expect(oldMsg.content).toBe('epoch1-msg');
 
-    // Epoch 2 message decrypted with unwrapped key
     const newMsg = result.current[1];
     if (!newMsg) throw new Error('Expected new message');
     expect(newMsg.content).toBe('epoch2-msg');
 
-    // traverseChainLink was called with epoch2Key and chainLink bytes
     expect(mockTraverseChainLink).toHaveBeenCalledTimes(1);
     const [calledWithKey] = mockTraverseChainLink.mock.calls[0] as [Uint8Array, Uint8Array];
     expect(calledWithKey).toBe(epoch2Key);
@@ -334,7 +365,7 @@ describe('useDecryptedMessages', () => {
   it('caches epoch keys and does not re-unwrap on subsequent renders', async () => {
     const epochKey = new Uint8Array([50]);
     mockUnwrapEpochKey.mockReturnValue(epochKey);
-    mockDecryptMessage.mockReturnValue('cached');
+    mockDecryptTextWithContentKey.mockReturnValue('cached');
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -367,7 +398,6 @@ describe('useDecryptedMessages', () => {
 
     expect(mockUnwrapEpochKey).toHaveBeenCalledTimes(1);
 
-    // Rerender with same messages
     rerender({ convId: 'conv-1', msgs: messages });
 
     // unwrapEpochKey should NOT be called again (cache hit)
@@ -377,7 +407,7 @@ describe('useDecryptedMessages', () => {
 
   it('returns same reference for same input (memoized)', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-    mockDecryptMessage.mockReturnValue('memoized');
+    mockDecryptTextWithContentKey.mockReturnValue('memoized');
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -410,7 +440,6 @@ describe('useDecryptedMessages', () => {
 
     const firstResult = result.current;
 
-    // Rerender with same references
     rerender({ convId: 'conv-1', msgs: messages });
 
     expect(result.current).toBe(firstResult);
@@ -418,7 +447,7 @@ describe('useDecryptedMessages', () => {
 
   it('returns new reference for new message input', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-    mockDecryptMessage.mockReturnValue('content');
+    mockDecryptTextWithContentKey.mockReturnValue('content');
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -459,9 +488,9 @@ describe('useDecryptedMessages', () => {
     });
   });
 
-  it('shows fallback when decryptMessage throws', async () => {
+  it('shows fallback when decryptTextFromEpoch throws', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-    mockDecryptMessage.mockImplementation(() => {
+    mockDecryptTextWithContentKey.mockImplementation(() => {
       throw new Error('corrupted blob');
     });
 
@@ -498,7 +527,7 @@ describe('useDecryptedMessages', () => {
   it('shows fallback for missing epoch key', async () => {
     // Key chain has epoch 2 wrap but message references epoch 1 with no chain link
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([20]));
-    mockDecryptMessage.mockReturnValue('epoch2-content');
+    mockDecryptTextWithContentKey.mockReturnValue('epoch2-content');
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -572,7 +601,7 @@ describe('useDecryptedMessages', () => {
 
   it('passes through cost from message response', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-    mockDecryptMessage.mockReturnValue('content');
+    mockDecryptTextWithContentKey.mockReturnValue('content');
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -612,7 +641,7 @@ describe('useDecryptedMessages', () => {
 
   it('preserves senderId from the message response on successful decryption', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-    mockDecryptMessage.mockReturnValue('content');
+    mockDecryptTextWithContentKey.mockReturnValue('content');
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -647,7 +676,7 @@ describe('useDecryptedMessages', () => {
 
   it('omits senderId when null in the message response', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-    mockDecryptMessage.mockReturnValue('ai content');
+    mockDecryptTextWithContentKey.mockReturnValue('ai content');
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -680,7 +709,7 @@ describe('useDecryptedMessages', () => {
 
   it('preserves senderId on decryption failure fallback', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-    mockDecryptMessage.mockImplementation(() => {
+    mockDecryptTextWithContentKey.mockImplementation(() => {
       throw new Error('corrupted');
     });
 
@@ -770,7 +799,7 @@ describe('useDecryptedMessages', () => {
 
     it('marks complete when decryption produces output', async () => {
       mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-      mockDecryptMessage.mockReturnValue('decrypted');
+      mockDecryptTextWithContentKey.mockReturnValue('decrypted');
 
       mockFetchJson.mockResolvedValue({
         wraps: [
@@ -835,7 +864,7 @@ describe('useDecryptedMessages', () => {
 
   it('preserves createdAt from the message response', async () => {
     mockUnwrapEpochKey.mockReturnValue(new Uint8Array([1]));
-    mockDecryptMessage.mockReturnValue('time check');
+    mockDecryptTextWithContentKey.mockReturnValue('time check');
 
     mockFetchJson.mockResolvedValue({
       wraps: [
@@ -873,9 +902,8 @@ describe('useDecryptedMessages', () => {
 
     it('refetches keys when a message epoch exceeds the cached currentEpoch', async () => {
       mockUnwrapEpochKey.mockReturnValue(new Uint8Array([10]));
-      mockDecryptMessage.mockReturnValue('decrypted-content');
+      mockDecryptTextWithContentKey.mockReturnValue('decrypted-content');
 
-      // First response: stale, only knows about epoch 1
       mockFetchJson
         .mockResolvedValueOnce({
           wraps: [
@@ -890,7 +918,6 @@ describe('useDecryptedMessages', () => {
           chainLinks: [],
           currentEpoch: 1,
         })
-        // Second response: fresh, knows about epoch 2
         .mockResolvedValueOnce({
           wraps: [
             {
@@ -921,19 +948,17 @@ describe('useDecryptedMessages', () => {
         wrapper: createWrapper(),
       });
 
-      // After refetch, both messages should be decrypted
       await waitFor(() => {
         const msg2 = result.current.find((m) => m.id === 'msg-2');
         expect(msg2?.content).toBe('decrypted-content');
       });
 
-      // fetchJson called twice: initial fetch + refetch after detecting stale epoch
       expect(mockFetchJson).toHaveBeenCalledTimes(2);
     });
 
     it('does not refetch when missing epoch keys are within currentEpoch', async () => {
       mockUnwrapEpochKey.mockReturnValue(new Uint8Array([20]));
-      mockDecryptMessage.mockReturnValue('epoch2-content');
+      mockDecryptTextWithContentKey.mockReturnValue('epoch2-content');
 
       mockFetchJson.mockResolvedValue({
         wraps: [
@@ -972,7 +997,7 @@ describe('useDecryptedMessages', () => {
 
     it('does not refetch more than once for the same stale currentEpoch', async () => {
       mockUnwrapEpochKey.mockReturnValue(new Uint8Array([10]));
-      mockDecryptMessage.mockReturnValue('content');
+      mockDecryptTextWithContentKey.mockReturnValue('content');
 
       // Server always returns currentEpoch: 1 (simulates delayed rotation)
       mockFetchJson.mockResolvedValue({

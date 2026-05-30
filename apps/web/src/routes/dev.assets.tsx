@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { ROUTES } from '@hushbox/shared';
-import { env } from '@/lib/env';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@hushbox/ui';
+import { env } from '@/lib/env';
 
 interface AssetDefinition {
   name: string;
@@ -80,6 +80,7 @@ export function AssetsPage(): React.JSX.Element {
               className="border-border bg-card overflow-hidden rounded-lg border"
             >
               <div className="bg-muted flex aspect-square items-center justify-center">
+                {/* eslint-disable-next-line no-restricted-syntax -- dev-only asset preview page; intentionally renders raw <img> to show source assets */}
                 <img
                   data-testid={`asset-preview-${asset.name}`}
                   src={`/dev-assets/${asset.name}.png`}
@@ -143,6 +144,7 @@ export function AssetsPage(): React.JSX.Element {
                     className="border-border bg-card overflow-hidden rounded-lg border"
                   >
                     <div className="bg-muted aspect-[9/16]">
+                      {/* eslint-disable-next-line no-restricted-syntax -- dev-only asset preview page; intentionally renders raw <img> to show source assets */}
                       <img
                         src={`/dev-assets/screenshots/${resolution.name}/${screenshot.name}.png`}
                         alt={`${screenshot.label} — ${resolution.label}`}
@@ -185,6 +187,7 @@ export function AssetsPage(): React.JSX.Element {
             <DialogDescription>Generated asset preview</DialogDescription>
           </DialogHeader>
           {previewImage && (
+            // eslint-disable-next-line no-restricted-syntax -- dev-only asset preview page; intentionally renders raw <img> to show source assets
             <img
               src={previewImage.src}
               alt={previewImage.label}

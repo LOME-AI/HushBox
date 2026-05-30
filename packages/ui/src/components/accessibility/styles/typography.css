@@ -1,0 +1,72 @@
+/* Root font-size baseline. 106.25% of the browser's default font-size — yields
+   17px for the standard 16px browser default, but scales with users who have
+   explicitly raised their browser default for accessibility. Px would silently
+   override that user-level preference. CSS px is also a W3C reference pixel,
+   so all derived sizes are resolution-independent (same angular size on 1080p,
+   1440p, and 4K). */
+html {
+  font-size: 106.25%;
+}
+
+/* Font scaling — Tailwind's rem utilities cascade from this root value.
+   Percentages multiply against the user's browser default. */
+html.a11y-font-scale-88 {
+  font-size: 93.75%;
+}
+html.a11y-font-scale-112 {
+  font-size: 118.75%;
+}
+html.a11y-font-scale-124 {
+  font-size: 131.25%;
+}
+html.a11y-font-scale-141 {
+  font-size: 150%;
+}
+
+/* iOS Safari zooms the viewport on focus when a form-control's computed
+   font-size is < 16px. The 'Smaller' scale crosses that line; carve it out. */
+html.a11y-font-scale-88 input,
+html.a11y-font-scale-88 textarea,
+html.a11y-font-scale-88 select {
+  font-size: 16px;
+}
+
+/* Letter / line / paragraph spacing — scoped to text elements, not all */
+html.a11y-letter-spacing-loose body p,
+html.a11y-letter-spacing-loose body li,
+html.a11y-letter-spacing-loose body td,
+html.a11y-letter-spacing-loose body span {
+  letter-spacing: 0.05em;
+}
+html.a11y-letter-spacing-loosest body p,
+html.a11y-letter-spacing-loosest body li,
+html.a11y-letter-spacing-loosest body td,
+html.a11y-letter-spacing-loosest body span {
+  letter-spacing: 0.12em;
+}
+
+html.a11y-line-height-tall p,
+html.a11y-line-height-tall li,
+html.a11y-line-height-tall td {
+  line-height: 1.5 !important;
+} /* default already ~1.5 */
+html.a11y-line-height-double p,
+html.a11y-line-height-double li,
+html.a11y-line-height-double td {
+  line-height: 2 !important;
+}
+
+html.a11y-para-spacing-double p:not(:last-child) {
+  margin-bottom: 2em;
+}
+
+/* Font family override — applied via inline style by font-loader (sets --a11y-font-family) */
+html.a11y-font-override body * {
+  font-family: var(--a11y-font-family), system-ui, sans-serif !important;
+}
+/* Code blocks always preserve mono — accessibility fonts destroy code readability */
+html.a11y-font-override body code,
+html.a11y-font-override body pre,
+html.a11y-font-override body kbd {
+  font-family: var(--font-mono), monospace !important;
+}

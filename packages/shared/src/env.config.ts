@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { ref, secret, Destination, Mode, type VariableConfig } from './env-types.js';
 import { VALID_PLATFORMS } from './platform.js';
 
-// Re-export everything from env-types for convenience
 export * from './env-types.js';
 
 /**
@@ -140,6 +139,32 @@ export const envConfig = {
     // NOT in CI - email service uses console client when CI=true
   },
 
+  // Vercel AI Gateway API key. Two distinct GitHub secrets resolve to the same
+  // env var name in different modes — _RESTRICTED is a low-budget key used by
+  // CI integration tests in the ciVitest mode test job; _PRODUCTION is the
+  // unrestricted production-grade key. The AI client factory mocks when
+  // isE2E=true, so CiE2E does NOT need the key — local E2E and CI E2E both
+  // use the mock AIClient. Mirrors the deleted OpenRouter pattern exactly.
+  AI_GATEWAY_API_KEY: {
+    to: [Destination.Backend],
+    [Mode.CiVitest]: secret('AI_GATEWAY_API_KEY_RESTRICTED'),
+    [Mode.Production]: secret('AI_GATEWAY_API_KEY_PRODUCTION'),
+  },
+
+  // Unauthenticated public endpoint exposing per-modality pricing (per-image
+  // for image models, per-second-by-resolution for video models). The SDK's
+  // authenticated `/config` endpoint doesn't carry media pricing, so we merge
+  // both sources. URL is stable; exposed in envConfig for per-environment
+  // override (e.g., pointing at a fixture in E2E) rather than a runtime secret.
+  PUBLIC_MODELS_URL: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'https://ai-gateway.vercel.sh/v1/models',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: ref(Mode.Development),
+  },
+
   FCM_PROJECT_ID: {
     to: [Destination.Backend],
     [Mode.Production]: secret('FCM_PROJECT_ID'),
@@ -162,18 +187,23 @@ export const envConfig = {
     [Mode.Production]: secret('GOOGLE_SERVICES_JSON_BASE64'),
   },
 
-  OPENROUTER_API_KEY: {
-    to: [Destination.Backend],
-    [Mode.CiVitest]: secret('OPENROUTER_API_KEY_RESTRICTED'),
-    [Mode.Production]: secret('OPENROUTER_API_KEY_PRODUCTION'),
-    // NOT in e2e - E2E tests don't need OpenRouter
-  },
-
   HELCIM_API_TOKEN: {
     to: [Destination.Backend],
     [Mode.CiE2E]: secret('HELCIM_API_TOKEN_SANDBOX'),
     [Mode.Production]: secret('HELCIM_API_TOKEN_PRODUCTION'),
     // NOT in ciVitest or e2e - only CI e2e and production need real Helcim
+  },
+
+  // Linear read-only API key for the public /roadmap page. One key used in
+  // both CI integration tests (catches Linear GraphQL schema breaks) and
+  // production. NOT in Development / E2E / CiE2E — those modes use the mock
+  // Linear client per the factory at apps/api/src/services/linear/index.ts.
+  // Mirrors the AI_GATEWAY_API_KEY pattern but with a single GitHub secret
+  // name because there is no permission difference between CI and prod.
+  LINEAR_API_KEY_READ: {
+    to: [Destination.Backend],
+    [Mode.CiVitest]: secret('LINEAR_API_KEY_READ'),
+    [Mode.Production]: secret('LINEAR_API_KEY_READ'),
   },
 
   HELCIM_WEBHOOK_VERIFIER: {
@@ -182,6 +212,45 @@ export const envConfig = {
     [Mode.E2E]: ref(Mode.Development),
     [Mode.CiE2E]: secret('HELCIM_WEBHOOK_VERIFIER_SANDBOX'),
     [Mode.Production]: secret('HELCIM_WEBHOOK_VERIFIER_PRODUCTION'),
+  },
+
+  // R2 media storage — single S3 codepath for both reads and writes.
+  // PUTs/DELETEs/LIST/presigned GET URLs all go through aws4fetch using these
+  // R2 S3 API credentials. No Workers binding.
+  R2_S3_ENDPOINT: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'http://localhost:9000',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: secret('R2_S3_ENDPOINT'),
+  },
+
+  R2_ACCESS_KEY_ID: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'minioadmin',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: secret('R2_ACCESS_KEY_ID'),
+  },
+
+  R2_SECRET_ACCESS_KEY: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'minioadmin',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: secret('R2_SECRET_ACCESS_KEY'),
+  },
+
+  R2_BUCKET_MEDIA: {
+    to: [Destination.Backend],
+    [Mode.Development]: 'hushbox-media-dev',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: 'hushbox-media',
   },
 
   // Frontend only
@@ -200,7 +269,6 @@ export const envConfig = {
     [Mode.Production]: secret('VITE_HELCIM_JS_TOKEN_PRODUCTION'),
     // NOT in e2e - only CI e2e and production need real Helcim
   },
-
 
   VITE_PLATFORM: {
     to: [Destination.Frontend],
@@ -233,6 +301,15 @@ export const envConfig = {
     [Mode.CiE2E]: ref(Mode.E2E),
   },
 
+  // Drizzle Studio's hosted UI connects to a local websocket server (default
+  // port 4983). `pnpm dev` offsets that port per-worktree, so each worktree
+  // gets a routable URL. Dev-only — production/CI builds hide the link.
+  VITE_DRIZZLE_STUDIO_URL: {
+    to: [Destination.Frontend],
+    [Mode.Development]: 'http://localhost:4983',
+    [Mode.E2E]: ref(Mode.Development),
+  },
+
   // Scripts only
   MIGRATION_DATABASE_URL: {
     to: [Destination.Scripts],
@@ -255,9 +332,9 @@ export const backendEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   APP_VERSION: z.string().min(1),
   RESEND_API_KEY: z.string().optional(),
-  OPENROUTER_API_KEY: z.string().optional(),
   HELCIM_API_TOKEN: z.string().optional(),
   HELCIM_WEBHOOK_VERIFIER: z.string().optional(),
+  LINEAR_API_KEY_READ: z.string().min(1).optional(),
   FCM_PROJECT_ID: z.string().optional(),
   FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
   // Redis
@@ -266,6 +343,23 @@ export const backendEnvSchema = z.object({
   // Auth secrets
   OPAQUE_MASTER_SECRET: z.string().min(32),
   IRON_SESSION_SECRET: z.string().min(32),
+  // R2 media storage (S3 API credentials — full read/write scope).
+  //
+  // These four fields are `.optional()` here because dev and CI satisfy them
+  // automatically from `envConfig`'s mode-specific defaults pointing at the
+  // local MinIO emulator — engineers do not (and should not) set them in
+  // their personal env files.
+  //
+  // In production they are REQUIRED. The runtime fail-fast guard lives in
+  // `apps/api/src/services/storage/media-storage.ts:requireConfig`, which
+  // throws a clear error when any of these four env vars is missing or empty
+  // when the storage client is constructed. Keeping the schema permissive
+  // here while delegating the production assertion to the consumer module
+  // avoids a second source of truth and keeps dev/CI bootstrap clean.
+  R2_S3_ENDPOINT: z.string().url().optional(),
+  R2_ACCESS_KEY_ID: z.string().min(1).optional(),
+  R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  R2_BUCKET_MEDIA: z.string().min(1).optional(),
 });
 
 export type BackendEnv = z.infer<typeof backendEnvSchema>;
@@ -275,6 +369,7 @@ export const frontendEnvSchema = z.object({
   VITE_PLATFORM: z.enum(VALID_PLATFORMS).default('web'),
   VITE_APP_VERSION: z.string().min(1).default('dev-local'),
   VITE_HELCIM_JS_TOKEN: z.string().optional(),
+  VITE_DRIZZLE_STUDIO_URL: z.string().url().optional(),
 });
 
 export type FrontendEnv = z.infer<typeof frontendEnvSchema>;

@@ -3,6 +3,7 @@ import { unsettledExpect } from '../helpers/settled-expect.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { searchAndSelectMember } from '../helpers/add-member.js';
 import { expectAccessRevoked } from '../helpers/member-actions.js';
+import { personaUsername } from '../helpers/personas.js';
 
 test.describe('Auth Member Access', () => {
   test('read member lifecycle: history access, removal, no-history re-add, privilege elevation', async ({
@@ -23,12 +24,10 @@ test.describe('Auth Member Access', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
+      await searchAndSelectMember(authenticatedPage, sidebar, personaUsername('test-dave'));
 
-      // Set read privilege
       await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('read');
 
-      // Check history checkbox
       await authenticatedPage
         .getByTestId('add-member-history-checkbox')
         .getByRole('checkbox')
@@ -43,15 +42,12 @@ test.describe('Auth Member Access', () => {
       await daveChatPage.gotoConversation(groupConversation.id);
       await daveChatPage.waitForConversationLoaded();
 
-      // Sees all history
       await daveChatPage.expectMessageVisible('Hello from Alice');
       await daveChatPage.expectMessageVisible('Hi from Bob');
 
-      // Read privilege: send input should be disabled or hidden
       const sendInput = testDavePage.getByRole('textbox', { name: 'Ask me anything...' });
       const sendVisible = await sendInput.isVisible().catch(() => false);
       if (sendVisible) {
-        // If visible, it should be disabled
         await expect(sendInput).toBeDisabled();
       }
     });
@@ -63,7 +59,7 @@ test.describe('Auth Member Access', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      const daveMemberId = await sidebar.getMemberIdByUsername('test dave');
+      const daveMemberId = await sidebar.getMemberIdByUsername(personaUsername('test-dave'));
       await sidebar.openMemberActions(daveMemberId);
       await sidebar.clickRemoveMember(daveMemberId);
 
@@ -84,9 +80,8 @@ test.describe('Auth Member Access', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      await searchAndSelectMember(authenticatedPage, sidebar, 'test dave');
+      await searchAndSelectMember(authenticatedPage, sidebar, personaUsername('test-dave'));
 
-      // Set read privilege
       await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('read');
 
       // Explicitly uncheck history (may retain state from previous modal use)
@@ -98,10 +93,8 @@ test.describe('Auth Member Access', () => {
       await authenticatedPage.getByTestId('add-member-submit-button').click();
       await expect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
 
-      // Verify Dave was actually added before proceeding
-      await unsettledExpect(sidebar.findMemberByUsername('test dave')).toBeVisible({
-        timeout: 10_000,
-      });
+      const daveRow = sidebar.findMemberByUsername(personaUsername('test-dave'));
+      await unsettledExpect(daveRow).toBeVisible({ timeout: 10_000 });
 
       await sidebar.closeMobileSidebarIfOpen();
     });
@@ -121,13 +114,11 @@ test.describe('Auth Member Access', () => {
       await daveChatPage.gotoConversation(groupConversation.id);
       await daveChatPage.waitForConversationLoaded();
 
-      // Should NOT see pre-rotation messages anywhere in the conversation
       await daveChatPage.assertMessageNotVisible('Hello from Alice', { exact: true });
 
       // Should see post-rotation message (helper auto-scrolls if virtualised)
       await daveChatPage.assertMessageVisible('Post-rotation for Dave');
 
-      // Read privilege: send input should be disabled or hidden
       const sendInput = testDavePage.getByRole('textbox', { name: 'Ask me anything...' });
       const sendVisible = await sendInput.isVisible().catch(() => false);
       if (sendVisible) {
@@ -140,7 +131,7 @@ test.describe('Auth Member Access', () => {
       await sidebar.openViaFacepile();
       await sidebar.waitForLoaded();
 
-      const daveMemberId = await sidebar.getMemberIdByUsername('test dave');
+      const daveMemberId = await sidebar.getMemberIdByUsername(personaUsername('test-dave'));
       await sidebar.openMemberActions(daveMemberId);
       await sidebar.clickChangePrivilege(daveMemberId, 'admin');
       await sidebar.expectMemberInSection(daveMemberId, 'admin');

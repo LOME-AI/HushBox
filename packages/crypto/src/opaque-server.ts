@@ -1,13 +1,13 @@
 import {
   OpaqueServer,
   OpaqueClient,
-  RegistrationRecord,
   getOpaqueConfig,
   OpaqueID,
   type AKEExportKeyPair,
+  type RegistrationRecord,
 } from '@cloudflare/opaque-ts';
-import { hkdfSha256, sha256Hash, bytesToHex } from './hash.js';
 import { textEncoder } from '@hushbox/shared';
+import { hkdfSha256, sha256Hash, bytesToHex } from './hash.js';
 
 export const OpaqueServerConfig = getOpaqueConfig(OpaqueID.OPAQUE_P256);
 

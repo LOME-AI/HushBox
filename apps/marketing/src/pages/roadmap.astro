@@ -1,0 +1,35 @@
+---
+import LandingLayout from '../layouts/LandingLayout.astro';
+import LandingHeader from '../components/LandingHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import PageHero from '../components/PageHero.astro';
+import { RoadmapBoard } from '../components/roadmap/RoadmapBoard';
+
+const ROADMAP_CIPHER_MESSAGES: readonly string[] = [
+  'Built In The Open',
+  'Shipping Constantly',
+  'Public Roadmap',
+  'Public Backlog',
+  'No Surprise Releases',
+  'No Vaporware',
+  'Receipts For Every Promise',
+  'Watch The Work Happen',
+];
+---
+
+<LandingLayout
+  title="Roadmap"
+  description="What HushBox is building. A live view of our work, pulled from Linear."
+>
+  <LandingHeader />
+
+  <main class="flex-1 pt-20">
+    <PageHero title="Roadmap" messages={ROADMAP_CIPHER_MESSAGES} />
+
+    <section class="mx-auto max-w-6xl px-6 pb-16" data-roadmap-container>
+      <RoadmapBoard client:visible />
+    </section>
+  </main>
+
+  <SiteFooter />
+</LandingLayout>

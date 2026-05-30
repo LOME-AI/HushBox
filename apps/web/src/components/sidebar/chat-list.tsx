@@ -1,22 +1,12 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Loader2 } from 'lucide-react';
-import { useUIStore } from '@/stores/ui';
-import { ChatItem } from './chat-item';
 import { ROUTES } from '@hushbox/shared';
-
-interface Conversation {
-  id: string;
-  title: string;
-  currentEpoch: number;
-  updatedAt: string;
-  privilege: string;
-  muted: boolean;
-  pinned: boolean;
-}
+import { useUIStore } from '@/stores/ui';
+import { ChatItem, type SidebarConversation } from './chat-item';
 
 export interface ChatListProps {
-  conversations: Conversation[];
+  conversations: SidebarConversation[];
   activeId?: string | undefined;
   /** Whether the user is authenticated */
   isAuthenticated?: boolean | undefined;
@@ -82,7 +72,7 @@ export function ChatList({
   }
 
   return (
-    <ul role="list" aria-label={label} className="flex flex-col gap-1 px-2">
+    <ul aria-label={label} className="flex flex-col gap-1 px-2">
       {conversations.map((conversation) => (
         <li key={conversation.id}>
           <ChatItem conversation={conversation} isActive={conversation.id === activeId} />

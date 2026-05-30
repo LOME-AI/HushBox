@@ -20,6 +20,7 @@ Always run these steps in order, then branch:
 ## Intent playbooks
 
 ### upgrade
+
 - Read `node_modules/<pkg>/CHANGELOG.md` if present.
 - Fetch GitHub Releases between installed version and latest. URL pattern: `https://github.com/<owner>/<repo>/compare/v<installed>...v<latest>` and `/releases`.
 - Search for migration guides (often in the repo under `MIGRATION.md`, `UPGRADING.md`, or the docs site).
@@ -28,6 +29,7 @@ Always run these steps in order, then branch:
 - Look for upgrade-related issues filed against the target version.
 
 ### use-feature
+
 - Read the `.d.ts` files under `node_modules/<pkg>/` — the types are the authoritative API surface. Follow the `types` or `typings` field in `package.json`.
 - Read the README and any `docs/` or `examples/` directory in the installed package.
 - Fetch the official docs site pinned to the installed version if it has a version selector.
@@ -35,6 +37,7 @@ Always run these steps in order, then branch:
 - Show idiomatic usage, not just the signature. If there are common footguns, name them.
 
 ### debug
+
 - Confirm the installed version exactly — many bugs are version-specific.
 - Search GitHub issues filtered to the installed version: `is:issue <symptom> in:title,body` plus the version number.
 - Check closed issues with `reason:not-planned` or `wontfix` — these often explain "this is how it works, not a bug."
@@ -43,12 +46,14 @@ Always run these steps in order, then branch:
 - Stack Overflow and Discord/Reddit threads often surface workarounds faster than issue trackers.
 
 ### deprecation
+
 - Check `npm view <pkg>` for a `deprecated` field.
 - Look for deprecation banners in the README.
 - Check the GitHub repo for archive status, successor project links, or maintainer statements.
 - If deprecated, identify the recommended successor and current adoption of it.
 
 ### health-check
+
 - Registry signals: `npm view <pkg> time` (release cadence), weekly downloads, maintainer count.
 - Repo signals: last commit date, open-to-closed issue ratio, release frequency, CI status.
 - Security: GitHub Advisories database, `npm audit`, Snyk advisor (`https://snyk.io/advisor/npm-package/<pkg>`), Socket.dev for supply-chain red flags.
@@ -102,28 +107,35 @@ Return your findings as markdown. No length cap — include whatever is useful.
 
 ```markdown
 ## Package
+
 <name> @ <installed-version> (latest: <latest-version>)
 
 ## Intent
+
 <one line restating what the caller asked>
 
 ## Current usage in repo
+
 <which files import it, which APIs are used — from step 3>
 
 ## TL;DR
+
 <direct answer to the caller's question, a few sentences>
 
 ## Key findings
+
 - <bullet with inline citation — local path or URL>
 - <bullet with inline citation>
 
 ## Health & risk
+
 Maintenance: <active / stale / abandoned> — last release <date>
 License: <SPDX>
 Security: <CVEs with severity, or "none found" with source>
 Supply chain: <red flags or "clean">
 
 ## Sources
+
 - <url or local path> — <what it confirmed>
 ```
 

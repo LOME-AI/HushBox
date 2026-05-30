@@ -61,7 +61,6 @@ test.describe('Model Nametag', () => {
         const text = await assistantMessages.nth(index).getByTestId('model-nametag').textContent();
         if (text) names.add(text);
       }
-      // Each model should produce a distinct nametag
       expect(names.size).toBe(domCount);
     });
   });

@@ -1,7 +1,15 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { Lock, Link as LinkIcon } from 'lucide-react';
-import { Overlay, ModalActions, Alert, OverlayContent, OverlayHeader } from '@hushbox/ui';
+import {
+  Overlay,
+  ModalActions,
+  Alert,
+  OverlayContent,
+  OverlayHeader,
+  InlineFormError,
+  useAsyncAction,
+} from '@hushbox/ui';
 import { useMessageShare } from '../../hooks/use-message-share.js';
 
 interface ShareMessageModalProps {
@@ -9,6 +17,12 @@ interface ShareMessageModalProps {
   onOpenChange: (open: boolean) => void;
   messageId: string | null;
   messageContent: string | null;
+  /** Conversation the message belongs to — needed to look up the epoch key. */
+  conversationId: string | null;
+  /** Epoch number the message was encrypted under. */
+  epochNumber: number | null;
+  /** Base64-encoded wrapped content key from the message envelope. */
+  wrappedContentKey: string | null;
 }
 
 interface ShareContentInput {
@@ -33,12 +47,10 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
   if (input.generatedUrl === null) {
     return (
       <>
-        {/* Message preview */}
         <div data-testid="share-message-preview" className="border-border rounded-md border p-3">
           <p className="line-clamp-4 text-sm">{input.messageContent}</p>
         </div>
 
-        {/* Isolation info */}
         <Alert variant="default" data-testid="share-message-isolation-info">
           <Lock />
           <span>
@@ -46,7 +58,6 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
           </span>
         </Alert>
 
-        {/* Action buttons */}
         <ModalActions
           cancel={{
             label: 'Cancel',
@@ -68,12 +79,16 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
 
   return (
     <>
-      <div className="flex items-center gap-2 text-sm text-green-600">
+      <div
+        data-testid="share-message-success"
+        role="status"
+        aria-live="polite"
+        className="flex items-center gap-2 text-sm text-green-600"
+      >
         <LinkIcon className="h-4 w-4" />
         <span>Share link created!</span>
       </div>
 
-      {/* Generated URL */}
       <div
         data-testid="share-message-url"
         className="bg-muted overflow-hidden rounded-md p-3 text-xs break-all"
@@ -101,38 +116,44 @@ export function ShareMessageModal({
   onOpenChange,
   messageId,
   messageContent,
+  conversationId,
+  epochNumber,
+  wrappedContentKey,
 }: Readonly<ShareMessageModalProps>): React.JSX.Element {
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const share = useMessageShare();
-  const mutateAsync = (
-    share as {
-      mutateAsync: (args: {
-        messageId: string;
-        plaintextContent: string;
-      }) => Promise<{ shareId: string; url: string }>;
-      isPending: boolean;
-    }
-  ).mutateAsync;
-  const isPending = (share as { isPending: boolean }).isPending;
+  const mutateAsync = share.mutateAsync;
+  const asyncAction = useAsyncAction();
+  const isPending = asyncAction.isPending;
 
-  // Reset state when modal reopens
   const [previousOpen, setPreviousOpen] = useState(open);
   if (open !== previousOpen) {
     setPreviousOpen(open);
     setGeneratedUrl(null);
+    asyncAction.clearError();
   }
 
   async function handleCreate(): Promise<void> {
-    if (!messageId || !messageContent) return;
+    // Media-only assistant messages (image/video/audio) carry empty
+    // `messageContent` — the bytes live in encrypted contentItems addressed
+    // by `messageId` server-side. The share API only needs envelope metadata,
+    // so don't gate on textual content being present.
+    if (!messageId || !conversationId || epochNumber == null || !wrappedContentKey) {
+      return;
+    }
 
-    const result = await mutateAsync({
-      messageId,
-      plaintextContent: messageContent,
-    });
+    const result = await asyncAction.run(async () =>
+      mutateAsync({
+        messageId,
+        conversationId,
+        epochNumber,
+        wrappedContentKey,
+      })
+    );
 
-    setGeneratedUrl(result.url);
+    if (result.ok) setGeneratedUrl(result.value.url);
   }
 
   function handleCancel(): void {
@@ -140,7 +161,12 @@ export function ShareMessageModal({
   }
 
   return (
-    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Share Message">
+    <Overlay
+      open={open}
+      onOpenChange={onOpenChange}
+      ariaLabel="Share Message"
+      dismissible={!isPending}
+    >
       <OverlayContent data-testid="share-message-modal">
         <OverlayHeader title="Share Message" />
 
@@ -165,6 +191,8 @@ export function ShareMessageModal({
             }
           },
         })}
+
+        <InlineFormError error={asyncAction.error} errorKey={asyncAction.errorKey} />
       </OverlayContent>
     </Overlay>
   );

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { PushNotification } from './types.js';
 import { createMockPushClient } from './mock.js';
+import type { PushNotification } from './types.js';
 
 describe('createMockPushClient', () => {
   const testNotification: PushNotification = {

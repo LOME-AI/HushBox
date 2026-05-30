@@ -9,21 +9,24 @@ import {
   ERROR_CODE_AUTHENTICATED_ON_TRIAL,
   ERROR_CODE_TRIAL_MESSAGE_TOO_EXPENSIVE,
   ERROR_CODE_STREAM_ERROR,
+  ERROR_CODE_FEATURE_REQUIRES_AUTH,
   calculateBudget,
   resolveBilling,
-  getModelPricing,
   buildSystemPrompt,
 } from '@hushbox/shared';
-import type { AppEnv } from '../types.js';
+import { getProcessedCatalog } from '../lib/processed-catalog.js';
 import { buildPrompt } from '../services/prompt/builder.js';
 import { consumeTrialMessage } from '../services/billing/index.js';
-import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
-import { validateLastMessageIsFromUser, buildOpenRouterMessages } from '../services/chat/index.js';
+import { validateLastMessageIsFromUser, buildAIMessages } from '../services/chat/index.js';
 import { computeSafeMaxTokens } from '../services/chat/max-tokens.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { createSSEEventWriter } from '../lib/stream-handler.js';
 import { lookupModelPricing } from '../lib/stream-pipeline.js';
+import { textStrategy } from '../lib/modality-strategies.js';
 import { hashIp, getClientIp } from '../lib/client-ip.js';
+import { rateLimitByIp } from '../middleware/rate-limit.js';
+import type { AppEnv } from '../types.js';
+import type { getModelPricing } from '@hushbox/shared';
 import type { Context } from 'hono';
 
 interface TrialMessage {
@@ -166,8 +169,10 @@ async function validateTrialRequest(
     return { success: false, response: quotaResult.errorResponse };
   }
 
-  const [allModels, zdrModelIds] = await Promise.all([fetchModels(), fetchZdrModelIds()]);
-  const { premiumIds } = processModels(allModels, zdrModelIds);
+  const [allModels, { premiumIds }] = await Promise.all([
+    c.var.aiClient.listRawModels(),
+    getProcessedCatalog(c),
+  ]);
 
   const modelError = checkTrialModelAccess(c, model, premiumIds);
   if (modelError) {
@@ -196,14 +201,23 @@ const messageSchema = z.object({
 const trialStreamRequestSchema = z.object({
   messages: z.array(messageSchema).min(1),
   model: z.string(),
+  webSearchEnabled: z.boolean().optional(),
 });
 
 export const trialChatRoute = new Hono<AppEnv>().post(
   '/stream',
+  rateLimitByIp('trialChatStreamIpRateLimit'),
   zValidator('json', trialStreamRequestSchema),
   async (c) => {
-    const { messages, model } = c.req.valid('json');
-    const openrouter = c.get('openrouter');
+    const { messages, model, webSearchEnabled } = c.req.valid('json');
+    const aiClient = c.get('aiClient');
+
+    // Defense-in-depth: trial users have no reserved budget for the search
+    // tool cap, so reject hand-crafted requests that try to enable it. The
+    // frontend already gates this for trial users.
+    if (webSearchEnabled === true) {
+      return c.json(createErrorResponse(ERROR_CODE_FEATURE_REQUIRES_AUTH), 403);
+    }
 
     const validation = await validateTrialRequest(c, messages, model);
     if (!validation.success) {
@@ -218,7 +232,7 @@ export const trialChatRoute = new Hono<AppEnv>().post(
       supportedCapabilities: [],
     });
 
-    const openRouterMessages = buildOpenRouterMessages(systemPrompt, messages);
+    const aiMessages = buildAIMessages(systemPrompt, messages);
 
     return streamSSE(c, async (stream) => {
       const writer = createSSEEventWriter(stream);
@@ -231,12 +245,18 @@ export const trialChatRoute = new Hono<AppEnv>().post(
       let streamError: Error | null = null;
 
       try {
-        for await (const token of openrouter.chatCompletionStreamWithMetadata({
-          model,
-          messages: openRouterMessages,
-          ...(safeMaxTokens !== undefined && { max_tokens: safeMaxTokens }),
-        })) {
-          await writer.writeToken(token.content);
+        const inferenceStream = aiClient.stream(
+          textStrategy.buildRequest({
+            modelId: model,
+            messages: aiMessages,
+            ...(safeMaxTokens !== undefined && { maxOutputTokens: safeMaxTokens }),
+          })
+        );
+
+        for await (const event of inferenceStream) {
+          if (event.kind === 'text-delta' && event.content.length > 0) {
+            await writer.writeModelToken({ modelId: model, content: event.content });
+          }
         }
       } catch (error) {
         streamError = error instanceof Error ? error : new Error('Unknown error');

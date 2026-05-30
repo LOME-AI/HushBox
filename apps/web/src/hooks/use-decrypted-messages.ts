@@ -1,40 +1,111 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { decryptMessage } from '@hushbox/crypto';
-import { useAuthStore } from '@/lib/auth';
-import type { Message } from '@/lib/api';
+import {
+  openMessageEnvelope,
+  decryptTextWithContentKey,
+  type WrappedContentKey,
+} from '@hushbox/crypto';
 import { fromBase64 } from '@hushbox/shared';
-import type { MessageResponse } from '@hushbox/shared';
+import { useAuthStore } from '@/lib/auth';
 import { getEpochKey, processKeyChain } from '@/lib/epoch-key-cache';
-import { useDecryptionActivityStore } from '@/stores/decryption-activity';
+import { useTrackedDecryption } from '@/hooks/use-tracked-decryption';
 import { keyChainQueryOptions } from '@/hooks/keys';
+import type { MessageResponse, ContentItemResponse } from '@hushbox/shared';
+import type { Message, MessageMediaItem } from '@/lib/api';
 
 function mapSenderTypeToRole(senderType: 'user' | 'ai'): 'user' | 'assistant' {
   return senderType === 'ai' ? 'assistant' : 'user';
 }
 
+function sumCost(contentItems: ContentItemResponse[]): string | null {
+  let total = 0;
+  let seen = false;
+  for (const item of contentItems) {
+    if (item.cost != null) {
+      total += Number.parseFloat(item.cost);
+      seen = true;
+    }
+  }
+  return seen ? total.toFixed(8) : null;
+}
+
+function pickModelName(contentItems: ContentItemResponse[]): string | null {
+  for (const item of contentItems) {
+    if (item.modelName != null) return item.modelName;
+  }
+  return null;
+}
+
+/**
+ * True iff any content item on the message was produced via a routing stage
+ * (Smart Model today). Drives the "Smart" chip on the assistant nametag.
+ */
+function pickIsSmartModel(contentItems: ContentItemResponse[]): boolean {
+  return contentItems.some((item) => item.isSmartModel);
+}
+
+function extractMediaItems(contentItems: ContentItemResponse[]): MessageMediaItem[] {
+  const media: MessageMediaItem[] = [];
+  for (const item of contentItems) {
+    if (item.contentType === 'text') continue;
+    if (item.mimeType == null || item.sizeBytes == null) {
+      // Server CHECK constraint should prevent this; log to catch regressions.
+      console.warn(
+        `Skipping malformed media content item ${item.id}: missing mimeType or sizeBytes`
+      );
+      continue;
+    }
+    media.push({
+      id: item.id,
+      contentType: item.contentType,
+      position: item.position,
+      mimeType: item.mimeType,
+      sizeBytes: item.sizeBytes,
+      width: item.width,
+      height: item.height,
+      durationMs: item.durationMs,
+    });
+  }
+  return media;
+}
+
 function buildDecryptedMessage(msg: MessageResponse, content: string): Message {
+  const cost = sumCost(msg.contentItems);
+  const modelName = pickModelName(msg.contentItems);
+  const mediaItems = extractMediaItems(msg.contentItems);
+  const isSmartModel = pickIsSmartModel(msg.contentItems);
   return {
     id: msg.id,
     conversationId: msg.conversationId,
     role: mapSenderTypeToRole(msg.senderType),
     content,
     createdAt: msg.createdAt,
-    ...(msg.cost != null && { cost: msg.cost }),
+    ...(cost != null && { cost }),
     ...(msg.senderId != null && { senderId: msg.senderId }),
-    modelName: msg.modelName,
+    modelName,
     parentMessageId: msg.parentMessageId,
+    batchId: msg.batchId,
+    wrappedContentKey: msg.wrappedContentKey,
+    epochNumber: msg.epochNumber,
+    ...(isSmartModel && { isSmartModel: true }),
+    ...(mediaItems.length > 0 && { mediaItems }),
   };
 }
 
 /**
- * Decrypts MessageResponse[] into display Message[] using epoch-based ECIES.
+ * Decrypts MessageResponse[] into display Message[] under the wrap-once
+ * envelope model.
  *
- * 1. Fetches key chain from /api/keys/:conversationId
- * 2. Unwraps epoch keys using account private key (with cache via processKeyChain)
- * 3. Traverses chain links for older epochs
- * 4. Decrypts each message blob with its epoch key
- * 5. Maps senderType to role for display
+ * 1. Fetches key chain from /api/keys/:conversationId.
+ * 2. Unwraps epoch keys using the account private key (cached via processKeyChain).
+ * 3. Traverses chain links for older epochs.
+ * 4. For each message, calls openMessageEnvelope once with the epoch key to
+ *    recover the message's content key.
+ * 5. For each text content item on the message, calls decryptTextWithContentKey
+ *    with the same content key. Results are joined into a single `content`
+ *    string for the display Message shape.
+ * 6. Maps senderType to role for display, sums per-item costs, and picks the
+ *    first model name seen across content items.
  */
 export function useDecryptedMessages(
   conversationId: string | null,
@@ -79,8 +150,17 @@ export function useDecryptedMessages(
       }
 
       try {
-        const content = decryptMessage(epochKey, fromBase64(msg.encryptedBlob));
-        return buildDecryptedMessage(msg, content);
+        const contentKey = openMessageEnvelope(
+          epochKey,
+          fromBase64(msg.wrappedContentKey) as WrappedContentKey
+        );
+        const parts: string[] = [];
+        for (const item of msg.contentItems) {
+          if (item.contentType === 'text' && item.encryptedBlob != null) {
+            parts.push(decryptTextWithContentKey(contentKey, fromBase64(item.encryptedBlob)));
+          }
+        }
+        return buildDecryptedMessage(msg, parts.join(''));
       } catch {
         return buildDecryptedMessage(msg, '[decryption failed]');
       }
@@ -108,15 +188,7 @@ export function useDecryptedMessages(
     (messages?.length ?? 0) > 0 &&
     decrypted.length === 0;
 
-  const { markPending, markComplete } = useDecryptionActivityStore.getState();
-
-  useEffect(() => {
-    if (!isPending) return;
-    markPending();
-    return () => {
-      markComplete();
-    };
-  }, [isPending, markPending, markComplete]);
+  useTrackedDecryption(isPending);
 
   return decrypted;
 }

@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { renderHook } from '@testing-library/react';
+import * as React from 'react';
 import { CipherWall, useRadialMask, computeExclusionZone } from './cipher-wall';
 import { EXCLUSION_STRIDE, CELL_WIDTH, CELL_HEIGHT } from './cipher-wall-engine';
-import * as React from 'react';
+
+const TEST_MESSAGES_FOR_RENDER: readonly string[] = ['Test One', 'Test Two', 'Test Three'];
 
 let lastUseCipherWallOptions: Record<string, unknown> | undefined;
 const stableCanvasRef = { current: null };
@@ -65,62 +67,62 @@ afterEach(() => {
 
 describe('CipherWall', () => {
   it('renders a canvas element', () => {
-    render(<CipherWall />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} />);
     expect(screen.getByTestId('cipher-wall')).toBeInstanceOf(HTMLCanvasElement);
   });
 
   it('has role="img" for accessibility', () => {
-    render(<CipherWall />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} />);
     expect(screen.getByRole('img')).toBeInTheDocument();
   });
 
   it('has an aria-label describing the animation', () => {
-    render(<CipherWall />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} />);
     const canvas = screen.getByRole('img');
     expect(canvas).toHaveAttribute('aria-label');
     expect(canvas.getAttribute('aria-label')).toMatch(/encrypt/i);
   });
 
   it('has CSS mask-image fading the left edge by default', () => {
-    render(<CipherWall />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} />);
     const canvas = screen.getByTestId('cipher-wall');
     expect(canvas.style.maskImage).toContain('transparent');
     expect(canvas.style.maskImage).toContain('black');
   });
 
   it('does not apply mask-image when frozen is true', () => {
-    render(<CipherWall frozen />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} frozen />);
     const canvas = screen.getByTestId('cipher-wall');
     expect(canvas.style.maskImage).toBe('');
   });
 
   it('has full-size classes by default', () => {
-    render(<CipherWall />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} />);
     const canvas = screen.getByTestId('cipher-wall');
     expect(canvas).toHaveClass('h-full', 'w-full');
   });
 
   it('applies custom className when provided', () => {
-    render(<CipherWall className="custom-class" />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} className="custom-class" />);
     const canvas = screen.getByTestId('cipher-wall');
     expect(canvas).toHaveClass('custom-class');
   });
 
   it('applies custom style when provided', () => {
-    render(<CipherWall frozen style={{ opacity: 0.5 }} />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} frozen style={{ opacity: 0.5 }} />);
     const canvas = screen.getByTestId('cipher-wall');
     expect(canvas.style.opacity).toBe('0.5');
   });
 
   it('accepts cipherOpacity prop without error', () => {
-    render(<CipherWall frozen cipherOpacity={0.5} />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} frozen cipherOpacity={0.5} />);
     expect(screen.getByTestId('cipher-wall')).toBeInstanceOf(HTMLCanvasElement);
   });
 
   it('throws when fadeMask is radial but fadeMaskTarget is missing', () => {
-    expect(() => render(<CipherWall fadeMask="radial" />)).toThrow(
-      'CipherWall: fadeMask="radial" requires fadeMaskTarget selector'
-    );
+    expect(() =>
+      render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} fadeMask="radial" />)
+    ).toThrow('CipherWall: fadeMask="radial" requires fadeMaskTarget selector');
   });
 
   it('computes pixel-based radial mask from fadeMaskTarget element', () => {
@@ -134,7 +136,13 @@ describe('CipherWall', () => {
 
     setupResizeObserver();
 
-    render(<CipherWall fadeMask="radial" fadeMaskTarget="[data-target]" />);
+    render(
+      <CipherWall
+        messages={TEST_MESSAGES_FOR_RENDER}
+        fadeMask="radial"
+        fadeMaskTarget="[data-target]"
+      />
+    );
     const canvas = screen.getByTestId('cipher-wall');
 
     expect(canvas.style.maskImage).toContain('300px');
@@ -151,18 +159,31 @@ describe('CipherWall', () => {
     );
 
     expect(() =>
-      render(<CipherWall fadeMask="radial" fadeMaskTarget="[data-nonexistent]" />)
+      render(
+        <CipherWall
+          messages={TEST_MESSAGES_FOR_RENDER}
+          fadeMask="radial"
+          fadeMaskTarget="[data-nonexistent]"
+        />
+      )
     ).toThrow('CipherWall: fadeMaskTarget "[data-nonexistent]" not found in DOM');
   });
 
   it('applies no mask when fadeMask is none', () => {
-    render(<CipherWall fadeMask="none" />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} fadeMask="none" />);
     const canvas = screen.getByTestId('cipher-wall');
     expect(canvas.style.maskImage).toBe('');
   });
 
   it('applies no mask when frozen regardless of fadeMask', () => {
-    render(<CipherWall frozen fadeMask="radial" fadeMaskTarget="[data-target]" />);
+    render(
+      <CipherWall
+        messages={TEST_MESSAGES_FOR_RENDER}
+        frozen
+        fadeMask="radial"
+        fadeMaskTarget="[data-target]"
+      />
+    );
     const canvas = screen.getByTestId('cipher-wall');
     expect(canvas.style.maskImage).toBe('');
   });
@@ -326,7 +347,13 @@ describe('CipherWall exclusionZone wiring', () => {
 
     setupResizeObserver();
 
-    render(<CipherWall fadeMask="radial" fadeMaskTarget="[data-wire]" />);
+    render(
+      <CipherWall
+        messages={TEST_MESSAGES_FOR_RENDER}
+        fadeMask="radial"
+        fadeMaskTarget="[data-wire]"
+      />
+    );
 
     expect(lastUseCipherWallOptions).toBeDefined();
     expect(lastUseCipherWallOptions).toHaveProperty('exclusionZone');
@@ -337,7 +364,7 @@ describe('CipherWall exclusionZone wiring', () => {
   });
 
   it('passes null exclusionZone when fadeMask is not radial', () => {
-    render(<CipherWall fadeMask="left" />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} fadeMask="left" />);
 
     expect(lastUseCipherWallOptions).toBeDefined();
     expect(lastUseCipherWallOptions).toHaveProperty('exclusionZone');
@@ -345,7 +372,7 @@ describe('CipherWall exclusionZone wiring', () => {
   });
 
   it('passes a canvasRef as second argument to useCipherWall', () => {
-    render(<CipherWall />);
+    render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} />);
     const canvas = screen.getByTestId('cipher-wall');
     expect(canvas).toBeInstanceOf(HTMLCanvasElement);
   });

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockSubmitRotation = vi.hoisted(() => vi.fn());
 
-// ── broadcastFireAndForget mock ──
 const mockBroadcastFireAndForget = vi.hoisted(() => vi.fn());
 vi.mock('../lib/broadcast.js', () => ({
   broadcastFireAndForget: (...args: unknown[]) => mockBroadcastFireAndForget(...args),
@@ -16,15 +15,14 @@ vi.mock('../services/keys/keys.js', async (importOriginal) => {
   };
 });
 
-import { StaleEpochError, WrapSetMismatchError } from '../services/keys/keys.js';
 import { Hono } from 'hono';
+import { StaleEpochError, WrapSetMismatchError } from '../services/keys/keys.js';
 import { linksRoute } from './links.js';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 
 const TEST_USER_ID = 'user-link-123';
 const TEST_CONVERSATION_ID = 'conv-link-456';
-// Valid URL-safe base64 values for binary fields
 const TEST_LINK_PUBLIC_KEY_BASE64 =
   'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const TEST_MEMBER_WRAP_BASE64 = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
@@ -56,8 +54,6 @@ function createMockUser(): AppEnv['Variables']['user'] {
   };
 }
 
-// ── Shared query chain helper ──
-
 /* eslint-disable unicorn/no-thenable -- mock Drizzle query builder chain */
 function createQueryChainFactory(
   selectResults: unknown[][],
@@ -85,8 +81,6 @@ function createQueryChainFactory(
 }
 /* eslint-enable unicorn/no-thenable */
 
-// ── List links mock infrastructure ──
-
 interface ListMockLink {
   id: string;
   conversationId: string;
@@ -110,7 +104,6 @@ interface ListMockDbConfig {
 function createListLinksMockDb(config: ListMockDbConfig): unknown {
   const indexRef = { value: 0 };
   const selectResults: unknown[][] = [
-    // Query 0: middleware's membership lookup
     config.requesterMember
       ? [
           {
@@ -121,7 +114,6 @@ function createListLinksMockDb(config: ListMockDbConfig): unknown {
           },
         ]
       : [],
-    // Query 1: listLinks result
     config.links ?? [],
   ];
   const createQueryChain = createQueryChainFactory(selectResults, indexRef);
@@ -153,8 +145,6 @@ function createListTestApp(options: ListTestAppOptions = {}): Hono<AppEnv> {
   return app;
 }
 
-// ── Create link mock infrastructure ──
-
 interface CreateMockDbConfig {
   requesterMember?: { id: string; privilege: string } | null;
   currentEpoch?: { id: string; epochNumber: number } | null;
@@ -174,7 +164,6 @@ interface CreateMockDbConfig {
 function createCreateLinkMockDb(config: CreateMockDbConfig): unknown {
   const indexRef = { value: 0 };
   const selectResults: unknown[][] = [
-    // Query 0: middleware's membership lookup
     config.requesterMember
       ? [
           {
@@ -185,7 +174,6 @@ function createCreateLinkMockDb(config: CreateMockDbConfig): unknown {
           },
         ]
       : [],
-    // Query 1: current epoch lookup (includes memberCount scalar subquery)
     config.currentEpoch ? [{ ...config.currentEpoch, memberCount: config.memberCount ?? 1 }] : [],
   ];
   const createQueryChain = createQueryChainFactory(selectResults, indexRef);
@@ -194,11 +182,8 @@ function createCreateLinkMockDb(config: CreateMockDbConfig): unknown {
   const txEpoch = config.txCurrentEpoch ?? config.currentEpoch;
   const txIndexRef = { value: 0 };
   const txSelectResults: unknown[][] = [
-    // TX Query 0: SELECT ... FOR UPDATE on conversations
     txEpoch ? [{ currentEpoch: txEpoch.epochNumber }] : [],
-    // TX Query 1: epoch ID lookup
     txEpoch ? [{ id: txEpoch.id }] : [],
-    // TX Query 2: count existing links for default displayName
     [{ count: 0 }],
   ];
   const createTxQueryChain = createQueryChainFactory(txSelectResults, txIndexRef);

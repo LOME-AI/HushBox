@@ -66,6 +66,39 @@ describe('OverlayBottomSheet', () => {
     expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument();
   });
 
+  describe('dismissible=false', () => {
+    it('hides the close button so the user has no manual escape hatch', () => {
+      render(
+        <OverlayBottomSheet
+          open={true}
+          onOpenChange={vi.fn()}
+          ariaLabel="Test sheet"
+          dismissible={false}
+        >
+          <div>Sheet content</div>
+        </OverlayBottomSheet>
+      );
+      expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument();
+    });
+
+    it('does not render the drag handle when undismissible (drag is the dismissal affordance)', () => {
+      render(
+        <OverlayBottomSheet
+          open={true}
+          onOpenChange={vi.fn()}
+          ariaLabel="Test sheet"
+          dismissible={false}
+        >
+          <div>Sheet content</div>
+        </OverlayBottomSheet>
+      );
+      // Drag handle is the small pill above the content. When swipe-to-dismiss
+      // is disabled the handle becomes a lie — hide it.
+      const content = screen.getByTestId('overlay-content');
+      expect(content.querySelector('.rounded-full')).not.toBeInTheDocument();
+    });
+  });
+
   it('renders back button when currentStep > 1 and onBack provided', () => {
     render(
       <OverlayBottomSheet

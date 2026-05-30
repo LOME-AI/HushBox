@@ -1,12 +1,8 @@
 import * as React from 'react';
-import { Button } from '@hushbox/ui';
 import { Menu } from 'lucide-react';
+import { Button } from '@hushbox/ui';
 import { useUIStore } from '@/stores/ui';
 
-/**
- * Hamburger menu button for mobile navigation.
- * Opens the mobile sidebar when clicked.
- */
 export function HamburgerButton(): React.JSX.Element {
   const setMobileSidebarOpen = useUIStore((state) => state.setMobileSidebarOpen);
 

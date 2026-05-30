@@ -16,8 +16,8 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-import { QueryProvider, shouldRetryQuery } from './query-provider';
-import { ApiError } from '@/lib/api';
+import { QueryProvider, queryClient } from './query-provider';
+import { shouldRetry, shouldRetryMutation, computeRetryDelay } from '@/lib/retry';
 
 vi.mock('@tanstack/react-query-devtools', () => ({
   ReactQueryDevtools: () => <div data-testid="react-query-devtools" />,
@@ -26,8 +26,6 @@ vi.mock('@tanstack/react-query-devtools', () => ({
 vi.mock('@/lib/env', () => ({
   env: { isLocalDev: true },
 }));
-
-// Test component that uses useQuery to verify context is available
 
 function TestQueryConsumer(): React.ReactNode {
   const { isLoading } = useQuery({
@@ -105,31 +103,12 @@ describe('QueryProvider', () => {
   });
 });
 
-describe('shouldRetryQuery', () => {
-  it('does not retry 404 errors', () => {
-    const error = new ApiError('CONVERSATION_NOT_FOUND', 404);
-    expect(shouldRetryQuery(0, error)).toBe(false);
-  });
-
-  it('does not retry 401 errors', () => {
-    const error = new ApiError('UNAUTHORIZED', 401);
-    expect(shouldRetryQuery(0, error)).toBe(false);
-  });
-
-  it('does not retry 403 errors', () => {
-    const error = new ApiError('FORBIDDEN', 403);
-    expect(shouldRetryQuery(0, error)).toBe(false);
-  });
-
-  it('retries non-ApiError once', () => {
-    const error = new Error('Network error');
-    expect(shouldRetryQuery(0, error)).toBe(true);
-    expect(shouldRetryQuery(1, error)).toBe(false);
-  });
-
-  it('retries 500 errors once', () => {
-    const error = new ApiError('INTERNAL', 500);
-    expect(shouldRetryQuery(0, error)).toBe(true);
-    expect(shouldRetryQuery(1, error)).toBe(false);
+describe('queryClient retry policy', () => {
+  it('wires full transient retry for queries and network-only retry for mutations', () => {
+    const defaults = queryClient.getDefaultOptions();
+    expect(defaults.queries?.retry).toBe(shouldRetry);
+    expect(defaults.queries?.retryDelay).toBe(computeRetryDelay);
+    expect(defaults.mutations?.retry).toBe(shouldRetryMutation);
+    expect(defaults.mutations?.retryDelay).toBe(computeRetryDelay);
   });
 });

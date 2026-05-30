@@ -31,8 +31,43 @@ function collectAncestorIds(
   return ancestorIds;
 }
 
-/** Returns true if a sibling message is safe to include (no descendants outside the ancestor chain). */
-function isSafeSibling(
+/**
+ * Two assistant messages with the same parentMessageId are multi-model peers
+ * iff they were persisted in the same `saveChatTurn` — i.e. their `batchId`s
+ * match. This distinguishes:
+ *
+ *   - **Multi-model fan-out** (same batch): u1 → [a1, a2] from one user send;
+ *     a1 and a2 are peers and must both appear on every branch that includes
+ *     u1, even if a later fork branches beneath one of them.
+ *   - **Fork-preserve orphan** (different batches): retry of u1 upstream of a
+ *     fork can't delete the prior assistant a1 because the fork's tail still
+ *     points at it, so a1 (batch_T0) and the new a1_new (batch_T_new) end up
+ *     as siblings under u1 — but a1 belongs to the fork's branch, not Main.
+ *
+ * The fallback to `false` when either side lacks a batchId is intentional:
+ * legacy rows pre-migration share `batch_id = gen_random_uuid()` defaults
+ * which never collide, so they'll fail this comparison and fall through to
+ * the containment check — same behavior as if the field had been there all
+ * along. The streaming/optimistic path on the client constructs messages
+ * before the API responds and may also have undefined batchIds; in that
+ * window the user only sees their own branch, so peer-recognition isn't
+ * needed yet.
+ */
+function isParallelBatchSibling(sibling: MessageWithParent, ancestor: MessageWithParent): boolean {
+  if (sibling.role !== 'assistant') return false;
+  if (sibling.batchId === undefined || ancestor.batchId === undefined) return false;
+  return sibling.batchId === ancestor.batchId;
+}
+
+/**
+ * Non-assistant siblings (user messages sharing a parentMessageId under an
+ * assistant ancestor) represent divergent conversation threads — typically
+ * the first message of a different fork. They're only safe to render on
+ * this branch when their entire subtree is already in our ancestor chain;
+ * otherwise the subtree belongs to a different fork and rendering the
+ * sibling here would surface that fork's content.
+ */
+function isContainedThreadSibling(
   sibling: MessageWithParent,
   ancestorIds: Set<string>,
   childrenMap: Map<string | null, MessageWithParent[]>
@@ -42,8 +77,47 @@ function isSafeSibling(
 }
 
 /**
- * Expand ancestor set to include multi-model siblings — messages sharing a
- * parentMessageId with a chain member that are NOT fork branch roots.
+ * Returns siblings of `ancestorId` that should be included on this branch.
+ *
+ * Assistants and non-assistants use different rules and do NOT fall back to
+ * each other. An assistant sibling either matches the ancestor's batchId
+ * (multi-model peer) or is excluded — running the containment check on an
+ * assistant would let any leaf assistant from a different branch sneak in
+ * (vacuously "all children in chain"). User-shaped siblings still go
+ * through containment to keep the original cross-fork user-thread guard.
+ *
+ * Caller is responsible for deduping; this returns every candidate that
+ * passes the role-shaped predicate.
+ */
+function siblingsToInclude(
+  ancestorId: string,
+  ancestorIds: Set<string>,
+  messageMap: Map<string, MessageWithParent>,
+  childrenMap: Map<string | null, MessageWithParent[]>
+): MessageWithParent[] {
+  const msg = messageMap.get(ancestorId);
+  if (!msg) return [];
+  const parentId = msg.parentMessageId;
+  if (parentId === undefined) return [];
+  const siblings = childrenMap.get(parentId ?? null) ?? [];
+  return siblings.filter((sibling) => {
+    if (sibling.id === ancestorId) return false;
+    if (sibling.role === 'assistant') return isParallelBatchSibling(sibling, msg);
+    return isContainedThreadSibling(sibling, ancestorIds, childrenMap);
+  });
+}
+
+/**
+ * Expand ancestor set to include siblings. Two distinct rules apply:
+ *
+ * - Parallel-batch siblings: included when the sibling shares its parent's
+ *   `batchId` AND has role `assistant`. This catches multi-model fan-out
+ *   without misclassifying a fork-preserve orphan (an old assistant left
+ *   under the same user message because a fork branch still references it).
+ * - Containment-based siblings (everything else, including assistants that
+ *   failed the batch-id check): included only if their subtree is fully
+ *   inside the ancestor chain. Prevents leaking a different fork's tail
+ *   onto this branch.
  */
 function expandWithSiblings(
   ancestorIds: Set<string>,
@@ -52,14 +126,8 @@ function expandWithSiblings(
 ): Set<string> {
   const included = new Set<string>(ancestorIds);
   for (const id of ancestorIds) {
-    const msg = messageMap.get(id);
-    const parentId = msg?.parentMessageId;
-    if (parentId === undefined) continue;
-    const siblings = childrenMap.get(parentId ?? null) ?? [];
-    for (const sibling of siblings) {
-      if (!included.has(sibling.id) && isSafeSibling(sibling, ancestorIds, childrenMap)) {
-        included.add(sibling.id);
-      }
+    for (const sibling of siblingsToInclude(id, ancestorIds, messageMap, childrenMap)) {
+      included.add(sibling.id);
     }
   }
   return included;
@@ -105,6 +173,22 @@ function buildChildrenMap(messages: MessageWithParent[]): Map<string | null, Mes
   return childrenMap;
 }
 
+/**
+ * Resolves the active fork's tip message, or returns null if the request
+ * should fall through to "return all messages" (no active fork, fork not
+ * found, or tip references a missing message id).
+ */
+function resolveActiveTipMessage(
+  forks: Fork[],
+  activeForkId: string | null,
+  messageMap: Map<string, MessageWithParent>
+): MessageWithParent | null {
+  if (forks.length === 0 || activeForkId === null) return null;
+  const activeFork = forks.find((f) => f.id === activeForkId);
+  if (!activeFork?.tipMessageId) return null;
+  return messageMap.get(activeFork.tipMessageId) ?? null;
+}
+
 export function filterMessagesForFork(
   allMessages: MessageWithParent[],
   forks: Fork[],
@@ -112,19 +196,12 @@ export function filterMessagesForFork(
 ): MessageWithParent[] {
   if (allMessages.length === 0) return [];
 
-  if (forks.length === 0 || activeForkId === null) {
-    return [...allMessages];
-  }
-
-  const activeFork = forks.find((f) => f.id === activeForkId);
-  if (!activeFork?.tipMessageId) return [...allMessages];
-
   const messageMap = new Map<string, MessageWithParent>();
   for (const msg of allMessages) {
     messageMap.set(msg.id, msg);
   }
 
-  const tipMessage = messageMap.get(activeFork.tipMessageId);
+  const tipMessage = resolveActiveTipMessage(forks, activeForkId, messageMap);
   if (!tipMessage) return [...allMessages];
 
   const childrenMap = buildChildrenMap(allMessages);

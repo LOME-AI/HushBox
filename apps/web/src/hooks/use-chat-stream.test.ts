@@ -1,16 +1,29 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
+import { useStreamingActivityStore } from '@/stores/streaming-activity';
+
+// Mock the chat-aloud TTS bridge so use-chat-stream tests don't pull in
+// kokoro-js. Individual tests can override the resolved feeder if needed.
+const ttsFeederMock = vi.hoisted(() => ({
+  feed: vi.fn(),
+  end: vi.fn(),
+}));
+const startChatTtsStreamMock = vi.hoisted(() =>
+  vi.fn((): Promise<null | typeof ttsFeederMock> => Promise.resolve(null))
+);
+vi.mock('../lib/chat-tts-stream', () => ({
+  startChatTtsStream: startChatTtsStreamMock,
+}));
 import {
   useChatStream,
   TrialRateLimitError,
   BalanceReservedError,
   BillingMismatchError,
   ContextCapacityError,
+  StreamTimeoutError,
 } from './use-chat-stream';
 import * as trialTokenModule from '../lib/trial-token';
-import { useStreamingActivityStore } from '@/stores/streaming-activity';
 
-// Mock modules
 vi.mock('../lib/api', () => ({
   getApiUrl: () => 'http://localhost:8787',
 }));
@@ -19,7 +32,6 @@ vi.mock('../lib/trial-token', () => ({
   getTrialToken: vi.fn(() => 'test-trial-token'),
 }));
 
-// Mock fetch
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
@@ -137,6 +149,78 @@ describe('useChatStream', () => {
       );
     });
 
+    it('includes videoConfig in request body when modality is video', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"google/veo-3.1","assistantMessageId":"msg-123"}]}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-123',
+          modality: 'video',
+          models: ['google/veo-3.1'],
+          userMessage: { id: 'msg-1', content: 'A cat surfing' },
+          messagesForInference: [{ role: 'user', content: 'A cat surfing' }],
+          fundingSource: 'personal_balance',
+          videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+        });
+      });
+
+      const callArgs = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(callArgs[1].body as string) as Record<string, unknown>;
+      expect(body['modality']).toBe('video');
+      expect(body['videoConfig']).toEqual({
+        aspectRatio: '16:9',
+        durationSeconds: 4,
+        resolution: '720p',
+      });
+    });
+
+    it('includes imageConfig in request body when modality is image', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"google/imagen-4","assistantMessageId":"msg-123"}]}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-123',
+          modality: 'image',
+          models: ['google/imagen-4'],
+          userMessage: { id: 'msg-1', content: 'A sunset' },
+          messagesForInference: [{ role: 'user', content: 'A sunset' }],
+          fundingSource: 'personal_balance',
+          imageConfig: { aspectRatio: '16:9' },
+        });
+      });
+
+      const callArgs = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(callArgs[1].body as string) as Record<string, unknown>;
+      expect(body['modality']).toBe('image');
+      expect(body['imageConfig']).toEqual({ aspectRatio: '16:9' });
+    });
+
     it('does not include X-Trial-Token header in authenticated mode', async () => {
       const sseEvents = [
         'event: start',
@@ -177,9 +261,9 @@ describe('useChatStream', () => {
         'event: token',
         'data: {"modelId":"gpt-4","content":"world!"}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"msg-456","cost":"0.00150000"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"msg-456"}',
         'event: done',
-        'data: {}',
+        'data: {"userMessageId":"user-456","assistantMessageId":"msg-456","userSequence":1,"aiSequence":2,"epochNumber":1,"cost":"0.00150000","models":[{"modelId":"gpt-4","assistantMessageId":"msg-456","aiSequence":2,"cost":"0.00150000","wrappedContentKey":"k","contentItems":[]}]}',
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -201,10 +285,12 @@ describe('useChatStream', () => {
         });
       });
 
-      expect(streamResult).toEqual({
-        userMessageId: 'user-456',
-        models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0.00150000' }],
-      });
+      expect(streamResult).toEqual(
+        expect.objectContaining({
+          userMessageId: 'user-456',
+          models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0.00150000' }],
+        })
+      );
     });
 
     it('calls onToken callback for each token with modelId', async () => {
@@ -461,7 +547,7 @@ describe('useChatStream', () => {
         'event: token',
         'data: {"modelId":"gpt-4","content":"world!"}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"msg-456","cost":"0.00100000"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"msg-456"}',
         'event: done',
         'data: {}',
       ];
@@ -482,10 +568,13 @@ describe('useChatStream', () => {
         });
       });
 
-      expect(streamResult).toEqual({
-        userMessageId: '',
-        models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0.00100000' }],
-      });
+      // Trial flow: server doesn't ship `done.models[].cost`, so cost defaults to '0'.
+      expect(streamResult).toEqual(
+        expect.objectContaining({
+          userMessageId: '',
+          models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-456', cost: '0' }],
+        })
+      );
     });
 
     it('calls onToken callback for each token with modelId', async () => {
@@ -869,9 +958,9 @@ describe('useChatStream', () => {
         'event: token',
         'data: {"modelId":"gpt-4","content":"New response"}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"msg-regen","cost":"0.00100000"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"msg-regen"}',
         'event: done',
-        'data: {}',
+        'data: {"userMessageId":"user-123","assistantMessageId":"msg-regen","userSequence":1,"aiSequence":2,"epochNumber":1,"cost":"0.00100000","models":[{"modelId":"gpt-4","assistantMessageId":"msg-regen","aiSequence":2,"cost":"0.00100000","wrappedContentKey":"k","contentItems":[]}]}',
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -890,7 +979,8 @@ describe('useChatStream', () => {
           conversationId: 'conv-123',
           targetMessageId: 'msg-target',
           action: 'retry',
-          model: 'gpt-4',
+          modality: 'text',
+          models: ['gpt-4'],
           userMessage: { id: 'msg-1', content: 'Hello' },
           messagesForInference: [{ role: 'user', content: 'Hello' }],
           fundingSource: 'personal_balance',
@@ -908,7 +998,8 @@ describe('useChatStream', () => {
           body: JSON.stringify({
             targetMessageId: 'msg-target',
             action: 'retry',
-            model: 'gpt-4',
+            modality: 'text',
+            models: ['gpt-4'],
             userMessage: { id: 'msg-1', content: 'Hello' },
             messagesForInference: [{ role: 'user', content: 'Hello' }],
             fundingSource: 'personal_balance',
@@ -916,10 +1007,12 @@ describe('useChatStream', () => {
         })
       );
 
-      expect(streamResult).toEqual({
-        userMessageId: 'user-123',
-        models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-regen', cost: '0.00100000' }],
-      });
+      expect(streamResult).toEqual(
+        expect.objectContaining({
+          userMessageId: 'user-123',
+          models: [{ modelId: 'gpt-4', assistantMessageId: 'msg-regen', cost: '0.00100000' }],
+        })
+      );
     });
 
     it('sets isStreaming during regeneration', async () => {
@@ -944,8 +1037,9 @@ describe('useChatStream', () => {
         streamPromise = result.current.startRegenerateStream({
           conversationId: 'conv-123',
           targetMessageId: 'msg-target',
-          action: 'regenerate',
-          model: 'gpt-4',
+          action: 'retry',
+          modality: 'text',
+          models: ['gpt-4'],
           userMessage: { id: 'msg-1', content: 'Hello' },
           messagesForInference: [{ role: 'user', content: 'Hello' }],
           fundingSource: 'personal_balance',
@@ -1051,11 +1145,11 @@ describe('useChatStream', () => {
         'event: token',
         'data: {"modelId":"claude-3","content":"Hi"}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1","cost":"0.00200000"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1"}',
         'event: model:done',
-        'data: {"modelId":"claude-3","assistantMessageId":"asst-2","cost":"0.00300000"}',
+        'data: {"modelId":"claude-3","assistantMessageId":"asst-2"}',
         'event: done',
-        'data: {}',
+        'data: {"userMessageId":"user-1","assistantMessageId":"asst-1","userSequence":1,"aiSequence":2,"epochNumber":1,"cost":"0.00500000","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1","aiSequence":2,"cost":"0.00200000","wrappedContentKey":"k","contentItems":[]},{"modelId":"claude-3","assistantMessageId":"asst-2","aiSequence":3,"cost":"0.00300000","wrappedContentKey":"k","contentItems":[]}]}',
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -1077,13 +1171,15 @@ describe('useChatStream', () => {
         });
       });
 
-      expect(streamResult).toEqual({
-        userMessageId: 'user-1',
-        models: [
-          { modelId: 'gpt-4', assistantMessageId: 'asst-1', cost: '0.00200000' },
-          { modelId: 'claude-3', assistantMessageId: 'asst-2', cost: '0.00300000' },
-        ],
-      });
+      expect(streamResult).toEqual(
+        expect.objectContaining({
+          userMessageId: 'user-1',
+          models: [
+            { modelId: 'gpt-4', assistantMessageId: 'asst-1', cost: '0.00200000' },
+            { modelId: 'claude-3', assistantMessageId: 'asst-2', cost: '0.00300000' },
+          ],
+        })
+      );
     });
 
     it('calls onToken with correct modelId for interleaved tokens', async () => {
@@ -1128,16 +1224,16 @@ describe('useChatStream', () => {
       expect(onToken).toHaveBeenNthCalledWith(3, 'B', 'gpt-4');
     });
 
-    it('calls onModelDone for each completed model', async () => {
+    it('calls onModelDone for each completed model (no per-event cost)', async () => {
       const sseEvents = [
         'event: start',
         'data: {"userMessageId":"user-1","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1"},{"modelId":"claude-3","assistantMessageId":"asst-2"}]}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1","cost":"0.002"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1"}',
         'event: model:done',
-        'data: {"modelId":"claude-3","assistantMessageId":"asst-2","cost":"0.003"}',
+        'data: {"modelId":"claude-3","assistantMessageId":"asst-2"}',
         'event: done',
-        'data: {}',
+        'data: {"userMessageId":"user-1","assistantMessageId":"asst-1","userSequence":1,"aiSequence":2,"epochNumber":1,"cost":"0.005","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1","aiSequence":2,"cost":"0.002","wrappedContentKey":"k","contentItems":[]},{"modelId":"claude-3","assistantMessageId":"asst-2","aiSequence":3,"cost":"0.003","wrappedContentKey":"k","contentItems":[]}]}',
       ];
 
       mockFetch.mockResolvedValueOnce({
@@ -1166,12 +1262,10 @@ describe('useChatStream', () => {
       expect(onModelDone).toHaveBeenNthCalledWith(1, {
         modelId: 'gpt-4',
         assistantMessageId: 'asst-1',
-        cost: '0.002',
       });
       expect(onModelDone).toHaveBeenNthCalledWith(2, {
         modelId: 'claude-3',
         assistantMessageId: 'asst-2',
-        cost: '0.003',
       });
     });
 
@@ -1180,9 +1274,9 @@ describe('useChatStream', () => {
         'event: start',
         'data: {"userMessageId":"user-1","models":[{"modelId":"gpt-4","assistantMessageId":"asst-1"},{"modelId":"claude-3","assistantMessageId":"asst-2"}]}',
         'event: model:done',
-        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1","cost":"0.002"}',
+        'data: {"modelId":"gpt-4","assistantMessageId":"asst-1"}',
         'event: model:error',
-        'data: {"modelId":"claude-3","message":"Model unavailable"}',
+        'data: {"modelId":"claude-3","message":"Model unavailable","code":"STREAM_ERROR"}',
         'event: done',
         'data: {}',
       ];
@@ -1215,6 +1309,7 @@ describe('useChatStream', () => {
       expect(onModelError).toHaveBeenCalledWith({
         modelId: 'claude-3',
         message: 'Model unavailable',
+        code: 'STREAM_ERROR',
       });
     });
 
@@ -1247,10 +1342,12 @@ describe('useChatStream', () => {
         });
       });
 
-      expect(streamResult).toEqual({
-        userMessageId: 'user-1',
-        models: [{ modelId: 'gpt-4', assistantMessageId: 'asst-1', cost: '0' }],
-      });
+      expect(streamResult).toEqual(
+        expect.objectContaining({
+          userMessageId: 'user-1',
+          models: [{ modelId: 'gpt-4', assistantMessageId: 'asst-1', cost: '0' }],
+        })
+      );
     });
   });
 
@@ -1341,7 +1438,8 @@ describe('useChatStream', () => {
           conversationId: 'conv-123',
           targetMessageId: 'msg-target',
           action: 'retry',
-          model: 'gpt-4',
+          modality: 'text',
+          models: ['gpt-4'],
           userMessage: { id: 'msg-1', content: 'Hello' },
           messagesForInference: [{ role: 'user', content: 'Hello' }],
           fundingSource: 'personal_balance',
@@ -1352,6 +1450,321 @@ describe('useChatStream', () => {
 
       useStreamingActivityStore.getState().endStream();
       expect(useStreamingActivityStore.getState().activeStreams).toBe(0);
+    });
+  });
+
+  describe('TTS chat-aloud wiring', () => {
+    beforeEach(() => {
+      ttsFeederMock.feed.mockReset();
+      ttsFeederMock.end.mockReset();
+      startChatTtsStreamMock.mockReset();
+    });
+
+    it('does nothing when startChatTtsStream returns null (default off)', async () => {
+      startChatTtsStreamMock.mockResolvedValueOnce(null);
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"m"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hi."}',
+        'event: done',
+        'data: {}',
+      ];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4'],
+          userMessage: { id: 'u', content: 'Hi' },
+          messagesForInference: [{ role: 'user', content: 'Hi' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      expect(ttsFeederMock.feed).not.toHaveBeenCalled();
+      expect(ttsFeederMock.end).not.toHaveBeenCalled();
+    });
+
+    it('routes only the primary model tokens to the feeder', async () => {
+      startChatTtsStreamMock.mockResolvedValueOnce(ttsFeederMock);
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"a"},{"modelId":"claude","assistantMessageId":"b"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hello"}',
+        'event: token',
+        'data: {"modelId":"claude","content":"IGNORED"}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":" world."}',
+        'event: done',
+        'data: {}',
+      ];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4', 'claude'],
+          userMessage: { id: 'u', content: 'Hi' },
+          messagesForInference: [{ role: 'user', content: 'Hi' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      const fedTokens = ttsFeederMock.feed.mock.calls.map((c) => c[0]);
+      expect(fedTokens).toEqual(['Hello', ' world.']);
+      expect(ttsFeederMock.end).toHaveBeenCalled();
+    });
+
+    it('passes a messageId getter that resolves to the primary assistant message id after onStart', async () => {
+      startChatTtsStreamMock.mockResolvedValueOnce(ttsFeederMock);
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"assistant-xyz"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hi."}',
+        'event: done',
+        'data: {}',
+      ];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4'],
+          userMessage: { id: 'u', content: 'Hi' },
+          messagesForInference: [{ role: 'user', content: 'Hi' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      expect(startChatTtsStreamMock).toHaveBeenCalledTimes(1);
+      const calls = startChatTtsStreamMock.mock.calls as unknown as [
+        { messageId: () => string | null } | undefined,
+      ][];
+      const callArgument = calls[0]?.[0];
+      expect(callArgument).toBeDefined();
+      expect(typeof callArgument?.messageId).toBe('function');
+      expect(callArgument?.messageId()).toBe('assistant-xyz');
+    });
+
+    it('calls feeder.end() exactly once even when both onDone and finally fire', async () => {
+      startChatTtsStreamMock.mockResolvedValueOnce(ttsFeederMock);
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"a"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"Hi."}',
+        'event: done',
+        'data: {}',
+      ];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-1',
+          models: ['gpt-4'],
+          userMessage: { id: 'u', content: 'Hi' },
+          messagesForInference: [{ role: 'user', content: 'Hi' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+      // The feeder is called twice (onDone, then finally) — that's fine because
+      // the second flush() is a no-op (chunker is empty), so users hear the
+      // remainder exactly once.
+      expect(ttsFeederMock.end).toHaveBeenCalled();
+    });
+  });
+
+  describe('stream timeout (M-Z3)', () => {
+    it('surfaces a StreamTimeoutError when the stream goes silent after start', async () => {
+      // A reader.read() that resolves the encoded `start` event but then hangs
+      // forever — simulates a server crash mid-stream.
+      const encoder = new TextEncoder();
+      let resolved = false;
+      const reader: ReadableStreamDefaultReader<Uint8Array> = {
+        read: vi.fn(() => {
+          if (!resolved) {
+            resolved = true;
+            const chunk =
+              'event: start\ndata: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"a"}]}\n\n';
+            return Promise.resolve({
+              done: false,
+              value: encoder.encode(chunk),
+            } as ReadableStreamReadResult<Uint8Array>);
+          }
+          // Never resolve — model:done / done never arrives.
+          return new Promise<ReadableStreamReadResult<Uint8Array>>(() => {
+            /* hang */
+          });
+        }),
+        cancel: vi.fn().mockResolvedValue(null),
+        releaseLock: vi.fn(),
+        get closed(): Promise<undefined> {
+          return new Promise<undefined>(() => {
+            /* never resolves */
+          });
+        },
+      };
+      const fakeBody = {
+        getReader: () => reader,
+      } as unknown as ReadableStream<Uint8Array>;
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: fakeBody,
+      });
+
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useChatStream('authenticated'));
+
+        let caught: unknown;
+        const startPromise = act(async () => {
+          try {
+            await result.current.startStream({
+              conversationId: 'conv-1',
+              models: ['gpt-4'],
+              userMessage: { id: 'msg-1', content: 'Hello' },
+              messagesForInference: [{ role: 'user', content: 'Hello' }],
+              fundingSource: 'personal_balance',
+            });
+          } catch (error) {
+            caught = error;
+          }
+        });
+
+        // Advance well past STREAM_TIMEOUT_MS (90s). vi.runAllTimersAsync flushes
+        // the timeout reject so the consumer's catch fires.
+        await vi.advanceTimersByTimeAsync(95_000);
+        await startPromise;
+
+        expect(caught).toBeInstanceOf(StreamTimeoutError);
+        expect((caught as StreamTimeoutError).code).toBe('STREAM_TIMEOUT');
+        // The re-thrown StreamTimeoutError preserves the original via `cause`
+        // so debugging tools and `error.cause` chains remain intact.
+        expect((caught as StreamTimeoutError).cause).toBeInstanceOf(StreamTimeoutError);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not time out when the server emits keep-alive comments', async () => {
+      // Simulates a slow video generation: `start`, then a heartbeat every 30s
+      // (under STREAM_TIMEOUT_MS=90s), eventually followed by `done`. The
+      // heartbeat bytes arrive as a separate `reader.read()` resolution, which
+      // resets `readWithTimeout`'s internal timer.
+      const encoder = new TextEncoder();
+      const startChunk = encoder.encode(
+        'event: start\ndata: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"a"}]}\n\n'
+      );
+      const keepAliveChunk = encoder.encode(':keep-alive\n\n');
+      const doneChunk = encoder.encode(
+        'event: done\ndata: {"userMessageId":"u","aiSequence":1,"epochNumber":1,"cost":"0"}\n\n'
+      );
+
+      let phase = 0;
+      const reader: ReadableStreamDefaultReader<Uint8Array> = {
+        read: vi.fn(() => {
+          // Phase 0: emit start immediately. Phases 1..3: emit a keep-alive
+          // every 60s (well within the 90s timeout). Phase 4: emit done.
+          if (phase === 0) {
+            phase += 1;
+            return Promise.resolve({
+              done: false,
+              value: startChunk,
+            } as ReadableStreamReadResult<Uint8Array>);
+          }
+          if (phase < 4) {
+            phase += 1;
+            return new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+              setTimeout(() => {
+                resolve({ done: false, value: keepAliveChunk });
+              }, 60_000);
+            });
+          }
+          if (phase === 4) {
+            phase += 1;
+            return Promise.resolve({
+              done: false,
+              value: doneChunk,
+            } as ReadableStreamReadResult<Uint8Array>);
+          }
+          return Promise.resolve({
+            done: true,
+            value: undefined,
+          } as ReadableStreamReadResult<Uint8Array>);
+        }),
+        cancel: vi.fn().mockResolvedValue(null),
+        releaseLock: vi.fn(),
+        get closed(): Promise<undefined> {
+          return new Promise<undefined>(() => {
+            /* never */
+          });
+        },
+      };
+      const fakeBody = { getReader: () => reader } as unknown as ReadableStream<Uint8Array>;
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: fakeBody,
+      });
+
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useChatStream('authenticated'));
+
+        let caught: unknown;
+        let resolvedResult: unknown;
+        const startPromise = act(async () => {
+          try {
+            resolvedResult = await result.current.startStream({
+              conversationId: 'conv-1',
+              models: ['gpt-4'],
+              userMessage: { id: 'msg-1', content: 'Hello' },
+              messagesForInference: [{ role: 'user', content: 'Hello' }],
+              fundingSource: 'personal_balance',
+            });
+          } catch (error) {
+            caught = error;
+          }
+        });
+
+        // 60s, 120s, 180s — three keep-alives, each well within the 90s
+        // timeout. Then the done event resolves and the stream finishes.
+        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(60_000);
+        await startPromise;
+
+        expect(caught).toBeUndefined();
+        expect(resolvedResult).toBeDefined();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

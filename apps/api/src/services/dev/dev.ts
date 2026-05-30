@@ -10,14 +10,15 @@ import {
   epochMembers,
   conversationMembers,
   type Database,
+  type DatabaseClient,
 } from '@hushbox/db';
 import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN, type DevPersona } from '@hushbox/shared';
-import { createFirstEpoch, encryptMessageForStorage } from '@hushbox/crypto';
+import { createFirstEpoch, encryptTextForEpoch } from '@hushbox/crypto';
 import { checkUserBalance } from '../billing/index.js';
 import { createOrGetConversation } from '../conversations/index.js';
 import { saveUserOnlyMessage } from '../chat/index.js';
 import {
-  insertEncryptedMessage,
+  insertEnvelopeTextMessage,
   assignSequenceNumbers,
   fetchEpochPublicKey,
 } from '../chat/message-helpers.js';
@@ -119,7 +120,6 @@ export async function cleanupTestData(db: Database): Promise<CleanupResult> {
   const msgResult = await db.delete(messages).where(inArray(messages.conversationId, convIds));
   const deletedMessages = msgResult.rowCount ?? 0;
 
-  // Delete conversations
   const convResult = await db.delete(conversations).where(inArray(conversations.id, convIds));
   const deletedConversations = convResult.rowCount ?? 0;
 
@@ -171,6 +171,41 @@ export async function resetAuthRateLimits(redis: Redis): Promise<ResetAuthRateLi
     'totp:used:*',
   ];
 
+  return deleteRedisKeysByPrefixes(redis, prefixes);
+}
+
+export interface ResetUsageRateLimitsResult {
+  deleted: number;
+}
+
+/**
+ * Reset per-user usage rate limits and speculative balance reservations
+ * between tests. Excludes IP-scoped and trial-scoped buckets whose tests
+ * exercise the limit firing.
+ *
+ * Reservation prefixes are included so `setWalletBalance` produces an
+ * available balance equal to the wallet value — without clearing them, a
+ * leftover reservation from a prior request would subtract from the new
+ * wallet for up to its 180s TTL, leaving the UI's raw-balance view and the
+ * billing path's reservation-adjusted view out of sync.
+ */
+export async function resetUsageRateLimits(redis: Redis): Promise<ResetUsageRateLimitsResult> {
+  const prefixes = [
+    'chat:stream:user:ratelimit:*',
+    'media:download:user:ratelimit:*',
+    'share:create:user:ratelimit:*',
+    'chat:reserved:*',
+    'chat:group-reserved:*',
+    'chat:conversation-reserved:*',
+  ];
+
+  return deleteRedisKeysByPrefixes(redis, prefixes);
+}
+
+async function deleteRedisKeysByPrefixes(
+  redis: Redis,
+  prefixes: readonly string[]
+): Promise<{ deleted: number }> {
   let deleted = 0;
 
   for (const prefix of prefixes) {
@@ -193,6 +228,14 @@ export async function resetAuthRateLimits(redis: Redis): Promise<ResetAuthRateLi
 
 export interface CreateDevConversationParams {
   ownerEmail: string;
+  /**
+   * Model id to stamp on seeded AI messages — passed in by the dev route
+   * after a live catalog lookup (see `pickValueTextModel`). Required so seeds
+   * never hardcode a model that has been retired from the gateway; a stale
+   * seed model breaks retry, since the client picks the existing AI's
+   * `modelName` as the retry model.
+   */
+  seedAiModel: string;
   messages?:
     | {
         content: string;
@@ -247,7 +290,6 @@ export async function createDevConversation(
     throw new Error('Failed to create conversation');
   }
 
-  // Seed messages using production services
   if (params.messages && params.messages.length > 0) {
     let lastMessageId: string | null = null;
 
@@ -264,9 +306,8 @@ export async function createDevConversation(
           parentMessageId: lastMessageId,
         });
       } else {
-        // AI messages: use production helpers directly in a transaction
         await db.transaction(async (tx) => {
-          const txDb = tx as unknown as Database;
+          const txDb = tx;
           const { sequences, currentEpoch } = await assignSequenceNumbers(
             txDb,
             result.conversation.id,
@@ -281,15 +322,15 @@ export async function createDevConversation(
             currentEpoch
           );
 
-          await insertEncryptedMessage(txDb, {
+          await insertEnvelopeTextMessage(txDb, {
             id: messageId,
             conversationId: result.conversation.id,
-            content: msg.content,
+            textContent: msg.content,
             epochPublicKey,
             epochNumber,
             sequenceNumber: seq,
             senderType: 'ai',
-            modelName: 'anthropic/claude-3.5-sonnet',
+            modelName: params.seedAiModel,
             parentMessageId: lastMessageId,
           });
         });
@@ -302,9 +343,73 @@ export async function createDevConversation(
   return { conversationId: result.conversation.id };
 }
 
+interface InsertGroupChatMessagesParams {
+  txDb: DatabaseClient;
+  conversationId: string;
+  epochPublicKey: Uint8Array;
+  msgs: { senderEmail?: string; content: string; senderType: 'user' | 'ai' }[];
+  orderedUsers: { id: string; email: string | null }[];
+  seedAiModel: string;
+}
+
+async function insertGroupChatMessages(params: InsertGroupChatMessagesParams): Promise<void> {
+  const { txDb, conversationId, epochPublicKey, msgs, orderedUsers, seedAiModel } = params;
+  const messageIds = msgs.map(() => crypto.randomUUID());
+
+  for (const [index, msg] of msgs.entries()) {
+    const senderId =
+      msg.senderType === 'user' && msg.senderEmail
+        ? (orderedUsers.find((u) => u.email != null && u.email === msg.senderEmail)?.id ?? null)
+        : null;
+
+    const msgId = messageIds[index];
+    if (!msgId) throw new Error(`invariant: messageIds[${String(index)}] is undefined`);
+
+    const parentMessageId =
+      index > 0
+        ? (() => {
+            const parentId = messageIds[index - 1];
+            if (!parentId)
+              throw new Error(`invariant: messageIds[${String(index - 1)}] is undefined`);
+            return parentId;
+          })()
+        : null;
+
+    await insertEnvelopeTextMessage(txDb, {
+      id: msgId,
+      conversationId,
+      textContent: msg.content,
+      epochPublicKey,
+      epochNumber: 1,
+      sequenceNumber: index + 1,
+      senderType: msg.senderType,
+      ...(senderId !== null && { senderId }),
+      ...(msg.senderType === 'ai' && { modelName: seedAiModel }),
+      parentMessageId,
+    });
+  }
+
+  // Keep nextSequence in sync so saveChatTurn assigns non-overlapping sequences
+  await txDb
+    .update(conversations)
+    .set({ nextSequence: msgs.length + 1 })
+    .where(eq(conversations.id, conversationId));
+}
+
 export interface CreateDevGroupChatParams {
   ownerEmail: string;
   memberEmails: string[];
+  /**
+   * Members who should be created with `acceptedAt = null` — they appear as
+   * pending invitees and can `/decline` the invite. Must be a subset of
+   * `memberEmails`. Used by E2E tests that exercise the decline-invite flow.
+   */
+  pendingMemberEmails?: string[];
+  /**
+   * Model id to stamp on seeded AI messages — see
+   * {@link CreateDevConversationParams.seedAiModel} for context.
+   */
+  seedAiModel: string;
   messages?: {
     senderEmail?: string;
     content: string;
@@ -359,14 +464,12 @@ export async function createDevGroupChat(
   const epochId = crypto.randomUUID();
 
   await db.transaction(async (tx) => {
-    // Insert conversation
     await tx.insert(conversations).values({
       id: conversationId,
       userId: owner.id,
-      title: encryptMessageForStorage(epochResult.epochPublicKey, ''),
+      title: encryptTextForEpoch(epochResult.epochPublicKey, ''),
     });
 
-    // Insert epoch
     await tx.insert(epochs).values({
       id: epochId,
       conversationId,
@@ -376,7 +479,6 @@ export async function createDevGroupChat(
       chainLink: null,
     });
 
-    // Insert epoch members (one per user with their wrap)
     await tx.insert(epochMembers).values(
       orderedUsers.map((user, index) => {
         const memberWrap = epochResult.memberWraps[index];
@@ -393,7 +495,11 @@ export async function createDevGroupChat(
       })
     );
 
-    // Insert conversation members (acceptedAt set so they're not treated as pending invites)
+    // Insert conversation members. By default `acceptedAt` is stamped so the
+    // member is fully joined. Emails listed in `pendingMemberEmails` keep
+    // `acceptedAt = null` so they appear as pending invitees — used to seed
+    // the decline-invite flow in E2E tests.
+    const pendingSet = new Set(params.pendingMemberEmails);
     await tx.insert(conversationMembers).values(
       orderedUsers.map((user, index) => ({
         id: crypto.randomUUID(),
@@ -401,52 +507,23 @@ export async function createDevGroupChat(
         userId: user.id,
         privilege: index === 0 ? 'owner' : ('admin' as string),
         visibleFromEpoch: 1,
-        acceptedAt: new Date(),
+        // Owner is never pending; otherwise honour the pendingMemberEmails list.
+        // user.email may be null (deleted users) — treat as never pending.
+        acceptedAt:
+          index === 0 || user.email === null || !pendingSet.has(user.email) ? new Date() : null,
       }))
     );
 
-    // Insert messages if provided
+    // Insert messages if provided — one wrap-once envelope per message
     if (params.messages && params.messages.length > 0) {
-      const messageIds = params.messages.map(() => crypto.randomUUID());
-      await tx.insert(messages).values(
-        params.messages.map((msg, index) => {
-          const senderId =
-            msg.senderType === 'user' && msg.senderEmail
-              ? (orderedUsers.find((u) => u.email != null && u.email === msg.senderEmail)?.id ??
-                null)
-              : null;
-
-          const msgId = messageIds[index];
-          if (!msgId) throw new Error(`invariant: messageIds[${String(index)}] is undefined`);
-
-          return {
-            id: msgId,
-            conversationId,
-            encryptedBlob: encryptMessageForStorage(epochResult.epochPublicKey, msg.content),
-            senderType: msg.senderType,
-            senderId,
-            ...(msg.senderType === 'ai' ? { modelName: 'anthropic/claude-3.5-sonnet' } : {}),
-            epochNumber: 1,
-            sequenceNumber: index + 1,
-            ...(index > 0
-              ? {
-                  parentMessageId: (() => {
-                    const parentId = messageIds[index - 1];
-                    if (!parentId)
-                      throw new Error(`invariant: messageIds[${String(index - 1)}] is undefined`);
-                    return parentId;
-                  })(),
-                }
-              : {}),
-          };
-        })
-      );
-
-      // Keep nextSequence in sync so saveChatTurn assigns non-overlapping sequences
-      await tx
-        .update(conversations)
-        .set({ nextSequence: params.messages.length + 1 })
-        .where(eq(conversations.id, conversationId));
+      await insertGroupChatMessages({
+        txDb: tx,
+        conversationId,
+        epochPublicKey: epochResult.epochPublicKey,
+        msgs: params.messages,
+        orderedUsers,
+        seedAiModel: params.seedAiModel,
+      });
     }
   });
 

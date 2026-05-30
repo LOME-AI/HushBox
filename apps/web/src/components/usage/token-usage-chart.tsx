@@ -1,14 +1,14 @@
 import * as React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { ChartTooltipContent, ChartLegendContent } from '@hushbox/ui';
-import type { ChartConfig } from '@hushbox/ui';
-import type { TokenUsageOverTimeResponse } from '@hushbox/shared';
 import {
   UsageChartCard,
   formatTokenCount,
   DEFAULT_CHART_MARGIN,
   DEFAULT_AXIS_PROPS,
 } from './chart-utilities';
+import type { ChartConfig } from '@hushbox/ui';
+import type { TokenUsageOverTimeResponse } from '@hushbox/shared';
 
 interface TokenUsageChartProps {
   data: TokenUsageOverTimeResponse | undefined;

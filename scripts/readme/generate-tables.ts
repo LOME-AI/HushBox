@@ -1,12 +1,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as lucideStatic from 'lucide-static';
-import {
-  CREDIT_CARD_FEE_RATE,
-  HUSHBOX_FEE_RATE,
-  PROVIDER_FEE_RATE,
-  TOTAL_FEE_RATE,
-} from '../../packages/shared/src/constants.js';
+import { isMainModule } from '../lib/is-main.js';
+import { TOTAL_FEE_RATE } from '../../packages/shared/src/constants.js';
+import { FEE_CATEGORIES, formatFeePercent } from '../../packages/shared/src/fees.js';
 import {
   FREE_ALLOWANCE_CENTS_VALUE,
   TRIAL_MESSAGE_LIMIT,
@@ -48,8 +45,6 @@ function sectionLabel(parameters: SectionLabelParameters): string {
   return `<text x="${String(x)}" y="${String(y)}" font-family='${FONT_STACK}' font-size="${String(fontSize)}" font-weight="600" fill="${color}" letter-spacing="0.08em">${label}</text>`;
 }
 
-// --- Comparison Table ---
-
 export function generateComparisonSvg(options: TableOptions): string {
   const { width, theme } = options;
   const rowCount = COMPARISON_ROWS.length;
@@ -90,29 +85,17 @@ export function generateComparisonSvg(options: TableOptions): string {
 </svg>`;
 }
 
-// --- Pricing Table ---
-
 export function generatePricingSvg(options: TableOptions): string {
   const { width, theme } = options;
-  const rows = [
-    {
-      label: 'HushBox',
-      rate: `${String(HUSHBOX_FEE_RATE * 100)}%`,
-      desc: 'Development, servers, support',
-    },
-    {
-      label: 'Card processing',
-      rate: `${String(CREDIT_CARD_FEE_RATE * 100)}%`,
-      desc: 'Credit card fees',
-    },
-    {
-      label: 'Provider overhead',
-      rate: `${String(PROVIDER_FEE_RATE * 100)}%`,
-      desc: 'API infrastructure',
-    },
+  const rows: { label: string; rate: string; desc: string; isTotal?: boolean }[] = [
+    ...FEE_CATEGORIES.map((category) => ({
+      label: category.shortLabel,
+      rate: formatFeePercent(category.rate),
+      desc: category.description,
+    })),
     {
       label: 'Total',
-      rate: `${String(TOTAL_FEE_RATE * 100)}%`,
+      rate: formatFeePercent(TOTAL_FEE_RATE),
       desc: 'On AI model usage',
       isTotal: true,
     },
@@ -155,8 +138,6 @@ export function generatePricingSvg(options: TableOptions): string {
   ${body}
 </svg>`;
 }
-
-// --- Tiers Table ---
 
 export function generateTiersSvg(options: TableOptions): string {
   const { width, theme } = options;
@@ -228,8 +209,6 @@ function escapeXml(text: string): string {
     .replaceAll('"', '&quot;');
 }
 
-// --- Technical Details ---
-
 const TECH_DETAILS: readonly { component: string; implementation: string }[] = [
   {
     component: 'Message encryption',
@@ -283,8 +262,6 @@ export function generateTechnicalDetailsSvg(options: TableOptions): string {
   ${rows}
 </svg>`;
 }
-
-// --- Feature Cards ---
 
 /** Extract the inner elements (paths, circles, etc) from a lucide-static SVG string. */
 function extractIconInner(lucideIconName: string): string {
@@ -422,6 +399,7 @@ export function collectTableInputs(repoRoot: string): string[] {
     path.join(repoRoot, 'packages/shared/src/features.ts'),
     path.join(repoRoot, 'packages/shared/src/comparison.ts'),
     path.join(repoRoot, 'packages/shared/src/constants.ts'),
+    path.join(repoRoot, 'packages/shared/src/fees.ts'),
     path.join(repoRoot, 'packages/shared/src/tiers.ts'),
     path.join(repoRoot, 'packages/config/tailwind/index.css'),
     path.join(repoRoot, 'node_modules/lucide-static/package.json'),
@@ -499,9 +477,8 @@ export function generateTables(outputDir: string, repoRoot?: string): void {
   );
 }
 
-// CLI entry point
 const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../.github/readme');
 
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) generateTables(DEFAULT_OUTPUT);

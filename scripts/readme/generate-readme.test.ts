@@ -10,16 +10,17 @@ import {
   STORAGE_COST_PER_CHARACTER,
   TOTAL_FEE_RATE,
 } from '../../packages/shared/src/constants.js';
+import { formatFeePercent } from '../../packages/shared/src/fees.js';
 import { generateReadme, getTemplateValues } from './generate-readme.js';
 
 describe('getTemplateValues', () => {
   it('returns fee percentages derived from constants', () => {
     const values = getTemplateValues();
 
-    expect(values['TOTAL_FEE_PERCENT']).toBe(`${String(TOTAL_FEE_RATE * 100)}%`);
-    expect(values['HUSHBOX_FEE_PERCENT']).toBe(`${String(HUSHBOX_FEE_RATE * 100)}%`);
-    expect(values['CC_FEE_PERCENT']).toBe(`${String(CREDIT_CARD_FEE_RATE * 100)}%`);
-    expect(values['PROVIDER_FEE_PERCENT']).toBe(`${String(PROVIDER_FEE_RATE * 100)}%`);
+    expect(values['TOTAL_FEE_PERCENT']).toBe(formatFeePercent(TOTAL_FEE_RATE));
+    expect(values['HUSHBOX_FEE_PERCENT']).toBe(formatFeePercent(HUSHBOX_FEE_RATE));
+    expect(values['CC_FEE_PERCENT']).toBe(formatFeePercent(CREDIT_CARD_FEE_RATE));
+    expect(values['PROVIDER_FEE_PERCENT']).toBe(formatFeePercent(PROVIDER_FEE_RATE));
   });
 
   it('returns storage cost from constants', () => {
@@ -72,8 +73,8 @@ Storage: {{STORAGE_COST_PER_1K}} per 1k chars
     generateReadme(temporaryDir);
 
     const output = readFileSync(path.join(temporaryDir, 'README.md'), 'utf8');
-    expect(output).toContain('Fee: 15%');
-    expect(output).toContain('Storage: $0.0003 per 1k chars');
+    expect(output).toContain(`Fee: ${formatFeePercent(TOTAL_FEE_RATE)}`);
+    expect(output).toContain(`Storage: $${String(STORAGE_COST_PER_1K_CHARS)} per 1k chars`);
   });
 
   it('adds auto-generated notice at top', () => {
@@ -93,7 +94,8 @@ Storage: {{STORAGE_COST_PER_1K}} per 1k chars
     generateReadme(temporaryDir);
 
     const output = readFileSync(path.join(temporaryDir, 'README.md'), 'utf8');
-    expect(output).toContain('15% here and 15% there');
+    const totalPercent = formatFeePercent(TOTAL_FEE_RATE);
+    expect(output).toContain(`${totalPercent} here and ${totalPercent} there`);
   });
 
   it('exits with code 1 when unmatched variables found', () => {

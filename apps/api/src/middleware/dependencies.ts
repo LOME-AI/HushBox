@@ -1,4 +1,3 @@
-import type { MiddlewareHandler } from 'hono';
 import { eq } from 'drizzle-orm';
 import { createDb, LOCAL_NEON_DEV_CONFIG, users } from '@hushbox/db';
 import {
@@ -12,12 +11,16 @@ import {
   ERROR_CODE_BILLING_SESSION_RESTRICTED,
 } from '@hushbox/shared';
 import { createRedisClient } from '../lib/redis.js';
+import { createEvidenceConfig } from '../lib/evidence-config.js';
 import { createIronSessionMiddleware } from './iron-session.js';
+import { getAIClient } from '../services/ai/index.js';
+import { getMediaStorage } from '../services/storage/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
-import { getOpenRouterClient } from '../services/openrouter/index.js';
-import type { AppEnv } from '../types.js';
 import { createErrorResponse } from '../lib/error-response.js';
 import { LINK_PUBLIC_KEY_HEADER } from './constants.js';
+import type { MockAIClientConfig } from '../services/ai/index.js';
+import type { AppEnv } from '../types.js';
+import type { MiddlewareHandler } from 'hono';
 
 export function dbMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
@@ -93,17 +96,20 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
     const sessionData = c.get('sessionData');
-    const hasLinkHeader = !!c.req.header(LINK_PUBLIC_KEY_HEADER);
+    // WebSocket upgrades can't set custom headers, so link guests pass the key
+    // as a `?linkPublicKey=` query param — accept it here the same way
+    // resolveLinkGuest does, or the WS guest path stays unreachable behind a 401.
+    const hasLinkKey = !!(c.req.header(LINK_PUBLIC_KEY_HEADER) ?? c.req.query('linkPublicKey'));
 
     if (!sessionData?.userId) {
-      if (hasLinkHeader) return next();
+      if (hasLinkKey) return next();
       return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
     }
 
     const rejection = await validateSessionState(sessionData, c.get('redis'), c.req.path);
     if (rejection) {
       // 2FA_REQUIRED (403): do NOT fall back to link guest — user must complete 2FA
-      if (hasLinkHeader && rejection.code !== ERROR_CODE_2FA_REQUIRED) {
+      if (hasLinkKey && rejection.code !== ERROR_CODE_2FA_REQUIRED) {
         return next();
       }
       return c.json(createErrorResponse(rejection.code), rejection.status);
@@ -124,7 +130,7 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
       .where(eq(users.id, sessionData.userId));
 
     if (!user) {
-      if (hasLinkHeader) return next();
+      if (hasLinkKey) return next();
       return c.json(createErrorResponse(ERROR_CODE_USER_NOT_FOUND), 404);
     }
 
@@ -134,12 +140,52 @@ export function sessionMiddleware(): MiddlewareHandler<AppEnv> {
   };
 }
 
-export function openRouterMiddleware(): MiddlewareHandler<AppEnv> {
+export function aiClientMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
-    const db = c.get('db');
-    const { isCI } = c.get('envUtils');
-    c.set('openrouter', getOpenRouterClient(c.env, { db, isCI }));
+    // dbMiddleware + envMiddleware run before this on every route prefix
+    // that uses aiClientMiddleware — so `db` and `envUtils` are always set.
+    //
+    // Mock overrides ride on three request headers and are only consulted in
+    // dev / E2E builds (getAIClient gates on env). Production reads of these
+    // headers are ignored at the env fork.
+    const mockConfig: MockAIClientConfig = {};
+    const classifierResolution = c.req.header('x-mock-classifier-resolution');
+    if (classifierResolution !== undefined) {
+      mockConfig.classifierResolution = classifierResolution;
+    }
+    if (c.req.header('x-mock-classifier-failure') === 'true') {
+      mockConfig.classifierFailure = true;
+    }
+    const failingModelsHeader = c.req.header('x-mock-failing-models');
+    if (failingModelsHeader) {
+      const failingModels = failingModelsHeader
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (failingModels.length > 0) {
+        mockConfig.failingModels = failingModels;
+      }
+    }
+    const classifierDelayHeader = c.req.header('x-mock-classifier-delay-ms');
+    if (classifierDelayHeader !== undefined) {
+      const parsed = Number.parseInt(classifierDelayHeader, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        mockConfig.classifierDelayMs = parsed;
+      }
+    }
+    c.set('aiClient', getAIClient(c.env, { evidence: createEvidenceConfig(c), mockConfig }));
+    await next();
+  };
+}
+
+export function mediaStorageMiddleware(): MiddlewareHandler<AppEnv> {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
+  return async (c, next) => {
+    // dbMiddleware + envMiddleware run before this on every route prefix that
+    // uses mediaStorageMiddleware — so `db` and `envUtils` are always set,
+    // matching the aiClientMiddleware pattern.
+    c.set('mediaStorage', getMediaStorage(c.env, createEvidenceConfig(c)));
     await next();
   };
 }
@@ -147,7 +193,7 @@ export function openRouterMiddleware(): MiddlewareHandler<AppEnv> {
 export function helcimMiddleware(): MiddlewareHandler<AppEnv> {
   // eslint-disable-next-line unicorn/consistent-function-scoping -- middleware factory pattern
   return async (c, next) => {
-    c.set('helcim', getHelcimClient(c.env));
+    c.set('helcim', getHelcimClient(c.env, createEvidenceConfig(c)));
     await next();
   };
 }

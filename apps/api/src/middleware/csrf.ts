@@ -1,6 +1,6 @@
-import type { MiddlewareHandler } from 'hono';
 import { ERROR_CODE_CSRF_REJECTED } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
+import type { MiddlewareHandler } from 'hono';
 
 interface CsrfEnv {
   Bindings: {

@@ -1,25 +1,38 @@
 import { useState, useCallback } from 'react';
 import { ERROR_CODE_CONTEXT_LENGTH_EXCEEDED } from '@hushbox/shared';
+import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { getApiUrl } from '../lib/api';
 import { getTrialToken } from '../lib/trial-token';
 import { getLinkGuestAuth } from '../lib/link-guest-auth';
-import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import {
   createSSEParser,
+  readWithTimeout,
+  StreamTimeoutError,
   type DoneEventData,
   type StartEventData,
   type ModelDoneData,
   type ModelErrorData,
+  type ModelMediaStartData,
+  type ModelMediaProgressData,
+  type StageDoneEventData,
 } from '../lib/sse-client';
+import { startChatTtsStream } from '../lib/chat-tts-stream';
+import type {
+  Modality,
+  ImageConfig,
+  VideoConfig,
+  AudioConfig,
+  StageStartPayload,
+  StageErrorPayload,
+} from '@hushbox/shared';
 
-// ============================================================================
-// Types
-// ============================================================================
+export { StreamTimeoutError } from '../lib/sse-client';
 
 export type StreamMode = 'authenticated' | 'trial';
 
 interface AuthenticatedStreamRequest {
   conversationId: string;
+  modality?: Modality;
   models: string[];
   userMessage: {
     id: string;
@@ -30,6 +43,9 @@ interface AuthenticatedStreamRequest {
   webSearchEnabled?: boolean;
   customInstructions?: string;
   forkId?: string;
+  imageConfig?: ImageConfig;
+  videoConfig?: VideoConfig;
+  audioConfig?: AudioConfig;
 }
 
 interface TrialStreamMessage {
@@ -45,8 +61,20 @@ interface TrialStreamRequest {
 export interface RegenerateStreamRequest {
   conversationId: string;
   targetMessageId: string;
-  action: 'retry' | 'edit' | 'regenerate';
-  model: string;
+  action: 'retry' | 'edit';
+  modality: 'text' | 'image' | 'video' | 'audio';
+  /**
+   * One entry per assistant tile to (re)generate. `length === 1` for
+   * single-model retries and per-tile regenerate-one. `length > 1` for
+   * multi-model retry-all of an N-model turn.
+   */
+  models: string[];
+  /**
+   * When set, replace ONLY this assistant message — surviving siblings keep
+   * their rows + costs. When omitted, retry-all semantics (every assistant
+   * descendant of `targetMessageId` is replaced).
+   */
+  replaceAssistantId?: string;
   userMessage: {
     id: string;
     content: string;
@@ -56,6 +84,9 @@ export interface RegenerateStreamRequest {
   forkId?: string;
   webSearchEnabled?: boolean;
   customInstructions?: string;
+  imageConfig?: ImageConfig;
+  videoConfig?: VideoConfig;
+  audioConfig?: AudioConfig;
 }
 
 export type StreamRequest = AuthenticatedStreamRequest | TrialStreamRequest;
@@ -70,6 +101,12 @@ export interface ModelResult {
 interface StreamResult {
   userMessageId: string;
   models: ModelResult[];
+  /**
+   * The final SSE done event payload, including the full envelope + content
+   * items with download URLs for media. Consumers can use this to populate
+   * local state immediately instead of waiting for a query refetch.
+   */
+  doneData: DoneEventData | undefined;
 }
 
 interface StreamOptions {
@@ -77,6 +114,18 @@ interface StreamOptions {
   onToken?: (token: string, modelId: string) => void;
   onModelDone?: (data: ModelDoneData) => void;
   onModelError?: (data: ModelErrorData) => void;
+  /** Notification that media generation has started for a slot — drives a "Generating…" UI hint. */
+  onModelMediaStart?: (data: ModelMediaStartData) => void;
+  /** Synthetic progress for long-running media (video). Drives a 0-95% bar. */
+  onModelMediaProgress?: (data: ModelMediaProgressData) => void;
+  /**
+   * Pre-inference stage events. UI can use these to show a "Choosing the
+   * best model…" placeholder for Smart Model rows, then update the nametag
+   * to the resolved model name when stage:done arrives.
+   */
+  onStageStart?: (data: StageStartPayload) => void;
+  onStageDone?: (data: StageDoneEventData) => void;
+  onStageError?: (data: StageErrorPayload) => void;
   signal?: AbortSignal;
 }
 
@@ -258,7 +307,11 @@ interface StreamState {
   done: boolean;
   doneData: DoneEventData | null;
   startData: StartEventData | null;
-  modelResults: Map<string, { cost: string }>;
+  /**
+   * Cost map sourced exclusively from the final `done` event's `models[].cost`.
+   * Final spend is only known after the post-flight billing pass on the server.
+   */
+  modelCosts: Map<string, string>;
   modelErrors: Map<string, string>;
 }
 
@@ -274,7 +327,7 @@ async function consumeSSEStream(
   try {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- standard pattern for async iterator
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithTimeout(reader);
       if (done) break;
 
       parser.processChunk(decoder.decode(value, { stream: true }));
@@ -292,7 +345,7 @@ async function consumeSSEStream(
       return {
         modelId: m.modelId,
         assistantMessageId: m.assistantMessageId,
-        cost: state.modelResults.get(m.modelId)?.cost ?? '0',
+        cost: state.modelCosts.get(m.modelId) ?? '0',
         ...(errorCode && { errorCode }),
       };
     });
@@ -300,6 +353,7 @@ async function consumeSSEStream(
     return {
       userMessageId: parser.getUserMessageId(),
       models,
+      doneData: state.doneData ?? undefined,
     };
   } finally {
     void (async () => {
@@ -330,25 +384,62 @@ async function executeStream(
     done: false,
     doneData: null,
     startData: null,
-    modelResults: new Map(),
+    modelCosts: new Map(),
     modelErrors: new Map(),
   };
+
+  // TTS chat-aloud: opt-in feeder built from accessibility prefs. Returns null
+  // when the user hasn't enabled `streamChatAloud` (or has muted), so the
+  // common path stays zero-cost. Fed alongside (not instead of) the caller's
+  // onToken so existing UI behavior is unaffected.
+  //
+  // Note: only the primary model's tokens are routed to TTS. With multi-model
+  // fan-out, speaking every model's text in parallel would be cacophony.
+  //
+  // The assistant message id is needed to scope the per-message Stop button
+  // and the muted-stream gate, but it only arrives in the SSE `start` event
+  // — after the feeder has been built. Pass a getter so the feeder reads
+  // the id at callback time, not at construction.
+  let primaryModelId: string | null = null;
+  let primaryAssistantMessageId: string | null = null;
+  const ttsFeeder = await startChatTtsStream({
+    messageId: () => primaryAssistantMessageId,
+  });
 
   const parser = createSSEParser({
     onStart: (data) => {
       streamState.startData = data;
+      primaryModelId = data.models[0]?.modelId ?? null;
+      primaryAssistantMessageId = data.models[0]?.assistantMessageId ?? null;
       options?.onStart?.(data);
     },
     onToken: (tokenData) => {
       options?.onToken?.(tokenData.content, tokenData.modelId);
+      if (ttsFeeder !== null && tokenData.modelId === primaryModelId) {
+        ttsFeeder.feed(tokenData.content);
+      }
     },
     onModelDone: (data) => {
-      streamState.modelResults.set(data.modelId, { cost: data.cost });
       options?.onModelDone?.(data);
     },
     onModelError: (data) => {
-      streamState.modelErrors.set(data.modelId, data.code ?? 'STREAM_ERROR');
+      streamState.modelErrors.set(data.modelId, data.code);
       options?.onModelError?.(data);
+    },
+    onModelMediaStart: (data) => {
+      options?.onModelMediaStart?.(data);
+    },
+    onModelMediaProgress: (data) => {
+      options?.onModelMediaProgress?.(data);
+    },
+    onStageStart: (data) => {
+      options?.onStageStart?.(data);
+    },
+    onStageDone: (data) => {
+      options?.onStageDone?.(data);
+    },
+    onStageError: (data) => {
+      options?.onStageError?.(data);
     },
     onError: (errorData) => {
       streamState.error =
@@ -359,10 +450,29 @@ async function executeStream(
     onDone: (doneData) => {
       streamState.done = true;
       streamState.doneData = doneData;
+      ttsFeeder?.end();
+      for (const m of doneData.models ?? []) {
+        streamState.modelCosts.set(m.modelId, m.cost);
+      }
     },
   });
 
-  return await consumeSSEStream(reader, parser, streamState);
+  try {
+    return await consumeSSEStream(reader, parser, streamState);
+  } catch (error: unknown) {
+    if (error instanceof StreamTimeoutError) {
+      // Re-throw a fresh StreamTimeoutError so callers see the same class name
+      // regardless of how the error propagated, but preserve the original via
+      // `Error.cause` so debugging tools and stack-trace inspection still get
+      // the original failure context.
+      throw new StreamTimeoutError(error.message, { cause: error });
+    }
+    throw error;
+  } finally {
+    // Flush any buffered text on premature termination (error, abort, etc.)
+    // so users hear the partial answer instead of silence.
+    ttsFeeder?.end();
+  }
 }
 
 export function useChatStream(mode: StreamMode): ChatStreamHook {

@@ -4,10 +4,8 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { ChatWelcome } from './chat-welcome';
-import { useModelStore } from '@/stores/model';
 import type { PromptBudgetResult } from '@/hooks/use-prompt-budget';
 
-// Mock the api module — `api` object was removed; module now exports getApiUrl + ApiError
 vi.mock('@/lib/api', () => ({
   getApiUrl: vi.fn(() => 'http://localhost:8787'),
   ApiError: class ApiError extends Error {
@@ -22,15 +20,37 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-// Mock hooks used by PromptInput (which is rendered inside ChatWelcome)
+vi.mock('@hushbox/shared', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@hushbox/shared')>();
+  return {
+    ...original,
+    getSecureRandomElement: <T,>(array: readonly T[]): T => array[0] as T,
+  };
+});
+
+import { createModelStoreStub, type ModelStoreStub } from '@/test-utils/model-store-mock';
+
+const modelStoreStubRef: { current: ModelStoreStub } = { current: createModelStoreStub() };
+
+function resetModelStoreStub(): void {
+  modelStoreStubRef.current = createModelStoreStub();
+}
+
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
-  const store = vi.fn(() => ({
-    selectedModels: [{ id: 'test-model', name: 'Test Model' }],
-  }));
+  const store = vi.fn((selector?: (s: ModelStoreStub) => unknown) =>
+    selector ? selector(modelStoreStubRef.current) : modelStoreStubRef.current
+  );
   (store as unknown as Record<string, unknown>)['setState'] = vi.fn();
+  (store as unknown as Record<string, unknown>)['getState'] = () => modelStoreStubRef.current;
   return { ...actual, useModelStore: store };
 });
+
+vi.mock('@/hooks/use-resolve-default-model', () => ({
+  useResolveDefaultModel: () => {
+    /* no-op in tests */
+  },
+}));
 
 vi.mock('@/hooks/models', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/models')>();
@@ -64,7 +84,6 @@ vi.mock('@/lib/auth', () => ({
   })),
 }));
 
-// Mock stable balance hook
 vi.mock('@/hooks/use-stable-balance', () => ({
   useStableBalance: vi.fn(() => ({
     displayBalance: '10.00',
@@ -96,6 +115,16 @@ vi.mock('@/components/shared/stable-content', () => ({
 }));
 
 // Mock framer-motion to avoid animation issues in tests
+vi.mock('./modality-config-panel', () => ({
+  ImageAspectRatioControl: () => null,
+  VideoAspectRatioControl: () => null,
+  VideoResolutionControl: () => null,
+  VideoDurationControl: () => null,
+  AudioFormatControl: () => null,
+  AudioDurationControl: () => null,
+  MediaCostLine: () => null,
+}));
+
 vi.mock('framer-motion', async () => {
   const react = await import('react');
 
@@ -107,7 +136,6 @@ vi.mock('framer-motion', async () => {
     );
   };
 
-  // AnimatePresence just renders children
   const AnimatePresence = ({ children }: { children?: React.ReactNode }) => {
     return react.createElement(react.Fragment, null, children);
   };
@@ -119,6 +147,7 @@ vi.mock('framer-motion', async () => {
       p: createMotionComponent('p'),
     },
     AnimatePresence,
+    useReducedMotion: () => false,
   };
 });
 
@@ -141,6 +170,7 @@ describe('ChatWelcome', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetModelStoreStub();
   });
 
   it('renders the chat welcome container', () => {
@@ -199,12 +229,10 @@ describe('ChatWelcome', () => {
       wrapper: createWrapper(),
     });
 
-    const codeChip = screen.getByText(/help me write code/i);
+    const codeChip = screen.getByRole('button', { name: /help me write code/i });
     await user.click(codeChip);
 
-    // Should populate the textarea instead of calling onSend directly
     const textarea = screen.getByRole('textbox');
-    // The prompt should be non-empty (randomly selected from the code category)
     expect((textarea as HTMLTextAreaElement).value.length).toBeGreaterThan(0);
     expect(mockOnSend).not.toHaveBeenCalled();
   });
@@ -232,7 +260,6 @@ describe('ChatWelcome', () => {
     render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
     });
-    // Subtitle should exist somewhere in the page
     const page = screen.getByTestId('chat-welcome');
     expect(page.textContent).toBeTruthy();
   });
@@ -283,7 +310,7 @@ describe('ChatWelcome', () => {
       wrapper: createWrapper(),
     });
 
-    expect(screen.getByRole('button', { name: /internet search/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /internet search/i }).length).toBeGreaterThan(0);
   });
 
   it('renders search toggle button for unauthenticated users', () => {
@@ -291,16 +318,14 @@ describe('ChatWelcome', () => {
       wrapper: createWrapper(),
     });
 
-    expect(screen.getByRole('button', { name: /internet search/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /internet search/i }).length).toBeGreaterThan(0);
   });
 
   it('renders ComparisonBar when multiple models are selected', () => {
-    vi.mocked(useModelStore).mockReturnValueOnce({
-      selectedModels: [
-        { id: 'model-1', name: 'Model One' },
-        { id: 'model-2', name: 'Model Two' },
-      ],
-    });
+    modelStoreStubRef.current.selections.text = [
+      { id: 'model-1', name: 'Model One' },
+      { id: 'model-2', name: 'Model Two' },
+    ];
 
     render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
@@ -315,5 +340,70 @@ describe('ChatWelcome', () => {
     });
 
     expect(screen.queryByTestId('selected-models-bar')).not.toBeInTheDocument();
+  });
+
+  it('uses the standard subtitle when active modality is image', () => {
+    modelStoreStubRef.current.activeModality = 'image';
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.queryByText('What should we create?')).not.toBeInTheDocument();
+    expect(screen.getByText('Every model. One conversation.')).toBeInTheDocument();
+  });
+
+  it('uses the standard subtitle when active modality is video', () => {
+    modelStoreStubRef.current.activeModality = 'video';
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.queryByText('What scene should we make?')).not.toBeInTheDocument();
+    expect(screen.getByText('Every model. One conversation.')).toBeInTheDocument();
+  });
+
+  it('uses the standard subtitle when active modality is audio', () => {
+    modelStoreStubRef.current.activeModality = 'audio';
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.queryByText('What should we listen to?')).not.toBeInTheDocument();
+    expect(screen.getByText('Every model. One conversation.')).toBeInTheDocument();
+  });
+
+  it('renders text-modality inspiration label by default', () => {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.getByText('Need inspiration? Try these:')).toBeInTheDocument();
+  });
+
+  it('renders generic inspiration label when active modality is image', () => {
+    modelStoreStubRef.current.activeModality = 'image';
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+      wrapper: createWrapper(),
+    });
+
+    expect(screen.getByText('Need inspiration? Try these:')).toBeInTheDocument();
+  });
+
+  describe('+Add chip integration', () => {
+    it('sets picker mode to multi when the +Add chip is clicked', async () => {
+      modelStoreStubRef.current.selections.text = [
+        { id: 'model-1', name: 'Model One' },
+        { id: 'model-2', name: 'Model Two' },
+      ];
+      const user = userEvent.setup();
+
+      render(<ChatWelcome onSend={mockOnSend} isAuthenticated={true} />, {
+        wrapper: createWrapper(),
+      });
+
+      await user.click(screen.getByTestId('comparison-bar-add-button'));
+
+      expect(modelStoreStubRef.current.setPickerMode).toHaveBeenCalledWith('text', 'multi');
+    });
   });
 });

@@ -55,20 +55,29 @@ test.describe('Document Panel', () => {
     const chatPage = new ChatPage(authenticatedPage);
     const documentPanel = new DocumentPanelPage(authenticatedPage);
 
+    let pythonMessageIndex: number;
+
     await test.step('send code block and verify card', async () => {
+      // Code blocks ≥ MIN_LINES_FOR_DOCUMENT get extracted into a card, so
+      // the response text is not in DOM. Wait for assistant-count to grow.
+      const beforeAssistantCount = Number(
+        (await chatPage.messageList.getAttribute('data-assistant-count')) ?? '0'
+      );
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
-      // Wait for Echo response to confirm streaming started
-      await chatPage.waitForAIResponse();
-      // Scan message list until Virtuoso renders the document card
-      await documentPanel.scrollToNthCard(chatPage, 0, 45_000);
-      const card = documentPanel.documentCard(0);
+      await unsettledExpect(chatPage.messageList).toHaveAttribute(
+        'data-assistant-count',
+        String(beforeAssistantCount + 1),
+        { timeout: 10_000 }
+      );
+      pythonMessageIndex = await chatPage.getLastRowIndex();
+      const card = await documentPanel.scrollToCardInMessage(chatPage, pythonMessageIndex, 45_000);
       await expect(card).toContainText('fibonacci');
       await expect(card).toContainText('python');
       await expect(card).toContainText('15 lines');
     });
 
     await test.step('click card opens panel', async () => {
-      await documentPanel.clickCard(0);
+      await documentPanel.clickCardInMessage(chatPage, pythonMessageIndex);
       await documentPanel.waitForPanelOpen();
 
       await documentPanel.expectTitle('fibonacci');
@@ -106,21 +115,36 @@ test.describe('Document Panel', () => {
     const chatPage = new ChatPage(authenticatedPage);
     const documentPanel = new DocumentPanelPage(authenticatedPage);
 
+    let pythonMessageIndex: number;
+    let mermaidMessageIndex: number;
+
     await test.step('send Python code block (for multi-document switching)', async () => {
+      const beforeAssistantCount = Number(
+        (await chatPage.messageList.getAttribute('data-assistant-count')) ?? '0'
+      );
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
-      await chatPage.waitForAIResponse();
-      await documentPanel.scrollToNthCard(chatPage, 0, 45_000);
-      expect(await documentPanel.getCardCount()).toBeGreaterThanOrEqual(1);
+      await unsettledExpect(chatPage.messageList).toHaveAttribute(
+        'data-assistant-count',
+        String(beforeAssistantCount + 1),
+        { timeout: 10_000 }
+      );
+      pythonMessageIndex = await chatPage.getLastRowIndex();
+      const card = await documentPanel.scrollToCardInMessage(chatPage, pythonMessageIndex, 45_000);
+      await expect(card).toBeVisible();
     });
 
     await test.step('send mermaid and verify rendered diagram', async () => {
+      const beforeAssistantCount = Number(
+        (await chatPage.messageList.getAttribute('data-assistant-count')) ?? '0'
+      );
       await chatPage.sendFollowUpMessage(MERMAID_BLOCK);
-      await chatPage.waitForAIResponse();
-      // Scan list until Virtuoso renders the second card (mermaid)
-      await documentPanel.scrollToNthCard(chatPage, 1, 45_000);
-
-      // Click the mermaid card (second card)
-      await documentPanel.clickCard(1);
+      await unsettledExpect(chatPage.messageList).toHaveAttribute(
+        'data-assistant-count',
+        String(beforeAssistantCount + 1),
+        { timeout: 10_000 }
+      );
+      mermaidMessageIndex = await chatPage.getLastRowIndex();
+      await documentPanel.clickCardInMessage(chatPage, mermaidMessageIndex);
       await documentPanel.waitForPanelOpen();
 
       await documentPanel.expectTitle('Graph Diagram');
@@ -146,9 +170,8 @@ test.describe('Document Panel', () => {
       await documentPanel.closePanel();
       await expect(documentPanel.panel).not.toBeVisible();
 
-      // Scan list to find card(0) — it's in an earlier message, may be above viewport
-      await documentPanel.scrollToNthCard(chatPage, 0, 15_000);
-      await documentPanel.clickCard(0);
+      // Find the Python card by its anchoring message — robust to virtualization
+      await documentPanel.clickCardInMessage(chatPage, pythonMessageIndex);
       await documentPanel.waitForPanelOpen();
 
       // After panel opens (100% width on mobile), Virtuoso recalculates and may
@@ -164,9 +187,7 @@ test.describe('Document Panel', () => {
       await documentPanel.closePanel();
       await expect(documentPanel.panel).not.toBeVisible();
 
-      // Scan list to find mermaid card (index 1) — it's in a later message
-      await documentPanel.scrollToNthCard(chatPage, 1, 15_000);
-      await documentPanel.clickCard(1);
+      await documentPanel.clickCardInMessage(chatPage, mermaidMessageIndex);
       await documentPanel.waitForPanelOpen();
 
       // Should show rendered diagram (toggle resets on doc switch)
@@ -184,7 +205,6 @@ test.describe('Document Panel', () => {
       const initialWidth = await documentPanel.getPanelWidth();
 
       await documentPanel.fullscreenButton().click();
-      // Wait for width transition to complete
       await expect(async () => {
         const w = await documentPanel.getPanelWidth();
         expect(w).toBeGreaterThan(initialWidth);
@@ -192,7 +212,6 @@ test.describe('Document Panel', () => {
       await expect(documentPanel.exitFullscreenButton()).toBeVisible();
 
       await documentPanel.exitFullscreenButton().click();
-      // Wait for width transition to restore
       await expect(async () => {
         const w = await documentPanel.getPanelWidth();
         expect(Math.abs(w - initialWidth)).toBeLessThan(10);

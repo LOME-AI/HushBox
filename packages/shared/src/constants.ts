@@ -1,12 +1,13 @@
-// MESSAGE_ROLES moved to enums.ts - re-export for backwards compatibility
 export { MESSAGE_ROLES, type MessageRole } from './enums.js';
+
+import type { ZdrTextModelId, ZdrImageModelId, ZdrVideoModelId } from './models/zdr.js';
 
 /** CSS media query for detecting coarse pointer (touch) devices */
 export const TOUCH_QUERY = '(pointer: coarse)';
 
 /** Shared password for all dev personas. Only for local development. */
 // eslint-disable-next-line sonarjs/no-hardcoded-passwords -- intentional dev-only password
-export const DEV_PASSWORD = 'password123';
+export const DEV_PASSWORD = 'pass1234';
 
 /** Email domain for development personas */
 export const DEV_EMAIL_DOMAIN = 'dev.hushbox.ai';
@@ -14,43 +15,47 @@ export const DEV_EMAIL_DOMAIN = 'dev.hushbox.ai';
 /** Email domain for test personas (used by E2E tests) */
 export const TEST_EMAIL_DOMAIN = 'test.hushbox.ai';
 
-/** Model ID for the "Strongest" quick-select button */
-export const STRONGEST_MODEL_ID = 'anthropic/claude-opus-4.6';
+/**
+ * Per-modality "Strongest" (highest-quality) and "Value" (cheapest) quick-select
+ * pins for the model selector. The `satisfies` clauses enforce at compile time
+ * that each ID is a member of its ZDR allow-list — change ZDR_TEXT_MODEL_IDS
+ * (or the image/video lists) in an incompatible way and the build fails here.
+ * Runtime mirror of this invariant lives in `constants.test.ts`.
+ */
+export const STRONGEST_TEXT_MODEL_ID = 'anthropic/claude-opus-4.6' satisfies ZdrTextModelId;
+export const VALUE_TEXT_MODEL_ID = 'openai/gpt-5-nano' satisfies ZdrTextModelId;
 
-/** Model ID for the "Value" quick-select button */
-export const VALUE_MODEL_ID = 'deepseek/deepseek-r1';
+export const STRONGEST_IMAGE_MODEL_ID =
+  'google/imagen-4.0-ultra-generate-001' satisfies ZdrImageModelId;
+export const VALUE_IMAGE_MODEL_ID = 'google/imagen-4.0-fast-generate-001' satisfies ZdrImageModelId;
 
-/** Model ID for OpenRouter's auto-router */
-export const AUTO_ROUTER_MODEL_ID = 'openrouter/auto';
+export const STRONGEST_VIDEO_MODEL_ID = 'google/veo-3.1-generate-001' satisfies ZdrVideoModelId;
+export const VALUE_VIDEO_MODEL_ID = 'google/veo-3.1-fast-generate-001' satisfies ZdrVideoModelId;
 
 /**
- * Client-only input price estimation for auto-router (per token, USD).
- * Based on cheapest model the auto-router supports ($0.000039/1k tokens).
- * Backend computes its own pricing from the allowed models list.
+ * Synthetic ID for HushBox's Smart Model — the classifier-based router
+ * that picks the best underlying model per message. Stable identifier the
+ * frontend persists in user prefs and the backend special-cases on its
+ * classifier path.
  */
-export const AUTO_ROUTER_INPUT_PRICE_PER_TOKEN = 0.000_000_039;
+export const SMART_MODEL_ID = 'smart-model';
 
-/**
- * Client-only output price estimation for auto-router (per token, USD).
- * Based on cheapest model the auto-router supports ($0.00019/1k tokens).
- * Backend computes its own pricing from the allowed models list.
- */
-export const AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN = 0.000_000_19;
-
-/** HushBox's profit margin on AI model usage (5%) */
-export const HUSHBOX_FEE_RATE = 0.05;
+/** HushBox's profit margin on AI model usage (6%) */
+export const HUSHBOX_FEE_RATE = 0.06;
 
 /** Credit card processing fee (4.5%) */
 export const CREDIT_CARD_FEE_RATE = 0.045;
 
-/** AI provider overhead fee (5.5%) */
-export const PROVIDER_FEE_RATE = 0.055;
+/** AI provider overhead fee (4.5%) */
+export const PROVIDER_FEE_RATE = 0.045;
 
 /**
  * Total combined fee rate applied to all model usage.
  * SINGLE SOURCE OF TRUTH for fee calculations.
- * = HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE
- * = 0.05 + 0.045 + 0.055 = 0.15 (15%)
+ * Sum of HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE.
+ * Setting any individual rate to 0 cascades through every fee-rendering surface
+ * (legal, email, marketing, billing UI, README, pricing SVG) via FEE_CATEGORIES
+ * in `./fees.ts`.
  */
 export const TOTAL_FEE_RATE = HUSHBOX_FEE_RATE + CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE;
 
@@ -93,9 +98,72 @@ export const STORAGE_COST_PER_1K_CHARS = STORAGE_COST_PER_CHARACTER * 1000;
 /** Payment expiration time in milliseconds (30 minutes) */
 export const PAYMENT_EXPIRATION_MS = 30 * 60 * 1000;
 
-// ============================================================================
-// Budget Protection Constants
-// ============================================================================
+/** R2 actual ($0.015) + 2x markup for backup/ops/margin */
+export const MEDIA_MONTHLY_COST_PER_GB = 0.03;
+
+/**
+ * Storage cost per byte for media, derived with 50-year retention.
+ * ~$0.000000018/byte → ~$0.018 per 1MB, ~$0.072 per 4MB image
+ */
+export const MEDIA_STORAGE_COST_PER_BYTE =
+  (MEDIA_MONTHLY_COST_PER_GB * MONTHS_PER_YEAR * STORAGE_YEARS) / (1000 * 1_000_000);
+
+/**
+ * Conservative byte estimate for a generated image (encrypted).
+ * Used for pre-flight budget reservation — overestimates so the user is
+ * never charged more than reserved. Actual cost uses real sizeBytes.
+ */
+export const ESTIMATED_IMAGE_BYTES = 8_000_000;
+
+/**
+ * Time-to-live for presigned R2 GET URLs, in seconds.
+ * Short enough to prevent long-lived leaks, long enough for clients
+ * to fetch and decrypt media after unwrapping the content key.
+ */
+export const MEDIA_DOWNLOAD_URL_TTL_SECONDS = 300;
+
+/** Maximum bytes for a single-PUT R2 upload via the Worker. Multipart is not supported. */
+export const MAX_MEDIA_OBJECT_BYTES = 250_000_000; // 250 MB
+
+/** Minimum video duration users can request, in seconds. */
+export const MIN_VIDEO_DURATION_SECONDS = 1;
+
+/** Maximum video duration users can request, in seconds. */
+export const MAX_VIDEO_DURATION_SECONDS = 8;
+
+/**
+ * Conservative byte estimate per second of generated video (encrypted).
+ * Used only for pre-flight reservation. Worst-case 1080p; actual cost
+ * uses real `sizeBytes` from the R2 upload.
+ */
+export const ESTIMATED_VIDEO_BYTES_PER_SECOND = 5_000_000;
+
+/** Aspect ratios offered in the video config picker. Single source of truth — request schema derives from this. */
+export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16'] as const;
+
+/** Resolutions offered in the video config picker. Single source of truth — request schema derives from this. */
+export const VIDEO_RESOLUTIONS = ['720p', '1080p', '4k'] as const;
+
+/** Aspect ratios offered in the image config picker. Single source of truth — request schema derives from this. */
+export const IMAGE_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16'] as const;
+
+/**
+ * Maximum audio duration the user can cap a TTS generation at, in seconds.
+ * Unlike video (deterministic duration in the request), TTS duration emerges
+ * from synthesizing the input text, so the user picks an upper bound that
+ * caps worst-case spend; the actual bill uses the generated `durationMs`.
+ */
+export const MAX_AUDIO_DURATION_SECONDS = 600;
+
+/**
+ * Conservative byte estimate per second of generated audio (encrypted).
+ * 256 kbps ≈ 32 KB/s — well above typical TTS output. Used only for
+ * pre-flight reservation; actual cost uses real `sizeBytes` from R2.
+ */
+export const ESTIMATED_AUDIO_BYTES_PER_SECOND = 32_000;
+
+/** Audio output formats offered in the audio config picker. Single source of truth — request schema derives from this. */
+export const AUDIO_FORMATS = ['mp3', 'wav', 'ogg'] as const;
 
 /**
  * Maximum allowed negative balance in cents for paid users.
@@ -123,10 +191,6 @@ export const MINIMUM_OUTPUT_TOKENS = 1000;
  */
 export const LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD = 10_000;
 
-// ============================================================================
-// Token Estimation Constants
-// ============================================================================
-
 /**
  * Conservative character-per-token ratio for free/trial users.
  * Lower value = more tokens estimated = more conservative cost estimate.
@@ -139,10 +203,6 @@ export const CHARS_PER_TOKEN_CONSERVATIVE = 2;
  * This is the typical approximation (~4 chars/token for most models).
  */
 export const CHARS_PER_TOKEN_STANDARD = 4;
-
-// ============================================================================
-// Capacity UI Thresholds
-// ============================================================================
 
 /**
  * Capacity threshold for red zone (warning).
@@ -163,11 +223,14 @@ interface FeatureFlags {
   PROJECTS_ENABLED: boolean;
   /** Enable settings feature in user menu. Currently disabled pending feature completion */
   SETTINGS_ENABLED: boolean;
+  /** Enable audio generation UI. Flip to true when the AI Gateway ships audio output support. */
+  AUDIO_ENABLED: boolean;
 }
 
 export const FEATURE_FLAGS: FeatureFlags = {
   PROJECTS_ENABLED: false,
   SETTINGS_ENABLED: true,
+  AUDIO_ENABLED: false,
 };
 
 /** Maximum number of members (users + link guests) allowed in a single conversation */
@@ -176,21 +239,52 @@ export const MAX_CONVERSATION_MEMBERS = 100;
 /** Maximum number of forks allowed per conversation */
 export const MAX_FORKS_PER_CONVERSATION = 5;
 
+/**
+ * Maximum number of Perplexity Search tool calls allowed per text streaming
+ * request. Used by the AI SDK's `stopWhen` cap and by `worstCaseSearchCost()`
+ * to size the pre-flight reservation.
+ */
+export const MAX_SEARCH_TOOL_CALLS = 10;
+
+/**
+ * Conservative pre-flight cost per Perplexity Search tool call in USD. Real
+ * billing comes from the gateway's `totalCost`, which already includes search;
+ * this constant only sizes the worst-case reservation up front.
+ */
+export const SEARCH_COST_PER_CALL = 0.005;
+
 /** Maximum number of models that can be selected simultaneously for multi-model chat */
 export const MAX_SELECTED_MODELS = 5;
 
-// ============================================================================
-// Legal Constants
-// ============================================================================
+/**
+ * Maximum gap between SSE events before the client gives up on a chat stream.
+ * Surfaces a server crash mid-stream so the UI can clear "streaming" state.
+ * No reconnection is attempted — the failure is reported and the user retries.
+ */
+export const STREAM_TIMEOUT_MS = 90_000;
+
+/**
+ * Cadence at which the media pipeline writes SSE keep-alive comment lines
+ * (`:keep-alive\n\n`). Per the SSE spec, lines starting with `:` are comments
+ * and are discarded by EventSource consumers; we use them so a slow video
+ * generation (>90s with no events between `model:media:start` and `done`)
+ * still resets {@link STREAM_TIMEOUT_MS} on the client and avoids a spurious
+ * timeout. Keep strictly below `STREAM_TIMEOUT_MS / 2` so two consecutive
+ * heartbeats never miss the timeout window.
+ */
+export const KEEPALIVE_INTERVAL_MS = 30_000;
 
 /** Effective date for the Privacy Policy (YYYY-MM-DD) */
-export const PRIVACY_POLICY_EFFECTIVE_DATE = '2026-03-15';
+export const PRIVACY_POLICY_EFFECTIVE_DATE = '2026-05-15';
 
 /** Effective date for the Terms of Service (YYYY-MM-DD) */
-export const TERMS_OF_SERVICE_EFFECTIVE_DATE = '2026-03-15';
+export const TERMS_OF_SERVICE_EFFECTIVE_DATE = '2026-05-15';
 
 /** Contact email for billing-related inquiries */
 export const BILLING_CONTACT_EMAIL = 'billing@hushbox.ai';
 
 /** Contact email for privacy-related inquiries */
 export const PRIVACY_CONTACT_EMAIL = 'privacy@hushbox.ai';
+
+/** Phrase typed by the user to confirm account deletion (compared trim+lowercased, no NFKC). */
+export const DELETE_ACCOUNT_CONFIRMATION_PHRASE = 'delete my account';

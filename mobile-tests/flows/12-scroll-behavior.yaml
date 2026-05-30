@@ -4,8 +4,12 @@ tags:
   - should
 androidWebViewHierarchy: devtools
 env:
-  TEST_EMAIL: test-alice@test.hushbox.ai
-  TEST_PASSWORD: password123
+  # See 10-core-user-flow.yaml for the full reasoning. Short version:
+  # Maestro 2.6.0 takes ~10 s per character on Capacitor WebViews on
+  # docker-android (issue #2718), so we use the shortest legal username
+  # (3 chars) instead of the 27-char email.
+  TEST_USERNAME: tmu
+  TEST_PASSWORD: pass1234
 ---
 - launchApp:
     clearState: true
@@ -13,7 +17,7 @@ env:
 # Wait for app to stabilize
 - extendedWaitUntil:
     visible: 'Sign up'
-    timeout: 15000
+    timeout: 45000
 
 # Navigate to login page via deep link (avoids WebView tap issues with sidebar Sheet)
 - openLink: https://hushbox.ai/login
@@ -21,7 +25,7 @@ env:
     visible: 'Welcome back'
     timeout: 10000
 - tapOn: 'Email or Username'
-- inputText: ${TEST_EMAIL}
+- inputText: ${TEST_USERNAME}
 - hideKeyboard
 - tapOn: 'Password'
 - inputText: ${TEST_PASSWORD}
@@ -30,16 +34,24 @@ env:
 
 # Wait for authenticated chat page (use element unique to chat, not login page)
 - extendedWaitUntil:
-    visible: 'Select model'
+    visible:
+      id: 'model-selector-button'
     timeout: 15000
 
 # Send a message using suggestion chip (IME inputText doesn't trigger React onChange)
 - tapOn: 'Explain a concept'
 - tapOn:
     id: 'send-button'
+# Wait for AI mock response to complete. We assert on "Regenerate" (an
+# action button that only renders once streaming finishes) rather than the
+# response body text — Maestro's Android text matcher fails to surface
+# WebView TextView nodes nested in large parent containers, even when the
+# text is present in the hierarchy dump. The button is reliably exposed.
+# 30s budget covers the first-message cold path on the emulator
+# (create conversation + epoch keys + SSE stream + per-chunk decrypt).
 - extendedWaitUntil:
-    visible: 'Echo:'
-    timeout: 15000
+    visible: 'Regenerate'
+    timeout: 30000
 
 # Scroll to verify the message list handles scroll correctly
 - scroll

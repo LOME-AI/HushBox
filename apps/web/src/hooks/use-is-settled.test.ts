@@ -11,17 +11,23 @@ vi.mock('@/stores/decryption-activity', () => ({
   useDecryptionActivityStore: vi.fn(),
 }));
 
+vi.mock('@/stores/websocket-inbound-activity', () => ({
+  useWebsocketInboundActivityStore: vi.fn(),
+}));
+
 vi.mock('@/lib/auth', () => ({
   useAuthStore: vi.fn(),
 }));
 
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useDecryptionActivityStore } from '@/stores/decryption-activity';
+import { useWebsocketInboundActivityStore } from '@/stores/websocket-inbound-activity';
 import { useAuthStore } from '@/lib/auth';
-import { useIsSettled } from './use-is-settled.js';
+import { useIsSettled, DEBOUNCE_MS } from './use-is-settled.js';
 
 const mockedUseStreamingActivityStore = vi.mocked(useStreamingActivityStore);
 const mockedUseDecryptionActivityStore = vi.mocked(useDecryptionActivityStore);
+const mockedUseWebsocketInboundActivityStore = vi.mocked(useWebsocketInboundActivityStore);
 const mockedUseAuthStore = vi.mocked(useAuthStore);
 
 function createWrapper(): React.FC<{ children: React.ReactNode }> {
@@ -39,12 +45,17 @@ describe('useIsSettled', () => {
     vi.useFakeTimers();
     mockedUseStreamingActivityStore.mockReturnValue(0);
     mockedUseDecryptionActivityStore.mockReturnValue(0);
+    mockedUseWebsocketInboundActivityStore.mockReturnValue(0);
     mockedUseAuthStore.mockReturnValue(false);
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('debounces for 5 seconds', () => {
+    expect(DEBOUNCE_MS).toBe(5000);
   });
 
   it('returns false initially even when idle (debounce has not fired)', () => {
@@ -57,7 +68,7 @@ describe('useIsSettled', () => {
     const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
 
     act(() => {
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
 
     expect(result.current).toBe(true);
@@ -103,7 +114,7 @@ describe('useIsSettled', () => {
     rerender();
 
     act(() => {
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
 
     expect(result.current).toBe(true);
@@ -125,7 +136,7 @@ describe('useIsSettled', () => {
     rerender();
 
     act(() => {
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
 
     expect(result.current).toBe(true);
@@ -182,7 +193,43 @@ describe('useIsSettled', () => {
     rerender();
 
     act(() => {
-      vi.advanceTimersByTime(600);
+      vi.advanceTimersByTime(DEBOUNCE_MS);
+    });
+
+    expect(result.current).toBe(true);
+  });
+
+  it('returns false when WebSocket inbound events are pending (past debounce)', () => {
+    mockedUseWebsocketInboundActivityStore.mockReturnValue(1);
+
+    const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
+
+    // Past the debounce — if the WS counter wasn't part of isIdle, the
+    // debounce would have fired and settled would be true.
+    act(() => {
+      vi.advanceTimersByTime(DEBOUNCE_MS);
+    });
+
+    expect(result.current).toBe(false);
+  });
+
+  it('transitions from false to true when WebSocket inbound processing completes', () => {
+    mockedUseWebsocketInboundActivityStore.mockReturnValue(1);
+
+    const { result, rerender } = renderHook(() => useIsSettled(), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(DEBOUNCE_MS);
+    });
+    expect(result.current).toBe(false);
+
+    mockedUseWebsocketInboundActivityStore.mockReturnValue(0);
+    rerender();
+
+    act(() => {
+      vi.advanceTimersByTime(DEBOUNCE_MS);
     });
 
     expect(result.current).toBe(true);

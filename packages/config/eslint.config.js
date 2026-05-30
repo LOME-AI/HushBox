@@ -3,6 +3,7 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
 import globals from 'globals';
 import noSecrets from 'eslint-plugin-no-secrets';
@@ -10,6 +11,7 @@ import sonarjs from 'eslint-plugin-sonarjs';
 import unicorn from 'eslint-plugin-unicorn';
 import pluginPromise from 'eslint-plugin-promise';
 import unusedImports from 'eslint-plugin-unused-imports';
+import importPlugin from 'eslint-plugin-import';
 import eslintPluginAstro from 'eslint-plugin-astro';
 
 /**
@@ -26,6 +28,7 @@ export function createBaseConfig(tsconfigRootDir) {
         '**/build/**',
         '**/.turbo/**',
         '**/coverage/**',
+        '**/__test-fixtures-*__/**',
         '**/*.d.ts',
         '**/*.config.js',
         '**/*.config.ts',
@@ -55,8 +58,41 @@ export function createBaseConfig(tsconfigRootDir) {
       plugins: {
         'no-secrets': noSecrets,
         'unused-imports': unusedImports,
+        import: importPlugin,
       },
       rules: {
+        // Import ordering — enforces the project convention from CODE-RULES.md:
+        //   1. External dependencies
+        //   2. Internal packages (@hushbox/*)
+        //   3. Relative imports
+        //   4. Type imports last (complements consistent-type-imports below)
+        // Most violations auto-fix with `eslint --fix`.
+        'import/order': [
+          'error',
+          {
+            groups: [
+              ['builtin', 'external'],
+              'internal',
+              ['parent', 'sibling', 'index'],
+              'type',
+            ],
+            pathGroups: [
+              {
+                pattern: '@hushbox/**',
+                group: 'internal',
+                position: 'before',
+              },
+              {
+                pattern: '@/**',
+                group: 'internal',
+                position: 'after',
+              },
+            ],
+            pathGroupsExcludedImportTypes: ['type'],
+            'newlines-between': 'ignore',
+          },
+        ],
+
         // Secret detection (patterns based on env.config.ts)
         'no-secrets/no-secrets': [
           'error',
@@ -102,6 +138,16 @@ export function createBaseConfig(tsconfigRootDir) {
         // Allows only: console.warn() and console.error() (legitimate error reporting)
         'no-console': ['error', { allow: ['warn', 'error'] }],
 
+        // Force separate `import type { ... }` lines instead of inline `import { type ... }`.
+        // `disallowTypeAnnotations: false` keeps `typeof import('./foo.js')` patterns (used
+        // by vitest's `importOriginal<typeof import('./mock.js')>()` mock pattern) working.
+        // Keeps top-level type and value imports visually distinct so changes to either
+        // don't accidentally pull in the other.
+        '@typescript-eslint/consistent-type-imports': [
+          'error',
+          { prefer: 'type-imports', disallowTypeAnnotations: false },
+        ],
+
         // Unicorn overrides for project conventions
         'unicorn/prevent-abbreviations': [
           'error',
@@ -130,6 +176,68 @@ export function createBaseConfig(tsconfigRootDir) {
         'unicorn/filename-case': 'off',
         'unicorn/prefer-ternary': 'off',
         'sonarjs/slow-regex': 'off',
+
+        // Accessibility — force use of accessibility-aware animation hook.
+        // Raw window.requestAnimationFrame ignores prefers-reduced-motion settings,
+        // so animations keep running for users who explicitly opted out of motion.
+        'no-restricted-globals': [
+          'error',
+          {
+            name: 'requestAnimationFrame',
+            message:
+              'Use useAnimationFrame from @hushbox/ui instead — respects accessibility motion settings.',
+          },
+        ],
+
+        // Accessibility — block JS animation libraries that don't respect
+        // prefers-reduced-motion or our accessibility settings out of the box.
+        // framer-motion (project standard) honours MotionConfig + reduced-motion.
+        'no-restricted-imports': [
+          'error',
+          {
+            paths: [
+              {
+                name: 'gsap',
+                message:
+                  'Use CSS animations or framer-motion — they respect accessibility settings.',
+              },
+              { name: 'animejs', message: 'Use CSS animations or framer-motion.' },
+              {
+                name: 'motion-one',
+                message: 'Use framer-motion — same author, but framer-motion is project standard.',
+              },
+            ],
+          },
+        ],
+
+        // Cross-platform — block shell-outs to POSIX-only commands and embedded
+        // shells. Use Node fs APIs, scripts/kill-ports.ts, archiver/adm-zip,
+        // the 'open' package, native fetch, or dedicated tsx wrappers. Reaches
+        // execa(), execSync, execFileSync, spawn, spawnSync.
+        //
+        // Allowed commands: git, docker, node, pnpm, npm, tsx, wrangler,
+        // playwright, vitest, drizzle-kit, etc. — cross-platform tools.
+        'no-restricted-syntax': [
+          'error',
+          {
+            selector:
+              "CallExpression[callee.name='execa'][arguments.0.type='Literal'][arguments.0.value=/^(rm|mv|cp|mkdir|chmod|chown|lsof|xargs|kill|killall|pkill|grep|sed|awk|tr|cut|find|unzip|zip|stat|yes|touch|tail|head|sudo|sh|bash|zsh|fish|curl|wget|xdg-open)$/]",
+            message:
+              'Cross-platform: do not execa POSIX-only commands. Use Node fs APIs, scripts/kill-ports.ts, archiver/adm-zip, the open package, native fetch, or a tsx wrapper.',
+          },
+          {
+            selector:
+              "CallExpression[callee.name=/^(execFileSync|spawn|spawnSync)$/][arguments.0.type='Literal'][arguments.0.value=/^(rm|mv|cp|mkdir|chmod|chown|lsof|xargs|kill|killall|pkill|grep|sed|awk|tr|cut|find|unzip|zip|stat|yes|touch|tail|head|sudo|sh|bash|zsh|fish|curl|wget|xdg-open)$/]",
+            message:
+              'Cross-platform: do not invoke POSIX-only commands via execFileSync/spawn. Use Node fs APIs, scripts/kill-ports.ts, archiver/adm-zip, the open package, native fetch, or a tsx wrapper.',
+          },
+          {
+            selector:
+              "CallExpression[callee.name='execSync'][arguments.0.type='Literal'][arguments.0.value=/^(rm|mv|cp|mkdir|chmod|chown|lsof|xargs|kill|killall|pkill|grep|sed|awk|tr|cut|find|unzip|zip|stat|yes|touch|tail|head|sudo|sh|bash|zsh|fish|curl|wget|xdg-open)(\\s|$)/]",
+            message:
+              'Cross-platform: do not execSync POSIX-only shell strings. Use Node APIs or a tsx wrapper.',
+          },
+        ],
       },
     },
   ];
@@ -166,6 +274,11 @@ export const testConfig = [
       // Test setup uses nested functions and empty callbacks
       'sonarjs/no-nested-functions': 'off',
       '@typescript-eslint/no-empty-function': 'off',
+
+      // Tests routinely interleave `vi.mock(...)` calls with imports of the
+      // mocked module — strict import ordering breaks that pattern. Source
+      // files keep the rule on; only tests opt out.
+      'import/order': 'off',
 
       // Tests may use Math.random for test data
       'sonarjs/pseudo-random': 'off',
@@ -217,6 +330,7 @@ export const reactConfig = [
     plugins: {
       react: reactPlugin,
       'react-hooks': reactHooksPlugin,
+      'jsx-a11y': jsxA11y,
     },
     languageOptions: {
       globals: {
@@ -237,7 +351,33 @@ export const reactConfig = [
       ...reactPlugin.configs.recommended.rules,
       ...reactPlugin.configs['jsx-runtime'].rules,
       ...reactHooksPlugin.configs.recommended.rules,
+      // Accessibility — recommended baseline. Strict adds stricter
+      // role/interaction rules that produce too many false positives in our
+      // codebase (Radix primitives, custom interactive wrappers). Recommended
+      // catches the high-signal issues without drowning real bugs.
+      ...jsxA11y.flatConfigs.recommended.rules,
       'react/prop-types': 'off',
+
+      // Accessibility — block JSX patterns that bypass user accessibility settings.
+      // 1. Inline color/font in style props can't be overridden by the global
+      //    accessibility CSS layer (contrast, font-scaling, dyslexia fonts, etc.).
+      //    Use Tailwind classes or CSS custom properties so the cascade can win.
+      // 2. Raw <img> bypasses our <Img>/<Logo> wrappers, which set
+      //    `data-no-invert` for invert-colors mode and enforce alt text typing.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "JSXAttribute[name.name='style'] ObjectExpression > Property[key.name=/^(color|backgroundColor|borderColor|fontFamily|fontSize|fill|stroke)$/]",
+          message:
+            'Do not set color/font in inline styles. Use Tailwind classes or CSS variables so accessibility settings (contrast, font scaling) can override them.',
+        },
+        {
+          selector: "JSXOpeningElement[name.name='img']",
+          message:
+            'Use <Img> from @hushbox/ui (content) or <Logo> (decorative) — never raw <img>.',
+        },
+      ],
     },
   },
 ];

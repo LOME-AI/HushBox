@@ -1,5 +1,5 @@
 import { type Page, type Locator } from '@playwright/test';
-import { expect } from '../helpers/settled-expect.js';
+import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 import type { ChatPage } from './chat.page.js';
 
 export class DocumentPanelPage {
@@ -21,18 +21,6 @@ export class DocumentPanelPage {
     this.closeButton = page.getByRole('button', { name: 'Close panel' });
     this.downloadButton = page.getByRole('button', { name: 'Download file' });
     this.mermaidDiagram = page.getByTestId('mermaid-diagram');
-  }
-
-  // --- Locators ---
-
-  /** All document cards in the message list */
-  documentCards(): Locator {
-    return this.page.getByTestId('document-card');
-  }
-
-  /** Nth document card (0-indexed) */
-  documentCard(index: number): Locator {
-    return this.documentCards().nth(index);
   }
 
   /** The currently active (selected) document card */
@@ -73,46 +61,43 @@ export class DocumentPanelPage {
     return this.panel.locator('h2');
   }
 
-  // --- Actions ---
-
-  async clickCard(index: number): Promise<void> {
-    await this.documentCard(index).click();
-  }
-
   async closePanel(): Promise<void> {
     await this.closeButton.click();
   }
 
-  // --- Waits ---
-
   /**
-   * Scroll through the Virtuoso message list until the nth document card is rendered.
-   *
-   * Virtuoso only renders items in/near the viewport. This method scans from the
-   * top of the list, scrolling down in 40%-viewport increments, checking at each
-   * position whether the target card has appeared in the DOM.
+   * Return the document card belonging to the message at `messageIndex`.
+   * Addressing by message index (rather than nth-among-all-cards) is robust
+   * to Virtuoso virtualization: on small viewports only one document-card
+   * row is mounted at a time, so `.nth(N)` will silently fail. The caller
+   * is expected to know which message holds the card it wants.
    */
-  async scrollToNthCard(chatPage: ChatPage, index: number, timeout = 15_000): Promise<void> {
-    if (
-      await this.documentCard(index)
-        .isVisible()
-        .catch(() => false)
-    )
-      return;
-
-    await chatPage.scrollToTop();
-    await chatPage.waitForScrollStable();
-
-    await expect(async () => {
-      await chatPage.viewport.evaluate((el) => {
-        el.scrollTop += el.clientHeight * 0.4;
-      });
-      await expect(this.documentCard(index)).toBeVisible({ timeout: 500 });
-    }).toPass({ timeout });
+  cardInMessage(chatPage: ChatPage, messageIndex: number): Locator {
+    return chatPage.getMessage(messageIndex).getByTestId('document-card').first();
   }
 
-  async waitForCardAppear(timeout = 15_000): Promise<void> {
-    await expect(this.documentCards().first()).toBeVisible({ timeout });
+  /**
+   * Park the row at `messageIndex` in Virtuoso's mounted window, then assert
+   * its document card is visible. Returns the card locator for the caller.
+   */
+  async scrollToCardInMessage(
+    chatPage: ChatPage,
+    messageIndex: number,
+    timeout = 15_000
+  ): Promise<Locator> {
+    await chatPage.scrollMessageIntoView(messageIndex);
+    const card = this.cardInMessage(chatPage, messageIndex);
+    await unsettledExpect(card).toBeVisible({ timeout });
+    return card;
+  }
+
+  /**
+   * Click the card belonging to the message at `messageIndex` after parking
+   * its row in Virtuoso's mounted window.
+   */
+  async clickCardInMessage(chatPage: ChatPage, messageIndex: number): Promise<void> {
+    const card = await this.scrollToCardInMessage(chatPage, messageIndex);
+    await card.click();
   }
 
   async waitForPanelOpen(timeout = 5000): Promise<void> {
@@ -123,14 +108,8 @@ export class DocumentPanelPage {
     await this.mermaidDiagram.waitFor({ state: 'visible', timeout });
   }
 
-  // --- Assertions ---
-
   async expectTitle(text: string): Promise<void> {
     await expect(this.panelTitle()).toContainText(text);
-  }
-
-  async getCardCount(): Promise<number> {
-    return this.documentCards().count();
   }
 
   async getPanelWidth(): Promise<number> {

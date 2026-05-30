@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -9,14 +10,14 @@ import {
   FeeBreakdown,
   CostPieChart,
 } from '@hushbox/ui';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import type { BalanceTransactionResponse } from '@hushbox/shared';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useTransactions } from '@/hooks/billing';
 import { formatBalance } from '@/lib/format';
 import { PaymentModal } from '@/components/billing/payment-modal';
+import { PageBody } from '@/components/shared/page-body';
 import { ManageOnlineButton } from '@/components/billing/manage-online-button';
 import { isPaymentDisabled } from '@/capacitor/platform';
+import type { BalanceTransactionResponse } from '@hushbox/shared';
 
 const TRANSACTIONS_PER_PAGE = 5;
 
@@ -189,7 +190,7 @@ export function BillingContent({ billingOnly }: { billingOnly?: boolean } = {}):
 
   return (
     <>
-      <div className="container mx-auto max-w-4xl flex-1 space-y-6 overflow-y-auto p-4">
+      <PageBody testId="billing-content" className="space-y-6">
         <BalanceCard
           displayBalance={displayBalance}
           isStable={isBalanceStable}
@@ -251,7 +252,7 @@ export function BillingContent({ billingOnly }: { billingOnly?: boolean } = {}):
             </p>
           </CardContent>
         </Card>
-      </div>
+      </PageBody>
 
       {!paymentDisabled && (
         <PaymentModal

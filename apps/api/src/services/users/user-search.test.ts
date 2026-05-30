@@ -1,11 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { searchUsers } from './user-search.js';
 
-/**
- * Mock DB builder chain factory for user-search service unit tests.
- * Follows the same pattern as links.test.ts:
- * mock Drizzle query builder chain methods.
- */
 function createMockDb() {
   const mockSelect = vi.fn();
 
@@ -16,30 +11,26 @@ function createMockDb() {
   return { db, mockSelect };
 }
 
-/**
- * Helper to set up a select chain:
- * db.select(cols).from(table).where(cond).limit(n) -> rows
- */
 function mockSelectChain(mockSelect: ReturnType<typeof vi.fn>, rows: unknown[]): void {
   mockSelect.mockReturnValueOnce({
     from: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockResolvedValue(rows),
+        orderBy: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue(rows),
+        }),
       }),
     }),
   });
 }
 
-/**
- * Helper to set up a select chain with leftJoin (for excludeConversationId):
- * db.select(cols).from(table).leftJoin(...).where(cond).limit(n) -> rows
- */
 function mockSelectChainWithJoin(mockSelect: ReturnType<typeof vi.fn>, rows: unknown[]): void {
   mockSelect.mockReturnValueOnce({
     from: vi.fn().mockReturnValue({
       leftJoin: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue(rows),
+          orderBy: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue(rows),
+          }),
         }),
       }),
     }),
@@ -54,6 +45,21 @@ describe('searchUsers', () => {
     const mocks = createMockDb();
     db = mocks.db;
     mockSelect = mocks.mockSelect;
+  });
+
+  it('orders results by username ascending so prefix matches are deterministic', async () => {
+    // Without ORDER BY, Postgres returns rows in scan order, which surprised
+    // e2e tests that picked `result.first()` after the persona×project cross
+    // seed introduced multiple rows sharing a `test_dave%` prefix.
+    mockSelectChain(mockSelect, []);
+
+    await searchUsers(db as never, 'test', 'requester-id');
+
+    const firstResult = mockSelect.mock.results[0];
+    if (!firstResult) throw new Error('Expected at least one select call');
+    const orderByFunction = firstResult.value.from.mock.results[0].value.where.mock.results[0].value
+      .orderBy as ReturnType<typeof vi.fn>;
+    expect(orderByFunction).toHaveBeenCalledTimes(1);
   });
 
   it('returns matching users by username prefix', async () => {
@@ -100,14 +106,13 @@ describe('searchUsers', () => {
 
     await searchUsers(db as never, 'test', 'requester-id');
 
-    // Verify limit was called in the chain
     const firstResult = mockSelect.mock.results[0];
     if (!firstResult) throw new Error('Expected at least one select call');
     const fromFunction = firstResult.value.from;
     expect(fromFunction).toHaveBeenCalledTimes(1);
     const whereFunction = fromFunction.mock.results[0].value.where;
     expect(whereFunction).toHaveBeenCalledTimes(1);
-    const limitFunction = whereFunction.mock.results[0].value.limit;
+    const limitFunction = whereFunction.mock.results[0].value.orderBy.mock.results[0].value.limit;
     expect(limitFunction).toHaveBeenCalledTimes(1);
     expect(limitFunction).toHaveBeenCalledWith(20);
   });
@@ -120,7 +125,8 @@ describe('searchUsers', () => {
     const firstResult = mockSelect.mock.results[0];
     if (!firstResult) throw new Error('Expected at least one select call');
     const limitFunction =
-      firstResult.value.from.mock.results[0].value.where.mock.results[0].value.limit;
+      firstResult.value.from.mock.results[0].value.where.mock.results[0].value.orderBy.mock
+        .results[0].value.limit;
     expect(limitFunction).toHaveBeenCalledWith(5);
   });
 
@@ -132,7 +138,8 @@ describe('searchUsers', () => {
     const firstResult = mockSelect.mock.results[0];
     if (!firstResult) throw new Error('Expected at least one select call');
     const limitFunction =
-      firstResult.value.from.mock.results[0].value.where.mock.results[0].value.limit;
+      firstResult.value.from.mock.results[0].value.where.mock.results[0].value.orderBy.mock
+        .results[0].value.limit;
     expect(limitFunction).toHaveBeenCalledWith(20);
   });
 
@@ -145,7 +152,6 @@ describe('searchUsers', () => {
   });
 
   it('returns publicKey as base64 string', async () => {
-    // Uint8Array [1, 2, 3] -> base64 via toBase64
     const fakeUsers = [{ id: 'user-1', username: 'bob', publicKey: new Uint8Array([1, 2, 3]) }];
     mockSelectChain(mockSelect, fakeUsers);
 
@@ -153,7 +159,6 @@ describe('searchUsers', () => {
 
     expect(result).toHaveLength(1);
     expect(typeof result[0]?.publicKey).toBe('string');
-    // The value should be a valid base64 encoding
     expect(result[0]?.publicKey.length).toBeGreaterThan(0);
   });
 

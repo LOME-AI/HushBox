@@ -5,7 +5,6 @@ import { useNavigate } from '@tanstack/react-router';
 import { signIn, resetPasswordViaRecovery } from '@/lib/auth';
 import { LoginPage } from './login';
 
-// Mock TanStack Router
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: vi.fn(() => vi.fn()),
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -14,7 +13,6 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: vi.fn(() => vi.fn()),
 }));
 
-// Mock auth client
 vi.mock('@/lib/auth', () => ({
   signIn: {
     email: vi.fn(),
@@ -22,7 +20,6 @@ vi.mock('@/lib/auth', () => ({
   resetPasswordViaRecovery: vi.fn(),
 }));
 
-// Mock UI components
 vi.mock('@hushbox/ui', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
   Input: ({
@@ -35,6 +32,12 @@ vi.mock('@hushbox/ui', () => ({
       <input id={id} {...props} />
     </div>
   ),
+  InlineFormError: ({ error, errorKey }: { error: string | null; errorKey: number }) =>
+    error === null ? null : (
+      <p key={errorKey} role="alert">
+        {error}
+      </p>
+    ),
   Checkbox: ({
     id,
     checked,
@@ -53,7 +56,6 @@ vi.mock('@hushbox/ui', () => ({
   ),
 }));
 
-// Mock FormInput
 vi.mock('@/components/shared/form-input', () => ({
   FormInput: ({
     label,
@@ -76,7 +78,6 @@ vi.mock('@/components/shared/form-input', () => ({
   ),
 }));
 
-// Mock AuthPasswordInput
 vi.mock('@/components/auth/AuthPasswordInput', () => ({
   AuthPasswordInput: ({
     label,
@@ -102,14 +103,12 @@ vi.mock('@/components/auth/AuthPasswordInput', () => ({
   ),
 }));
 
-// Mock AuthButton
 vi.mock('@/components/auth/AuthButton', () => ({
   AuthButton: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{children}</button>
   ),
 }));
 
-// Mock TwoFactorInput
 vi.mock('@/components/auth/TwoFactorInput', () => ({
   TwoFactorInput: ({
     open,

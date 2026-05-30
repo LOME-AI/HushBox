@@ -1,12 +1,6 @@
 import { z } from 'zod';
 import { paymentStatusSchema, ledgerEntryTypeSchema, deductionSourceSchema } from '../../enums.js';
 
-// Re-export enums for API schema consumers
-
-// ============================================================
-// Request Schemas
-// ============================================================
-
 /**
  * Request schema for creating a payment.
  * Amount must be at least $5.00 (stored as decimal string with 8 decimal places).
@@ -44,10 +38,6 @@ export const listTransactionsQuerySchema = z.object({
 });
 
 export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>;
-
-// ============================================================
-// Response Schemas
-// ============================================================
 
 /**
  * Schema for balance response.
@@ -157,8 +147,6 @@ export const listTransactionsResponseSchema = z.object({
 });
 
 export type ListTransactionsResponse = z.infer<typeof listTransactionsResponseSchema>;
-
-// Note: errorResponseSchema is exported from ./error.ts
 
 export {
   type PaymentStatus,

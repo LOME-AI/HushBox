@@ -55,6 +55,12 @@ jobs:
         run: pnpm typecheck
       - name: Verify typecheck coverage
         run: pnpm verify:typecheck-coverage
+      - name: Generate environment files
+        run: pnpm generate:env
+      - name: Drizzle migration drift check
+        run: |
+          pnpm --filter @hushbox/db db:generate
+          git diff --exit-code packages/db/drizzle/ || (echo "Schema/snapshot drift. Run 'pnpm db:generate' and commit." && exit 1)
 
   duplication:
     runs-on: blacksmith-2vcpu-ubuntu-2404
@@ -129,7 +135,8 @@ jobs:
         run: pnpm generate:env --mode=ciVitest
         # BEGIN GENERATED: vitest-env
         env:
-          OPENROUTER_API_KEY_RESTRICTED: ${{ secrets.OPENROUTER_API_KEY_RESTRICTED }}
+          AI_GATEWAY_API_KEY_RESTRICTED: ${{ secrets.AI_GATEWAY_API_KEY_RESTRICTED }}
+          LINEAR_API_KEY_READ: ${{ secrets.LINEAR_API_KEY_READ }}
         # END GENERATED: vitest-env
 
       - name: Verify environment configuration
@@ -146,17 +153,46 @@ jobs:
             docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
             docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
             docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
+            docker save minio/minio:latest -o /tmp/docker-cache/minio.tar &
+            docker save minio/mc:latest -o /tmp/docker-cache/minio-mc.tar &
             wait
           fi
 
       - name: Run migrations
         run: pnpm db:migrate
 
+      # HTTP cassettes — restore prior recordings of AI Gateway calls so most
+      # integration tests replay from disk instead of hitting the gateway.
+      # `restore-keys` does prefix-fallback to the most-recent prior run; the
+      # unique save key below is then appended below. Bumping AI_RECORDING_VERSION
+      # in `apps/api/src/services/ai/cassette/cassette-store.ts` changes the
+      # `v1` segment of the path and orphans old recordings. See docs/CI-CASSETTES.md.
+      - name: Restore AI cassettes
+        uses: actions/cache/restore@v4
+        with:
+          path: .ai-cassettes
+          key: ai-cassettes-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ai-cassettes-v1-
+
       - name: Run tests
         run: pnpm test
 
-      - name: Verify OpenRouter was called
-        run: pnpm verify:evidence --require=openrouter
+      - name: Verify AI Gateway was called
+        run: pnpm verify:evidence --require=ai-gateway
+
+      - name: Verify Linear was called
+        run: pnpm verify:evidence --require=linear
+
+      # Save cassettes regardless of test outcome — fresh recordings from a
+      # failed run are still valuable for the next attempt, and the cache key
+      # is unique per run so a failed save doesn't poison main.
+      - name: Save AI cassettes
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .ai-cassettes
+          key: ai-cassettes-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Stop database
         if: always()
@@ -196,7 +232,7 @@ jobs:
         # END GENERATED: build-env
 
       - name: Merge marketing into web dist
-        run: cp -r apps/marketing/dist/* apps/web/dist/
+        run: pnpm tsx scripts/merge-marketing-into-web.ts
 
       - name: Upload web build artifact
         uses: actions/upload-artifact@v6
@@ -309,6 +345,8 @@ jobs:
             docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
             docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
             docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
+            docker save minio/minio:latest -o /tmp/docker-cache/minio.tar &
+            docker save minio/mc:latest -o /tmp/docker-cache/minio-mc.tar &
             wait
           fi
 
@@ -355,6 +393,10 @@ jobs:
         if: matrix.project == 'chromium'
         run: pnpm verify:evidence --require=hookdeck
 
+      - name: Verify Helcim was called
+        if: matrix.project == 'chromium'
+        run: pnpm verify:evidence --require=helcim
+
       - name: Upload Playwright report
         uses: actions/upload-artifact@v6
         if: always()
@@ -385,22 +427,6 @@ jobs:
           restore-keys: |
             turbo-${{ github.ref_name }}-
             turbo-main-
-
-      - name: Cache Docker images
-        uses: useblacksmith/stickydisk@v1
-        with:
-          key: docker-mobile-${{ hashFiles('docker-compose.yml') }}
-          path: /tmp/docker-cache
-
-      - name: Load cached Docker images
-        run: |
-          if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
-            echo "Loading cached Docker images..."
-            for img in /tmp/docker-cache/*.tar; do
-              docker load -i "$img" &
-            done
-            wait
-          fi
 
       - name: Cache Android SDK
         uses: useblacksmith/cache@v5
@@ -439,29 +465,32 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      # Logs into GHCR so the script can pull the warm content-hash image
+      # pushed by push-mobile-emulator-image on main. PRs that change the
+      # Dockerfile miss the registry and fall back to a local cold build,
+      # which doesn't require login.
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run mobile tests
         run: pnpm mobile:test
 
-      - name: Save Docker images for next run
-        run: |
-          if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
-            mkdir -p /tmp/docker-cache
-            docker save postgres:18-alpine -o /tmp/docker-cache/postgres.tar &
-            docker save redis:7-alpine -o /tmp/docker-cache/redis.tar &
-            docker save ghcr.io/neondatabase/wsproxy:latest -o /tmp/docker-cache/neon-proxy.tar &
-            docker save hiett/serverless-redis-http:latest -o /tmp/docker-cache/serverless-redis.tar &
-            docker save budtmo/docker-android:emulator_14.0 -o /tmp/docker-cache/android-emulator.tar &
-            wait
-          fi
-
       - name: Dump emulator logs
         if: failure()
+        # Iterate every container matching the shard name prefix so this scales
+        # automatically with mobile-tests/config.ts SHARDS — no need to update
+        # CI when the constant changes.
         run: |
-          docker compose --profile mobile logs android-emulator > emulator-logs.txt 2>&1 || true
-          CONTAINER_ID=$(docker compose --profile mobile ps -q android-emulator 2>/dev/null || true)
-          if [ -n "$CONTAINER_ID" ]; then
-            docker inspect "$CONTAINER_ID" > emulator-inspect.json 2>&1 || true
-          fi
+          docker ps -aq --filter "name=hushbox-mobile-emulator-shard-" | while read -r id; do
+            [ -z "$id" ] && continue
+            name=$(docker inspect --format '{{.Name}}' "$id" | sed 's|^/||')
+            docker logs "$id" > "emulator-logs-$name.txt" 2>&1 || true
+            docker inspect "$id" > "emulator-inspect-$name.json" 2>&1 || true
+          done
 
       - name: Upload results
         uses: actions/upload-artifact@v6
@@ -470,15 +499,43 @@ jobs:
           name: maestro-results
           path: |
             maestro-results/
-            emulator-logs.txt
-            emulator-inspect.json
+            emulator-logs-*.txt
+            emulator-inspect-*.json
           retention-days: 7
 
       - name: Stop services
         if: always()
         run: |
-          pnpm mobile:down
+          docker ps -aq --filter "name=hushbox-mobile-emulator-shard-" | xargs -r docker rm -f
           pnpm db:down
+
+  # ── Push mobile-emulator image to GHCR (in parallel with deploy) ──
+  # Bakes mobile-tests/docker/ into a content-hashed image with an AVD
+  # quick-boot snapshot and pushes to GHCR. Skips push when the content-hash
+  # tag already exists in the registry (no-op when the Dockerfile didn't
+  # change). Gated by the same checks as deploy so the registry only ever
+  # holds artifacts that pass the full check suite.
+  push-mobile-emulator-image:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    needs: [lint, typecheck, duplication, unused, test, build, e2e, mobile-test, version]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bake and push mobile emulator image
+        run: pnpm tsx scripts/bake-mobile-image.ts --push
 
   # ── Deploy (GitHub-hosted — hyper-secrets) ───────────────
   deploy:
@@ -487,6 +544,30 @@ jobs:
     needs: [lint, typecheck, duplication, unused, test, build, e2e, mobile-test, version]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
+    # BEGIN GENERATED: ops-env
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      NODE_ENV: production
+      API_URL: https://api.hushbox.ai
+      FRONTEND_URL: https://hushbox.ai
+      UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+      UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      OPAQUE_MASTER_SECRET: ${{ secrets.OPAQUE_MASTER_SECRET }}
+      IRON_SESSION_SECRET: ${{ secrets.IRON_SESSION_SECRET }}
+      APP_VERSION: ${{ needs.version.outputs.version }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY_PRODUCTION }}
+      PUBLIC_MODELS_URL: https://ai-gateway.vercel.sh/v1/models
+      FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
+      FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+      HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}
+      LINEAR_API_KEY_READ: ${{ secrets.LINEAR_API_KEY_READ }}
+      HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}
+      R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_MEDIA: hushbox-media
+    # END GENERATED: ops-env
     steps:
       - uses: actions/checkout@v6
         with:
@@ -519,11 +600,15 @@ jobs:
           echo "${{ secrets.IRON_SESSION_SECRET }}" | pnpm exec wrangler secret put IRON_SESSION_SECRET
           echo "${{ needs.version.outputs.version }}" | pnpm exec wrangler secret put APP_VERSION
           echo "${{ secrets.RESEND_API_KEY }}" | pnpm exec wrangler secret put RESEND_API_KEY
+          echo "${{ secrets.AI_GATEWAY_API_KEY_PRODUCTION }}" | pnpm exec wrangler secret put AI_GATEWAY_API_KEY
           echo "${{ secrets.FCM_PROJECT_ID }}" | pnpm exec wrangler secret put FCM_PROJECT_ID
           echo "${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}" | pnpm exec wrangler secret put FCM_SERVICE_ACCOUNT_JSON
-          echo "${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}" | pnpm exec wrangler secret put OPENROUTER_API_KEY
           echo "${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_API_TOKEN
+          echo "${{ secrets.LINEAR_API_KEY_READ }}" | pnpm exec wrangler secret put LINEAR_API_KEY_READ
           echo "${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_WEBHOOK_VERIFIER
+          echo "${{ secrets.R2_S3_ENDPOINT }}" | pnpm exec wrangler secret put R2_S3_ENDPOINT
+          echo "${{ secrets.R2_ACCESS_KEY_ID }}" | pnpm exec wrangler secret put R2_ACCESS_KEY_ID
+          echo "${{ secrets.R2_SECRET_ACCESS_KEY }}" | pnpm exec wrangler secret put R2_SECRET_ACCESS_KEY
           # END GENERATED: deploy-secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -534,7 +619,7 @@ jobs:
         run: |
           secrets=$(pnpm exec wrangler secret list)
           # BEGIN GENERATED: verify-secrets
-          for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON OPENROUTER_API_KEY HELCIM_API_TOKEN HELCIM_WEBHOOK_VERIFIER; do
+          for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY AI_GATEWAY_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON HELCIM_API_TOKEN LINEAR_API_KEY_READ HELCIM_WEBHOOK_VERIFIER R2_S3_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
           # END GENERATED: verify-secrets
             if ! echo "$secrets" | grep -q "$secret"; then
               echo "ERROR: Secret $secret not found in Workers"
@@ -545,6 +630,33 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Resolve any `run-script:<name>` labels on the merged PR against
+      # ops/manifest.yml, validate them, and partition by phase. Outputs
+      # JSON arrays consumed by the pre-deploy and post-deploy steps below.
+      # See ops/README.md for the trust model.
+      #
+      # Implemented as a tsx script (not actions/github-script) so the
+      # workspace's js-yaml is resolvable — pnpm doesn't hoist devDeps to
+      # the repo root.
+      - name: Resolve ops scripts from PR labels
+        id: ops
+        run: pnpm tsx ops/lib/resolve-pr-scripts.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+
+      - name: Run pre-deploy ops scripts
+        if: steps.ops.outputs.pre != '' && steps.ops.outputs.pre != '[]'
+        run: |
+          echo '${{ steps.ops.outputs.pre }}' | jq -c '.[]' | while read -r s; do
+            name=$(echo "$s" | jq -r '.name')
+            file=$(echo "$s" | jq -r '.file')
+            echo "::group::Pre-deploy ops script: $name ($file)"
+            pnpm tsx "$file"
+            echo "::endgroup::"
+          done
 
       - name: Run database migrations (production)
         run: pnpm --filter @hushbox/db db:migrate
@@ -564,6 +676,17 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Run post-deploy ops scripts
+        if: steps.ops.outputs.post != '' && steps.ops.outputs.post != '[]'
+        run: |
+          echo '${{ steps.ops.outputs.post }}' | jq -c '.[]' | while read -r s; do
+            name=$(echo "$s" | jq -r '.name')
+            file=$(echo "$s" | jq -r '.file')
+            echo "::group::Post-deploy ops script: $name ($file)"
+            pnpm tsx "$file"
+            echo "::endgroup::"
+          done
 
       - name: Verify API health
         run: |

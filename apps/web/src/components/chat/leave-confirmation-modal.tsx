@@ -1,13 +1,22 @@
 import * as React from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { Alert, Overlay, ModalActions, OverlayContent, OverlayHeader } from '@hushbox/ui';
+import { Alert, useAsyncAction } from '@hushbox/ui';
+import { ActionModal } from '../shared/action-modal.js';
+import type { ErrorCode } from '@hushbox/shared';
 
 interface LeaveConfirmationModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isOwner: boolean;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 }
+
+// Owner leave deletes the conversation (no rotation); non-owner leave runs
+// `executeWithRotation` which can race against concurrent member edits.
+const LEAVE_ERROR_CODES = [
+  'STALE_EPOCH',
+  'WRAP_SET_MISMATCH',
+] as const satisfies readonly ErrorCode[];
 
 export function LeaveConfirmationModal({
   open,
@@ -15,41 +24,43 @@ export function LeaveConfirmationModal({
   isOwner,
   onConfirm,
 }: Readonly<LeaveConfirmationModalProps>): React.JSX.Element {
+  const asyncAction = useAsyncAction();
+
   return (
-    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Leave Conversation">
-      <OverlayContent data-testid="leave-confirmation-modal">
-        <div data-testid="leave-confirmation-title">
-          <OverlayHeader title="Leave Conversation?" />
-        </div>
-
-        <Alert data-testid="leave-confirmation-warning">
-          <AlertTriangle />
-          <span>
-            {isOwner
-              ? 'As the owner, leaving will delete all messages and remove all members.'
-              : "You will lose access to this conversation's messages."}
-          </span>
-        </Alert>
-
-        <ModalActions
-          cancel={{
-            label: 'Cancel',
-            onClick: () => {
-              onOpenChange(false);
-            },
-            testId: 'leave-confirmation-cancel',
-          }}
-          primary={{
-            label: 'Leave',
-            variant: 'destructive',
-            onClick: () => {
-              onConfirm();
-              onOpenChange(false);
-            },
-            testId: 'leave-confirmation-confirm',
-          }}
-        />
-      </OverlayContent>
-    </Overlay>
+    <ActionModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Leave Conversation?"
+      ariaLabel="Leave Conversation"
+      asyncAction={asyncAction}
+      primary={{
+        label: 'Leave',
+        loadingLabel: 'Leaving…',
+        variant: 'destructive',
+        // `await` on a non-Promise resolves immediately, so we can adapt the
+        // void-or-Promise callback to ActionModal's Promise-returning
+        // contract without a runtime `instanceof Promise` check.
+        onSubmit: async () => {
+          await onConfirm();
+        },
+        testId: 'leave-confirmation-confirm',
+      }}
+      cancel={{
+        label: 'Cancel',
+        testId: 'leave-confirmation-cancel',
+      }}
+      testId="leave-confirmation-modal"
+      titleTestId="leave-confirmation-title"
+      devSimulateCodes={LEAVE_ERROR_CODES}
+    >
+      <Alert data-testid="leave-confirmation-warning">
+        <AlertTriangle />
+        <span>
+          {isOwner
+            ? 'As the owner, leaving will delete all messages and remove all members.'
+            : "You will lose access to this conversation's messages."}
+        </span>
+      </Alert>
+    </ActionModal>
   );
 }

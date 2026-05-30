@@ -1,12 +1,39 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { MessageItem } from './message-item';
 import * as MarkdownRendererModule from './markdown-renderer';
 import type { MessageGroup } from '@/lib/chat-sender';
 import type { Message } from '@/lib/api';
 import type { MessageAction } from '@/lib/message-actions';
+import { useTtsPlaybackStore } from '@hushbox/ui/accessibility/store';
 
-// Mock document store used by DocumentCard (rendered inside MarkdownRenderer)
+vi.mock('../../lib/chat-tts-stream', () => ({
+  stopTtsForMessage: vi.fn(),
+}));
+
+// The notice's link uses TanStack Router which requires Router context. Mock
+// to a marker element here — the real link behavior is exercised in
+// tts-stopped-notice.test.tsx with a full router setup. This test asserts
+// only that the notice is mounted in the right slot when the store flags it.
+// Uses vi.importActual so the gating mirrors what MessageItem will see in
+// production; only the Link-rendering DOM is swapped for a marker div.
+vi.mock('./tts-stopped-notice', async () => {
+  const { useTtsPlaybackStore } = await vi.importActual<
+    typeof import('@hushbox/ui/accessibility/store')
+  >('@hushbox/ui/accessibility/store');
+  return {
+    TtsStoppedNotice: ({ messageId }: { messageId: string }) => {
+      const stopped = useTtsPlaybackStore((s) => s.stoppedStreamIds.has(messageId));
+      if (!stopped) return null;
+      return (
+        <div data-testid="mock-tts-stopped-notice" data-message-id={messageId}>
+          You can disable auto-read in Accessibility settings
+        </div>
+      );
+    },
+  };
+});
+
 vi.mock('../../stores/document', () => ({
   useDocumentStore: () => ({
     activeDocumentId: null,
@@ -40,16 +67,16 @@ const mockModelsData = {
         supportedParameters: [],
       },
       {
-        id: 'openrouter/auto',
+        id: 'smart-model',
         name: 'Smart Model',
-        provider: 'OpenRouter',
+        provider: 'HushBox',
         contextLength: 200_000,
         pricePerInputToken: 0.000_003,
         pricePerOutputToken: 0.000_015,
         capabilities: [],
         description: 'Auto-router model',
         supportedParameters: [],
-        isAutoRouter: true,
+        isSmartModel: true,
       },
     ],
     premiumIds: new Set<string>(),
@@ -59,6 +86,32 @@ const mockModelsData = {
 
 vi.mock('@/hooks/models', () => ({
   useModels: () => mockModelsData,
+}));
+
+// Mock MediaContentItem to avoid the full fetch + decrypt chain in tests.
+// Tests assert that MessageMediaItems renders one <MediaContentItem> per media item.
+vi.mock('./media-content-item', () => ({
+  MediaContentItem: ({ item }: { item: { id: string; contentType: string } }) => (
+    <div data-testid={`mock-media-item-${item.id}`} data-content-type={item.contentType} />
+  ),
+}));
+
+// Stub the epoch key cache + crypto primitives to count ECIES unwraps.
+// We assert that openMessageEnvelope is called once per message regardless of
+// how many media items the message carries (Issue #1: hoist contentKey).
+const mockOpenMessageEnvelope = vi.fn(() => new Uint8Array([1, 2, 3]));
+vi.mock('@hushbox/crypto', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@hushbox/crypto')>();
+  return {
+    ...original,
+    openMessageEnvelope: (...args: unknown[]) => mockOpenMessageEnvelope(...(args as [])),
+  };
+});
+vi.mock('@/lib/epoch-key-cache', () => ({
+  getEpochKey: vi.fn(() => new Uint8Array([9, 9, 9])),
+  setEpochKey: vi.fn(),
+  subscribe: vi.fn(() => () => {}),
+  getSnapshot: vi.fn(() => 0),
 }));
 
 const ALL_USER_ACTIONS = new Set<MessageAction>(['copy', 'retry', 'edit', 'fork']);
@@ -85,7 +138,6 @@ describe('MessageItem', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    // Mock clipboard API
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: vi.fn(() => Promise.resolve()) },
       writable: true,
@@ -160,18 +212,14 @@ describe('MessageItem', () => {
     it('copies message content to clipboard when clicked', async () => {
       render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
 
-      // Click the copy button
       fireEvent.click(screen.getByRole('button', { name: /copy/i }));
 
-      // Flush the async clipboard operation
       await act(async () => {
         await Promise.resolve();
       });
 
-      // The state change to "Copied" proves clipboard.writeText succeeded
       expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
 
-      // Verify the message content that was copied matches
       expect(assistantMessage.content).toBe('I am doing well, thank you!');
     });
 
@@ -180,7 +228,6 @@ describe('MessageItem', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /copy/i }));
 
-      // Flush the async clipboard operation
       await act(async () => {
         await Promise.resolve();
       });
@@ -193,15 +240,12 @@ describe('MessageItem', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /copy/i }));
 
-      // Flush the async clipboard operation
       await act(async () => {
         await Promise.resolve();
       });
 
-      // Should show "Copied"
       expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
 
-      // Wait for the 2 second timeout to reset
       act(() => {
         vi.advanceTimersByTime(2500);
       });
@@ -212,8 +256,21 @@ describe('MessageItem', () => {
     it('copy button has ghost variant styling', () => {
       render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
       const button = screen.getByRole('button', { name: /copy/i });
-      // Ghost buttons typically have these classes or no background
-      expect(button).toHaveClass('h-6', 'w-6');
+      expect(button).toHaveClass('h-7', 'w-7');
+    });
+
+    it('action button frame uses compact 28px hit area across viewports', () => {
+      render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
+      const button = screen.getByRole('button', { name: /copy/i });
+      expect(button).toHaveClass('h-7', 'w-7');
+      expect(button.className).not.toMatch(/\bmd:h-/);
+      expect(button.className).not.toMatch(/\bmd:w-/);
+    });
+
+    it('message-item reserves bottom space so absolute action buttons fit within the virtuoso row', () => {
+      render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
+      const item = screen.getByTestId('message-item');
+      expect(item).toHaveClass('pb-8');
     });
   });
 
@@ -354,6 +411,49 @@ describe('MessageItem', () => {
     });
   });
 
+  describe('assistant action row layout', () => {
+    const assistantMessageWithCost = {
+      ...assistantMessage,
+      cost: '0.00136000',
+    };
+
+    it('left-justifies the action buttons (buttons container has no ml-auto)', () => {
+      render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
+      const copyButton = screen.getByRole('button', { name: /copy/i });
+      const buttonsContainer = copyButton.parentElement;
+      expect(buttonsContainer).not.toHaveClass('ml-auto');
+    });
+
+    it('renders the price indicator to the right of the buttons (after them in DOM order)', () => {
+      render(<MessageItem message={assistantMessageWithCost} allowedActions={ALL_AI_ACTIONS} />);
+      const cost = screen.getByTestId('message-cost');
+      const copyButton = screen.getByRole('button', { name: /copy/i });
+      expect(copyButton.compareDocumentPosition(cost) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      );
+    });
+
+    it('bottom-aligns the action row (items-end, not items-center)', () => {
+      render(<MessageItem message={assistantMessageWithCost} allowedActions={ALL_AI_ACTIONS} />);
+      const copyButton = screen.getByRole('button', { name: /copy/i });
+      const buttonsContainer = copyButton.parentElement;
+      const row = buttonsContainer?.parentElement;
+      expect(row).toHaveClass('items-end');
+      expect(row).not.toHaveClass('items-center');
+    });
+
+    it('places the cost in a button-height wrapper that centers it (mirrors how the icon sits in the button)', () => {
+      // Both children of the row become 28px-tall containers centering a 12px
+      // glyph: the icon is centered in its h-7 button by <Button size="icon">,
+      // and the cost is centered in this h-7 wrapper. Bottoms line up at the
+      // same y without any magic margin offset.
+      render(<MessageItem message={assistantMessageWithCost} allowedActions={ALL_AI_ACTIONS} />);
+      const cost = screen.getByTestId('message-cost');
+      expect(cost.parentElement).toHaveClass('h-7');
+      expect(cost.parentElement).toHaveClass('items-center');
+    });
+  });
+
   describe('streaming', () => {
     it('forwards isStreaming=true to MarkdownRenderer', () => {
       const spy = vi.spyOn(MarkdownRendererModule, 'MarkdownRenderer');
@@ -372,6 +472,18 @@ describe('MessageItem', () => {
       const props = spy.mock.calls[0]![0] as Record<string, unknown>;
       expect(props['isStreaming']).toBeUndefined();
       spy.mockRestore();
+    });
+
+    it('marks the streaming AI message container with aria-live="polite"', () => {
+      render(<MessageItem message={assistantMessage} isStreaming allowedActions={NO_ACTIONS} />);
+      const live = screen.getByTestId('ai-message-live-region');
+      expect(live).toHaveAttribute('aria-live', 'polite');
+    });
+
+    it('does not mark non-streaming AI message text with aria-live', () => {
+      render(<MessageItem message={assistantMessage} allowedActions={ALL_AI_ACTIONS} />);
+      const region = screen.queryByTestId('ai-message-live-region');
+      if (region) expect(region.getAttribute('aria-live')).toBe('off');
     });
   });
 
@@ -454,13 +566,13 @@ describe('MessageItem', () => {
       const autoMessage = {
         ...emptyAssistantMessage,
         id: 'auto-thinking',
-        modelName: 'openrouter/auto',
+        modelName: 'smart-model',
       };
       render(
         <MessageItem
           message={autoMessage}
           isStreaming
-          modelName="openrouter/auto"
+          modelName="smart-model"
           allowedActions={NO_ACTIONS}
         />
       );
@@ -472,7 +584,7 @@ describe('MessageItem', () => {
         <MessageItem
           message={emptyAssistantMessage}
           isStreaming
-          modelName="openrouter/auto"
+          modelName="smart-model"
           allowedActions={NO_ACTIONS}
         />
       );
@@ -628,7 +740,6 @@ describe('MessageItem', () => {
 
       expect(screen.getByText('First message')).toBeInTheDocument();
       expect(screen.getByText('Second message')).toBeInTheDocument();
-      // Only one sender label
       expect(screen.getAllByTestId('sender-label')).toHaveLength(1);
     });
 
@@ -810,6 +921,278 @@ describe('MessageItem', () => {
       expect(screen.queryByTestId('model-nametag')).not.toBeInTheDocument();
     });
 
+    // The a11y "Easier to read" preset applies `line-height: 2 !important` to
+    // <p> elements via `html.a11y-line-height-double p`. If the nametag is a
+    // <p>, it gets distorted relative to the inline Smart chip (a <span>),
+    // breaking the visual centering of the two badges.
+    it('does not render the nametag as a <p> element', () => {
+      const aiMsg = {
+        id: 'ai-tag',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: 'Hello!',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'GPT-4o',
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      const nametag = screen.getByTestId('model-nametag');
+      expect(nametag.tagName).not.toBe('P');
+    });
+
+    it('renders the Smart chip when isSmartModel is true', () => {
+      const knownModel = mockModelsData.data.models[0];
+      if (!knownModel) throw new Error('test fixture must include at least one model');
+      const aiMsg = {
+        id: 'ai-smart',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: 'Routed by Smart Model',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: knownModel.id,
+        isSmartModel: true,
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getByTestId('smart-model-chip')).toBeInTheDocument();
+      expect(screen.getByTestId('model-nametag')).toHaveTextContent(knownModel.name);
+    });
+
+    it('does not render the Smart chip when isSmartModel is absent', () => {
+      const knownModel = mockModelsData.data.models[0];
+      if (!knownModel) throw new Error('test fixture must include at least one model');
+      const aiMsg = {
+        id: 'ai-non-smart',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: 'Direct selection',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: knownModel.id,
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId('smart-model-chip')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('TTS stop button slot', () => {
+    beforeEach(() => {
+      useTtsPlaybackStore.setState({
+        speakingStreamId: null,
+        stoppedStreamIds: new Set<string>(),
+      });
+    });
+
+    afterEach(() => {
+      useTtsPlaybackStore.setState({
+        speakingStreamId: null,
+        stoppedStreamIds: new Set<string>(),
+      });
+    });
+
+    it('renders the Stop button inside model-nametag-container when this message is being read', () => {
+      const aiMsg: Message = {
+        id: 'speaking-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      useTtsPlaybackStore.getState().setSpeakingStream('speaking-msg');
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      const container = screen.getByTestId('model-nametag-container');
+      expect(within(container).getByRole('button', { name: /stop reading/i })).toBeInTheDocument();
+    });
+
+    it('does not render the Stop button when no message is being read', () => {
+      const aiMsg: Message = {
+        id: 'idle-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByRole('button', { name: /stop reading/i })).not.toBeInTheDocument();
+    });
+
+    it('does not render the Stop button when a different message is being read', () => {
+      const aiMsg: Message = {
+        id: 'this-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      useTtsPlaybackStore.getState().setSpeakingStream('other-msg');
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByRole('button', { name: /stop reading/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('TTS stopped notice slot', () => {
+    beforeEach(() => {
+      useTtsPlaybackStore.setState({
+        speakingStreamId: null,
+        stoppedStreamIds: new Set<string>(),
+      });
+    });
+
+    afterEach(() => {
+      useTtsPlaybackStore.setState({
+        speakingStreamId: null,
+        stoppedStreamIds: new Set<string>(),
+      });
+    });
+
+    it('renders the stopped notice when the user stopped this message', () => {
+      const aiMsg: Message = {
+        id: 'stopped-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      useTtsPlaybackStore.getState().markStreamStopped('stopped-msg');
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getByTestId('mock-tts-stopped-notice')).toHaveAttribute(
+        'data-message-id',
+        'stopped-msg'
+      );
+    });
+
+    it('positions the notice above the message body so the body is pushed down', () => {
+      const aiMsg: Message = {
+        id: 'stopped-msg-pos',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello body',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      useTtsPlaybackStore.getState().markStreamStopped('stopped-msg-pos');
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      const notice = screen.getByTestId('mock-tts-stopped-notice');
+      const liveRegion = screen.getByTestId('ai-message-live-region');
+      const position = notice.compareDocumentPosition(liveRegion);
+      // DOCUMENT_POSITION_FOLLOWING (4) means liveRegion comes after the notice.
+      expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('does not render the notice when the user has not stopped this message', () => {
+      const aiMsg: Message = {
+        id: 'untouched-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId('mock-tts-stopped-notice')).not.toBeInTheDocument();
+    });
+
+    it('does not render the notice for other messages stopped by the user', () => {
+      const aiMsg: Message = {
+        id: 'innocent-msg',
+        conversationId: 'conv-1',
+        role: 'assistant',
+        content: 'Hello',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'openai/gpt-4o-2024-08-06',
+      };
+      useTtsPlaybackStore.getState().markStreamStopped('some-other-msg');
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId('mock-tts-stopped-notice')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('pre-inference stage rendering', () => {
+    it('renders the stage label in the thinking indicator while classifying', () => {
+      const aiMsg = {
+        id: 'ai-classifying',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: '',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'smart-model',
+        classifyingStageId: 'smart-model' as const,
+      };
+      render(
+        <MessageItem
+          message={aiMsg}
+          isStreaming
+          modelName="Smart Model"
+          allowedActions={ALL_AI_ACTIONS}
+        />
+      );
+      const indicator = screen.getByTestId('thinking-indicator');
+      expect(indicator).toHaveTextContent('Choosing the best model');
+      expect(indicator).not.toHaveTextContent('Smart Model is thinking');
+    });
+
+    it('does not render the Smart chip while classifying (resolution pending)', () => {
+      const aiMsg = {
+        id: 'ai-classifying',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: '',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'smart-model',
+        classifyingStageId: 'smart-model' as const,
+      };
+      render(
+        <MessageItem
+          message={aiMsg}
+          isStreaming
+          modelName="Smart Model"
+          allowedActions={ALL_AI_ACTIONS}
+        />
+      );
+      expect(screen.queryByTestId('smart-model-chip')).not.toBeInTheDocument();
+    });
+
+    it('uses resolvedModelName in the nametag when set live during streaming', () => {
+      const aiMsg = {
+        id: 'ai-resolved',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: 'Streaming output…',
+        createdAt: '2024-01-01T00:00:00Z',
+        // After stage:done the optimistic message has the resolved id and
+        // resolvedModelName set; useModels lookup may not yet contain the id.
+        modelName: 'unknown/just-resolved',
+        resolvedModelName: 'Just Resolved 4.6',
+        isSmartModel: true,
+      };
+      render(<MessageItem message={aiMsg} isStreaming allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getByTestId('model-nametag')).toHaveTextContent('Just Resolved 4.6');
+      expect(screen.getByTestId('smart-model-chip')).toBeInTheDocument();
+    });
+
+    it('renders friendly error when stage failed (errorCode + no classifyingStageId)', () => {
+      const aiMsg = {
+        id: 'ai-stage-failed',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: '',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'smart-model',
+        errorCode: 'CLASSIFIER_FAILED',
+      };
+      render(
+        <MessageItem
+          message={aiMsg}
+          isStreaming
+          modelName="Smart Model"
+          allowedActions={ERROR_AI_ACTIONS}
+        />
+      );
+      const errorEl = screen.getByTestId('model-error-message');
+      expect(errorEl).toHaveTextContent(/Smart Model could not pick/i);
+    });
+
     it('hides nametag when assistant message has no content and is not streaming', () => {
       const aiMsg = {
         id: 'ai-empty',
@@ -840,6 +1223,31 @@ describe('MessageItem', () => {
           allowedActions={NO_ACTIONS}
         />
       );
+      expect(screen.getByTestId('model-nametag')).toBeInTheDocument();
+    });
+
+    it('shows nametag for image/video/audio messages whose body is empty but mediaItems carry media', () => {
+      // Media-only assistant messages have no text body — the bytes live in
+      // mediaItems. The nametag should still render so the user can see which
+      // model produced the image/video/audio.
+      const aiMsg = {
+        id: 'ai-image',
+        conversationId: 'conv-1',
+        role: 'assistant' as const,
+        content: '',
+        createdAt: '2024-01-01T00:00:00Z',
+        modelName: 'google/imagen-4.0-generate-001',
+        mediaItems: [
+          {
+            id: 'ci-1',
+            position: 0,
+            contentType: 'image' as const,
+            mimeType: 'image/jpeg',
+            sizeBytes: 1024,
+          },
+        ],
+      };
+      render(<MessageItem message={aiMsg} allowedActions={ALL_AI_ACTIONS} />);
       expect(screen.getByTestId('model-nametag')).toBeInTheDocument();
     });
 
@@ -1087,6 +1495,166 @@ describe('MessageItem', () => {
         <MessageItem message={assistantMessage} onEdit={onEdit} allowedActions={ALL_AI_ACTIONS} />
       );
       expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('media content items', () => {
+    const messageWithMedia: Message = {
+      ...assistantMessage,
+      id: 'msg-with-media',
+      content: '',
+      wrappedContentKey: 'base64-wrapped-key',
+      epochNumber: 1,
+      mediaItems: [
+        {
+          id: 'ci-image-1',
+          contentType: 'image',
+          position: 0,
+          mimeType: 'image/png',
+          sizeBytes: 1_000_000,
+          width: 1024,
+          height: 1024,
+        },
+      ],
+    };
+
+    it('renders MediaContentItem for each media item', () => {
+      render(<MessageItem message={messageWithMedia} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getByTestId('mock-media-item-ci-image-1')).toBeInTheDocument();
+      expect(screen.getByTestId('mock-media-item-ci-image-1')).toHaveAttribute(
+        'data-content-type',
+        'image'
+      );
+    });
+
+    it('renders media items in position order', () => {
+      const msg: Message = {
+        ...messageWithMedia,
+        mediaItems: [
+          {
+            id: 'ci-b',
+            contentType: 'image',
+            position: 1,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+          {
+            id: 'ci-a',
+            contentType: 'image',
+            position: 0,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+        ],
+      };
+      render(<MessageItem message={msg} allowedActions={ALL_AI_ACTIONS} />);
+      const rendered = screen.getAllByTestId(/^mock-media-item-/);
+      expect(rendered[0]).toHaveAttribute('data-testid', 'mock-media-item-ci-a');
+      expect(rendered[1]).toHaveAttribute('data-testid', 'mock-media-item-ci-b');
+    });
+
+    it('renders nothing when mediaItems is empty', () => {
+      const msg: Message = { ...messageWithMedia, mediaItems: [] };
+      render(<MessageItem message={msg} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId(/^mock-media-item-/)).not.toBeInTheDocument();
+    });
+
+    it('renders nothing when wrappedContentKey is missing', () => {
+      // eslint-disable-next-line sonarjs/no-unused-vars -- omitting the key from the copy
+      const { wrappedContentKey: _omitKey, ...rest } = messageWithMedia;
+      render(<MessageItem message={rest} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId(/^mock-media-item-/)).not.toBeInTheDocument();
+    });
+
+    it('renders nothing when epochNumber is missing', () => {
+      // eslint-disable-next-line sonarjs/no-unused-vars -- omitting the field from the copy
+      const { epochNumber: _omitEpoch, ...rest } = messageWithMedia;
+      render(<MessageItem message={rest} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.queryByTestId(/^mock-media-item-/)).not.toBeInTheDocument();
+    });
+
+    describe('media-in-flight placeholder', () => {
+      const inFlightMessage: Message = {
+        ...assistantMessage,
+        id: 'msg-in-flight',
+        content: '',
+      };
+
+      it('shows "Generating image…" when mediaInFlight.mediaType is image', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'image', mimeType: 'image/png' },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        expect(screen.getByRole('status', { name: /generating image/i })).toBeInTheDocument();
+      });
+
+      it('shows "Generating video…" when mediaInFlight.mediaType is video', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'video', mimeType: 'application/octet-stream' },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        expect(screen.getByRole('status', { name: /generating video/i })).toBeInTheDocument();
+      });
+
+      it('shows "Generating audio…" when mediaInFlight.mediaType is audio', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'audio', mimeType: 'audio/mpeg' },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        expect(screen.getByRole('status', { name: /generating audio/i })).toBeInTheDocument();
+      });
+
+      it('renders the progress bar when mediaProgress.percent is set', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'video', mimeType: 'application/octet-stream' },
+          mediaProgress: { percent: 42 },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        const bar = screen.getByTestId('media-progress-bar');
+        expect(bar).toBeInTheDocument();
+        const fill = bar.querySelector('div');
+        expect(fill?.getAttribute('style')).toContain('42%');
+      });
+    });
+
+    it('unwraps the message contentKey once even with multiple media items', () => {
+      // Issue #1 / Plan §15.5: the parent resolves contentKey once and passes
+      // it to each MediaContentItem, so an N-image message does ONE ECIES
+      // unwrap, not N. Asserts on `openMessageEnvelope` call count.
+      mockOpenMessageEnvelope.mockClear();
+      const msgWithThreeMedia: Message = {
+        ...messageWithMedia,
+        mediaItems: [
+          {
+            id: 'ci-a',
+            contentType: 'image',
+            position: 0,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+          {
+            id: 'ci-b',
+            contentType: 'image',
+            position: 1,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+          {
+            id: 'ci-c',
+            contentType: 'image',
+            position: 2,
+            mimeType: 'image/png',
+            sizeBytes: 100,
+          },
+        ],
+      };
+      render(<MessageItem message={msgWithThreeMedia} allowedActions={ALL_AI_ACTIONS} />);
+      expect(screen.getAllByTestId(/^mock-media-item-/)).toHaveLength(3);
+      expect(mockOpenMessageEnvelope).toHaveBeenCalledTimes(1);
     });
   });
 });

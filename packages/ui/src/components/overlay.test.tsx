@@ -237,6 +237,83 @@ describe('Overlay', () => {
     });
   });
 
+  describe('dismissible=false locks user-initiated dismissal', () => {
+    it('does not call onOpenChange when Escape is pressed', async () => {
+      const user = userEvent.setup();
+      const onOpenChange = vi.fn();
+      render(
+        <Overlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal" dismissible={false}>
+          <div>Modal content</div>
+        </Overlay>
+      );
+
+      await user.keyboard('{Escape}');
+
+      // Give Radix a tick to process the event before asserting.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    it('does not call onOpenChange when backdrop is clicked', async () => {
+      const user = userEvent.setup();
+      const onOpenChange = vi.fn();
+      render(
+        <Overlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal" dismissible={false}>
+          <div>Modal content</div>
+        </Overlay>
+      );
+
+      const overlay = screen.getByTestId('overlay-backdrop');
+      await user.click(overlay);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
+
+    it('hides the close button so the user has no manual escape hatch', () => {
+      render(
+        <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test modal" dismissible={false}>
+          <div>Modal content</div>
+        </Overlay>
+      );
+
+      expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument();
+    });
+
+    it('preserves back button (back is navigation, not dismissal)', () => {
+      render(
+        <Overlay
+          open={true}
+          onOpenChange={vi.fn()}
+          ariaLabel="Test modal"
+          dismissible={false}
+          currentStep={2}
+          onBack={vi.fn()}
+        >
+          <div>Modal content</div>
+        </Overlay>
+      );
+
+      expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument();
+    });
+
+    it('dismissible defaults to true so existing call sites are unchanged', async () => {
+      const user = userEvent.setup();
+      const onOpenChange = vi.fn();
+      render(
+        <Overlay open={true} onOpenChange={onOpenChange} ariaLabel="Test modal">
+          <div>Modal content</div>
+        </Overlay>
+      );
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+      });
+    });
+  });
+
   describe('multi-step flow', () => {
     it('does not render back button when currentStep is undefined', () => {
       render(

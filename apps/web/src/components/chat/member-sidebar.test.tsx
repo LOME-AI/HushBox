@@ -15,9 +15,13 @@ const {
   mockUseConversationBudgets: vi.fn(),
 }));
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: vi.fn(() => false),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: vi.fn(() => false),
+  };
+});
 
 vi.mock('@/stores/ui-modals', () => ({
   useUIModalsStore: vi.fn(() => ({
@@ -93,7 +97,6 @@ describe('MemberSidebar', () => {
     mockMemberSidebarOpen.value = true;
     mockUseConversationBudgets.mockReturnValue({ data: undefined, isLoading: false });
 
-    // Create portal target for right sidebar
     let portalTarget = document.querySelector('#right-sidebar-portal');
     if (!portalTarget) {
       portalTarget = document.createElement('div');
@@ -286,9 +289,7 @@ describe('MemberSidebar', () => {
     it('hides three-dots for other members when user is not admin', () => {
       render(<MemberSidebar {...defaultProps} currentUserId="u3" currentUserPrivilege="write" />);
 
-      // Current user (charlie, m3) should still have a button for Leave
       expect(screen.getByTestId('member-actions-m3')).toBeInTheDocument();
-      // Other members should not
       expect(screen.queryByTestId('member-actions-m1')).not.toBeInTheDocument();
       expect(screen.queryByTestId('member-actions-m2')).not.toBeInTheDocument();
       expect(screen.queryByTestId('member-actions-m4')).not.toBeInTheDocument();
@@ -304,7 +305,6 @@ describe('MemberSidebar', () => {
         />
       );
 
-      // Current user should NOT have actions (no leave available, not admin)
       expect(screen.queryByTestId('member-actions-m3')).not.toBeInTheDocument();
     });
 
@@ -397,28 +397,19 @@ describe('MemberSidebar', () => {
 
       await user.click(screen.getByTestId('member-actions-m2'));
       await waitFor(() => {
-        expect(screen.getByTestId('member-change-privilege-m2')).toBeInTheDocument();
-      });
-      // Radix submenus open on pointer events
-      fireEvent.click(screen.getByTestId('member-change-privilege-m2'));
-      await waitFor(() => {
         expect(screen.getByTestId('privilege-option-m2-write')).toBeInTheDocument();
       });
-      // Radix DropdownMenuItem onSelect fires on click
+      // Flat radio group inside the main dropdown — no sub-menu hop.
       fireEvent.click(screen.getByTestId('privilege-option-m2-write'));
 
       expect(onChangePrivilege).toHaveBeenCalledWith('m2', 'write');
     });
 
-    it('does not show owner in privilege submenu options', async () => {
+    it('does not show owner in privilege options', async () => {
       const user = userEvent.setup();
       render(<MemberSidebar {...defaultProps} />);
 
       await user.click(screen.getByTestId('member-actions-m2'));
-      await waitFor(() => {
-        expect(screen.getByTestId('member-change-privilege-m2')).toBeInTheDocument();
-      });
-      fireEvent.click(screen.getByTestId('member-change-privilege-m2'));
       await waitFor(() => {
         expect(screen.getByTestId('privilege-option-m2-write')).toBeInTheDocument();
       });
@@ -623,15 +614,11 @@ describe('MemberSidebar', () => {
       expect(screen.queryByTestId('link-actions-link2')).not.toBeInTheDocument();
     });
 
-    it('shows Change Privilege submenu for links with read/write options', async () => {
+    it('shows privilege options for links with read/write options', async () => {
       const user = userEvent.setup();
       render(<MemberSidebar {...defaultProps} />);
 
       await user.click(screen.getByTestId('link-actions-link1'));
-      await waitFor(() => {
-        expect(screen.getByTestId('link-change-privilege-link1')).toBeInTheDocument();
-      });
-      fireEvent.click(screen.getByTestId('link-change-privilege-link1'));
       await waitFor(() => {
         expect(screen.getByTestId('link-privilege-option-link1-read')).toBeInTheDocument();
       });
@@ -647,10 +634,6 @@ describe('MemberSidebar', () => {
       render(<MemberSidebar {...defaultProps} onChangeLinkPrivilege={onChangeLinkPrivilege} />);
 
       await user.click(screen.getByTestId('link-actions-link1'));
-      await waitFor(() => {
-        expect(screen.getByTestId('link-change-privilege-link1')).toBeInTheDocument();
-      });
-      fireEvent.click(screen.getByTestId('link-change-privilege-link1'));
       await waitFor(() => {
         expect(screen.getByTestId('link-privilege-option-link1-write')).toBeInTheDocument();
       });
@@ -1112,7 +1095,6 @@ describe('MemberSidebar', () => {
     it('shows online indicator on collapsed avatars', () => {
       render(<MemberSidebar {...defaultProps} />);
 
-      // alice (u1) and bob (u2) are online
       expect(screen.getByTestId('member-avatar-online-m1')).toBeInTheDocument();
       expect(screen.getByTestId('member-avatar-online-m2')).toBeInTheDocument();
       expect(screen.queryByTestId('member-avatar-online-m3')).not.toBeInTheDocument();
@@ -1180,12 +1162,11 @@ describe('MemberSidebar', () => {
 
   describe('mobile rendering', () => {
     it('renders inside Sheet on mobile', async () => {
-      const module_ = await import('@/hooks/use-is-mobile');
+      const module_ = await import('@hushbox/ui');
       vi.mocked(module_.useIsMobile).mockReturnValue(true);
 
       render(<MemberSidebar {...defaultProps} />);
 
-      // On mobile, the sidebar content should be inside a Sheet
       expect(screen.getByTestId('member-sidebar-content')).toBeInTheDocument();
     });
   });

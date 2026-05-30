@@ -1,22 +1,27 @@
 import * as React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Link } from '@tanstack/react-router';
-import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare } from 'lucide-react';
-import { Overlay, Input, Button, ModalActions, ScrollArea, cn } from '@hushbox/ui';
-import type { Model } from '@hushbox/shared';
-import type { ModelSelectorGatingProps } from './model-selector-types';
+import { Search, ChevronUp, ChevronDown, Lock, Square, CheckSquare, Info } from 'lucide-react';
 import {
-  ROUTES,
-  MAX_SELECTED_MODELS,
-  getModelCostPer1k,
-  shortenModelName,
-  modelSupportsCapability,
-} from '@hushbox/shared';
+  Overlay,
+  Input,
+  Button,
+  ModalActions,
+  ScrollArea,
+  cn,
+  useIsMobile,
+  useIsTouchDevice,
+} from '@hushbox/ui';
+import { ROUTES, MAX_SELECTED_MODELS, shortenModelName } from '@hushbox/shared';
+import { useModelStore, type PickerMode } from '@/stores/model';
 import { formatContextLength } from '../../lib/format';
 import { getAccessibleModelIds } from '../../hooks/models';
-import { useIsMobile } from '../../hooks/use-is-mobile';
 
 import { ModelInfoPanel } from './model-info-panel';
+import { PickerModeToggle } from './picker-mode-toggle';
 import { SignupModal } from '../auth/signup-modal';
+import type { ModelSelectorGatingProps } from './model-selector-types';
+import type { Model, Modality } from '@hushbox/shared';
 
 type SortField = 'price' | 'context' | null;
 type SortDirection = 'asc' | 'desc';
@@ -33,16 +38,41 @@ function filterBySearch(models: Model[], query: string): Model[] {
   );
 }
 
-function sortModels(models: Model[], sortField: SortField, sortDirection: SortDirection): Model[] {
+function resolveModality(activeModality: Modality | undefined): Modality {
+  return activeModality ?? 'text';
+}
+
+function priceSortKey(model: Model, modality: Modality): number {
+  switch (modality) {
+    case 'text': {
+      return model.pricePerInputToken;
+    }
+    case 'image': {
+      return model.pricePerImage;
+    }
+    case 'video': {
+      const values = Object.values(model.pricePerSecondByResolution);
+      return values.length > 0 ? Math.min(...values) : 0;
+    }
+    case 'audio': {
+      return model.pricePerSecond;
+    }
+  }
+}
+
+function sortModels(
+  models: Model[],
+  sortField: SortField,
+  sortDirection: SortDirection,
+  activeModality: Modality
+): Model[] {
   if (!sortField) {
     return models;
   }
   return [...models].toSorted((a, b) => {
     let comparison = 0;
     if (sortField === 'price') {
-      const priceA = getModelCostPer1k(a.pricePerInputToken, a.pricePerOutputToken);
-      const priceB = getModelCostPer1k(b.pricePerInputToken, b.pricePerOutputToken);
-      comparison = priceA - priceB;
+      comparison = priceSortKey(a, activeModality) - priceSortKey(b, activeModality);
     } else {
       comparison = a.contextLength - b.contextLength;
     }
@@ -153,25 +183,41 @@ interface ModelItemDetailsProps {
   pinnedLabel?: string | undefined;
 }
 
+function modelSubtitle(model: Model): string {
+  if (model.isSmartModel === true) {
+    return 'Auto-picks the best model';
+  }
+  switch (model.modality) {
+    case 'text': {
+      return `${model.provider} • Capacity: ${formatContextLength(model.contextLength)}`;
+    }
+    case 'image': {
+      return `${model.provider} • $${model.pricePerImage.toFixed(3)}/image`;
+    }
+    case 'video': {
+      const values = Object.values(model.pricePerSecondByResolution);
+      if (values.length === 0) {
+        return model.provider;
+      }
+      return `${model.provider} • $${Math.min(...values).toFixed(2)}/s`;
+    }
+    case 'audio': {
+      return `${model.provider} • $${model.pricePerSecond.toFixed(3)}/s`;
+    }
+  }
+}
+
 function ModelItemDetails({
   model,
   showOverlay,
   isAuthenticated,
   pinnedLabel,
 }: Readonly<ModelItemDetailsProps>): React.JSX.Element {
-  const supportsWebSearch = modelSupportsCapability(model, 'web-search');
+  // Per-model "Web Search" badges intentionally omitted — search is universal
+  // across text models now (per gateway plan §9.2); per-model badges are noise.
   return (
     <div className="text-muted-foreground relative flex items-center justify-between text-xs">
-      <span className="truncate">
-        {model.isAutoRouter ? (
-          'Auto-picks the best model'
-        ) : (
-          <>
-            {model.provider} • Capacity: {formatContextLength(model.contextLength)}
-            {supportsWebSearch && ' • Web Search'}
-          </>
-        )}
-      </span>
+      <span className="truncate">{modelSubtitle(model)}</span>
       {showOverlay && <ModelItemOverlay isAuthenticated={isAuthenticated} />}
       {!showOverlay && pinnedLabel && (
         <span className="text-muted-foreground shrink-0 text-xs">{pinnedLabel}</span>
@@ -182,36 +228,19 @@ function ModelItemDetails({
 
 interface ModelItemContentProps {
   model: Model;
-  isFocused: boolean;
-  isSelected: boolean;
-  isDisabled: boolean;
   showOverlay: boolean;
   isAuthenticated: boolean;
   pinnedLabel?: string | undefined;
-  onClick: () => void;
-  onDoubleClick: () => void;
 }
 
 function ModelItemContent({
   model,
-  isFocused,
-  isSelected,
-  isDisabled,
   showOverlay,
   isAuthenticated,
   pinnedLabel,
-  onClick,
-  onDoubleClick,
 }: Readonly<ModelItemContentProps>): React.JSX.Element {
   return (
-    <div
-      className={cn(
-        'w-0 min-w-0 flex-1 cursor-pointer rounded-l-md p-3 transition-colors',
-        !isSelected && !isFocused && !isDisabled && 'hover:bg-muted'
-      )}
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-    >
+    <div className="w-0 min-w-0 flex-1 p-3">
       <div className="relative flex items-center justify-between gap-2">
         <span className="truncate font-medium">{shortenModelName(model.name)}</span>
         {showOverlay && (
@@ -237,9 +266,258 @@ interface ModelListItemProps {
   canAccessPremium: boolean;
   isAuthenticated: boolean;
   isLinkGuest: boolean;
+  pickerMode: PickerMode;
   pinnedLabel?: string | undefined;
-  onClick: () => void;
-  onDoubleClick: () => void;
+  isExpanded: boolean;
+  isMobile: boolean;
+  /**
+   * Highlights the row briefly via a one-shot pulse animation. Used to draw
+   * attention to the carryover-selected model when entering multi mode.
+   */
+  isPulsing: boolean;
+  /** Row position used by the checkbox cascade-in/out animation. */
+  cascadeIndex: number;
+  onActivate: () => void;
+  onHover: () => void;
+  onShowInfo: () => void;
+  onToggleExpand: () => void;
+}
+
+const CHECKBOX_CASCADE_STAGGER_MS = 40;
+
+/**
+ * Each row contributes its own stagger delay based on its cascade index.
+ * Enter (single → multi) and exit (multi → single) both cascade top-to-bottom.
+ * Width animates from 0 → auto so the model name text slides over smoothly
+ * instead of jumping when the checkbox appears.
+ */
+function ModelCheckboxIcon({
+  isSelected,
+  cascadeIndex,
+}: Readonly<{ isSelected: boolean; cascadeIndex: number }>): React.JSX.Element {
+  const delay = (cascadeIndex * CHECKBOX_CASCADE_STAGGER_MS) / 1000;
+  return (
+    <motion.span
+      data-testid="model-checkbox"
+      data-cascade-index={cascadeIndex}
+      className="relative flex shrink-0 items-center justify-center overflow-hidden"
+      aria-hidden
+      initial={{ opacity: 0, scale: 0.5, width: 0, marginLeft: 0 }}
+      animate={{ opacity: 1, scale: 1, width: 24, marginLeft: 8 }}
+      exit={{ opacity: 0, scale: 0.5, width: 0, marginLeft: 0 }}
+      transition={{ delay, duration: 0.18, ease: [0.34, 1.56, 0.64, 1] }}
+    >
+      {isSelected ? (
+        <CheckSquare className="text-primary h-4 w-4" />
+      ) : (
+        <Square className="text-muted-foreground h-4 w-4" />
+      )}
+    </motion.span>
+  );
+}
+
+interface RowMainButtonProps {
+  model: Model;
+  pickerMode: PickerMode;
+  isSelected: boolean;
+  isFocused: boolean;
+  isDisabled: boolean;
+  showOverlay: boolean;
+  isAuthenticated: boolean;
+  pinnedLabel?: string | undefined;
+  /** Row position used by the checkbox cascade-in/out animation. */
+  cascadeIndex: number;
+  onActivate: () => void;
+  onHover: () => void;
+}
+
+function RowMainButton({
+  model,
+  pickerMode,
+  isSelected,
+  isFocused,
+  isDisabled,
+  showOverlay,
+  isAuthenticated,
+  pinnedLabel,
+  cascadeIndex,
+  onActivate,
+  onHover,
+}: Readonly<RowMainButtonProps>): React.JSX.Element {
+  const ariaLabel =
+    pickerMode === 'single' ? `Use ${model.name}` : `Toggle selection for ${model.name}`;
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      className={cn(
+        'flex flex-1 cursor-pointer items-center rounded-md text-left transition-colors',
+        !isSelected && !isFocused && !isDisabled && 'hover:bg-muted'
+      )}
+      onClick={onActivate}
+      onMouseEnter={onHover}
+      onFocus={onHover}
+    >
+      <AnimatePresence initial={false}>
+        {pickerMode === 'multi' && (
+          <ModelCheckboxIcon key="checkbox" isSelected={isSelected} cascadeIndex={cascadeIndex} />
+        )}
+      </AnimatePresence>
+      <ModelItemContent
+        model={model}
+        showOverlay={showOverlay}
+        isAuthenticated={isAuthenticated}
+        pinnedLabel={pinnedLabel}
+      />
+    </button>
+  );
+}
+
+interface RowInfoIconButtonProps {
+  modelName: string;
+  onShowInfo: () => void;
+}
+
+function RowInfoIconButton({
+  modelName,
+  onShowInfo,
+}: Readonly<RowInfoIconButtonProps>): React.JSX.Element | null {
+  // Solution B: only show on touch-primary devices (no hover capability).
+  // Using the JS hook (not a CSS media query) so the dev `Touch Mode` toggle
+  // in the sidebar actually exercises this code path on a desktop browser.
+  const isTouchDevice = useIsTouchDevice();
+  if (!isTouchDevice) return null;
+  return (
+    <button
+      data-testid="row-info-icon"
+      type="button"
+      aria-label={`Show details for ${modelName}`}
+      className="text-muted-foreground hover:bg-muted/50 hover:text-foreground relative flex w-12 shrink-0 cursor-pointer items-center justify-center self-stretch rounded transition-colors"
+      onClick={(e) => {
+        e.stopPropagation();
+        onShowInfo();
+      }}
+    >
+      <Info className="h-5 w-5" />
+    </button>
+  );
+}
+
+interface RowChevronButtonProps {
+  modelName: string;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+}
+
+function RowChevronButton({
+  modelName,
+  isExpanded,
+  onToggleExpand,
+}: Readonly<RowChevronButtonProps>): React.JSX.Element {
+  const ChevronIcon = isExpanded ? ChevronUp : ChevronDown;
+  const ariaLabel = isExpanded
+    ? `Collapse details for ${modelName}`
+    : `Show details for ${modelName}`;
+  return (
+    <button
+      data-testid="row-expand-chevron"
+      type="button"
+      aria-label={ariaLabel}
+      aria-expanded={isExpanded}
+      className="text-muted-foreground hover:bg-muted/50 hover:text-foreground relative flex w-12 shrink-0 cursor-pointer items-center justify-center self-stretch rounded transition-colors"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggleExpand();
+      }}
+    >
+      <ChevronIcon className="h-5 w-5" />
+    </button>
+  );
+}
+
+function expandedRowButtonLabel(
+  pickerMode: PickerMode,
+  isSelected: boolean,
+  modelName: string
+): string {
+  if (pickerMode === 'single') return `Use ${shortenModelName(modelName)}`;
+  if (isSelected) return 'Remove from selection';
+  return 'Add to selection';
+}
+
+interface RowExpandedInfoProps {
+  model: Model;
+  pickerMode: PickerMode;
+  isSelected: boolean;
+  onActivate: () => void;
+}
+
+function RowExpandedInfo({
+  model,
+  pickerMode,
+  isSelected,
+  onActivate,
+}: Readonly<RowExpandedInfoProps>): React.JSX.Element {
+  return (
+    <div data-testid="row-expanded-info" className="border-border-strong border-t px-4 pt-3 pb-4">
+      <ModelInfoPanel model={model} compact />
+      <Button
+        type="button"
+        variant="default"
+        size="sm"
+        className="mt-3 w-full"
+        onClick={(e) => {
+          e.stopPropagation();
+          onActivate();
+        }}
+        data-testid="row-expanded-use-button"
+      >
+        {expandedRowButtonLabel(pickerMode, isSelected, model.name)}
+      </Button>
+    </div>
+  );
+}
+
+interface RowSecondaryAffordanceProps {
+  modelName: string;
+  isExpanded: boolean;
+  isMobile: boolean;
+  onShowInfo: () => void;
+  onToggleExpand: () => void;
+}
+
+function RowSecondaryAffordance({
+  modelName,
+  isExpanded,
+  isMobile,
+  onShowInfo,
+  onToggleExpand,
+}: Readonly<RowSecondaryAffordanceProps>): React.JSX.Element {
+  if (isMobile) {
+    return (
+      <RowChevronButton
+        modelName={modelName}
+        isExpanded={isExpanded}
+        onToggleExpand={onToggleExpand}
+      />
+    );
+  }
+  return <RowInfoIconButton modelName={modelName} onShowInfo={onShowInfo} />;
+}
+
+function modelListItemRowClass(params: {
+  isSelected: boolean;
+  isFocused: boolean;
+  isDisabled: boolean;
+  isPulsing: boolean;
+}): string {
+  return cn(
+    'group/row relative flex flex-col rounded-md transition-colors',
+    params.isSelected && 'bg-accent/50',
+    params.isFocused && 'ring-primary ring-2',
+    params.isDisabled && 'pointer-events-none opacity-40',
+    params.isPulsing && 'animate-picker-pulse'
+  );
 }
 
 function ModelListItem({
@@ -251,22 +529,27 @@ function ModelListItem({
   canAccessPremium,
   isAuthenticated,
   isLinkGuest,
+  pickerMode,
   pinnedLabel,
-  onClick,
-  onDoubleClick,
+  isExpanded,
+  isMobile,
+  isPulsing,
+  cascadeIndex,
+  onActivate,
+  onHover,
+  onShowInfo,
+  onToggleExpand,
 }: Readonly<ModelListItemProps>): React.JSX.Element {
   const showOverlay = isPremium && !canAccessPremium && !isLinkGuest;
+  const showInlineExpansion = isExpanded && isMobile;
 
   return (
     <div
       data-testid={`model-item-${model.id}`}
       data-selected={isSelected}
-      className={cn(
-        'group/row relative flex rounded-md transition-colors',
-        isSelected && 'bg-accent/50',
-        isFocused && 'ring-primary ring-2',
-        isDisabled && 'pointer-events-none opacity-40'
-      )}
+      data-expanded={isExpanded}
+      data-pulsing={isPulsing ? 'true' : undefined}
+      className={modelListItemRowClass({ isSelected, isFocused, isDisabled, isPulsing })}
       role="option"
       aria-selected={isSelected}
     >
@@ -277,36 +560,37 @@ function ModelListItem({
         />
       )}
 
-      <ModelItemContent
-        model={model}
-        isFocused={isFocused}
-        isSelected={isSelected}
-        isDisabled={isDisabled}
-        showOverlay={showOverlay}
-        isAuthenticated={isAuthenticated}
-        pinnedLabel={pinnedLabel}
-        onClick={onClick}
-        onDoubleClick={onDoubleClick}
-      />
+      <div className="flex">
+        <RowMainButton
+          model={model}
+          pickerMode={pickerMode}
+          isSelected={isSelected}
+          isFocused={isFocused}
+          isDisabled={isDisabled}
+          showOverlay={showOverlay}
+          isAuthenticated={isAuthenticated}
+          pinnedLabel={pinnedLabel}
+          cascadeIndex={cascadeIndex}
+          onActivate={onActivate}
+          onHover={onHover}
+        />
+        <RowSecondaryAffordance
+          modelName={model.name}
+          isExpanded={isExpanded}
+          isMobile={isMobile}
+          onShowInfo={onShowInfo}
+          onToggleExpand={onToggleExpand}
+        />
+      </div>
 
-      <button
-        data-testid="model-checkbox"
-        type="button"
-        className={cn(
-          'relative flex w-10 cursor-pointer items-center justify-center self-stretch rounded-r-md transition-colors',
-          !isDisabled && 'hover:bg-muted/50'
-        )}
-        onClick={(e) => {
-          e.stopPropagation();
-          onDoubleClick();
-        }}
-      >
-        {isSelected ? (
-          <CheckSquare className="text-primary h-4 w-4" />
-        ) : (
-          <Square className="text-muted-foreground h-4 w-4" />
-        )}
-      </button>
+      {showInlineExpansion && (
+        <RowExpandedInfo
+          model={model}
+          pickerMode={pickerMode}
+          isSelected={isSelected}
+          onActivate={onActivate}
+        />
+      )}
     </div>
   );
 }
@@ -317,8 +601,18 @@ interface SearchAndSortSectionProps {
   sortField: SortField;
   sortDirection: SortDirection;
   onSortClick: (field: 'price' | 'context') => void;
-  webSearchFilter: boolean;
-  onToggleWebSearch: () => void;
+  activeModality: Modality;
+  /**
+   * Optional element rendered to the right of the search input. Width animates
+   * via the consumer (typically the multi-mode count chip).
+   */
+  rightAccessory?: React.ReactNode;
+  /**
+   * When false, omits the bottom divider so the section sits flush against the
+   * parent's own border (used when wrapped in DesktopTopQuadrant, which owns
+   * the divider for both desktop top quadrants).
+   */
+  withBottomBorder?: boolean;
 }
 
 function SearchAndSortSection({
@@ -327,12 +621,19 @@ function SearchAndSortSection({
   sortField,
   sortDirection,
   onSortClick,
-  webSearchFilter,
-  onToggleWebSearch,
+  activeModality,
+  rightAccessory,
+  withBottomBorder = true,
 }: Readonly<SearchAndSortSectionProps>): React.JSX.Element {
+  const showCapacityButton = activeModality === 'text';
   return (
-    <div className="border-border-strong space-y-2 border-b px-4 py-2">
-      <div className="grid grid-cols-[auto_1fr_1fr] items-center gap-2 pr-8 sm:pr-0">
+    <div className={cn('border-border-strong space-y-2 px-4 py-2', withBottomBorder && 'border-b')}>
+      <div
+        className={cn(
+          'items-center gap-2 pr-8 sm:pr-0',
+          showCapacityButton ? 'grid grid-cols-[auto_1fr_1fr]' : 'grid grid-cols-[auto_1fr]'
+        )}
+      >
         <span className="text-muted-foreground text-xs font-medium">Sort:</span>
         <SortButton
           field="price"
@@ -341,16 +642,18 @@ function SearchAndSortSection({
           direction={sortDirection}
           onClick={onSortClick}
         />
-        <SortButton
-          field="context"
-          label="Capacity"
-          activeField={sortField}
-          direction={sortDirection}
-          onClick={onSortClick}
-        />
+        {showCapacityButton && (
+          <SortButton
+            field="context"
+            label="Capacity"
+            activeField={sortField}
+            direction={sortDirection}
+            onClick={onSortClick}
+          />
+        )}
       </div>
-      <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-        <div className="relative">
+      <div data-testid="search-and-sort-row" className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
           <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
           <Input
             type="text"
@@ -362,14 +665,7 @@ function SearchAndSortSection({
             className="pl-9"
           />
         </div>
-        <Button
-          variant={webSearchFilter ? 'default' : 'outline'}
-          size="sm"
-          onClick={onToggleWebSearch}
-          aria-label={webSearchFilter ? 'Web search filter on' : 'Web search filter off'}
-        >
-          Web Search
-        </Button>
+        {rightAccessory}
       </div>
     </div>
   );
@@ -382,9 +678,35 @@ interface UseFilteredModelsOptions {
   sortDirection: SortDirection;
   premiumIds: Set<string>;
   canAccessPremium: boolean;
-  webSearchFilter: boolean;
   strongestId: string;
   valueId: string;
+  /** Only show models matching this modality. Defaults to 'text'. */
+  activeModality?: Modality | undefined;
+}
+
+/**
+ * Assembles the final model list: Smart Model first (when present), then
+ * pinned quick-select models (in default view only), then the remaining
+ * interlaced list. Keeps `useFilteredModels` focused on filtering/sorting.
+ */
+function buildModelResultList(params: {
+  interlaced: Model[];
+  smartModel: Model | undefined;
+  strongestId: string;
+  valueId: string;
+  isDefault: boolean;
+}): Model[] {
+  const { interlaced, smartModel, strongestId, valueId, isDefault } = params;
+  const smartPrefix = smartModel ? [smartModel] : [];
+  if (!isDefault) {
+    return [...smartPrefix, ...interlaced];
+  }
+  const pinnedIds = [...new Set([strongestId, valueId])];
+  const pinned = pinnedIds
+    .map((id) => interlaced.find((m) => m.id === id))
+    .filter((m): m is Model => m !== undefined);
+  const remaining = interlaced.filter((m) => !pinnedIds.includes(m.id));
+  return [...smartPrefix, ...pinned, ...remaining];
 }
 
 function useFilteredModels({
@@ -394,32 +716,24 @@ function useFilteredModels({
   sortDirection,
   premiumIds,
   canAccessPremium,
-  webSearchFilter,
   strongestId,
   valueId,
+  activeModality = 'text',
 }: UseFilteredModelsOptions): Model[] {
   return React.useMemo(() => {
-    const isDefault = sortField === null && !searchQuery.trim() && !webSearchFilter;
+    const isDefault = sortField === null && !searchQuery.trim();
 
-    const autoRouter = models.find((m) => m.isAutoRouter === true);
-    const nonAutoModels = models.filter((m) => m.isAutoRouter !== true);
+    // Filter to models matching the active modality. Smart Model is text-only.
+    const modalityFiltered = models.filter((m) => m.modality === activeModality);
+    const smartModel =
+      activeModality === 'text' ? modalityFiltered.find((m) => m.isSmartModel === true) : undefined;
+    const nonSmartModels = modalityFiltered.filter((m) => m.isSmartModel !== true);
 
-    let result = filterBySearch(nonAutoModels, searchQuery);
-    if (webSearchFilter) {
-      result = result.filter((m) => modelSupportsCapability(m, 'web-search'));
-    }
-    const sorted = sortModels(result, sortField, sortDirection);
+    const result = filterBySearch(nonSmartModels, searchQuery);
+    const sorted = sortModels(result, sortField, sortDirection, activeModality);
     const interlaced = interlaceModels(sorted, premiumIds, canAccessPremium);
 
-    if (isDefault) {
-      const pinnedIds = [...new Set([strongestId, valueId])];
-      const pinned = pinnedIds
-        .map((id) => interlaced.find((m) => m.id === id))
-        .filter((m): m is Model => m !== undefined);
-      const remaining = interlaced.filter((m) => !pinnedIds.includes(m.id));
-      return [...(autoRouter ? [autoRouter] : []), ...pinned, ...remaining];
-    }
-    return [...(autoRouter ? [autoRouter] : []), ...interlaced];
+    return buildModelResultList({ interlaced, smartModel, strongestId, valueId, isDefault });
   }, [
     models,
     searchQuery,
@@ -427,9 +741,9 @@ function useFilteredModels({
     sortDirection,
     premiumIds,
     canAccessPremium,
-    webSearchFilter,
     strongestId,
     valueId,
+    activeModality,
   ]);
 }
 
@@ -472,39 +786,426 @@ function updateSelectedIds(previous: Set<string>, modelId: string): Set<string> 
 
 interface ModelSelectorFooterProps {
   selectedCount: number;
-  onClear: () => void;
+  onCancel: () => void;
   onConfirm: () => void;
-  onClose: () => void;
 }
 
-function selectedModelLabel(count: number): string {
-  return count === 1 ? 'Select Model' : 'Close';
-}
-
+/**
+ * Multi-mode footer. Single mode hides the footer entirely (row click commits +
+ * closes, so there's no pending state to confirm or discard).
+ *
+ * Slides up from below when entering — gives the visual cue that the user has
+ * a pending state to confirm. The root MotionConfig globally collapses this
+ * to instant when reduced motion is on.
+ */
 function ModelSelectorFooter({
   selectedCount,
-  onClear,
+  onCancel,
   onConfirm,
-  onClose,
 }: Readonly<ModelSelectorFooterProps>): React.JSX.Element {
+  const useLabel = selectedCount === 1 ? 'Use 1 model' : `Use ${String(selectedCount)} models`;
   return (
-    <div className="border-t p-4">
+    <motion.div
+      data-testid="model-selector-footer-motion"
+      initial={{ y: 24, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: 24, opacity: 0 }}
+      transition={{ duration: 0.22, ease: 'easeOut' }}
+      className="border-t p-4"
+    >
       <ModalActions
-        {...(selectedCount >= 1 && {
-          cancel: {
-            label: 'Clear Selected',
-            onClick: onClear,
-            testId: 'clear-selection-button',
-          },
-        })}
+        cancel={{
+          label: 'Cancel',
+          onClick: onCancel,
+          testId: 'cancel-button',
+        }}
         primary={{
-          label:
-            selectedCount > 1
-              ? `Select ${String(selectedCount)} Models`
-              : selectedModelLabel(selectedCount),
-          onClick: selectedCount === 0 ? onClose : onConfirm,
+          label: useLabel,
+          onClick: onConfirm,
+          testId: 'use-models-button',
         }}
       />
+    </motion.div>
+  );
+}
+
+interface MultiCountChipProps {
+  selectedCount: number;
+  onClear: () => void;
+}
+
+function MultiCountChip({
+  selectedCount,
+  onClear,
+}: Readonly<MultiCountChipProps>): React.JSX.Element {
+  return (
+    <motion.span
+      data-testid="picker-mode-counter"
+      layout
+      initial={{ opacity: 0, width: 0 }}
+      animate={{ opacity: 1, width: 'auto' }}
+      exit={{ opacity: 0, width: 0 }}
+      transition={{ duration: 0.18 }}
+      className="text-muted-foreground inline-flex flex-shrink-0 items-center gap-1 overflow-hidden text-xs whitespace-nowrap"
+    >
+      <span>{`${String(selectedCount)} of ${String(MAX_SELECTED_MODELS)}`}</span>
+      {selectedCount > 0 && (
+        <>
+          <span aria-hidden>·</span>
+          <button
+            type="button"
+            data-testid="clear-selection-button"
+            onClick={onClear}
+            className="text-primary cursor-pointer underline-offset-2 hover:underline"
+          >
+            Clear
+          </button>
+        </>
+      )}
+    </motion.span>
+  );
+}
+
+function initialFocusedId(selectedIds: Set<string>, models: Model[]): string {
+  const firstSelected = selectedIds.values().next().value;
+  if (firstSelected !== undefined) return firstSelected;
+  return models[0]?.id ?? '';
+}
+
+interface ModelListBodyProps {
+  filteredModels: Model[];
+  pickerMode: PickerMode;
+  selectedIds: Set<string>;
+  localSelectedIds: Set<string>;
+  focusedModelId: string;
+  expandedModelId: string | null;
+  isPremium: (modelId: string) => boolean;
+  canAccessPremium: boolean;
+  isAuthenticated: boolean;
+  isLinkGuest: boolean;
+  isMobile: boolean;
+  pulsingModelId: string | null;
+  getPinnedLabel: (modelId: string) => string | undefined;
+  onActivate: (modelId: string) => void;
+  onHover: (modelId: string) => void;
+  onShowInfo: (modelId: string) => void;
+  onToggleExpand: (modelId: string) => void;
+}
+
+function ModelListBody(props: Readonly<ModelListBodyProps>): React.JSX.Element {
+  const {
+    filteredModels,
+    pickerMode,
+    selectedIds,
+    localSelectedIds,
+    focusedModelId,
+    expandedModelId,
+    isPremium,
+    canAccessPremium,
+    isAuthenticated,
+    isLinkGuest,
+    isMobile,
+    pulsingModelId,
+    getPinnedLabel,
+    onActivate,
+    onHover,
+    onShowInfo,
+    onToggleExpand,
+  } = props;
+  const isAtLimit = pickerMode === 'multi' && localSelectedIds.size >= MAX_SELECTED_MODELS;
+
+  return (
+    <div
+      className="overflow-hidden p-2 pr-3"
+      role="listbox"
+      aria-label="Models"
+      aria-multiselectable={pickerMode === 'multi'}
+    >
+      {filteredModels.map((model, cascadeIndex) => {
+        const isSelected =
+          pickerMode === 'multi' ? localSelectedIds.has(model.id) : selectedIds.has(model.id);
+        return (
+          <ModelListItem
+            key={model.id}
+            model={model}
+            isFocused={model.id === focusedModelId}
+            isSelected={isSelected}
+            isDisabled={isAtLimit && !localSelectedIds.has(model.id)}
+            isPremium={isPremium(model.id)}
+            canAccessPremium={canAccessPremium}
+            isAuthenticated={isAuthenticated}
+            isLinkGuest={isLinkGuest}
+            pickerMode={pickerMode}
+            pinnedLabel={getPinnedLabel(model.id)}
+            isExpanded={expandedModelId === model.id}
+            isMobile={isMobile}
+            isPulsing={model.id === pulsingModelId}
+            cascadeIndex={cascadeIndex}
+            onActivate={() => {
+              onActivate(model.id);
+            }}
+            onHover={() => {
+              onHover(model.id);
+            }}
+            onShowInfo={() => {
+              onShowInfo(model.id);
+            }}
+            onToggleExpand={() => {
+              onToggleExpand(model.id);
+            }}
+          />
+        );
+      })}
+      {filteredModels.length === 0 && (
+        <div className="text-muted-foreground p-4 text-center text-sm">No models found</div>
+      )}
+    </div>
+  );
+}
+
+interface MobileTopSectionProps {
+  pickerMode: PickerMode;
+  onModeChange: (mode: PickerMode) => void;
+  multiLabel: React.ReactNode;
+  searchAndSortProps: SearchAndSortSectionProps;
+}
+
+function MobileTopSection({
+  pickerMode,
+  onModeChange,
+  multiLabel,
+  searchAndSortProps,
+}: Readonly<MobileTopSectionProps>): React.JSX.Element {
+  return (
+    <div className="flex flex-shrink-0 flex-col">
+      <div className="border-border-strong border-b py-2">
+        <div
+          data-testid="picker-mode-toggle-wrapper"
+          className="mx-auto w-full max-w-[calc(100%-3rem)] px-4"
+        >
+          <PickerModeToggle
+            mode={pickerMode}
+            onChange={onModeChange}
+            orientation="horizontal"
+            singleLabel="Talk to one model"
+            multiLabel={multiLabel}
+          />
+        </div>
+      </div>
+      <SearchAndSortSection {...searchAndSortProps} />
+    </div>
+  );
+}
+
+const PICKER_PULSE_DURATION_MS = 600;
+
+interface ModeChangeHandlerParams {
+  setPickerMode: (modality: Modality, mode: PickerMode) => void;
+  resolvedModality: Modality;
+  localSelectedIds: Set<string>;
+  setLocalSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  models: Model[];
+  onSelect: (models: { id: string; name: string }[]) => void;
+}
+
+/**
+ * Handles the picker mode toggle. On multi → single with >1 selected, auto-
+ * collapses local + committed selection to the first model so the displayed
+ * mode and committed state stay in sync.
+ */
+function useModeChangeHandler({
+  setPickerMode,
+  resolvedModality,
+  localSelectedIds,
+  setLocalSelectedIds,
+  models,
+  onSelect,
+}: ModeChangeHandlerParams): (next: PickerMode) => void {
+  return React.useCallback(
+    (next: PickerMode): void => {
+      const shouldCollapse = next === 'single' && localSelectedIds.size > 1;
+      if (shouldCollapse) {
+        const firstId = localSelectedIds.values().next().value;
+        if (firstId !== undefined) {
+          const collapsed = new Set([firstId]);
+          setLocalSelectedIds(collapsed);
+          onSelect(buildSelectedEntries(collapsed, models));
+        }
+      }
+      setPickerMode(resolvedModality, next);
+    },
+    [setPickerMode, resolvedModality, localSelectedIds, setLocalSelectedIds, models, onSelect]
+  );
+}
+
+/**
+ * Highlights the carryover-selected row briefly when the picker transitions
+ * single → multi. Returns the model id to pulse, or null when no pulse should
+ * play. Resets when the modal closes so a re-open in multi mode doesn't pulse.
+ */
+function useCarryoverPulse(
+  pickerMode: PickerMode,
+  selectedIds: Set<string>,
+  isOpen: boolean
+): string | null {
+  const [pulsingModelId, setPulsingModelId] = React.useState<string | null>(null);
+  const previousModeReference = React.useRef<PickerMode>(pickerMode);
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      previousModeReference.current = pickerMode;
+      setPulsingModelId(null);
+      return;
+    }
+    const previous = previousModeReference.current;
+    previousModeReference.current = pickerMode;
+    if (previous !== 'single' || pickerMode !== 'multi') return;
+    const firstId = selectedIds.values().next().value;
+    if (firstId === undefined) return;
+    setPulsingModelId(firstId);
+    const timer = setTimeout(() => {
+      setPulsingModelId(null);
+    }, PICKER_PULSE_DURATION_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [pickerMode, selectedIds, isOpen]);
+
+  return pulsingModelId;
+}
+
+/**
+ * Single source of truth for the desktop top-quadrant height. Both the
+ * left search/sort section and the right toggle header wrap their content in
+ * a `<DesktopTopQuadrant>` so the two columns stay in visual lock-step.
+ */
+const DESKTOP_TOP_QUADRANT_HEIGHT_CLASS = 'h-[6rem]';
+
+function DesktopTopQuadrant({
+  children,
+}: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
+  return (
+    <div
+      data-testid="desktop-top-quadrant"
+      className={cn(
+        'border-border-strong flex flex-shrink-0 items-center overflow-hidden border-b',
+        DESKTOP_TOP_QUADRANT_HEIGHT_CLASS
+      )}
+    >
+      <div className="w-full">{children}</div>
+    </div>
+  );
+}
+
+interface DesktopRightColumnProps {
+  pickerMode: PickerMode;
+  onModeChange: (mode: PickerMode) => void;
+  multiLabel: React.ReactNode;
+  focusedModel: Model | undefined;
+}
+
+function DesktopRightColumn({
+  pickerMode,
+  onModeChange,
+  multiLabel,
+  focusedModel,
+}: Readonly<DesktopRightColumnProps>): React.JSX.Element {
+  return (
+    <div className="flex min-h-0 max-w-sm flex-1 flex-[11] flex-col">
+      <DesktopTopQuadrant>
+        <div className="py-2">
+          <div
+            data-testid="picker-mode-toggle-wrapper"
+            className="mx-auto w-full max-w-[calc(100%-3rem)] px-4"
+          >
+            <PickerModeToggle
+              mode={pickerMode}
+              onChange={onModeChange}
+              orientation="vertical"
+              singleLabel="Talk to one model"
+              multiLabel={multiLabel}
+            />
+          </div>
+        </div>
+      </DesktopTopQuadrant>
+      <ScrollArea data-testid="model-details-panel" className="min-h-0 flex-1">
+        <div className="p-6">{focusedModel ? <ModelInfoPanel model={focusedModel} /> : null}</div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+interface ModelSelectorModalLayoutProps {
+  isMobile: boolean;
+  pickerMode: PickerMode;
+  multiLabel: React.ReactNode;
+  searchAndSortProps: SearchAndSortSectionProps;
+  handleModeChange: (mode: PickerMode) => void;
+  focusedModel: Model | undefined;
+  modelListBodyProps: ModelListBodyProps;
+  footer: React.ReactNode;
+}
+
+function ModelSelectorModalLayout({
+  isMobile,
+  pickerMode,
+  multiLabel,
+  searchAndSortProps,
+  handleModeChange,
+  focusedModel,
+  modelListBodyProps,
+  footer,
+}: Readonly<ModelSelectorModalLayoutProps>): React.JSX.Element {
+  return (
+    <div
+      className={cn(
+        'bg-background flex w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg',
+        isMobile ? 'h-[92dvh]' : 'h-[85dvh]'
+      )}
+      data-testid="model-selector-modal"
+      data-picker-mode={pickerMode}
+    >
+      <div className="flex min-h-0 flex-1 flex-col">
+        {isMobile && (
+          <MobileTopSection
+            pickerMode={pickerMode}
+            onModeChange={handleModeChange}
+            multiLabel={multiLabel}
+            searchAndSortProps={searchAndSortProps}
+          />
+        )}
+
+        <div className={cn('flex min-h-0 min-w-0 flex-1', isMobile ? 'flex-col' : 'flex-row')}>
+          <div
+            data-testid="model-list-panel"
+            className={cn(
+              'border-border-strong flex min-h-0 min-w-0 flex-col overflow-x-hidden',
+              isMobile ? 'flex-[9] border-b' : 'flex-1 border-r'
+            )}
+          >
+            {!isMobile && (
+              <DesktopTopQuadrant>
+                <SearchAndSortSection {...searchAndSortProps} withBottomBorder={false} />
+              </DesktopTopQuadrant>
+            )}
+
+            <ScrollArea data-testid="model-list-scroll" className="min-h-0 flex-1">
+              <ModelListBody {...modelListBodyProps} />
+            </ScrollArea>
+          </div>
+
+          {!isMobile && (
+            <DesktopRightColumn
+              pickerMode={pickerMode}
+              onModeChange={handleModeChange}
+              multiLabel={multiLabel}
+              focusedModel={focusedModel}
+            />
+          )}
+        </div>
+      </div>
+
+      {footer}
     </div>
   );
 }
@@ -515,10 +1216,14 @@ interface ModelSelectorModalProps extends ModelSelectorGatingProps {
   models: Model[];
   selectedIds: Set<string>;
   onSelect: (models: { id: string; name: string }[]) => void;
+  /** Filter models to match this modality. Defaults to 'text' for back-compat. */
+  activeModality?: Modality;
 }
 
 /**
- * Model selector modal with search, quick-select buttons, and model details.
+ * Model selector modal with search, sort, premium gating, and per-modality
+ * scoping. Single mode commits + closes on row click. Multi mode toggles a
+ * local pending selection committed via the footer.
  */
 export function ModelSelectorModal({
   open,
@@ -531,34 +1236,39 @@ export function ModelSelectorModal({
   isAuthenticated = true,
   isLinkGuest,
   onPremiumClick,
+  activeModality,
 }: Readonly<ModelSelectorModalProps>): React.JSX.Element {
   const isMobile = useIsMobile();
+  const resolvedModality = resolveModality(activeModality);
+  const pickerMode = useModelStore((s) => s.pickerMode[resolvedModality]);
+  const setPickerMode = useModelStore((s) => s.setPickerMode);
+
   const [searchQuery, setSearchQuery] = React.useState('');
-  const [focusedModelId, setFocusedModelId] = React.useState(
-    selectedIds.values().next().value ?? models[0]?.id ?? ''
-  );
+  const [focusedModelId, setFocusedModelId] = React.useState(initialFocusedId(selectedIds, models));
   const [sortField, setSortField] = React.useState<SortField>(null);
   const [sortDirection, setSortDirection] = React.useState<SortDirection>('asc');
-  const [webSearchFilter, setWebSearchFilter] = React.useState(false);
   const [localSelectedIds, setLocalSelectedIds] = React.useState<Set<string>>(new Set(selectedIds));
+  const [expandedModelId, setExpandedModelId] = React.useState<string | null>(null);
   const [showMultiModelSignup, setShowMultiModelSignup] = React.useState(false);
+  const pulsingModelId = useCarryoverPulse(pickerMode, selectedIds, open);
 
-  // Reset state when modal opens
   React.useEffect(() => {
-    if (open) {
-      setShowMultiModelSignup(false);
-      setLocalSelectedIds(new Set(selectedIds));
-      setFocusedModelId(selectedIds.values().next().value ?? models[0]?.id ?? '');
-      setSearchQuery('');
-      setWebSearchFilter(false);
-    }
+    if (!open) return;
+    setShowMultiModelSignup(false);
+    setLocalSelectedIds(new Set(selectedIds));
+    setFocusedModelId(initialFocusedId(selectedIds, models));
+    setSearchQuery('');
+    setExpandedModelId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- models is a fallback; re-running on models change would reset user's selection
   }, [open, selectedIds]);
 
-  // Calculate quick select model IDs based on user tier
+  // Calculate quick select model IDs based on user tier and active modality.
+  // Without `activeModality`, the helper defaults to 'text' and returns text-
+  // model IDs that don't match the modality-filtered list, so Strongest/Value
+  // pins disappear in image/video mode.
   const { strongestId, valueId } = React.useMemo(
-    () => getAccessibleModelIds(models, premiumIds ?? new Set(), canAccessPremium),
-    [models, premiumIds, canAccessPremium]
+    () => getAccessibleModelIds(models, premiumIds ?? new Set(), canAccessPremium, activeModality),
+    [models, premiumIds, canAccessPremium, activeModality]
   );
 
   const filteredModels = useFilteredModels({
@@ -568,9 +1278,9 @@ export function ModelSelectorModal({
     sortDirection,
     premiumIds: premiumIds ?? new Set(),
     canAccessPremium,
-    webSearchFilter,
     strongestId,
     valueId,
+    activeModality,
   });
 
   const handleSortClick = React.useCallback(
@@ -597,19 +1307,63 @@ export function ModelSelectorModal({
     [premiumIds]
   );
 
-  const handleFocusModel = React.useCallback((modelId: string): void => {
+  const handleHoverModel = React.useCallback((modelId: string): void => {
     setFocusedModelId(modelId);
   }, []);
 
-  const handleToggleModel = React.useCallback(
+  const handleShowInfo = React.useCallback((modelId: string): void => {
+    setFocusedModelId(modelId);
+  }, []);
+
+  const handleToggleExpand = React.useCallback((modelId: string): void => {
+    setExpandedModelId((current) => (current === modelId ? null : modelId));
+  }, []);
+
+  const commitSingleSelection = React.useCallback(
+    (model: Model): void => {
+      onSelect([{ id: model.id, name: model.name }]);
+      onOpenChange(false);
+    },
+    [onSelect, onOpenChange]
+  );
+
+  const isPremiumGated = React.useCallback(
+    (modelId: string): boolean =>
+      !isLinkGuest && !canAccessPremium && (premiumIds?.has(modelId) ?? false),
+    [isLinkGuest, canAccessPremium, premiumIds]
+  );
+
+  const isMultiModelSignupBlocked = React.useCallback(
+    (modelId: string): boolean =>
+      !isLinkGuest &&
+      !isAuthenticated &&
+      !localSelectedIds.has(modelId) &&
+      localSelectedIds.size > 0,
+    [isLinkGuest, isAuthenticated, localSelectedIds]
+  );
+
+  /**
+   * Mode-aware row activation. Single mode commits the picked model and closes
+   * the modal; multi mode toggles the model in the local pending selection.
+   * Premium gates fire before either path so unentitled users always hit the
+   * paywall regardless of mode.
+   */
+  const handleRowActivate = React.useCallback(
     (modelId: string): void => {
-      if (!canAccessPremium && premiumIds?.has(modelId)) {
+      const model = models.find((m) => m.id === modelId);
+      if (!model) return;
+
+      if (isPremiumGated(modelId)) {
         onPremiumClick?.(modelId);
         return;
       }
 
-      // Block multi-model selection for unauthenticated users
-      if (!isAuthenticated && !localSelectedIds.has(modelId) && localSelectedIds.size > 0) {
+      if (pickerMode === 'single') {
+        commitSingleSelection(model);
+        return;
+      }
+
+      if (isMultiModelSignupBlocked(modelId)) {
         setShowMultiModelSignup(true);
         return;
       }
@@ -617,7 +1371,14 @@ export function ModelSelectorModal({
       setFocusedModelId(modelId);
       setLocalSelectedIds((previous) => updateSelectedIds(previous, modelId));
     },
-    [canAccessPremium, premiumIds, onPremiumClick, isAuthenticated, localSelectedIds]
+    [
+      models,
+      isPremiumGated,
+      onPremiumClick,
+      pickerMode,
+      isMultiModelSignupBlocked,
+      commitSingleSelection,
+    ]
   );
 
   const handleConfirmSelection = React.useCallback((): void => {
@@ -629,9 +1390,18 @@ export function ModelSelectorModal({
     setLocalSelectedIds(new Set());
   }, []);
 
-  const handleToggleWebSearch = React.useCallback((): void => {
-    setWebSearchFilter((previous) => !previous);
-  }, []);
+  const handleCancel = React.useCallback((): void => {
+    onOpenChange(false);
+  }, [onOpenChange]);
+
+  const handleModeChange = useModeChangeHandler({
+    setPickerMode,
+    resolvedModality,
+    localSelectedIds,
+    setLocalSelectedIds,
+    models,
+    onSelect,
+  });
 
   // Prevent auto-focus on mobile to avoid triggering keyboard
   const handleOpenAutoFocus = React.useCallback(
@@ -643,6 +1413,30 @@ export function ModelSelectorModal({
     [isMobile]
   );
 
+  const showFooter = pickerMode === 'multi';
+  const multiSelectionCount = localSelectedIds.size;
+  const multiLabel = <span>Multiple models at once</span>;
+
+  const searchAndSortProps: SearchAndSortSectionProps = {
+    searchQuery,
+    onSearchChange: setSearchQuery,
+    sortField,
+    sortDirection,
+    onSortClick: handleSortClick,
+    activeModality: resolvedModality,
+    rightAccessory: (
+      <AnimatePresence initial={false}>
+        {pickerMode === 'multi' && (
+          <MultiCountChip
+            key="multi-count-chip"
+            selectedCount={multiSelectionCount}
+            onClear={handleClearSelection}
+          />
+        )}
+      </AnimatePresence>
+    ),
+  };
+
   return (
     <>
       <Overlay
@@ -651,95 +1445,45 @@ export function ModelSelectorModal({
         ariaLabel="Select model"
         onOpenAutoFocus={handleOpenAutoFocus}
       >
-        <div
-          className="bg-background flex h-[92dvh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg sm:h-[85dvh]"
-          data-testid="model-selector-modal"
-        >
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex-shrink-0 sm:hidden">
-              <SearchAndSortSection
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                sortField={sortField}
-                sortDirection={sortDirection}
-                onSortClick={handleSortClick}
-                webSearchFilter={webSearchFilter}
-                onToggleWebSearch={handleToggleWebSearch}
-              />
-            </div>
-
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col sm:flex-row">
-              <div
-                data-testid="model-list-panel"
-                className="border-border-strong flex min-h-0 min-w-0 flex-[9] flex-col overflow-x-hidden border-b sm:flex-1 sm:border-r sm:border-b-0"
-              >
-                <div className="hidden flex-shrink-0 sm:block">
-                  <SearchAndSortSection
-                    searchQuery={searchQuery}
-                    onSearchChange={setSearchQuery}
-                    sortField={sortField}
-                    sortDirection={sortDirection}
-                    onSortClick={handleSortClick}
-                    webSearchFilter={webSearchFilter}
-                    onToggleWebSearch={handleToggleWebSearch}
-                  />
-                </div>
-
-                <ScrollArea data-testid="model-list-scroll" className="min-h-0 flex-1">
-                  <div className="overflow-hidden p-2">
-                    {filteredModels.map((model) => {
-                      const isAtLimit = localSelectedIds.size >= MAX_SELECTED_MODELS;
-                      return (
-                        <ModelListItem
-                          key={model.id}
-                          model={model}
-                          isFocused={model.id === focusedModelId}
-                          isSelected={localSelectedIds.has(model.id)}
-                          isDisabled={isAtLimit && !localSelectedIds.has(model.id)}
-                          isPremium={isPremium(model.id)}
-                          canAccessPremium={canAccessPremium}
-                          isAuthenticated={isAuthenticated}
-                          isLinkGuest={isLinkGuest ?? false}
-                          pinnedLabel={getPinnedLabel(model.id)}
-                          onClick={() => {
-                            handleFocusModel(model.id);
-                          }}
-                          onDoubleClick={() => {
-                            handleToggleModel(model.id);
-                          }}
-                        />
-                      );
-                    })}
-                    {filteredModels.length === 0 && (
-                      <div className="text-muted-foreground p-4 text-center text-sm">
-                        No models found
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
-              </div>
-
-              {/* Right panel: Model details - takes 60% on mobile, constrained on desktop */}
-              <ScrollArea
-                data-testid="model-details-panel"
-                className="min-h-0 flex-[11] sm:max-w-sm sm:flex-1"
-              >
-                <div className="p-6">
-                  {focusedModel ? <ModelInfoPanel model={focusedModel} /> : null}
-                </div>
-              </ScrollArea>
-            </div>
-          </div>
-
-          <ModelSelectorFooter
-            selectedCount={localSelectedIds.size}
-            onClear={handleClearSelection}
-            onConfirm={handleConfirmSelection}
-            onClose={() => {
-              onOpenChange(false);
-            }}
-          />
-        </div>
+        <ModelSelectorModalLayout
+          isMobile={isMobile}
+          pickerMode={pickerMode}
+          multiLabel={multiLabel}
+          searchAndSortProps={searchAndSortProps}
+          handleModeChange={handleModeChange}
+          focusedModel={focusedModel}
+          modelListBodyProps={{
+            filteredModels,
+            pickerMode,
+            selectedIds,
+            localSelectedIds,
+            focusedModelId,
+            expandedModelId,
+            isPremium,
+            canAccessPremium,
+            isAuthenticated,
+            isLinkGuest: isLinkGuest ?? false,
+            isMobile,
+            pulsingModelId,
+            getPinnedLabel,
+            onActivate: handleRowActivate,
+            onHover: handleHoverModel,
+            onShowInfo: handleShowInfo,
+            onToggleExpand: handleToggleExpand,
+          }}
+          footer={
+            <AnimatePresence initial={false}>
+              {showFooter && (
+                <ModelSelectorFooter
+                  key="model-selector-footer"
+                  selectedCount={multiSelectionCount}
+                  onCancel={handleCancel}
+                  onConfirm={handleConfirmSelection}
+                />
+              )}
+            </AnimatePresence>
+          }
+        />
       </Overlay>
       <SignupModal
         variant="multi-model"

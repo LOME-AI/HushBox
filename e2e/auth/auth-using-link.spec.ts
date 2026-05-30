@@ -1,6 +1,7 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, unsettledExpect } from '../fixtures.js';
 import { setupGroupConversationWithSidebar } from '../helpers/group-test-setup.js';
 import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-link.js';
+import { ChatPage } from '../pages/index.js';
 import {
   expectSharedConversationLoaded,
   expectNoDecryptionErrors,
@@ -41,11 +42,11 @@ test.describe('Auth User Using Link', () => {
 
       await expectSharedConversationLoaded(testBobPage);
 
-      // Messages should decrypt without errors (Bug 2 fix: credentials omit)
-      await expect(testBobPage.getByText('Hello from Alice').first()).toBeVisible({
-        timeout: 10_000,
-      });
-      await expect(testBobPage.getByText('Hi from Bob').first()).toBeVisible();
+      // Chat mounts at the latest message; older rows may be virtualized out
+      // of the viewport, so use the scroll-aware helper to assert visibility.
+      const bobChatPage = new ChatPage(testBobPage);
+      await bobChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
+      await bobChatPage.assertMessageVisible('Hi from Bob');
 
       await expectNoDecryptionErrors(testBobPage);
       await expectSendInputDisabled(testBobPage);
@@ -69,14 +70,11 @@ test.describe('Auth User Using Link', () => {
 
       await expectSharedConversationLoaded(testBobPage);
 
-      // Messages decrypt correctly
-      await expect(testBobPage.getByText('Hello from Alice').first()).toBeVisible({
-        timeout: 10_000,
-      });
+      const bobChatPage = new ChatPage(testBobPage);
+      await bobChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
 
       await expectNoDecryptionErrors(testBobPage);
 
-      // Can send a message
       await sendMessageAsGuest(testBobPage, `Bob via link ${String(Date.now())}`, /message/i);
     });
   });
@@ -108,6 +106,9 @@ test.describe('Auth User Using Link', () => {
       const newMessage = `Post no-history link ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(newMessage);
       await chatPage.expectMessageVisible(newMessage);
+      // Stream + persistence runs under Workers waitUntil; Bob's GET below
+      // would otherwise race the DB write and see an empty messages array.
+      await chatPage.waitForStreamComplete();
     });
 
     await test.step('Bob opens read link — sees only new messages, no errors', async () => {
@@ -115,11 +116,10 @@ test.describe('Auth User Using Link', () => {
 
       await expectSharedConversationLoaded(testBobPage);
 
-      // Should NOT see pre-rotation messages
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      // Should see post-rotation message
-      await expect(testBobPage.getByText('Post no-history link').first()).toBeVisible({
+      // Decryption can paint after settled fires.
+      await unsettledExpect(testBobPage.getByText('Post no-history link').first()).toBeVisible({
         timeout: 10_000,
       });
 
@@ -144,6 +144,7 @@ test.describe('Auth User Using Link', () => {
       const latestMessage = `Latest for write link ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(latestMessage);
       await chatPage.expectMessageVisible(latestMessage);
+      await chatPage.waitForStreamComplete();
     });
 
     await test.step('Bob opens write link — sees only new, can send, no errors', async () => {
@@ -151,17 +152,15 @@ test.describe('Auth User Using Link', () => {
 
       await expectSharedConversationLoaded(testBobPage);
 
-      // Should NOT see old messages
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      // Should see latest message
-      await expect(testBobPage.getByText('Latest for write link').first()).toBeVisible({
+      // Decryption can paint after settled fires.
+      await unsettledExpect(testBobPage.getByText('Latest for write link').first()).toBeVisible({
         timeout: 10_000,
       });
 
       await expectNoDecryptionErrors(testBobPage);
 
-      // Can send a message
       await sendMessageAsGuest(
         testBobPage,
         `Bob no-history write ${String(Date.now())}`,

@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { isMainModule } from '../lib/is-main.js';
 import {
   TOTAL_FEE_RATE,
   HUSHBOX_FEE_RATE,
@@ -44,6 +45,7 @@ export function collectReadmeInputs(rootDir: string): string[] {
     path.join(rootDir, 'scripts/readme/generate-readme.ts'),
     path.join(rootDir, 'README.template.md'),
     path.join(rootDir, 'packages/shared/src/constants.ts'),
+    path.join(rootDir, 'packages/shared/src/fees.ts'),
     path.join(rootDir, 'packages/shared/src/tiers.ts'),
   ];
 }
@@ -91,7 +93,6 @@ export function generateReadme(rootDir: string): void {
   );
 }
 
-// CLI entry point
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) generateReadme(process.cwd());

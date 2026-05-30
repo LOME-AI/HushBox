@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Hono } from 'hono';
-import type { AppEnv } from '../types.js';
+import { Hono, type MiddlewareHandler } from 'hono';
 
 /** Type-safe JSON response parser for test assertions. */
 async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
@@ -23,10 +22,6 @@ vi.mock('@hushbox/db', () => ({
 
 vi.mock('../services/email/index.js', () => ({
   getEmailClient: vi.fn(() => ({ type: 'email' })),
-}));
-
-vi.mock('../services/openrouter/index.js', () => ({
-  getOpenRouterClient: vi.fn(() => ({ type: 'openrouter', isMock: false })),
 }));
 
 vi.mock('../services/helcim/index.js', () => ({
@@ -58,19 +53,19 @@ vi.mock('iron-session', () => ({
   getIronSession: vi.fn(),
 }));
 
+import { createDb, LOCAL_NEON_DEV_CONFIG } from '@hushbox/db';
 import {
   dbMiddleware,
   redisMiddleware,
   sessionMiddleware,
-  openRouterMiddleware,
   helcimMiddleware,
   envMiddleware,
   ironSessionMiddleware,
+  mediaStorageMiddleware,
 } from './dependencies.js';
-import { createDb, LOCAL_NEON_DEV_CONFIG } from '@hushbox/db';
-import { getOpenRouterClient } from '../services/openrouter/index.js';
 import { getHelcimClient } from '../services/helcim/index.js';
 import { createRedisClient } from '../lib/redis.js';
+import type { AppEnv } from '../types.js';
 
 describe('dbMiddleware', () => {
   beforeEach(() => {
@@ -144,8 +139,6 @@ describe('dbMiddleware', () => {
   });
 });
 
-// OPAQUE-MIGRATION: authMiddleware tests removed - auth has been migrated to OPAQUE (Phase 9)
-
 describe('sessionMiddleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -183,6 +176,28 @@ describe('sessionMiddleware', () => {
     const res = await app.request(
       '/',
       { headers: { 'x-link-public-key': 'some-base64-key' } },
+      { DATABASE_URL: 'postgres://test' }
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ hasUser: false });
+  });
+
+  it('passes through without setting user when link guest is identified via query param', async () => {
+    // WebSocket upgrades cannot set custom headers, so the link key arrives as a
+    // `?linkPublicKey=` query param — the same way resolveLinkGuest reads it.
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.use('*', dbMiddleware());
+    app.use('*', sessionMiddleware());
+    app.get('/', (c) => {
+      const user = c.get('user');
+      return c.json({ hasUser: !!user });
+    });
+
+    const res = await app.request(
+      '/?linkPublicKey=some-base64-key',
+      {},
       { DATABASE_URL: 'postgres://test' }
     );
     expect(res.status).toBe(200);
@@ -647,67 +662,6 @@ describe('sessionMiddleware', () => {
   });
 });
 
-describe('openRouterMiddleware', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    vi.resetAllMocks();
-  });
-
-  it('sets openrouter on context', async () => {
-    const app = new Hono<AppEnv>();
-    // openRouterMiddleware requires envUtils and db from previous middleware
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', openRouterMiddleware());
-    app.get('/', (c) => {
-      c.get('openrouter');
-      return c.json({ hasOpenRouter: true });
-    });
-
-    const res = await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toEqual({ hasOpenRouter: true });
-  });
-
-  it('passes env and evidence config to getOpenRouterClient factory', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', openRouterMiddleware());
-    app.get('/', (c) => c.json({ ok: true }));
-
-    const env = {
-      OPENROUTER_API_KEY: 'test-key',
-      NODE_ENV: 'production',
-      DATABASE_URL: 'postgres://test',
-    };
-    await app.request('/', {}, env);
-
-    expect(getOpenRouterClient).toHaveBeenCalledWith(env, expect.any(Object));
-  });
-
-  it('calls next() to continue middleware chain', async () => {
-    const app = new Hono<AppEnv>();
-    const nextCalled = vi.fn();
-    app.use('*', envMiddleware());
-    app.use('*', dbMiddleware());
-    app.use('*', openRouterMiddleware());
-    app.use('*', async (_, next) => {
-      nextCalled();
-      await next();
-    });
-    app.get('/', (c) => c.json({ ok: true }));
-
-    await app.request('/', {}, { DATABASE_URL: 'postgres://test' });
-
-    expect(nextCalled).toHaveBeenCalled();
-  });
-});
-
 describe('helcimMiddleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -717,8 +671,17 @@ describe('helcimMiddleware', () => {
     vi.resetAllMocks();
   });
 
+  function setupHelcimContext(): MiddlewareHandler<AppEnv> {
+    return async (c, next) => {
+      c.set('db', {} as never);
+      c.set('envUtils', { isCI: false, isDev: false, isLocalDev: false } as never);
+      await next();
+    };
+  }
+
   it('sets helcim on context', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', setupHelcimContext());
     app.use('*', helcimMiddleware());
     app.get('/', (c) => {
       c.get('helcim');
@@ -731,8 +694,9 @@ describe('helcimMiddleware', () => {
     expect(body).toEqual({ hasHelcim: true });
   });
 
-  it('passes env to getHelcimClient factory', async () => {
+  it('passes env and evidence config to getHelcimClient factory', async () => {
     const app = new Hono<AppEnv>();
+    app.use('*', setupHelcimContext());
     app.use('*', helcimMiddleware());
     app.get('/', (c) => c.json({ ok: true }));
 
@@ -743,12 +707,16 @@ describe('helcimMiddleware', () => {
     };
     await app.request('/', {}, env);
 
-    expect(getHelcimClient).toHaveBeenCalledWith(env);
+    expect(getHelcimClient).toHaveBeenCalledWith(
+      env,
+      expect.objectContaining({ db: expect.any(Object), isCI: false })
+    );
   });
 
   it('calls next() to continue middleware chain', async () => {
     const app = new Hono<AppEnv>();
     const nextCalled = vi.fn();
+    app.use('*', setupHelcimContext());
     app.use('*', helcimMiddleware());
     app.use('*', async (_, next) => {
       nextCalled();
@@ -938,6 +906,77 @@ describe('redisMiddleware', () => {
       '/',
       {},
       { UPSTASH_REDIS_REST_URL: 'http://localhost:8079', UPSTASH_REDIS_REST_TOKEN: 'test-token' }
+    );
+
+    expect(nextCalled).toHaveBeenCalled();
+  });
+});
+
+describe('mediaStorageMiddleware', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('sets mediaStorage on context with the expected MediaStorage shape', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', envMiddleware());
+    app.use('*', mediaStorageMiddleware());
+    app.get('/', (c) => {
+      const storage = c.get('mediaStorage');
+      return c.json({
+        hasPut: typeof storage.put === 'function',
+        hasDelete: typeof storage.delete === 'function',
+        hasList: typeof storage.list === 'function',
+        hasMint: typeof storage.mintDownloadUrl === 'function',
+      });
+    });
+
+    const res = await app.request(
+      '/',
+      {},
+      {
+        NODE_ENV: 'development',
+        R2_S3_ENDPOINT: 'http://localhost:9000',
+        R2_ACCESS_KEY_ID: 'minioadmin',
+        R2_SECRET_ACCESS_KEY: 'minioadmin',
+        R2_BUCKET_MEDIA: 'hushbox-media-dev',
+      }
+    );
+    expect(res.status).toBe(200);
+    const body = await jsonBody<{
+      hasPut: boolean;
+      hasDelete: boolean;
+      hasList: boolean;
+      hasMint: boolean;
+    }>(res);
+    expect(body).toEqual({ hasPut: true, hasDelete: true, hasList: true, hasMint: true });
+  });
+
+  it('calls next() to continue middleware chain', async () => {
+    const app = new Hono<AppEnv>();
+    const nextCalled = vi.fn();
+    app.use('*', envMiddleware());
+    app.use('*', mediaStorageMiddleware());
+    app.use('*', async (_, next) => {
+      nextCalled();
+      await next();
+    });
+    app.get('/', (c) => c.json({ ok: true }));
+
+    await app.request(
+      '/',
+      {},
+      {
+        NODE_ENV: 'development',
+        R2_S3_ENDPOINT: 'http://localhost:9000',
+        R2_ACCESS_KEY_ID: 'minioadmin',
+        R2_SECRET_ACCESS_KEY: 'minioadmin',
+        R2_BUCKET_MEDIA: 'hushbox-media-dev',
+      }
     );
 
     expect(nextCalled).toHaveBeenCalled();

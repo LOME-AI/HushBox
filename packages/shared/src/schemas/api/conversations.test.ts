@@ -18,10 +18,6 @@ import {
   regenerateRequestSchema,
 } from './conversations.js';
 
-// ============================================================
-// Deleted schemas — verify they no longer exist
-// ============================================================
-
 describe('deleted schemas', () => {
   it('createMessageRequestSchema is not exported', async () => {
     const module_ = await import('./conversations.js');
@@ -53,10 +49,6 @@ describe('deleted schemas', () => {
     expect('CreateMessageResponse' in module_).toBe(false);
   });
 });
-
-// ============================================================
-// createConversationRequestSchema — epoch fields
-// ============================================================
 
 describe('createConversationRequestSchema', () => {
   const validId = '550e8400-e29b-41d4-a716-446655440000';
@@ -171,10 +163,6 @@ describe('createConversationRequestSchema', () => {
   });
 });
 
-// ============================================================
-// updateConversationRequestSchema — unchanged
-// ============================================================
-
 describe('updateConversationRequestSchema', () => {
   it('accepts valid encrypted title with titleEpochNumber', () => {
     const result = updateConversationRequestSchema.parse({
@@ -205,10 +193,6 @@ describe('updateConversationRequestSchema', () => {
     ).toThrow();
   });
 });
-
-// ============================================================
-// rotationSchema — epoch rotation data
-// ============================================================
 
 describe('rotationSchema', () => {
   const validRotation = {
@@ -270,10 +254,6 @@ describe('rotationSchema', () => {
     expect('visibleFromEpoch' in result.memberWraps[0]!).toBe(false);
   });
 });
-
-// ============================================================
-// streamChatRequestSchema — plaintext user message
-// ============================================================
 
 describe('streamChatRequestSchema', () => {
   const validMsgId = '550e8400-e29b-41d4-a716-446655440001';
@@ -557,11 +537,285 @@ describe('streamChatRequestSchema', () => {
     expect('contentEncrypted' in result.userMessage).toBe(false);
     expect('iv' in result.userMessage).toBe(false);
   });
-});
 
-// ============================================================
-// Response Schema Tests
-// ============================================================
+  it('defaults modality to text when omitted', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+    });
+    expect(result.modality).toBe('text');
+  });
+
+  it('accepts modality text explicitly', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['gpt-4'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      modality: 'text',
+    });
+    expect(result.modality).toBe('text');
+  });
+
+  it('accepts modality image with imageConfig', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['google/imagen-4'],
+      userMessage: { id: validMsgId, content: 'A cat wearing a hat' },
+      messagesForInference: [{ role: 'user', content: 'A cat wearing a hat' }],
+      fundingSource: 'personal_balance',
+      modality: 'image',
+      imageConfig: { aspectRatio: '16:9' },
+    });
+    expect(result.modality).toBe('image');
+    expect(result.imageConfig?.aspectRatio).toBe('16:9');
+  });
+
+  it('defaults imageConfig aspectRatio to 1:1', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['google/imagen-4'],
+      userMessage: { id: validMsgId, content: 'A sunset' },
+      messagesForInference: [{ role: 'user', content: 'A sunset' }],
+      fundingSource: 'personal_balance',
+      modality: 'image',
+      imageConfig: {},
+    });
+    expect(result.imageConfig?.aspectRatio).toBe('1:1');
+  });
+
+  it('accepts modality audio with full audioConfig', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['openai/tts-1'],
+      userMessage: { id: validMsgId, content: 'Hello, world.' },
+      messagesForInference: [{ role: 'user', content: 'Hello, world.' }],
+      fundingSource: 'personal_balance',
+      modality: 'audio',
+      audioConfig: { format: 'mp3', maxDurationSeconds: 60 },
+    });
+    expect(result.modality).toBe('audio');
+    expect(result.audioConfig?.format).toBe('mp3');
+    expect(result.audioConfig?.maxDurationSeconds).toBe(60);
+  });
+
+  it('defaults audioConfig.format to mp3 and maxDurationSeconds to MAX_AUDIO_DURATION_SECONDS', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['openai/tts-1'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      modality: 'audio',
+      audioConfig: {},
+    });
+    expect(result.audioConfig?.format).toBe('mp3');
+    expect(result.audioConfig?.maxDurationSeconds).toBe(600);
+  });
+
+  it('rejects modality audio without audioConfig', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['openai/tts-1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'audio',
+      })
+    ).toThrow();
+  });
+
+  it('rejects audioConfig with invalid format', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['openai/tts-1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'audio',
+        audioConfig: { format: 'flac' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects audioConfig with maxDurationSeconds below 1', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['openai/tts-1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'audio',
+        audioConfig: { format: 'mp3', maxDurationSeconds: 0 },
+      })
+    ).toThrow();
+  });
+
+  it('rejects audioConfig with maxDurationSeconds above 600', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['openai/tts-1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'audio',
+        audioConfig: { format: 'mp3', maxDurationSeconds: 601 },
+      })
+    ).toThrow();
+  });
+
+  it('rejects audioConfig with non-integer maxDurationSeconds', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['openai/tts-1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'audio',
+        audioConfig: { format: 'mp3', maxDurationSeconds: 30.5 },
+      })
+    ).toThrow();
+  });
+
+  it('rejects an unknown modality', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['gpt-4'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'holographic',
+      })
+    ).toThrow();
+  });
+
+  it('rejects invalid aspectRatio in imageConfig', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/imagen-4'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'image',
+        imageConfig: { aspectRatio: '2:1' },
+      })
+    ).toThrow();
+  });
+
+  it('accepts modality video with full videoConfig', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['google/veo-3.1'],
+      userMessage: { id: validMsgId, content: 'A flock of cranes taking flight' },
+      messagesForInference: [{ role: 'user', content: 'A flock of cranes taking flight' }],
+      fundingSource: 'personal_balance',
+      modality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+    });
+    expect(result.modality).toBe('video');
+    expect(result.videoConfig?.aspectRatio).toBe('16:9');
+    expect(result.videoConfig?.durationSeconds).toBe(4);
+    expect(result.videoConfig?.resolution).toBe('720p');
+  });
+
+  it('rejects modality video without videoConfig', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+      })
+    ).toThrow();
+  });
+
+  it('rejects videoConfig with invalid aspectRatio', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+        videoConfig: { aspectRatio: '3:2', durationSeconds: 4, resolution: '720p' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects videoConfig with out-of-range durationSeconds (0)', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 0, resolution: '720p' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects videoConfig with out-of-range durationSeconds (9)', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 9, resolution: '720p' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects videoConfig with invalid resolution', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '480p' },
+      })
+    ).toThrow();
+  });
+
+  it('rejects modality video with a non-integer durationSeconds', () => {
+    expect(() =>
+      streamChatRequestSchema.parse({
+        models: ['google/veo-3.1'],
+        userMessage: { id: validMsgId, content: 'Hello' },
+        messagesForInference: [{ role: 'user', content: 'Hello' }],
+        fundingSource: 'personal_balance',
+        modality: 'video',
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 4.5, resolution: '720p' },
+      })
+    ).toThrow();
+  });
+
+  it('accepts modality video at min duration boundary', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['google/veo-3.1'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      modality: 'video',
+      videoConfig: { aspectRatio: '9:16', durationSeconds: 1, resolution: '1080p' },
+    });
+    expect(result.videoConfig?.durationSeconds).toBe(1);
+  });
+
+  it('accepts modality video at max duration boundary', () => {
+    const result = streamChatRequestSchema.parse({
+      models: ['google/veo-3.1'],
+      userMessage: { id: validMsgId, content: 'Hello' },
+      messagesForInference: [{ role: 'user', content: 'Hello' }],
+      fundingSource: 'personal_balance',
+      modality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 8, resolution: '1080p' },
+    });
+    expect(result.videoConfig?.durationSeconds).toBe(8);
+  });
+});
 
 describe('conversationResponseSchema', () => {
   it('accepts valid conversation with epoch fields', () => {
@@ -679,265 +933,173 @@ describe('conversationResponseSchema', () => {
   });
 });
 
+// Helper: build a valid MessageResponse-shaped object with one text content
+// item. Override any field for the specific test case.
+function buildMessageResponse(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const contentItemOverrides = overrides['contentItemOverrides'] as
+    | Record<string, unknown>
+    | undefined;
+  const base: Record<string, unknown> = {
+    id: 'msg-123',
+    conversationId: 'conv-456',
+    wrappedContentKey: 'base64wrappedkey',
+    senderType: 'user',
+    senderId: 'user-789',
+    epochNumber: 1,
+    sequenceNumber: 0,
+    parentMessageId: null,
+    batchId: 'batch-test-1',
+    createdAt: '2024-01-01T00:00:00Z',
+    contentItems: [
+      {
+        id: 'ci-1',
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: 'base64blob',
+        storageKey: null,
+        mimeType: null,
+        sizeBytes: null,
+        width: null,
+        height: null,
+        durationMs: null,
+        modelName: null,
+        cost: null,
+        isSmartModel: false,
+        ...contentItemOverrides,
+      },
+    ],
+  };
+  const rest = Object.fromEntries(
+    Object.entries(overrides).filter(([key]) => key !== 'contentItemOverrides')
+  );
+  return { ...base, ...rest };
+}
+
 describe('messageResponseSchema', () => {
-  it('accepts valid epoch-based message with parentMessageId', () => {
-    const result = messageResponseSchema.parse({
-      id: 'msg-123',
-      conversationId: 'conv-456',
-      encryptedBlob: 'base64eciesblob',
-      senderType: 'user',
-      senderId: 'user-789',
-      modelName: 'Alice',
-      payerId: null,
-      cost: null,
-      epochNumber: 1,
-      sequenceNumber: 0,
-      parentMessageId: null,
-      createdAt: '2024-01-01T00:00:00Z',
-    });
+  it('accepts a valid wrap-once message with one text content item', () => {
+    const result = messageResponseSchema.parse(
+      buildMessageResponse({
+        contentItemOverrides: { modelName: 'Alice' },
+      })
+    );
     expect(result.id).toBe('msg-123');
-    expect(result.encryptedBlob).toBe('base64eciesblob');
+    expect(result.wrappedContentKey).toBe('base64wrappedkey');
     expect(result.senderType).toBe('user');
     expect(result.senderId).toBe('user-789');
-    expect(result.modelName).toBe('Alice');
-    expect(result.payerId).toBeNull();
-    expect(result.cost).toBeNull();
+    expect(result.contentItems).toHaveLength(1);
+    expect(result.contentItems[0]!.contentType).toBe('text');
+    expect(result.contentItems[0]!.encryptedBlob).toBe('base64blob');
+    expect(result.contentItems[0]!.modelName).toBe('Alice');
+    expect(result.contentItems[0]!.cost).toBeNull();
     expect(result.epochNumber).toBe(1);
     expect(result.sequenceNumber).toBe(0);
     expect(result.parentMessageId).toBeNull();
   });
 
   it('accepts message with non-null parentMessageId', () => {
-    const result = messageResponseSchema.parse({
-      id: 'msg-124',
-      conversationId: 'conv-456',
-      encryptedBlob: 'base64blob',
-      senderType: 'ai',
-      senderId: null,
-      modelName: null,
-      payerId: 'user-789',
-      cost: '0.00136000',
-      epochNumber: 1,
-      sequenceNumber: 1,
-      parentMessageId: 'msg-123',
-      createdAt: '2024-01-01T00:00:00Z',
-    });
+    const result = messageResponseSchema.parse(
+      buildMessageResponse({
+        id: 'msg-124',
+        senderType: 'ai',
+        senderId: null,
+        sequenceNumber: 1,
+        parentMessageId: 'msg-123',
+        contentItemOverrides: { cost: '0.00136000' },
+      })
+    );
     expect(result.parentMessageId).toBe('msg-123');
+    expect(result.contentItems[0]!.cost).toBe('0.00136000');
   });
 
-  it('accepts AI message with null senderId and payerId', () => {
-    const result = messageResponseSchema.parse({
-      id: 'msg-124',
-      conversationId: 'conv-456',
-      encryptedBlob: 'base64airesponseblob',
-      senderType: 'ai',
-      senderId: null,
-      modelName: null,
-      payerId: 'user-789',
-      cost: '0.00136000',
-      epochNumber: 1,
-      sequenceNumber: 1,
-      parentMessageId: null,
-      createdAt: '2024-01-01T00:00:00Z',
-    });
+  it('accepts AI message with null senderId and AI-authored content item', () => {
+    const result = messageResponseSchema.parse(
+      buildMessageResponse({
+        id: 'msg-124',
+        senderType: 'ai',
+        senderId: null,
+        sequenceNumber: 1,
+        contentItemOverrides: {
+          modelName: 'anthropic/claude-sonnet-4.6',
+          cost: '0.00136000',
+        },
+      })
+    );
     expect(result.senderType).toBe('ai');
     expect(result.senderId).toBeNull();
-    expect(result.modelName).toBeNull();
-    expect(result.payerId).toBe('user-789');
-    expect(result.cost).toBe('0.00136000');
+    expect(result.contentItems[0]!.modelName).toBe('anthropic/claude-sonnet-4.6');
+    expect(result.contentItems[0]!.cost).toBe('0.00136000');
   });
 
-  it('accepts message with null cost (user messages)', () => {
-    const result = messageResponseSchema.parse({
-      id: 'msg-125',
-      conversationId: 'conv-456',
-      encryptedBlob: 'base64blob',
-      senderType: 'user',
-      senderId: 'user-789',
-      modelName: null,
-      payerId: null,
-      cost: null,
-      epochNumber: 1,
-      sequenceNumber: 0,
-      parentMessageId: null,
-      createdAt: '2024-01-01T00:00:00Z',
-    });
-    expect(result.cost).toBeNull();
+  it('accepts a user message whose content item has null cost', () => {
+    const result = messageResponseSchema.parse(
+      buildMessageResponse({
+        id: 'msg-125',
+        contentItemOverrides: { cost: null },
+      })
+    );
+    expect(result.contentItems[0]!.cost).toBeNull();
   });
 
   it('rejects invalid senderType', () => {
     expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'system',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        sequenceNumber: 0,
-        parentMessageId: null,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
+      messageResponseSchema.parse(buildMessageResponse({ senderType: 'system' }))
     ).toThrow();
   });
 
-  it('rejects missing encryptedBlob', () => {
-    expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        sequenceNumber: 0,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
-    ).toThrow();
+  it('rejects missing wrappedContentKey', () => {
+    const msg = buildMessageResponse();
+    delete msg['wrappedContentKey'];
+    expect(() => messageResponseSchema.parse(msg)).toThrow();
   });
 
   it('rejects non-integer epochNumber', () => {
-    expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1.5,
-        sequenceNumber: 0,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
-    ).toThrow();
+    expect(() => messageResponseSchema.parse(buildMessageResponse({ epochNumber: 1.5 }))).toThrow();
   });
 
   it('rejects non-integer sequenceNumber', () => {
     expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        sequenceNumber: 0.5,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
+      messageResponseSchema.parse(buildMessageResponse({ sequenceNumber: 0.5 }))
     ).toThrow();
   });
 
   it('rejects missing epochNumber', () => {
-    expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        sequenceNumber: 0,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
-    ).toThrow();
+    const msg = buildMessageResponse();
+    delete msg['epochNumber'];
+    expect(() => messageResponseSchema.parse(msg)).toThrow();
   });
 
   it('rejects zero epochNumber', () => {
-    expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 0,
-        sequenceNumber: 0,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
-    ).toThrow();
+    expect(() => messageResponseSchema.parse(buildMessageResponse({ epochNumber: 0 }))).toThrow();
   });
 
   it('rejects negative sequenceNumber', () => {
     expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        sequenceNumber: -1,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
+      messageResponseSchema.parse(buildMessageResponse({ sequenceNumber: -1 }))
     ).toThrow();
   });
 
   it('rejects missing sequenceNumber', () => {
-    expect(() =>
-      messageResponseSchema.parse({
-        id: 'msg-123',
-        conversationId: 'conv-456',
-        encryptedBlob: 'base64eciesblob',
-        senderType: 'user',
-        senderId: null,
-        modelName: null,
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        createdAt: '2024-01-01T00:00:00Z',
-      })
-    ).toThrow();
+    const msg = buildMessageResponse();
+    delete msg['sequenceNumber'];
+    expect(() => messageResponseSchema.parse(msg)).toThrow();
   });
 
-  it('does not accept old DEK fields (role, content, iv, pendingReEncryption)', () => {
-    // Old fields should be stripped by Zod (object strips unknown keys)
-    const result = messageResponseSchema.parse({
-      id: 'msg-123',
-      conversationId: 'conv-456',
-      encryptedBlob: 'base64eciesblob',
-      senderType: 'user',
-      senderId: null,
-      modelName: null,
-      payerId: null,
-      cost: null,
-      epochNumber: 1,
-      sequenceNumber: 0,
-      parentMessageId: null,
-      createdAt: '2024-01-01T00:00:00Z',
-      // old fields — should be stripped
-      role: 'user',
-      content: 'plaintext',
-      iv: 'oldiv',
-      pendingReEncryption: false,
-    });
+  it('strips unknown old DEK fields like role/content/iv', () => {
+    // Zod object strips unknown keys by default
+    const result = messageResponseSchema.parse(
+      buildMessageResponse({
+        role: 'user',
+        content: 'plaintext',
+        iv: 'oldiv',
+        pendingReEncryption: false,
+      })
+    );
     expect('role' in result).toBe(false);
     expect('content' in result).toBe(false);
     expect('iv' in result).toBe(false);
     expect('pendingReEncryption' in result).toBe(false);
   });
 });
-
-// ============================================================
-// Response wrapper schemas
-// ============================================================
 
 describe('conversationListItemSchema', () => {
   it('accepts conversation with accepted true and null inviter', () => {
@@ -1197,20 +1359,7 @@ describe('getConversationResponseSchema', () => {
         updatedAt: '2024-01-01T00:00:00Z',
       },
       messages: [
-        {
-          id: 'msg-1',
-          conversationId: 'conv-123',
-          encryptedBlob: 'base64blob',
-          senderType: 'user',
-          senderId: 'user-456',
-          modelName: 'Alice',
-          payerId: null,
-          cost: null,
-          epochNumber: 1,
-          sequenceNumber: 0,
-          parentMessageId: null,
-          createdAt: '2024-01-01T00:00:00Z',
-        },
+        buildMessageResponse({ id: 'msg-1', conversationId: 'conv-123', senderId: 'user-456' }),
       ],
       accepted: true,
       invitedByUsername: null,
@@ -1426,20 +1575,7 @@ describe('createConversationResponseSchema', () => {
     const result = createConversationResponseSchema.parse({
       conversation: validConversation,
       messages: [
-        {
-          id: 'msg-1',
-          conversationId: 'conv-123',
-          encryptedBlob: 'base64blob',
-          senderType: 'user',
-          senderId: 'user-456',
-          modelName: 'Alice',
-          payerId: null,
-          cost: null,
-          epochNumber: 1,
-          sequenceNumber: 0,
-          parentMessageId: null,
-          createdAt: '2024-01-01T00:00:00Z',
-        },
+        buildMessageResponse({ id: 'msg-1', conversationId: 'conv-123', senderId: 'user-456' }),
       ],
       isNew: false,
       accepted: true,
@@ -1452,20 +1588,11 @@ describe('createConversationResponseSchema', () => {
   it('does not have a singular message field', () => {
     const result = createConversationResponseSchema.parse({
       conversation: validConversation,
-      message: {
+      message: buildMessageResponse({
         id: 'msg-1',
         conversationId: 'conv-123',
-        encryptedBlob: 'base64blob',
-        senderType: 'user',
         senderId: 'user-456',
-        modelName: 'Alice',
-        payerId: null,
-        cost: null,
-        epochNumber: 1,
-        sequenceNumber: 0,
-        parentMessageId: null,
-        createdAt: '2024-01-01T00:00:00Z',
-      },
+      }),
       isNew: true,
       accepted: true,
       invitedByUsername: null,
@@ -1551,10 +1678,6 @@ describe('deleteConversationResponseSchema', () => {
     expect(() => deleteConversationResponseSchema.parse({})).toThrow();
   });
 });
-
-// ============================================================
-// Fork Schemas
-// ============================================================
 
 describe('forkResponseSchema', () => {
   it('accepts valid fork response', () => {
@@ -1674,18 +1797,15 @@ describe('renameForkRequestSchema', () => {
   });
 });
 
-// ============================================================
-// Regeneration Schema
-// ============================================================
-
 describe('regenerateRequestSchema', () => {
   const validMsgId = '550e8400-e29b-41d4-a716-446655440001';
   const validTargetId = '550e8400-e29b-41d4-a716-446655440002';
+  const validAssistantId = '550e8400-e29b-41d4-a716-446655440099';
 
   const validRequest = {
     targetMessageId: validTargetId,
     action: 'retry' as const,
-    model: 'gpt-4',
+    models: ['gpt-4'],
     userMessage: { id: validMsgId, content: 'Hello' },
     messagesForInference: [{ role: 'user' as const, content: 'Hello' }],
     fundingSource: 'personal_balance' as const,
@@ -1695,6 +1815,7 @@ describe('regenerateRequestSchema', () => {
     const result = regenerateRequestSchema.parse(validRequest);
     expect(result.action).toBe('retry');
     expect(result.targetMessageId).toBe(validTargetId);
+    expect(result.models).toEqual(['gpt-4']);
   });
 
   it('accepts valid edit request', () => {
@@ -1702,13 +1823,57 @@ describe('regenerateRequestSchema', () => {
     expect(result.action).toBe('edit');
   });
 
-  it('accepts valid regenerate request', () => {
-    const result = regenerateRequestSchema.parse({ ...validRequest, action: 'regenerate' });
-    expect(result.action).toBe('regenerate');
+  it('rejects the legacy "regenerate" action (folded into "retry")', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({ ...validRequest, action: 'regenerate' })
+    ).toThrow();
   });
 
   it('rejects invalid action', () => {
     expect(() => regenerateRequestSchema.parse({ ...validRequest, action: 'delete' })).toThrow();
+  });
+
+  it('accepts multiple models (retry-all)', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      models: ['gpt-4', 'claude-3-5-sonnet', 'gemini-1.5-pro'],
+    });
+    expect(result.models).toHaveLength(3);
+  });
+
+  it('rejects empty models array', () => {
+    expect(() => regenerateRequestSchema.parse({ ...validRequest, models: [] })).toThrow();
+  });
+
+  it('rejects more than the max models', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        models: ['a', 'b', 'c', 'd', 'e', 'f'],
+      })
+    ).toThrow();
+  });
+
+  it('accepts optional replaceAssistantId (regenerate-one)', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      replaceAssistantId: validAssistantId,
+    });
+    expect(result.replaceAssistantId).toBe(validAssistantId);
+  });
+
+  it('allows omitting replaceAssistantId (retry-all)', () => {
+    const result = regenerateRequestSchema.parse(validRequest);
+    expect(result.replaceAssistantId).toBeUndefined();
+  });
+
+  it('rejects non-UUID replaceAssistantId', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        replaceAssistantId: 'not-a-uuid',
+      })
+    ).toThrow();
   });
 
   it('accepts optional forkId', () => {
@@ -1773,11 +1938,64 @@ describe('regenerateRequestSchema', () => {
       })
     ).toThrow();
   });
-});
 
-// ============================================================
-// Response schemas include forks
-// ============================================================
+  it('defaults modality to "text" when omitted', () => {
+    const result = regenerateRequestSchema.parse(validRequest);
+    expect(result.modality).toBe('text');
+  });
+
+  it('accepts modality: image with imageConfig', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      modality: 'image',
+      imageConfig: { aspectRatio: '16:9' },
+    });
+    expect(result.modality).toBe('image');
+    expect(result.imageConfig?.aspectRatio).toBe('16:9');
+  });
+
+  it('rejects modality: video without videoConfig', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        modality: 'video',
+      })
+    ).toThrow();
+  });
+
+  it('accepts modality: video with videoConfig', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      modality: 'video',
+      videoConfig: {
+        aspectRatio: '16:9',
+        durationSeconds: 5,
+        resolution: '720p',
+      },
+    });
+    expect(result.modality).toBe('video');
+    expect(result.videoConfig?.durationSeconds).toBe(5);
+  });
+
+  it('rejects modality: audio without audioConfig', () => {
+    expect(() =>
+      regenerateRequestSchema.parse({
+        ...validRequest,
+        modality: 'audio',
+      })
+    ).toThrow();
+  });
+
+  it('accepts modality: audio with audioConfig', () => {
+    const result = regenerateRequestSchema.parse({
+      ...validRequest,
+      modality: 'audio',
+      audioConfig: { format: 'mp3', maxDurationSeconds: 30 },
+    });
+    expect(result.modality).toBe('audio');
+    expect(result.audioConfig?.format).toBe('mp3');
+  });
+});
 
 describe('getConversationResponseSchema with forks', () => {
   it('accepts response with forks array', () => {

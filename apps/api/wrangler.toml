@@ -19,6 +19,9 @@ bindings = [{ name = "CONVERSATION_ROOM", class_name = "ConversationRoom" }]
 [[migrations]]
 tag = "v1"
 new_classes = ["ConversationRoom"]
+
+[triggers]
+crons = ["0 3 * * *"]
 [[r2_buckets]]
 binding = "APP_BUILDS"
 bucket_name = "hushbox-app-builds"
@@ -26,6 +29,8 @@ bucket_name = "hushbox-app-builds"
 NODE_ENV = "production"
 API_URL = "https://api.hushbox.ai"
 FRONTEND_URL = "https://hushbox.ai"
+PUBLIC_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models"
+R2_BUCKET_MEDIA = "hushbox-media"
 
 # Secrets deployed via CI (GitHub Secrets → wrangler secret put):
 # - DATABASE_URL
@@ -35,8 +40,12 @@ FRONTEND_URL = "https://hushbox.ai"
 # - IRON_SESSION_SECRET
 # - APP_VERSION
 # - RESEND_API_KEY
+# - AI_GATEWAY_API_KEY
 # - FCM_PROJECT_ID
 # - FCM_SERVICE_ACCOUNT_JSON
-# - OPENROUTER_API_KEY
 # - HELCIM_API_TOKEN
+# - LINEAR_API_KEY_READ
 # - HELCIM_WEBHOOK_VERIFIER
+# - R2_S3_ENDPOINT
+# - R2_ACCESS_KEY_ID
+# - R2_SECRET_ACCESS_KEY

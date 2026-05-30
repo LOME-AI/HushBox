@@ -3,10 +3,6 @@ import { renderHook, act } from '@testing-library/react';
 import { useTypingIndicators } from './use-typing-indicators.js';
 import type { ConversationWebSocket } from '../lib/ws-client.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 interface MockWs {
   on: ReturnType<typeof vi.fn>;
   listeners: Map<string, Set<(event: unknown) => void>>;
@@ -23,7 +19,6 @@ function createMockWs(): MockWs {
     const set = listeners.get(type);
     if (set) set.add(handler);
 
-    // Return unsubscribe function matching ConversationWebSocket.on()
     return (): void => {
       listeners.get(type)?.delete(handler);
     };
@@ -42,10 +37,6 @@ function createMockWs(): MockWs {
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('useTypingIndicators', () => {
   beforeEach(() => {
@@ -93,7 +84,6 @@ describe('useTypingIndicators', () => {
       useTypingIndicators(mockWs as unknown as ConversationWebSocket)
     );
 
-    // Add a typing user first
     act(() => {
       mockWs.emit('typing:start', {
         type: 'typing:start',
@@ -105,7 +95,6 @@ describe('useTypingIndicators', () => {
 
     expect(result.current.has('user-1')).toBe(true);
 
-    // Stop typing
     act(() => {
       mockWs.emit('typing:stop', {
         type: 'typing:stop',
@@ -137,14 +126,12 @@ describe('useTypingIndicators', () => {
 
     expect(result.current.has('user-1')).toBe(true);
 
-    // Advance just under 5s — still typing
     act(() => {
       vi.advanceTimersByTime(4999);
     });
 
     expect(result.current.has('user-1')).toBe(true);
 
-    // Advance past 5s — auto-removed
     act(() => {
       vi.advanceTimersByTime(1);
     });
@@ -182,7 +169,6 @@ describe('useTypingIndicators', () => {
     expect(result.current.has('user-1')).toBe(true);
     expect(result.current.has('user-2')).toBe(true);
 
-    // Stop only user-1
     act(() => {
       mockWs.emit('typing:stop', {
         type: 'typing:stop',
@@ -204,7 +190,6 @@ describe('useTypingIndicators', () => {
       useTypingIndicators(mockWs as unknown as ConversationWebSocket)
     );
 
-    // First typing:start
     act(() => {
       mockWs.emit('typing:start', {
         type: 'typing:start',
@@ -214,7 +199,6 @@ describe('useTypingIndicators', () => {
       });
     });
 
-    // Advance 3 seconds
     act(() => {
       vi.advanceTimersByTime(3000);
     });
@@ -244,7 +228,6 @@ describe('useTypingIndicators', () => {
       vi.advanceTimersByTime(2000);
     });
 
-    // Now it should be cleared
     expect(result.current.has('user-1')).toBe(false);
   });
 
@@ -259,7 +242,6 @@ describe('useTypingIndicators', () => {
     expect(mockWs.on).toHaveBeenCalledWith('typing:start', expect.any(Function));
     expect(mockWs.on).toHaveBeenCalledWith('typing:stop', expect.any(Function));
 
-    // Verify listeners are registered
     const startListeners = mockWs.listeners.get('typing:start');
     const stopListeners = mockWs.listeners.get('typing:stop');
     expect(startListeners?.size).toBe(1);
@@ -267,7 +249,6 @@ describe('useTypingIndicators', () => {
 
     unmount();
 
-    // After unmount, the listeners should be removed
     expect(startListeners?.size).toBe(0);
     expect(stopListeners?.size).toBe(0);
   });
@@ -279,7 +260,6 @@ describe('useTypingIndicators', () => {
       useTypingIndicators(mockWs as unknown as ConversationWebSocket)
     );
 
-    // Start typing to create a timeout
     act(() => {
       mockWs.emit('typing:start', {
         type: 'typing:start',
@@ -291,7 +271,6 @@ describe('useTypingIndicators', () => {
 
     expect(result.current.has('user-1')).toBe(true);
 
-    // Unmount to trigger cleanup
     unmount();
 
     // Advance timers past the timeout — should not cause errors

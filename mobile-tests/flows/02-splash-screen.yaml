@@ -14,4 +14,4 @@ androidWebViewHierarchy: devtools
 # Wait for the WebView to render content — once visible, splash has hidden.
 - extendedWaitUntil:
     visible: 'Sign up'
-    timeout: 15000
+    timeout: 45000

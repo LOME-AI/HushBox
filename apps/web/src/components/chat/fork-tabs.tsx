@@ -32,6 +32,7 @@ export function ForkTabs({
     <div
       role="tablist"
       aria-label="Conversation forks"
+      data-chrome=""
       className="border-border flex gap-1 overflow-x-auto border-b px-2 py-1"
     >
       {forks.map((fork) => {

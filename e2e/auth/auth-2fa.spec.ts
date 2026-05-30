@@ -10,6 +10,7 @@ import {
   generateTOTPCode,
   signUpAndVerify,
   uniqueEmail,
+  uniqueUsername,
   logoutViaUI,
   navigateToSettings,
   clearAuthRateLimits,
@@ -17,6 +18,7 @@ import {
 } from '../helpers/auth.js';
 import { DEV_PASSWORD } from '../../packages/shared/src/constants.js';
 import { TEST_2FA_TOTP_SECRET } from '../../scripts/seed.js';
+import { personaEmail } from '../helpers/personas.js';
 
 test.describe('Two-Factor Authentication', () => {
   test.beforeEach(async ({ request }, testInfo) => {
@@ -32,7 +34,7 @@ test.describe('Two-Factor Authentication', () => {
     test('invalid 2FA code shows error', async ({ unauthenticatedPage }) => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
-      await loginPage.login('test-2fa@test.hushbox.ai', DEV_PASSWORD);
+      await loginPage.login(personaEmail('test-2fa'), DEV_PASSWORD);
 
       const tfaModal = new TwoFactorInputModal(unauthenticatedPage);
       await tfaModal.waitForModal();
@@ -44,7 +46,7 @@ test.describe('Two-Factor Authentication', () => {
     test('valid 2FA code navigates to /chat', async ({ unauthenticatedPage }) => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
-      await loginPage.login('test-2fa@test.hushbox.ai', DEV_PASSWORD);
+      await loginPage.login(personaEmail('test-2fa'), DEV_PASSWORD);
 
       const tfaModal = new TwoFactorInputModal(unauthenticatedPage);
       await tfaModal.waitForModal();
@@ -60,7 +62,7 @@ test.describe('Two-Factor Authentication', () => {
     test('setup → verify → logout → login with 2FA', async ({ unauthenticatedPage, request }) => {
       test.setTimeout(120_000);
       const email = uniqueEmail('e2e-2fa');
-      const username = `tfa${String(Date.now()).slice(-6)}`;
+      const username = uniqueUsername('tfa');
       const password = 'TestPassword123!';
       let totpSecret = '';
       let setupCode = '';
@@ -113,7 +115,7 @@ test.describe('Two-Factor Authentication', () => {
     test('enable → disable → login without 2FA', async ({ unauthenticatedPage, request }) => {
       test.setTimeout(120_000);
       const email = uniqueEmail('e2e-2fa-dis');
-      const username = `dis${String(Date.now()).slice(-6)}`;
+      const username = uniqueUsername('dis');
       const password = 'TestPassword123!';
       let totpSecret = '';
       let lastUsedCode = '';
@@ -151,7 +153,6 @@ test.describe('Two-Factor Authentication', () => {
         lastUsedCode = disableCode;
         await disableModal.enterCodeAndDisable(disableCode);
 
-        // Modal should close on success
         await expect(disableModal.modal).not.toBeVisible({ timeout: 15_000 });
       });
 

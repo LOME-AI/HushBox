@@ -116,4 +116,62 @@ describe('SidebarActionButton', () => {
     expect(shineDiv).not.toBeNull();
     expect(shineDiv).toHaveClass('pointer-events-none', 'absolute', 'inset-0');
   });
+
+  describe('focus ring', () => {
+    it('uses project-default focus-visible:ring-ring/50 in expanded mode', () => {
+      render(<SidebarActionButton icon={<span>+</span>} label="Action" onClick={vi.fn()} />);
+
+      const button = screen.getByRole('button');
+      expect(button).toHaveClass(
+        'focus-visible:ring-ring/50',
+        'focus-visible:ring-2',
+        'focus-visible:outline-none'
+      );
+      expect(button).not.toHaveClass('focus-visible:ring-primary');
+    });
+
+    it('uses project-default focus-visible:ring-ring/50 in collapsed mode', () => {
+      render(
+        <SidebarActionButton
+          icon={<span>+</span>}
+          label="Action"
+          onClick={vi.fn()}
+          collapsed={true}
+        />
+      );
+
+      const button = screen.getByRole('button');
+      expect(button).toHaveClass(
+        'focus-visible:ring-ring/50',
+        'focus-visible:ring-2',
+        'focus-visible:outline-none'
+      );
+      expect(button).not.toHaveClass('focus-visible:ring-primary');
+    });
+  });
+
+  describe('shine animation', () => {
+    it('applies shine animation style (expanded)', () => {
+      render(<SidebarActionButton icon={<span>+</span>} label="Action" onClick={vi.fn()} />);
+
+      const button = screen.getByRole('button');
+      const shineDiv = button.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+      expect(shineDiv.style.animation).toContain('shine');
+    });
+
+    it('applies shine animation style (collapsed)', () => {
+      render(
+        <SidebarActionButton
+          icon={<span>+</span>}
+          label="Action"
+          onClick={vi.fn()}
+          collapsed={true}
+        />
+      );
+
+      const button = screen.getByRole('button');
+      const shineDiv = button.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+      expect(shineDiv.style.animation).toContain('shine');
+    });
+  });
 });

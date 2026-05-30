@@ -7,6 +7,7 @@ import {
   loginViaUI,
 } from '../helpers/auth.js';
 import { DEV_PASSWORD } from '../../packages/shared/src/constants.js';
+import { personaEmail, personaUsername } from '../helpers/personas.js';
 
 test.describe('Login & Session', () => {
   test.beforeEach(async ({ request }, testInfo) => {
@@ -22,21 +23,21 @@ test.describe('Login & Session', () => {
     test('login with email navigates to /chat', async ({ unauthenticatedPage }) => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
-      await loginPage.loginAndWaitForChat('test-alice@test.hushbox.ai', DEV_PASSWORD);
+      await loginPage.loginAndWaitForChat(personaEmail('test-alice'), DEV_PASSWORD);
       await expect(unauthenticatedPage).toHaveURL('/chat');
     });
 
     test('login with username navigates to /chat', async ({ unauthenticatedPage }) => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
-      await loginPage.loginAndWaitForChat('test alice', DEV_PASSWORD);
+      await loginPage.loginAndWaitForChat(personaUsername('test-alice'), DEV_PASSWORD);
       await expect(unauthenticatedPage).toHaveURL('/chat');
     });
 
     test('invalid password shows error', async ({ unauthenticatedPage }) => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
-      await loginPage.login('test-alice@test.hushbox.ai', 'WrongPassword999!');
+      await loginPage.login(personaEmail('test-alice'), 'WrongPassword999!');
       await loginPage.expectError(/invalid|incorrect|failed/i);
     });
 
@@ -44,7 +45,7 @@ test.describe('Login & Session', () => {
       unauthenticatedPage,
       request,
     }) => {
-      const email = 'test-charlie@test.hushbox.ai';
+      const email = personaEmail('test-charlie');
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
       await loginPage.login(email, DEV_PASSWORD);
@@ -84,7 +85,7 @@ test.describe('Login & Session', () => {
       await test.step('login to create an isolated session', async () => {
         const loginPage = new LoginPage(page);
         await loginPage.goto();
-        await loginPage.loginAndWaitForChat('test-alice@test.hushbox.ai', DEV_PASSWORD);
+        await loginPage.loginAndWaitForChat(personaEmail('test-alice'), DEV_PASSWORD);
       });
 
       await test.step('logout redirects to /login', async () => {
@@ -97,7 +98,6 @@ test.describe('Login & Session', () => {
 
       await test.step('after logout, /chat loads as trial user', async () => {
         await page.goto('/chat', { waitUntil: 'domcontentloaded' });
-        // Trial user sees the chat page with prompt input visible
         await expect(page.getByRole('textbox', { name: /ask me anything/i })).toBeVisible({
           timeout: 15_000,
         });

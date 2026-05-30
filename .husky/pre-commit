@@ -8,4 +8,11 @@ git add README.md \
   .github/readme/.cache \
   packages/ui/src/assets/icons
 pnpm generate:env
-git add apps/api/wrangler.toml .github/workflows/ci.yml
+git add apps/api/wrangler.toml \
+  .github/workflows/ci.yml \
+  .github/workflows/release.yml \
+  .github/workflows/build-android.yml
+pnpm --filter @hushbox/db db:generate
+git add packages/db/drizzle
+pnpm seed:cache
+git add scripts/.cache/seed-crypto

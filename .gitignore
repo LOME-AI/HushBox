@@ -10,6 +10,7 @@ out/
 .next/
 .vercel/
 .wrangler/
+apps/api/.wrangler-*.log
 .astro/
 
 # TypeScript
@@ -32,6 +33,10 @@ out/
 # Test coverage
 coverage/
 .nyc_output/
+
+# HTTP cassettes for AI Gateway integration tests (recorded by CI, restored
+# via actions/cache; never committed). See docs/CI-CASSETTES.md.
+.ai-cassettes/
 
 # Quality reports
 /reports/
@@ -80,6 +85,10 @@ apps/web/public/dev-assets/
 # README generation hashes are deliberately committed so CI and fresh clones
 # skip expensive regeneration when inputs haven't changed.
 !.github/readme/.cache/
+# Seed-crypto cache is committed: produced by `pnpm seed:cache` (auto-run from
+# pre-commit when crypto/personas change). Lets CI seed in ~6s on every run.
+!scripts/.cache/
+!scripts/.cache/seed-crypto/
 
 # TanStack Router
 .tanstack/

@@ -1,10 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Model } from '@hushbox/shared';
 import { ComparisonBar } from './comparison-bar';
+import type { Model } from '@hushbox/shared';
 
-// Mock the shared package
 vi.mock('@hushbox/shared', async () => {
   const actual = await vi.importActual<typeof import('@hushbox/shared')>('@hushbox/shared');
   return {
@@ -18,9 +17,13 @@ function buildModel(id: string, name: string, overrides: Partial<Model> = {}): M
     id,
     name,
     provider: 'TestProvider',
+    modality: 'text' as const,
     contextLength: 128_000,
     pricePerInputToken: 0.000_002_5,
     pricePerOutputToken: 0.000_01,
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: 0,
     capabilities: [],
     description: `Description for ${name}`,
     supportedParameters: [],
@@ -144,5 +147,39 @@ describe('ComparisonBar', () => {
     render(<ComparisonBar models={[]} selectedModels={twoModels} onRemoveModel={vi.fn()} />);
     expect(screen.getByText('Model A')).toBeInTheDocument();
     expect(screen.getByText('Model B')).toBeInTheDocument();
+  });
+
+  it('does not render the +Add chip when onAddClick is not provided', () => {
+    render(
+      <ComparisonBar models={fullModels} selectedModels={twoModels} onRemoveModel={vi.fn()} />
+    );
+    expect(screen.queryByTestId('comparison-bar-add-button')).not.toBeInTheDocument();
+  });
+
+  it('renders the +Add chip when onAddClick is provided', () => {
+    render(
+      <ComparisonBar
+        models={fullModels}
+        selectedModels={twoModels}
+        onRemoveModel={vi.fn()}
+        onAddClick={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId('comparison-bar-add-button')).toBeInTheDocument();
+  });
+
+  it('calls onAddClick when the +Add chip is clicked', async () => {
+    const user = userEvent.setup();
+    const onAddClick = vi.fn();
+    render(
+      <ComparisonBar
+        models={fullModels}
+        selectedModels={twoModels}
+        onRemoveModel={vi.fn()}
+        onAddClick={onAddClick}
+      />
+    );
+    await user.click(screen.getByTestId('comparison-bar-add-button'));
+    expect(onAddClick).toHaveBeenCalledTimes(1);
   });
 });

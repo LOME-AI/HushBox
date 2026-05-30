@@ -27,26 +27,33 @@ describe('evidence', () => {
   });
 
   afterAll(async () => {
-    // Clean up test evidence records
-    await db.delete(serviceEvidence).where(eq(serviceEvidence.service, `${testRunId}-openrouter`));
+    await db.delete(serviceEvidence).where(eq(serviceEvidence.service, `${testRunId}-ai-gateway`));
     await db.delete(serviceEvidence).where(eq(serviceEvidence.service, `${testRunId}-hookdeck`));
   });
 
   describe('SERVICE_NAMES', () => {
     it('exports expected service names', () => {
-      expect(SERVICE_NAMES.OPENROUTER).toBe('openrouter');
+      expect(SERVICE_NAMES.AI_GATEWAY).toBe('ai-gateway');
+      expect(SERVICE_NAMES.HELCIM).toBe('helcim');
       expect(SERVICE_NAMES.HOOKDECK).toBe('hookdeck');
+      expect(SERVICE_NAMES.LINEAR).toBe('linear');
+    });
+
+    it('exports R2 storage, R2 GC and billing-mismatch service names', () => {
+      expect(SERVICE_NAMES.R2_STORAGE).toBe('r2-storage');
+      expect(SERVICE_NAMES.R2_GC).toBe('r2-gc');
+      expect(SERVICE_NAMES.BILLING_MISMATCH).toBe('billing-mismatch');
     });
 
     it('has correct type inference', () => {
-      const name: ServiceName = SERVICE_NAMES.OPENROUTER;
-      expect(name).toBe('openrouter');
+      const name: ServiceName = SERVICE_NAMES.AI_GATEWAY;
+      expect(name).toBe('ai-gateway');
     });
   });
 
   describe('recordServiceEvidence', () => {
     it('does nothing when isCI is false', async () => {
-      const testService = `${testRunId}-openrouter` as ServiceName;
+      const testService = `${testRunId}-ai-gateway` as ServiceName;
 
       await recordServiceEvidence(db, false, testService);
 
@@ -59,7 +66,7 @@ describe('evidence', () => {
     });
 
     it('inserts record when isCI is true', async () => {
-      const testService = `${testRunId}-openrouter` as ServiceName;
+      const testService = `${testRunId}-ai-gateway` as ServiceName;
 
       await recordServiceEvidence(db, true, testService);
 
@@ -89,7 +96,7 @@ describe('evidence', () => {
     });
 
     it('allows multiple records for same service', async () => {
-      const testService = `${testRunId}-openrouter` as ServiceName;
+      const testService = `${testRunId}-ai-gateway` as ServiceName;
 
       // First record already inserted in previous test
       await recordServiceEvidence(db, true, testService);
@@ -105,12 +112,11 @@ describe('evidence', () => {
 
   describe('verifyServiceEvidence', () => {
     beforeEach(async () => {
-      // Ensure test records exist
-      await recordServiceEvidence(db, true, `${testRunId}-openrouter` as ServiceName);
+      await recordServiceEvidence(db, true, `${testRunId}-ai-gateway` as ServiceName);
     });
 
     it('returns success when all required services have evidence', async () => {
-      const result = await verifyServiceEvidence(db, [`${testRunId}-openrouter` as ServiceName]);
+      const result = await verifyServiceEvidence(db, [`${testRunId}-ai-gateway` as ServiceName]);
 
       expect(result.success).toBe(true);
       expect(result.missing).toHaveLength(0);
@@ -118,7 +124,7 @@ describe('evidence', () => {
 
     it('returns failure with missing services', async () => {
       const result = await verifyServiceEvidence(db, [
-        `${testRunId}-openrouter` as ServiceName,
+        `${testRunId}-ai-gateway` as ServiceName,
         `${testRunId}-nonexistent` as ServiceName,
       ]);
 
@@ -137,7 +143,7 @@ describe('evidence', () => {
       await recordServiceEvidence(db, true, `${testRunId}-hookdeck` as ServiceName);
 
       const result = await verifyServiceEvidence(db, [
-        `${testRunId}-openrouter` as ServiceName,
+        `${testRunId}-ai-gateway` as ServiceName,
         `${testRunId}-hookdeck` as ServiceName,
       ]);
 

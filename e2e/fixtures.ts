@@ -1,15 +1,24 @@
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import {
   test as base,
   expect as rawExpect,
   type Browser,
   type BrowserContext,
+  type BrowserContextOptions,
   type Page,
+  type Request,
+  type Response,
   type APIRequestContext,
   type TestInfo,
 } from '@playwright/test';
 import { ChatPage } from './pages';
 import { requireEnv } from './helpers/env.js';
+import { clearUsageRateLimits } from './helpers/auth.js';
+import {
+  buildStorageInitScript,
+  type RawStorageState,
+} from '../scripts/storage-state-init-script.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
 
@@ -32,10 +41,112 @@ function attachConsoleErrors(page: Page): { errors: string[]; cleanup: () => voi
   };
 }
 
-type StorageState = string | { cookies: []; origins: [] };
+const API_ERROR_BODY_CAP = 2000;
+
+/**
+ * Capture /api/* responses with status >= 400 and network-level request
+ * failures. Body fetch is wrapped in try/catch because streaming responses
+ * (SSE) can't be re-read after the fact and `response.text()` rejects.
+ * Mirror of `attachConsoleErrors` — same lifecycle, same attach pattern on
+ * test failure, surfaced as `api-errors-<label>` test attachment.
+ */
+function attachApiErrors(page: Page): { errors: string[]; cleanup: () => void } {
+  const errors: string[] = [];
+  const recordResponse = async (response: Response): Promise<void> => {
+    const url = response.url();
+    if (!url.includes('/api/')) return;
+    const status = response.status();
+    if (status < 400) return;
+    const time = new Date().toISOString();
+    const method = response.request().method();
+    // Streaming responses (SSE) can't be re-read after the fact and
+    // `response.text()` rejects; swallow that into an empty body.
+    const body = await response.text().catch(() => '');
+    const trimmed = body ? `\n  body: ${body.slice(0, API_ERROR_BODY_CAP)}` : '';
+    errors.push(`${time} ${String(status)} ${response.statusText()} ${method} ${url}${trimmed}`);
+  };
+  const onResponse = (response: Response): void => {
+    void recordResponse(response);
+  };
+  const onRequestFailed = (request: Request): void => {
+    const url = request.url();
+    if (!url.includes('/api/')) return;
+    const failure = request.failure();
+    errors.push(
+      `${new Date().toISOString()} NETWORK_FAILED ${request.method()} ${url} — ${failure?.errorText ?? 'unknown'}`
+    );
+  };
+  page.on('response', onResponse);
+  page.on('requestfailed', onRequestFailed);
+  return {
+    errors,
+    cleanup: () => {
+      page.off('response', onResponse);
+      page.off('requestfailed', onRequestFailed);
+    },
+  };
+}
+
+/**
+ * Joiner per labeled-artifact prefix. `api-errors` uses a blank line between
+ * entries because each entry can include a multi-line response body that
+ * would visually merge into the next entry under a single `\n`.
+ */
+const ARTIFACT_JOINER: Record<'console-errors' | 'api-errors', string> = {
+  'console-errors': '\n',
+  'api-errors': '\n\n',
+};
+
+/**
+ * Attach a labeled text artifact (`console-errors-<label>`, `api-errors-<label>`)
+ * to the failing test. Skips attachment when there are no errors — Playwright
+ * shows empty attachments which clutter the report. Used by every page-creating
+ * fixture so the attach shape stays uniform across labels.
+ */
+async function attachLabeledArtifact(
+  testInfo: TestInfo,
+  prefix: 'console-errors' | 'api-errors',
+  label: string,
+  errors: string[]
+): Promise<void> {
+  if (errors.length === 0) return;
+  await testInfo.attach(`${prefix}-${label}`, {
+    body: errors.join(ARTIFACT_JOINER[prefix]),
+    contentType: 'text/plain',
+  });
+}
+
+type StorageState = NonNullable<BrowserContextOptions['storageState']>;
+type StorageStateObject = Exclude<StorageState, string>;
+type FixtureSpec = { persona: string } | { state: StorageState };
+
+/**
+ * Strip `origins` (localStorage entries) out of a storage state JSON and
+ * return them as an equivalent `addInitScript` body. The default Playwright
+ * behavior — apply origins by navigating the new context to each origin and
+ * waiting for `load` — is the bottleneck in firefox `browser.newContext`
+ * and the root cause of Group C fixture timeouts. Init scripts run before
+ * any page script on every navigation, so the localStorage values are in
+ * place by the time React boots, identical observable behavior at a
+ * fraction of the cost.
+ */
+async function buildContextOptions(
+  storageState: StorageState
+): Promise<{ state: StorageState; initScript: string | null }> {
+  if (typeof storageState !== 'string') {
+    return { state: storageState, initScript: null };
+  }
+  const raw = JSON.parse(await readFile(storageState, 'utf8')) as RawStorageState;
+  const initScript = buildStorageInitScript(raw);
+  if (initScript === null) {
+    return { state: storageState, initScript: null };
+  }
+  const cookies = raw.cookies as StorageStateObject['cookies'];
+  return { state: { cookies, origins: [] }, initScript };
+}
 
 function createPageFixture(
-  storageState: StorageState,
+  spec: FixtureSpec,
   label: string
 ): (
   deps: { browser: Browser },
@@ -45,8 +156,11 @@ function createPageFixture(
   return async ({ browser }, use, testInfo) => {
     const harPath = testInfo.outputPath(`${label}.har`);
     const isRetry = testInfo.retry > 0;
+    const storageState =
+      'persona' in spec ? `e2e/.auth/${testInfo.project.name}/${spec.persona}.json` : spec.state;
+    const { state, initScript } = await buildContextOptions(storageState);
     const context = await browser.newContext({
-      storageState,
+      storageState: state,
       ...(isRetry && {
         recordHar: {
           path: harPath,
@@ -55,35 +169,17 @@ function createPageFixture(
         },
       }),
     });
+    if (initScript !== null) await context.addInitScript({ content: initScript });
     const page = await context.newPage();
     const { errors, cleanup } = attachConsoleErrors(page);
+    const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
     await use(page);
-
     const failed = testInfo.status !== testInfo.expectedStatus;
-
-    if (failed && errors.length > 0) {
-      await testInfo.attach(`console-errors-${label}`, {
-        body: errors.join('\n'),
-        contentType: 'text/plain',
-      });
-    }
-
-    if (failed) {
-      const snapshot = await page.locator(':root').ariaSnapshot();
-      if (snapshot) {
-        await testInfo.attach(`page-snapshot-${label}`, {
-          body: snapshot,
-          contentType: 'text/yaml',
-        });
-      }
-    }
-
-    cleanup();
-    await context.close();
-
-    if (failed && isRetry && existsSync(harPath)) {
-      await testInfo.attach(`har-${label}`, { path: harPath, contentType: 'application/json' });
-    }
+    await teardownPage(
+      { page, context, label, errors, apiErrors, cleanup, cleanupApi, harPath },
+      failed,
+      testInfo
+    );
   };
 }
 
@@ -102,7 +198,24 @@ interface MultiModelConversation {
   url: string;
 }
 
+interface MediaConversation {
+  conversationId: string;
+  assistantMessageId: string;
+  page: Page;
+}
+
 interface CustomFixtures {
+  /**
+   * Auto-fixture: clears per-user usage rate-limit buckets (chat stream,
+   * media download, share creation) at the start of every test. Stops late
+   * tests in a worker from hitting 429s caused by prior tests reusing the
+   * same test user. Trial IP limits are deliberately not cleared so that
+   * `trial-chat.spec.ts` continues to exercise the trial cap firing.
+   *
+   * Returns `null` (and the fixture value is never read) — Playwright requires
+   * a defined return type, and `void` is reserved for function return types.
+   */
+  resetRateLimitsAutoHook: null;
   authenticatedPage: Page;
   unauthenticatedPage: Page;
   /** Factory for creating fresh, fully-instrumented browser contexts on demand.
@@ -111,21 +224,38 @@ interface CustomFixtures {
   createPage: (storageState?: StorageState) => Promise<Page>;
   testConversation: TestConversation;
   multiModelConversation: MultiModelConversation;
+  /** Authenticated conversation with one finished image generation. */
+  imageConversation: MediaConversation;
+  /** Authenticated conversation with one finished video generation. */
+  videoConversation: MediaConversation;
+  /** Authenticated low-balance user (~$0.01) for affordability error testing. */
+  lowBalancePage: Page;
   authenticatedRequest: APIRequestContext;
-  // 2FA test user (has TOTP enabled)
   test2FAPage: Page;
-  // Dedicated billing test users (isolated balance state)
   billingSuccessPage: Page;
   billingSuccessPage2: Page;
   billingFailurePage: Page;
   billingValidationPage: Page;
   billingDevModePage: Page;
   billingTokenRequest: APIRequestContext;
-  // Group chat fixtures
   groupConversation: GroupConversation;
   testBobPage: Page;
   testDavePage: Page;
   testBobRequest: APIRequestContext;
+}
+
+async function zeroLowBalanceWallets(
+  requestContext: APIRequestContext,
+  email: string
+): Promise<void> {
+  // Zero both wallets so the user is on the free tier with no allowance —
+  // every preflight cost trips `insufficient_free_allowance` denial.
+  await requestContext.post('/api/dev/wallet-balance', {
+    data: { email, walletType: 'purchased', balance: '0.00000000' },
+  });
+  await requestContext.post('/api/dev/wallet-balance', {
+    data: { email, walletType: 'free_tier', balance: '0.00000000' },
+  });
 }
 
 async function teardownPage(
@@ -134,19 +264,17 @@ async function teardownPage(
     context: BrowserContext;
     label: string;
     errors: string[];
+    apiErrors: string[];
     cleanup: () => void;
+    cleanupApi: () => void;
     harPath: string;
   },
   failed: boolean,
   testInfo: TestInfo
 ): Promise<void> {
-  if (failed && entry.errors.length > 0) {
-    await testInfo.attach(`console-errors-${entry.label}`, {
-      body: entry.errors.join('\n'),
-      contentType: 'text/plain',
-    });
-  }
   if (failed) {
+    await attachLabeledArtifact(testInfo, 'console-errors', entry.label, entry.errors);
+    await attachLabeledArtifact(testInfo, 'api-errors', entry.label, entry.apiErrors);
     const snapshot = await entry.page
       .locator(':root')
       .ariaSnapshot()
@@ -159,6 +287,7 @@ async function teardownPage(
     }
   }
   entry.cleanup();
+  entry.cleanupApi();
   await entry.context.close();
   if (failed && existsSync(entry.harPath)) {
     await testInfo.attach(`har-${entry.label}`, {
@@ -169,20 +298,33 @@ async function teardownPage(
 }
 
 export const test = base.extend<CustomFixtures>({
-  authenticatedPage: createPageFixture('e2e/.auth/test-alice.json', 'authenticatedPage'),
+  resetRateLimitsAutoHook: [
+    async ({ playwright }, use) => {
+      const ctx = await playwright.request.newContext({ baseURL: apiUrl });
+      await clearUsageRateLimits(ctx);
+      await ctx.dispose();
+      await use(null);
+    },
+    { auto: true },
+  ],
+
+  authenticatedPage: createPageFixture({ persona: 'test-alice' }, 'authenticatedPage'),
 
   // Explicitly clear storage state to override project-level default auth
-  unauthenticatedPage: createPageFixture({ cookies: [], origins: [] }, 'unauthenticatedPage'),
+  unauthenticatedPage: createPageFixture(
+    { state: { cookies: [], origins: [] } },
+    'unauthenticatedPage'
+  ),
 
-  // Factory for creating fresh, instrumented pages on demand.
-  // Each page gets the same HAR/console-error/snapshot capture as named fixtures.
   createPage: async ({ browser }, use, testInfo) => {
     const pages: {
       page: Page;
       context: BrowserContext;
       label: string;
       errors: string[];
+      apiErrors: string[];
       cleanup: () => void;
+      cleanupApi: () => void;
       harPath: string;
     }[] = [];
     let counter = 0;
@@ -193,15 +335,18 @@ export const test = base.extend<CustomFixtures>({
       counter++;
       const label = `unauthenticatedPage-${String(counter)}`;
       const harPath = testInfo.outputPath(`${label}.har`);
+      const { state, initScript } = await buildContextOptions(storageState);
       const context = await browser.newContext({
-        storageState,
+        storageState: state,
         ...(isRetry && {
           recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
         }),
       });
+      if (initScript !== null) await context.addInitScript({ content: initScript });
       const page = await context.newPage();
       const { errors, cleanup } = attachConsoleErrors(page);
-      pages.push({ page, context, label, errors, cleanup, harPath });
+      const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
+      pages.push({ page, context, label, errors, apiErrors, cleanup, cleanupApi, harPath });
       return page;
     };
 
@@ -213,77 +358,56 @@ export const test = base.extend<CustomFixtures>({
     }
   },
 
-  authenticatedRequest: async ({ playwright }, use) => {
+  authenticatedRequest: async ({ playwright }, use, testInfo) => {
     const context = await playwright.request.newContext({
       baseURL: apiUrl,
-      storageState: 'e2e/.auth/test-alice.json',
+      storageState: `e2e/.auth/${testInfo.project.name}/test-alice.json`,
     });
     await use(context);
     await context.dispose();
   },
 
-  // 2FA test user (has TOTP enabled)
-  test2FAPage: createPageFixture('e2e/.auth/test-2fa.json', 'test2FAPage'),
+  test2FAPage: createPageFixture({ persona: 'test-2fa' }, 'test2FAPage'),
 
-  // Dedicated billing test users (isolated balance state between tests)
-  billingSuccessPage: createPageFixture(
-    'e2e/.auth/test-billing-success.json',
-    'billingSuccessPage'
-  ),
+  billingSuccessPage: createPageFixture({ persona: 'test-billing-success' }, 'billingSuccessPage'),
   billingSuccessPage2: createPageFixture(
-    'e2e/.auth/test-billing-success-2.json',
+    { persona: 'test-billing-success-2' },
     'billingSuccessPage2'
   ),
-  billingFailurePage: createPageFixture(
-    'e2e/.auth/test-billing-failure.json',
-    'billingFailurePage'
-  ),
+  billingFailurePage: createPageFixture({ persona: 'test-billing-failure' }, 'billingFailurePage'),
   billingValidationPage: createPageFixture(
-    'e2e/.auth/test-billing-validation.json',
+    { persona: 'test-billing-validation' },
     'billingValidationPage'
   ),
-  billingDevModePage: createPageFixture(
-    'e2e/.auth/test-billing-devmode.json',
-    'billingDevModePage'
-  ),
+  billingDevModePage: createPageFixture({ persona: 'test-billing-devmode' }, 'billingDevModePage'),
 
-  // Billing token test user (isolated balance for token-login billing portal tests)
-  billingTokenRequest: async ({ playwright }, use) => {
+  billingTokenRequest: async ({ playwright }, use, testInfo) => {
     const context = await playwright.request.newContext({
       baseURL: apiUrl,
-      storageState: 'e2e/.auth/test-billing-token.json',
+      storageState: `e2e/.auth/${testInfo.project.name}/test-billing-token.json`,
     });
     await use(context);
     await context.dispose();
   },
 
-  // Group chat: creates conversation with seeded messages via dev endpoint
   groupConversation: async (
     { authenticatedPage: _authenticatedPage, authenticatedRequest },
-    use
+    use,
+    testInfo
   ) => {
+    const projectName = testInfo.project.name;
+    const aliceEmail = `test-alice-${projectName}@test.hushbox.ai`;
+    const bobEmail = `test-bob-${projectName}@test.hushbox.ai`;
     const response = await authenticatedRequest.post('/api/dev/group-chat', {
       data: {
-        ownerEmail: 'test-alice@test.hushbox.ai',
-        memberEmails: ['test-bob@test.hushbox.ai'],
+        ownerEmail: aliceEmail,
+        memberEmails: [bobEmail],
         messages: [
-          {
-            senderEmail: 'test-alice@test.hushbox.ai',
-            content: 'Hello from Alice',
-            senderType: 'user',
-          },
+          { senderEmail: aliceEmail, content: 'Hello from Alice', senderType: 'user' },
           { content: 'Echo: Hello! How can I help?', senderType: 'ai' },
-          { senderEmail: 'test-bob@test.hushbox.ai', content: 'Hi from Bob', senderType: 'user' },
-          {
-            senderEmail: 'test-alice@test.hushbox.ai',
-            content: 'Alice replies',
-            senderType: 'user',
-          },
-          {
-            senderEmail: 'test-alice@test.hushbox.ai',
-            content: 'Summarize this',
-            senderType: 'user',
-          },
+          { senderEmail: bobEmail, content: 'Hi from Bob', senderType: 'user' },
+          { senderEmail: aliceEmail, content: 'Alice replies', senderType: 'user' },
+          { senderEmail: aliceEmail, content: 'Summarize this', senderType: 'user' },
           { content: 'Echo: Here is a summary of your conversation.', senderType: 'ai' },
         ],
       },
@@ -299,17 +423,14 @@ export const test = base.extend<CustomFixtures>({
     // saveChatTurn() running via Wrangler's waitUntil(), producing billing_failed errors.
   },
 
-  // Second browser context logged in as test-bob
-  testBobPage: createPageFixture('e2e/.auth/test-bob.json', 'testBobPage'),
+  testBobPage: createPageFixture({ persona: 'test-bob' }, 'testBobPage'),
 
-  // Browser context logged in as test-dave (verified, no group membership by default)
-  testDavePage: createPageFixture('e2e/.auth/test-dave.json', 'testDavePage'),
+  testDavePage: createPageFixture({ persona: 'test-dave' }, 'testDavePage'),
 
-  // API request context for test-bob (used for owner-privilege budget operations)
-  testBobRequest: async ({ playwright }, use) => {
+  testBobRequest: async ({ playwright }, use, testInfo) => {
     const context = await playwright.request.newContext({
       baseURL: apiUrl,
-      storageState: 'e2e/.auth/test-bob.json',
+      storageState: `e2e/.auth/${testInfo.project.name}/test-bob.json`,
     });
     await use(context);
     await context.dispose();
@@ -321,11 +442,9 @@ export const test = base.extend<CustomFixtures>({
       await chatPage.goto();
       await chatPage.waitForAppStable();
 
-      // Select 2 non-premium models
       await chatPage.selectModels(2);
       await chatPage.expectComparisonBarVisible();
 
-      // Send first message and wait for both responses
       const testMessage = `Multi-model fixture ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(testMessage);
       await chatPage.waitForConversation();
@@ -340,11 +459,119 @@ export const test = base.extend<CustomFixtures>({
     { timeout: 60_000 },
   ],
 
-  testConversation: async ({ authenticatedPage, authenticatedRequest }, use) => {
+  imageConversation: [
+    async ({ authenticatedPage }, use) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.expectNewChatPageVisible();
+
+      await chatPage.switchToImageMode();
+      const prompt = `Image fixture ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(prompt);
+      await chatPage.waitForConversation();
+      await chatPage.expectImageVisible();
+      await chatPage.waitForStreamComplete();
+
+      const url = new URL(authenticatedPage.url());
+      const conversationId = url.pathname.split('/').pop() ?? '';
+
+      const assistantMessageId =
+        (await authenticatedPage
+          .locator('[data-role="assistant"]')
+          .first()
+          .getAttribute('data-message-id')) ?? '';
+      rawExpect(assistantMessageId, 'imageConversation: missing assistant message id').not.toBe('');
+
+      await use({ conversationId, assistantMessageId, page: authenticatedPage });
+    },
+    { timeout: 60_000 },
+  ],
+
+  videoConversation: [
+    async ({ authenticatedPage }, use) => {
+      const chatPage = new ChatPage(authenticatedPage);
+      await chatPage.goto();
+      await chatPage.expectNewChatPageVisible();
+
+      await chatPage.switchToVideoMode();
+      const prompt = `Video fixture ${String(Date.now())}`;
+      await chatPage.sendNewChatMessage(prompt);
+      await chatPage.waitForConversation();
+      await chatPage.expectVideoVisible();
+      await chatPage.waitForStreamComplete();
+
+      const url = new URL(authenticatedPage.url());
+      const conversationId = url.pathname.split('/').pop() ?? '';
+
+      const assistantMessageId =
+        (await authenticatedPage
+          .locator('[data-role="assistant"]')
+          .first()
+          .getAttribute('data-message-id')) ?? '';
+      rawExpect(assistantMessageId, 'videoConversation: missing assistant message id').not.toBe('');
+
+      await use({ conversationId, assistantMessageId, page: authenticatedPage });
+    },
+    { timeout: 60_000 },
+  ],
+
+  // Low-balance page: authenticated as test-billing-validation (zero starting balance);
+  // both wallets are zeroed via the dev endpoint before the test runs so the
+  // user lands on free tier with no allowance — any preflight cost denies with
+  // `insufficient_free_allowance`. The "paid + $0.01" route doesn't work here:
+  // the $0.50 paid-tier cushion always covers image/Smart-Model preflight costs.
+  // Reset to $0 after the test to avoid bleed.
+  lowBalancePage: async ({ browser, playwright }, use, testInfo) => {
+    const projectName = testInfo.project.name;
+    const lowBalanceEmail = `test-billing-validation-${projectName}@test.hushbox.ai`;
+    const storageStatePath = `e2e/.auth/${projectName}/test-billing-validation.json`;
+    const requestContext = await playwright.request.newContext({
+      baseURL: apiUrl,
+      storageState: storageStatePath,
+    });
+
+    await zeroLowBalanceWallets(requestContext, lowBalanceEmail);
+
+    const harPath = testInfo.outputPath('lowBalancePage.har');
+    const isRetry = testInfo.retry > 0;
+    const context = await browser.newContext({
+      storageState: storageStatePath,
+      ...(isRetry && {
+        recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
+      }),
+    });
+    const page = await context.newPage();
+    const { errors, cleanup } = attachConsoleErrors(page);
+    const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
+    await use(page);
+    const failed = testInfo.status !== testInfo.expectedStatus;
+    await teardownPage(
+      {
+        page,
+        context,
+        label: 'lowBalancePage',
+        errors,
+        apiErrors,
+        cleanup,
+        cleanupApi,
+        harPath,
+      },
+      failed,
+      testInfo
+    );
+
+    await requestContext.post('/api/dev/wallet-balance', {
+      data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.00000000' },
+    });
+    await requestContext.dispose();
+  },
+
+  testConversation: async ({ authenticatedPage, authenticatedRequest }, use, testInfo) => {
     const testMessage = `Fixture setup ${String(Date.now())}`;
+    const aliceEmail = `test-alice-${testInfo.project.name}@test.hushbox.ai`;
     const response = await authenticatedRequest.post('/api/dev/conversation', {
       data: {
-        ownerEmail: 'test-alice@test.hushbox.ai',
+        ownerEmail: aliceEmail,
         messages: [
           { content: testMessage, senderType: 'user' },
           { content: `Echo: ${testMessage}`, senderType: 'ai' },

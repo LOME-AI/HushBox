@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { getIronSession } from 'iron-session';
 import { eq } from 'drizzle-orm';
 import { users } from '@hushbox/db';
-import { ERROR_CODE_LOGIN_TOKEN_INVALID } from '@hushbox/shared';
+import { ERROR_CODE_LOGIN_TOKEN_INVALID, ERROR_CODE_SERVER_MISCONFIGURED } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import { redisGet, redisSet } from '../lib/redis-registry.js';
 import { getSessionOptions, type SessionData } from '../lib/session.js';
@@ -14,11 +14,18 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
   '/',
   zValidator('json', z.object({ token: z.uuid() })),
   async (c) => {
+    // Fail-fast on missing IRON_SESSION_SECRET BEFORE any I/O — a misconfigured
+    // deployment must surface 500 immediately, not after wasting a Redis read
+    // and DB query. Matches the pattern in routes/dev.ts:208-213.
+    const sessionSecret = c.env.IRON_SESSION_SECRET;
+    if (!sessionSecret) {
+      return c.json(createErrorResponse(ERROR_CODE_SERVER_MISCONFIGURED), 500);
+    }
+
     const { token } = c.req.valid('json');
     const redis = c.get('redis');
     const db = c.get('db');
 
-    // 1. Redeem token from Redis (one-time use)
     const tokenData = await redisGet(redis, 'billingLoginToken', token);
     if (!tokenData) {
       return c.json(createErrorResponse(ERROR_CODE_LOGIN_TOKEN_INVALID), 401);
@@ -28,7 +35,6 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
     // This makes the endpoint idempotent: retries from StrictMode double-fire,
     // page reloads, or network retries all succeed within the TTL window.
 
-    // 2. Look up user in DB
     const [user] = await db
       .select({
         id: users.id,
@@ -45,9 +51,7 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
       return c.json(createErrorResponse(ERROR_CODE_LOGIN_TOKEN_INVALID), 401);
     }
 
-    // 3. Create billing-scoped session
     const { isProduction } = c.get('envUtils');
-    const sessionSecret = c.env.IRON_SESSION_SECRET ?? '';
     const session = await getIronSession<SessionData>(
       c.req.raw,
       c.res,
@@ -74,7 +78,6 @@ export const tokenLoginRoute = new Hono<AppEnv>().post(
 
     await session.save();
 
-    // 4. Track session in Redis
     await redisSet(redis, 'sessionActive', '1', user.id, session.sessionId);
 
     return c.json({ success: true }, 200);

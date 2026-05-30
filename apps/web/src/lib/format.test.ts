@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { TOTAL_FEE_RATE } from '@hushbox/shared';
 import { formatContextLength, formatPricePer1k, applyFees, formatBalance } from './format';
 
 describe('formatContextLength', () => {
@@ -51,10 +52,10 @@ describe('formatPricePer1k', () => {
 });
 
 describe('applyFees', () => {
-  it('increases price by 15%', () => {
-    expect(applyFees(1)).toBeCloseTo(1.15, 10);
-    expect(applyFees(10)).toBeCloseTo(11.5, 10);
-    expect(applyFees(100)).toBeCloseTo(115, 10);
+  it('increases price by the total fee rate', () => {
+    expect(applyFees(1)).toBeCloseTo(1 + TOTAL_FEE_RATE, 10);
+    expect(applyFees(10)).toBeCloseTo(10 * (1 + TOTAL_FEE_RATE), 10);
+    expect(applyFees(100)).toBeCloseTo(100 * (1 + TOTAL_FEE_RATE), 10);
   });
 
   it('handles zero price', () => {
@@ -62,7 +63,7 @@ describe('applyFees', () => {
   });
 
   it('handles very small prices', () => {
-    expect(applyFees(0.000_01)).toBeCloseTo(0.000_011_5, 10);
+    expect(applyFees(0.000_01)).toBeCloseTo(0.000_01 * (1 + TOTAL_FEE_RATE), 10);
   });
 });
 

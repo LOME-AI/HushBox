@@ -1,9 +1,13 @@
+@layer base, components, utilities, accessibility;
+
 @import '../../../../packages/config/tailwind/index.css';
 
 @source '../../../../packages/ui/src/components/marketing/**/*.tsx';
 @source '../../../../packages/ui/src/components/cipher-wall/**/*.tsx';
+@source '../../../../packages/ui/src/components/accessibility/**/*.tsx';
 
-/* Blog prose typography overrides */
+@import '@hushbox/ui/accessibility/styles';
+
 .prose-blog {
   @apply text-foreground leading-relaxed;
 }
@@ -33,7 +37,7 @@
 }
 
 .prose-blog :where(blockquote):not(:where([class~='not-prose'] *)) {
-  @apply border-brand-red bg-brand-red-subtle border-l-4 rounded-r-lg py-3 pl-4 italic;
+  @apply border-brand-red bg-brand-red-subtle rounded-r-lg border-l-4 py-3 pl-4 italic;
 }
 
 .prose-blog :where(pre):not(:where([class~='not-prose'] *)) {
@@ -84,12 +88,10 @@
   @apply border-border border-b py-2;
 }
 
-/* Sources section: colored clickable links */
 .prose-blog :where(h2#sources ~ ol a, h2#sources ~ ul a):not(:where([class~='not-prose'] *)) {
   @apply text-brand-red hover:text-brand-red-hover underline underline-offset-2 transition-colors;
 }
 
-/* ScrollReveal animations */
 [data-slot='scroll-reveal'][data-visible='false'] {
   opacity: 0;
 }
@@ -116,7 +118,6 @@
   transition-delay: var(--reveal-delay, 0ms);
 }
 
-/* DataGrid row stagger */
 [data-slot='data-grid'][data-animated][data-visible='false'] tbody tr {
   opacity: 0;
   transform: translateY(1rem);
@@ -127,7 +128,6 @@
   animation-delay: var(--row-delay, 0ms);
 }
 
-/* StepFlow connecting lines */
 [data-slot='step-flow'][data-connected] [data-slot='step-item'] {
   position: relative;
 }
@@ -142,14 +142,12 @@
   background: var(--color-border);
 }
 
-/* StepFlow animated lines */
 [data-slot='step-flow'][data-animated][data-visible='true'] [data-slot='step-item']::after {
   animation: lineGrow 0.4s ease-out forwards;
   animation-delay: calc(var(--step-delay, 0ms) + 0.3s);
   transform-origin: top;
 }
 
-/* StepFlow step stagger */
 [data-slot='step-flow'][data-animated][data-visible='false'] [data-slot='step-item'] {
   opacity: 0;
   transform: translateY(1rem);
@@ -180,7 +178,6 @@
   }
 }
 
-/* CipherWall fade-in on load */
 [data-cipher-bg] {
   animation: cipherFadeIn 2.5s ease-in forwards;
 }
@@ -191,5 +188,77 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+/*
+ * Ghost-UI skeleton. RoadmapBoard stamps [data-skeleton] on its wrapper
+ * while the API is in flight and renders the real component tree against
+ * a placeholder dataset. The rules below mask text into bars and mute
+ * coloured surfaces so the skeleton mirrors the loaded layout — adding a
+ * field to ProjectCard automatically appears in the skeleton, without a
+ * parallel skeleton component to keep in sync.
+ */
+
+[data-skeleton] {
+  position: relative;
+}
+
+[data-skeleton],
+[data-skeleton] * {
+  color: transparent !important;
+  text-shadow: none !important;
+}
+
+[data-skeleton] :is(button, [role='progressbar'] > *) {
+  background-color: var(--color-background-subtle) !important;
+  background-image: none !important;
+  border-color: var(--color-border) !important;
+  cursor: default !important;
+}
+
+[data-skeleton] :is(h1, h2, h3, h4, p, span):not(:has(*)) {
+  background-color: var(--color-foreground);
+  border-radius: 3px;
+  opacity: 0.18;
+}
+
+[data-skeleton] [aria-hidden='true']:not(:has(*)) {
+  background-color: var(--color-foreground) !important;
+  opacity: 0.18;
+}
+
+[data-skeleton] svg {
+  visibility: hidden;
+}
+
+/* The shimmer is disabled under reduced motion by the global rule in
+   packages/ui/src/components/accessibility/styles/motion.css, which
+   pins animation-duration to 0.01ms on every element + pseudo-element
+   when `html.reduced-motion` is set. That class is toggled by the
+   accessibility broadcaster off the merged OS preference + in-app
+   toggle, so a local `@media (prefers-reduced-motion)` here would
+   only catch half the signal. */
+[data-skeleton]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: hb-skeleton-shimmer 1.8s linear infinite;
+}
+
+@keyframes hb-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
   }
 }

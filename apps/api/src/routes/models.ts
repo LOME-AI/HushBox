@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { modelSchema } from '@hushbox/shared';
-import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
+import { getProcessedCatalog } from '../lib/processed-catalog.js';
 import type { AppEnv } from '../types.js';
 
 const modelsListResponseSchema = z.object({
@@ -10,8 +10,7 @@ const modelsListResponseSchema = z.object({
 });
 
 export const modelsRoute = new Hono<AppEnv>().get('/', async (c) => {
-  const [rawModels, zdrModelIds] = await Promise.all([fetchModels(), fetchZdrModelIds()]);
-  const { models, premiumIds } = processModels(rawModels, zdrModelIds);
+  const { models, premiumIds } = await getProcessedCatalog(c);
   const response = modelsListResponseSchema.parse({
     models,
     premiumModelIds: premiumIds,

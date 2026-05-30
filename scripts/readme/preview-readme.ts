@@ -5,6 +5,7 @@ import { Marked } from 'marked';
 import markedAlert from 'marked-alert';
 import { markedHighlight } from 'marked-highlight';
 import hljs from 'highlight.js';
+import { isMainModule } from '../lib/is-main.js';
 
 const ROOT = process.cwd();
 
@@ -17,7 +18,7 @@ export function resolvePort(): number {
   const raw = process.env['HB_README_PREVIEW_PORT'];
   if (!raw) {
     throw new Error(
-      'HB_README_PREVIEW_PORT is not set. Run `pnpm generate:env` first, or invoke this script via `./scripts/with-env`.'
+      'HB_README_PREVIEW_PORT is not set. Run `pnpm generate:env` first, or invoke this script via `tsx scripts/with-env.ts`.'
     );
   }
   const port = Number(raw);
@@ -132,12 +133,10 @@ export function startServer(port: number): ReturnType<typeof createServer> {
       }
     }
 
-    // Default: render the README
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(renderReadme());
   });
 
-  // Reload browsers when README changes
   watch(path.join(ROOT, 'README.md'), () => {
     for (const client of clients) {
       client.write('data: reload\n\n');
@@ -151,7 +150,6 @@ export function startServer(port: number): ReturnType<typeof createServer> {
   return server;
 }
 
-// CLI entry point
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) startServer(resolvePort());

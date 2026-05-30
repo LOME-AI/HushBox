@@ -4,8 +4,17 @@ tags:
   - should
 androidWebViewHierarchy: devtools
 env:
-  TEST_EMAIL: test-alice@test.hushbox.ai
-  TEST_PASSWORD: password123
+  # Sign in with the shortest legal username instead of the 27-char email.
+  # Maestro 2.6.0 spends ~10 s per character on Capacitor WebView fields on
+  # docker-android — `UiDevice.pressKeyCode` calls `injectInputEvent`
+  # synchronously and the WebView's ack round-trip is ~10 s per event. The
+  # 120 s gRPC deadline then caps inputText to ~11 chars (see Maestro issue
+  # #2718). At 3 chars this call completes in ~30 s instead of ~110 s.
+  # `tmu` is the seeded MOBILE_TEST_PERSONA username (scripts/seed.ts);
+  # OPAQUE login by username runs the identical server path as by email
+  # (resolveIdentifierCondition in opaque-auth.ts), so assertions stay valid.
+  TEST_USERNAME: tmu
+  TEST_PASSWORD: pass1234
 ---
 - launchApp:
     clearState: true
@@ -13,7 +22,7 @@ env:
 # Wait for app to stabilize
 - extendedWaitUntil:
     visible: 'Sign up'
-    timeout: 15000
+    timeout: 45000
 
 # Navigate to login page via deep link (avoids WebView tap issues with sidebar Sheet)
 - openLink: https://hushbox.ai/login
@@ -23,7 +32,7 @@ env:
 
 # Fill login form
 - tapOn: 'Email or Username'
-- inputText: ${TEST_EMAIL}
+- inputText: ${TEST_USERNAME}
 - hideKeyboard
 
 - tapOn: 'Password'
@@ -35,7 +44,8 @@ env:
 
 # Wait for authenticated chat page (use element unique to chat, not login page)
 - extendedWaitUntil:
-    visible: 'Select model'
+    visible:
+      id: 'model-selector-button'
     timeout: 15000
 
 # Use a suggestion chip to set the textarea value via React state.
@@ -46,7 +56,14 @@ env:
 - tapOn:
     id: 'send-button'
 
-# Wait for AI mock response — the dev mock echoes with "Echo:" prefix
+# Wait for AI mock response to complete. We assert on "Regenerate" (an
+# action button that only renders once streaming finishes) rather than the
+# response body text — Maestro's Android text matcher fails to surface
+# WebView TextView nodes nested in large parent containers, even when the
+# text is present in the hierarchy dump. The button is reliably exposed.
+# 30s budget covers the first-message cold path on the emulator
+# (create conversation + epoch keys + SSE stream + per-chunk decrypt +
+# Streamdown render).
 - extendedWaitUntil:
-    visible: 'Echo:'
-    timeout: 15000
+    visible: 'Regenerate'
+    timeout: 30000

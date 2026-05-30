@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { devPersonaKeys, useDevPersonas } from './dev-personas';
 import type { DevPersonasResponse } from '@hushbox/shared';
 
-// Mock the api-client module (same pattern as models.test.ts)
 vi.mock('../lib/env.js', () => ({
   env: { isDev: true },
 }));

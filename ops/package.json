@@ -1,0 +1,20 @@
+{
+  "name": "@hushbox/ops",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsgo --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests"
+  },
+  "devDependencies": {
+    "@hushbox/config": "workspace:*",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.4.0",
+    "aws4fetch": "^1.0.20",
+    "js-yaml": "^4.1.0",
+    "typescript": "^5.9.3"
+  }
+}

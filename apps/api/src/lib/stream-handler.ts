@@ -4,6 +4,9 @@
  * Provides typed event writers for SSE streams used by chat endpoints.
  */
 
+import { ERROR_CODE_STREAM_ERROR } from '@hushbox/shared';
+import type { StageDonePayload, StageErrorPayload, StageStartPayload } from '@hushbox/shared';
+
 export interface SSEStream {
   writeSSE: (event: { event: string; data: string }) => Promise<void>;
   onAbort: (handler: () => void) => void;
@@ -27,13 +30,12 @@ export interface ErrorEventData {
 export interface ModelDoneEventData {
   modelId: string;
   assistantMessageId: string;
-  cost: string;
 }
 
 export interface ModelErrorEventData {
   modelId: string;
   message: string;
-  code?: string;
+  code: string;
 }
 
 export interface TokenEventData {
@@ -41,7 +43,76 @@ export interface TokenEventData {
   content: string;
 }
 
-export interface DoneModelEntry {
+/**
+ * `model:media:start` payload — surfaced from the AI client's media-start
+ * event so the UI can swap the generic "Loading…" placeholder for a more
+ * descriptive "Generating image…" indicator.
+ *
+ * `assistantMessageId` lets the frontend correlate the event with the
+ * specific row it just rendered (one row per model in the slot). Without it,
+ * the UI would have to guess which slot is starting when multiple models
+ * stream concurrently.
+ */
+export interface ModelMediaStartEventData {
+  modelId: string;
+  assistantMessageId: string;
+  mediaType: 'image' | 'audio' | 'video';
+  mimeType: string;
+}
+
+/**
+ * `model:media:progress` payload — synthetic progress for long-running media
+ * generation calls (today: video). Emitted at fixed percent steps based on
+ * an EXPECTED-duration estimate; the real generation time is unknown until
+ * `model:done`. See {@link createSSEEventWriter.writeModelMediaProgress}.
+ */
+export interface ModelMediaProgressEventData {
+  modelId: string;
+  assistantMessageId: string;
+  /** Integer in [0, 100]. Server emits up to 95% pre-completion. */
+  percent: number;
+}
+
+/**
+ * A single content item delivered in the SSE done event.
+ * Mirrors the write-path shape of a row inserted into `content_items` under
+ * the wrap-once envelope model. Text items carry `encryptedBlob` (base64);
+ * media items carry only metadata (the bytes live in R2 under `storageKey`).
+ */
+export interface DoneContentItem {
+  id: string;
+  contentType: 'text' | 'image' | 'audio' | 'video';
+  position: number;
+  /** Base64-encoded symmetric ciphertext under the message's content key. Text items only. */
+  encryptedBlob?: string | null;
+  /**
+   * Presigned GET URL for media items. Populated by the strategy after R2 upload.
+   * Omitted (not nulled) when not applicable — keep this consistent with
+   * `InsertedMediaContentItem.downloadUrl` so the persistence and wire shapes match.
+   */
+  downloadUrl?: string;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  durationMs?: number | null;
+  modelName: string | null;
+  cost: string | null;
+  isSmartModel: boolean;
+}
+
+/**
+ * The wrap-once envelope for a single persisted message, delivered in the SSE
+ * done event. Clients unwrap `wrappedContentKey` once with their epoch private
+ * key and decrypt every content item with the resulting content key.
+ */
+export interface DoneMessageEnvelope {
+  /** Base64-encoded ECIES-wrapped content key for the message. */
+  wrappedContentKey: string;
+  contentItems: DoneContentItem[];
+}
+
+export interface DoneModelEntry extends DoneMessageEnvelope {
   modelId: string;
   assistantMessageId: string;
   aiSequence: number;
@@ -55,18 +126,58 @@ export interface DoneEventData {
   aiSequence: number;
   epochNumber: number;
   cost: string;
+  /** Envelope for the user message itself (sender_type='user'). */
+  userEnvelope?: DoneMessageEnvelope;
   models?: DoneModelEntry[];
+}
+
+/**
+ * Wrapper for the stage:done payload — the discriminated union itself
+ * carries the stageId, while the wrapper carries the assistantMessageId so
+ * the frontend can correlate the event to a specific row in the UI.
+ */
+export interface StageDoneEventData {
+  assistantMessageId: string;
+  payload: StageDonePayload;
 }
 
 export interface SSEEventWriter {
   writeStart: (data: StartEventData) => Promise<void>;
-  writeToken: (content: string) => Promise<void>;
   writeModelToken: (data: TokenEventData) => Promise<void>;
+  writeModelMediaStart: (data: ModelMediaStartEventData) => Promise<void>;
+  writeModelMediaProgress: (data: ModelMediaProgressEventData) => Promise<void>;
   writeError: (data: ErrorEventData) => Promise<void>;
   writeModelDone: (data: ModelDoneEventData) => Promise<void>;
   writeModelError: (data: ModelErrorEventData) => Promise<void>;
   writeDone: (data?: DoneEventData) => Promise<void>;
+  /** Pre-inference stage status — generic across all stage types. */
+  writeStageStart: (data: StageStartPayload) => Promise<void>;
+  /** Pre-inference stage success — payload is discriminated by stageId. */
+  writeStageDone: (data: StageDoneEventData) => Promise<void>;
+  /** Pre-inference stage failure — generic across all stage types. */
+  writeStageError: (data: StageErrorPayload) => Promise<void>;
   isConnected: () => boolean;
+}
+
+/**
+ * Surfaces an unexpected exception thrown inside a `streamSSE` callback as a
+ * client-visible `event: error`. Without this wrapper the SSE socket closes
+ * cleanly after the last successful event (typically `model:done`) and the
+ * client sits at its STREAM_TIMEOUT_MS — a silent failure that hides server
+ * crashes (e.g. catalog miss in `getGenerationStats`, billing persistence
+ * errors).
+ *
+ * Always logs to `console.error` so the server-side trace survives even when
+ * the writer is already disconnected. Write attempts after disconnect no-op
+ * via the writer's connection guard, so this is safe to call from a `catch`.
+ */
+export async function writeStreamErrorFromException(
+  writer: SSEEventWriter,
+  err: unknown
+): Promise<void> {
+  console.error('sse stream: uncaught exception', err);
+  const message = err instanceof Error ? err.message : 'Stream processing failed';
+  await writer.writeError({ message, code: ERROR_CODE_STREAM_ERROR });
 }
 
 /**
@@ -101,12 +212,16 @@ export function createSSEEventWriter(stream: SSEStream): SSEEventWriter {
       await writeIfConnected('start', data);
     },
 
-    writeToken: async (content: string) => {
-      await writeIfConnected('token', { content });
-    },
-
     writeModelToken: async (data: TokenEventData) => {
       await writeIfConnected('token', data);
+    },
+
+    writeModelMediaStart: async (data: ModelMediaStartEventData) => {
+      await writeIfConnected('model:media:start', data);
+    },
+
+    writeModelMediaProgress: async (data: ModelMediaProgressEventData) => {
+      await writeIfConnected('model:media:progress', data);
     },
 
     writeError: async (data: ErrorEventData) => {
@@ -123,6 +238,18 @@ export function createSSEEventWriter(stream: SSEStream): SSEEventWriter {
 
     writeDone: async (data?: DoneEventData) => {
       await writeIfConnected('done', data ?? {});
+    },
+
+    writeStageStart: async (data: StageStartPayload) => {
+      await writeIfConnected('stage:start', data);
+    },
+
+    writeStageDone: async (data: StageDoneEventData) => {
+      await writeIfConnected('stage:done', data);
+    },
+
+    writeStageError: async (data: StageErrorPayload) => {
+      await writeIfConnected('stage:error', data);
     },
 
     isConnected: () => connected,

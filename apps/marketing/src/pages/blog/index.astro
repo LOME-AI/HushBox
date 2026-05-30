@@ -1,40 +1,62 @@
 ---
 import BlogLayout from '../../layouts/BlogLayout.astro';
-import PageHeader from '../../components/PageHeader.astro';
+import LandingHeader from '../../components/LandingHeader.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import PageHero from '../../components/PageHero.astro';
 import BlogPostCard from '../../components/blog/BlogPostCard.astro';
-import Pagination from '../../components/blog/Pagination.astro';
 import { BlogSearch } from '../../components/blog/BlogSearch';
-import { getPublishedPosts, getAllTags, POSTS_PER_PAGE, BLOG_DESCRIPTION } from '../../lib/blog';
+import { getPublishedPosts, getAllTags, BLOG_DESCRIPTION } from '../../lib/blog';
 
 const allPosts = await getPublishedPosts();
 const allTags = getAllTags(allPosts);
 
-const totalPages = Math.max(1, Math.ceil(allPosts.length / POSTS_PER_PAGE));
-const pagePosts = allPosts.slice(0, POSTS_PER_PAGE);
+const tagCounts: Record<string, number> = {};
+for (const post of allPosts) {
+  for (const tag of post.data.tags) {
+    tagCounts[tag] = (tagCounts[tag] ?? 0) + 1;
+  }
+}
+
+const BLOG_CIPHER_MESSAGES: readonly string[] = [
+  'Open Notebook',
+  'Thinking Out Loud',
+  'Built In Public',
+  'Behind The Cipher',
+  'Read Before You Trust',
+  'Posts From The Build',
+  'How It Works, Documented',
+  'Showing Our Work',
+];
 ---
 
 <BlogLayout title="Blog" description={BLOG_DESCRIPTION}>
-  <div class="space-y-8">
-    <PageHeader title="Blog" description={BLOG_DESCRIPTION} />
+  <LandingHeader />
 
-    <BlogSearch allTags={allTags} client:load />
+  <main class="flex-1 pt-20">
+    <PageHero title="Blog" messages={BLOG_CIPHER_MESSAGES} />
 
-    {
-      pagePosts.length > 0 && (
-        <div class="grid gap-6 pt-4 md:grid-cols-2">
-          {pagePosts.map((post) => (
-            <BlogPostCard post={post} />
-          ))}
-        </div>
-      )
-    }
+    <section class="mx-auto max-w-5xl px-6 pb-12">
+      <div class="space-y-8">
+        <BlogSearch allTags={allTags} tagCounts={tagCounts} client:load />
 
-    {
-      allPosts.length === 0 && (
-        <p class="text-foreground-muted py-12 text-center">No posts yet. Check back soon.</p>
-      )
-    }
+        {
+          allPosts.length > 0 && (
+            <div class="grid gap-6 pt-4 md:grid-cols-2">
+              {allPosts.map((post) => (
+                <BlogPostCard post={post} />
+              ))}
+            </div>
+          )
+        }
 
-    <Pagination currentPage={1} totalPages={totalPages} basePath="/blog" />
-  </div>
+        {
+          allPosts.length === 0 && (
+            <p class="text-foreground-muted py-12 text-center">No posts yet. Check back soon.</p>
+          )
+        }
+      </div>
+    </section>
+  </main>
+
+  <SiteFooter />
 </BlogLayout>

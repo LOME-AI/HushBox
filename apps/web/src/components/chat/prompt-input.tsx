@@ -1,14 +1,40 @@
 import * as React from 'react';
+import {
+  Bot,
+  Image as ImageIcon,
+  MessageSquare,
+  Mic,
+  Pencil,
+  Search,
+  SearchX,
+  Send,
+  Square,
+  Type,
+  Video,
+  X,
+} from 'lucide-react';
 import { cn } from '@hushbox/ui';
-import { Bot, MessageSquare, Pencil, Search, SearchX, Send, Square, X } from 'lucide-react';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@hushbox/ui';
 import { Textarea } from '@hushbox/ui';
-import type { CapabilityId, FundingSource, MemberPrivilege } from '@hushbox/shared';
-import { CapacityBar } from './capacity-bar';
-import { BudgetMessages } from './budget-messages';
+import { FEATURE_FLAGS } from '@hushbox/shared';
 import { usePromptBudget } from '@/hooks/use-prompt-budget';
 import { useStability } from '@/providers/stability-provider';
 import { StableContent } from '@/components/shared/stable-content';
+import { AnimatedHeight } from '@/components/shared/animated-height';
+import { MorphHeight } from '@/components/shared/morph-height';
+import { AnimatedPlaceholder } from './animated-placeholder';
+import { CapacityBar } from './capacity-bar';
+import { BudgetMessages } from './budget-messages';
+import {
+  ImageAspectRatioControl,
+  VideoAspectRatioControl,
+  VideoResolutionControl,
+  VideoDurationControl,
+  AudioFormatControl,
+  AudioDurationControl,
+  MediaCostLine,
+} from './modality-config-panel';
+import type { ModelFeatureId, FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
 
 export interface PromptInputRef {
   focus: () => void;
@@ -73,11 +99,36 @@ function ToggleButtonWithTooltip({
 }: Readonly<ToggleButtonWithTooltipProps>): React.JSX.Element {
   const [open, setOpen] = React.useState(false);
 
+  // When disabled, the inner button can't receive focus or fire pointer events,
+  // so screen-reader / keyboard users would never learn why it's unavailable.
+  // We promote the wrapping span to a focusable role="button" so the tooltip
+  // (e.g. "Sign up to unlock") is announced on focus.
+  const wrapperProps = disabled
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        'aria-label': ariaLabel,
+        'aria-disabled': true,
+        onFocus: () => {
+          setOpen(true);
+        },
+        onBlur: () => {
+          setOpen(false);
+        },
+      }
+    : {};
+
+  // When disabled, the wrapper span carries role=button + aria-label so it's
+  // the only entry in the accessibility tree. The inner native button is
+  // aria-hidden and purely visual — keeps the same accessible name from being
+  // announced twice and resolves the strict-mode locator collision in tests.
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- tooltip wrapper: span exists so tooltip can show on hover/click even when the inner Button is disabled (disabled buttons swallow events). The Button itself owns keyboard semantics. */}
         <span
           className="inline-flex"
+          {...wrapperProps}
           onClick={() => {
             setOpen(true);
             if (!disabled) onClick?.();
@@ -88,7 +139,7 @@ function ToggleButtonWithTooltip({
             size="icon"
             variant="ghost"
             disabled={disabled}
-            aria-label={ariaLabel}
+            {...(disabled ? { 'aria-hidden': true } : { 'aria-label': ariaLabel })}
           >
             {children}
           </Button>
@@ -110,6 +161,18 @@ function SubmitButtonIcon({ isProcessing }: Readonly<SubmitButtonIconProps>): Re
   return <Send className="h-4 w-4" aria-hidden="true" />;
 }
 
+/**
+ * Props controlling the web-search toggle. Grouped into one object because
+ * the fields are only meaningful together — absent means "this prompt
+ * has no search feature" (e.g. image modality).
+ */
+export interface ChatSearchProps {
+  /** Whether web search is currently enabled. */
+  webSearchEnabled: boolean;
+  /** Called when the user toggles web search. */
+  onToggleWebSearch: () => void;
+}
+
 interface PromptInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -118,7 +181,7 @@ interface PromptInputProps {
   /** Current conversation history character count (for budget calculation) */
   historyCharacters?: number;
   /** Active capabilities that affect system prompt size */
-  capabilities?: CapabilityId[];
+  capabilities?: ModelFeatureId[];
   className?: string;
   rows?: number;
   disabled?: boolean;
@@ -140,18 +203,21 @@ interface PromptInputProps {
   onSubmitUserOnly?: () => void;
   /** Called when typing state changes (for WebSocket typing indicators). Throttled internally. */
   onTypingChange?: ((isTyping: boolean) => void) | undefined;
-  /** Whether web search is enabled */
-  webSearchEnabled?: boolean;
-  /** Whether the selected model supports native web search */
-  modelSupportsSearch?: boolean;
-  /** Whether the user is authenticated (trial users can't search) */
+  /**
+   * Search feature props. Omit to disable the search toggle entirely
+   * (e.g. image modality has no search).
+   */
+  searchProps?: ChatSearchProps | undefined;
+  /** Whether the user is authenticated (trial users can't search or switch modality). */
   isAuthenticated?: boolean;
-  /** Called when user toggles web search */
-  onToggleWebSearch?: (() => void) | undefined;
   /** Whether the prompt input is in edit mode (editing a previous message) */
   isEditing?: boolean;
   /** Called when the user cancels editing */
   onCancelEdit?: (() => void) | undefined;
+  /** Current active modality */
+  activeModality?: Modality;
+  /** Called when the user picks a modality (via the per-modality icon buttons). */
+  onSelectModality?: ((modality: Modality) => void) | undefined;
 }
 
 const PROMPT_INPUT_DEFAULTS: Pick<
@@ -169,7 +235,7 @@ const PROMPT_INPUT_DEFAULTS: Pick<
 > = {
   placeholder: 'Ask me anything...',
   historyCharacters: 0,
-  capabilities: [] as CapabilityId[],
+  capabilities: [] as ModelFeatureId[],
   rows: 6,
   disabled: false,
   isProcessing: false,
@@ -179,10 +245,6 @@ const PROMPT_INPUT_DEFAULTS: Pick<
   isGroupChat: false,
 };
 
-/**
- * Large prompt input with budget calculation, capacity bar, and keyboard handling.
- * Self-contained: calculates budget internally using model and balance data.
- */
 function AIToggleButton({
   aiEnabled,
   onToggle,
@@ -201,35 +263,117 @@ function AIToggleButton({
 
 interface SearchToggleButtonProps {
   webSearchEnabled: boolean;
-  modelSupportsSearch: boolean;
   isAuthenticated: boolean;
   onToggle?: (() => void) | undefined;
 }
 
-function getSearchTooltipText(
-  isAuthenticated: boolean,
-  modelSupportsSearch: boolean,
-  webSearchEnabled: boolean
-): string {
+function getSearchTooltipText(isAuthenticated: boolean, webSearchEnabled: boolean): string {
   if (!isAuthenticated) {
     return 'Sign up to access internet search';
   }
-  if (!modelSupportsSearch) {
-    return "This model doesn't support internet search";
-  }
-  return webSearchEnabled ? 'Internet search on' : 'Internet search off';
+  return webSearchEnabled ? 'Turn off internet search' : 'Turn on internet search';
+}
+
+interface ModalityIconsProps {
+  activeModality: Modality;
+  onSelect: (modality: Modality) => void;
+  /**
+   * When false, icons render disabled with a "Sign up to unlock" tooltip
+   * (per plan §9.1) so trial users still discover the affordance.
+   */
+  isAuthenticated: boolean;
+}
+
+interface ModalityIconEntry {
+  modality: Modality;
+  label: string;
+  /** Trial tooltip for users who haven't signed up — gives action context. */
+  trialLabel: string;
+  Icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
+}
+
+const MODALITY_ICONS: readonly ModalityIconEntry[] = [
+  {
+    modality: 'text',
+    label: 'Switch to text',
+    trialLabel: 'Text generation — sign up to unlock',
+    Icon: Type,
+  },
+  {
+    modality: 'image',
+    label: 'Switch to image generation',
+    trialLabel: 'Image generation — sign up to unlock',
+    Icon: ImageIcon,
+  },
+  {
+    modality: 'video',
+    label: 'Switch to video generation',
+    trialLabel: 'Video generation — sign up to unlock',
+    Icon: Video,
+  },
+  {
+    modality: 'audio',
+    label: 'Switch to audio generation',
+    trialLabel: 'Audio generation — sign up to unlock',
+    Icon: Mic,
+  },
+] as const;
+
+function isModalityAvailable(modality: Modality): boolean {
+  if (modality === 'audio') return FEATURE_FLAGS.AUDIO_ENABLED;
+  return true;
+}
+
+/**
+ * Renders one icon per non-active modality (see §9.1 of the plan).
+ * The active modality's icon is omitted. Audio is gated behind FEATURE_FLAGS.
+ *
+ * Trial users (`isAuthenticated === false`) see the icons disabled with a
+ * "Sign up to unlock" tooltip — keeping the affordance visible while
+ * preventing accidental modality switches.
+ */
+function ModalityIcons({
+  activeModality,
+  onSelect,
+  isAuthenticated,
+}: Readonly<ModalityIconsProps>): React.JSX.Element {
+  return (
+    <>
+      {MODALITY_ICONS.filter(
+        (entry) => entry.modality !== activeModality && isModalityAvailable(entry.modality)
+      ).map((entry) => {
+        const tooltip = isAuthenticated ? entry.label : entry.trialLabel;
+        const ariaLabel = isAuthenticated ? entry.label : entry.trialLabel;
+        return (
+          <ToggleButtonWithTooltip
+            key={entry.modality}
+            tooltipText={tooltip}
+            onClick={
+              isAuthenticated
+                ? () => {
+                    onSelect(entry.modality);
+                  }
+                : undefined
+            }
+            disabled={!isAuthenticated}
+            ariaLabel={ariaLabel}
+          >
+            <entry.Icon className="h-4 w-4" aria-hidden />
+          </ToggleButtonWithTooltip>
+        );
+      })}
+    </>
+  );
 }
 
 function SearchToggleButton({
   webSearchEnabled,
-  modelSupportsSearch,
   isAuthenticated,
   onToggle,
 }: Readonly<SearchToggleButtonProps>): React.JSX.Element {
-  const isDisabled = !isAuthenticated || !modelSupportsSearch;
-  const searchState = webSearchEnabled ? 'Internet search on' : 'Internet search off';
-  const ariaLabel = isDisabled ? 'Internet search unavailable' : searchState;
-  const tooltipText = getSearchTooltipText(isAuthenticated, modelSupportsSearch, webSearchEnabled);
+  const isDisabled = !isAuthenticated;
+  const tooltipText = getSearchTooltipText(isAuthenticated, webSearchEnabled);
+  const ariaLabel = isDisabled ? 'Internet search unavailable' : tooltipText;
 
   return (
     <ToggleButtonWithTooltip
@@ -238,13 +382,175 @@ function SearchToggleButton({
       disabled={isDisabled}
       ariaLabel={ariaLabel}
     >
-      {webSearchEnabled && !isDisabled ? (
+      {webSearchEnabled ? (
         <Search className="h-4 w-4" aria-hidden="true" />
       ) : (
         <SearchX className="h-4 w-4 opacity-50" aria-hidden="true" />
       )}
     </ToggleButtonWithTooltip>
   );
+}
+
+interface PromptToolbarProps {
+  readonly activeModality: Modality | undefined;
+  readonly isAuthenticated: boolean | undefined;
+  readonly onSelectModality: ((modality: Modality) => void) | undefined;
+  readonly searchProps: ChatSearchProps | undefined;
+  readonly isGroupChat: boolean;
+  readonly aiEnabled: boolean;
+  readonly onToggleAi: () => void;
+}
+
+function PromptToolbar({
+  activeModality,
+  isAuthenticated,
+  onSelectModality,
+  searchProps,
+  isGroupChat,
+  aiEnabled,
+  onToggleAi,
+}: Readonly<PromptToolbarProps>): React.JSX.Element {
+  // Modality icons render whenever the parent supplies the props. Trial users
+  // (isAuthenticated === false) see them disabled with a sign-up tooltip per
+  // plan §9.1, so the affordance stays discoverable instead of being hidden.
+  const showModality =
+    activeModality !== undefined && onSelectModality !== undefined && isAuthenticated !== undefined;
+  const showSearch = searchProps !== undefined && isAuthenticated !== undefined;
+
+  return (
+    <div className="flex items-center gap-1">
+      {showSearch && (
+        <SearchToggleButton
+          webSearchEnabled={searchProps.webSearchEnabled}
+          isAuthenticated={isAuthenticated}
+          onToggle={searchProps.onToggleWebSearch}
+        />
+      )}
+      {showModality && (
+        <ModalityIcons
+          activeModality={activeModality}
+          onSelect={onSelectModality}
+          isAuthenticated={isAuthenticated}
+        />
+      )}
+      {isGroupChat && <AIToggleButton aiEnabled={aiEnabled} onToggle={onToggleAi} />}
+    </div>
+  );
+}
+
+interface BottomRowsProps {
+  readonly activeModality: Modality | undefined;
+  readonly capacity: { currentUsage: number; maxCapacity: number };
+  readonly toolbar: React.ReactNode;
+  readonly sendButton: React.ReactNode;
+}
+
+function TextBottomRow({
+  capacity,
+  toolbar,
+  sendButton,
+}: Readonly<Omit<BottomRowsProps, 'activeModality'>>): React.JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-4 px-3 py-2">
+      <CapacityBar
+        currentUsage={capacity.currentUsage}
+        maxCapacity={capacity.maxCapacity}
+        // min-w-0 lets the flex item shrink below its intrinsic content width
+        // so the toolbar+send group on the right never overflows the row on
+        // narrow viewports. Without this, the bar's auto min-width pins the
+        // left side and pushes the send button past the parent.
+        className="min-w-0 flex-1"
+        data-testid="capacity-bar"
+      />
+      <div className="flex items-center gap-2">
+        {toolbar}
+        {sendButton}
+      </div>
+    </div>
+  );
+}
+
+function ImageBottomRow({
+  toolbar,
+  sendButton,
+}: Readonly<Pick<BottomRowsProps, 'toolbar' | 'sendButton'>>): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <ImageAspectRatioControl />
+      <div className="mr-2 ml-auto">
+        <MediaCostLine modality="image" />
+      </div>
+      <div className="flex items-center gap-2">
+        {toolbar}
+        {sendButton}
+      </div>
+    </div>
+  );
+}
+
+function VideoBottomRow({
+  toolbar,
+  sendButton,
+}: Readonly<Pick<BottomRowsProps, 'toolbar' | 'sendButton'>>): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-2 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <VideoDurationControl />
+        <div className="mr-2 ml-auto">
+          <MediaCostLine modality="video" />
+        </div>
+        <div className="flex items-center gap-2">
+          {toolbar}
+          {sendButton}
+        </div>
+      </div>
+      <div className="flex items-center justify-center gap-3">
+        <VideoAspectRatioControl />
+        <div className="bg-border h-6 w-px" aria-hidden />
+        <VideoResolutionControl />
+      </div>
+    </div>
+  );
+}
+
+function AudioBottomRow({
+  toolbar,
+  sendButton,
+}: Readonly<Pick<BottomRowsProps, 'toolbar' | 'sendButton'>>): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <AudioFormatControl />
+      <AudioDurationControl />
+      <div className="mr-2 ml-auto">
+        <MediaCostLine modality="audio" />
+      </div>
+      <div className="flex items-center gap-2">
+        {toolbar}
+        {sendButton}
+      </div>
+    </div>
+  );
+}
+
+function BottomRows({
+  activeModality,
+  capacity,
+  toolbar,
+  sendButton,
+}: Readonly<BottomRowsProps>): React.JSX.Element {
+  if (activeModality === undefined || activeModality === 'text') {
+    return <TextBottomRow capacity={capacity} toolbar={toolbar} sendButton={sendButton} />;
+  }
+  if (activeModality === 'image') {
+    return <ImageBottomRow toolbar={toolbar} sendButton={sendButton} />;
+  }
+  if (activeModality === 'video') {
+    return <VideoBottomRow toolbar={toolbar} sendButton={sendButton} />;
+  }
+  if (FEATURE_FLAGS.AUDIO_ENABLED) {
+    return <AudioBottomRow toolbar={toolbar} sendButton={sendButton} />;
+  }
+  return <TextBottomRow capacity={capacity} toolbar={toolbar} sendButton={sendButton} />;
 }
 
 export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
@@ -268,12 +574,12 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
       isGroupChat,
       onSubmitUserOnly,
       onTypingChange,
-      webSearchEnabled,
-      modelSupportsSearch,
+      searchProps,
       isAuthenticated,
-      onToggleWebSearch,
       isEditing,
       onCancelEdit,
+      activeModality,
+      onSelectModality,
     } = { ...PROMPT_INPUT_DEFAULTS, ...rawProps };
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const [aiEnabled, setAiEnabled] = React.useState(true);
@@ -285,6 +591,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
 
     React.useEffect(() => {
       if (!autoFocus) return;
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers focus to next frame, not motion animation
       const id = requestAnimationFrame(() => {
         textareaRef.current?.focus();
       });
@@ -347,80 +654,86 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
       }
     };
 
+    const toolbar = (
+      <PromptToolbar
+        activeModality={activeModality}
+        isAuthenticated={isAuthenticated}
+        onSelectModality={onSelectModality}
+        searchProps={searchProps}
+        isGroupChat={isGroupChat}
+        aiEnabled={aiEnabled}
+        onToggleAi={() => {
+          setAiEnabled((previous) => !previous);
+        }}
+      />
+    );
+
+    const sendButton = (
+      <Button
+        id="send-button"
+        type="button"
+        size="icon"
+        onClick={handleSubmit}
+        disabled={!canSubmit}
+        aria-label={BUTTON_ARIA_LABELS[String(canSubmit) as 'true' | 'false']}
+        data-testid="send-button"
+      >
+        <SubmitButtonIcon isProcessing={isProcessing} />
+      </Button>
+    );
+
     return (
       <div className={cn('w-full', className)}>
         <div className="border-border-strong bg-background dark:border-input flex flex-col rounded-md border">
-          {isEditing && (
-            <div className="border-border flex items-center justify-between border-b px-3 py-2">
-              <div className="flex items-center gap-1.5 text-sm">
-                <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>Editing message</span>
+          <AnimatedHeight>
+            {isEditing ? (
+              <div className="border-border flex items-center justify-between border-b px-3 py-2">
+                <div className="flex items-center gap-1.5 text-sm">
+                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Editing message</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={onCancelEdit}
+                  aria-label="Cancel"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  Cancel
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={onCancelEdit}
-                aria-label="Cancel"
-              >
-                <X className="h-3.5 w-3.5" aria-hidden="true" />
-                Cancel
-              </Button>
-            </div>
-          )}
-          <Textarea
-            ref={textareaRef}
-            id="prompt-input"
-            data-testid="prompt-input"
-            value={value}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            aria-label={placeholder}
-            rows={rows}
-            disabled={disabled}
-            className={`max-h-[${maxHeight}] min-h-[${minHeight}] resize-none overflow-y-auto border-0 text-base focus-visible:ring-0`}
-          />
-
-          <div className="border-border flex items-center justify-between gap-4 border-t px-3 py-2">
-            <CapacityBar
-              currentUsage={budget.capacityCurrentUsage}
-              maxCapacity={budget.capacityMaxCapacity}
-              className="flex-1"
-              data-testid="capacity-bar"
+            ) : null}
+          </AnimatedHeight>
+          <div className="relative">
+            <Textarea
+              ref={textareaRef}
+              id="prompt-input"
+              data-testid="prompt-input"
+              value={value}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              placeholder=""
+              aria-label={placeholder}
+              rows={rows}
+              disabled={disabled}
+              className={`max-h-[${maxHeight}] min-h-[${minHeight}] resize-none overflow-y-auto border-0 text-base focus-visible:ring-0`}
             />
+            {value.length === 0 && <AnimatedPlaceholder text={placeholder} />}
+          </div>
 
-            <div className="flex items-center gap-1">
-              {modelSupportsSearch !== undefined && isAuthenticated !== undefined && (
-                <SearchToggleButton
-                  webSearchEnabled={webSearchEnabled ?? false}
-                  modelSupportsSearch={modelSupportsSearch}
-                  isAuthenticated={isAuthenticated}
-                  onToggle={onToggleWebSearch}
-                />
-              )}
-
-              {isGroupChat && (
-                <AIToggleButton
-                  aiEnabled={aiEnabled}
-                  onToggle={() => {
-                    setAiEnabled((previous) => !previous);
-                  }}
-                />
-              )}
-
-              <Button
-                id="send-button"
-                type="button"
-                size="icon"
-                onClick={handleSubmit}
-                disabled={!canSubmit}
-                aria-label={BUTTON_ARIA_LABELS[String(canSubmit) as 'true' | 'false']}
-                data-testid="send-button"
-              >
-                <SubmitButtonIcon isProcessing={isProcessing} />
-              </Button>
-            </div>
+          <div className="border-border border-t">
+            <MorphHeight>
+              <BottomRows
+                activeModality={activeModality}
+                capacity={{
+                  currentUsage: budget.capacityCurrentUsage,
+                  maxCapacity: budget.capacityMaxCapacity,
+                }}
+                toolbar={toolbar}
+                sendButton={sendButton}
+              />
+            </MorphHeight>
           </div>
         </div>
 

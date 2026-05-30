@@ -1,13 +1,12 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { authClient } from '@/lib/auth';
-import { toast } from '@hushbox/ui';
 import { useSearch } from '@tanstack/react-router';
+import { toast } from '@hushbox/ui';
+import { authClient } from '@/lib/auth';
 
 const mockNavigate = vi.fn();
 
-// Mock TanStack Router
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: vi.fn(() => vi.fn()),
   useSearch: vi.fn(() => ({ token: 'test-token' })),
@@ -19,21 +18,18 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
-// Mock shared routes
 vi.mock('@hushbox/shared', () => ({
   ROUTES: {
     LOGIN: '/login',
   },
 }));
 
-// Mock auth client
 vi.mock('@/lib/auth', () => ({
   authClient: {
     verifyEmail: vi.fn(),
   },
 }));
 
-// Mock UI components
 vi.mock('@hushbox/ui', () => ({
   toast: {
     success: vi.fn(),
@@ -119,6 +115,48 @@ describe('VerifyPage', () => {
     expect(screen.getByText('Verification failed. Please try again.')).toBeInTheDocument();
     expect(screen.getByText(/log in to receive a new verification email/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /back to login/i })).toBeInTheDocument();
+  });
+});
+
+describe('VerifyPage idempotency', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useSearch).mockReturnValue({ token: 'idempotency-token' });
+  });
+
+  it('fires verifyEmail at most once when the effect runs twice for the same token', async () => {
+    vi.mocked(authClient.verifyEmail).mockResolvedValue({});
+    const { VerifyPage } = await import('./verify');
+
+    const { StrictMode } = await import('react');
+    render(
+      <StrictMode>
+        <VerifyPage />
+      </StrictMode>
+    );
+
+    await waitFor(() => {
+      expect(authClient.verifyEmail).toHaveBeenCalled();
+    });
+
+    expect(authClient.verifyEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('still transitions to the success state when the effect runs twice', async () => {
+    vi.mocked(authClient.verifyEmail).mockResolvedValue({});
+    const { VerifyPage } = await import('./verify');
+
+    const { StrictMode } = await import('react');
+    render(
+      <StrictMode>
+        <VerifyPage />
+      </StrictMode>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /email verified/i })).toBeInTheDocument();
+    });
+    expect(toast.success).toHaveBeenCalledWith('Email verified successfully!');
   });
 });
 

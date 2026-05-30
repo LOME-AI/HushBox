@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { buildPlaywrightReport } from './e2e-reporter.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, existsSync, readdirSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { FullResult, Suite } from '@playwright/test/reporter';
+import E2EReportWriter, { buildPlaywrightReport } from './e2e-reporter.js';
 
 // Minimal stubs matching Playwright's Reporter API shapes
 interface StubStep {
@@ -208,6 +212,27 @@ describe('e2e-reporter', () => {
       expect(result.suites[0]!.suites![0]!.specs![0]!.file).toBe('e2e/chat/chat.spec.ts');
     });
 
+    it('derives suite file from suite.location when present', () => {
+      const test = createStubTest({ file: `${process.cwd()}/e2e/chat/chat.spec.ts` });
+      const fileSuite: StubSuite = {
+        ...createStubSuite({ type: 'file', tests: [test], projectName: 'chromium' }),
+        location: { file: `${process.cwd()}/e2e/chat/chat.spec.ts`, line: 1, column: 1 },
+      };
+      const projectSuite = createStubSuite({
+        type: 'project',
+        suites: [fileSuite],
+        projectName: 'chromium',
+      });
+      const rootSuite = createStubSuite({ title: '', type: 'root', suites: [projectSuite] });
+
+      const result = buildPlaywrightReport(
+        rootSuite as unknown as Parameters<typeof buildPlaywrightReport>[0],
+        { status: 'passed', startTime: new Date(), duration: 1000 }
+      );
+
+      expect(result.suites[0]!.suites![0]!.file).toBe('e2e/chat/chat.spec.ts');
+    });
+
     it('handles nested describe suites', () => {
       const test = createStubTest({
         title: 'nested test',
@@ -242,7 +267,6 @@ describe('e2e-reporter', () => {
         { status: 'passed', startTime: new Date(), duration: 1000 }
       );
 
-      // The nested test should still be found
       expect(result.suites[0]!.suites!).toBeDefined();
     });
 
@@ -282,7 +306,6 @@ describe('e2e-reporter', () => {
       const test = createStubTest({
         file: `${process.cwd()}/e2e/chat/chat.spec.ts`,
       });
-      // Override line to a specific value
       test.location.line = 42;
       const fileSuite = createStubSuite({
         type: 'file',
@@ -433,5 +456,200 @@ describe('e2e-reporter', () => {
         '2026-03-21T12:00:00.000Z'
       );
     });
+  });
+});
+
+type SigintListener = (signal: string) => void;
+
+describe('E2EReportWriter (interrupt handling)', () => {
+  let temporaryDir: string;
+  let cwdSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  let baseSigintListeners: SigintListener[];
+
+  beforeEach(() => {
+    temporaryDir = mkdtempSync(path.join(os.tmpdir(), 'e2e-reporter-'));
+    cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(temporaryDir);
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    baseSigintListeners = process.listeners('SIGINT') as SigintListener[];
+  });
+
+  afterEach(() => {
+    // Manual handler invocation in tests doesn't trigger `once` auto-removal,
+    // so drop any SIGINT listener the reporter added to keep tests isolated.
+    for (const listener of process.listeners('SIGINT') as SigintListener[]) {
+      if (!baseSigintListeners.includes(listener)) {
+        process.removeListener('SIGINT', listener);
+      }
+    }
+    cwdSpy.mockRestore();
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+    if (temporaryDir && existsSync(temporaryDir)) {
+      rmSync(temporaryDir, { recursive: true, force: true });
+    }
+  });
+
+  function rootSuiteStub(): Suite {
+    const test = createStubTest({
+      title: 'snapshot test',
+      file: `${temporaryDir}/e2e/chat/chat.spec.ts`,
+    });
+    const fileSuite = createStubSuite({
+      title: 'chat.spec.ts',
+      type: 'file',
+      tests: [test],
+      projectName: 'chromium',
+    });
+    const projectSuite = createStubSuite({
+      title: 'chromium',
+      type: 'project',
+      suites: [fileSuite],
+      projectName: 'chromium',
+    });
+    const rootSuite = createStubSuite({ title: '', type: 'root', suites: [projectSuite] });
+    return rootSuite as unknown as Suite;
+  }
+
+  const fullResult = (status: FullResult['status']): FullResult =>
+    ({ status, startTime: new Date(), duration: 1234 }) as FullResult;
+
+  const reportBase = (): string => path.join(temporaryDir, 'e2e', 'report');
+
+  const flushLogCount = (): number =>
+    logSpy.mock.calls.filter(
+      (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('E2E report')
+    ).length;
+
+  it('registers a SIGINT listener on begin', () => {
+    const before = process.listenerCount('SIGINT');
+    const reporter = new E2EReportWriter();
+
+    reporter.onBegin({}, rootSuiteStub());
+
+    expect(process.listenerCount('SIGINT')).toBe(before + 1);
+  });
+
+  it('writes a report when interrupted via SIGINT', () => {
+    const reporter = new E2EReportWriter();
+    reporter.onBegin({}, rootSuiteStub());
+
+    const handler = process.listeners('SIGINT').at(-1) as SigintListener;
+    handler('SIGINT');
+
+    const base = reportBase();
+    expect(existsSync(base)).toBe(true);
+    const directories = readdirSync(base);
+    expect(directories).toHaveLength(1);
+    expect(existsSync(path.join(base, directories[0]!, 'REPORT.md'))).toBe(true);
+    expect(flushLogCount()).toBe(1);
+  });
+
+  it('writes the report only once across an interrupt and onEnd', () => {
+    const reporter = new E2EReportWriter();
+    reporter.onBegin({}, rootSuiteStub());
+
+    const handler = process.listeners('SIGINT').at(-1) as SigintListener;
+    handler('SIGINT');
+    reporter.onEnd(fullResult('interrupted'));
+
+    expect(flushLogCount()).toBe(1);
+    expect(readdirSync(reportBase())).toHaveLength(1);
+  });
+
+  it('removes its SIGINT listener after the first signal so repeat Ctrl+C still kills', () => {
+    const preexisting = process.listeners('SIGINT') as SigintListener[];
+    for (const listener of preexisting) process.removeListener('SIGINT', listener);
+    try {
+      const reporter = new E2EReportWriter();
+      reporter.onBegin({}, rootSuiteStub());
+      expect(process.listenerCount('SIGINT')).toBe(1);
+
+      process.emit('SIGINT', 'SIGINT');
+
+      expect(process.listenerCount('SIGINT')).toBe(0);
+    } finally {
+      for (const listener of preexisting) process.on('SIGINT', listener);
+    }
+  });
+
+  it('does not throw if writing the interrupted snapshot fails', () => {
+    const reporter = new E2EReportWriter();
+    // A malformed suite makes buildPlaywrightReport throw inside flush; the
+    // SIGINT handler must swallow it (and log) rather than throw mid-signal.
+    reporter.onBegin({}, {} as unknown as Suite);
+
+    const handler = process.listeners('SIGINT').at(-1) as SigintListener;
+
+    expect(() => {
+      handler('SIGINT');
+    }).not.toThrow();
+    expect(
+      errSpy.mock.calls.some(
+        (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('failed to write')
+      )
+    ).toBe(true);
+  });
+
+  it('reports the failed/ artifact path when there are failures', () => {
+    const failing = createStubTest({
+      title: 'broken test',
+      file: `${temporaryDir}/e2e/chat/chat.spec.ts`,
+      results: [createStubResult({ status: 'failed', errors: [{ message: 'boom' }] })],
+      outcome: 'unexpected',
+    });
+    const fileSuite = createStubSuite({
+      title: 'chat.spec.ts',
+      type: 'file',
+      tests: [failing],
+      projectName: 'chromium',
+    });
+    const projectSuite = createStubSuite({
+      title: 'chromium',
+      type: 'project',
+      suites: [fileSuite],
+      projectName: 'chromium',
+    });
+    const rootSuite = createStubSuite({ title: '', type: 'root', suites: [projectSuite] });
+
+    const reporter = new E2EReportWriter();
+    reporter.onBegin({}, rootSuite as unknown as Suite);
+    reporter.onEnd(fullResult('failed'));
+
+    expect(
+      logSpy.mock.calls.some(
+        (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('Failed test details')
+      )
+    ).toBe(true);
+  });
+
+  it('prints to stdio', () => {
+    expect(new E2EReportWriter().printsToStdio()).toBe(true);
+  });
+
+  it('writes nothing when onEnd runs without a begun suite', () => {
+    const before = process.listenerCount('SIGINT');
+    const reporter = new E2EReportWriter();
+
+    reporter.onEnd(fullResult('passed'));
+
+    expect(existsSync(reportBase())).toBe(false);
+    expect(process.listenerCount('SIGINT')).toBe(before);
+  });
+
+  it('writes the report and unregisters its listener on clean onEnd', () => {
+    const before = process.listenerCount('SIGINT');
+    const reporter = new E2EReportWriter();
+    reporter.onBegin({}, rootSuiteStub());
+
+    reporter.onEnd(fullResult('passed'));
+
+    const base = reportBase();
+    const directories = readdirSync(base);
+    expect(directories).toHaveLength(1);
+    expect(existsSync(path.join(base, directories[0]!, 'report.json'))).toBe(true);
+    expect(process.listenerCount('SIGINT')).toBe(before);
   });
 });

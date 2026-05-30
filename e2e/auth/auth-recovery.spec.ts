@@ -30,7 +30,15 @@ test.describe('Recovery Phrase & Forgot Password', () => {
   }) => {
     test.setTimeout(120_000);
     const email = uniqueEmail('e2e-rec');
-    const username = `Rec Test ${String(Date.now()).slice(-6)}`;
+    // Display-cased input is the point of this test (exercises
+    // normalizeUsername path). Inline random hex for collision resistance —
+    // the helper returns canonical lowercase, which doesn't fit here.
+    // Sized so the normalized form ("rec_test_<4 ts><6 hex>") fits the
+    // 20-char USERNAME_REGEX cap: 9 + 4 + 6 = 19.
+    const usernameRandom = [...crypto.getRandomValues(new Uint8Array(3))]
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const username = `Rec Test ${String(Date.now()).slice(-4)}${usernameRandom}`;
     const originalPassword = 'TestPassword123!';
     const recoveredPassword = 'RecoveredPassword789!';
     const usernameRecoveredPassword = 'UsernameRecovery456!';
@@ -52,7 +60,6 @@ test.describe('Recovery Phrase & Forgot Password', () => {
 
       capturedWords = await modal.getWords();
       expect(capturedWords).toHaveLength(12);
-      // Every word should be non-empty
       for (const word of capturedWords) {
         expect(word.length).toBeGreaterThan(0);
       }
@@ -111,10 +118,8 @@ test.describe('Recovery Phrase & Forgot Password', () => {
 
       const newWords = await modal.getWords();
       expect(newWords).toHaveLength(12);
-      // New words should be different from original
       expect(newWords.join(' ')).not.toBe(capturedWords.join(' '));
 
-      // Update captured words for verification
       capturedWords = newWords;
     });
 

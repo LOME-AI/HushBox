@@ -21,13 +21,9 @@ import {
   llmCompletions as llmCompletionsTable,
   ledgerEntries as ledgerEntriesTable,
 } from '@hushbox/db';
-import { chatRoute, computeWorstCaseCents } from './chat.js';
-import type { AppEnv } from '../types.js';
-import { createFastMockOpenRouterClient } from '../test-helpers/index.js';
 import {
   ERROR_CODE_BALANCE_RESERVED,
   ERROR_CODE_INSUFFICIENT_BALANCE,
-  ERROR_CODE_PREMIUM_REQUIRES_BALANCE,
   calculateBudget,
   computeSafeMaxTokens,
   buildSystemPrompt,
@@ -40,9 +36,26 @@ import {
   STORAGE_COST_PER_CHARACTER,
   CHARS_PER_TOKEN_CONSERVATIVE,
   CHARS_PER_TOKEN_STANDARD,
+  createEnvUtilities,
 } from '@hushbox/shared';
-import type { UserTier } from '@hushbox/shared';
+import { clearModelCache } from '@hushbox/shared/models';
 import { generateKeyPair } from '@hushbox/crypto';
+import { chatRoute, computeWorstCaseCents } from './chat.js';
+import { createMockAIClient } from '../services/ai/mock.js';
+import type { AppEnv } from '../types.js';
+import type { UserTier } from '@hushbox/shared';
+
+interface PublicModelFixture {
+  id: string;
+  name?: string;
+  description?: string;
+  type?: string;
+  pricing?: Record<string, unknown>;
+  context_window?: number;
+  created?: number;
+}
+
+let publicModelsFixture: PublicModelFixture[] = [];
 
 // ============================================================================
 // Constants
@@ -58,7 +71,7 @@ const TEST_USER_MESSAGE_ID = '22222222-2222-2222-8222-222222222222';
 const OLD_TIMESTAMP = Math.floor(new Date('2022-01-01').getTime() / 1000);
 
 const BASIC_MODEL = {
-  id: 'openai/gpt-3.5-turbo',
+  id: 'openai/gpt-4o-mini',
   name: 'GPT-3.5 Turbo',
   description: 'Basic model',
   context_length: 16_000,
@@ -69,7 +82,7 @@ const BASIC_MODEL = {
 };
 
 const PREMIUM_MODEL = {
-  id: 'openai/gpt-4-turbo',
+  id: 'openai/gpt-5',
   name: 'GPT-4 Turbo',
   description: 'Premium model',
   context_length: 128_000,
@@ -434,8 +447,17 @@ function createMockDb(options: {
 function createMockRedis(options?: { reservedCents?: number; evalOverride?: string }) {
   const reservedValue = options?.reservedCents ? String(options.reservedCents) : null;
   const evalValue = options?.evalOverride ?? '0';
+  // Key-aware get: rate-limit keys must return null (so the per-user cap allows
+  // the test request through), while reservation/balance keys return the
+  // configured `reservedCents`. Any 'chat:reserved:*' or other reservation key
+  // hits the legacy branch.
   return {
-    get: vi.fn().mockResolvedValue(reservedValue),
+    get: vi.fn().mockImplementation((key: string) => {
+      if (typeof key === 'string' && key.includes(':ratelimit:')) {
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(reservedValue);
+    }),
     set: vi.fn().mockResolvedValue('OK'),
     del: vi.fn().mockResolvedValue(1),
     eval: vi.fn().mockResolvedValue(evalValue),
@@ -484,12 +506,17 @@ function createTestApp(
   };
 
   app.use('*', async (c, next) => {
-    c.env = { NODE_ENV: 'test' } as AppEnv['Bindings'];
+    c.env = {
+      NODE_ENV: 'test',
+      AI_GATEWAY_API_KEY: 'test-key',
+      PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+    } as AppEnv['Bindings'];
     c.set('user', mockUser);
     c.set('session', mockSession);
-    c.set('openrouter', createFastMockOpenRouterClient());
+    c.set('aiClient', createMockAIClient());
     c.set('db', createMockDb(dbOptions) as unknown as AppEnv['Variables']['db']);
     c.set('redis', redisOverride as unknown as AppEnv['Variables']['redis']);
+    c.set('envUtils', createEnvUtilities(c.env));
     await next();
   });
 
@@ -515,30 +542,34 @@ describe('billing integration — scenario matrix', () => {
   let fetchMock: FetchMock;
 
   beforeEach(() => {
+    clearModelCache();
     fetchMock = vi.fn() as FetchMock;
     vi.stubGlobal('fetch', fetchMock);
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
 
-    // Serve both models so premium threshold is computed correctly
-    fetchMock.mockImplementation((url: string) => {
-      const zdrEndpoints = ALL_MODELS.map((m) => ({
-        model_id: m.id,
-        model_name: m.name,
-        provider_name: 'Provider',
-        context_length: m.context_length,
-        pricing: m.pricing,
-      }));
-      if (url.includes('/endpoints/zdr')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: zdrEndpoints }) });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: ALL_MODELS }) });
-    });
+    publicModelsFixture = ALL_MODELS.map((m) => ({
+      id: m.id,
+      name: m.name,
+      description: m.description,
+      type: 'language',
+      pricing: { input: m.pricing.prompt, output: m.pricing.completion },
+      context_window: m.context_length,
+      created: m.created,
+    }));
+
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: publicModelsFixture }),
+      })
+    );
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    publicModelsFixture = [];
   });
 
   // --------------------------------------------------------------------------
@@ -618,7 +649,11 @@ describe('billing integration — scenario matrix', () => {
       expect(body.code).toBe(ERROR_CODE_INSUFFICIENT_BALANCE);
     });
 
-    it('F5: denies free tier access to premium models', async () => {
+    it('F5: denies free tier access to premium models with MODEL_TIER_LOCKED', async () => {
+      // Pre-billing tier gate now intercepts free-tier-on-premium with 403
+      // MODEL_TIER_LOCKED — distinct from the balance-driven
+      // PREMIUM_REQUIRES_BALANCE so the UI renders an "upgrade your account"
+      // message instead of "top up your balance".
       const mockRedis = createMockRedis();
       const app = createTestApp(freeDbOptions('0.05000000'), mockRedis);
 
@@ -628,9 +663,9 @@ describe('billing integration — scenario matrix', () => {
         body: streamBody({ models: [PREMIUM_MODEL.id], fundingSource: 'personal_balance' }),
       });
 
-      expect(res.status).toBe(402);
+      expect(res.status).toBe(403);
       const body: ErrorBody = await res.json();
-      expect(body.code).toBe(ERROR_CODE_PREMIUM_REQUIRES_BALANCE);
+      expect(body.code).toBe('MODEL_TIER_LOCKED');
     });
 
     it('F6: denies when no allowance at all', async () => {
@@ -1139,24 +1174,13 @@ describe('billing integration — scenario matrix', () => {
 
       const mockRedis = createMockRedis();
       const app = new Hono<AppEnv>();
-      const failingClient = {
-        isMock: true,
-        chatCompletion: () => Promise.reject(new Error('fail')),
-        // eslint-disable-next-line @typescript-eslint/require-await, require-yield, sonarjs/generator-without-yield -- intentional error test
-        async *chatCompletionStream() {
-          throw new Error('Stream failed');
-        },
-        // eslint-disable-next-line @typescript-eslint/require-await, require-yield, sonarjs/generator-without-yield -- intentional error test
-        async *chatCompletionStreamWithMetadata() {
-          throw new Error('Stream failed');
-        },
-        listModels: () => Promise.resolve([]),
-        getModel: () => Promise.reject(new Error('not found')),
-        getGenerationStats: () => Promise.reject(new Error('not implemented')),
-      };
 
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as AppEnv['Bindings'];
+        c.env = {
+          NODE_ENV: 'test',
+          AI_GATEWAY_API_KEY: 'test-key',
+          PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+        } as AppEnv['Bindings'];
         c.set('user', {
           id: TEST_USER_ID,
           email: 'test@example.com',
@@ -1178,7 +1202,7 @@ describe('billing integration — scenario matrix', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('openrouter', failingClient as unknown as AppEnv['Variables']['openrouter']);
+        c.set('aiClient', createMockAIClient());
         c.set(
           'db',
           createMockDb({
@@ -1195,6 +1219,7 @@ describe('billing integration — scenario matrix', () => {
           }) as unknown as AppEnv['Variables']['db']
         );
         c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+        c.set('envUtils', createEnvUtilities(c.env));
         await next();
       });
 
@@ -1287,23 +1312,13 @@ describe('billing integration — scenario matrix', () => {
 
       const mockRedis = createMockRedis();
       const app = new Hono<AppEnv>();
-      const emptyClient = {
-        isMock: true,
-        chatCompletion: () => Promise.resolve({ choices: [{ message: { content: '' } }] }),
-        // eslint-disable-next-line @typescript-eslint/require-await -- intentional empty response
-        async *chatCompletionStreamWithMetadata() {
-          yield {
-            choices: [{ delta: { content: '' } }],
-            id: 'gen-empty',
-          };
-        },
-        listModels: () => Promise.resolve([]),
-        getModel: () => Promise.reject(new Error('not found')),
-        getGenerationStats: () => Promise.reject(new Error('not implemented')),
-      };
 
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as AppEnv['Bindings'];
+        c.env = {
+          NODE_ENV: 'test',
+          AI_GATEWAY_API_KEY: 'test-key',
+          PUBLIC_MODELS_URL: 'https://test.example/v1/models',
+        } as AppEnv['Bindings'];
         c.set('user', {
           id: TEST_USER_ID,
           email: 'test@example.com',
@@ -1325,7 +1340,7 @@ describe('billing integration — scenario matrix', () => {
           pending2FAExpiresAt: 0,
           createdAt: Date.now(),
         });
-        c.set('openrouter', emptyClient as unknown as AppEnv['Variables']['openrouter']);
+        c.set('aiClient', createMockAIClient());
         c.set(
           'db',
           createMockDb({
@@ -1342,6 +1357,7 @@ describe('billing integration — scenario matrix', () => {
           }) as unknown as AppEnv['Variables']['db']
         );
         c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+        c.set('envUtils', createEnvUtilities(c.env));
         await next();
       });
 

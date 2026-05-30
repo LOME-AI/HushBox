@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { Streamdown } from 'streamdown';
-import type { Components } from 'streamdown';
 import { code } from '@streamdown/code';
 import { mermaid } from '@streamdown/mermaid';
 import { math } from '@streamdown/math';
@@ -13,6 +12,7 @@ import {
   getDocumentType,
   shouldExtractAsDocument,
 } from '../../lib/document-parser';
+import type { Components } from 'streamdown';
 import type { Document } from '../../lib/document-parser';
 
 /** Minimal HAST node types (avoids @types/hast dependency) */
@@ -129,6 +129,7 @@ export function MarkdownRenderer({
       }: React.AnchorHTMLAttributes<HTMLAnchorElement> & {
         children?: React.ReactNode;
       }) => (
+        // eslint-disable-next-line no-restricted-syntax -- color is set via CSS variable, which the global accessibility CSS layer can override
         <a href={href} style={{ color: 'var(--brand-red)' }} {...props}>
           {children}
         </a>
@@ -145,7 +146,6 @@ export function MarkdownRenderer({
       data-testid="markdown-renderer"
       className={cn(
         'prose prose-sm dark:prose-invert max-w-none wrap-anywhere',
-        // Customize prose styles
         'prose-headings:mb-2 prose-headings:mt-4',
         'prose-p:my-2',
         'prose-ul:my-2 prose-ol:my-2',

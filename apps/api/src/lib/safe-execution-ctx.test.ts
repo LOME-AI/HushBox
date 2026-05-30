@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { safeExecutionCtx } from './safe-execution-ctx.js';
 import type { Context } from 'hono';
 import type { AppEnv } from '../types.js';
-import { safeExecutionCtx } from './safe-execution-ctx.js';
 
 describe('safeExecutionCtx', () => {
   it('returns executionCtx when available', () => {

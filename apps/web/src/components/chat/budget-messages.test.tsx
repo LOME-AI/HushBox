@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { BudgetMessages } from './budget-messages';
 import type { BudgetError } from '@hushbox/shared';
 
-// Mock Link component
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
@@ -69,12 +68,10 @@ describe('BudgetMessages', () => {
       const warnMsg = screen.getByTestId('budget-message-warn1');
       const infoMsg = screen.getByTestId('budget-message-info1');
 
-      // All have neutral background
       expect(errorMsg).toHaveClass('bg-muted/50');
       expect(warnMsg).toHaveClass('bg-muted/50');
       expect(infoMsg).toHaveClass('bg-muted/50');
 
-      // All have neutral text
       expect(errorMsg).toHaveClass('text-foreground');
       expect(warnMsg).toHaveClass('text-foreground');
       expect(infoMsg).toHaveClass('text-foreground');
@@ -267,14 +264,11 @@ describe('BudgetMessages', () => {
       expect(screen.getByTestId('budget-message-first')).toBeInTheDocument();
       expect(screen.getByTestId('budget-message-second')).toBeInTheDocument();
 
-      // Remove second message, first should remain visible
       const updatedErrors: BudgetError[] = [{ id: 'first', type: 'error', message: 'First' }];
       rerender(<BudgetMessages errors={updatedErrors} />);
 
-      // First message still immediately visible
       expect(screen.getByTestId('budget-message-first')).toBeInTheDocument();
 
-      // Second message should animate out
       await waitFor(() => {
         expect(screen.queryByTestId('budget-message-second')).not.toBeInTheDocument();
       });
@@ -456,10 +450,8 @@ describe('BudgetMessages', () => {
         expect(screen.queryByTestId('budget-message-low_balance')).not.toBeInTheDocument();
       });
 
-      // Condition clears (error leaves the array)
       rerender(<BudgetMessages errors={[]} />);
 
-      // Condition re-triggers (error comes back)
       rerender(<BudgetMessages errors={errors} />);
 
       expect(screen.getByTestId('budget-message-low_balance')).toBeInTheDocument();

@@ -7,10 +7,10 @@
     ".": "./src/app.ts"
   },
   "scripts": {
-    "dev": "wrangler dev --port $HB_API_PORT",
-    "test": "../../scripts/with-env vitest run",
-    "test:watch": "../../scripts/with-env vitest",
-    "test:coverage": "../../scripts/with-env vitest run --coverage",
+    "dev": "tsx ../../scripts/wrangler-dev.ts",
+    "test": "tsx ../../scripts/with-env.ts vitest run",
+    "test:watch": "tsx ../../scripts/with-env.ts vitest",
+    "test:coverage": "tsx ../../scripts/with-env.ts vitest run --coverage",
     "lint": "eslint .",
     "typecheck": "tsgo --noEmit"
   },
@@ -19,6 +19,8 @@
     "@hushbox/crypto": "workspace:*",
     "@hushbox/realtime": "workspace:*",
     "@upstash/redis": "^1.36.4",
+    "ai": "^6.0.158",
+    "aws4fetch": "^1.0.20",
     "hono": "^4.12.6",
     "iron-session": "^8.0.4",
     "zod": "^4.3.6"

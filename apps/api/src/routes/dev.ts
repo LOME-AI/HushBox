@@ -1,20 +1,21 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { getIronSession } from 'iron-session';
-import { users } from '@hushbox/db';
+import { users, sharedMessages, llmCompletions, messages, usageRecords } from '@hushbox/db';
 import { ERROR_CODE_NOT_FOUND, ERROR_CODE_SERVER_MISCONFIGURED } from '@hushbox/shared';
+import { pickValueTextModel } from '@hushbox/shared/models';
 import {
   listDevPersonas,
   cleanupTestData,
   resetTrialUsage,
   resetAuthRateLimits,
+  resetUsageRateLimits,
   createDevConversation,
   createDevGroupChat,
   setWalletBalance,
 } from '../services/dev/index.js';
-import { addFailingModel, clearFailingModels } from '../services/openrouter/mock.js';
 import {
   verificationEmail,
   passwordChangedEmail,
@@ -108,6 +109,11 @@ export const devRoute = new Hono<AppEnv>()
     const result = await resetAuthRateLimits(redis);
     return c.json({ success: true, deleted: result.deleted });
   })
+  .delete('/usage-rate-limits', async (c) => {
+    const redis = c.get('redis');
+    const result = await resetUsageRateLimits(redis);
+    return c.json({ success: true, deleted: result.deleted });
+  })
   .post(
     '/conversation',
     zValidator(
@@ -126,8 +132,12 @@ export const devRoute = new Hono<AppEnv>()
     ),
     async (c) => {
       const db = c.get('db');
+      const aiClient = c.get('aiClient');
       const body = c.req.valid('json');
-      const result = await createDevConversation(db, body);
+      // Derive the seed model from the live catalog so seeds never reference a
+      // retired gateway model. See `pickValueTextModel` for selection criteria.
+      const seedAiModel = pickValueTextModel(await aiClient.listRawModels());
+      const result = await createDevConversation(db, { ...body, seedAiModel });
       return c.json(result, 201);
     }
   )
@@ -138,6 +148,7 @@ export const devRoute = new Hono<AppEnv>()
       z.object({
         ownerEmail: z.email(),
         memberEmails: z.array(z.email()).min(1),
+        pendingMemberEmails: z.array(z.email()).optional(),
         messages: z
           .array(
             z.object({
@@ -151,9 +162,13 @@ export const devRoute = new Hono<AppEnv>()
     ),
     async (c) => {
       const db = c.get('db');
-      const { messages: rawMessages, ...rest } = c.req.valid('json');
+      const aiClient = c.get('aiClient');
+      const { messages: rawMessages, pendingMemberEmails, ...rest } = c.req.valid('json');
+      const seedAiModel = pickValueTextModel(await aiClient.listRawModels());
       const result = await createDevGroupChat(db, {
         ...rest,
+        seedAiModel,
+        ...(pendingMemberEmails !== undefined && { pendingMemberEmails }),
         ...(rawMessages !== undefined && {
           messages: rawMessages.map(({ senderEmail, ...msgRest }) => ({
             ...msgRest,
@@ -218,12 +233,62 @@ export const devRoute = new Hono<AppEnv>()
 
     return c.json({ success: true });
   })
-  .post('/fail-model', zValidator('json', z.object({ modelId: z.string().nullable() })), (c) => {
-    const { modelId } = c.req.valid('json');
-    if (modelId) {
-      addFailingModel(modelId);
-    } else {
-      clearFailingModels();
+  // Counts llm_completions rows for a given conversation. Used by smart-model
+  // E2E tests to assert that BOTH classifier + inference completions persisted
+  // (= 2 rows for a single Smart Model send).
+  .get(
+    '/llm-completions-count/:conversationId',
+    zValidator('param', z.object({ conversationId: z.string().min(1) })),
+    async (c) => {
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const [row] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(llmCompletions)
+        .innerJoin(usageRecords, eq(usageRecords.id, llmCompletions.usageRecordId))
+        .innerJoin(messages, eq(messages.id, usageRecords.sourceId))
+        .where(eq(messages.conversationId, conversationId));
+      return c.json({ count: row?.count ?? 0 });
     }
-    return c.json({ success: true });
-  });
+  )
+  // Lists AI messages with their resolved payer (from `usage_records.user_id`).
+  // `messages.payer_id` was dropped in the wrap-once refactor — payment lives in
+  // `usage_records`. Group-billing E2E tests use this to verify the
+  // owner-funded vs personal-fallthrough decision (`payerId` differs from
+  // sender id in the personal-fallthrough case).
+  .get(
+    '/message-payers/:conversationId',
+    zValidator('param', z.object({ conversationId: z.string().min(1) })),
+    async (c) => {
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const rows = await db
+        .select({
+          messageId: messages.id,
+          payerId: usageRecords.userId,
+          sequenceNumber: messages.sequenceNumber,
+        })
+        .from(messages)
+        .leftJoin(
+          usageRecords,
+          and(eq(usageRecords.sourceId, messages.id), eq(usageRecords.sourceType, 'message'))
+        )
+        .where(and(eq(messages.conversationId, conversationId), eq(messages.senderType, 'ai')))
+        .orderBy(messages.sequenceNumber);
+      return c.json({
+        payers: rows.map((r) => ({ messageId: r.messageId, payerId: r.payerId })),
+      });
+    }
+  )
+  // Revokes a single message share by deleting the row from `shared_messages`.
+  // Used by E2E to assert that subsequent /api/shares/:id calls return 404.
+  .post(
+    '/revoke-message-share',
+    zValidator('json', z.object({ shareId: z.string().min(1) })),
+    async (c) => {
+      const db = c.get('db');
+      const { shareId } = c.req.valid('json');
+      const result = await db.delete(sharedMessages).where(eq(sharedMessages.id, shareId));
+      return c.json({ success: true, rowsAffected: result.rowCount ?? 0 });
+    }
+  );

@@ -1,9 +1,10 @@
 import { hc } from 'hono/client';
-import type { AppType } from '@hushbox/api';
-import { ApiError, getApiUrl } from './api.js';
 import { useAppVersionStore } from '@/stores/app-version.js';
-import { getLinkGuestAuth } from './link-guest-auth.js';
 import { getPlatform } from '@/capacitor/platform.js';
+import { ApiError, getApiUrl } from './api.js';
+import { parseRetryAfterMs } from './retry.js';
+import { getLinkGuestAuth } from './link-guest-auth.js';
+import type { AppType } from '@hushbox/api';
 
 const customFetch: typeof fetch = (input, init) => {
   const headers = new Headers(init?.headers);
@@ -28,7 +29,7 @@ export const client = hc<AppType>(getApiUrl(), {
 
 /**
  * Unwrap a Hono RPC client Response.
- * On success (res.ok), returns parsed JSON.
+ * On success (res.ok), returns parsed JSON, or `undefined as T` for 204 No Content.
  * On failure, throws ApiError with the error message from the response body.
  */
 export async function fetchJson<T>(responsePromise: Promise<Response>): Promise<T> {
@@ -50,7 +51,13 @@ export async function fetchJson<T>(responsePromise: Promise<Response>): Promise<
     if (res.status === 426) {
       useAppVersionStore.getState().setUpgradeRequired(true);
     }
-    throw new ApiError(code, res.status, body);
+    const retryAfterMs = parseRetryAfterMs(res.headers.get('Retry-After'));
+    throw new ApiError(code, res.status, body, retryAfterMs ?? undefined);
+  }
+  // 204 No Content has no body; treat as undefined. Callers that expect a
+  // payload should use a 200/201 endpoint instead.
+  if (res.status === 204) {
+    return undefined as T;
   }
   return (await res.json()) as T;
 }

@@ -319,4 +319,123 @@ describe('useFormEnterNav', () => {
     expect(document.activeElement).toBe(input2);
     expect(requestSubmit).not.toHaveBeenCalled();
   });
+
+  it('clicks an inside submit button on Enter from the last input', () => {
+    const input = createInput();
+    const submit = document.createElement('button');
+    submit.type = 'submit';
+    const onClick = vi.fn();
+    submit.addEventListener('click', onClick);
+    form.append(input, submit);
+    const requestSubmit = vi.fn();
+    form.requestSubmit = requestSubmit;
+
+    const ref = { current: form };
+    renderHook(() => {
+      useFormEnterNav(ref);
+    });
+
+    input.focus();
+    fireEnter(input);
+
+    expect(onClick).toHaveBeenCalledOnce();
+    expect(requestSubmit).not.toHaveBeenCalled();
+  });
+
+  it('clicks an external submit button linked via form="id"', () => {
+    form.id = 'my-form';
+    const input = createInput();
+    form.append(input);
+
+    const submit = document.createElement('button');
+    submit.type = 'submit';
+    submit.setAttribute('form', 'my-form');
+    const onClick = vi.fn();
+    submit.addEventListener('click', onClick);
+    document.body.append(submit);
+
+    const requestSubmit = vi.fn();
+    form.requestSubmit = requestSubmit;
+
+    const ref = { current: form };
+    renderHook(() => {
+      useFormEnterNav(ref);
+    });
+
+    input.focus();
+    fireEnter(input);
+
+    expect(onClick).toHaveBeenCalledOnce();
+    expect(requestSubmit).not.toHaveBeenCalled();
+
+    submit.remove();
+  });
+
+  it('skips disabled submit buttons and falls back to requestSubmit', () => {
+    const input = createInput();
+    const submit = document.createElement('button');
+    submit.type = 'submit';
+    submit.disabled = true;
+    form.append(input, submit);
+    const requestSubmit = vi.fn();
+    form.requestSubmit = requestSubmit;
+
+    const ref = { current: form };
+    renderHook(() => {
+      useFormEnterNav(ref);
+    });
+
+    input.focus();
+    fireEnter(input);
+
+    expect(requestSubmit).toHaveBeenCalledOnce();
+  });
+
+  it('skips aria-disabled submit buttons inside the form', () => {
+    const input = createInput();
+    const submit = document.createElement('button');
+    submit.type = 'submit';
+    submit.setAttribute('aria-disabled', 'true');
+    const onClick = vi.fn();
+    submit.addEventListener('click', onClick);
+    form.append(input, submit);
+    const requestSubmit = vi.fn();
+    form.requestSubmit = requestSubmit;
+
+    const ref = { current: form };
+    renderHook(() => {
+      useFormEnterNav(ref);
+    });
+
+    input.focus();
+    fireEnter(input);
+
+    expect(onClick).not.toHaveBeenCalled();
+    expect(requestSubmit).toHaveBeenCalledOnce();
+  });
+
+  it('handles form ids containing CSS-special characters', () => {
+    form.id = 'my.form:1';
+    const input = createInput();
+    form.append(input);
+
+    const submit = document.createElement('button');
+    submit.type = 'submit';
+    submit.setAttribute('form', 'my.form:1');
+    const onClick = vi.fn();
+    submit.addEventListener('click', onClick);
+    document.body.append(submit);
+
+    const ref = { current: form };
+    renderHook(() => {
+      useFormEnterNav(ref);
+    });
+
+    input.focus();
+    fireEnter(input);
+
+    expect(onClick).toHaveBeenCalledOnce();
+
+    submit.remove();
+  });
 });

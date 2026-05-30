@@ -1,6 +1,6 @@
 import { type Page, type Locator } from '@playwright/test';
-import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 import { normalizeUsername, displayUsername, isMobileWidth } from '@hushbox/shared';
+import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 
 export class MemberSidebarPage {
   readonly page: Page;
@@ -23,22 +23,34 @@ export class MemberSidebarPage {
     this.budgetFooter = page.getByTestId('member-budget-trigger');
   }
 
-  // --- Navigation ---
-
   async openViaFacepile(): Promise<void> {
     const isExpanded = await this.searchInput.isVisible().catch(() => false);
     if (!isExpanded) await this.facepile.click();
     await this.waitForLoaded();
+    // Mobile mounts the sidebar inside a Radix Sheet with a 500ms slide-in.
+    // Clicks dispatched mid-animation can land on a moving target and be
+    // dropped, so wait for any in-flight CSS animations on the sidebar
+    // subtree to finish before returning.
+    const viewport = this.page.viewportSize();
+    if (viewport && isMobileWidth(viewport.width)) {
+      await this.content
+        .evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+        // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional swallow
+        .catch(() => {});
+    }
   }
 
   async waitForLoaded(timeout = 10_000): Promise<void> {
     await this.content.waitFor({ state: 'visible', timeout });
   }
 
-  // --- Assertions ---
-
   async expectMemberCount(n: number): Promise<void> {
-    await expect(this.sidebar.getByText(`MEMBERS (${String(n)})`)).toBeVisible();
+    // Count text updates after the members query refetches in response to a
+    // broadcast-driven invalidation; the React render can lag past settled+grace
+    // on mobile viewports. Same reasoning as expectMemberInSection below.
+    await unsettledExpect(this.sidebar.getByText(`MEMBERS (${String(n)})`)).toBeVisible({
+      timeout: 10_000,
+    });
   }
 
   section(privilege: string): Locator {
@@ -59,7 +71,9 @@ export class MemberSidebarPage {
 
   async expectMemberInSection(memberId: string, privilege: string): Promise<void> {
     const sectionLocator = this.section(privilege);
-    await expect(sectionLocator.getByTestId(`member-item-${memberId}`)).toBeVisible();
+    await unsettledExpect(sectionLocator.getByTestId(`member-item-${memberId}`)).toBeVisible({
+      timeout: 10_000,
+    });
   }
 
   async expectYouBadge(memberId: string): Promise<void> {
@@ -69,8 +83,9 @@ export class MemberSidebarPage {
   async expectOnlineIndicator(entityId: string): Promise<void> {
     // WebSocket presence is an external event from the Durable Object — not tracked
     // by the settled indicator. Use unsettledExpect to wait the full timeout.
+    // 20s budget covers slower mobile-emulation WS connect + presence broadcast.
     await unsettledExpect(this.page.getByTestId(`member-online-${entityId}`)).toBeVisible({
-      timeout: 10_000,
+      timeout: 20_000,
     });
   }
 
@@ -86,8 +101,6 @@ export class MemberSidebarPage {
     await expect(this.linkRow(linkId)).not.toBeVisible();
   }
 
-  // --- Member actions ---
-
   async openMemberActions(memberId: string): Promise<void> {
     await this.page.getByTestId(`member-actions-${memberId}`).click();
   }
@@ -97,15 +110,19 @@ export class MemberSidebarPage {
   }
 
   async clickChangePrivilege(memberId: string, newPriv: string): Promise<void> {
+    // Two-step Radix DropdownMenuSub: trigger expands a submenu, then we
+    // click an item inside it. Without an explicit visibility wait the
+    // second click can fire during the submenu's open animation and miss
+    // the onSelect handler (silent failure — no API call).
     await this.page.getByTestId(`member-change-privilege-${memberId}`).click();
-    await this.page.getByTestId(`privilege-option-${memberId}-${newPriv}`).click();
+    const option = this.page.getByTestId(`privilege-option-${memberId}-${newPriv}`);
+    await expect(option).toBeVisible();
+    await option.click();
   }
 
   async clickLeave(): Promise<void> {
     await this.page.getByTestId('member-leave-action').click();
   }
-
-  // --- Link actions ---
 
   async openLinkActions(linkId: string): Promise<void> {
     await this.page.getByTestId(`link-actions-${linkId}`).click();
@@ -127,10 +144,10 @@ export class MemberSidebarPage {
 
   async clickChangeLinkPrivilege(linkId: string, priv: string): Promise<void> {
     await this.page.getByTestId(`link-change-privilege-${linkId}`).click();
-    await this.page.getByTestId(`link-privilege-option-${linkId}-${priv}`).click();
+    const option = this.page.getByTestId(`link-privilege-option-${linkId}-${priv}`);
+    await expect(option).toBeVisible();
+    await option.click();
   }
-
-  // --- Admin buttons ---
 
   async clickNewMember(): Promise<void> {
     await this.newMemberButton.click();
@@ -140,8 +157,6 @@ export class MemberSidebarPage {
     await this.inviteLinkButton.click();
   }
 
-  // --- Search ---
-
   async searchMembers(query: string): Promise<void> {
     await this.searchInput.fill(query);
   }
@@ -149,8 +164,6 @@ export class MemberSidebarPage {
   async clearSearch(): Promise<void> {
     await this.searchInput.clear();
   }
-
-  // --- Close ---
 
   async closeSidebar(): Promise<void> {
     await this.sidebar.getByRole('button', { name: 'Close sidebar' }).click();
@@ -176,8 +189,6 @@ export class MemberSidebarPage {
     await this.content.waitFor({ state: 'hidden', timeout: 5000 });
   }
 
-  // --- Budget ---
-
   async clickBudgetSettings(): Promise<void> {
     await this.budgetFooter.click();
   }
@@ -185,8 +196,6 @@ export class MemberSidebarPage {
   async getBudgetText(): Promise<string> {
     return (await this.page.getByTestId('member-budget-footer').textContent()) ?? '';
   }
-
-  // --- Username-based helpers ---
 
   /**
    * Find a member row by username text. Useful when you don't know the

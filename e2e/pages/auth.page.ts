@@ -1,5 +1,5 @@
 import { type Page, type Locator } from '@playwright/test';
-import { expect } from '../helpers/settled-expect.js';
+import { expect, unsettledExpect } from '../helpers/settled-expect.js';
 
 /** Click a button if it's still actionable within the timeout; swallow timeout errors (e.g. OTP auto-submit). */
 async function clickIfActionable(button: Locator, timeout: number): Promise<void> {
@@ -51,7 +51,8 @@ export class LoginPage {
   }
 
   async expectError(text: string | RegExp): Promise<void> {
-    await expect(this.errorMessage).toContainText(text);
+    // Error alert mounts after the mutation settles; settled-aware would bail.
+    await unsettledExpect(this.errorMessage).toContainText(text);
   }
 }
 
@@ -101,7 +102,8 @@ export class SignupPage {
   }
 
   async expectError(text: string | RegExp): Promise<void> {
-    await expect(this.errorMessage).toContainText(text);
+    // Error alert mounts after the mutation settles; settled-aware would bail.
+    await unsettledExpect(this.errorMessage).toContainText(text);
   }
 }
 
@@ -231,7 +233,8 @@ export class TwoFactorInputModal {
   }
 
   async waitForModal(): Promise<void> {
-    await expect(this.modal).toBeVisible({ timeout: 10_000 });
+    // Login uses raw fetch + OPAQUE crypto; settled-aware would bail before modal mounts.
+    await unsettledExpect(this.modal).toBeVisible({ timeout: 10_000 });
   }
 
   async enterCode(code: string): Promise<void> {
@@ -243,7 +246,8 @@ export class TwoFactorInputModal {
   }
 
   async expectError(text: string | RegExp): Promise<void> {
-    await expect(this.errorMessage).toContainText(text);
+    // Error alert mounts after the mutation settles; settled-aware would bail.
+    await unsettledExpect(this.errorMessage).toContainText(text);
   }
 }
 
@@ -274,7 +278,8 @@ export class ChangePasswordModal {
   }
 
   async expectError(text: string | RegExp): Promise<void> {
-    await expect(this.errorMessage).toContainText(text);
+    // Error alert mounts after the mutation settles; settled-aware would bail.
+    await unsettledExpect(this.errorMessage).toContainText(text);
   }
 }
 
@@ -371,7 +376,8 @@ export class DisableTwoFactorModal {
   }
 
   async expectError(text: string | RegExp): Promise<void> {
-    await expect(this.errorMessage).toContainText(text);
+    // Error alert mounts after the mutation settles; settled-aware would bail.
+    await unsettledExpect(this.errorMessage).toContainText(text);
   }
 }
 
@@ -434,7 +440,10 @@ export class RecoverySuccessView {
   }
 
   async expectVisible(): Promise<void> {
-    await expect(this.page.getByText('Password Reset Successful')).toBeVisible({ timeout: 30_000 });
+    // Recovery uses raw fetch + OPAQUE crypto; settled-aware would bail before success renders.
+    await unsettledExpect(this.page.getByText('Password Reset Successful')).toBeVisible({
+      timeout: 30_000,
+    });
   }
 
   async returnToLogin(): Promise<void> {

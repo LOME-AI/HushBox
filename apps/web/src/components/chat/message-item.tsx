@@ -1,16 +1,22 @@
 import * as React from 'react';
-import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@hushbox/ui';
-import { shortenModelName, friendlyErrorMessage } from '@hushbox/shared';
-import { getModelColor } from '@/lib/model-color';
-import { useModels } from '@/hooks/models';
 import { Check, Copy, GitBranch, Pencil, RefreshCw, Share2 } from 'lucide-react';
-import type { Message } from '@/lib/api';
-import type { MessageAction } from '@/lib/message-actions';
-import type { MessageGroup, LinkInfo } from '@/lib/chat-sender';
+import { shortenModelName, friendlyErrorMessage, stageLabel } from '@hushbox/shared';
+import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@hushbox/ui';
+import { useModels } from '@/hooks/models';
+import { getModelColor } from '@/lib/model-color';
 import { getSenderLabel, isOwnMessage } from '@/lib/chat-sender';
+import { useMessageContentKey } from '@/hooks/use-decrypted-media';
+import { omitUndefined } from '@/lib/optional-props';
 import { MarkdownRenderer } from './markdown-renderer';
+import { MediaContentItem } from './media-content-item';
+import { MediaPlaceholder } from './media-preview';
 import { MessageCost } from './message-cost';
 import { ThinkingIndicator } from './thinking-indicator';
+import { TtsStopButton } from './tts-stop-button';
+import { TtsStoppedNotice } from './tts-stopped-notice';
+import type { MessageGroup, LinkInfo } from '@/lib/chat-sender';
+import type { Message } from '@/lib/api';
+import type { MessageAction } from '@/lib/message-actions';
 
 interface MemberInfo {
   id: string;
@@ -55,7 +61,13 @@ interface RetryButtonProps {
 function RetryButton({ onRetry }: Readonly<RetryButtonProps>): React.JSX.Element {
   return (
     <div className="px-4 pt-2">
-      <Button variant="outline" size="sm" onClick={onRetry} aria-label="Retry">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRetry}
+        aria-label="Retry"
+        data-testid="retry-error-button"
+      >
         Retry
       </Button>
     </div>
@@ -67,13 +79,16 @@ function computeContainerClasses(
   isGroupedUser: boolean,
   ownMessage: boolean
 ): string {
+  // Bottom padding reserves space for the absolute-positioned action button
+  // row (`translate-y-full` from the bubble) so the row's measured height
+  // includes the buttons and the next item doesn't overlap them.
   if (!isUser) {
-    return cn('pt-1.5 pb-3', 'w-full px-4 pb-7');
+    return cn('pt-1.5 pb-8', 'w-full px-4');
   }
   if (isGroupedUser && !ownMessage) {
-    return cn('pt-1.5 pb-3', 'mr-auto ml-4 w-fit max-w-[82%]');
+    return cn('pt-1.5 pb-8', 'mr-auto ml-4 w-fit max-w-[82%]');
   }
-  return cn('pt-1.5 pb-3', 'mr-4 ml-auto w-fit max-w-[82%]');
+  return cn('pt-1.5 pb-8', 'mr-4 ml-auto w-fit max-w-[82%]');
 }
 
 function computeBubbleClasses(
@@ -107,7 +122,7 @@ function TooltipIconButton({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+          className="h-7 w-7"
           onClick={onClick}
           aria-label={label}
         >
@@ -259,10 +274,8 @@ function MessageActions({
   const showCopy = allowedActions.has('copy');
 
   return (
-    <div className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-center justify-between px-1">
-      {primaryMessage.cost && <MessageCost cost={primaryMessage.cost} />}
-
-      <div className="ml-auto flex items-center gap-0.5">
+    <div className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-end gap-2 px-1">
+      <div className="flex items-center gap-0.5">
         {showRegenerate && (
           <TooltipIconButton
             label="Regenerate"
@@ -292,6 +305,12 @@ function MessageActions({
         )}
         {showCopy && <CopyButton copied={copied} onCopy={onCopy} />}
       </div>
+
+      {primaryMessage.cost && (
+        <span className="inline-flex h-7 items-center">
+          <MessageCost cost={primaryMessage.cost} />
+        </span>
+      )}
     </div>
   );
 }
@@ -368,6 +387,114 @@ function computeMessageDisplayState(input: MessageDisplayInput): MessageDisplayS
   };
 }
 
+function MessageMediaItems({
+  message,
+}: Readonly<{
+  message: Message;
+}>): React.JSX.Element | null {
+  const { wrappedContentKey, epochNumber, mediaItems, conversationId } = message;
+
+  const ordered = React.useMemo(
+    () => (mediaItems ? mediaItems.toSorted((a, b) => a.position - b.position) : []),
+    [mediaItems]
+  );
+
+  // Hoist contentKey resolution to the message level (Plan §15.5):
+  // unwrap ONCE per message and pass the result to every MediaContentItem.
+  // Hooks must run unconditionally — we always call the hook with safe
+  // fallbacks and only use the result when the message envelope is present.
+  const { contentKey } = useMessageContentKey(
+    conversationId,
+    epochNumber ?? 0,
+    wrappedContentKey ?? ''
+  );
+
+  if (!mediaItems || mediaItems.length === 0) return null;
+  if (!wrappedContentKey || epochNumber === undefined) return null;
+
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {ordered.map((item) => (
+        <MediaContentItem key={item.id} item={item} contentKey={contentKey} />
+      ))}
+    </div>
+  );
+}
+
+const MEDIA_LOADING_LABEL_BY_TYPE: Record<'image' | 'audio' | 'video', string> = {
+  image: 'Generating image…',
+  video: 'Generating video…',
+  audio: 'Generating audio…',
+};
+
+function MediaInFlightPlaceholder({
+  mediaType,
+  progressPercent,
+}: Readonly<{
+  mediaType: 'image' | 'audio' | 'video';
+  progressPercent: number | undefined;
+}>): React.JSX.Element {
+  const loadingLabel = MEDIA_LOADING_LABEL_BY_TYPE[mediaType];
+  return (
+    <MediaPlaceholder
+      width={null}
+      height={null}
+      status="loading"
+      loadingLabel={loadingLabel}
+      {...(progressPercent !== undefined && { progressPercent })}
+    />
+  );
+}
+
+function StreamingPlaceholder({
+  primaryMessage,
+  modelName,
+  models,
+}: Readonly<{
+  primaryMessage: Message;
+  modelName: string | undefined;
+  models: ReturnType<typeof useModels>['data'] | undefined;
+}>): React.JSX.Element {
+  // Media generation in flight: swap the generic thinking indicator for a
+  // media-specific label as soon as `model:media:start` arrives.
+  const mediaInFlight = primaryMessage.mediaInFlight;
+  if (mediaInFlight) {
+    return (
+      <MediaInFlightPlaceholder
+        mediaType={mediaInFlight.mediaType}
+        progressPercent={primaryMessage.mediaProgress?.percent}
+      />
+    );
+  }
+  return (
+    <ThinkingPlaceholder primaryMessage={primaryMessage} modelName={modelName} models={models} />
+  );
+}
+
+function ThinkingPlaceholder({
+  primaryMessage,
+  modelName,
+  models,
+}: Readonly<{
+  primaryMessage: Message;
+  modelName: string | undefined;
+  models: ReturnType<typeof useModels>['data'] | undefined;
+}>): React.JSX.Element {
+  const rawModelName = primaryMessage.modelName ?? modelName ?? '';
+  const resolved = models?.models.find((m) => m.id === rawModelName);
+  // While a pre-inference stage is running (e.g., Smart Model classifier),
+  // replace the model-name placeholder with the stage label — the slot
+  // doesn't yet know which model will run.
+  const stageId = primaryMessage.classifyingStageId;
+  const indicatorProps = stageId
+    ? {
+        modelName: resolved?.name ?? rawModelName,
+        stageLabel: stageLabel(stageId),
+      }
+    : { modelName: resolved?.name ?? rawModelName };
+  return <ThinkingIndicator {...indicatorProps} />;
+}
+
 function AIMessageContent({
   primaryMessage,
   isStreaming,
@@ -389,9 +516,13 @@ function AIMessageContent({
     );
   }
   if (isStreaming && primaryMessage.content === '') {
-    const rawModelName = primaryMessage.modelName ?? modelName ?? '';
-    const resolved = modelsData?.models.find((m) => m.id === rawModelName);
-    return <ThinkingIndicator modelName={resolved?.name ?? rawModelName} />;
+    return (
+      <StreamingPlaceholder
+        primaryMessage={primaryMessage}
+        modelName={modelName}
+        models={modelsData}
+      />
+    );
   }
   return (
     <MarkdownRenderer
@@ -433,6 +564,18 @@ function UserMessageContent({
   );
 }
 
+/**
+ * The nametag is shown when the assistant message has visible content of any
+ * kind: text body, an in-flight stream, or persisted media items. Pure media
+ * responses (image/video/audio) carry empty `content` but still need the
+ * nametag so the user can see which model produced the media.
+ */
+function shouldRenderAIMessageNametag(message: Message, isStreaming: boolean | undefined): boolean {
+  if (message.content !== '') return true;
+  if (isStreaming === true) return true;
+  return (message.mediaItems?.length ?? 0) > 0;
+}
+
 function AIMessageNametag({
   primaryMessage,
   modelName,
@@ -445,7 +588,11 @@ function AIMessageNametag({
   const nametagText = (() => {
     if (primaryMessage.modelName) {
       const resolved = modelsData?.models.find((m) => m.id === primaryMessage.modelName);
-      return shortenModelName(resolved?.name ?? primaryMessage.modelName);
+      // resolvedModelName (set during streaming after stage:done) takes
+      // precedence over a useModels lookup that may not yet have hydrated
+      // the resolved id — keeps the nametag stable across the resolve event.
+      const liveDisplay = primaryMessage.resolvedModelName ?? resolved?.name;
+      return shortenModelName(liveDisplay ?? primaryMessage.modelName);
     }
     return modelName ? shortenModelName(modelName) : 'AI';
   })();
@@ -453,45 +600,33 @@ function AIMessageNametag({
   const color = getModelColor(primaryMessage.modelName ?? modelName ?? 'AI');
 
   return (
-    <p
-      data-testid="model-nametag"
-      className="mb-0.5 inline-block rounded bg-[var(--nametag-bg)] px-1.5 py-0.5 text-xs text-[var(--nametag-fg)] dark:bg-[var(--nametag-bg-dark)] dark:text-[var(--nametag-fg-dark)]"
-      style={
-        {
-          '--nametag-bg': color.bg,
-          '--nametag-fg': color.fg,
-          '--nametag-bg-dark': color.bgDark,
-          '--nametag-fg-dark': color.fgDark,
-        } as React.CSSProperties
-      }
-    >
-      {nametagText}
-    </p>
+    <span data-testid="model-nametag-container" className="mb-0.5 inline-flex items-center gap-1">
+      <span
+        data-testid="model-nametag"
+        className="inline-block rounded bg-[var(--nametag-bg)] px-1.5 py-0.5 text-xs text-[var(--nametag-fg)] dark:bg-[var(--nametag-bg-dark)] dark:text-[var(--nametag-fg-dark)]"
+        style={
+          {
+            '--nametag-bg': color.bg,
+            '--nametag-fg': color.fg,
+            '--nametag-bg-dark': color.bgDark,
+            '--nametag-fg-dark': color.fgDark,
+          } as React.CSSProperties
+        }
+      >
+        {nametagText}
+      </span>
+      {primaryMessage.isSmartModel && (
+        <span
+          data-testid="smart-model-chip"
+          className="border-border text-muted-foreground inline-block rounded border px-1.5 py-0.5 text-[10px] tracking-wide uppercase"
+          title="This response was routed by Smart Model"
+        >
+          Smart
+        </span>
+      )}
+      <TtsStopButton messageId={primaryMessage.id} />
+    </span>
   );
-}
-
-function buildUserActionProps(
-  onRegenerate?: (messageId: string) => void,
-  onEdit?: (messageId: string, content: string) => void,
-  onFork?: (messageId: string) => void
-): Record<string, unknown> {
-  return {
-    ...(onRegenerate != null && { onRegenerate }),
-    ...(onEdit != null && { onEdit }),
-    ...(onFork != null && { onFork }),
-  };
-}
-
-function buildAssistantActionProps(
-  onShare?: (messageId: string) => void,
-  onRegenerate?: (messageId: string) => void,
-  onFork?: (messageId: string) => void
-): Record<string, unknown> {
-  return {
-    ...(onShare != null && { onShare }),
-    ...(onRegenerate != null && { onRegenerate }),
-    ...(onFork != null && { onFork }),
-  };
 }
 
 function MessageActionButtons({
@@ -526,7 +661,7 @@ function MessageActionButtons({
         <UserMessageActions
           message={primaryMessage}
           allowedActions={allowedActions}
-          {...buildUserActionProps(onRegenerate, onEdit, onFork)}
+          {...omitUndefined({ onRegenerate, onEdit, onFork })}
           copied={copied}
           onCopy={onCopy}
         />
@@ -540,7 +675,7 @@ function MessageActionButtons({
       <MessageActions
         primaryMessage={primaryMessage}
         allowedActions={allowedActions}
-        {...buildAssistantActionProps(onShare, onRegenerate, onFork)}
+        {...omitUndefined({ onShare, onRegenerate, onFork })}
         copied={copied}
         onCopy={onCopy}
       />
@@ -609,20 +744,29 @@ export function MessageItem({
         {...(isError ? { 'data-error': 'true' } : {})}
         className={containerClasses}
       >
-        <div className="group relative">
+        <div className="relative">
           <div className={bubbleClasses}>
             {isUser ? (
-              <UserMessageContent
-                messagesToRender={messagesToRender}
-                isGroupedUser={isGroupedUser}
-                message={message}
-              />
+              <>
+                <UserMessageContent
+                  messagesToRender={messagesToRender}
+                  isGroupedUser={isGroupedUser}
+                  message={message}
+                />
+                <MessageMediaItems message={message} />
+              </>
             ) : (
               <>
-                {(primaryMessage.content !== '' || isStreaming === true) && (
+                <TtsStoppedNotice messageId={primaryMessage.id} />
+                {shouldRenderAIMessageNametag(primaryMessage, isStreaming) && (
                   <AIMessageNametag primaryMessage={primaryMessage} modelName={modelName} />
                 )}
-                <div className="w-full overflow-hidden text-base leading-relaxed break-words">
+                <div
+                  data-testid="ai-message-live-region"
+                  aria-live={isStreaming === true ? 'polite' : 'off'}
+                  aria-atomic="false"
+                  className="w-full overflow-hidden text-base leading-relaxed break-words"
+                >
                   <AIMessageContent
                     primaryMessage={primaryMessage}
                     isStreaming={isStreaming}
@@ -630,6 +774,7 @@ export function MessageItem({
                     isError={isError}
                   />
                 </div>
+                <MessageMediaItems message={primaryMessage} />
               </>
             )}
           </div>

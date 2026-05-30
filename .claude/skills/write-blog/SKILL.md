@@ -66,11 +66,11 @@ Every blog post is a single `.mdx` file with this frontmatter:
 
 ```mdx
 ---
-title: "Why Your AI Conversations Should Be Encrypted"
-description: "A short meta description for SEO and social cards, under 160 characters."
-author: "Alex Chen"
+title: 'Why Your AI Conversations Should Be Encrypted'
+description: 'A short meta description for SEO and social cards, under 160 characters.'
+author: 'Alex Chen'
 date: 2026-03-27
-tags: ["privacy", "encryption"]
+tags: ['privacy', 'encryption']
 draft: false
 ---
 
@@ -111,6 +111,7 @@ No single voice dominates. Draw from several depending on what the section needs
 ### Voice Blending in Practice
 
 A single post might use:
+
 - Feynman's clarity for the technical explainer section
 - Aquinas's structure when addressing counterarguments
 - Orwell's directness when comparing competitor privacy policies
@@ -126,6 +127,8 @@ Lucid. Principled. Unhurried. Precise. Confident without arrogance. Technically 
 ---
 
 ## Anti-Slop Rules
+
+> Sync: this content is duplicated in `.claude/skills/anti-ai-writing/SKILL.md`, `.claude/agents/linear-task-manager.md`, and `.claude/skills/backfill-linear/SKILL.md`. If you modify rules here, update those files to match.
 
 This is the most important section of this skill. AI-generated writing has recognizable fingerprints. HushBox's blog must read as if a human with strong opinions and deep knowledge wrote it. Every draft MUST pass this checklist before being shown to the user.
 
@@ -215,6 +218,7 @@ Every factual claim must be verified. There are two sources of truth:
 2. **The HushBox codebase** — for anything about HushBox's own features, architecture, or implementation. Read the actual code in `apps/` and `packages/`. **Never trust documentation files (`docs/FEATURES.md`, `README.md`, etc.) as the source of truth** — they are known to be outdated. If the post says "HushBox uses OPAQUE for authentication," you must have read the OPAQUE implementation in `packages/crypto/` and confirmed this is true in the current code.
 
 **Never:**
+
 - Invent statistics
 - Describe a competitor's feature without checking their current documentation
 - Describe a HushBox feature without reading the code

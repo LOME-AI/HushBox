@@ -1,5 +1,5 @@
-import type { LegalSection, LegalDocumentMeta } from '@hushbox/shared/legal';
 import { ContentSection, Callout, Accordion, ScrollReveal, SectionNav } from '@hushbox/ui';
+import type { LegalSection, LegalDocumentMeta } from '@hushbox/shared/legal';
 
 interface LegalDocumentProps {
   meta: LegalDocumentMeta;
@@ -16,11 +16,6 @@ export function LegalDocument({
 
   return (
     <div className="space-y-8">
-      <div className="border-b pb-6">
-        <h1 className="text-3xl font-bold">{meta.title}</h1>
-        <p className="text-foreground-muted mt-2 text-sm">Effective: {meta.effectiveDate}</p>
-      </div>
-
       <SectionNav sections={navSections} className="flex-wrap" />
 
       <div className="space-y-12">

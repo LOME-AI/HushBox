@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
+import { asc, eq as eqDrizzle } from 'drizzle-orm';
 import {
   createDb,
   LOCAL_NEON_DEV_CONFIG,
   users,
   messages,
+  contentItems,
   conversations,
   conversationMembers,
   conversationSpending,
@@ -14,6 +16,7 @@ import {
   usageRecords,
   ledgerEntries,
   llmCompletions,
+  mediaGenerations,
   conversationForks,
   type Database,
 } from '@hushbox/db';
@@ -23,8 +26,39 @@ import {
   conversationMemberFactory,
   walletFactory,
 } from '@hushbox/db/factories';
-import { createFirstEpoch, decryptMessage, generateKeyPair } from '@hushbox/crypto';
+import {
+  createFirstEpoch,
+  generateKeyPair,
+  openMessageEnvelope,
+  decryptTextWithContentKey,
+  type WrappedContentKey,
+} from '@hushbox/crypto';
 import { saveChatTurn, saveUserOnlyMessage } from './message-persistence.js';
+
+/** Fetch the first text content item for a message. */
+async function getTextContentItem(
+  dbInst: Database,
+  messageId: string
+): Promise<typeof contentItems.$inferSelect> {
+  const [item] = await dbInst
+    .select()
+    .from(contentItems)
+    .where(eqDrizzle(contentItems.messageId, messageId))
+    .orderBy(asc(contentItems.position))
+    .limit(1);
+  if (!item) throw new Error(`No content item found for message ${messageId}`);
+  return item;
+}
+
+/** Decrypt a message's text content item using the epoch private key. */
+function decryptMessageText(
+  epochPrivateKey: Uint8Array,
+  wrappedContentKey: Uint8Array,
+  encryptedBlob: Uint8Array
+): string {
+  const contentKey = openMessageEnvelope(epochPrivateKey, wrappedContentKey as WrappedContentKey);
+  return decryptTextWithContentKey(contentKey, encryptedBlob);
+}
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 if (!DATABASE_URL) {
@@ -144,20 +178,21 @@ describe('saveChatTurn', () => {
     if (!userMsg) throw new Error('User message not found');
     expect(userMsg.senderType).toBe('user');
     expect(userMsg.senderId).toBe(setup.user.id);
-    expect(userMsg.encryptedBlob).toBeInstanceOf(Uint8Array);
+    expect(userMsg.wrappedContentKey).toBeInstanceOf(Uint8Array);
     expect(userMsg.epochNumber).toBe(1);
 
     // AI message exists with correct fields
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
     if (!aiMsg) throw new Error('AI message not found');
     expect(aiMsg.senderType).toBe('ai');
-    expect(aiMsg.payerId).toBe(setup.user.id);
-    expect(aiMsg.encryptedBlob).toBeInstanceOf(Uint8Array);
+    expect(aiMsg.wrappedContentKey).toBeInstanceOf(Uint8Array);
     expect(aiMsg.epochNumber).toBe(1);
-    expect(aiMsg.cost).toBe('0.00136000');
 
-    // User message should not have cost
-    expect(userMsg.cost).toBeNull();
+    const aiCi = await getTextContentItem(db, assistantMessageId);
+    expect(aiCi.cost).toBe('0.00136000');
+
+    const userCi = await getTextContentItem(db, userMessageId);
+    expect(userCi.cost).toBeNull();
 
     expect(result.epochNumber).toBe(1);
   });
@@ -186,16 +221,26 @@ describe('saveChatTurn', () => {
       parentMessageId: null,
     });
 
-    // Decrypt user message with epoch private key
+    // Decrypt user message via wrap-once envelope
     const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
     if (!userMsg) throw new Error('User message not found');
-    const decryptedUser = decryptMessage(setup.epochPrivateKey, userMsg.encryptedBlob);
+    const userCi = await getTextContentItem(db, userMessageId);
+    const decryptedUser = decryptMessageText(
+      setup.epochPrivateKey,
+      userMsg.wrappedContentKey,
+      userCi.encryptedBlob!
+    );
     expect(decryptedUser).toBe(userText);
 
-    // Decrypt AI message with epoch private key
+    // Decrypt AI message via wrap-once envelope
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
     if (!aiMsg) throw new Error('AI message not found');
-    const decryptedAi = decryptMessage(setup.epochPrivateKey, aiMsg.encryptedBlob);
+    const aiCi = await getTextContentItem(db, assistantMessageId);
+    const decryptedAi = decryptMessageText(
+      setup.epochPrivateKey,
+      aiMsg.wrappedContentKey,
+      aiCi.encryptedBlob!
+    );
     expect(decryptedAi).toBe(aiText);
   });
 
@@ -670,19 +715,29 @@ describe('saveChatTurn', () => {
       parentMessageId: null,
     });
 
-    // Decrypt and verify exact content roundtrip
+    // Decrypt and verify exact content roundtrip via wrap-once envelope
     const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
     if (!userMsg) throw new Error('User message not found');
-    const decryptedUser = decryptMessage(setup.epochPrivateKey, userMsg.encryptedBlob);
+    const userCi = await getTextContentItem(db, userMessageId);
+    const decryptedUser = decryptMessageText(
+      setup.epochPrivateKey,
+      userMsg.wrappedContentKey,
+      userCi.encryptedBlob!
+    );
     expect(decryptedUser).toBe(longUserContent);
 
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
     if (!aiMsg) throw new Error('AI message not found');
-    const decryptedAi = decryptMessage(setup.epochPrivateKey, aiMsg.encryptedBlob);
+    const aiCi = await getTextContentItem(db, assistantMessageId);
+    const decryptedAi = decryptMessageText(
+      setup.epochPrivateKey,
+      aiMsg.wrappedContentKey,
+      aiCi.encryptedBlob!
+    );
     expect(decryptedAi).toBe(longAiContent);
 
     // Encrypted blob should be smaller than plaintext (compression working)
-    expect(aiMsg.encryptedBlob.length).toBeLessThan(Buffer.from(longAiContent).length);
+    expect(aiCi.encryptedBlob!.length).toBeLessThan(Buffer.from(longAiContent).length);
   });
 
   it('throws when conversation does not exist', async () => {
@@ -803,7 +858,12 @@ describe('saveChatTurn', () => {
     expect(userMsg.epochNumber).toBe(3);
 
     // Can decrypt with the epoch 3 private key
-    const decrypted = decryptMessage(epochResult.epochPrivateKey, userMsg.encryptedBlob);
+    const userCiD = await getTextContentItem(db, userMessageId);
+    const decrypted = decryptMessageText(
+      epochResult.epochPrivateKey,
+      userMsg.wrappedContentKey,
+      userCiD.encryptedBlob!
+    );
     expect(decrypted).toBe('Message in epoch 3');
   });
 
@@ -831,16 +891,26 @@ describe('saveChatTurn', () => {
 
     const [userMsg] = await db.select().from(messages).where(eq(messages.id, userMessageId));
     if (!userMsg) throw new Error('User message not found');
-    const decryptedUser = decryptMessage(setup.epochPrivateKey, userMsg.encryptedBlob);
+    const userCiE = await getTextContentItem(db, userMessageId);
+    const decryptedUser = decryptMessageText(
+      setup.epochPrivateKey,
+      userMsg.wrappedContentKey,
+      userCiE.encryptedBlob!
+    );
     expect(decryptedUser).toBe('');
 
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
     if (!aiMsg) throw new Error('AI message not found');
-    const decryptedAi = decryptMessage(setup.epochPrivateKey, aiMsg.encryptedBlob);
+    const aiCiE = await getTextContentItem(db, assistantMessageId);
+    const decryptedAi = decryptMessageText(
+      setup.epochPrivateKey,
+      aiMsg.wrappedContentKey,
+      aiCiE.encryptedBlob!
+    );
     expect(decryptedAi).toBe('');
   });
 
-  it('stores provider as openrouter in LLM completion', async () => {
+  it('stores provider as ai-gateway in LLM completion', async () => {
     const setup = await createTestSetup(db);
     createdUserIds.push(setup.user.id);
 
@@ -864,7 +934,7 @@ describe('saveChatTurn', () => {
       .from(llmCompletions)
       .where(eq(llmCompletions.usageRecordId, result.usageRecordId));
     if (!completion) throw new Error('LLM completion not found');
-    expect(completion.provider).toBe('openrouter');
+    expect(completion.provider).toBe('ai-gateway');
     expect(completion.model).toBe('google/gemini-2.0-flash');
   });
 
@@ -1158,6 +1228,7 @@ describe('saveChatTurn', () => {
         userContent: 'Compare these models',
         assistantMessages: [
           {
+            modality: 'text' as const,
             id: assistantId1,
             content: 'Response from GPT-4o',
             model: 'openai/gpt-4o',
@@ -1166,6 +1237,7 @@ describe('saveChatTurn', () => {
             outputTokens: 80,
           },
           {
+            modality: 'text' as const,
             id: assistantId2,
             content: 'Response from Claude',
             model: 'anthropic/claude-3.5-sonnet',
@@ -1192,9 +1264,11 @@ describe('saveChatTurn', () => {
       expect(ai1Msg.sequenceNumber).toBe(2);
       expect(ai2Msg.sequenceNumber).toBe(3);
 
-      // Both AI messages have correct model names
-      expect(ai1Msg.modelName).toBe('openai/gpt-4o');
-      expect(ai2Msg.modelName).toBe('anthropic/claude-3.5-sonnet');
+      // Both AI messages' content items have correct model names
+      const ai1Ci = await getTextContentItem(db, assistantId1);
+      const ai2Ci = await getTextContentItem(db, assistantId2);
+      expect(ai1Ci.modelName).toBe('openai/gpt-4o');
+      expect(ai2Ci.modelName).toBe('anthropic/claude-3.5-sonnet');
 
       // Both AI messages are parented to the user message
       expect(ai1Msg.parentMessageId).toBe(userMessageId);
@@ -1222,6 +1296,7 @@ describe('saveChatTurn', () => {
         userContent: 'Test multi-model billing',
         assistantMessages: [
           {
+            modality: 'text' as const,
             id: assistantId1,
             content: 'First model response',
             model: 'openai/gpt-4o',
@@ -1230,6 +1305,7 @@ describe('saveChatTurn', () => {
             outputTokens: 80,
           },
           {
+            modality: 'text' as const,
             id: assistantId2,
             content: 'Second model response',
             model: 'anthropic/claude-3.5-sonnet',
@@ -1280,6 +1356,7 @@ describe('saveChatTurn', () => {
         userContent: 'Single model via array',
         assistantMessages: [
           {
+            modality: 'text' as const,
             id: assistantId,
             content: 'AI response',
             model: 'openai/gpt-4o',
@@ -1361,6 +1438,7 @@ describe('saveChatTurn', () => {
         userContent: 'Multi-model on fork',
         assistantMessages: [
           {
+            modality: 'text' as const,
             id: assistantId1,
             content: 'GPT response',
             model: 'openai/gpt-4o',
@@ -1369,6 +1447,7 @@ describe('saveChatTurn', () => {
             outputTokens: 80,
           },
           {
+            modality: 'text' as const,
             id: assistantId2,
             content: 'Claude response',
             model: 'anthropic/claude-3.5-sonnet',
@@ -1387,6 +1466,179 @@ describe('saveChatTurn', () => {
         .where(eq(conversationForks.id, forkId));
       // Tip must be the LAST assistant, not the first
       expect(fork!.tipMessageId).toBe(assistantId2);
+    });
+
+    it('regenerate-one of NON-tip assistant preserves the current fork tip', async () => {
+      // Multi-model fork: three siblings, tip points at the LAST one (m3).
+      // Per-tile Regenerate on m1 should delete only m1 and leave the tip on m3.
+      // Pre-fix the unconditional updateForkTip would advance the tip to the new
+      // assistant, silently breaking fork lineage.
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const userMsgId = crypto.randomUUID();
+      const m1Id = crypto.randomUUID();
+      const m2Id = crypto.randomUUID();
+      const m3Id = crypto.randomUUID();
+
+      // Seed: one user message + three assistant siblings, all on the fork.
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        userMessageId: userMsgId,
+        userContent: 'multi-model prompt',
+        parentMessageId: null,
+        assistantMessages: [
+          {
+            modality: 'text',
+            id: m1Id,
+            content: 'm1',
+            model: 'openai/gpt-4o',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+          {
+            modality: 'text',
+            id: m2Id,
+            content: 'm2',
+            model: 'anthropic/claude-3.5-sonnet',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+          {
+            modality: 'text',
+            id: m3Id,
+            content: 'm3',
+            model: 'google/gemini-1.5-pro',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+        ],
+      });
+
+      const forkId = crypto.randomUUID();
+      await db.insert(conversationForks).values({
+        id: forkId,
+        conversationId: setup.conversation.id,
+        name: 'Main',
+        tipMessageId: m3Id, // tip is on the LAST sibling
+      });
+
+      const newAssistantId = crypto.randomUUID();
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        treeAction: {
+          kind: 'regenerate',
+          anchorUserMessageId: userMsgId,
+          replaceAssistantId: m1Id, // NOT the tip
+          forkId,
+          forkTipMessageId: m3Id,
+        },
+        forkId,
+        assistantMessages: [
+          {
+            modality: 'text',
+            id: newAssistantId,
+            content: 'm1-regenerated',
+            model: 'openai/gpt-4o',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+        ],
+      });
+
+      const [forkAfter] = await db
+        .select({ tipMessageId: conversationForks.tipMessageId })
+        .from(conversationForks)
+        .where(eq(conversationForks.id, forkId));
+      expect(forkAfter?.tipMessageId).toBe(m3Id);
+    });
+
+    it('regenerate-one of THE current fork tip advances the tip to the replacement', async () => {
+      const setup = await createTestSetup(db);
+      createdUserIds.push(setup.user.id);
+
+      const userMsgId = crypto.randomUUID();
+      const m1Id = crypto.randomUUID();
+      const m2Id = crypto.randomUUID();
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        userMessageId: userMsgId,
+        userContent: 'multi-model prompt',
+        parentMessageId: null,
+        assistantMessages: [
+          {
+            modality: 'text',
+            id: m1Id,
+            content: 'm1',
+            model: 'openai/gpt-4o',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+          {
+            modality: 'text',
+            id: m2Id,
+            content: 'm2',
+            model: 'anthropic/claude-3.5-sonnet',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+        ],
+      });
+
+      const forkId = crypto.randomUUID();
+      await db.insert(conversationForks).values({
+        id: forkId,
+        conversationId: setup.conversation.id,
+        name: 'Main',
+        tipMessageId: m2Id, // tip IS the assistant we'll replace
+      });
+
+      const newAssistantId = crypto.randomUUID();
+
+      await saveChatTurn(db, {
+        conversationId: setup.conversation.id,
+        userId: setup.user.id,
+        senderId: setup.user.id,
+        treeAction: {
+          kind: 'regenerate',
+          anchorUserMessageId: userMsgId,
+          replaceAssistantId: m2Id, // IS the tip
+          forkId,
+          forkTipMessageId: m2Id,
+        },
+        forkId,
+        assistantMessages: [
+          {
+            modality: 'text',
+            id: newAssistantId,
+            content: 'm2-regenerated',
+            model: 'anthropic/claude-3.5-sonnet',
+            cost: 0.001,
+            inputTokens: 10,
+            outputTokens: 10,
+          },
+        ],
+      });
+
+      const [forkAfter] = await db
+        .select({ tipMessageId: conversationForks.tipMessageId })
+        .from(conversationForks)
+        .where(eq(conversationForks.id, forkId));
+      expect(forkAfter?.tipMessageId).toBe(newAssistantId);
     });
 
     it('does not update fork tip when forkId is omitted', async () => {
@@ -1465,12 +1717,17 @@ describe('saveUserOnlyMessage', () => {
     if (!msg) throw new Error('Message not found');
     expect(msg.senderType).toBe('user');
     expect(msg.senderId).toBe(setup.user.id);
-    expect(msg.cost).toBeNull();
     expect(msg.epochNumber).toBe(1);
-    expect(msg.encryptedBlob).toBeInstanceOf(Uint8Array);
+    expect(msg.wrappedContentKey).toBeInstanceOf(Uint8Array);
 
-    // Can decrypt
-    const decrypted = decryptMessage(setup.epochPrivateKey, msg.encryptedBlob);
+    const ci = await getTextContentItem(db, messageId);
+    expect(ci.cost).toBeNull();
+
+    const decrypted = decryptMessageText(
+      setup.epochPrivateKey,
+      msg.wrappedContentKey,
+      ci.encryptedBlob!
+    );
     expect(decrypted).toBe('Hello from user only');
 
     expect(result.sequenceNumber).toBeDefined();
@@ -1679,10 +1936,11 @@ describe('saveUserOnlyMessage', () => {
     expect(userMsg.senderId).toBe(sender.id);
     expect(userMsg.senderId).not.toBe(setup.user.id);
 
-    // AI message payerId should still be the billing user (owner)
+    // Billing user (owner) is recorded on usage_records, not on messages.
+    // AI message senderType confirms it's AI-authored.
     const [aiMsg] = await db.select().from(messages).where(eq(messages.id, assistantMessageId));
     if (!aiMsg) throw new Error('AI message not found');
-    expect(aiMsg.payerId).toBe(setup.user.id);
+    expect(aiMsg.senderType).toBe('ai');
   });
 
   it('saveUserOnlyMessage persists senderId separately from userId', async () => {
@@ -1710,5 +1968,264 @@ describe('saveUserOnlyMessage', () => {
     if (!msg) throw new Error('Message not found');
     expect(msg.senderId).toBe(sender.id);
     expect(msg.senderId).not.toBe(setup.user.id);
+  });
+
+  it('persists a media assistant message with content_items and media_generations billing', async () => {
+    const setup = await createTestSetup(db, '10.00000000');
+    createdUserIds.push(setup.user.id);
+
+    const userMsgId = crypto.randomUUID();
+    const assistantMsgId = crypto.randomUUID();
+    const contentItemId = crypto.randomUUID();
+    const storageKey = `media/${setup.conversation.id}/${assistantMsgId}/${contentItemId}.enc`;
+
+    const result = await saveChatTurn(db, {
+      userMessageId: userMsgId,
+      userContent: 'Generate an image of a cat',
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      senderId: setup.user.id,
+      parentMessageId: null,
+      assistantMessages: [
+        {
+          modality: 'image',
+          id: assistantMsgId,
+          contentItems: [
+            {
+              id: contentItemId,
+              contentType: 'image',
+              position: 0,
+              storageKey,
+              mimeType: 'image/png',
+              sizeBytes: 1_000_000,
+              width: 1024,
+              height: 1024,
+              modelName: 'google/imagen-4',
+              cost: '0.04600000',
+              isSmartModel: false,
+            },
+          ],
+          model: 'google/imagen-4',
+          cost: 0.046,
+          mediaType: 'image',
+          imageCount: 1,
+        },
+      ],
+    });
+
+    expect(result.assistantResults).toHaveLength(1);
+    expect(result.assistantResults[0]!.model).toBe('google/imagen-4');
+
+    // Verify content_items row exists with media fields
+    const items = await db
+      .select()
+      .from(contentItems)
+      .where(eq(contentItems.messageId, assistantMsgId));
+    expect(items).toHaveLength(1);
+    expect(items[0]!.contentType).toBe('image');
+    expect(items[0]!.storageKey).toBe(storageKey);
+    expect(items[0]!.mimeType).toBe('image/png');
+    expect(items[0]!.encryptedBlob).toBeNull();
+
+    // Verify media_generations billing detail row exists
+    const [usageRow] = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.id, result.assistantResults[0]!.usageRecordId));
+    expect(usageRow!.type).toBe('media_generation');
+
+    const [genRow] = await db
+      .select()
+      .from(mediaGenerations)
+      .where(eq(mediaGenerations.usageRecordId, result.assistantResults[0]!.usageRecordId));
+    expect(genRow).toBeDefined();
+    expect(genRow!.model).toBe('google/imagen-4');
+    expect(genRow!.mediaType).toBe('image');
+    expect(genRow!.imageCount).toBe(1);
+  });
+
+  it('persists a mix of text and media assistant messages in one saveChatTurn', async () => {
+    const setup = await createTestSetup(db, '10.00000000');
+    createdUserIds.push(setup.user.id);
+
+    const userMsgId = crypto.randomUUID();
+    const textMsgId = crypto.randomUUID();
+    const imageMsgId = crypto.randomUUID();
+    const imageItemId = crypto.randomUUID();
+
+    const result = await saveChatTurn(db, {
+      userMessageId: userMsgId,
+      userContent: 'Multi-model prompt',
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      senderId: setup.user.id,
+      parentMessageId: null,
+      assistantMessages: [
+        {
+          modality: 'text',
+          id: textMsgId,
+          content: 'Text response',
+          model: 'anthropic/claude-sonnet-4.6',
+          cost: 0.001,
+          inputTokens: 100,
+          outputTokens: 50,
+        },
+        {
+          modality: 'image',
+          id: imageMsgId,
+          contentItems: [
+            {
+              id: imageItemId,
+              contentType: 'image',
+              position: 0,
+              storageKey: `media/${setup.conversation.id}/${imageMsgId}/${imageItemId}.enc`,
+              mimeType: 'image/png',
+              sizeBytes: 2_000_000,
+              width: 512,
+              height: 512,
+              modelName: 'google/imagen-4',
+              cost: '0.04600000',
+              isSmartModel: false,
+            },
+          ],
+          model: 'google/imagen-4',
+          cost: 0.046,
+          mediaType: 'image',
+          imageCount: 1,
+        },
+      ],
+    });
+
+    expect(result.assistantResults).toHaveLength(2);
+
+    // First is text → llm_completions
+    const [textUsage] = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.id, result.assistantResults[0]!.usageRecordId));
+    expect(textUsage!.type).toBe('llm_completion');
+
+    // Second is media → media_generations
+    const [mediaUsage] = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.id, result.assistantResults[1]!.usageRecordId));
+    expect(mediaUsage!.type).toBe('media_generation');
+  });
+
+  it('persists Smart Model assistant with separate usage_records for classifier and inference', async () => {
+    const setup = await createTestSetup(db, '10.00000000');
+    createdUserIds.push(setup.user.id);
+
+    const userMsgId = crypto.randomUUID();
+    const assistantMsgId = crypto.randomUUID();
+
+    const result = await saveChatTurn(db, {
+      userMessageId: userMsgId,
+      userContent: 'Smart Model prompt',
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      senderId: setup.user.id,
+      parentMessageId: null,
+      assistantMessages: [
+        {
+          modality: 'text',
+          id: assistantMsgId,
+          content: 'Resolved response',
+          // Resolved (downstream) model id, NOT 'smart-model'
+          model: 'anthropic/claude-sonnet-4.6',
+          cost: 0.003, // main inference dollars
+          inputTokens: 100,
+          outputTokens: 50,
+          isSmartModel: true,
+          preInferenceBillings: [
+            {
+              stageId: 'smart-model',
+              modelId: 'cheap/c',
+              costDollars: 0.0005,
+              inputTokens: 1400,
+              outputTokens: 20,
+            },
+          ],
+        },
+      ],
+    });
+
+    // Two usage_records for the same source_id
+    const usageRows = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.sourceId, assistantMsgId));
+    expect(usageRows).toHaveLength(2);
+    const sortedByCost = usageRows.toSorted(
+      (a, b) => Number.parseFloat(a.cost) - Number.parseFloat(b.cost)
+    );
+    expect(sortedByCost[0]!.cost).toBe('0.00050000'); // classifier
+    expect(sortedByCost[1]!.cost).toBe('0.00300000'); // main inference
+
+    // Both rows are llm_completion type with their respective models
+    const sortedCompletions = await db
+      .select()
+      .from(llmCompletions)
+      .where(
+        inArray(
+          llmCompletions.usageRecordId,
+          usageRows.map((r) => r.id)
+        )
+      );
+    const completionModels = sortedCompletions
+      .map((c) => c.model)
+      .toSorted((a, b) => a.localeCompare(b));
+    expect(completionModels).toEqual(['anthropic/claude-sonnet-4.6', 'cheap/c']);
+
+    // content_items.cost == main + stages (denormalized total)
+    const contentItem = await getTextContentItem(db, assistantMsgId);
+    expect(contentItem.cost).toBe('0.00350000');
+    expect(contentItem.modelName).toBe('anthropic/claude-sonnet-4.6');
+    expect(contentItem.isSmartModel).toBe(true);
+
+    // assistantResults.cost reflects the displayed total
+    expect(result.assistantResults[0]!.cost).toBe('0.00350000');
+  });
+
+  it('persists Smart Model assistant with no preInferenceBillings array correctly', async () => {
+    // Defensive — if a slot is flagged isSmartModel but produces no stage billings,
+    // we still persist a content item with is_smart_model = true and a single usage_records row.
+    const setup = await createTestSetup(db, '10.00000000');
+    createdUserIds.push(setup.user.id);
+
+    const userMsgId = crypto.randomUUID();
+    const assistantMsgId = crypto.randomUUID();
+
+    await saveChatTurn(db, {
+      userMessageId: userMsgId,
+      userContent: 'Smart Model prompt',
+      conversationId: setup.conversation.id,
+      userId: setup.user.id,
+      senderId: setup.user.id,
+      parentMessageId: null,
+      assistantMessages: [
+        {
+          modality: 'text',
+          id: assistantMsgId,
+          content: 'Resolved response',
+          model: 'anthropic/claude-sonnet-4.6',
+          cost: 0.003,
+          inputTokens: 100,
+          outputTokens: 50,
+          isSmartModel: true,
+        },
+      ],
+    });
+
+    const usageRows = await db
+      .select()
+      .from(usageRecords)
+      .where(eq(usageRecords.sourceId, assistantMsgId));
+    expect(usageRows).toHaveLength(1);
+
+    const contentItem = await getTextContentItem(db, assistantMsgId);
+    expect(contentItem.isSmartModel).toBe(true);
+    expect(contentItem.cost).toBe('0.00300000');
   });
 });

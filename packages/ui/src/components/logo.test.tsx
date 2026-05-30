@@ -51,6 +51,12 @@ describe('Logo', () => {
     const box = screen.getByText('Box');
     expect(box).toHaveClass('text-brand-red');
   });
+
+  it('marks the root with data-no-invert so accessibility invert mode skips it', () => {
+    render(<Logo />);
+    const container = screen.getByTestId('logo');
+    expect(container).toHaveAttribute('data-no-invert', '');
+  });
 });
 
 describe('resolveImageSrc', () => {

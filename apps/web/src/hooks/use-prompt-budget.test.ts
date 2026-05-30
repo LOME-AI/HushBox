@@ -1,34 +1,77 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import {
+  worstCaseSearchCost,
+  type BudgetCalculationResult,
+  type ModelFeatureId,
+  type ResolveBillingResult,
+} from '@hushbox/shared';
 import { usePromptBudget } from './use-prompt-budget';
-import type { BudgetCalculationResult, CapabilityId, ResolveBillingResult } from '@hushbox/shared';
 
-// Hoisted mock factories
 const {
   mockUseBudgetCalculation,
   mockUseConversationBudgets,
   mockUseResolveBilling,
   mockSelectedModels,
   mockModelsData,
-} = vi.hoisted(() => ({
-  mockUseBudgetCalculation: vi.fn(),
-  mockUseConversationBudgets: vi.fn(),
-  mockUseResolveBilling: vi.fn(),
-  mockSelectedModels: { current: [{ id: 'test-model', name: 'Test Model' }] },
-  mockModelsData: {
-    current: {
-      models: [
-        {
-          id: 'test-model',
-          contextLength: 128_000,
-          pricePerInputToken: 0.000_01,
-          pricePerOutputToken: 0.000_03,
-        },
-      ],
-      premiumIds: new Set<string>(),
+  mockSearchStore,
+  mockActiveModality,
+  mockImageSelections,
+  mockVideoSelections,
+  mockAudioSelections,
+  mockImageConfig,
+  mockVideoConfig,
+  mockAudioConfig,
+} = vi.hoisted(() => {
+  interface HoistedModel {
+    id: string;
+    contextLength: number;
+    pricePerInputToken: number;
+    pricePerOutputToken: number;
+    pricePerImage?: number;
+    pricePerSecondByResolution?: Record<string, number>;
+    pricePerSecond?: number;
+  }
+  interface HoistedModelsData {
+    models: HoistedModel[];
+    premiumIds: Set<string>;
+  }
+  return {
+    mockUseBudgetCalculation: vi.fn(),
+    mockUseConversationBudgets: vi.fn(),
+    mockUseResolveBilling: vi.fn(),
+    mockSelectedModels: { current: [{ id: 'test-model', name: 'Test Model' }] },
+    mockImageSelections: { current: [] as { id: string; name: string }[] },
+    mockVideoSelections: { current: [] as { id: string; name: string }[] },
+    mockAudioSelections: { current: [] as { id: string; name: string }[] },
+    mockActiveModality: { current: 'text' as 'text' | 'image' | 'video' | 'audio' },
+    mockImageConfig: { current: { aspectRatio: '1:1' as const } },
+    mockVideoConfig: {
+      current: {
+        aspectRatio: '16:9' as '16:9' | '9:16',
+        durationSeconds: 4,
+        resolution: '720p' as '720p' | '1080p',
+      },
     },
-  },
-}));
+    mockAudioConfig: {
+      current: { format: 'mp3' as 'mp3' | 'ogg' | 'wav', maxDurationSeconds: 600 },
+    },
+    mockModelsData: {
+      current: {
+        models: [
+          {
+            id: 'test-model',
+            contextLength: 128_000,
+            pricePerInputToken: 0.000_01,
+            pricePerOutputToken: 0.000_03,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      } as HoistedModelsData,
+    },
+    mockSearchStore: { current: { webSearchEnabled: false } },
+  };
+});
 
 vi.mock('./use-budget-calculation', () => ({
   useBudgetCalculation: (...args: unknown[]) => mockUseBudgetCalculation(...args),
@@ -44,9 +87,24 @@ vi.mock('./use-resolve-billing', () => ({
 
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
+  const { createModelStoreStub, selectorFromState } = await import('@/test-utils/model-store-mock');
   return {
     ...actual,
-    useModelStore: () => ({ selectedModels: mockSelectedModels.current }),
+    useModelStore: (selector?: (state: unknown) => unknown) => {
+      const state = createModelStoreStub({
+        activeModality: mockActiveModality.current,
+        selections: {
+          text: mockSelectedModels.current,
+          image: mockImageSelections.current,
+          audio: mockAudioSelections.current,
+          video: mockVideoSelections.current,
+        },
+        imageConfig: mockImageConfig.current,
+        videoConfig: mockVideoConfig.current,
+        audioConfig: mockAudioConfig.current,
+      });
+      return selectorFromState(state)(selector as (s: unknown) => unknown);
+    },
   };
 });
 
@@ -55,6 +113,10 @@ vi.mock('@/hooks/models', () => ({
     data: mockModelsData.current,
     isLoading: false,
   }),
+}));
+
+vi.mock('@/stores/search', () => ({
+  useSearchStore: () => mockSearchStore.current,
 }));
 
 vi.mock('@/lib/auth', () => ({
@@ -79,7 +141,7 @@ describe('usePromptBudget', () => {
   const defaultInput: {
     value: string;
     historyCharacters: number;
-    capabilities: CapabilityId[];
+    capabilities: ModelFeatureId[];
   } = {
     value: 'Hello',
     historyCharacters: 0,
@@ -95,6 +157,7 @@ describe('usePromptBudget', () => {
     currentUsage: 1100,
     capacityPercent: 1,
     outputCostPerToken: 0.000_001,
+    preReservedCents: 0,
     isBalanceLoading: false,
   };
 
@@ -491,6 +554,55 @@ describe('usePromptBudget', () => {
     });
   });
 
+  describe('web search cost', () => {
+    afterEach(() => {
+      mockSearchStore.current = { webSearchEnabled: false };
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'test-model',
+            contextLength: 128_000,
+            pricePerInputToken: 0.000_01,
+            pricePerOutputToken: 0.000_03,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      };
+    });
+
+    it('passes worst-case search cost (MAX × per-call, with fees) to useBudgetCalculation when web search is enabled', () => {
+      mockSearchStore.current = { webSearchEnabled: true };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as { webSearchCost: number };
+      // Worst-case = applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL) = 10 * 0.005 * 1.15 = 0.0575
+      expect(budgetInput.webSearchCost).toBeCloseTo(worstCaseSearchCost(), 10);
+      expect(budgetInput.webSearchCost).toBeCloseTo(0.0575, 10);
+    });
+
+    it('passes 0 web search cost when web search is disabled', () => {
+      mockSearchStore.current = { webSearchEnabled: false };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as { webSearchCost: number };
+      expect(budgetInput.webSearchCost).toBe(0);
+    });
+
+    it('passes worst-case search cost regardless of model (Perplexity tool runs against any text model)', () => {
+      // Perplexity tool runs against any text model that supports tool calling.
+      // The frontend budget preview must match the backend reservation in
+      // stream-pipeline (worstCaseSearchCost), not gate on per-model pricing.
+      mockSearchStore.current = { webSearchEnabled: true };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as { webSearchCost: number };
+      expect(budgetInput.webSearchCost).toBeCloseTo(worstCaseSearchCost(), 10);
+    });
+  });
+
   describe('loading state blocking', () => {
     it('hasBlockingError is true while group budget is loading', () => {
       mockUseConversationBudgets.mockReturnValue({
@@ -567,6 +679,124 @@ describe('usePromptBudget', () => {
 
       // Owner is not a group member, so group budget pending does not block
       expect(result.current.hasBlockingError).toBe(false);
+    });
+  });
+
+  describe('media modalities feed per-image / per-second cost into billing', () => {
+    afterEach(() => {
+      // Restore default text-mode state for subsequent suites.
+      mockActiveModality.current = 'text';
+      mockImageSelections.current = [];
+      mockVideoSelections.current = [];
+      mockAudioSelections.current = [];
+    });
+
+    it('image modality: passes computeImageExactCents output to useResolveBilling, not the text token cost', () => {
+      // Two image models at $0.04 each. computeImageExactCents applies fees
+      // and storage; the resulting cents must flow into useResolveBilling so
+      // a low-balance user gets the insufficient-balance gate.
+      mockActiveModality.current = 'image';
+      mockImageSelections.current = [
+        { id: 'imagen-4', name: 'Imagen 4' },
+        { id: 'imagen-4-fast', name: 'Imagen 4 Fast' },
+      ];
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'imagen-4',
+            contextLength: 0,
+            pricePerInputToken: 0,
+            pricePerOutputToken: 0,
+            pricePerImage: 0.04,
+          },
+          {
+            id: 'imagen-4-fast',
+            contextLength: 0,
+            pricePerInputToken: 0,
+            pricePerOutputToken: 0,
+            pricePerImage: 0.04,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      // Token-cost path would yield 0.2 cents (from baseBudgetResult). The
+      // media path must produce >0 cents reflecting two $0.04 images +
+      // fees + storage — substantially more than the text-only baseline.
+      const lastCall = mockUseResolveBilling.mock.calls.at(-1)![0] as {
+        estimatedMinimumCostCents: number;
+      };
+      expect(lastCall.estimatedMinimumCostCents).toBeGreaterThan(8); // 2 × $0.04 = 8¢ floor before fees/storage
+    });
+
+    it('video modality: cost = perSecondByResolution × duration, summed per model, with fees', () => {
+      mockActiveModality.current = 'video';
+      mockVideoSelections.current = [{ id: 'veo-3.1', name: 'Veo 3.1' }];
+      mockVideoConfig.current = {
+        aspectRatio: '16:9',
+        durationSeconds: 5,
+        resolution: '720p',
+      };
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'veo-3.1',
+            contextLength: 0,
+            pricePerInputToken: 0,
+            pricePerOutputToken: 0,
+            pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
+          },
+        ],
+        premiumIds: new Set<string>(),
+      };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const lastCall = mockUseResolveBilling.mock.calls.at(-1)![0] as {
+        estimatedMinimumCostCents: number;
+      };
+      // 5 seconds × $0.10/s = $0.50 = 50¢ pre-fee. Just verify it's at least
+      // that floor; the exact post-fee+storage value is covered by
+      // use-media-cost-estimate.test.
+      expect(lastCall.estimatedMinimumCostCents).toBeGreaterThanOrEqual(50);
+    });
+
+    it('audio modality: cost = perSecond × maxDuration (worst-case)', () => {
+      mockActiveModality.current = 'audio';
+      mockAudioSelections.current = [{ id: 'tts-1', name: 'TTS-1' }];
+      mockAudioConfig.current = { format: 'mp3', maxDurationSeconds: 60 };
+      mockModelsData.current = {
+        models: [
+          {
+            id: 'tts-1',
+            contextLength: 0,
+            pricePerInputToken: 0,
+            pricePerOutputToken: 0,
+            pricePerSecond: 0.015,
+          },
+        ],
+        premiumIds: new Set<string>(),
+      };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const lastCall = mockUseResolveBilling.mock.calls.at(-1)![0] as {
+        estimatedMinimumCostCents: number;
+      };
+      // 60 seconds × $0.015/s = $0.90 = 90¢ pre-fee.
+      expect(lastCall.estimatedMinimumCostCents).toBeGreaterThanOrEqual(90);
+    });
+
+    it('text modality: still uses the token-derived cost (regression guard)', () => {
+      // Default state: text modality. Token cost = baseBudgetResult.estimatedMinimumCost * 100 = 0.2¢
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const lastCall = mockUseResolveBilling.mock.calls.at(-1)![0] as {
+        estimatedMinimumCostCents: number;
+      };
+      expect(lastCall.estimatedMinimumCostCents).toBeCloseTo(0.2, 5);
     });
   });
 });

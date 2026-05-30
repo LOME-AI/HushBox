@@ -2,7 +2,6 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MarkdownRenderer } from './markdown-renderer';
 
-// Mock document store used by DocumentCard
 vi.mock('../../stores/document', () => ({
   useDocumentStore: () => ({
     activeDocumentId: null,
@@ -144,11 +143,9 @@ describe('MarkdownRenderer', () => {
   });
 
   it('handles malformed markdown gracefully', () => {
-    // Unclosed code block should not crash
     const malformed = '```javascript\nconst x = 1';
     render(<MarkdownRenderer content={malformed} />);
 
-    // Should render something without crashing
     expect(screen.getByTestId('markdown-renderer')).toBeInTheDocument();
   });
 

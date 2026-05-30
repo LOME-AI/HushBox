@@ -1,0 +1,14 @@
+/* Reduced motion — toggled on `<html>` by reduced-motion-broadcaster when EITHER
+   the OS `prefers-reduced-motion: reduce` media query matches OR the a11y
+   widget's "Stop animations" toggle is on. Canonical 0.01ms (not 0s, preserves
+   event ordering) + !important to beat Framer inline styles. */
+html.reduced-motion *,
+html.reduced-motion *::before,
+html.reduced-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}

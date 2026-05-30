@@ -1,8 +1,39 @@
-import type { RealtimeEvent, RealtimeEventType } from '@hushbox/realtime/events';
 import { parseEvent } from '@hushbox/realtime/events';
 import { getApiUrl } from './api.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
 import { useNetworkStore } from '../stores/network.js';
+import { useWebsocketInboundActivityStore } from '../stores/websocket-inbound-activity.js';
+import type { RealtimeEvent, RealtimeEventType } from '@hushbox/realtime/events';
+
+// Two rAFs in a browser ensure the React render + commit triggered by the
+// inbound-event listener has been painted before the inbound counter
+// decrements, so the settled signal can't fire in the gap between the
+// listener's state update and React's effect flush. Non-browser fallback
+// (Node tests, Workers without rAF) chains two setTimeout(0) calls for
+// the same "next two ticks" effect.
+//
+// `no-restricted-globals` bans `requestAnimationFrame` in favor of the
+// `useAnimationFrame` hook from @hushbox/ui, which respects user motion
+// preferences. The exemption here is intentional: this is paint-timing
+// for settled-signal correctness, not animation; the work runs regardless
+// of motion preferences, and the call site isn't inside a React component
+// so a hook isn't usable.
+function scheduleAfterPaint(callback: () => void): void {
+  // eslint-disable-next-line no-restricted-globals -- paint-timing, not animation; see comment above
+  if (typeof requestAnimationFrame === 'function') {
+    // eslint-disable-next-line no-restricted-globals -- paint-timing, not animation; see comment above
+    requestAnimationFrame(() => {
+      // eslint-disable-next-line no-restricted-globals -- paint-timing, not animation; see comment above
+      requestAnimationFrame(() => {
+        callback();
+      });
+    });
+    return;
+  }
+  setTimeout(() => {
+    setTimeout(callback, 0);
+  }, 0);
+}
 
 type EventListener<T extends RealtimeEventType> = (
   event: Extract<RealtimeEvent, { type: T }>
@@ -130,6 +161,8 @@ export class ConversationWebSocket {
         return;
       }
 
+      const activity = useWebsocketInboundActivityStore.getState();
+      activity.startProcessing();
       try {
         const event = parseEvent(raw);
         this.options.onEvent?.(event);
@@ -142,6 +175,10 @@ export class ConversationWebSocket {
       } catch {
         // Intentional: malformed events from transit corruption cannot be fixed client-side.
         // Server validates via Zod before broadcast; parse failure here indicates data corruption, not a bug.
+      } finally {
+        scheduleAfterPaint(() => {
+          activity.endProcessing();
+        });
       }
     });
 

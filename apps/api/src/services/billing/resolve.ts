@@ -7,12 +7,12 @@
  */
 
 import { effectiveBudgetCents, type ResolveBillingInput } from '@hushbox/shared';
-import type { Database } from '@hushbox/db';
-import type { Redis } from '@upstash/redis';
 import { getUserTierInfo } from './balance.js';
 import { getReservedTotal, getGroupReservedTotals } from '../../lib/speculative-balance.js';
-import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
 import { getConversationBudgets, computeGroupRemaining } from './budgets.js';
+import type { ProcessedModels } from '@hushbox/shared/models';
+import type { Database } from '@hushbox/db';
+import type { Redis } from '@upstash/redis';
 
 export interface MemberContext {
   memberId: string;
@@ -48,6 +48,12 @@ export interface BuildBillingResult {
 export interface BuildBillingInputParams {
   userId: string;
   models: string[];
+  /**
+   * Per-request memoized processed catalog. Callers obtain this via
+   * `getProcessedCatalog(c)`; the awaitable promise is consumed inside the
+   * Promise.all here so the network fetch (if any) overlaps with DB/Redis.
+   */
+  processedCatalog: Promise<ProcessedModels>;
   memberContext?: MemberContext;
   conversationId?: string;
 }
@@ -56,6 +62,7 @@ export interface BuildGuestBillingInputParams {
   ownerId: string;
   memberId: string;
   models: string[];
+  processedCatalog: Promise<ProcessedModels>;
   conversationId: string;
 }
 
@@ -105,16 +112,14 @@ export async function buildBillingInput(
   redis: Redis,
   params: BuildBillingInputParams
 ): Promise<BuildBillingResult> {
-  const { userId, models, memberContext, conversationId } = params;
+  const { userId, models, memberContext, conversationId, processedCatalog } = params;
   // 1. User tier info + Redis reservations + model premium check (in parallel)
-  const [userTierInfo, reservedCents, openrouterModels, zdrModelIds] = await Promise.all([
+  const [userTierInfo, reservedCents, { premiumIds }] = await Promise.all([
     getUserTierInfo(db, userId),
     getReservedTotal(redis, userId),
-    fetchModels(),
-    fetchZdrModelIds(),
+    processedCatalog,
   ]);
 
-  const { premiumIds } = processModels(openrouterModels, zdrModelIds);
   const isPremiumModel = models.some((m) => premiumIds.includes(m));
 
   const adjustedBalanceCents = userTierInfo.balanceCents - reservedCents;
@@ -182,17 +187,15 @@ export async function buildGuestBillingInput(
   redis: Redis,
   params: BuildGuestBillingInputParams
 ): Promise<BuildBillingResult> {
-  const { ownerId, memberId, models, conversationId } = params;
+  const { ownerId, memberId, models, conversationId, processedCatalog } = params;
 
-  const [ownerTierInfo, reserved, budgets, openrouterModels, zdrModelIds] = await Promise.all([
+  const [ownerTierInfo, reserved, budgets, { premiumIds }] = await Promise.all([
     getUserTierInfo(db, ownerId),
     getGroupReservedTotals(redis, conversationId, memberId, ownerId),
     getConversationBudgets(db, conversationId),
-    fetchModels(),
-    fetchZdrModelIds(),
+    processedCatalog,
   ]);
 
-  const { premiumIds } = processModels(openrouterModels, zdrModelIds);
   const isPremiumModel = models.some((m) => premiumIds.includes(m));
 
   const resolved = resolveGroupRemaining(budgets, memberId, ownerTierInfo.balanceCents, reserved);

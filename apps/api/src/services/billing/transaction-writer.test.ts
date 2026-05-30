@@ -1,5 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { creditUserBalance, processWebhookCredit, chargeForUsage } from './transaction-writer';
+import {
+  creditUserBalance,
+  processWebhookCredit,
+  chargeForUsage,
+  chargeForMediaGeneration,
+} from './transaction-writer';
 
 /**
  * Mock DB builder chain factory.
@@ -431,6 +436,140 @@ describe('transaction-writer', () => {
       await chargeForUsage(db as never, baseParams);
 
       expect(db.transaction).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('chargeForMediaGeneration', () => {
+    let db: ReturnType<typeof createMockDb>['db'];
+    let mockSelect: ReturnType<typeof vi.fn>;
+    let mockUpdate: ReturnType<typeof vi.fn>;
+    let mockInsert: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      const mocks = createMockDb();
+      db = mocks.db;
+      mockSelect = mocks.mockSelect;
+      mockUpdate = mocks.mockUpdate;
+      mockInsert = mocks.mockInsert;
+    });
+
+    const baseMediaParams = {
+      userId: 'user-123',
+      cost: '0.05000000',
+      model: 'google/imagen-4',
+      provider: 'google-vertex',
+      mediaType: 'image' as const,
+      imageCount: 1,
+      sourceType: 'message' as const,
+      sourceId: 'msg-456',
+    };
+
+    it('inserts usage_record with type media_generation', async () => {
+      mockInsertChain(mockInsert, [{ id: 'usage-1' }]);
+      mockInsertChain(mockInsert, [{ id: 'media-gen-1' }]);
+      mockSelectChain(mockSelect, [
+        { id: 'wallet-1', type: 'purchased', balance: '10.00000000', priority: 0 },
+      ]);
+      mockUpdateChain(mockUpdate, [{ id: 'wallet-1', balance: '9.95000000' }]);
+      mockInsertChain(mockInsert, [{ id: 'ledger-1' }]);
+      mockUpdateChain(mockUpdate, [{ id: 'usage-1' }]);
+
+      const result = await chargeForMediaGeneration(db as never, baseMediaParams);
+
+      expect(result.usageRecordId).toBe('usage-1');
+      expect(result.walletId).toBe('wallet-1');
+      expect(result.walletType).toBe('purchased');
+    });
+
+    it('inserts media_generations detail row', async () => {
+      mockInsertChain(mockInsert, [{ id: 'usage-1' }]);
+      mockInsertChain(mockInsert, [{ id: 'media-gen-1' }]);
+      mockSelectChain(mockSelect, [
+        { id: 'wallet-1', type: 'purchased', balance: '10.00000000', priority: 0 },
+      ]);
+      mockUpdateChain(mockUpdate, [{ id: 'wallet-1', balance: '9.95000000' }]);
+      mockInsertChain(mockInsert, [{ id: 'ledger-1' }]);
+      mockUpdateChain(mockUpdate, [{ id: 'usage-1' }]);
+
+      await chargeForMediaGeneration(db as never, baseMediaParams);
+
+      // Second insert call is for media_generations
+      expect(mockInsert).toHaveBeenCalledTimes(3);
+    });
+
+    it('falls through to free_tier wallet when purchased has insufficient balance', async () => {
+      mockInsertChain(mockInsert, [{ id: 'usage-1' }]);
+      mockInsertChain(mockInsert, [{ id: 'media-gen-1' }]);
+      mockSelectChain(mockSelect, [
+        { id: 'wallet-1', type: 'purchased', balance: '0.00000000', priority: 0 },
+        { id: 'wallet-2', type: 'free_tier', balance: '5.00000000', priority: 1 },
+      ]);
+      mockUpdateChain(mockUpdate, []);
+      mockUpdateChain(mockUpdate, [{ id: 'wallet-2', balance: '4.95000000' }]);
+      mockInsertChain(mockInsert, [{ id: 'ledger-1' }]);
+      mockUpdateChain(mockUpdate, [{ id: 'usage-1' }]);
+
+      const result = await chargeForMediaGeneration(db as never, baseMediaParams);
+
+      expect(result.walletId).toBe('wallet-2');
+      expect(result.walletType).toBe('free_tier');
+    });
+
+    it('marks usage record as failed when insufficient balance', async () => {
+      mockInsertChain(mockInsert, [{ id: 'usage-1' }]);
+      mockInsertChain(mockInsert, [{ id: 'media-gen-1' }]);
+      mockSelectChain(mockSelect, [
+        { id: 'wallet-1', type: 'purchased', balance: '0.00000000', priority: 0 },
+      ]);
+      mockUpdateChain(mockUpdate, []);
+      mockUpdateChain(mockUpdate, [{ id: 'usage-1' }]);
+
+      await expect(chargeForMediaGeneration(db as never, baseMediaParams)).rejects.toThrow(
+        'Insufficient balance'
+      );
+    });
+
+    it('accepts video params with durationMs and resolution', async () => {
+      mockInsertChain(mockInsert, [{ id: 'usage-1' }]);
+      mockInsertChain(mockInsert, [{ id: 'media-gen-1' }]);
+      mockSelectChain(mockSelect, [
+        { id: 'wallet-1', type: 'purchased', balance: '10.00000000', priority: 0 },
+      ]);
+      mockUpdateChain(mockUpdate, [{ id: 'wallet-1', balance: '9.40000000' }]);
+      mockInsertChain(mockInsert, [{ id: 'ledger-1' }]);
+      mockUpdateChain(mockUpdate, [{ id: 'usage-1' }]);
+
+      const result = await chargeForMediaGeneration(db as never, {
+        ...baseMediaParams,
+        model: 'google/veo-3.1',
+        mediaType: 'video',
+        imageCount: undefined,
+        durationMs: 6000,
+        resolution: '1080p',
+      });
+
+      expect(result.usageRecordId).toBe('usage-1');
+    });
+
+    it('runs entirely within a transaction', async () => {
+      mockInsertChain(mockInsert, [{ id: 'usage-1' }]);
+      mockInsertChain(mockInsert, [{ id: 'media-gen-1' }]);
+      mockSelectChain(mockSelect, [
+        { id: 'wallet-1', type: 'purchased', balance: '10.00000000', priority: 0 },
+      ]);
+      mockUpdateChain(mockUpdate, [{ id: 'wallet-1', balance: '9.95000000' }]);
+      mockInsertChain(mockInsert, [{ id: 'ledger-1' }]);
+      mockUpdateChain(mockUpdate, [{ id: 'usage-1' }]);
+
+      await chargeForMediaGeneration(db as never, baseMediaParams);
+
+      expect(db.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects negative cost', async () => {
+      await expect(
+        chargeForMediaGeneration(db as never, { ...baseMediaParams, cost: '-1.00000000' })
+      ).rejects.toThrow('Invalid cost');
     });
   });
 });

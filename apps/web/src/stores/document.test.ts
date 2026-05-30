@@ -16,7 +16,6 @@ function makeDocument(overrides?: Partial<Document>): Document {
 
 describe('useDocumentStore', () => {
   beforeEach(() => {
-    // Reset store state before each test
     useDocumentStore.setState({
       isPanelOpen: false,
       panelWidth: 400,

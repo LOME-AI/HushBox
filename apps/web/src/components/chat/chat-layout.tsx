@@ -1,11 +1,14 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { Lock } from 'lucide-react';
+import { useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
+import { createEvent } from '@hushbox/realtime/events';
 import { ChatHeader } from '@/components/chat/chat-header';
 import { ComparisonBar } from '@/components/chat/comparison-bar';
 import { ForkTabs } from '@/components/chat/fork-tabs';
 import { MessageList, type MessageListHandle } from '@/components/chat/message-list';
 import { PromptInput } from '@/components/chat/prompt-input';
-import type { PromptInputRef } from '@/components/chat/prompt-input';
+import { getPromptPlaceholder } from '@/lib/modality-strings';
 import { DocumentPanel } from '@/components/document-panel/document-panel';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
@@ -14,21 +17,19 @@ import { AddMemberModal } from '@/components/chat/add-member-modal';
 import { BudgetSettingsModal } from '@/components/chat/budget-settings-modal';
 import { InviteLinkModal } from '@/components/chat/invite-link-modal';
 import { ShareMessageModal } from '@/components/chat/share-message-modal';
-import { useVisualViewportHeight } from '@hushbox/ui';
 import { useKeyboardOffset } from '@/hooks/use-keyboard-offset';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
 import { useTierInfo } from '@/hooks/use-tier-info';
 import { useModelStore, getPrimaryModel, type SelectedModelEntry } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useSelectedModelCapabilities } from '@/hooks/use-selected-model-capabilities';
+import { useResolveDefaultModel } from '@/hooks/use-resolve-default-model';
 import { billingKeys } from '@/hooks/billing';
 import { TypingIndicator } from '@/components/chat/typing-indicator';
-import { Lock } from 'lucide-react';
-import { createEvent } from '@hushbox/realtime/events';
-import type { FundingSource, MemberPrivilege } from '@hushbox/shared';
 import { useDocumentStore } from '@/stores/document';
+import type { FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
+import type { ChatSearchProps, PromptInputRef } from '@/components/chat/prompt-input';
 import type { Message } from '@/lib/api';
 import type { PhantomMessage } from '@/hooks/use-remote-streaming';
 import type { ConversationWebSocket } from '@/lib/ws-client';
@@ -56,11 +57,15 @@ export interface GroupChatProps {
   readonly typingUserIds?: Set<string> | undefined;
   readonly remoteStreamingMessages?: Map<string, PhantomMessage> | undefined;
   readonly ws?: ConversationWebSocket | undefined;
-  readonly onRemoveMember?: ((memberId: string) => void) | undefined;
-  readonly onChangePrivilege?: ((memberId: string, newPrivilege: string) => void) | undefined;
-  readonly onRevokeLinkClick?: ((linkId: string) => void) | undefined;
-  readonly onSaveLinkName?: ((linkId: string, newName: string) => void) | undefined;
-  readonly onChangeLinkPrivilege?: ((linkId: string, newPrivilege: string) => void) | undefined;
+  readonly onRemoveMember?: ((memberId: string) => void | Promise<void>) | undefined;
+  readonly onChangePrivilege?:
+    | ((memberId: string, newPrivilege: string) => void | Promise<void>)
+    | undefined;
+  readonly onRevokeLinkClick?: ((linkId: string) => void | Promise<void>) | undefined;
+  readonly onSaveLinkName?: ((linkId: string, newName: string) => void | Promise<void>) | undefined;
+  readonly onChangeLinkPrivilege?:
+    | ((linkId: string, newPrivilege: string) => void | Promise<void>)
+    | undefined;
   readonly onAddMember?:
     | ((params: {
         userId: string;
@@ -68,9 +73,9 @@ export interface GroupChatProps {
         publicKey: string;
         privilege: string;
         giveFullHistory: boolean;
-      }) => void)
+      }) => void | Promise<void>)
     | undefined;
-  readonly onLeave?: (() => void) | undefined;
+  readonly onLeave?: (() => void | Promise<void>) | undefined;
 }
 
 interface ChatLayoutProps {
@@ -110,6 +115,8 @@ interface ChatLayoutProps {
   readonly isLinkGuest?: boolean | undefined;
   readonly isEditing?: boolean | undefined;
   readonly onCancelEdit?: (() => void) | undefined;
+  /** See MessageList docs — parent-derived signal that messages reflect final data. */
+  readonly messagesReady?: boolean | undefined;
 }
 
 interface MobileInputStyleInput {
@@ -239,7 +246,9 @@ function useInputFocusManagement(
     previousInputDisabledRef.current = inputDisabled;
 
     if (wasDisabled && !inputDisabled && !isMobile) {
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers focus to next frame, not motion animation
       requestAnimationFrame(() => {
+        // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers focus to next frame, not motion animation
         requestAnimationFrame(() => {
           promptInputRef.current?.focus();
         });
@@ -263,8 +272,9 @@ function useStreamScrollEffect(
     const isFirstMessage = messagesLength <= 2;
 
     if (!wasStreaming && isNowStreaming && isFirstMessage) {
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
       });
     }
   }, [streamingMessageIds, messagesLength, virtuosoRef]);
@@ -281,16 +291,23 @@ interface ChatLayoutDerivedState {
   premiumIds: Set<string>;
   canAccessPremium: boolean;
   sharedMessageContent: string | null;
+  sharedMessageEpochNumber: number | null;
+  sharedMessageWrappedContentKey: string | null;
+}
+
+function findSharedMessage(messages: Message[], shareMessageId: string | null): Message | null {
+  if (!shareMessageId) return null;
+  return messages.find((m) => m.id === shareMessageId) ?? null;
 }
 
 function resolveChatLayoutDerivedState(input: ChatLayoutDerivedInput): ChatLayoutDerivedState {
-  const sharedMessage = input.shareMessageId
-    ? (input.messages.find((m) => m.id === input.shareMessageId) ?? null)
-    : null;
+  const sharedMessage = findSharedMessage(input.messages, input.shareMessageId);
   return {
     premiumIds: input.premiumIds,
     canAccessPremium: input.tierInfo?.canAccessPremium ?? false,
     sharedMessageContent: sharedMessage?.content ?? null,
+    sharedMessageEpochNumber: sharedMessage?.epochNumber ?? null,
+    sharedMessageWrappedContentKey: sharedMessage?.wrappedContentKey ?? null,
   };
 }
 
@@ -308,12 +325,12 @@ interface ChatPromptInputProps {
   readonly callerPrivilege: MemberPrivilege | undefined;
   readonly handleSubmitUserOnly: () => void;
   readonly handleTypingChange: (isTyping: boolean) => void;
-  readonly webSearchEnabled: boolean;
-  readonly modelSupportsSearch: boolean;
+  readonly searchProps: ChatSearchProps | undefined;
   readonly isAuthenticated: boolean;
-  readonly onToggleWebSearch: () => void;
   readonly isEditing?: boolean | undefined;
   readonly onCancelEdit?: (() => void) | undefined;
+  readonly activeModality: Modality;
+  readonly onSelectModality: (modality: Modality) => void;
 }
 
 interface ChatHeaderGroupProps {
@@ -403,12 +420,12 @@ function ChatPromptInput({
   callerPrivilege,
   handleSubmitUserOnly,
   handleTypingChange,
-  webSearchEnabled,
-  modelSupportsSearch,
+  searchProps,
   isAuthenticated,
-  onToggleWebSearch,
   isEditing,
   onCancelEdit,
+  activeModality,
+  onSelectModality,
 }: Readonly<ChatPromptInputProps>): React.JSX.Element {
   const spreadProps = buildPromptInputProps({
     groupChat,
@@ -420,24 +437,27 @@ function ChatPromptInput({
     handleTypingChange,
   });
 
+  const placeholder = getPromptPlaceholder(activeModality, 'Type a message...');
+
   return (
     <PromptInput
       ref={promptInputRef}
       value={inputValue}
       onChange={onInputChange}
       onSubmit={handleSubmit}
-      placeholder="Type a message..."
+      placeholder={placeholder}
       historyCharacters={historyCharacters}
       rows={2}
       minHeight="56px"
       maxHeight="112px"
       disabled={inputDisabled}
       isProcessing={isProcessing}
+      // eslint-disable-next-line jsx-a11y/no-autofocus -- desktop-only focus management for chat composer; mobile is excluded to avoid keyboard popup
       autoFocus={!isMobile}
-      webSearchEnabled={webSearchEnabled}
-      modelSupportsSearch={modelSupportsSearch}
       isAuthenticated={isAuthenticated}
-      onToggleWebSearch={onToggleWebSearch}
+      activeModality={activeModality}
+      onSelectModality={onSelectModality}
+      {...(searchProps !== undefined && { searchProps })}
       {...spreadProps}
     />
   );
@@ -472,6 +492,20 @@ interface ChatMainContentProps {
   readonly isAuthenticated: boolean;
   readonly isLinkGuest: boolean;
   readonly callerPrivilege: MemberPrivilege | undefined;
+  readonly conversationId: string | undefined;
+  readonly activeForkId: string | null | undefined;
+  readonly messagesReady: boolean | undefined;
+}
+
+// Drives MessageList remount on conversation/fork switch so Virtuoso re-applies
+// `initialTopMostItemIndex` and each fresh open lands on the latest message.
+// The prop is mount-only; without a key change Virtuoso would stay parked
+// wherever the previous conversation left it.
+function buildMessageListKey(
+  conversationId: string | undefined,
+  activeForkId: string | null | undefined
+): string {
+  return `${conversationId ?? 'init'}-${activeForkId ?? 'main'}`;
 }
 
 function ChatMainContent({
@@ -489,13 +523,18 @@ function ChatMainContent({
   isAuthenticated,
   isLinkGuest,
   callerPrivilege,
+  conversationId,
+  activeForkId,
+  messagesReady,
 }: Readonly<ChatMainContentProps>): React.JSX.Element {
   const showDecrypting = messages.length === 0 && isDecrypting;
+  const messageListKey = buildMessageListKey(conversationId, activeForkId);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       {!showDecrypting && (
         <MessageList
+          key={messageListKey}
           ref={virtuosoRef}
           messages={messages}
           streamingMessageIds={streamingMessageIds}
@@ -505,6 +544,7 @@ function ChatMainContent({
           isAuthenticated={isAuthenticated}
           isLinkGuest={isLinkGuest}
           callerPrivilege={callerPrivilege}
+          messagesReady={messagesReady}
           {...(onRegenerate !== undefined && { onRegenerate })}
           {...(onEdit !== undefined && { onEdit })}
           {...(onFork !== undefined && { onFork })}
@@ -602,8 +642,9 @@ function useSubmitUserOnly(
     if (onSubmitUserOnly) {
       onSubmitUserOnly();
       virtuosoRef.current?.resetScrollBreakaway();
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
       });
     }
   }, [onSubmitUserOnly, virtuosoRef]);
@@ -662,7 +703,10 @@ interface ChatLayoutModalsProps {
   readonly shareMessageModalOpen: boolean;
   readonly closeShareMessageModal: () => void;
   readonly shareMessageId: string | null;
+  readonly shareMessageConversationId: string | null;
   readonly sharedMessageContent: string | null;
+  readonly sharedMessageEpochNumber: number | null;
+  readonly sharedMessageWrappedContentKey: string | null;
   readonly groupChat: GroupChatProps | undefined;
   readonly title: string | undefined;
   readonly addMemberModalOpen: boolean;
@@ -682,7 +726,10 @@ function ChatLayoutModals({
   shareMessageModalOpen,
   closeShareMessageModal,
   shareMessageId,
+  shareMessageConversationId,
   sharedMessageContent,
+  sharedMessageEpochNumber,
+  sharedMessageWrappedContentKey,
   groupChat,
   title,
   addMemberModalOpen,
@@ -727,6 +774,9 @@ function ChatLayoutModals({
         }}
         messageId={shareMessageId}
         messageContent={sharedMessageContent}
+        conversationId={shareMessageConversationId}
+        epochNumber={sharedMessageEpochNumber}
+        wrappedContentKey={sharedMessageWrappedContentKey}
       />
     </>
   );
@@ -775,18 +825,45 @@ export function ChatLayout({
   isLinkGuest,
   isEditing,
   onCancelEdit,
+  messagesReady,
 }: ChatLayoutProps): React.JSX.Element {
   const viewportHeight = useVisualViewportHeight();
   const isMobile = useIsMobile();
   const { bottom: keyboardOffset, isKeyboardVisible } = useKeyboardOffset();
-  const { selectedModels } = useModelStore();
+  const activeModality = useModelStore((state) => state.activeModality);
+  const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
+  const setActiveModality = useModelStore((state) => state.setActiveModality);
+  useResolveDefaultModel(activeModality);
   const { webSearchEnabled, toggleWebSearch } = useSearchStore();
-  const { models, premiumIds: modelPremiumIds, supportsSearch } = useSelectedModelCapabilities();
+  const selectModality = React.useCallback(
+    (modality: Modality): void => {
+      setActiveModality(modality);
+    },
+    [setActiveModality]
+  );
+  const { models, premiumIds: modelPremiumIds } = useSelectedModelCapabilities();
+  // Search is a text-mode feature. Omit searchProps entirely in image mode
+  // so the toggle disappears at the structural level, not a render-time check.
+  const searchProps: ChatSearchProps | undefined =
+    activeModality === 'text'
+      ? {
+          webSearchEnabled,
+          onToggleWebSearch: toggleWebSearch,
+        }
+      : undefined;
   const handleModelSelect = React.useCallback((entries: SelectedModelEntry[]): void => {
-    useModelStore.setState({ selectedModels: entries });
+    const { activeModality: current, setSelectedModels } = useModelStore.getState();
+    setSelectedModels(current, entries);
   }, []);
   const handleRemoveModel = React.useCallback((modelId: string): void => {
-    useModelStore.getState().removeModel(modelId);
+    const { activeModality: current, removeModel } = useModelStore.getState();
+    removeModel(current, modelId);
+  }, []);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const handleAddViaComparisonBar = React.useCallback((): void => {
+    const { activeModality: current, setPickerMode } = useModelStore.getState();
+    setPickerMode(current, 'multi');
+    setPickerOpen(true);
   }, []);
   const tierInfo = useTierInfo();
   const tierInfoOrUndefined = tierInfo ?? undefined;
@@ -816,14 +893,21 @@ export function ChatLayout({
     shareMessageId,
     messages,
   });
-  const { premiumIds, canAccessPremium, sharedMessageContent } = derived;
+  const {
+    premiumIds,
+    canAccessPremium,
+    sharedMessageContent,
+    sharedMessageEpochNumber,
+    sharedMessageWrappedContentKey,
+  } = derived;
 
   const handleSubmit = React.useCallback(
     (fundingSource: FundingSource): void => {
       onSubmit(fundingSource);
       virtuosoRef.current?.resetScrollBreakaway();
+      // eslint-disable-next-line no-restricted-globals -- one-shot rAF defers scroll to next frame, not motion animation
       requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'smooth' });
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
       });
     },
     [onSubmit]
@@ -876,6 +960,9 @@ export function ChatLayout({
           isAuthenticated={isAuthenticated}
           isLinkGuest={isLinkGuest ?? false}
           onPremiumClick={handlePremiumClick}
+          activeModality={activeModality}
+          pickerOpen={pickerOpen}
+          onPickerOpenChange={setPickerOpen}
           {...buildChatHeaderGroupProps(groupChat, handleFacepileClick)}
         />
       </div>
@@ -883,6 +970,7 @@ export function ChatLayout({
         models={models}
         selectedModels={selectedModels}
         onRemoveModel={handleRemoveModel}
+        onAddClick={handleAddViaComparisonBar}
       />
       <ForkTabs
         {...resolveForkTabsProps({ forks, activeForkId, onForkSelect, onForkRename, onForkDelete })}
@@ -906,6 +994,9 @@ export function ChatLayout({
           isAuthenticated={isAuthenticated}
           isLinkGuest={isLinkGuest ?? false}
           callerPrivilege={callerPrivilege}
+          conversationId={conversationId}
+          activeForkId={activeForkId}
+          messagesReady={messagesReady}
         />
         <DocumentPanel />
         {conversationId !== undefined && (
@@ -923,6 +1014,7 @@ export function ChatLayout({
       <div
         ref={inputContainerRef}
         data-chat-input
+        data-chrome=""
         className="bg-background flex-shrink-0 border-t p-4"
         style={inputStyle}
       >
@@ -941,12 +1033,12 @@ export function ChatLayout({
             callerPrivilege={callerPrivilege}
             handleSubmitUserOnly={handleSubmitUserOnly}
             handleTypingChange={handleTypingChange}
-            webSearchEnabled={webSearchEnabled}
-            modelSupportsSearch={supportsSearch}
+            searchProps={searchProps}
             isAuthenticated={isAuthenticated}
-            onToggleWebSearch={toggleWebSearch}
             isEditing={isEditing}
             onCancelEdit={onCancelEdit}
+            activeModality={activeModality}
+            onSelectModality={selectModality}
           />
         </div>
       </div>
@@ -959,7 +1051,10 @@ export function ChatLayout({
         shareMessageModalOpen={modals.shareMessageModalOpen}
         closeShareMessageModal={modals.closeShareMessageModal}
         shareMessageId={modals.shareMessageId}
+        shareMessageConversationId={conversationId ?? null}
         sharedMessageContent={sharedMessageContent}
+        sharedMessageEpochNumber={sharedMessageEpochNumber}
+        sharedMessageWrappedContentKey={sharedMessageWrappedContentKey}
         groupChat={groupChat}
         title={title}
         addMemberModalOpen={modals.addMemberModalOpen}

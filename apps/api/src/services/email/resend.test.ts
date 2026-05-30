@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import type { EmailOptions } from './types.js';
 import { createResendEmailClient } from './resend.js';
+import type { EmailOptions } from './types.js';
 
 describe('createResendEmailClient', () => {
   const testEmail: EmailOptions = {

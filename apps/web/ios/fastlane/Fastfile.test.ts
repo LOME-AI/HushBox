@@ -129,11 +129,7 @@ describe('iOS Gemfile', () => {
   });
 });
 
-function extractLane(
-  content: string,
-  laneName: string,
-  kind: 'lane' | 'private_lane',
-): string {
+function extractLane(content: string, laneName: string, kind: 'lane' | 'private_lane'): string {
   const startPattern = new RegExp(`${kind} :${laneName} do(?:\\s*\\|[^|]*\\|)?`);
   const startMatch = startPattern.exec(content);
   if (!startMatch) {
@@ -148,7 +144,10 @@ function extractLane(
       i += 2;
       continue;
     }
-    if (body.startsWith('end', i) && (body[i + 3] === '\n' || body[i + 3] === ' ' || i + 3 === body.length)) {
+    if (
+      body.startsWith('end', i) &&
+      (body[i + 3] === '\n' || body[i + 3] === ' ' || i + 3 === body.length)
+    ) {
       depth -= 1;
       if (depth === 0) {
         return body.slice(0, i);

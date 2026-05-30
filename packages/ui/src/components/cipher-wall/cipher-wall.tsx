@@ -4,8 +4,13 @@ import { CELL_WIDTH, CELL_HEIGHT, EXCLUSION_STRIDE } from './cipher-wall-engine'
 import type { ThemeColors } from './cipher-wall-engine';
 
 interface CipherWallProps {
+  /**
+   * Required pool of strings the wall reveals (animated mode) or bakes in
+   * (frozen mode). See PageHero.astro and splash-screen.tsx for examples;
+   * there is no fallback default by design.
+   */
+  messages: readonly string[];
   frozen?: boolean;
-  frozenMessageCount?: number;
   themeOverride?: ThemeColors;
   cipherOpacity?: number;
   fadeMask?: 'left' | 'radial' | 'none';
@@ -132,7 +137,7 @@ export function useRadialMask(
   return { maskStyles: dynamicMask, exclusionZone };
 }
 
-export function CipherWall(props: Readonly<CipherWallProps> = {}): React.JSX.Element {
+export function CipherWall(props: Readonly<CipherWallProps>): React.JSX.Element {
   const { className, style, fadeMask, fadeMaskTarget, ...options } = props;
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
 

@@ -1,5 +1,4 @@
 import { useCallback, useRef } from 'react';
-import type * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { fetchJson, client } from '../lib/api-client.js';
 import { getPlatform } from './platform.js';
@@ -10,6 +9,7 @@ import { useNetworkStatus } from './hooks/use-network-status.js';
 import { useSplashScreen } from './hooks/use-splash-screen.js';
 import { usePushNotifications } from './hooks/use-push-notifications.js';
 import { useLiveUpdate } from './hooks/use-live-update.js';
+import type * as React from 'react';
 
 interface CapacitorProviderProps {
   isAppStable: boolean;

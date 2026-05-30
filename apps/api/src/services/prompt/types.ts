@@ -1,5 +1,5 @@
-import type { CapabilityId } from '@hushbox/shared';
-import type { ChatMessage, ToolDefinition } from '../openrouter/types.js';
+import type { ModelFeatureId } from '@hushbox/shared';
+import type { AIMessage, ToolDefinition } from '../ai/index.js';
 
 /**
  * Module that provides tool definitions for a capability.
@@ -7,14 +7,14 @@ import type { ChatMessage, ToolDefinition } from '../openrouter/types.js';
  */
 export interface ToolModule {
   id: string;
-  capability: CapabilityId;
+  capability: ModelFeatureId;
   getTools(): ToolDefinition[];
 }
 
 export interface PromptBuilderOptions {
   modelId: string;
-  supportedCapabilities: CapabilityId[];
-  chatHistory?: ChatMessage[];
+  supportedCapabilities: ModelFeatureId[];
+  chatHistory?: AIMessage[];
   customInstructions?: string;
 }
 

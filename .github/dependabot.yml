@@ -11,6 +11,11 @@ updates:
     open-pull-requests-limit: 10
     groups:
       all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - '*'
+      all-security:
+        applies-to: security-updates
         patterns:
           - '*'
 
@@ -24,6 +29,11 @@ updates:
       - dependency-name: 'postgres'
     groups:
       docker-images:
+        applies-to: version-updates
+        patterns:
+          - '*'
+      docker-images-security:
+        applies-to: security-updates
         patterns:
           - '*'
 
@@ -35,5 +45,10 @@ updates:
     open-pull-requests-limit: 5
     groups:
       actions:
+        applies-to: version-updates
+        patterns:
+          - '*'
+      actions-security:
+        applies-to: security-updates
         patterns:
           - '*'

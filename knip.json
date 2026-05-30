@@ -15,7 +15,8 @@
       "project": ["src/**/*.ts"]
     },
     "packages/ui": {
-      "project": ["src/**/*.{ts,tsx}"]
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["onnxruntime-web"]
     },
     "packages/config": {
       "project": ["**/*.{js,ts}"],
@@ -25,8 +26,18 @@
       "entry": ["*.ts", "!*.test.ts"],
       "project": ["**/*.ts"]
     },
+    "ops": {
+      "entry": ["**/*.ts", "!**/*.test.ts"],
+      "project": ["**/*.ts"]
+    },
     "e2e": {
-      "entry": ["fixtures.ts", "auth.setup.ts", "global-teardown.ts", "**/*.spec.ts"],
+      "entry": [
+        "fixtures.ts",
+        "auth.setup.ts",
+        "global-setup.ts",
+        "global-teardown.ts",
+        "**/*.spec.ts"
+      ],
       "project": ["**/*.ts"]
     },
     "packages/realtime": {
@@ -39,7 +50,18 @@
       "ignoreDependencies": ["zod"]
     }
   },
-  "ignoreDependencies": ["eslint-formatter-summary", "github-markdown-css", "tailwindcss", "tw-animate-css"],
-  "ignoreBinaries": ["maestro", "adb", "cap", "wrangler"],
-  "ignoreExportsUsedInFile": true
+  "ignoreDependencies": [
+    "eslint-formatter-summary",
+    "github-markdown-css",
+    "tailwindcss",
+    "tw-animate-css"
+  ],
+  "ignoreBinaries": ["maestro", "adb", "cap", "wrangler", "drizzle-kit"],
+  "ignoreExportsUsedInFile": true,
+  "playwright": {
+    "config": [
+      "playwright.config.{js,ts,mjs}",
+      "playwright-ct.config.{js,ts,mjs}"
+    ]
+  }
 }

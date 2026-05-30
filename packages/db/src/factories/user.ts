@@ -1,8 +1,9 @@
 import { Factory } from 'fishery';
 import { faker } from '@faker-js/faker';
+import { ACCESSIBILITY_PREFERENCES_DEFAULTS } from '@hushbox/shared';
 
-import type { users } from '../schema/users';
 import { placeholderBytes } from './helpers.js';
+import type { users } from '../schema/users';
 
 type User = typeof users.$inferSelect;
 
@@ -34,4 +35,7 @@ export const userFactory = Factory.define<User>(() => ({
   publicKey: placeholderBytes(32),
   passwordWrappedPrivateKey: placeholderBytes(48),
   recoveryWrappedPrivateKey: placeholderBytes(48),
+
+  accessibilityPreferences: ACCESSIBILITY_PREFERENCES_DEFAULTS,
+  accessibilityPreferencesUpdatedAt: faker.date.recent(),
 }));

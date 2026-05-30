@@ -4,11 +4,8 @@ import type { Model } from '@hushbox/shared';
 const MESSAGES_PER_DAY = 50;
 const DAYS_PER_MONTH = 30;
 
-/** Approximate system prompt length in characters */
 const SYSTEM_PROMPT_CHARS = 500;
-/** Approximate user message length in characters */
 const USER_MESSAGE_CHARS = 200;
-/** Approximate AI response length in characters */
 const AI_RESPONSE_CHARS = 400;
 
 export interface MonthlyCostResult {

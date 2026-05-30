@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
 import {
   chatKeys,
   conversationQueryOptions,
@@ -13,6 +12,7 @@ import {
   useUpdateConversation,
   useDecryptedConversations,
 } from './chat';
+import type { ReactNode } from 'react';
 
 // Mock auth to break transitive import chain to api.ts (env parse)
 let mockAuthState: Record<string, unknown> = { privateKey: null, user: { id: 'test-user' } };
@@ -25,7 +25,7 @@ vi.mock('../lib/auth', () => ({
 // Mock crypto and epoch-key-cache (used by useDecryptedConversations)
 const mockDecryptMessage = vi.fn();
 vi.mock('@hushbox/crypto', () => ({
-  decryptMessage: (...args: unknown[]) => mockDecryptMessage(...args),
+  decryptTextFromEpoch: (...args: unknown[]) => mockDecryptMessage(...args),
 }));
 
 vi.mock('@hushbox/shared', async (importOriginal) => {
@@ -44,7 +44,6 @@ vi.mock('../lib/epoch-key-cache', () => ({
   getSnapshot: vi.fn(() => 0),
 }));
 
-// Mock the api-client module
 const mockFetchJson = vi.fn();
 vi.mock('../lib/api-client', () => ({
   client: {

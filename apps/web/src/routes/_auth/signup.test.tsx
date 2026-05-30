@@ -3,7 +3,6 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { signUp } from '@/lib/auth';
 
-// Mock TanStack Router
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: vi.fn(() => vi.fn()),
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
@@ -11,14 +10,12 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
-// Mock auth client
 vi.mock('@/lib/auth', () => ({
   signUp: {
     email: vi.fn(),
   },
 }));
 
-// Mock capacitor (used by ExternalPageLink)
 vi.mock('@/capacitor/platform', () => ({
   isNative: (): boolean => false,
 }));
@@ -27,7 +24,6 @@ vi.mock('@/capacitor/browser', () => ({
   openExternalPage: vi.fn(),
 }));
 
-// Mock UI components
 vi.mock('@hushbox/ui', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
   Input: ({
@@ -40,9 +36,14 @@ vi.mock('@hushbox/ui', () => ({
       <input id={id} {...props} />
     </div>
   ),
+  InlineFormError: ({ error, errorKey }: { error: string | null; errorKey: number }) =>
+    error === null ? null : (
+      <p key={errorKey} role="alert">
+        {error}
+      </p>
+    ),
 }));
 
-// Mock FormInput
 vi.mock('@/components/shared/form-input', () => ({
   FormInput: ({
     label,
@@ -65,7 +66,6 @@ vi.mock('@/components/shared/form-input', () => ({
   ),
 }));
 
-// Mock AuthPasswordInput
 vi.mock('@/components/auth/AuthPasswordInput', () => ({
   AuthPasswordInput: ({
     label,
@@ -88,14 +88,12 @@ vi.mock('@/components/auth/AuthPasswordInput', () => ({
   ),
 }));
 
-// Mock AuthButton
 vi.mock('@/components/auth/AuthButton', () => ({
   AuthButton: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{children}</button>
   ),
 }));
 
-// Mock PasswordStrength
 vi.mock('@/components/auth/PasswordStrength', () => ({
   PasswordStrength: () => <div data-testid="password-strength" />,
 }));

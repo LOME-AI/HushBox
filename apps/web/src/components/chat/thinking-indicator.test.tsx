@@ -1,8 +1,19 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import type { Modality } from '@hushbox/shared';
 import { ThinkingIndicator } from './thinking-indicator';
 
+const activeModalityRef = { current: 'text' as Modality };
+
+vi.mock('@/stores/model', () => ({
+  useModelStore: <T,>(selector: (state: { activeModality: Modality }) => T): T =>
+    selector({ activeModality: activeModalityRef.current }),
+}));
+
 describe('ThinkingIndicator', () => {
+  beforeEach(() => {
+    activeModalityRef.current = 'text';
+  });
   it('renders model name with "is thinking" text', () => {
     render(<ThinkingIndicator modelName="GPT-4 Turbo" />);
     expect(screen.getByText('GPT-4 Turbo is thinking')).toBeInTheDocument();
@@ -59,5 +70,59 @@ describe('ThinkingIndicator', () => {
     render(<ThinkingIndicator modelName="deepseek/deepseek-r1" />);
     expect(screen.getByText('deepseek-r1 is thinking')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'deepseek-r1 is thinking');
+  });
+
+  it('replaces the "is thinking" text with stageLabel when provided', () => {
+    render(<ThinkingIndicator modelName="GPT-4" stageLabel="Choosing the best model…" />);
+    expect(screen.getByText('Choosing the best model…')).toBeInTheDocument();
+    // Model name is suppressed when a stage label is active.
+    expect(screen.queryByText('GPT-4 is thinking')).not.toBeInTheDocument();
+  });
+
+  it('uses the stageLabel as the aria-label when provided', () => {
+    render(<ThinkingIndicator modelName="GPT-4" stageLabel="Choosing the best model…" />);
+    expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Choosing the best model…');
+  });
+
+  describe('modality-aware copy', () => {
+    it('shows "is generating an image..." for image modality', () => {
+      activeModalityRef.current = 'image';
+      render(<ThinkingIndicator modelName="Claude" />);
+      expect(screen.getByText('Claude is generating an image...')).toBeInTheDocument();
+    });
+
+    it('shows "is generating a video..." for video modality', () => {
+      activeModalityRef.current = 'video';
+      render(<ThinkingIndicator modelName="Claude" />);
+      expect(screen.getByText('Claude is generating a video...')).toBeInTheDocument();
+    });
+
+    it('shows "is generating audio..." for audio modality', () => {
+      activeModalityRef.current = 'audio';
+      render(<ThinkingIndicator modelName="Claude" />);
+      expect(screen.getByText('Claude is generating audio...')).toBeInTheDocument();
+    });
+
+    it('sets aria-label to match for image modality', () => {
+      activeModalityRef.current = 'image';
+      render(<ThinkingIndicator modelName="Claude" />);
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'aria-label',
+        'Claude is generating an image...'
+      );
+    });
+
+    it('preserves "is thinking" text for text modality', () => {
+      activeModalityRef.current = 'text';
+      render(<ThinkingIndicator modelName="Claude" />);
+      expect(screen.getByText('Claude is thinking')).toBeInTheDocument();
+    });
+
+    it('stageLabel still wins over modality-aware text for image modality', () => {
+      activeModalityRef.current = 'image';
+      render(<ThinkingIndicator modelName="Claude" stageLabel="Choosing the best model…" />);
+      expect(screen.getByText('Choosing the best model…')).toBeInTheDocument();
+      expect(screen.queryByText('Claude is generating an image...')).not.toBeInTheDocument();
+    });
   });
 });

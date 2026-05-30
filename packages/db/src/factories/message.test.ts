@@ -3,14 +3,14 @@ import { describe, it, expect } from 'vitest';
 import { messageFactory } from './index';
 
 describe('messageFactory', () => {
-  it('builds a complete message object', () => {
+  it('builds a complete message envelope', () => {
     const message = messageFactory.build();
 
     expect(message.id).toMatch(/^[0-9a-f-]{36}$/i);
     expect(message.conversationId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(['user', 'ai']).toContain(message.senderType);
-    expect(message.encryptedBlob).toBeInstanceOf(Uint8Array);
-    expect(message.encryptedBlob.length).toBeGreaterThan(0);
+    expect(message.wrappedContentKey).toBeInstanceOf(Uint8Array);
+    expect(message.wrappedContentKey.length).toBeGreaterThan(0);
     expect(message.createdAt).toBeInstanceOf(Date);
   });
 
@@ -21,19 +21,6 @@ describe('messageFactory', () => {
     expect(message.sequenceNumber).toBeGreaterThanOrEqual(1);
   });
 
-  it('generates nullable fields', () => {
-    const message = messageFactory.build({ senderType: 'user' });
-
-    expect(message.modelName).toBeNull();
-    expect(message.payerId).toBeNull();
-  });
-
-  it('generates modelName for AI messages', () => {
-    const message = messageFactory.build({ senderType: 'ai' });
-
-    expect(message.modelName).toEqual(expect.any(String));
-  });
-
   it('generates senderId as UUID', () => {
     const message = messageFactory.build();
 
@@ -41,10 +28,13 @@ describe('messageFactory', () => {
   });
 
   it('allows field overrides', () => {
-    const customBlob = new TextEncoder().encode('Custom content');
-    const message = messageFactory.build({ senderType: 'ai', encryptedBlob: customBlob });
+    const customKey = new Uint8Array(49).fill(7);
+    const message = messageFactory.build({
+      senderType: 'ai',
+      wrappedContentKey: customKey,
+    });
     expect(message.senderType).toBe('ai');
-    expect(message.encryptedBlob).toEqual(customBlob);
+    expect(message.wrappedContentKey).toEqual(customKey);
   });
 
   it('builds a list with unique IDs', () => {
@@ -52,5 +42,10 @@ describe('messageFactory', () => {
     expect(messageList).toHaveLength(3);
     const ids = new Set(messageList.map((m) => m.id));
     expect(ids.size).toBe(3);
+  });
+
+  it('defaults parent_message_id to null', () => {
+    const message = messageFactory.build();
+    expect(message.parentMessageId).toBeNull();
   });
 });

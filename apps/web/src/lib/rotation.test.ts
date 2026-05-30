@@ -1,13 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ---- mocks ----
-
 const mockPerformEpochRotation = vi.fn();
 const mockEncryptMessageForStorage = vi.fn();
 
 vi.mock('@hushbox/crypto', () => ({
   performEpochRotation: (...args: unknown[]) => mockPerformEpochRotation(...args),
-  encryptMessageForStorage: (...args: unknown[]) => mockEncryptMessageForStorage(...args),
+  encryptTextForEpoch: (...args: unknown[]) => mockEncryptMessageForStorage(...args),
 }));
 
 vi.mock('@hushbox/shared', async (importOriginal) => {
@@ -130,7 +128,6 @@ describe('buildRotation', () => {
       plaintextTitle: 'Title',
     });
 
-    // Verify params shape
     expect(result.params.expectedEpoch).toBe(5);
     expect(typeof result.params.epochPublicKey).toBe('string');
     expect(typeof result.params.confirmationHash).toBe('string');
@@ -173,7 +170,6 @@ describe('executeWithRotation', () => {
   });
 
   it('fetches member keys, builds rotation, executes mutation, and updates cache', async () => {
-    // Mock member keys response
     const memberKeys = [
       {
         memberId: 'm1',
@@ -194,7 +190,7 @@ describe('executeWithRotation', () => {
     ];
     mockFetchJson.mockResolvedValue({ members: memberKeys });
 
-    // Mock crypto — echo input keys back in memberWraps (like the real function)
+    // echo input keys back in memberWraps (like the real function)
     const newPrivateKey = new Uint8Array(32).fill(77);
     mockPerformEpochRotation.mockImplementation(
       (_privateKey: Uint8Array, memberPublicKeys: Uint8Array[]) => ({
@@ -226,23 +222,18 @@ describe('executeWithRotation', () => {
       execute: mockExecute,
     });
 
-    // Verify member keys fetched
     expect(mockFetchJson).toHaveBeenCalledTimes(1);
 
-    // Verify filterMembers called with fetched keys
     expect(mockFilterMembers).toHaveBeenCalledWith(memberKeys);
 
-    // Verify mutation executed with rotation params
     expect(mockExecute).toHaveBeenCalledTimes(1);
     expect(mockExecute).toHaveBeenCalledWith(result.params);
 
-    // Verify cache updated
     expect(mockSetEpochKey).toHaveBeenCalledWith('conv-1', 4, newPrivateKey);
     expect(mockSetCurrentEpoch).toHaveBeenCalledWith('conv-1', 4);
   });
 
   it('retries on 409 StaleEpochError', async () => {
-    // First call: 409
     const memberKeys = [
       {
         memberId: 'm1',
@@ -265,7 +256,6 @@ describe('executeWithRotation', () => {
     });
     mockEncryptMessageForStorage.mockReturnValue(new Uint8Array(16).fill(99));
 
-    // First execute call: throw 409 ApiError
     const staleError = new Error('Epoch rotation conflict');
     Object.assign(staleError, { name: 'ApiError', status: 409, data: { code: 'STALE_EPOCH' } });
 
@@ -283,9 +273,8 @@ describe('executeWithRotation', () => {
       execute: mockExecute,
     });
 
-    // execute called twice: first fails with 409, second succeeds
     expect(mockExecute).toHaveBeenCalledTimes(2);
-    // member keys fetched twice (re-fetched after 409)
+    // member keys re-fetched after 409
     expect(mockFetchJson).toHaveBeenCalledTimes(2);
   });
 
@@ -330,7 +319,7 @@ describe('executeWithRotation', () => {
       })
     ).rejects.toThrow('Epoch rotation conflict');
 
-    // Max 2 attempts: initial + 1 retry
+    // initial + 1 retry
     expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 
@@ -373,7 +362,6 @@ describe('executeWithRotation', () => {
       })
     ).rejects.toThrow('Network error');
 
-    // Only 1 attempt, no retry
     expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 });

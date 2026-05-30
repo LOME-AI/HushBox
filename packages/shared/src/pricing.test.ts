@@ -3,29 +3,43 @@ import {
   applyFees,
   calculateTokenCostWithFees,
   estimateMessageCostDevelopment,
-  calculateMessageCostFromOpenRouter,
+  calculateMessageCostFromActual,
   estimateTokenCount,
   getModelCostPer1k,
   isExpensiveModel,
   effectiveOutputCostPerToken,
   getModelPricing,
   parseTokenPrice,
+  mediaStorageCost,
+  calculateMediaGenerationCost,
+  computeImageWorstCaseCents,
+  estimateVideoWorstCaseCents,
+  computeImageExactCents,
+  computeVideoExactCents,
+  computeAudioWorstCaseCents,
+  worstCaseSearchCost,
 } from './pricing.js';
-import type { MessageCostParams, MessageCostFromOpenRouterParams } from './pricing.js';
 import {
   TOTAL_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
   EXPENSIVE_MODEL_THRESHOLD_PER_1K,
   CHARS_PER_TOKEN_STANDARD,
   CHARS_PER_TOKEN_CONSERVATIVE,
+  MEDIA_STORAGE_COST_PER_BYTE,
+  ESTIMATED_IMAGE_BYTES,
+  ESTIMATED_VIDEO_BYTES_PER_SECOND,
+  ESTIMATED_AUDIO_BYTES_PER_SECOND,
+  MAX_SEARCH_TOOL_CALLS,
+  SEARCH_COST_PER_CALL,
 } from './constants.js';
+import type { MessageCostParams, MessageCostFromActualParams } from './pricing.js';
 
 describe('parseTokenPrice', () => {
   it('parses a valid positive price string', () => {
     expect(parseTokenPrice('0.000015')).toBe(0.000_015);
   });
 
-  it('returns 0 for OpenRouter negative sentinel "-1"', () => {
+  it('returns 0 for gateway negative sentinel "-1"', () => {
     expect(parseTokenPrice('-1')).toBe(0);
   });
 
@@ -43,10 +57,10 @@ describe('parseTokenPrice', () => {
 });
 
 describe('applyFees', () => {
-  it('applies total fee rate (15%) to base price', () => {
-    expect(applyFees(1)).toBeCloseTo(1.15, 10);
-    expect(applyFees(10)).toBeCloseTo(11.5, 10);
-    expect(applyFees(100)).toBeCloseTo(115, 10);
+  it('applies the total fee rate to the base price', () => {
+    expect(applyFees(1)).toBeCloseTo(1 + TOTAL_FEE_RATE, 10);
+    expect(applyFees(10)).toBeCloseTo(10 * (1 + TOTAL_FEE_RATE), 10);
+    expect(applyFees(100)).toBeCloseTo(100 * (1 + TOTAL_FEE_RATE), 10);
   });
 
   it('handles zero price', () => {
@@ -54,7 +68,7 @@ describe('applyFees', () => {
   });
 
   it('handles very small prices', () => {
-    expect(applyFees(0.000_01)).toBeCloseTo(0.000_011_5, 10);
+    expect(applyFees(0.000_01)).toBeCloseTo(0.000_01 * (1 + TOTAL_FEE_RATE), 10);
   });
 });
 
@@ -255,7 +269,7 @@ describe('estimateMessageCostDevelopment', () => {
       const result = estimateMessageCostDevelopment(gpt4Params);
 
       const modelCost = 1000 * 0.000_03 + 500 * 0.000_06; // 0.03 + 0.03 = 0.06
-      const hushboxFee = modelCost * TOTAL_FEE_RATE; // 0.06 * 0.15 = 0.009
+      const hushboxFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = (4000 + 2000) * STORAGE_COST_PER_CHARACTER;
 
       expect(result).toBeCloseTo(modelCost + hushboxFee + storageFee, 10);
@@ -361,16 +375,16 @@ describe('estimateMessageCostDevelopment', () => {
   });
 });
 
-describe('calculateMessageCostFromOpenRouter', () => {
-  const baseParams: MessageCostFromOpenRouterParams = {
-    openRouterCost: 0.001, // $0.001 from OpenRouter
+describe('calculateMessageCostFromActual', () => {
+  const baseParams: MessageCostFromActualParams = {
+    gatewayCost: 0.001, // $0.001 from the AI Gateway
     inputCharacters: 500,
     outputCharacters: 200,
   };
 
   describe('model cost with fees', () => {
-    it('applies 15% fee to OpenRouter exact cost', () => {
-      const result = calculateMessageCostFromOpenRouter(baseParams);
+    it('applies the total fee rate to gateway exact cost', () => {
+      const result = calculateMessageCostFromActual(baseParams);
       const expectedModelCostWithFees = applyFees(0.001);
       const expectedStorageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
 
@@ -378,35 +392,35 @@ describe('calculateMessageCostFromOpenRouter', () => {
     });
 
     it('correctly calculates fee ratio as exactly 1.15x', () => {
-      const paramsNoStorage: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.01,
+      const paramsNoStorage: MessageCostFromActualParams = {
+        gatewayCost: 0.01,
         inputCharacters: 0,
         outputCharacters: 0,
       };
-      const result = calculateMessageCostFromOpenRouter(paramsNoStorage);
+      const result = calculateMessageCostFromActual(paramsNoStorage);
 
       expect(result / 0.01).toBeCloseTo(1 + TOTAL_FEE_RATE, 10);
     });
 
-    it('handles zero OpenRouter cost', () => {
-      const zeroCostParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0,
+    it('handles zero gateway cost', () => {
+      const zeroCostParams: MessageCostFromActualParams = {
+        gatewayCost: 0,
         inputCharacters: 500,
         outputCharacters: 200,
       };
-      const result = calculateMessageCostFromOpenRouter(zeroCostParams);
+      const result = calculateMessageCostFromActual(zeroCostParams);
       const expectedStorageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
 
       expect(result).toBeCloseTo(expectedStorageFee, 10);
     });
 
-    it('handles very small OpenRouter costs', () => {
-      const smallCostParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.000_000_1,
+    it('handles very small gateway costs', () => {
+      const smallCostParams: MessageCostFromActualParams = {
+        gatewayCost: 0.000_000_1,
         inputCharacters: 10,
         outputCharacters: 10,
       };
-      const result = calculateMessageCostFromOpenRouter(smallCostParams);
+      const result = calculateMessageCostFromActual(smallCostParams);
 
       expect(result).toBeGreaterThan(0);
       expect(Number.isFinite(result)).toBe(true);
@@ -415,23 +429,23 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
   describe('storage fee calculation', () => {
     it('charges storage fee per character', () => {
-      const paramsNoModelCost: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0,
+      const paramsNoModelCost: MessageCostFromActualParams = {
+        gatewayCost: 0,
         inputCharacters: 1000,
         outputCharacters: 1000,
       };
-      const result = calculateMessageCostFromOpenRouter(paramsNoModelCost);
+      const result = calculateMessageCostFromActual(paramsNoModelCost);
 
       expect(result).toBeCloseTo(2000 * STORAGE_COST_PER_CHARACTER, 10);
     });
 
     it('does not apply fees to storage cost', () => {
-      const modelOnlyResult = calculateMessageCostFromOpenRouter({
+      const modelOnlyResult = calculateMessageCostFromActual({
         ...baseParams,
         inputCharacters: 0,
         outputCharacters: 0,
       });
-      const fullResult = calculateMessageCostFromOpenRouter(baseParams);
+      const fullResult = calculateMessageCostFromActual(baseParams);
       const storageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
 
       // Full result should be model cost with fees + raw storage fee (no fees on storage)
@@ -439,12 +453,12 @@ describe('calculateMessageCostFromOpenRouter', () => {
     });
 
     it('handles zero characters', () => {
-      const noCharsParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.001,
+      const noCharsParams: MessageCostFromActualParams = {
+        gatewayCost: 0.001,
         inputCharacters: 0,
         outputCharacters: 0,
       };
-      const result = calculateMessageCostFromOpenRouter(noCharsParams);
+      const result = calculateMessageCostFromActual(noCharsParams);
 
       expect(result).toBeCloseTo(applyFees(0.001), 10);
     });
@@ -452,7 +466,7 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
   describe('combined calculation', () => {
     it('sums model cost with fees and storage fee', () => {
-      const result = calculateMessageCostFromOpenRouter(baseParams);
+      const result = calculateMessageCostFromActual(baseParams);
 
       const modelCostWithFees = 0.001 * (1 + TOTAL_FEE_RATE);
       const storageFee = (500 + 200) * STORAGE_COST_PER_CHARACTER;
@@ -460,14 +474,14 @@ describe('calculateMessageCostFromOpenRouter', () => {
       expect(result).toBeCloseTo(modelCostWithFees + storageFee, 10);
     });
 
-    it('returns correct result with real-world OpenRouter cost', () => {
+    it('returns correct result with real-world gateway cost', () => {
       // Typical GPT-4 response costing $0.05
-      const realWorldParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.05,
+      const realWorldParams: MessageCostFromActualParams = {
+        gatewayCost: 0.05,
         inputCharacters: 4000,
         outputCharacters: 2000,
       };
-      const result = calculateMessageCostFromOpenRouter(realWorldParams);
+      const result = calculateMessageCostFromActual(realWorldParams);
 
       const modelCostWithFees = 0.05 * (1 + TOTAL_FEE_RATE); // 0.0575
       const storageFee = (4000 + 2000) * STORAGE_COST_PER_CHARACTER;
@@ -475,13 +489,13 @@ describe('calculateMessageCostFromOpenRouter', () => {
       expect(result).toBeCloseTo(modelCostWithFees + storageFee, 10);
     });
 
-    it('handles large OpenRouter costs', () => {
-      const largeCostParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 10, // $10 for expensive operation
+    it('handles large gateway costs', () => {
+      const largeCostParams: MessageCostFromActualParams = {
+        gatewayCost: 10, // $10 for expensive operation
         inputCharacters: 100_000,
         outputCharacters: 100_000,
       };
-      const result = calculateMessageCostFromOpenRouter(largeCostParams);
+      const result = calculateMessageCostFromActual(largeCostParams);
 
       expect(result).toBeGreaterThan(10);
       expect(Number.isFinite(result)).toBe(true);
@@ -490,23 +504,23 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
   describe('edge cases', () => {
     it('returns 0 when all inputs are 0', () => {
-      const zeroParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0,
+      const zeroParams: MessageCostFromActualParams = {
+        gatewayCost: 0,
         inputCharacters: 0,
         outputCharacters: 0,
       };
-      const result = calculateMessageCostFromOpenRouter(zeroParams);
+      const result = calculateMessageCostFromActual(zeroParams);
 
       expect(result).toBe(0);
     });
 
     it('handles input characters only', () => {
-      const inputOnlyParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.001,
+      const inputOnlyParams: MessageCostFromActualParams = {
+        gatewayCost: 0.001,
         inputCharacters: 500,
         outputCharacters: 0,
       };
-      const result = calculateMessageCostFromOpenRouter(inputOnlyParams);
+      const result = calculateMessageCostFromActual(inputOnlyParams);
 
       const modelCostWithFees = applyFees(0.001);
       const storageFee = 500 * STORAGE_COST_PER_CHARACTER;
@@ -515,12 +529,12 @@ describe('calculateMessageCostFromOpenRouter', () => {
     });
 
     it('handles output characters only', () => {
-      const outputOnlyParams: MessageCostFromOpenRouterParams = {
-        openRouterCost: 0.001,
+      const outputOnlyParams: MessageCostFromActualParams = {
+        gatewayCost: 0.001,
         inputCharacters: 0,
         outputCharacters: 200,
       };
-      const result = calculateMessageCostFromOpenRouter(outputOnlyParams);
+      const result = calculateMessageCostFromActual(outputOnlyParams);
 
       const modelCostWithFees = applyFees(0.001);
       const storageFee = 200 * STORAGE_COST_PER_CHARACTER;
@@ -532,7 +546,7 @@ describe('calculateMessageCostFromOpenRouter', () => {
 
 describe('getModelCostPer1k', () => {
   it('calculates combined cost per 1k tokens with fees applied', () => {
-    // input: $0.01/1k, output: $0.03/1k → combined base: $0.04/1k → with 15% fee: $0.046/1k
+    // input: $0.01/1k, output: $0.03/1k → combined base: $0.04/1k → with TOTAL_FEE_RATE applied
     const result = getModelCostPer1k(0.000_01, 0.000_03);
     const baseCostPer1k = (0.000_01 + 0.000_03) * 1000; // 0.04
     expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
@@ -688,5 +702,340 @@ describe('getModelPricing', () => {
 
     expect(result.inputPricePerToken).toBe(applyFees(inputPrice));
     expect(result.outputPricePerToken).toBe(applyFees(outputPrice));
+  });
+});
+
+describe('mediaStorageCost', () => {
+  it('multiplies bytes by MEDIA_STORAGE_COST_PER_BYTE', () => {
+    const bytes = 1_000_000;
+    expect(mediaStorageCost(bytes)).toBe(bytes * MEDIA_STORAGE_COST_PER_BYTE);
+  });
+
+  it('returns 0 for 0 bytes', () => {
+    expect(mediaStorageCost(0)).toBe(0);
+  });
+
+  it('returns positive value for small file', () => {
+    expect(mediaStorageCost(100)).toBeGreaterThan(0);
+  });
+
+  it('scales linearly', () => {
+    const small = mediaStorageCost(1000);
+    const large = mediaStorageCost(2000);
+    expect(large).toBeCloseTo(small * 2, 15);
+  });
+});
+
+describe('calculateMediaGenerationCost', () => {
+  describe('image pricing', () => {
+    it('charges perImage × imageCount + fees + storage', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: 0.04 },
+        sizeBytes: 1_000_000,
+        imageCount: 1,
+      });
+      const expectedModelCost = applyFees(0.04 * 1);
+      const expectedStorage = mediaStorageCost(1_000_000);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
+    });
+
+    it('handles multiple images', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: 0.04 },
+        sizeBytes: 3_000_000,
+        imageCount: 3,
+      });
+      const expectedModelCost = applyFees(0.04 * 3);
+      const expectedStorage = mediaStorageCost(3_000_000);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
+    });
+
+    it('defaults imageCount to 1', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: 0.04 },
+        sizeBytes: 1_000_000,
+      });
+      const expectedModelCost = applyFees(0.04 * 1);
+      const expectedStorage = mediaStorageCost(1_000_000);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
+    });
+  });
+
+  describe('video pricing', () => {
+    it('charges perSecond × duration + fees + storage', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'video', perSecond: 0.1 },
+        sizeBytes: 5_000_000,
+        durationSeconds: 6,
+      });
+      const expectedModelCost = applyFees(0.1 * 6);
+      const expectedStorage = mediaStorageCost(5_000_000);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
+    });
+
+    it('requires durationSeconds for video', () => {
+      expect(() =>
+        calculateMediaGenerationCost({
+          pricing: { kind: 'video', perSecond: 0.1 },
+          sizeBytes: 5_000_000,
+        })
+      ).toThrow('durationSeconds required');
+    });
+  });
+
+  describe('audio pricing', () => {
+    it('charges perSecond × duration + fees + storage', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'audio', perSecond: 0.015 },
+        sizeBytes: 500_000,
+        durationSeconds: 10,
+      });
+      const expectedModelCost = applyFees(0.015 * 10);
+      const expectedStorage = mediaStorageCost(500_000);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
+    });
+
+    it('requires durationSeconds for audio', () => {
+      expect(() =>
+        calculateMediaGenerationCost({
+          pricing: { kind: 'audio', perSecond: 0.015 },
+          sizeBytes: 500_000,
+        })
+      ).toThrow('durationSeconds required');
+    });
+  });
+
+  describe('exhaustiveness guard', () => {
+    it('throws on unrecognized pricing kind (assertNever)', () => {
+      expect(() =>
+        calculateMediaGenerationCost({
+          pricing: { kind: 'rogue', perSecond: 0 } as unknown as {
+            kind: 'audio';
+            perSecond: number;
+          },
+          sizeBytes: 0,
+          durationSeconds: 1,
+        })
+      ).toThrow(/exhaustiveness/i);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('returns only storage cost when model cost is 0', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: 0 },
+        sizeBytes: 1_000_000,
+        imageCount: 1,
+      });
+      expect(result).toBe(mediaStorageCost(1_000_000));
+    });
+
+    it('returns only model cost when sizeBytes is 0', () => {
+      const result = calculateMediaGenerationCost({
+        pricing: { kind: 'image', perImage: 0.04 },
+        sizeBytes: 0,
+        imageCount: 1,
+      });
+      expect(result).toBeCloseTo(applyFees(0.04), 10);
+    });
+  });
+});
+
+describe('computeImageWorstCaseCents', () => {
+  it('returns cents, fees applied to model cost, storage added', () => {
+    const result = computeImageWorstCaseCents(0.04, 1);
+    const expectedDollars = applyFees(0.04) + mediaStorageCost(ESTIMATED_IMAGE_BYTES);
+    expect(result).toBeCloseTo(expectedDollars * 100, 5);
+  });
+
+  it('scales linearly with number of models', () => {
+    const single = computeImageWorstCaseCents(0.04, 1);
+    const triple = computeImageWorstCaseCents(0.04, 3);
+    expect(triple).toBeCloseTo(single * 3, 5);
+  });
+
+  it('returns only storage when perImage is 0', () => {
+    const result = computeImageWorstCaseCents(0, 1);
+    expect(result).toBeCloseTo(mediaStorageCost(ESTIMATED_IMAGE_BYTES) * 100, 5);
+  });
+
+  it('returns 0 cents when both perImage and modelCount are 0', () => {
+    expect(computeImageWorstCaseCents(0, 0)).toBe(0);
+  });
+});
+
+describe('estimateVideoWorstCaseCents', () => {
+  it('applies fees to perSecond × duration and adds storage for duration × bytes/sec', () => {
+    const perSecond = 0.1;
+    const durationSeconds = 4;
+    const modelCount = 1;
+    const expectedDollars =
+      applyFees(perSecond * durationSeconds) +
+      mediaStorageCost(durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND);
+    const result = estimateVideoWorstCaseCents({ perSecond, durationSeconds, modelCount });
+    expect(result).toBeCloseTo(expectedDollars * 100, 5);
+  });
+
+  it('scales linearly with model count', () => {
+    const single = estimateVideoWorstCaseCents({
+      perSecond: 0.1,
+      durationSeconds: 4,
+      modelCount: 1,
+    });
+    const quad = estimateVideoWorstCaseCents({
+      perSecond: 0.1,
+      durationSeconds: 4,
+      modelCount: 4,
+    });
+    expect(quad).toBeCloseTo(single * 4, 5);
+  });
+
+  it('scales linearly with duration', () => {
+    const short = estimateVideoWorstCaseCents({
+      perSecond: 0.1,
+      durationSeconds: 2,
+      modelCount: 1,
+    });
+    const long = estimateVideoWorstCaseCents({
+      perSecond: 0.1,
+      durationSeconds: 8,
+      modelCount: 1,
+    });
+    expect(long).toBeCloseTo(short * 4, 5);
+  });
+
+  it('returns only storage when perSecond is 0', () => {
+    const result = estimateVideoWorstCaseCents({
+      perSecond: 0,
+      durationSeconds: 4,
+      modelCount: 1,
+    });
+    expect(result).toBeCloseTo(mediaStorageCost(4 * ESTIMATED_VIDEO_BYTES_PER_SECOND) * 100, 5);
+  });
+
+  it('returns 0 cents when duration is 0', () => {
+    expect(estimateVideoWorstCaseCents({ perSecond: 0.1, durationSeconds: 0, modelCount: 1 })).toBe(
+      0
+    );
+  });
+});
+
+describe('computeImageExactCents', () => {
+  it('returns 0 when the price list is empty', () => {
+    expect(computeImageExactCents([])).toBe(0);
+  });
+
+  it('sums per-model prices with fees and per-model storage', () => {
+    const prices = [0.02, 0.06];
+    const expectedDollars = applyFees(0.02 + 0.06) + mediaStorageCost(ESTIMATED_IMAGE_BYTES) * 2;
+    expect(computeImageExactCents(prices)).toBeCloseTo(expectedDollars * 100, 5);
+  });
+
+  it('does not use the max — a mixed pool costs less than count × max', () => {
+    const mixed = computeImageExactCents([0.02, 0.06]);
+    const maxOnly = computeImageExactCents([0.06, 0.06]);
+    expect(mixed).toBeLessThan(maxOnly);
+  });
+
+  it('single-model case equals worst-case for the same price', () => {
+    expect(computeImageExactCents([0.04])).toBeCloseTo(computeImageWorstCaseCents(0.04, 1), 5);
+  });
+
+  it('treats a zero-price entry as only its storage cost', () => {
+    const result = computeImageExactCents([0]);
+    expect(result).toBeCloseTo(mediaStorageCost(ESTIMATED_IMAGE_BYTES) * 100, 5);
+  });
+});
+
+describe('computeVideoExactCents', () => {
+  it('returns 0 when the price list is empty', () => {
+    expect(computeVideoExactCents([], 4)).toBe(0);
+  });
+
+  it('returns 0 when duration is 0', () => {
+    expect(computeVideoExactCents([0.1, 0.4], 0)).toBe(0);
+  });
+
+  it('sums per-model (perSecond × duration) with fees and per-model storage', () => {
+    const prices = [0.1, 0.4];
+    const duration = 4;
+    const expectedDollars =
+      applyFees((0.1 + 0.4) * duration) +
+      mediaStorageCost(duration * ESTIMATED_VIDEO_BYTES_PER_SECOND) * 2;
+    expect(computeVideoExactCents(prices, duration)).toBeCloseTo(expectedDollars * 100, 5);
+  });
+
+  it('does not use the max — a mixed pool costs less than count × max', () => {
+    const mixed = computeVideoExactCents([0.1, 0.4], 4);
+    const maxOnly = computeVideoExactCents([0.4, 0.4], 4);
+    expect(mixed).toBeLessThan(maxOnly);
+  });
+
+  it('single-model case equals worst-case for the same price', () => {
+    const single = computeVideoExactCents([0.1], 4);
+    const worst = estimateVideoWorstCaseCents({
+      perSecond: 0.1,
+      durationSeconds: 4,
+      modelCount: 1,
+    });
+    expect(single).toBeCloseTo(worst, 5);
+  });
+
+  it('scales linearly with duration', () => {
+    const short = computeVideoExactCents([0.1], 2);
+    const long = computeVideoExactCents([0.1], 8);
+    expect(long).toBeCloseTo(short * 4, 5);
+  });
+});
+
+describe('computeAudioWorstCaseCents', () => {
+  it('returns 0 when the price list is empty', () => {
+    expect(computeAudioWorstCaseCents([], 60)).toBe(0);
+  });
+
+  it('returns 0 when maxDurationSeconds is 0', () => {
+    expect(computeAudioWorstCaseCents([0.015, 0.03], 0)).toBe(0);
+  });
+
+  it('sums per-model (perSecond × maxDurationSeconds) with fees and per-model storage', () => {
+    const prices = [0.015, 0.03];
+    const maxDurationSeconds = 60;
+    const expectedDollars =
+      applyFees((0.015 + 0.03) * maxDurationSeconds) +
+      mediaStorageCost(maxDurationSeconds * ESTIMATED_AUDIO_BYTES_PER_SECOND) * 2;
+    expect(computeAudioWorstCaseCents(prices, maxDurationSeconds)).toBeCloseTo(
+      expectedDollars * 100,
+      5
+    );
+  });
+
+  it('does not use the max — a mixed pool costs less than count × max', () => {
+    const mixed = computeAudioWorstCaseCents([0.015, 0.03], 60);
+    const maxOnly = computeAudioWorstCaseCents([0.03, 0.03], 60);
+    expect(mixed).toBeLessThan(maxOnly);
+  });
+
+  it('scales linearly with duration', () => {
+    const short = computeAudioWorstCaseCents([0.015], 30);
+    const long = computeAudioWorstCaseCents([0.015], 120);
+    expect(long).toBeCloseTo(short * 4, 5);
+  });
+
+  it('treats a zero-price entry as only its storage cost', () => {
+    const result = computeAudioWorstCaseCents([0], 30);
+    expect(result).toBeCloseTo(mediaStorageCost(30 * ESTIMATED_AUDIO_BYTES_PER_SECOND) * 100, 5);
+  });
+});
+
+describe('worstCaseSearchCost', () => {
+  it('returns fee-inflated cost of MAX_SEARCH_TOOL_CALLS × SEARCH_COST_PER_CALL', () => {
+    expect(worstCaseSearchCost()).toBeCloseTo(
+      applyFees(MAX_SEARCH_TOOL_CALLS * SEARCH_COST_PER_CALL),
+      9
+    );
+  });
+
+  it('is strictly greater than a single per-call cost (the old 1× estimate)', () => {
+    expect(worstCaseSearchCost()).toBeGreaterThan(applyFees(SEARCH_COST_PER_CALL));
   });
 });

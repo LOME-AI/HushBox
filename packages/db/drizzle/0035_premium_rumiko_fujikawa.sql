@@ -1,0 +1,1 @@
+ALTER TABLE "messages" ADD COLUMN "batch_id" text DEFAULT gen_random_uuid()::text NOT NULL;

@@ -78,24 +78,24 @@ See `packages/db/src/schema/users.ts` for the default balance value.
 
 ## Billing Flow
 
-### Development (Mock OpenRouter)
+### Development (Mock AI Client)
 
 1. User sends message
-2. Message streams via mock OpenRouter client (echoes input)
+2. Message streams via mock AI client (echoes input)
 3. Cost is **estimated**:
    - Characters ÷ 4 = estimated tokens
-   - Tokens × model pricing (fetched from real OpenRouter `/models` endpoint)
+   - Tokens × model pricing (fetched from the AI Gateway `/v1/models` endpoint)
    - Fees applied to token cost
    - Storage fee added
 4. Balance deducted immediately after stream completes
 
-### Production (Real OpenRouter)
+### Production (Real AI Gateway via Vercel AI SDK)
 
 1. User sends message
-2. Message streams via real OpenRouter API
+2. Message streams via real AI Gateway through the Vercel AI SDK
 3. Cost is **exact**:
-   - `getGenerationStats(generationId)` returns `total_cost` from OpenRouter
-   - Fees applied directly to `total_cost` (no token math needed)
+   - `getGenerationStats(generationId)` returns `totalCost` from the AI Gateway
+   - Fees applied directly to `totalCost` (no token math needed)
    - Storage fee added
 4. Balance deducted via fire-and-forget after stream completes
 

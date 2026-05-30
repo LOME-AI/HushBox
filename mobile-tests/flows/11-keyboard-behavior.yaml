@@ -10,7 +10,7 @@ androidWebViewHierarchy: devtools
 # Wait for app to stabilize
 - extendedWaitUntil:
     visible: 'Sign up'
-    timeout: 15000
+    timeout: 45000
 
 # Tap the prompt input to trigger the software keyboard
 - tapOn:
@@ -19,8 +19,11 @@ androidWebViewHierarchy: devtools
 # Verify app UI is still visible (not hidden behind keyboard)
 - assertVisible: 'Sign up'
 
-# Type some text to verify input works
-- inputText: 'Testing keyboard'
+# Type a short string to verify input works. Kept under 12 characters
+# because Maestro 2.6.0 stalls inputText at exactly the 12th character on
+# docker-android (the WebView's input queue fills before Maestro can drain
+# it, and the 120 s gRPC deadline fires). Maestro issue #2718.
+- inputText: 'TestKeys'
 
 # Dismiss keyboard
 - hideKeyboard

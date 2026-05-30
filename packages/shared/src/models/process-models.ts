@@ -1,26 +1,25 @@
 /**
  * Model processing service.
  *
- * Handles filtering, classification, and transformation of OpenRouter models.
+ * Handles filtering, classification, and transformation of AI Gateway models.
  */
 
-import type { Model, ModelCapability } from '../schemas/api/models.js';
-import {
-  AUTO_ROUTER_MODEL_ID,
-  AUTO_ROUTER_INPUT_PRICE_PER_TOKEN,
-  AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN,
-} from '../constants.js';
+import { SMART_MODEL_ID, IMAGE_ASPECT_RATIOS } from '../constants.js';
 import { parseTokenPrice } from '../pricing.js';
 
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 
+import { getVideoCapability, IMAGEN_SAMPLE_SIZE_BY_MODEL } from './capabilities.js';
 import { isPremiumModel, PREMIUM_PRICE_PERCENTILE, exceedsTrialBudget } from './premium-check.js';
+import { isZdrModel } from './zdr.js';
+import type { Model } from '../schemas/api/models.js';
 
-import type { OpenRouterModel, ProcessedModels } from './types.js';
+import type { Modality, RawModel, ProcessedModels } from './types.js';
 
-// ============================================================
-// Constants
-// ============================================================
+// "Imagen 4 family" is the same set of model ids that have a pinned sample
+// size — deriving the set from `IMAGEN_SAMPLE_SIZE_BY_MODEL` keeps one source
+// of truth for "this is an Imagen-4 variant we've verified."
+const IMAGEN_MODEL_IDS: ReadonlySet<string> = new Set(Object.keys(IMAGEN_SAMPLE_SIZE_BY_MODEL));
 
 /** Percentile threshold for top context (0.95 = top 5%) */
 const TOP_CONTEXT_PERCENTILE = 0.95;
@@ -31,8 +30,8 @@ const MAX_AGE_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 /** Minimum combined price per 1K tokens ($0.0002) */
 const MIN_PRICE_PER_1K_TOKENS = 0.0002;
 
-/** Name patterns for utility models that should always be excluded */
-const EXCLUDED_NAME_PATTERNS = [/body builder/i, /auto router/i, /audio/i, /image/i];
+/** Name patterns for text-utility models that should always be excluded. */
+const EXCLUDED_TEXT_NAME_PATTERNS = [/body builder/i, /auto router/i, /audio/i, /image/i];
 
 /** Provider name mapping from model ID prefix */
 export const PROVIDER_MAP: Record<string, string> = {
@@ -46,206 +45,325 @@ export const PROVIDER_MAP: Record<string, string> = {
   deepseek: 'DeepSeek',
 };
 
-// ============================================================
-// Internal helpers
-// ============================================================
-
-/**
- * Get the combined price of a model (prompt + completion per token).
- */
-function getCombinedPrice(model: OpenRouterModel): number {
+function getCombinedPrice(model: RawModel): number {
   return parseTokenPrice(model.pricing.prompt) + parseTokenPrice(model.pricing.completion);
 }
 
-/**
- * Calculate the threshold at the given percentile.
- */
 function calculatePercentileThreshold(values: number[], percentile: number): number {
-  if (values.length === 0) {
-    return 0;
-  }
-
+  if (values.length === 0) return 0;
   const sorted = [...values].toSorted((a, b) => a - b);
   const index = Math.floor(sorted.length * percentile);
   return sorted[Math.min(index, sorted.length - 1)] ?? 0;
 }
 
-/**
- * Check if model should always be excluded (never bypassed by top context).
- * - Free models (both prices = 0)
- * - Utility models by name pattern
- * - Models that don't include text in input or output modalities
- */
-function isExcludedAlways(model: OpenRouterModel): boolean {
-  if (getCombinedPrice(model) === 0) {
-    return true;
+function extractProvider(model: RawModel): { provider: string; displayName: string } {
+  const colonIndex = model.name.indexOf(':');
+  if (colonIndex > 0) {
+    const provider = model.name.slice(0, colonIndex).trim();
+    const displayName = model.name.slice(colonIndex + 1).trim();
+    if (provider && displayName) return { provider, displayName };
   }
-  if (EXCLUDED_NAME_PATTERNS.some((p) => p.test(model.name))) {
-    return true;
-  }
+  const prefix = model.id.split('/')[0] ?? '';
+  return { provider: PROVIDER_MAP[prefix] ?? 'Unknown', displayName: model.name };
+}
+
+function isExcludedAlways(model: RawModel): boolean {
+  if (getCombinedPrice(model) === 0) return true;
+  if (EXCLUDED_TEXT_NAME_PATTERNS.some((p) => p.test(model.name))) return true;
   const hasTextInput = model.architecture.input_modalities.includes('text');
   const hasTextOutput = model.architecture.output_modalities.includes('text');
   return !hasTextInput || !hasTextOutput;
 }
 
-/**
- * Check if model should be excluded by standard criteria.
- * These can be bypassed by top context models.
- * - Age: older than 2 years
- * - Minimum price: cheaper than $0.0002 per 1K tokens
- */
-function isExcludedByStandardCriteria(model: OpenRouterModel): boolean {
+function isExcludedByStandardCriteria(model: RawModel): boolean {
   const cutoffMs = Date.now() - MAX_AGE_MS;
-  if (model.created * 1000 < cutoffMs) {
-    return true;
-  }
-
+  if (model.created * 1000 < cutoffMs) return true;
   const pricePer1K = getCombinedPrice(model) * 1000;
   return pricePer1K < MIN_PRICE_PER_1K_TOKENS;
 }
 
-/**
- * Extract provider and clean name from model.
- * Tries "Provider: Model Name" format first, falls back to ID prefix.
- */
-function extractProvider(model: OpenRouterModel): { provider: string; displayName: string } {
-  const colonIndex = model.name.indexOf(':');
-  if (colonIndex > 0) {
-    const provider = model.name.slice(0, colonIndex).trim();
-    const displayName = model.name.slice(colonIndex + 1).trim();
-    if (provider && displayName) {
-      return { provider, displayName };
-    }
-  }
-
-  const prefix = model.id.split('/')[0] ?? '';
-  return { provider: PROVIDER_MAP[prefix] ?? 'Unknown', displayName: model.name };
-}
-
-/**
- * Derive capabilities from supported_parameters.
- * Only 'internet-search' is currently tracked — detected via 'web_search_options'.
- */
-function deriveCapabilities(params: string[]): ModelCapability[] {
-  const caps: ModelCapability[] = [];
-
-  if (params.includes('web_search_options')) {
-    caps.push('internet-search');
-  }
-
-  return caps;
-}
-
-/**
- * Transform OpenRouter model to shared Model type.
- */
-function transform(model: OpenRouterModel): Model {
+function transformText(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
   return {
     id: model.id,
     name: displayName,
     description: model.description,
     provider,
+    modality: 'text',
     contextLength: model.context_length,
     pricePerInputToken: parseTokenPrice(model.pricing.prompt),
     pricePerOutputToken: parseTokenPrice(model.pricing.completion),
-    capabilities: deriveCapabilities(model.supported_parameters),
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: 0,
+    capabilities: [],
     supportedParameters: model.supported_parameters,
-    webSearchPrice: model.pricing.web_search
-      ? Number.parseFloat(model.pricing.web_search) || undefined
-      : undefined,
     created: model.created,
   };
 }
 
-// ============================================================
-// Main exports
-// ============================================================
-
-/**
- * Process raw OpenRouter models: filter, classify, and transform.
- *
- * Filtering rules:
- * - Always excluded: free models, utility models (body builder, auto router, image)
- * - Standard exclusion (bypassed by top 5% context): age > 2 years, price < $0.0002/1K tokens
- *
- * Premium classification:
- * - Price >= 75th percentile of filtered models, OR
- * - Released within the last year, OR
- * - Output cost exceeds trial budget for 2× minimum output tokens
- */
-/**
- * Build auto-router Model entry with price ranges derived from the model pool.
- */
-function buildAutoRouterModel(autoRouterRaw: OpenRouterModel, pool: OpenRouterModel[]): Model {
-  const inputPrices = pool.map((m) => parseTokenPrice(m.pricing.prompt));
-  const outputPrices = pool.map((m) => parseTokenPrice(m.pricing.completion));
-
-  return {
-    id: AUTO_ROUTER_MODEL_ID,
-    name: 'Smart Model',
-    description: autoRouterRaw.description,
-    provider: 'OpenRouter',
-    contextLength: autoRouterRaw.context_length,
-    pricePerInputToken: AUTO_ROUTER_INPUT_PRICE_PER_TOKEN,
-    pricePerOutputToken: AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN,
-    capabilities: deriveCapabilities(autoRouterRaw.supported_parameters),
-    supportedParameters: autoRouterRaw.supported_parameters,
-    isAutoRouter: true,
-    minPricePerInputToken: Math.min(...inputPrices),
-    minPricePerOutputToken: Math.min(...outputPrices),
-    maxPricePerInputToken: Math.max(...inputPrices),
-    maxPricePerOutputToken: Math.max(...outputPrices),
-  };
+interface TextProcessingResult {
+  models: Model[];
+  premiumIds: string[];
+  /** The filtered RawModel pool — used to build the Smart Model entry's price range. */
+  filteredPool: RawModel[];
 }
 
-export function processModels(
-  rawModels: OpenRouterModel[],
-  zdrModelIds: Set<string>
-): ProcessedModels {
-  // ZDR filter: only include models with ZDR-compliant providers
-  const zdrFiltered = rawModels.filter((m) => zdrModelIds.has(m.id));
+function processTextModels(raws: RawModel[]): TextProcessingResult {
+  const zdrFiltered = raws.filter((m) => isZdrModel(m.id, 'text'));
 
-  // Extract auto-router from full list (it enforces ZDR via provider config, so it
-  // doesn't need to appear in the /endpoints/zdr response)
-  const autoRouterRaw = rawModels.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
-  const modelsForFiltering = zdrFiltered.filter((m) => m.id !== AUTO_ROUTER_MODEL_ID);
-
-  // Calculate context threshold from non-auto-router models
-  const contexts = modelsForFiltering.map((m) => m.context_length);
+  const contexts = zdrFiltered.map((m) => m.context_length);
   const contextThreshold = calculatePercentileThreshold(contexts, TOP_CONTEXT_PERCENTILE);
 
-  // Filter
-  const filtered = modelsForFiltering.filter((model) => {
-    if (isExcludedAlways(model)) {
-      return false;
-    }
-    if (model.context_length >= contextThreshold) {
-      return true; // Top context bypasses standard criteria
-    }
+  const filtered = zdrFiltered.filter((model) => {
+    if (isExcludedAlways(model)) return false;
+    if (model.context_length >= contextThreshold) return true;
     return !isExcludedByStandardCriteria(model);
   });
 
-  // Calculate price threshold from filtered list (reflects available models)
-  const prices = filtered.map((model) => getCombinedPrice(model));
+  const prices = filtered.map((m) => getCombinedPrice(m));
   const priceThreshold = calculatePercentileThreshold(prices, PREMIUM_PRICE_PERCENTILE);
 
-  // Classify and transform
   const systemPromptChars = buildSystemPrompt([]).length;
   const models: Model[] = [];
   const premiumIds: string[] = [];
 
   for (const model of filtered) {
-    models.push(transform(model));
+    models.push(transformText(model));
     if (isPremiumModel(model, priceThreshold) || exceedsTrialBudget(model, systemPromptChars)) {
       premiumIds.push(model.id);
     }
   }
 
-  // Inject auto-router if present in ZDR list and pool has models
-  if (autoRouterRaw && filtered.length > 0) {
-    models.push(buildAutoRouterModel(autoRouterRaw, filtered));
-  }
+  return { models, premiumIds, filteredPool: filtered };
+}
 
-  return { models, premiumIds };
+/**
+ * Synthetic Smart Model entry with price ranges derived from the text pool.
+ * The Smart Model is not a gateway model — it's a virtual entry the UI can
+ * select; the backend resolves the actual model per-message.
+ *
+ * Headline `pricePerInputToken` / `pricePerOutputToken` track the cheapest
+ * model in the pool so cost-aware UI surfaces (budget bars, cheapest-eligible
+ * reservation) reflect the real lower bound. Caller MUST guarantee the pool
+ * is non-empty (gated at `processModels`'s `smartPrefix` construction).
+ */
+function buildSmartModelEntry(pool: RawModel[]): Model {
+  const inputPrices = pool.map((m) => parseTokenPrice(m.pricing.prompt));
+  const outputPrices = pool.map((m) => parseTokenPrice(m.pricing.completion));
+  const contexts = pool.map((m) => m.context_length);
+
+  const minInput = Math.min(...inputPrices);
+  const minOutput = Math.min(...outputPrices);
+  const maxInput = Math.max(...inputPrices);
+  const maxOutput = Math.max(...outputPrices);
+
+  return {
+    id: SMART_MODEL_ID,
+    name: 'Smart Model',
+    description: 'Automatically picks the best model for each message.',
+    provider: 'HushBox',
+    modality: 'text',
+    contextLength: Math.max(...contexts),
+    pricePerInputToken: minInput,
+    pricePerOutputToken: minOutput,
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: 0,
+    capabilities: [],
+    supportedParameters: [],
+    isSmartModel: true,
+    minPricePerInputToken: minInput,
+    minPricePerOutputToken: minOutput,
+    maxPricePerInputToken: maxInput,
+    maxPricePerOutputToken: maxOutput,
+  };
+}
+
+function transformImage(model: RawModel): Model {
+  const { provider, displayName } = extractProvider(model);
+  const perImageRaw = model.pricing.per_image;
+  // Imagen models accept the full 5-ratio set; for now no other ZDR image
+  // provider ships, so this branches on Imagen alone. Future image providers
+  // get their own entry next to `IMAGEN_MODEL_IDS`.
+  const supportedAspectRatios = IMAGEN_MODEL_IDS.has(model.id)
+    ? [...IMAGE_ASPECT_RATIOS]
+    : undefined;
+  return {
+    id: model.id,
+    name: displayName,
+    description: model.description,
+    provider,
+    modality: 'image',
+    contextLength: 0,
+    pricePerInputToken: 0,
+    pricePerOutputToken: 0,
+    pricePerImage: perImageRaw === undefined ? 0 : parseTokenPrice(perImageRaw),
+    pricePerSecondByResolution: {},
+    pricePerSecond: 0,
+    capabilities: [],
+    supportedParameters: model.supported_parameters,
+    created: model.created,
+    ...(supportedAspectRatios !== undefined && { supportedAspectRatios }),
+  };
+}
+
+function hasFlatImagePricing(model: RawModel): boolean {
+  const raw = model.pricing.per_image;
+  if (raw === undefined) return false;
+  return parseTokenPrice(raw) > 0;
+}
+
+interface MediaProcessingResult {
+  models: Model[];
+  premiumIds: string[];
+}
+
+function processImageModels(raws: RawModel[]): MediaProcessingResult {
+  const zdrFiltered = raws.filter((m) => isZdrModel(m.id, 'image'));
+  const priced = zdrFiltered.filter((m) => hasFlatImagePricing(m));
+  const models = priced.map((m) => transformImage(m));
+  return { models, premiumIds: models.map((m) => m.id) };
+}
+
+function transformVideo(model: RawModel): Model {
+  const { provider, displayName } = extractProvider(model);
+  const rawByResolution = model.pricing.per_second_by_resolution ?? {};
+  const pricePerSecondByResolution = Object.fromEntries(
+    Object.entries(rawByResolution).map(([res, price]) => [res, parseTokenPrice(price)])
+  );
+  // Per-Veo-version capability — durations and resolutions are non-overlapping
+  // across 3.0 vs 3.1. Models not in the lookup omit the fields entirely so
+  // the UI's agreement helper falls back to the price-key derived view.
+  const veoCapability = getVideoCapability(model.id);
+  return {
+    id: model.id,
+    name: displayName,
+    description: model.description,
+    provider,
+    modality: 'video',
+    contextLength: 0,
+    pricePerInputToken: 0,
+    pricePerOutputToken: 0,
+    pricePerImage: 0,
+    pricePerSecondByResolution,
+    pricePerSecond: 0,
+    capabilities: [],
+    supportedParameters: model.supported_parameters,
+    created: model.created,
+    ...(veoCapability !== undefined && {
+      supportedAspectRatios: [...veoCapability.aspectRatios],
+      supportedVideoResolutions: [...veoCapability.resolutions],
+      supportedVideoDurationsSeconds: [...veoCapability.durationsSeconds],
+    }),
+  };
+}
+
+function hasPerResolutionPricing(model: RawModel): boolean {
+  const raw = model.pricing.per_second_by_resolution;
+  if (raw === undefined) return false;
+  return Object.values(raw).some((p) => parseTokenPrice(p) > 0);
+}
+
+function processVideoModels(raws: RawModel[]): MediaProcessingResult {
+  const zdrFiltered = raws.filter((m) => isZdrModel(m.id, 'video'));
+  const priced = zdrFiltered.filter((m) => hasPerResolutionPricing(m));
+  const models = priced.map((m) => transformVideo(m));
+  return { models, premiumIds: models.map((m) => m.id) };
+}
+
+function transformAudio(model: RawModel): Model {
+  const { provider, displayName } = extractProvider(model);
+  const perSecondRaw = model.pricing.per_second;
+  return {
+    id: model.id,
+    name: displayName,
+    description: model.description,
+    provider,
+    modality: 'audio',
+    contextLength: 0,
+    pricePerInputToken: 0,
+    pricePerOutputToken: 0,
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: perSecondRaw === undefined ? 0 : parseTokenPrice(perSecondRaw),
+    capabilities: [],
+    supportedParameters: model.supported_parameters,
+    created: model.created,
+  };
+}
+
+function hasFlatAudioPricing(model: RawModel): boolean {
+  const raw = model.pricing.per_second;
+  if (raw === undefined) return false;
+  return parseTokenPrice(raw) > 0;
+}
+
+/**
+ * Process audio (TTS) models. Symmetric with image/video processing — once the
+ * AI Gateway exposes speech models and `ZDR_AUDIO_MODELS` is populated, this
+ * naturally returns audio entries. Today the ZDR set is empty so this returns
+ * empty even if `FEATURE_FLAGS.AUDIO_ENABLED` is on.
+ */
+function processAudioModels(raws: RawModel[]): MediaProcessingResult {
+  const zdrFiltered = raws.filter((m) => isZdrModel(m.id, 'audio'));
+  const priced = zdrFiltered.filter((m) => hasFlatAudioPricing(m));
+  const models = priced.map((m) => transformAudio(m));
+  return { models, premiumIds: models.map((m) => m.id) };
+}
+
+function groupByModality(rawModels: RawModel[]): Record<Modality, RawModel[]> {
+  const groups: Record<Modality, RawModel[]> = { text: [], image: [], audio: [], video: [] };
+  for (const m of rawModels) groups[m.modality].push(m);
+  return groups;
+}
+
+export function processModels(rawModels: RawModel[]): ProcessedModels {
+  const byModality = groupByModality(rawModels);
+
+  const text = processTextModels(byModality.text);
+  const image = processImageModels(byModality.image);
+  const video = processVideoModels(byModality.video);
+  const audio = processAudioModels(byModality.audio);
+
+  const smartPrefix = text.filteredPool.length > 0 ? [buildSmartModelEntry(text.filteredPool)] : [];
+
+  return {
+    models: [...text.models, ...smartPrefix, ...image.models, ...video.models, ...audio.models],
+    premiumIds: [...text.premiumIds, ...image.premiumIds, ...video.premiumIds, ...audio.premiumIds],
+  };
+}
+
+/**
+ * Returns the id of the cheapest non-premium text model in the catalog.
+ *
+ * Drives dev-fixture seed messages (`apps/api/src/services/dev/dev.ts`) so
+ * seeded AI rows always reference a model that currently exists on the AI
+ * Gateway — hardcoding a name drifts as soon as the gateway retires that
+ * model, breaking every retry path that re-uses the seeded `modelName`.
+ *
+ * Mirrors {@link processTextModels}'s filter + sort so the choice matches
+ * what `buildEligibleModels` would pick as its classifier model. Throws if
+ * the resulting set is empty — silently returning a placeholder would just
+ * defer the same failure into `getGenerationStats`.
+ */
+export function pickValueTextModel(rawModels: RawModel[]): string {
+  const text = processTextModels(groupByModality(rawModels).text);
+  const premiumSet = new Set(text.premiumIds);
+  let bestId: string | undefined;
+  let bestPrice = Number.POSITIVE_INFINITY;
+  for (const raw of text.filteredPool) {
+    if (premiumSet.has(raw.id)) continue;
+    const price = getCombinedPrice(raw);
+    if (price < bestPrice) {
+      bestPrice = price;
+      bestId = raw.id;
+    }
+  }
+  if (bestId === undefined) {
+    throw new Error(
+      'pickValueTextModel: no non-premium text model in catalog — dev seed cannot pick a stable model id'
+    );
+  }
+  return bestId;
 }

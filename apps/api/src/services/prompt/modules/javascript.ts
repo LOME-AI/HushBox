@@ -1,4 +1,4 @@
-import type { ToolDefinition } from '../../openrouter/types.js';
+import type { ToolDefinition } from '../../ai/index.js';
 import type { ToolModule } from '../types.js';
 
 export const javascriptModule: ToolModule = {

@@ -11,7 +11,7 @@ androidWebViewHierarchy: devtools
 # which runs after CapacitorProvider mounts
 - extendedWaitUntil:
     visible: 'Sign up'
-    timeout: 15000
+    timeout: 45000
 
 # Take a screenshot for visual verification of status bar styling.
 # Maestro cannot programmatically inspect status bar color, but

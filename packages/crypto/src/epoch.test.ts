@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { at } from '@hushbox/shared/src/test-utilities.js';
 import {
   createFirstEpoch,
   performEpochRotation,
@@ -7,7 +8,6 @@ import {
   verifyEpochKeyConfirmation,
 } from './epoch.js';
 import { generateKeyPair } from './sharing.js';
-import { at } from '@hushbox/shared/src/test-utilities.js';
 
 describe('epoch', () => {
   describe('createFirstEpoch', () => {

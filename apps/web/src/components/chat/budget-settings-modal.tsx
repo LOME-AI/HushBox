@@ -1,6 +1,14 @@
 import * as React from 'react';
 import { useState, useMemo, useRef } from 'react';
-import { Overlay, OverlayContent, OverlayHeader, ModalActions, Input } from '@hushbox/ui';
+import {
+  Overlay,
+  OverlayContent,
+  OverlayHeader,
+  ModalActions,
+  Input,
+  InlineFormError,
+  useAsyncAction,
+} from '@hushbox/ui';
 import { displayUsername } from '@hushbox/shared';
 import {
   useConversationBudgets,
@@ -245,6 +253,10 @@ export function BudgetSettingsModal({
   const convBudgetIsPending = (updateConvBudget as { isPending: boolean }).isPending;
 
   const isOwner = currentUserPrivilege === 'owner';
+  // Surface mutation failures inline. The two sequential awaits in handleSave
+  // (conv budget then per-member budgets) can each fail; useAsyncAction wraps
+  // the whole sequence so the user sees one error message and can retry.
+  const asyncAction = useAsyncAction();
 
   const {
     currentConvBudget,
@@ -270,29 +282,33 @@ export function BudgetSettingsModal({
   }
 
   async function handleSave(): Promise<void> {
-    if (convBudgetChanged) {
-      const cents = currentConvBudget === '' ? 0 : dollarsToCents(currentConvBudget);
-      await convBudgetMutateAsync({
-        conversationId,
-        budgetCents: cents,
-      });
+    const result = await asyncAction.run(async () => {
+      if (convBudgetChanged) {
+        const cents = currentConvBudget === '' ? 0 : dollarsToCents(currentConvBudget);
+        await convBudgetMutateAsync({
+          conversationId,
+          budgetCents: cents,
+        });
+      }
+
+      const changedEntries = Object.entries(editedValues).filter(
+        ([memberId, value]) => initialValues[memberId] !== value
+      );
+
+      for (const [memberId, value] of changedEntries) {
+        await mutateAsync({
+          conversationId,
+          memberId,
+          budgetCents: dollarsToCents(value),
+        });
+      }
+    });
+
+    if (result.ok) {
+      setEditedConvBudget(null);
+      setEditedValues({});
+      onOpenChange(false);
     }
-
-    const changedEntries = Object.entries(editedValues).filter(
-      ([memberId, value]) => initialValues[memberId] !== value
-    );
-
-    for (const [memberId, value] of changedEntries) {
-      await mutateAsync({
-        conversationId,
-        memberId,
-        budgetCents: dollarsToCents(value),
-      });
-    }
-
-    setEditedConvBudget(null);
-    setEditedValues({});
-    onOpenChange(false);
   }
 
   function handleCancel(): void {
@@ -302,7 +318,12 @@ export function BudgetSettingsModal({
   }
 
   return (
-    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel="Budget Settings">
+    <Overlay
+      open={open}
+      onOpenChange={onOpenChange}
+      ariaLabel="Budget Settings"
+      dismissible={!asyncAction.isPending}
+    >
       <OverlayContent data-testid="budget-settings-modal" size="lg">
         <OverlayHeader
           title="Budget Settings"
@@ -326,7 +347,6 @@ export function BudgetSettingsModal({
                 },
               })}
             >
-              {/* Conversation */}
               <div
                 data-testid="budget-conversation-section"
                 className="overflow-y-auto pr-2 [scrollbar-gutter:stable]"
@@ -349,7 +369,6 @@ export function BudgetSettingsModal({
 
               {budgetData.memberBudgets.length > 0 && (
                 <>
-                  {/* Members */}
                   <div>
                     <span className="text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase">
                       Members
@@ -378,7 +397,6 @@ export function BudgetSettingsModal({
                     </div>
                   </div>
 
-                  {/* Allocated */}
                   <div className="border-border overflow-y-auto border-t pt-3 pr-2 [scrollbar-gutter:stable]">
                     <BudgetRow
                       label="Allocated"
@@ -392,7 +410,8 @@ export function BudgetSettingsModal({
               )}
             </BudgetContent>
 
-            {/* Action buttons */}
+            <InlineFormError error={asyncAction.error} errorKey={asyncAction.errorKey} />
+
             {isOwner ? (
               <ModalActions
                 cancel={{
@@ -402,11 +421,13 @@ export function BudgetSettingsModal({
                 }}
                 primary={{
                   label: 'Save Changes',
+                  loadingLabel: 'Saving…',
                   form: 'budget-settings-form',
                   onClick: () => {
                     void handleSave();
                   },
                   disabled: !hasChanges || isPending || convBudgetIsPending,
+                  loading: asyncAction.isPending,
                   testId: 'budget-save-button',
                 }}
               />

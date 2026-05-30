@@ -6,8 +6,8 @@ vi.mock('../../hooks/use-user-search.js', () => ({
   useUserSearch: vi.fn(),
 }));
 
-import { useUserSearch } from '../../hooks/use-user-search.js';
 import { MAX_CONVERSATION_MEMBERS } from '@hushbox/shared';
+import { useUserSearch } from '../../hooks/use-user-search.js';
 import { AddMemberModal } from './add-member-modal';
 
 const mockUseUserSearch = vi.mocked(useUserSearch);
@@ -140,10 +140,8 @@ describe('AddMemberModal', () => {
     await userEvent.type(input, 'al');
     await userEvent.click(screen.getByTestId('add-member-result-user-1'));
 
-    // Change privilege to admin
     await userEvent.selectOptions(screen.getByTestId('add-member-privilege-select'), 'admin');
 
-    // Toggle history checkbox
     await userEvent.click(screen.getByRole('checkbox'));
 
     await userEvent.click(screen.getByTestId('add-member-submit-button'));
@@ -238,17 +236,14 @@ describe('AddMemberModal', () => {
     const submitButton = screen.getByTestId('add-member-submit-button');
     const cancelButton = screen.getByTestId('add-member-cancel-button');
 
-    // Get parent container
     const container = submitButton.parentElement;
     expect(container).toHaveClass('flex');
     expect(container).toHaveClass('gap-2');
     expect(container).not.toHaveClass('flex-col');
 
-    // Both buttons should use flex-1
     expect(submitButton).toHaveClass('flex-1');
     expect(cancelButton).toHaveClass('flex-1');
 
-    // Cancel should come before Add Member in DOM order
     const buttons = [...container!.children];
     expect(buttons.indexOf(cancelButton)).toBeLessThan(buttons.indexOf(submitButton));
   });

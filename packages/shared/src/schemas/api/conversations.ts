@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { memberPrivilegeSchema } from '../../enums.js';
-import { MAX_SELECTED_MODELS } from '../../constants.js';
+import {
+  MAX_SELECTED_MODELS,
+  IMAGE_ASPECT_RATIOS,
+  VIDEO_ASPECT_RATIOS,
+  VIDEO_RESOLUTIONS,
+  MIN_VIDEO_DURATION_SECONDS,
+  MAX_VIDEO_DURATION_SECONDS,
+  AUDIO_FORMATS,
+  MAX_AUDIO_DURATION_SECONDS,
+} from '../../constants.js';
 
 /**
  * Request schema for creating a conversation.
@@ -68,25 +77,74 @@ const fundingSourceSchema = z.enum([
   'trial_fixed',
 ]);
 
-export const streamChatRequestSchema = z.object({
-  models: z.array(z.string()).min(1).max(MAX_SELECTED_MODELS),
-  userMessage: z.object({
-    id: z.uuid(),
-    content: z.string().min(1), // plaintext — server encrypts with epoch key
-  }),
-  messagesForInference: z
-    .array(
-      z.object({
-        role: z.enum(['user', 'assistant', 'system']),
-        content: z.string(),
-      })
-    )
-    .min(1),
-  fundingSource: fundingSourceSchema, // client's billing claim — compared with backend's resolveBilling()
-  webSearchEnabled: z.boolean().optional(),
-  customInstructions: z.string().max(5000).optional(),
-  forkId: z.uuid().optional(),
+export const imageConfigSchema = z.object({
+  aspectRatio: z.enum(IMAGE_ASPECT_RATIOS).default('1:1'),
 });
+
+export type ImageConfig = z.infer<typeof imageConfigSchema>;
+
+export const videoConfigSchema = z.object({
+  aspectRatio: z.enum(VIDEO_ASPECT_RATIOS),
+  durationSeconds: z.number().int().min(MIN_VIDEO_DURATION_SECONDS).max(MAX_VIDEO_DURATION_SECONDS),
+  resolution: z.enum(VIDEO_RESOLUTIONS),
+});
+
+export type VideoConfig = z.infer<typeof videoConfigSchema>;
+
+/**
+ * Audio (TTS) generation config. Unlike video, the duration of TTS output is
+ * not user-controllable — it emerges from synthesizing the input text — so
+ * `maxDurationSeconds` caps worst-case spend rather than fixing the duration.
+ */
+export const audioConfigSchema = z.object({
+  format: z.enum(AUDIO_FORMATS).default('mp3'),
+  voice: z.string().optional(),
+  maxDurationSeconds: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_AUDIO_DURATION_SECONDS)
+    .default(MAX_AUDIO_DURATION_SECONDS),
+});
+
+export type AudioConfig = z.infer<typeof audioConfigSchema>;
+
+export const streamChatRequestSchema = z
+  .object({
+    modality: z.enum(['text', 'image', 'video', 'audio']).default('text'),
+    models: z.array(z.string()).min(1).max(MAX_SELECTED_MODELS),
+    userMessage: z.object({
+      id: z.uuid(),
+      content: z.string().min(1), // plaintext — server encrypts with epoch key
+    }),
+    /**
+     * Full conversation history used as the model's prompt.
+     * For media modalities only `userMessage.content` is used as the prompt.
+     */
+    messagesForInference: z
+      .array(
+        z.object({
+          role: z.enum(['user', 'assistant', 'system']),
+          content: z.string(),
+        })
+      )
+      .min(1),
+    fundingSource: fundingSourceSchema, // client's billing claim — compared with backend's resolveBilling()
+    webSearchEnabled: z.boolean().optional(),
+    customInstructions: z.string().max(5000).optional(),
+    forkId: z.uuid().optional(),
+    imageConfig: imageConfigSchema.optional(),
+    videoConfig: videoConfigSchema.optional(),
+    audioConfig: audioConfigSchema.optional(),
+  })
+  .refine((data) => data.modality !== 'video' || data.videoConfig !== undefined, {
+    message: 'videoConfig is required when modality is "video"',
+    path: ['videoConfig'],
+  })
+  .refine((data) => data.modality !== 'audio' || data.audioConfig !== undefined, {
+    message: 'audioConfig is required when modality is "audio"',
+    path: ['audioConfig'],
+  });
 
 export type StreamChatRequest = z.infer<typeof streamChatRequestSchema>;
 
@@ -143,23 +201,62 @@ export const conversationListItemSchema = conversationResponseSchema.extend({
 export type ConversationListItem = z.infer<typeof conversationListItemSchema>;
 
 /**
+ * Schema for a single content item inside a message.
+ * Text items carry `encryptedBlob` (base64) inline. Media items (image/audio/video)
+ * carry `storageKey` + mime/size/dimensions and are fetched via presigned GET URLs.
+ * Fields not applicable to a given `contentType` are null.
+ */
+export const contentItemResponseSchema = z.object({
+  id: z.string(),
+  contentType: z.enum(['text', 'image', 'audio', 'video']),
+  position: z.number().int().nonnegative(),
+
+  /** Base64-encoded symmetric ciphertext under the parent message's content key. Set for text items, null for media. */
+  encryptedBlob: z.string().nullable(),
+
+  /** R2 object key for media items. Null for text items. */
+  storageKey: z.string().nullable(),
+  mimeType: z.string().nullable(),
+  sizeBytes: z.number().int().nullable(),
+  width: z.number().int().nullable(),
+  height: z.number().int().nullable(),
+  durationMs: z.number().int().nullable(),
+
+  /** AI generation metadata. Null for user-authored content. */
+  modelName: z.string().nullable(),
+  cost: z.string().nullable(),
+  isSmartModel: z.boolean(),
+});
+
+export type ContentItemResponse = z.infer<typeof contentItemResponseSchema>;
+
+/**
  * Schema for a message entity in API responses.
- * Uses epoch-based ECIES encryption model.
- * encryptedBlob is base64-encoded ECIES blob.
+ *
+ * Under the wrap-once envelope model, each message has one `wrappedContentKey`
+ * (ECIES-wrapped under the epoch public key) plus one or more `contentItems`
+ * encrypted symmetrically under the unwrapped content key. Clients unwrap the
+ * content key once and decrypt every content item with it.
  */
 export const messageResponseSchema = z.object({
   id: z.string(),
   conversationId: z.string(),
-  encryptedBlob: z.string(), // base64-encoded ECIES blob
+  /** Base64-encoded ECIES-wrapped content key for this message. */
+  wrappedContentKey: z.string(),
   senderType: z.enum(['user', 'ai']),
   senderId: z.string().nullable(),
-  modelName: z.string().nullable(),
-  payerId: z.string().nullable(),
-  cost: z.string().nullable(),
   epochNumber: z.number().int().min(1),
   sequenceNumber: z.number().int().nonnegative(),
   parentMessageId: z.string().nullable(),
+  /**
+   * Per-turn id shared by all messages persisted in one `saveChatTurn`.
+   * Drives the multi-model-peer vs fork-preserve-orphan distinction in
+   * the client-side fork-filter.
+   */
+  batchId: z.string(),
   createdAt: z.string(),
+  /** Discrete content items belonging to this message, ordered by position. */
+  contentItems: z.array(contentItemResponseSchema),
 });
 
 export type MessageResponse = z.infer<typeof messageResponseSchema>;
@@ -240,10 +337,6 @@ export const deleteConversationResponseSchema = z.object({
 
 export type DeleteConversationResponse = z.infer<typeof deleteConversationResponseSchema>;
 
-// ============================================================
-// Fork Request Schemas
-// ============================================================
-
 /**
  * Request schema for creating a fork.
  * Client provides fork ID for idempotency.
@@ -265,34 +358,64 @@ export const renameForkRequestSchema = z.object({
 
 export type RenameForkRequest = z.infer<typeof renameForkRequestSchema>;
 
-// ============================================================
-// Regeneration Schemas
-// ============================================================
-
 /**
  * Request schema for POST /chat/regenerate.
- * Supports retry (resend same user message), edit (new user message), and regenerate (re-run AI).
+ *
+ * Supports retry (resend same user message, re-running every selected model)
+ * and edit (swap the user message in place). The `models` array is symmetric
+ * with `/stream` — single-model is just `models.length === 1`. `'regenerate'`
+ * is no longer a distinct wire value: server-side it always behaved
+ * identically to `'retry'` (see tree-action.ts), so the enum collapses to
+ * `'retry' | 'edit'`.
+ *
+ * `replaceAssistantId` discriminates two scopes that share the same pipeline:
+ *   - unset → retry-all: every assistant descendant of `targetMessageId` is
+ *     deleted; one new assistant is created per entry in `models`.
+ *   - set → regenerate-one: only the named assistant is deleted; its
+ *     replacement(s) inherit the same parentMessageId so the surviving
+ *     siblings are preserved. Used by the per-tile "Regenerate" button on a
+ *     multi-model response and by the failed-tile retry path.
  */
-export const regenerateRequestSchema = z.object({
-  targetMessageId: z.uuid(),
-  action: z.enum(['retry', 'edit', 'regenerate']),
-  model: z.string(),
-  userMessage: z.object({
-    id: z.uuid(),
-    content: z.string().min(1),
-  }),
-  messagesForInference: z
-    .array(
-      z.object({
-        role: z.enum(['user', 'assistant', 'system']),
-        content: z.string(),
-      })
-    )
-    .min(1),
-  fundingSource: fundingSourceSchema,
-  forkId: z.uuid().optional(),
-  webSearchEnabled: z.boolean().optional(),
-  customInstructions: z.string().max(5000).optional(),
-});
+export const regenerateRequestSchema = z
+  .object({
+    targetMessageId: z.uuid(),
+    action: z.enum(['retry', 'edit']),
+    /**
+     * Modality of the regenerated turn. Must match the original
+     * assistant message's content type (image messages regenerate to
+     * images, etc.). Defaults to 'text' for back-compat with older
+     * clients that omit the field.
+     */
+    modality: z.enum(['text', 'image', 'video', 'audio']).default('text'),
+    models: z.array(z.string()).min(1).max(MAX_SELECTED_MODELS),
+    replaceAssistantId: z.uuid().optional(),
+    userMessage: z.object({
+      id: z.uuid(),
+      content: z.string().min(1),
+    }),
+    messagesForInference: z
+      .array(
+        z.object({
+          role: z.enum(['user', 'assistant', 'system']),
+          content: z.string(),
+        })
+      )
+      .min(1),
+    fundingSource: fundingSourceSchema,
+    forkId: z.uuid().optional(),
+    webSearchEnabled: z.boolean().optional(),
+    customInstructions: z.string().max(5000).optional(),
+    imageConfig: imageConfigSchema.optional(),
+    videoConfig: videoConfigSchema.optional(),
+    audioConfig: audioConfigSchema.optional(),
+  })
+  .refine((data) => data.modality !== 'video' || data.videoConfig !== undefined, {
+    message: 'videoConfig is required when modality is "video"',
+    path: ['videoConfig'],
+  })
+  .refine((data) => data.modality !== 'audio' || data.audioConfig !== undefined, {
+    message: 'audioConfig is required when modality is "audio"',
+    path: ['audioConfig'],
+  });
 
 export type RegenerateRequest = z.infer<typeof regenerateRequestSchema>;

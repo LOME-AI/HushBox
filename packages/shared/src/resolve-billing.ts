@@ -14,7 +14,7 @@
  * | `tier` | `useBalance()` API → `getUserTier()` | `getUserTierInfo(db, userId)` (wallets table) | **Low** — both derive from same wallets data |
  * | `balanceCents` | `useBalance()` API response | wallets query **minus Redis reservations** | **HIGH** — frontend sees gross balance, backend subtracts in-flight reservations |
  * | `freeAllowanceCents` | `useBalance()` API response | wallets query with **lazy renewal** | **Medium** — rare, renewal happens at most once per day |
- * | `isPremiumModel` | `/models` API → `premiumIds.includes()` | `fetchModels()` → `processModels()` → `premiumIds` | **Low** — both read from same OpenRouter API |
+ * | `isPremiumModel` | `/models` API → `premiumIds.includes()` | `fetchModels()` → `processModels()` → `premiumIds` | **Low** — both read from same AI Gateway API |
  * | `estimatedMinimumCostCents` | `calculateBudget()` with local char count | `calculateBudget()` with real message data | **Low** — both call same function with same pricing |
  * | `group.effectiveCents` | `GET /budgets` API response | `computeGroupRemaining()` using DB + Redis reservations | **HIGH** — same Redis reservation gap |
  * | `group.ownerTier` | budgets API response | `getUserTierInfo(db, ownerId)` | **N/A** — new field |
@@ -37,10 +37,6 @@ import { canUseModel, type UserTier, type UserTierInfo } from './tiers.js';
  * 1e-6 cents = $0.00000001 — negligible for real money, absorbs float errors.
  */
 const FREE_TIER_FLOAT_TOLERANCE_CENTS = 1e-6;
-
-// ============================================================================
-// Types
-// ============================================================================
 
 export type FundingSource = 'owner_balance' | 'personal_balance' | 'free_allowance' | 'trial_fixed';
 
@@ -68,10 +64,6 @@ export interface ResolveBillingInput {
   };
 }
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 /** Attempt group billing: owner pays if group has budget and owner can use the model. */
 function resolveGroupBilling(
   group: ResolveBillingInput['group'],
@@ -89,10 +81,6 @@ function resolveGroupBilling(
   }
   return undefined;
 }
-
-// ============================================================================
-// Core Function
-// ============================================================================
 
 /**
  * Resolve billing for a message: determines WHO pays or WHY it's denied.

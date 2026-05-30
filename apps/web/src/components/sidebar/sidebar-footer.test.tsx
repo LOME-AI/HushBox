@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ROUTES } from '@hushbox/shared';
-import { SidebarFooter } from './sidebar-footer';
 import { useUIStore } from '@/stores/ui';
+import { buildDrizzleStudioUrl } from '@/lib/routes';
+import { SidebarFooter } from './sidebar-footer';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
 const {
@@ -67,9 +68,13 @@ vi.mock('@/lib/env', () => ({
   env: mockEnv,
 }));
 
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: mockUseIsMobile,
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: mockUseIsMobile,
+  };
+});
 
 vi.mock('@/capacitor/platform', () => ({
   isNative: (): boolean => false,
@@ -147,6 +152,24 @@ describe('SidebarFooter', () => {
       expect(screen.getByTestId('menu-settings')).toBeInTheDocument();
     });
 
+    it('shows Accessibility option in dropdown', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      expect(screen.getByTestId('menu-accessibility')).toBeInTheDocument();
+    });
+
+    it('navigates to /accessibility when Accessibility is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-accessibility'));
+
+      expect(mockNavigate).toHaveBeenCalledWith({ to: '/accessibility' });
+    });
+
     it('shows Add Credits option in dropdown', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
@@ -208,9 +231,7 @@ describe('SidebarFooter', () => {
       render(<SidebarFooter />);
 
       const trigger = screen.getByTestId('sidebar-trigger');
-      // ChevronUp is rendered as an svg inside the trigger
       const svgs = trigger.querySelectorAll('svg');
-      // Should have at least 2 svgs: User icon + ChevronUp
       expect(svgs.length).toBeGreaterThanOrEqual(2);
     });
   });
@@ -296,30 +317,47 @@ describe('SidebarFooter', () => {
     });
 
     it('shows Database Studio option in dev mode when authenticated', async () => {
+      vi.stubEnv('VITE_DRIZZLE_STUDIO_URL', 'http://localhost:4983');
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
       await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-db-studio')).toBeInTheDocument();
+      vi.unstubAllEnvs();
     });
 
     it('shows Database Studio option in dev mode when unauthenticated', async () => {
+      vi.stubEnv('VITE_DRIZZLE_STUDIO_URL', 'http://localhost:4983');
       mockUseSession.mockReturnValue({ data: null });
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
       await user.click(screen.getByTestId('sidebar-trigger'));
       expect(screen.getByTestId('menu-db-studio')).toBeInTheDocument();
+      vi.unstubAllEnvs();
     });
 
     it('Database Studio links to Drizzle Studio URL in new tab', async () => {
+      vi.stubEnv('VITE_DRIZZLE_STUDIO_URL', 'http://localhost:4983');
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
       await user.click(screen.getByTestId('sidebar-trigger'));
       const studioLink = screen.getByTestId('menu-db-studio');
-      expect(studioLink).toHaveAttribute('href', 'https://local.drizzle.studio');
+      expect(studioLink).toHaveAttribute('href', buildDrizzleStudioUrl('http://localhost:4983'));
+      expect(studioLink.getAttribute('href')).toMatch(/^https:\/\/local\.drizzle\.studio/);
       expect(studioLink).toHaveAttribute('target', '_blank');
+      vi.unstubAllEnvs();
+    });
+
+    it('does not render Database Studio option when VITE_DRIZZLE_STUDIO_URL is unset', async () => {
+      vi.stubEnv('VITE_DRIZZLE_STUDIO_URL', '');
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      expect(screen.queryByTestId('menu-db-studio')).not.toBeInTheDocument();
+      vi.unstubAllEnvs();
     });
 
     it('uses env.isLocalDev for conditional rendering', () => {
@@ -471,6 +509,77 @@ describe('SidebarFooter', () => {
       const link = screen.getByTestId('menu-marketing');
       expect(link).toBeInTheDocument();
       expect(link).toHaveAttribute('href', ROUTES.MARKETING);
+    });
+  });
+
+  describe('closes mobile sidebar on menu item click', () => {
+    // Defends against an iOS Sheet-overlay bug: when the user clicks a
+    // menu item that navigates to the route they're already on, the
+    // sidebar's pathname-diff effect doesn't fire and the Sheet keeps
+    // intercepting pointer events on the page beneath it. Closing the
+    // mobile sidebar from the item's onClick guarantees this regardless
+    // of whether navigation actually changes the route.
+    beforeEach(() => {
+      useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: true });
+    });
+
+    it('closes mobile sidebar when Settings is clicked', async () => {
+      mockFeatureFlags.SETTINGS_ENABLED = true;
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-settings'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Accessibility is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-accessibility'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Usage is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-usage'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Add Credits is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-add-credits'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Log Out is clicked', async () => {
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-logout'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Log In is clicked (unauthenticated)', async () => {
+      mockUseSession.mockReturnValue({ data: null });
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-login'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('closes mobile sidebar when Sign Up is clicked (unauthenticated)', async () => {
+      mockUseSession.mockReturnValue({ data: null });
+      const user = userEvent.setup();
+      render(<SidebarFooter />);
+      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId('menu-signup'));
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
     });
   });
 

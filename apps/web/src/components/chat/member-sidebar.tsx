@@ -1,24 +1,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import {
-  IconButton,
-  Input,
-  Separator,
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-} from '@hushbox/ui';
-import {
-  canManageLinks,
-  effectiveBudgetCents,
-  normalizeUsername,
-  displayUsername,
-} from '@hushbox/shared';
-import {
   Plus,
   Link as LinkIcon,
   Lock,
@@ -32,14 +14,34 @@ import {
   DollarSign,
   Trash2,
 } from 'lucide-react';
-import { useIsMobile } from '@/hooks/use-is-mobile';
+import {
+  IconButton,
+  Input,
+  Separator,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  SidebarPanel,
+  useAsyncAction,
+  useIsMobile,
+} from '@hushbox/ui';
+import {
+  canManageLinks,
+  effectiveBudgetCents,
+  normalizeUsername,
+  displayUsername,
+} from '@hushbox/shared';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useConversationBudgets } from '@/hooks/use-conversation-budgets';
-import { SidebarPanel } from '@/components/shared/sidebar-panel';
 import { SidebarActionButton } from '@/components/shared/sidebar-action-button';
 import { SidebarFooterBase } from '@/components/shared/sidebar-footer-base';
-import { LeaveConfirmationModal } from './leave-confirmation-modal';
 import { ConfirmationModal } from '@/components/shared/confirmation-modal';
+import { LeaveConfirmationModal } from './leave-confirmation-modal';
 
 interface MemberEntry {
   id: string;
@@ -56,13 +58,17 @@ interface LinkEntry {
 }
 
 interface MemberSidebarCallbacks {
-  onRemoveMember?: ((memberId: string) => void) | undefined;
-  onChangePrivilege?: ((memberId: string, newPrivilege: string) => void) | undefined;
-  onRevokeLinkClick?: ((linkId: string) => void) | undefined;
-  onSaveLinkName?: ((linkId: string, newName: string) => void) | undefined;
-  onChangeLinkPrivilege?: ((linkId: string, newPrivilege: string) => void) | undefined;
+  onRemoveMember?: ((memberId: string) => void | Promise<void>) | undefined;
+  onChangePrivilege?:
+    | ((memberId: string, newPrivilege: string) => void | Promise<void>)
+    | undefined;
+  onRevokeLinkClick?: ((linkId: string) => void | Promise<void>) | undefined;
+  onSaveLinkName?: ((linkId: string, newName: string) => void | Promise<void>) | undefined;
+  onChangeLinkPrivilege?:
+    | ((linkId: string, newPrivilege: string) => void | Promise<void>)
+    | undefined;
   onBudgetSettingsClick?: (() => void) | undefined;
-  onLeaveClick?: (() => void) | undefined;
+  onLeaveClick?: (() => void | Promise<void>) | undefined;
   onAddMember?: (() => void) | undefined;
   onInviteLink?: (() => void) | undefined;
 }
@@ -378,6 +384,44 @@ function MemberSidebarBody({
   } | null>(null);
   const isAdmin = canManageLinks(currentUserPrivilege);
 
+  // Inline-control mutations (privilege select-on-change, name inline-edit,
+  // link-privilege select-on-change) have no modal to attach an error to.
+  // Wrap each in useAsyncAction with fallback='toast' so failures still
+  // surface visibly instead of being silently swallowed by the void caller.
+  const changePrivilegeAction = useAsyncAction({ fallback: 'toast' });
+  const saveLinkNameAction = useAsyncAction({ fallback: 'toast' });
+  const changeLinkPrivilegeAction = useAsyncAction({ fallback: 'toast' });
+
+  const handleChangePrivilege = React.useCallback(
+    (memberId: string, newPrivilege: string): void => {
+      void changePrivilegeAction.run(async () => {
+        const maybe = onChangePrivilege?.(memberId, newPrivilege);
+        if (maybe instanceof Promise) await maybe;
+      });
+    },
+    [onChangePrivilege, changePrivilegeAction]
+  );
+
+  const handleSaveLinkName = React.useCallback(
+    (linkId: string, newName: string): void => {
+      void saveLinkNameAction.run(async () => {
+        const maybe = onSaveLinkName?.(linkId, newName);
+        if (maybe instanceof Promise) await maybe;
+      });
+    },
+    [onSaveLinkName, saveLinkNameAction]
+  );
+
+  const handleChangeLinkPrivilege = React.useCallback(
+    (linkId: string, newPrivilege: string): void => {
+      void changeLinkPrivilegeAction.run(async () => {
+        const maybe = onChangeLinkPrivilege?.(linkId, newPrivilege);
+        if (maybe instanceof Promise) await maybe;
+      });
+    },
+    [onChangeLinkPrivilege, changeLinkPrivilegeAction]
+  );
+
   const filteredMembers = React.useMemo(() => {
     if (searchQuery.trim() === '') return members;
     const normalizedQuery = normalizeUsername(searchQuery);
@@ -447,7 +491,6 @@ function MemberSidebarBody({
       data-testid="member-sidebar-content"
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      {/* Action buttons */}
       {isAdmin && (
         <div className="mb-3 flex flex-col gap-2">
           <AdminActionButtons
@@ -458,7 +501,6 @@ function MemberSidebarBody({
         </div>
       )}
 
-      {/* Search */}
       <div className="mb-3">
         <Input
           icon={<Search className="h-4 w-4" />}
@@ -473,7 +515,6 @@ function MemberSidebarBody({
 
       <Separator className="bg-sidebar-border mb-3" />
 
-      {/* Scrollable member/link list grouped by privilege */}
       <div className="scrollbar-hide min-h-0 flex-1 overflow-y-auto">
         {PRIVILEGE_ORDER.map((privilege) => {
           const memberGroup = membersByPrivilege[privilege];
@@ -493,7 +534,9 @@ function MemberSidebarBody({
                   isOnline={onlineMemberIds.has(member.userId)}
                   isAdmin={isAdmin}
                   onRemoveMember={handleRequestRemove}
-                  onChangePrivilege={onChangePrivilege}
+                  onChangePrivilege={
+                    onChangePrivilege === undefined ? undefined : handleChangePrivilege
+                  }
                   onLeaveClick={
                     onLeaveClick === undefined
                       ? undefined
@@ -510,8 +553,10 @@ function MemberSidebarBody({
                   index={links.indexOf(link)}
                   isCurrentLink={currentUserLinkId !== null && link.id === currentUserLinkId}
                   isAdmin={isAdmin}
-                  onChangeLinkPrivilege={onChangeLinkPrivilege}
-                  onSaveLinkName={onSaveLinkName}
+                  onChangeLinkPrivilege={
+                    onChangeLinkPrivilege === undefined ? undefined : handleChangeLinkPrivilege
+                  }
+                  onSaveLinkName={onSaveLinkName === undefined ? undefined : handleSaveLinkName}
                   onRequestRevoke={handleRequestRevoke}
                 />
               ))}
@@ -524,7 +569,12 @@ function MemberSidebarBody({
         open={leaveModalOpen}
         onOpenChange={setLeaveModalOpen}
         isOwner={currentUserPrivilege === 'owner'}
-        onConfirm={() => onLeaveClick?.()}
+        onConfirm={async () => {
+          // Propagate the Promise so LeaveConfirmationModal's ActionModal
+          // can hold the inline-error region open on failure (instead of
+          // closing optimistically and losing the rotation result).
+          await onLeaveClick?.();
+        }}
       />
       <ConfirmationModal
         open={removeMemberTarget !== null}
@@ -534,8 +584,12 @@ function MemberSidebarBody({
         title={`Remove ${removeMemberTarget?.name ?? ''}?`}
         warning="This member will lose access to the conversation."
         confirmLabel="Remove"
-        onConfirm={() => {
-          if (removeMemberTarget) onRemoveMember?.(removeMemberTarget.id);
+        onConfirm={async () => {
+          // Awaiting onRemoveMember surfaces its Promise to ConfirmationModal's
+          // ActionModal. On success, both the explicit setState below and the
+          // modal's own onOpenChange close the overlay; on failure, the throw
+          // skips setState and the modal stays open with the inline error.
+          if (removeMemberTarget) await onRemoveMember?.(removeMemberTarget.id);
           setRemoveMemberTarget(null);
         }}
         ariaLabel="Remove Member"
@@ -549,8 +603,8 @@ function MemberSidebarBody({
         title={`Revoke ${revokeLinkTarget?.name ?? ''}?`}
         warning="Anyone with this link will lose access to the conversation."
         confirmLabel="Revoke"
-        onConfirm={() => {
-          if (revokeLinkTarget) onRevokeLinkClick?.(revokeLinkTarget.id);
+        onConfirm={async () => {
+          if (revokeLinkTarget) await onRevokeLinkClick?.(revokeLinkTarget.id);
           setRevokeLinkTarget(null);
         }}
         ariaLabel="Revoke Link"
@@ -653,7 +707,7 @@ interface MemberRowProps {
   isAdmin: boolean;
   onRemoveMember?: ((memberId: string) => void) | undefined;
   onChangePrivilege?: ((memberId: string, newPrivilege: string) => void) | undefined;
-  onLeaveClick?: (() => void) | undefined;
+  onLeaveClick?: (() => void | Promise<void>) | undefined;
 }
 
 function MemberRow({
@@ -692,9 +746,8 @@ function MemberRow({
       {showActions && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <IconButton data-testid={`member-actions-${member.id}`}>
+            <IconButton aria-label="More options" data-testid={`member-actions-${member.id}`}>
               <MoreVertical className="size-4" />
-              <span className="sr-only">More options</span>
             </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -702,30 +755,48 @@ function MemberRow({
               <DropdownMenuItem
                 data-testid="member-leave-action"
                 className="text-destructive"
-                onSelect={() => onLeaveClick?.()}
+                onSelect={() => {
+                  void onLeaveClick?.();
+                }}
               >
                 <LogOut className="mr-2 h-4 w-4" />
                 Leave
               </DropdownMenuItem>
             ) : (
               <>
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger data-testid={`member-change-privilege-${member.id}`}>
-                    <Shield className="mr-2 h-4 w-4" />
-                    Change Privilege
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    {PRIVILEGE_ORDER.filter((p) => p !== 'owner').map((priv) => (
-                      <DropdownMenuItem
-                        key={priv}
-                        data-testid={`privilege-option-${member.id}-${priv}`}
-                        onSelect={() => onChangePrivilege?.(member.id, priv)}
-                      >
-                        {priv}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
+                <DropdownMenuLabel
+                  data-testid={`member-change-privilege-${member.id}`}
+                  className="flex items-center gap-2 text-xs font-normal"
+                >
+                  <Shield className="h-4 w-4" />
+                  Change privilege
+                </DropdownMenuLabel>
+                {/*
+                  Flattened radio group instead of a DropdownMenuSub. The Sub
+                  flow loses pointer events on Firefox (and on touch devices)
+                  because the SubContent's DismissableLayer can intercept the
+                  pointerdown and unmount the SubContent before the click
+                  reaches the inner item. RadioGroup inside the same content
+                  has no portal-within-portal, so the click path is reliable
+                  cross-browser. Each radio's value is the literal privilege
+                  string; the onValueChange handler invokes the same callback
+                  as the previous DropdownMenuItem.onSelect did.
+                */}
+                <DropdownMenuRadioGroup
+                  value={member.privilege}
+                  onValueChange={(next) => onChangePrivilege?.(member.id, next)}
+                >
+                  {PRIVILEGE_ORDER.filter((p) => p !== 'owner').map((priv) => (
+                    <DropdownMenuRadioItem
+                      key={priv}
+                      value={priv}
+                      data-testid={`privilege-option-${member.id}-${priv}`}
+                    >
+                      {priv}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   data-testid={`member-remove-action-${member.id}`}
                   className="text-destructive"
@@ -832,29 +903,33 @@ function LinkRow({
       {isAdmin && !isEditing && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <IconButton data-testid={`link-actions-${link.id}`}>
+            <IconButton aria-label="More options" data-testid={`link-actions-${link.id}`}>
               <MoreVertical className="size-4" />
-              <span className="sr-only">More options</span>
             </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger data-testid={`link-change-privilege-${link.id}`}>
-                <Shield className="mr-2 h-4 w-4" />
-                Change Privilege
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                {LINK_PRIVILEGE_OPTIONS.map((priv) => (
-                  <DropdownMenuItem
-                    key={priv}
-                    data-testid={`link-privilege-option-${link.id}-${priv}`}
-                    onSelect={() => onChangeLinkPrivilege?.(link.id, priv)}
-                  >
-                    {priv}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+            <DropdownMenuLabel
+              data-testid={`link-change-privilege-${link.id}`}
+              className="flex items-center gap-2 text-xs font-normal"
+            >
+              <Shield className="h-4 w-4" />
+              Change privilege
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={link.privilege}
+              onValueChange={(next) => onChangeLinkPrivilege?.(link.id, next)}
+            >
+              {LINK_PRIVILEGE_OPTIONS.map((priv) => (
+                <DropdownMenuRadioItem
+                  key={priv}
+                  value={priv}
+                  data-testid={`link-privilege-option-${link.id}-${priv}`}
+                >
+                  {priv}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               data-testid={`link-change-name-${link.id}`}
               onSelect={handleStartEdit}

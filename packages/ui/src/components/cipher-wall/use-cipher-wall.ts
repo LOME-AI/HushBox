@@ -15,8 +15,14 @@ import type { CipherWallState, ThemeColors } from './cipher-wall-engine';
 const DPR_CAP = 2;
 
 export interface CipherWallOptions {
+  /**
+   * Required pool of strings the wall reveals (animated) or bakes in
+   * (frozen). Each caller declares its own list so the cipher copy stays
+   * thematic to the page; there is no shared default. See PageHero.astro
+   * (marketing) and splash-screen.tsx (native splash PNG) for examples.
+   */
+  messages: readonly string[];
   frozen?: boolean;
-  frozenMessageCount?: number;
   themeOverride?: ThemeColors;
   cipherOpacity?: number;
   exclusionZone?: Set<number> | null;
@@ -36,7 +42,7 @@ export function readThemeColors(): ThemeColors {
 }
 
 export function useCipherWall(
-  options?: CipherWallOptions,
+  options: CipherWallOptions,
   externalCanvasRef?: React.RefObject<HTMLCanvasElement | null>
 ): React.RefObject<HTMLCanvasElement | null> {
   const internalCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -46,11 +52,11 @@ export function useCipherWall(
   const rafIdRef = React.useRef<number>(0);
   const logoMaskRef = React.useRef<boolean[][] | null>(null);
 
-  const frozen = options?.frozen === true;
-  const frozenMessageCount = options?.frozenMessageCount ?? 4;
-  const themeOverride = options?.themeOverride;
-  const cipherOpacity = options?.cipherOpacity ?? 1;
-  const exclusionZone = options?.exclusionZone ?? null;
+  const messages = options.messages;
+  const frozen = options.frozen === true;
+  const themeOverride = options.themeOverride;
+  const cipherOpacity = options.cipherOpacity ?? 1;
+  const exclusionZone = options.exclusionZone ?? null;
 
   const exclusionZoneRef = React.useRef<Set<number> | null>(exclusionZone);
   exclusionZoneRef.current = exclusionZone;
@@ -66,7 +72,6 @@ export function useCipherWall(
 
     colorsRef.current = themeOverride ?? readThemeColors();
 
-    // --- Sizing ---
     const dpr = Math.min(devicePixelRatio, DPR_CAP);
 
     function computeGridSize(w: number, h: number): { cols: number; rows: number } {
@@ -100,7 +105,6 @@ export function useCipherWall(
       });
     }
 
-    // --- Initial setup ---
     const initW = parent?.clientWidth ?? 0;
     const initH = parent?.clientHeight ?? 0;
     sizeCanvas(initW, initH);
@@ -109,9 +113,8 @@ export function useCipherWall(
     let lastCols = initCols;
     let lastRows = initRows;
 
-    // --- Static render for frozen mode ---
     if (frozen) {
-      stateRef.current = createFrozenSnapshot(initCols, initRows, frozenMessageCount);
+      stateRef.current = createFrozenSnapshot(initCols, initRows, messages);
       tryRender();
 
       function handleFrozenResize(): void {
@@ -121,7 +124,7 @@ export function useCipherWall(
         sizeCanvas(w, h);
         const { cols, rows } = computeGridSize(w, h);
         if (cols !== lastCols || rows !== lastRows) {
-          stateRef.current = createFrozenSnapshot(cols, rows, frozenMessageCount);
+          stateRef.current = createFrozenSnapshot(cols, rows, messages);
           lastCols = cols;
           lastRows = rows;
         }
@@ -135,8 +138,7 @@ export function useCipherWall(
       };
     }
 
-    // --- Animated mode ---
-    const state = createGrid(initCols, initRows);
+    const state = createGrid(initCols, initRows, messages);
     state.exclusionZone = exclusionZoneRef.current;
     seedInitialReveals(state);
     stateRef.current = state;
@@ -144,6 +146,7 @@ export function useCipherWall(
     let lastTime = 0;
 
     function animate(time: number): void {
+      // eslint-disable-next-line no-restricted-globals -- intentional raw rAF for canvas render loop; respects motion via internal flag
       rafIdRef.current = requestAnimationFrame(animate);
 
       // Poll dimensions each frame
@@ -170,9 +173,9 @@ export function useCipherWall(
       tryRender();
     }
 
+    // eslint-disable-next-line no-restricted-globals -- intentional raw rAF for canvas render loop; respects motion via internal flag
     rafIdRef.current = requestAnimationFrame(animate);
 
-    // --- Theme observer ---
     const mutationObserver = new MutationObserver(() => {
       colorsRef.current = readThemeColors();
     });
@@ -185,7 +188,7 @@ export function useCipherWall(
       cancelAnimationFrame(rafIdRef.current);
       mutationObserver.disconnect();
     };
-  }, [frozen, frozenMessageCount, themeOverride, cipherOpacity]);
+  }, [frozen, messages, themeOverride, cipherOpacity]);
 
   React.useEffect(() => {
     if (stateRef.current) {

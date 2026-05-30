@@ -31,12 +31,10 @@ export function StableContent({
   className,
   'data-testid': testId,
 }: Readonly<StableContentProps>): React.ReactNode {
-  // Show skeleton while loading (if provided)
   if (!isStable && skeleton) {
     return skeleton;
   }
 
-  // Preserve layout: render children but invisible
   if (!isStable && preserveLayout) {
     return (
       <div className={cn('invisible', className)} data-testid={testId}>
@@ -45,12 +43,10 @@ export function StableContent({
     );
   }
 
-  // Not stable and no skeleton/preserveLayout: render nothing
   if (!isStable) {
     return null;
   }
 
-  // Stable: render children (with wrapper if className or testId provided)
   if (className || testId) {
     return (
       <div className={className} data-testid={testId}>

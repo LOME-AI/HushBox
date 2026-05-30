@@ -11,7 +11,6 @@ export interface Document {
 
 export const MIN_LINES_FOR_DOCUMENT = 15;
 
-// Build display name lookup once: id → name, alias → name
 const DISPLAY_NAMES = new Map<string, string>();
 for (const lang of bundledLanguagesInfo) {
   DISPLAY_NAMES.set(lang.id, lang.name);
@@ -22,7 +21,6 @@ for (const lang of bundledLanguagesInfo) {
   }
 }
 
-// Build extension lookup: language ID/alias → shortest alphanumeric alias
 const FILE_EXTENSIONS = new Map<string, string>();
 for (const lang of bundledLanguagesInfo) {
   const candidates = (lang.aliases ?? [])
@@ -37,7 +35,6 @@ for (const lang of bundledLanguagesInfo) {
   }
 }
 
-/** Get proper display name for a language ID or alias */
 export function getLanguageDisplayName(language: string): string {
   return (
     DISPLAY_NAMES.get(language.toLowerCase()) ??
@@ -45,12 +42,10 @@ export function getLanguageDisplayName(language: string): string {
   );
 }
 
-/** Get file extension for a language ID, using Shiki alias data */
 export function getFileExtension(language: string): string {
   return FILE_EXTENSIONS.get(language.toLowerCase()) ?? language.toLowerCase();
 }
 
-/** Get document type from language */
 export function getDocumentType(language: string): Document['type'] {
   const lang = language.toLowerCase();
   if (lang === 'mermaid') return 'mermaid';
@@ -59,7 +54,6 @@ export function getDocumentType(language: string): Document['type'] {
   return 'code';
 }
 
-/** Generate a stable ID for a document based on content hash */
 export function generateDocumentId(content: string): string {
   let hash = 0;
   for (let index = 0; index < content.length; index++) {
@@ -70,7 +64,6 @@ export function generateDocumentId(content: string): string {
   return `doc-${Math.abs(hash).toString(36)}`;
 }
 
-/** Check if a code block should be extracted as a document */
 export function shouldExtractAsDocument(language: string | undefined, lineCount: number): boolean {
   if (!language) return false;
   if (language.toLowerCase() === 'mermaid') return true;

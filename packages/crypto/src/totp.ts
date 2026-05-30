@@ -1,6 +1,6 @@
+import { generateSecret as otpGenerateSecret, generateURI, verify, generateSync } from 'otplib';
 import { hkdfSha256 } from './hash.js';
 import { symmetricEncrypt, symmetricDecrypt } from './symmetric.js';
-import { generateSecret as otpGenerateSecret, generateURI, verify, generateSync } from 'otplib';
 
 const TOTP_INFO = new TextEncoder().encode('totp-encryption-v1');
 
@@ -36,4 +36,61 @@ export async function verifyTotpCode(code: string, secret: string): Promise<bool
 
 export function generateTotpCodeSync(secret: string): string {
   return generateSync({ secret });
+}
+
+const TOTP_PERIOD_SECONDS = 30;
+const DEFAULT_TOTP_WINDOW_STEPS = 1;
+
+export type VerifyTotpTokenResult = { ok: true } | { ok: false; reason: 'invalid-code' };
+
+export type DecryptAndVerifyTotpResult =
+  | { ok: true }
+  | { ok: false; reason: 'decrypt-failed' | 'invalid-code' };
+
+export async function verifyTotpToken(args: {
+  secret: string;
+  code: string;
+  now: Date;
+  window?: number;
+}): Promise<VerifyTotpTokenResult> {
+  const windowSteps = args.window ?? DEFAULT_TOTP_WINDOW_STEPS;
+  const epochTolerance = windowSteps * TOTP_PERIOD_SECONDS;
+  const epochSeconds = Math.floor(args.now.getTime() / 1000);
+
+  try {
+    const result = await verify({
+      token: args.code,
+      secret: args.secret,
+      strategy: 'totp',
+      epoch: epochSeconds,
+      epochTolerance,
+    });
+    return result.valid ? { ok: true } : { ok: false, reason: 'invalid-code' };
+  } catch {
+    return { ok: false, reason: 'invalid-code' };
+  }
+}
+
+export async function decryptAndVerifyTotp(args: {
+  masterSecret: Uint8Array;
+  encryptedSecret: Uint8Array;
+  code: string;
+  now: Date;
+  window?: number;
+}): Promise<DecryptAndVerifyTotpResult> {
+  const key = deriveTotpEncryptionKey(args.masterSecret);
+
+  let secret: string;
+  try {
+    secret = decryptTotpSecret(args.encryptedSecret, key);
+  } catch {
+    return { ok: false, reason: 'decrypt-failed' };
+  }
+
+  return verifyTotpToken({
+    secret,
+    code: args.code,
+    now: args.now,
+    ...(args.window !== undefined && { window: args.window }),
+  });
 }

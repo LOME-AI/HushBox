@@ -403,7 +403,7 @@ Add `validateSearch` for `?token=` query param. In `beforeLoad`: if token presen
 Sent to ALL new users (web and mobile) during signup flow. Content:
 
 - Welcome to HushBox
-- **How billing works**: Pay-as-you-go, no subscriptions, 15% transparent fee (5% HushBox, 4.5% card processing, 5.5% AI provider overhead)
+- **How billing works**: Pay-as-you-go, no subscriptions, 9.5% transparent fee (5% HushBox, 4.5% card processing)
 - **How to add credits**: Visit Billing page, add credits with any card, credits never expire
 - **For Apple & Google Play users**: "Tap 'Manage Balance Online' to add credits through our website. We route you to the web to avoid passing high in-app processing fees on to you — keeping your costs low."
 - Positioned as: transparent, fair, looking out for the user

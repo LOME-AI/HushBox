@@ -1,11 +1,20 @@
 import * as React from 'react';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Overlay, OverlayContent, ModalActions, Input } from '@hushbox/ui';
 import { Copy, Check, AlertTriangle } from 'lucide-react';
+import {
+  InlineFormError,
+  Input,
+  ModalActions,
+  Overlay,
+  OverlayContent,
+  UserMessageError,
+  useAsyncAction,
+  useIsMobile,
+  type UseAsyncActionReturn,
+} from '@hushbox/ui';
 import { regenerateRecoveryPhrase } from '@hushbox/crypto';
 import { toBase64 } from '@hushbox/shared';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { ModalSuccessStep } from '@/components/shared/modal-success-step';
 import { useAuthStore } from '@/lib/auth';
@@ -23,8 +32,7 @@ interface ModalState {
   setStep: (step: Step) => void;
   setCopied: (copied: boolean) => void;
   setVerificationInputs: (inputs: string[]) => void;
-  setSaving: (saving: boolean) => void;
-  setError: (error: string | null) => void;
+  setInitError: (error: string | null) => void;
   setPhrase: (phrase: string) => void;
   setVerificationIndices: (indices: number[]) => void;
   recoveryWrappedPrivateKeyRef: React.RefObject<Uint8Array | null>;
@@ -35,7 +43,7 @@ async function initializeRecoveryPhrase(
   state: ModalState
 ): Promise<void> {
   if (!privateKey) {
-    state.setError('Failed to save recovery material. Please try again.');
+    state.setInitError('Failed to save recovery material. Please try again.');
     return;
   }
 
@@ -45,50 +53,37 @@ async function initializeRecoveryPhrase(
     state.setVerificationIndices(generateVerificationIndices());
     state.recoveryWrappedPrivateKeyRef.current = result.recoveryWrappedPrivateKey;
   } catch (error_: unknown) {
-    state.setError(error_ instanceof Error ? error_.message : 'Failed to generate recovery phrase');
+    state.setInitError(
+      error_ instanceof Error ? error_.message : 'Failed to generate recovery phrase'
+    );
   }
 }
 
-function resetModalState(state: ModalState): void {
+function resetModalState(state: ModalState, clearVerifyError: () => void): void {
   state.setStep('display');
   state.setCopied(false);
   state.setVerificationInputs(['', '', '']);
-  state.setSaving(false);
-  state.setError(null);
+  state.setInitError(null);
+  clearVerifyError();
   state.setPhrase('');
   state.recoveryWrappedPrivateKeyRef.current = null;
 }
 
 async function performVerification(
   wrappedKeyRef: React.RefObject<Uint8Array | null>,
-  setSaving: (saving: boolean) => void,
-  setError: (error: string | null) => void,
   setStep: (step: Step) => void
 ): Promise<void> {
-  setSaving(true);
-  setError(null);
+  const wrappedKey = wrappedKeyRef.current;
+  if (!wrappedKey) {
+    throw new UserMessageError('Failed to save recovery material. Please try again.');
+  }
 
   try {
-    const wrappedKey = wrappedKeyRef.current;
-    if (!wrappedKey) {
-      setError('Failed to save recovery material. Please try again.');
-      setSaving(false);
-      return;
-    }
-
     await saveRecoveryMaterial(wrappedKey);
-    setStep('success');
   } catch {
-    setError('Failed to save recovery material. Please try again.');
-  } finally {
-    setSaving(false);
+    throw new UserMessageError('Failed to save recovery material. Please try again.');
   }
-}
-
-function handleModalOpen(state: ModalState): void {
-  resetModalState(state);
-  const { privateKey } = useAuthStore.getState();
-  void initializeRecoveryPhrase(privateKey, state);
+  setStep('success');
 }
 
 const STEP_NUMBERS: Record<Step, number> = {
@@ -144,25 +139,27 @@ export function RecoveryPhraseModal({
   const [copied, setCopied] = useState(false);
   const [verificationIndices, setVerificationIndices] = useState<number[]>([]);
   const [verificationInputs, setVerificationInputs] = useState<string[]>(['', '', '']);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
+  const verifyAction = useAsyncAction();
   const recoveryWrappedPrivateKeyRef = useRef<Uint8Array | null>(null);
 
-  // Generate phrase and wrapped key when modal opens
+  const { clearError: clearVerifyError } = verifyAction;
   useEffect(() => {
     if (!open) return;
 
-    handleModalOpen({
+    const state: ModalState = {
       setStep,
       setCopied,
       setVerificationInputs,
-      setSaving,
-      setError,
+      setInitError,
       setPhrase,
       setVerificationIndices,
       recoveryWrappedPrivateKeyRef,
-    });
-  }, [open]);
+    };
+    resetModalState(state, clearVerifyError);
+    const { privateKey } = useAuthStore.getState();
+    void initializeRecoveryPhrase(privateKey, state);
+  }, [open, clearVerifyError]);
 
   const words = useMemo(() => phrase.split(' '), [phrase]);
 
@@ -200,9 +197,9 @@ export function RecoveryPhraseModal({
 
   const allCorrect = verificationResults.every(Boolean);
 
-  const handleVerify = useCallback(async () => {
-    await performVerification(recoveryWrappedPrivateKeyRef, setSaving, setError, setStep);
-  }, []);
+  const handleVerify = useCallback((): void => {
+    void verifyAction.run(() => performVerification(recoveryWrappedPrivateKeyRef, setStep));
+  }, [verifyAction]);
 
   const handleDone = useCallback(() => {
     onSuccess();
@@ -222,10 +219,11 @@ export function RecoveryPhraseModal({
       ariaLabel="Recovery phrase setup"
       onOpenAutoFocus={handleOpenAutoFocus}
       currentStep={currentStep}
+      dismissible={!verifyAction.isPending}
       {...(showBackButton && { onBack: handleBack })}
     >
       <OverlayContent data-testid="recovery-phrase-modal" size="xl" className="w-[75vw]">
-        <ErrorBanner error={error} phrase={phrase} />
+        <ErrorBanner error={initError} phrase={phrase} />
 
         {step === 'display' && phrase && (
           <DisplayStep
@@ -245,12 +243,9 @@ export function RecoveryPhraseModal({
             verificationInputs={verificationInputs}
             verificationResults={verificationResults}
             allCorrect={allCorrect}
-            saving={saving}
-            error={error}
+            verifyAction={verifyAction}
             onInputChange={handleVerificationChange}
-            onVerify={() => {
-              void handleVerify();
-            }}
+            onVerify={handleVerify}
           />
         )}
 
@@ -331,8 +326,7 @@ interface VerifyStepProps {
   verificationInputs: string[];
   verificationResults: boolean[];
   allCorrect: boolean;
-  saving: boolean;
-  error: string | null;
+  verifyAction: UseAsyncActionReturn;
   onInputChange: (index: number, value: string) => void;
   onVerify: () => void;
 }
@@ -342,13 +336,13 @@ function VerifyStep({
   verificationInputs,
   verificationResults,
   allCorrect,
-  saving,
-  error,
+  verifyAction,
   onInputChange,
   onVerify,
 }: Readonly<VerifyStepProps>): React.JSX.Element {
   const formRef = useRef<HTMLFormElement>(null);
   useFormEnterNav(formRef);
+  const { isPending: saving, error, errorKey, clearError } = verifyAction;
 
   return (
     <div className="space-y-4">
@@ -376,6 +370,7 @@ function VerifyStep({
                   value={verificationInputs[inputIndex] ?? ''}
                   onChange={(e) => {
                     onInputChange(inputIndex, e.target.value);
+                    if (error !== null) clearError();
                   }}
                   placeholder={`Enter word ${String(wordIndex + 1)}`}
                   className="pr-10"
@@ -395,7 +390,7 @@ function VerifyStep({
         </div>
       </form>
 
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      <InlineFormError error={error} errorKey={errorKey} />
 
       <ModalActions
         primary={{

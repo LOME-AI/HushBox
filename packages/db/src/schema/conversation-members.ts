@@ -6,6 +6,7 @@ import {
   integer,
   uniqueIndex,
   boolean,
+  check,
 } from 'drizzle-orm/pg-core';
 import { isNull, sql } from 'drizzle-orm';
 
@@ -46,5 +47,9 @@ export const conversationMembers = pgTable(
     index('conversation_members_user_active_lookup_idx')
       .on(table.userId)
       .where(isNull(table.leftAt)),
+    check(
+      'conversation_members_identity_or_left_check',
+      sql`${table.userId} IS NOT NULL OR ${table.linkId} IS NOT NULL OR ${table.leftAt} IS NOT NULL`
+    ),
   ]
 );

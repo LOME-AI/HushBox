@@ -3,9 +3,9 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import { deviceTokens } from '@hushbox/db';
-import type { AppEnv } from '../types.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import { getUser } from '../lib/get-user.js';
+import type { AppEnv } from '../types.js';
 
 export const deviceTokensRoute = new Hono<AppEnv>()
   .use('*', requireAuth())

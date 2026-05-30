@@ -5,12 +5,21 @@ import { generateEnvFiles } from './generate-env.js';
 import { getWorktreeConfig } from './worktree.js';
 import { seed } from './seed.js';
 import { cleanupOrphanedProjects } from './docker-cleanup.js';
+import { isMainModule } from './lib/is-main.js';
 
-const DOCKER_SERVICES = ['postgres', 'neon-proxy', 'redis', 'serverless-redis-http'];
+const DOCKER_SERVICES = ['postgres', 'neon-proxy', 'redis', 'serverless-redis-http', 'minio'];
 
 export async function startDocker(): Promise<void> {
   console.log('Starting Docker services...');
   await execa('docker', ['compose', 'up', '-d', '--wait', ...DOCKER_SERVICES], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+  // The minio-setup container creates the local bucket via mc and exits. It
+  // depends on minio's healthcheck, so it must be started AFTER the --wait
+  // call above, not in the same compose-up command (compose `up --wait` only
+  // waits for services that have a healthcheck, which minio-setup does not).
+  await execa('docker', ['compose', 'up', '-d', 'minio-setup'], {
     stdio: 'inherit',
     env: process.env,
   });
@@ -26,7 +35,7 @@ export async function runMigrations(): Promise<void> {
   console.log('Migrations complete');
 }
 
-export function startDrizzleStudio(): void {
+export function startDrizzleStudio(port: number): void {
   console.log('Starting Drizzle Studio...');
   const subprocess = execa('pnpm', ['--filter', '@hushbox/db', 'db:studio'], {
     stdio: 'ignore',
@@ -36,7 +45,7 @@ export function startDrizzleStudio(): void {
   subprocess.catch(() => {
     console.warn('Drizzle Studio failed to start (non-fatal)');
   });
-  console.log('Drizzle Studio available at https://local.drizzle.studio');
+  console.log(`Drizzle Studio available at https://local.drizzle.studio?port=${String(port)}`);
 }
 
 export async function runSeed(): Promise<void> {
@@ -59,25 +68,24 @@ export async function main(): Promise<void> {
   config({ path: path.resolve(process.cwd(), '.env.development') });
   config({ path: path.resolve(process.cwd(), '.env.scripts') });
 
-  // Log worktree configuration
   if (worktree.isWorktree) {
     console.log(`Worktree: slot ${String(worktree.slot)} (${worktree.projectName})`);
   }
   console.log(`  Vite:     http://localhost:${String(worktree.ports.vite)}`);
   console.log(`  API:      http://localhost:${String(worktree.ports.api)}`);
   console.log(`  Postgres: localhost:${String(worktree.ports.postgres)}`);
+  console.log(`  Studio:   https://local.drizzle.studio?port=${String(worktree.ports.studio)}`);
   await cleanupOrphanedProjects({ dryRun: false }).catch((error: unknown) => {
     console.warn('Docker cleanup failed (non-fatal):', error);
   });
   await startDocker();
   await runMigrations();
-  startDrizzleStudio();
+  startDrizzleStudio(worktree.ports.studio);
   await runSeed();
   await startTurbo();
 }
 
-// Only run main if this is the entry point
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) {
   void (async () => {
     try {

@@ -28,6 +28,7 @@ import {
   CAPACITY_YELLOW_THRESHOLD,
   STORAGE_COST_PER_CHARACTER,
   MAX_SELECTED_MODELS,
+  TOTAL_FEE_RATE,
 } from './constants.js';
 
 describe('estimateTokensForTier', () => {
@@ -370,7 +371,6 @@ describe('calculateBudget integration', () => {
     expect(result).toHaveProperty('effectiveBalance');
     expect(result).toHaveProperty('currentUsage');
     expect(result).toHaveProperty('capacityPercent');
-    // canAfford and errors are no longer in the return type
     expect(result).not.toHaveProperty('canAfford');
     expect(result).not.toHaveProperty('errors');
   });
@@ -683,10 +683,6 @@ describe('effectiveBudgetCents', () => {
   });
 });
 
-// ============================================================================
-// generateNotifications() — maps resolveBilling() output to UI notifications
-// ============================================================================
-
 /** Helper to build NotificationInput with sensible defaults */
 function notifInput(overrides: Partial<NotificationInput> = {}): NotificationInput {
   return {
@@ -994,28 +990,17 @@ describe('generateNotifications', () => {
   });
 });
 
-// ============================================================================
-// Comprehensive notification state audit — 54 cases
-// Tests the CORRECTED behavior (Issues B, C, E, F)
-// ============================================================================
-
 describe('generateNotifications — comprehensive state audit', () => {
   /** Extract notification IDs in order */
   function ids(result: ReturnType<typeof generateNotifications>): string[] {
     return result.map((n) => n.id);
   }
 
-  // Capacity values
   const CAP_NORMAL = 20;
   const CAP_WARNING = 80;
   const CAP_EXCEEDED = 150;
-  // MaxOutputTokens
   const BAL_HIGH = 50_000;
   const BAL_LOW = 5000;
-
-  // ────────────────────────────────────────────
-  // A. TRIAL USER — Solo Only
-  // ────────────────────────────────────────────
 
   describe('A. Trial user — solo', () => {
     it('T1: basic, normal capacity, within cap → [trial_notice]', () => {
@@ -1105,10 +1090,6 @@ describe('generateNotifications — comprehensive state audit', () => {
       expect(ids(result)).toEqual(['capacity_exceeded', 'premium_requires_balance']);
     });
   });
-
-  // ────────────────────────────────────────────
-  // B. FREE USER — Solo / Group Owner
-  // ────────────────────────────────────────────
 
   describe('B. Free user — solo/owner', () => {
     it('F1: basic, normal, sufficient → [free_tier_notice]', () => {
@@ -1202,10 +1183,6 @@ describe('generateNotifications — comprehensive state audit', () => {
     });
   });
 
-  // ────────────────────────────────────────────
-  // C. PAID USER — Solo / Group Owner
-  // ────────────────────────────────────────────
-
   describe('C. Paid user — solo/owner', () => {
     it('P1: normal, high balance → []', () => {
       const result = generateNotifications(
@@ -1293,10 +1270,6 @@ describe('generateNotifications — comprehensive state audit', () => {
     });
   });
 
-  // ────────────────────────────────────────────
-  // D. GROUP MEMBER — Budget Active (owner pays)
-  // ────────────────────────────────────────────
-
   describe('D. Group member — budget active', () => {
     it('GM1: normal → [delegated_budget_notice]', () => {
       const result = generateNotifications(
@@ -1331,10 +1304,6 @@ describe('generateNotifications — comprehensive state audit', () => {
       expect(ids(result)).toEqual(['capacity_exceeded', 'delegated_budget_notice']);
     });
   });
-
-  // ────────────────────────────────────────────
-  // E. GROUP MEMBER — Budget Exhausted, Paid Member
-  // ────────────────────────────────────────────
 
   describe('E. Group member — budget exhausted, paid', () => {
     it('GMP1: normal, high → [delegated_budget_exhausted]', () => {
@@ -1438,10 +1407,6 @@ describe('generateNotifications — comprehensive state audit', () => {
       ]);
     });
   });
-
-  // ────────────────────────────────────────────
-  // F. GROUP MEMBER — Budget Exhausted, Free Member
-  // ────────────────────────────────────────────
 
   describe('F. Group member — budget exhausted, free', () => {
     it('GMF1: basic, normal, sufficient → [free_tier_notice, delegated_budget_exhausted]', () => {
@@ -1549,10 +1514,6 @@ describe('generateNotifications — comprehensive state audit', () => {
     });
   });
 
-  // ────────────────────────────────────────────
-  // G. GROUP MEMBER — Budget Exhausted, Guest Member
-  // ────────────────────────────────────────────
-
   describe('G. Group member — budget exhausted, guest', () => {
     it('GMG1: basic, normal, within cap → [trial_notice, delegated_budget_exhausted]', () => {
       const result = generateNotifications(
@@ -1659,10 +1620,6 @@ describe('generateNotifications — comprehensive state audit', () => {
     });
   });
 
-  // ────────────────────────────────────────────
-  // H. READ-ONLY MEMBER — early return
-  // ────────────────────────────────────────────
-
   describe('H. Read-only member', () => {
     it('RO1: read-only returns only read_only_notice regardless of billing state', () => {
       const result = generateNotifications(
@@ -1677,10 +1634,6 @@ describe('generateNotifications — comprehensive state audit', () => {
       expect(ids(result)).toEqual(['read_only_notice']);
     });
   });
-
-  // ────────────────────────────────────────────
-  // Issue E: insufficient_free_allowance has link
-  // ────────────────────────────────────────────
 
   describe('Issue E: insufficient_free_allowance segments', () => {
     it('includes Top up link to /billing', () => {
@@ -2151,8 +2104,8 @@ describe('calculateBudgetFromManifest', () => {
         variableItems: [{ type: 'text-output-tokens', costPerUnit: 0.000_06, applyFees: false }],
       };
       const result = calculateBudgetFromManifest(manifestWithFees, 10);
-      // 1.0 * 1.15 = 1.15
-      expect(result.totalFixedCost).toBeCloseTo(1.15, 10);
+      // 1.0 * (1 + TOTAL_FEE_RATE)
+      expect(result.totalFixedCost).toBeCloseTo(1 + TOTAL_FEE_RATE, 10);
     });
 
     it('applies fees to variable items when flagged', () => {
@@ -2161,7 +2114,7 @@ describe('calculateBudgetFromManifest', () => {
         variableItems: [{ type: 'future-output', costPerUnit: 1, applyFees: true }],
       };
       const result = calculateBudgetFromManifest(manifestWithFees, 10);
-      expect(result.variableCostPerToken).toBeCloseTo(1.15, 10);
+      expect(result.variableCostPerToken).toBeCloseTo(1 + TOTAL_FEE_RATE, 10);
     });
 
     it('does not apply fees when flag is false', () => {

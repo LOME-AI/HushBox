@@ -1,7 +1,6 @@
 import { execa } from 'execa';
 import { config } from 'dotenv';
 import path from 'node:path';
-import { generateEnvFiles } from './generate-env.js';
 import { startDocker, runMigrations, runSeed } from './dev.js';
 
 interface DockerContainer {
@@ -29,7 +28,9 @@ async function isPostgresRunning(): Promise<boolean> {
 }
 
 async function resetDatabase(): Promise<void> {
-  generateEnvFiles(process.cwd());
+  // Env files are the caller's responsibility — regenerating here would clobber
+  // a preceding `pnpm generate:env --mode=e2e` and silently strip `VITE_E2E`
+  // before the build reads it.
   config({ path: path.resolve(process.cwd(), '.env.development') });
   config({ path: path.resolve(process.cwd(), '.env.scripts') });
 

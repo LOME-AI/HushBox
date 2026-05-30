@@ -37,6 +37,7 @@ vi.mock('./worktree.js', () => ({
       astro: 4321,
       emulatorAdb: 5555,
       emulatorVnc: 6080,
+      studio: 4983,
     },
   }),
 }));
@@ -61,10 +62,12 @@ describe('dev script', () => {
   });
 
   describe('startDocker', () => {
-    it('calls docker compose up with correct arguments', async () => {
+    it('calls docker compose up with correct arguments including minio', async () => {
       await startDocker();
 
-      expect(mockExeca).toHaveBeenCalledWith(
+      // First call: bring up the core services (with --wait) including minio
+      expect(mockExeca).toHaveBeenNthCalledWith(
+        1,
         'docker',
         [
           'compose',
@@ -75,7 +78,22 @@ describe('dev script', () => {
           'neon-proxy',
           'redis',
           'serverless-redis-http',
+          'minio',
         ],
+        expect.objectContaining({
+          stdio: 'inherit',
+        })
+      );
+    });
+
+    it('runs minio-setup after the core services are ready', async () => {
+      await startDocker();
+
+      // Second call: minio-setup runs after the wait completes
+      expect(mockExeca).toHaveBeenNthCalledWith(
+        2,
+        'docker',
+        ['compose', 'up', '-d', 'minio-setup'],
         expect.objectContaining({
           stdio: 'inherit',
         })
@@ -111,7 +129,7 @@ describe('dev script', () => {
 
   describe('startDrizzleStudio', () => {
     it('calls pnpm db:studio with correct arguments', () => {
-      startDrizzleStudio();
+      startDrizzleStudio(4983);
 
       expect(mockExeca).toHaveBeenCalledWith(
         'pnpm',
@@ -122,11 +140,21 @@ describe('dev script', () => {
       );
     });
 
+    it('logs the worktree-specific studio URL with the supplied port', () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      startDrizzleStudio(5111);
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'Drizzle Studio available at https://local.drizzle.studio?port=5111'
+      );
+    });
+
     it('does not throw when execa rejects (non-fatal)', () => {
       mockExeca.mockReturnValueOnce(Promise.reject(new Error('Studio failed')) as never);
 
       expect(() => {
-        startDrizzleStudio();
+        startDrizzleStudio(4983);
       }).not.toThrow();
     });
   });
@@ -160,13 +188,27 @@ describe('dev script', () => {
         return Promise.resolve({ orphaned: [], removed: [], failed: [] });
       });
 
+      // Distinguish core compose-up from minio-setup so the order of
+      // dependent steps stays asserted as before, even though startDocker
+      // now issues two `docker compose up` calls.
+      const labelDocker = (args: readonly string[] | undefined): string =>
+        Array.isArray(args) && args.includes('minio-setup') ? 'minio-setup' : 'docker';
+      const labelPnpm = (args: readonly string[] | undefined): string => {
+        if (!Array.isArray(args)) return '';
+        if (args.includes('db:migrate')) return 'migrations';
+        if (args.includes('db:studio')) return 'studio';
+        return '';
+      };
+      const labelExecaCall = (cmd: string | URL, args: readonly string[] | undefined): string => {
+        if (cmd === 'docker') return labelDocker(args);
+        if (cmd === 'pnpm') return labelPnpm(args);
+        if (cmd === 'turbo') return 'turbo';
+        return '';
+      };
+
       mockExeca.mockImplementation(((cmd: string | URL, args?: readonly string[]) => {
-        if (cmd === 'docker') callOrder.push('docker');
-        if (cmd === 'pnpm' && Array.isArray(args) && args.includes('db:migrate'))
-          callOrder.push('migrations');
-        if (cmd === 'pnpm' && Array.isArray(args) && args.includes('db:studio'))
-          callOrder.push('studio');
-        if (cmd === 'turbo') callOrder.push('turbo');
+        const label = labelExecaCall(cmd, args);
+        if (label !== '') callOrder.push(label);
         return Promise.resolve({} as never);
       }) as never);
 
@@ -177,7 +219,15 @@ describe('dev script', () => {
 
       await main();
 
-      expect(callOrder).toEqual(['cleanup', 'docker', 'migrations', 'studio', 'seed', 'turbo']);
+      expect(callOrder).toEqual([
+        'cleanup',
+        'docker',
+        'minio-setup',
+        'migrations',
+        'studio',
+        'seed',
+        'turbo',
+      ]);
     });
 
     it('calls cleanupOrphanedProjects with dryRun false', async () => {
@@ -189,10 +239,8 @@ describe('dev script', () => {
     it('continues startup when cleanup fails (non-fatal)', async () => {
       mockCleanup.mockRejectedValueOnce(new Error('git not found'));
 
-      // Should not throw — cleanup failure is caught
       await main();
 
-      // Docker should still have been called
       expect(mockExeca).toHaveBeenCalledWith(
         'docker',
         expect.arrayContaining(['compose', 'up']),
@@ -208,7 +256,6 @@ describe('dev script', () => {
 
       await expect(main()).rejects.toThrow('Docker failed');
 
-      // Should only have called docker, not migrations or turbo
       expect(mockExeca).toHaveBeenCalledTimes(1);
     });
 
@@ -222,8 +269,9 @@ describe('dev script', () => {
 
       await expect(main()).rejects.toThrow('Migration failed');
 
-      // Should have called docker and migrations, but not turbo
-      expect(callCount).toBe(2);
+      // Should have called docker (core), minio-setup, then migrations (which
+      // rejects), but not turbo. That's three execa calls before the error.
+      expect(callCount).toBe(3);
     });
   });
 });

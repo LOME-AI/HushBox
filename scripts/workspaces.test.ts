@@ -135,7 +135,6 @@ describe('workspaces', () => {
     it('skips directories without package.json', () => {
       createWorkspaceYaml(['apps/*']);
       mkdirSync(path.join(testDir, 'apps/web'), { recursive: true });
-      // No package.json created
 
       const workspaces = discoverWorkspaces(testDir);
 
@@ -215,11 +214,9 @@ describe('workspaces', () => {
 
   describe('integration with real project', () => {
     it('discovers workspaces from actual pnpm-workspace.yaml', () => {
-      // Use the real project root
       const projectRoot = path.join(import.meta.dirname, '..');
       const workspaces = discoverWorkspaces(projectRoot);
 
-      // Should find at least the known workspaces
       const names = workspaces.map((w) => w.name);
       expect(names).toContain('web');
       expect(names).toContain('api');

@@ -34,6 +34,7 @@ export function useKeyboardOffset(): KeyboardPosition {
       cancelAnimationFrame(rafId.current);
     }
 
+    // eslint-disable-next-line no-restricted-globals -- one-shot rAF for visual-viewport layout polling, not motion animation
     rafId.current = requestAnimationFrame(() => {
       const vv = window.visualViewport;
       if (!vv) {

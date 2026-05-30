@@ -1,16 +1,16 @@
+import { MODEL_FEATURES, type ModelFeatureId } from './types.js';
 import type { Model } from '../schemas/api/models.js';
-import { CAPABILITIES, type CapabilityId } from './types.js';
 
-export function getModelCapabilities(model: Model): CapabilityId[] {
+export function getModelFeatures(model: Model): ModelFeatureId[] {
   const supportedParams = new Set(model.supportedParameters);
 
-  return Object.values(CAPABILITIES)
-    .filter((cap) => cap.requiredParameters.every((p) => supportedParams.has(p)))
-    .map((cap) => cap.id);
+  return Object.values(MODEL_FEATURES)
+    .filter((feat) => feat.requiredParameters.every((p) => supportedParams.has(p)))
+    .map((feat) => feat.id);
 }
 
-export function modelSupportsCapability(model: Model, capabilityId: CapabilityId): boolean {
-  const cap = CAPABILITIES[capabilityId];
+export function modelHasFeature(model: Model, featureId: ModelFeatureId): boolean {
+  const feat = MODEL_FEATURES[featureId];
   const supportedParams = new Set(model.supportedParameters);
-  return cap.requiredParameters.every((p) => supportedParams.has(p));
+  return feat.requiredParameters.every((p) => supportedParams.has(p));
 }

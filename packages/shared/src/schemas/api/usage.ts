@@ -1,9 +1,5 @@
 import { z } from 'zod';
 
-// ============================================================
-// Request Schemas
-// ============================================================
-
 /** Valid granularity options for time-series aggregation */
 export const usageGranularitySchema = z.enum(['day', 'week']);
 
@@ -47,10 +43,6 @@ export const usageBalanceHistoryQuerySchema = usageDateRangeQuerySchema.extend({
 });
 
 export type UsageBalanceHistoryQuery = z.infer<typeof usageBalanceHistoryQuerySchema>;
-
-// ============================================================
-// Response Schemas
-// ============================================================
 
 /**
  * Response schema for GET /usage/summary.

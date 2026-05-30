@@ -34,7 +34,6 @@ export function StabilityProvider({
 
   const isAuthenticated = Boolean(session?.user);
 
-  // Auth is stable when session query completes
   const isAuthStable = !isSessionPending;
 
   // Balance is stable when:
@@ -42,7 +41,6 @@ export function StabilityProvider({
   // - User is authenticated AND we have balance data (cached or fresh)
   const isBalanceStable = !isAuthenticated || Boolean(balanceData);
 
-  // App is stable when all core queries settle
   const isAppStable = isAuthStable && isBalanceStable;
 
   const value = React.useMemo(

@@ -3,10 +3,37 @@ import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN } from '@hushbox/shared';
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((col: unknown, val: unknown) => ({ col, val })),
+  getTableColumns: vi.fn(() => ({ id: { name: 'id' }, name: { name: 'name' } })),
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
+    {
+      raw: vi.fn((s: string) => ({ raw: s })),
+      identifier: vi.fn((s: string) => ({ identifier: s })),
+    }
+  ),
 }));
+
+vi.mock('./lib/seed-crypto-pool.js', () => ({
+  ensurePersonaCrypto: vi.fn(() => Promise.resolve(new Map())),
+}));
+
+vi.mock('./lib/seed-crypto-cache.js', async () => {
+  const actual = await vi.importActual<typeof import('./lib/seed-crypto-cache.js')>(
+    './lib/seed-crypto-cache.js'
+  );
+  return {
+    ...actual,
+    computeCryptoFingerprint: vi.fn(() => Promise.resolve('test-fingerprint')),
+  };
+});
 
 vi.mock('dotenv', () => ({
   config: vi.fn(),
+}));
+
+vi.mock('@hushbox/shared/models', () => ({
+  fetchModels: vi.fn(() => Promise.resolve([])),
+  pickValueTextModel: vi.fn(() => 'anthropic/claude-3.5-sonnet'),
 }));
 
 function mockCryptoBytes(length: number): Uint8Array {
@@ -36,7 +63,12 @@ vi.mock('@hushbox/crypto', () => ({
       wrap: mockCryptoBytes(48),
     })),
   })),
-  encryptMessageForStorage: vi.fn(() => mockCryptoBytes(64)),
+  encryptTextForEpoch: vi.fn(() => mockCryptoBytes(64)),
+  beginMessageEnvelope: vi.fn(() => ({
+    contentKey: mockCryptoBytes(32),
+    wrappedContentKey: mockCryptoBytes(81),
+  })),
+  encryptTextWithContentKey: vi.fn(() => mockCryptoBytes(64)),
   generateKeyPair: vi.fn(() => ({
     publicKey: mockCryptoBytes(32),
     privateKey: mockCryptoBytes(32),
@@ -66,10 +98,18 @@ function createMockSelectChain(result: unknown[] = []) {
 }
 
 function createMockDb() {
+  const buildValues = (): Promise<void> & { onConflictDoUpdate: () => Promise<void> } => {
+    const promise = Promise.resolve();
+    const augmented = promise as Promise<void> & {
+      onConflictDoUpdate: () => Promise<void>;
+    };
+    augmented.onConflictDoUpdate = vi.fn(() => Promise.resolve());
+    return augmented;
+  };
   return {
     select: vi.fn(() => createMockSelectChain()),
     insert: vi.fn(() => ({
-      values: vi.fn(() => Promise.resolve()),
+      values: vi.fn(() => buildValues()),
     })),
     update: vi.fn(() => ({
       set: vi.fn(() => ({
@@ -86,6 +126,7 @@ vi.mock('@hushbox/db', () => {
     users: { id: 'id' },
     conversations: { id: 'id' },
     messages: { id: 'id' },
+    contentItems: { id: 'id' },
     projects: { id: 'id' },
     payments: { id: 'id' },
     wallets: { id: 'id' },
@@ -136,13 +177,31 @@ vi.mock('@hushbox/db/factories', () => ({
     build: vi.fn((overrides: Record<string, unknown> = {}) => ({
       id: 'test-msg-id',
       conversationId: 'test-conv-id',
-      encryptedBlob: mockCryptoBytes(64),
+      wrappedContentKey: mockCryptoBytes(81),
       senderType: 'user',
       senderId: 'test-user-id',
-      modelName: null,
-      payerId: null,
       epochNumber: 1,
       sequenceNumber: 1,
+      ...overrides,
+      createdAt: new Date(),
+    })),
+  },
+  contentItemFactory: {
+    build: vi.fn((overrides: Record<string, unknown> = {}) => ({
+      id: 'test-ci-id',
+      messageId: 'test-msg-id',
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: mockCryptoBytes(64),
+      storageKey: null,
+      mimeType: null,
+      sizeBytes: null,
+      width: null,
+      height: null,
+      durationMs: null,
+      modelName: null,
+      cost: null,
+      isSmartModel: false,
       ...overrides,
       createdAt: new Date(),
     })),
@@ -276,16 +335,26 @@ import {
   generateSeedData,
   generatePersonaData,
   generateTestPersonaData,
+  loadSeedAiModel,
   upsertEntity,
   seed,
   seedUUID,
   createScreenshotConversations,
+  BASE_TEST_PERSONAS,
+  E2E_PROJECT_NAMES,
+  MOBILE_TEST_PERSONA,
+  TEST_PERSONAS,
 } from './seed';
 
+const FIRST_PROJECT = E2E_PROJECT_NAMES[0];
+const EXPECTED_TEST_USER_COUNT = BASE_TEST_PERSONAS.length * E2E_PROJECT_NAMES.length;
+
 describe('seed script', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     process.env['DATABASE_URL'] = 'postgres://test:test@localhost:5432/test';
+    process.env['PUBLIC_MODELS_URL'] = 'https://models.test/local.json';
+    await loadSeedAiModel();
   });
 
   afterEach(() => {
@@ -337,6 +406,25 @@ describe('seed script', () => {
       expect(fifthUser?.id).toBe(seedUUID('seed-user-5'));
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       expect(firstUser?.id).toMatch(uuidRegex);
+    });
+
+    it('derives deterministic, unique identities for filler users', () => {
+      const first = generateSeedData();
+      const second = generateSeedData();
+
+      const emails = first.users.map((u) => u.email);
+      const usernames = first.users.map((u) => u.username);
+
+      // Index-derived, so identical across runs and unique by construction.
+      // bulkUpsert conflicts only on id, so a colliding email/username (the
+      // factory's faker default) would abort the whole insert.
+      expect(first.users[0]?.email).toBe(`seed-user-1@${DEV_EMAIL_DOMAIN}`);
+      expect(first.users[0]?.username).toBe('seeduser1');
+      expect(first.users[4]?.username).toBe('seeduser5');
+      expect(second.users.map((u) => u.email)).toEqual(emails);
+      expect(second.users.map((u) => u.username)).toEqual(usernames);
+      expect(new Set(emails).size).toBe(emails.length);
+      expect(new Set(usernames).size).toBe(usernames.length);
     });
 
     it('generates correct number of projects (2 per user)', () => {
@@ -412,13 +500,22 @@ describe('seed script', () => {
       expect(data.conversationMembers).toHaveLength(expectedConversationMembers);
     });
 
-    it('messages have encrypted blobs instead of plaintext content', () => {
+    it('messages have wrappedContentKey instead of plaintext content', () => {
       const data = generateSeedData();
       const firstMsg = data.messages[0];
       expect(firstMsg).toBeDefined();
-      expect(firstMsg?.encryptedBlob).toBeInstanceOf(Uint8Array);
+      expect(firstMsg?.wrappedContentKey).toBeInstanceOf(Uint8Array);
       expect('content' in (firstMsg ?? {})).toBe(false);
       expect('role' in (firstMsg ?? {})).toBe(false);
+    });
+
+    it('generates content items for each message', () => {
+      const data = generateSeedData();
+      expect(data.contentItems).toHaveLength(data.messages.length);
+      const firstItem = data.contentItems[0];
+      expect(firstItem).toBeDefined();
+      expect(firstItem?.encryptedBlob).toBeInstanceOf(Uint8Array);
+      expect(firstItem?.contentType).toBe('text');
     });
 
     it('conversations have encrypted titles', () => {
@@ -530,7 +627,6 @@ describe('seed script', () => {
 
       const charlieProjects = data.projects.filter((p) => p.userId === charlieId);
       expect(charlieProjects).toHaveLength(0);
-      // Charlie has a conversation but no projects/payments
     });
 
     it('charlie has exactly 1 conversation with 4 messages', async () => {
@@ -545,7 +641,6 @@ describe('seed script', () => {
       );
       expect(charlieMessages).toHaveLength(4);
 
-      // Verify alternating sender types
       expect(charlieMessages[0]?.senderType).toBe('user');
       expect(charlieMessages[1]?.senderType).toBe('ai');
       expect(charlieMessages[2]?.senderType).toBe('user');
@@ -642,7 +737,6 @@ describe('seed script', () => {
 
     it('each persona has 2 wallets (purchased + free_tier)', async () => {
       const data = await generatePersonaData();
-      // 3 personas * 2 wallets each = 6
       expect(data.wallets).toHaveLength(6);
 
       const aliceId = seedUUID('dev-user-alice');
@@ -662,7 +756,6 @@ describe('seed script', () => {
       const aliceId = seedUUID('dev-user-alice');
       const aliceConversations = data.conversations.filter((c) => c.userId === aliceId);
 
-      // Each conversation should have 1 epoch
       for (const conv of aliceConversations) {
         const convEpochs = data.epochs.filter((e) => e.conversationId === conv.id);
         expect(convEpochs).toHaveLength(1);
@@ -686,30 +779,32 @@ describe('seed script', () => {
   });
 
   describe('generateTestPersonaData', () => {
-    it('generates all eleven test personas', async () => {
+    it('generates one user per base persona per project plus the mobile persona', async () => {
       const data = await generateTestPersonaData();
-      expect(data.users).toHaveLength(11);
+      expect(data.users).toHaveLength(EXPECTED_TEST_USER_COUNT + 1);
     });
 
-    it('includes test-alice, test-bob, and test-charlie users with test domain', async () => {
+    it('includes test-alice, test-bob, and test-charlie variants with test domain', async () => {
       const data = await generateTestPersonaData();
       const emails = data.users.map((u) => u.email);
-      expect(emails).toContain(`test-alice@${TEST_EMAIL_DOMAIN}`);
-      expect(emails).toContain(`test-bob@${TEST_EMAIL_DOMAIN}`);
-      expect(emails).toContain(`test-charlie@${TEST_EMAIL_DOMAIN}`);
+      expect(emails).toContain(`test-alice-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`);
+      expect(emails).toContain(`test-bob-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`);
+      expect(emails).toContain(`test-charlie-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`);
     });
 
-    it('uses deterministic UUIDs based on test persona name', async () => {
+    it('uses deterministic UUIDs based on project-suffixed persona name', async () => {
       const data = await generateTestPersonaData();
-      const testAlice = data.users.find((u) => u.email === `test-alice@${TEST_EMAIL_DOMAIN}`);
-      expect(testAlice?.id).toBe(seedUUID('test-user-test-alice'));
+      const testAlice = data.users.find(
+        (u) => u.email === `test-alice-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`
+      );
+      expect(testAlice?.id).toBe(seedUUID(`test-user-test-alice-${FIRST_PROJECT}`));
     });
 
-    it('generates sample data only for test-alice (hasSampleData=true)', async () => {
+    it('generates sample data only for test-alice variants (hasSampleData=true)', async () => {
       const data = await generateTestPersonaData();
-      const testAliceId = seedUUID('test-user-test-alice');
-      const testBobId = seedUUID('test-user-test-bob');
-      const testCharlieId = seedUUID('test-user-test-charlie');
+      const testAliceId = seedUUID(`test-user-test-alice-${FIRST_PROJECT}`);
+      const testBobId = seedUUID(`test-user-test-bob-${FIRST_PROJECT}`);
+      const testCharlieId = seedUUID(`test-user-test-charlie-${FIRST_PROJECT}`);
 
       const testAliceProjects = data.projects.filter((p) => p.userId === testAliceId);
       expect(testAliceProjects.length).toBeGreaterThan(0);
@@ -728,25 +823,31 @@ describe('seed script', () => {
       expect(testCharlieConversations).toHaveLength(0);
     });
 
-    it('test-alice has exactly 2 projects', async () => {
+    it('each test-alice variant has exactly 2 projects', async () => {
       const data = await generateTestPersonaData();
-      const testAliceId = seedUUID('test-user-test-alice');
+      const testAliceId = seedUUID(`test-user-test-alice-${FIRST_PROJECT}`);
       const testAliceProjects = data.projects.filter((p) => p.userId === testAliceId);
       expect(testAliceProjects).toHaveLength(2);
     });
 
-    it('test-alice has exactly 3 conversations', async () => {
+    it('each test-alice variant has exactly 3 conversations', async () => {
       const data = await generateTestPersonaData();
-      const testAliceId = seedUUID('test-user-test-alice');
+      const testAliceId = seedUUID(`test-user-test-alice-${FIRST_PROJECT}`);
       const testAliceConversations = data.conversations.filter((c) => c.userId === testAliceId);
       expect(testAliceConversations).toHaveLength(3);
     });
 
-    it('sets emailVerified correctly from test persona definition', async () => {
+    it('sets emailVerified correctly from base test persona definition', async () => {
       const data = await generateTestPersonaData();
-      const testAlice = data.users.find((u) => u.email === `test-alice@${TEST_EMAIL_DOMAIN}`);
-      const testBob = data.users.find((u) => u.email === `test-bob@${TEST_EMAIL_DOMAIN}`);
-      const testCharlie = data.users.find((u) => u.email === `test-charlie@${TEST_EMAIL_DOMAIN}`);
+      const testAlice = data.users.find(
+        (u) => u.email === `test-alice-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`
+      );
+      const testBob = data.users.find(
+        (u) => u.email === `test-bob-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`
+      );
+      const testCharlie = data.users.find(
+        (u) => u.email === `test-charlie-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`
+      );
 
       expect(testAlice?.emailVerified).toBe(true);
       expect(testBob?.emailVerified).toBe(true);
@@ -760,15 +861,16 @@ describe('seed script', () => {
       const devEmails = devData.users.map((u) => u.email);
       const testEmails = testData.users.map((u) => u.email);
 
-      // No overlap between dev and test emails
       for (const devEmail of devEmails) {
         expect(testEmails).not.toContain(devEmail);
       }
     });
 
-    it('includes test-2fa persona with TOTP enabled', async () => {
+    it('includes test-2fa persona variants with TOTP enabled', async () => {
       const data = await generateTestPersonaData();
-      const test2fa = data.users.find((u) => u.email === `test-2fa@${TEST_EMAIL_DOMAIN}`);
+      const test2fa = data.users.find(
+        (u) => u.email === `test-2fa-${FIRST_PROJECT}@${TEST_EMAIL_DOMAIN}`
+      );
 
       expect(test2fa).toBeDefined();
       expect(test2fa?.emailVerified).toBe(true);
@@ -789,13 +891,12 @@ describe('seed script', () => {
 
     it('each test persona has 2 wallets (purchased + free_tier)', async () => {
       const data = await generateTestPersonaData();
-      // 11 personas * 2 wallets each = 22
-      expect(data.wallets).toHaveLength(22);
+      expect(data.wallets).toHaveLength((TEST_PERSONAS.length + 1) * 2);
     });
 
-    it('test-alice conversations have epochs and members', async () => {
+    it('test-alice variant conversations have epochs and members', async () => {
       const data = await generateTestPersonaData();
-      const testAliceId = seedUUID('test-user-test-alice');
+      const testAliceId = seedUUID(`test-user-test-alice-${FIRST_PROJECT}`);
       const testAliceConversations = data.conversations.filter((c) => c.userId === testAliceId);
 
       for (const conv of testAliceConversations) {
@@ -806,6 +907,53 @@ describe('seed script', () => {
         expect(convMembers).toHaveLength(1);
         expect(convMembers[0]?.userId).toBe(testAliceId);
       }
+    });
+  });
+
+  describe('MOBILE_TEST_PERSONA', () => {
+    it('uses an unsuffixed name so the Maestro YAML literal resolves', () => {
+      expect(MOBILE_TEST_PERSONA.name).toBe('test-mobile');
+    });
+
+    it('has a varchar(20)-safe username', () => {
+      expect(MOBILE_TEST_PERSONA.username).toBe('tmu');
+      expect(MOBILE_TEST_PERSONA.username.length).toBeLessThanOrEqual(20);
+    });
+
+    it('is marked email-verified so login does not bounce to verification', () => {
+      expect(MOBILE_TEST_PERSONA.emailVerified).toBe(true);
+    });
+
+    it('is not part of the per-project TEST_PERSONAS cross-product', () => {
+      for (const persona of TEST_PERSONAS) {
+        expect(persona.name).not.toBe('test-mobile');
+      }
+    });
+
+    it('generates exactly one seeded user at test-mobile@test.hushbox.ai', async () => {
+      const data = await generateTestPersonaData();
+      const mobileUsers = data.users.filter((u) => u.email === `test-mobile@${TEST_EMAIL_DOMAIN}`);
+      expect(mobileUsers).toHaveLength(1);
+    });
+
+    it('uses a deterministic UUID derived from test-user-test-mobile', async () => {
+      const data = await generateTestPersonaData();
+      const mobileUser = data.users.find((u) => u.email === `test-mobile@${TEST_EMAIL_DOMAIN}`);
+      expect(mobileUser?.id).toBe(seedUUID('test-user-test-mobile'));
+    });
+
+    it('seeds two wallets for the mobile persona', async () => {
+      const data = await generateTestPersonaData();
+      const mobileUserId = seedUUID('test-user-test-mobile');
+      const mobileWallets = data.wallets.filter((w) => w.userId === mobileUserId);
+      expect(mobileWallets).toHaveLength(2);
+    });
+
+    it('seeds sample-data projects for the mobile persona', async () => {
+      const data = await generateTestPersonaData();
+      const mobileUserId = seedUUID('test-user-test-mobile');
+      const mobileProjects = data.projects.filter((p) => p.userId === mobileUserId);
+      expect(mobileProjects.length).toBeGreaterThan(0);
     });
   });
 
@@ -916,10 +1064,19 @@ describe('seed script', () => {
       }
     });
 
-    it('all messages are encrypted', () => {
+    it('all messages have wrappedContentKey', () => {
       const result = createScreenshotConversations(buildScreenshotParams());
       for (const msg of result.messages) {
-        expect(msg.encryptedBlob).toBeInstanceOf(Uint8Array);
+        expect(msg.wrappedContentKey).toBeInstanceOf(Uint8Array);
+      }
+    });
+
+    it('creates content items for each message', () => {
+      const result = createScreenshotConversations(buildScreenshotParams());
+      expect(result.contentItems).toHaveLength(result.messages.length);
+      for (const item of result.contentItems) {
+        expect(item.encryptedBlob).toBeInstanceOf(Uint8Array);
+        expect(item.contentType).toBe('text');
       }
     });
   });

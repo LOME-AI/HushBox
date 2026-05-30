@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  insertContentItemSchema,
   insertConversationMemberSchema,
   insertConversationSchema,
   insertConversationSpendingSchema,
@@ -8,6 +9,7 @@ import {
   insertEpochSchema,
   insertLedgerEntrySchema,
   insertLlmCompletionSchema,
+  insertMediaGenerationSchema,
   insertMemberBudgetSchema,
   insertMessageSchema,
   insertPaymentSchema,
@@ -18,6 +20,7 @@ import {
   insertUsageRecordSchema,
   insertUserSchema,
   insertWalletSchema,
+  selectContentItemSchema,
   selectConversationMemberSchema,
   selectConversationSchema,
   selectConversationSpendingSchema,
@@ -25,6 +28,7 @@ import {
   selectEpochSchema,
   selectLedgerEntrySchema,
   selectLlmCompletionSchema,
+  selectMediaGenerationSchema,
   selectMemberBudgetSchema,
   selectMessageSchema,
   selectPaymentSchema,
@@ -79,6 +83,8 @@ describe('selectUserSchema', () => {
       publicKey: new Uint8Array([10, 11, 12]),
       passwordWrappedPrivateKey: new Uint8Array([13, 14, 15]),
       recoveryWrappedPrivateKey: new Uint8Array([16, 17, 18]),
+      accessibilityPreferences: { version: 1 },
+      accessibilityPreferencesUpdatedAt: new Date(),
     });
     expect(result.success).toBe(true);
   });
@@ -100,6 +106,8 @@ describe('selectUserSchema', () => {
       publicKey: new Uint8Array([10, 11, 12]),
       passwordWrappedPrivateKey: new Uint8Array([13, 14, 15]),
       recoveryWrappedPrivateKey: new Uint8Array([16, 17, 18]),
+      accessibilityPreferences: { version: 1 },
+      accessibilityPreferencesUpdatedAt: new Date(),
     });
     expect(result.success).toBe(true);
   });
@@ -243,10 +251,10 @@ describe('selectConversationSchema', () => {
 });
 
 describe('insertMessageSchema', () => {
-  it('accepts valid message data with encrypted blob', () => {
+  it('accepts valid message data with wrapped content key', () => {
     const result = insertMessageSchema.safeParse({
       conversationId: '550e8400-e29b-41d4-a716-446655440000',
-      encryptedBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       senderType: 'user',
       epochNumber: 1,
       sequenceNumber: 1,
@@ -257,7 +265,7 @@ describe('insertMessageSchema', () => {
   it('accepts message with optional senderId', () => {
     const result = insertMessageSchema.safeParse({
       conversationId: '550e8400-e29b-41d4-a716-446655440000',
-      encryptedBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       senderType: 'ai',
       epochNumber: 1,
       sequenceNumber: 2,
@@ -266,7 +274,7 @@ describe('insertMessageSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects missing encryptedBlob', () => {
+  it('rejects missing wrappedContentKey', () => {
     const result = insertMessageSchema.safeParse({
       conversationId: '550e8400-e29b-41d4-a716-446655440000',
       senderType: 'user',
@@ -279,7 +287,7 @@ describe('insertMessageSchema', () => {
   it('rejects missing senderType', () => {
     const result = insertMessageSchema.safeParse({
       conversationId: '550e8400-e29b-41d4-a716-446655440000',
-      encryptedBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       epochNumber: 1,
       sequenceNumber: 1,
     });
@@ -292,15 +300,13 @@ describe('selectMessageSchema', () => {
     const result = selectMessageSchema.safeParse({
       id: '550e8400-e29b-41d4-a716-446655440000',
       conversationId: '550e8400-e29b-41d4-a716-446655440001',
-      encryptedBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       senderType: 'user',
       senderId: '550e8400-e29b-41d4-a716-446655440002',
-      modelName: null,
-      payerId: null,
-      cost: null,
       epochNumber: 1,
       sequenceNumber: 1,
       parentMessageId: null,
+      batchId: '550e8400-e29b-41d4-a716-446655440099',
       createdAt: new Date(),
     });
     expect(result.success).toBe(true);
@@ -310,15 +316,13 @@ describe('selectMessageSchema', () => {
     const result = selectMessageSchema.safeParse({
       id: '550e8400-e29b-41d4-a716-446655440000',
       conversationId: '550e8400-e29b-41d4-a716-446655440001',
-      encryptedBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       senderType: 'ai',
       senderId: null,
-      modelName: null,
-      payerId: '550e8400-e29b-41d4-a716-446655440002',
-      cost: null,
       epochNumber: 1,
       sequenceNumber: 2,
       parentMessageId: null,
+      batchId: '550e8400-e29b-41d4-a716-446655440099',
       createdAt: new Date(),
     });
     expect(result.success).toBe(true);
@@ -431,7 +435,7 @@ describe('selectPaymentSchema', () => {
 describe('insertServiceEvidenceSchema', () => {
   it('accepts valid service evidence data', () => {
     const result = insertServiceEvidenceSchema.safeParse({
-      service: 'openrouter',
+      service: 'ai-gateway',
     });
     expect(result.success).toBe(true);
   });
@@ -446,7 +450,7 @@ describe('selectServiceEvidenceSchema', () => {
   it('accepts complete service evidence data', () => {
     const result = selectServiceEvidenceSchema.safeParse({
       id: '550e8400-e29b-41d4-a716-446655440000',
-      service: 'openrouter',
+      service: 'ai-gateway',
       details: { key: 'value' },
       createdAt: new Date(),
     });
@@ -878,19 +882,19 @@ describe('insertSharedMessageSchema', () => {
   it('accepts valid shared message data', () => {
     const result = insertSharedMessageSchema.safeParse({
       messageId: '550e8400-e29b-41d4-a716-446655440000',
-      shareBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
     });
     expect(result.success).toBe(true);
   });
 
   it('rejects missing messageId', () => {
     const result = insertSharedMessageSchema.safeParse({
-      shareBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
     });
     expect(result.success).toBe(false);
   });
 
-  it('rejects missing shareBlob', () => {
+  it('rejects missing wrappedContentKey', () => {
     const result = insertSharedMessageSchema.safeParse({
       messageId: '550e8400-e29b-41d4-a716-446655440000',
     });
@@ -903,7 +907,7 @@ describe('selectSharedMessageSchema', () => {
     const result = selectSharedMessageSchema.safeParse({
       id: '550e8400-e29b-41d4-a716-446655440000',
       messageId: '550e8400-e29b-41d4-a716-446655440001',
-      shareBlob: new Uint8Array([1, 2, 3]),
+      wrappedContentKey: new Uint8Array([1, 2, 3]),
       createdAt: new Date(),
     });
     expect(result.success).toBe(true);
@@ -968,6 +972,211 @@ describe('selectConversationSpendingSchema', () => {
       conversationId: '550e8400-e29b-41d4-a716-446655440001',
       totalSpent: '25.50000000',
       updatedAt: new Date(),
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('insertContentItemSchema', () => {
+  it('accepts a text item with encryptedBlob and no media fields', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: new Uint8Array([1, 2, 3]),
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a text item that also carries storageKey', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: new Uint8Array([1, 2, 3]),
+      storageKey: 'media/foo/bar.enc',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a text item missing encryptedBlob', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'text',
+      position: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts an image item with storageKey, mimeType, sizeBytes', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'image',
+      position: 0,
+      storageKey: 'media/conv/msg/item.enc',
+      mimeType: 'image/png',
+      sizeBytes: 12_345,
+      modelName: 'imagen-4',
+      cost: '0.046',
+      isSmartModel: false,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a media item missing storageKey', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'image',
+      position: 0,
+      mimeType: 'image/png',
+      sizeBytes: 100,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a media item missing mimeType', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'audio',
+      position: 0,
+      storageKey: 'media/foo/bar.enc',
+      sizeBytes: 100,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a media item missing sizeBytes', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'video',
+      position: 0,
+      storageKey: 'media/foo/bar.enc',
+      mimeType: 'video/mp4',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a media item that also carries encryptedBlob', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'image',
+      position: 0,
+      storageKey: 'media/foo/bar.enc',
+      mimeType: 'image/png',
+      sizeBytes: 100,
+      encryptedBlob: new Uint8Array([1, 2, 3]),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an unknown contentType', () => {
+    const result = insertContentItemSchema.safeParse({
+      messageId: '550e8400-e29b-41d4-a716-446655440000',
+      contentType: 'banana',
+      position: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('selectContentItemSchema', () => {
+  it('accepts a complete text content item', () => {
+    const result = selectContentItemSchema.safeParse({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      messageId: '550e8400-e29b-41d4-a716-446655440001',
+      contentType: 'text',
+      position: 0,
+      encryptedBlob: new Uint8Array([1, 2, 3]),
+      storageKey: null,
+      mimeType: null,
+      sizeBytes: null,
+      width: null,
+      height: null,
+      durationMs: null,
+      modelName: null,
+      cost: null,
+      isSmartModel: false,
+      createdAt: new Date(),
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a complete image content item', () => {
+    const result = selectContentItemSchema.safeParse({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      messageId: '550e8400-e29b-41d4-a716-446655440001',
+      contentType: 'image',
+      position: 0,
+      encryptedBlob: null,
+      storageKey: 'media/foo/bar.enc',
+      mimeType: 'image/png',
+      sizeBytes: 12_345,
+      width: 1024,
+      height: 1024,
+      durationMs: null,
+      modelName: 'imagen-4',
+      cost: '0.04600000',
+      isSmartModel: false,
+      createdAt: new Date(),
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('insertMediaGenerationSchema', () => {
+  it('accepts an image generation row', () => {
+    const result = insertMediaGenerationSchema.safeParse({
+      usageRecordId: '550e8400-e29b-41d4-a716-446655440000',
+      model: 'imagen-4',
+      provider: 'ai-gateway',
+      mediaType: 'image',
+      imageCount: 1,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a video generation row with duration and resolution', () => {
+    const result = insertMediaGenerationSchema.safeParse({
+      usageRecordId: '550e8400-e29b-41d4-a716-446655440000',
+      model: 'veo-3',
+      provider: 'ai-gateway',
+      mediaType: 'video',
+      durationMs: 5000,
+      resolution: '720p',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a row missing model', () => {
+    const result = insertMediaGenerationSchema.safeParse({
+      usageRecordId: '550e8400-e29b-41d4-a716-446655440000',
+      provider: 'ai-gateway',
+      mediaType: 'image',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a row missing mediaType', () => {
+    const result = insertMediaGenerationSchema.safeParse({
+      usageRecordId: '550e8400-e29b-41d4-a716-446655440000',
+      model: 'imagen-4',
+      provider: 'ai-gateway',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('selectMediaGenerationSchema', () => {
+  it('accepts a complete media generation row', () => {
+    const result = selectMediaGenerationSchema.safeParse({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      usageRecordId: '550e8400-e29b-41d4-a716-446655440001',
+      model: 'imagen-4',
+      provider: 'ai-gateway',
+      mediaType: 'image',
+      imageCount: 1,
+      durationMs: null,
+      resolution: null,
     });
     expect(result.success).toBe(true);
   });

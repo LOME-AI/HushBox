@@ -5,10 +5,7 @@ import {
   ERROR_CODE_FORK_LIMIT_REACHED,
   ERROR_CODE_FORK_NAME_TAKEN,
 } from '@hushbox/shared';
-
-// =============================================================================
-// Error class
-// =============================================================================
+import { isUniqueViolation } from '../../lib/unique-violation.js';
 
 export class ForkError extends Error {
   constructor(
@@ -19,10 +16,6 @@ export class ForkError extends Error {
     this.name = 'ForkError';
   }
 }
-
-// =============================================================================
-// Types
-// =============================================================================
 
 export interface CreateForkParams {
   id: string;
@@ -58,10 +51,6 @@ export interface RenameForkParams {
   conversationId: string;
   name: string;
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 /**
  * Fetches all fork records for a conversation, ordered by creation time.
@@ -123,40 +112,6 @@ async function collectAncestorChain(
 
   return chain;
 }
-
-/** Checks if an error message indicates a unique constraint violation. */
-function hasUniqueViolationMessage(message: string): boolean {
-  return (
-    message.includes('duplicate key') ||
-    message.includes('unique constraint') ||
-    message.includes('conversation_forks_conv_name_idx')
-  );
-}
-
-/**
- * Checks if a unique constraint violation occurred on the (conversation_id, name) index.
- * Drizzle wraps postgres errors in DrizzleQueryError with the original error as `cause`.
- */
-function isUniqueViolation(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-
-  if (hasUniqueViolationMessage(error.message)) return true;
-
-  // Check the cause (DrizzleQueryError wraps postgres errors)
-  const cause = (error as { cause?: unknown }).cause;
-  if (cause instanceof Error && hasUniqueViolationMessage(cause.message)) return true;
-
-  // Check postgres error code 23505 (unique_violation) on cause
-  if (cause && typeof cause === 'object' && 'code' in cause && cause.code === '23505') {
-    return true;
-  }
-
-  return false;
-}
-
-// =============================================================================
-// Fork insertion helpers
-// =============================================================================
 
 /** Wraps an insert with unique-violation → ForkError re-throw. */
 async function insertWithUniqueCheck(
@@ -225,10 +180,6 @@ async function insertAdditionalFork(params: InsertForksParams): Promise<void> {
   );
 }
 
-// =============================================================================
-// createFork
-// =============================================================================
-
 /**
  * Creates a new fork in a conversation. Idempotent on fork ID.
  *
@@ -254,7 +205,6 @@ export async function createFork(
     return { forks, isNew: false };
   }
 
-  // Count existing forks
   const existingForks = await fetchAllForks(db, conversationId);
 
   if (existingForks.length >= MAX_FORKS_PER_CONVERSATION) {
@@ -276,10 +226,6 @@ export async function createFork(
   const forks = await fetchAllForks(db, conversationId);
   return { forks, isNew: true };
 }
-
-// =============================================================================
-// deleteFork
-// =============================================================================
 
 /**
  * Deletes a fork and its exclusive messages.
@@ -322,7 +268,6 @@ export async function deleteFork(
     };
   }
 
-  // Get all other forks
   const otherForks = await db
     .select({
       id: conversationForks.id,
@@ -333,7 +278,6 @@ export async function deleteFork(
       and(eq(conversationForks.conversationId, conversationId), ne(conversationForks.id, forkId))
     );
 
-  // Collect ancestor chains for all other forks
   const otherChains = new Set<string>();
   for (const otherFork of otherForks) {
     const chain = await collectAncestorChain(db, conversationId, otherFork.tipMessageId);
@@ -342,7 +286,6 @@ export async function deleteFork(
     }
   }
 
-  // Collect the deleted fork's chain
   const deletedChain = await collectAncestorChain(db, conversationId, targetFork.tipMessageId);
 
   // Find exclusive messages: in deleted chain but not in any other chain
@@ -353,15 +296,12 @@ export async function deleteFork(
     }
   }
 
-  // Delete exclusive messages
   if (exclusiveMessageIds.length > 0) {
     await db.delete(messages).where(inArray(messages.id, exclusiveMessageIds));
   }
 
-  // Delete the fork record
   await db.delete(conversationForks).where(eq(conversationForks.id, forkId));
 
-  // Check remaining forks
   const remaining = await fetchAllForks(db, conversationId);
 
   // If only one fork remains, revert to linear (delete all fork records)
@@ -378,10 +318,6 @@ export async function deleteFork(
     })),
   };
 }
-
-// =============================================================================
-// renameFork
-// =============================================================================
 
 /**
  * Renames a fork. Atomic UPDATE with WHERE clause.

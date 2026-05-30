@@ -3,7 +3,6 @@ import { useUIStore } from './ui';
 
 describe('useUIStore', () => {
   beforeEach(() => {
-    // Reset store state before each test
     useUIStore.setState({ sidebarOpen: false, mobileSidebarOpen: false });
   });
 

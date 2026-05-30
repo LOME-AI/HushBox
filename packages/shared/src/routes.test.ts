@@ -6,7 +6,7 @@ describe('ROUTES constants', () => {
   const routeValues = Object.values(ROUTES);
 
   it('contains the expected number of route definitions', () => {
-    expect(routeEntries.length).toBe(21);
+    expect(routeEntries.length).toBe(23);
   });
 
   it('has all values as non-empty strings', () => {
@@ -38,6 +38,7 @@ describe('ROUTES constants', () => {
   it('matches the expected route definitions', () => {
     expect(ROUTES).toMatchInlineSnapshot(`
       {
+        "ACCESSIBILITY": "/accessibility",
         "BILLING": "/billing",
         "BLOG": "/blog",
         "CHAT": "/chat",
@@ -52,6 +53,7 @@ describe('ROUTES constants', () => {
         "MARKETING": "/welcome",
         "PRIVACY": "/privacy",
         "PROJECTS": "/projects",
+        "ROADMAP": "/roadmap",
         "SETTINGS": "/settings",
         "SHARE_CONVERSATION": "/share/c/$conversationId",
         "SHARE_MESSAGE": "/share/m/$shareId",
@@ -87,6 +89,11 @@ describe('FOOTER_LINKS', () => {
           "group": "Product",
           "href": "/blog",
           "label": "Blog",
+        },
+        {
+          "group": "Product",
+          "href": "/roadmap",
+          "label": "Roadmap",
         },
         {
           "group": "Account",

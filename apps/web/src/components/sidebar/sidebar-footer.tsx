@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { DropdownMenuItem, DropdownMenuSeparator } from '@hushbox/ui';
 import {
+  Accessibility,
   Check,
   Database,
   ExternalLink as ExternalLinkIcon,
@@ -18,6 +18,7 @@ import {
   Users,
 } from 'lucide-react';
 import { SiGithub } from '@icons-pack/react-simple-icons';
+import { DropdownMenuItem, DropdownMenuSeparator } from '@hushbox/ui';
 import { FEATURE_FLAGS, displayUsername, ROUTES } from '@hushbox/shared';
 import { ExternalPageLink } from '@/components/shared/external-page-link';
 
@@ -25,7 +26,7 @@ import { useUIStore } from '@/stores/ui';
 import { useTouchOverrideStore } from '@/stores/touch-override';
 import { useSession, signOutAndClearCache } from '@/lib/auth';
 import { useStableBalance } from '@/hooks/use-stable-balance';
-import { DRIZZLE_STUDIO_URL } from '@/lib/routes';
+import { buildDrizzleStudioUrl } from '@/lib/routes';
 import { formatBalance } from '@/lib/format';
 import { DevOnly } from '@/components/shared/dev-only';
 import { SidebarFooterBase } from '@/components/shared/sidebar-footer-base';
@@ -54,15 +55,21 @@ function MarketingMenuItem(): React.JSX.Element {
 
 function DevMenuItems({
   navigate,
-}: Readonly<{ navigate: ReturnType<typeof useNavigate> }>): React.JSX.Element {
+  closeMobileSidebar,
+}: Readonly<{
+  navigate: ReturnType<typeof useNavigate>;
+  closeMobileSidebar: () => void;
+}>): React.JSX.Element {
   const touchOverride = useTouchOverrideStore((state) => state.override);
   const toggleTouch = useTouchOverrideStore((state) => state.toggle);
+  const localStudioUrl = import.meta.env['VITE_DRIZZLE_STUDIO_URL'] as string | undefined;
 
   return (
     <DevOnly>
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={() => {
+          closeMobileSidebar();
           void navigate({ to: ROUTES.DEV_PERSONAS, search: { type: undefined } });
         }}
         data-testid="menu-personas"
@@ -72,6 +79,7 @@ function DevMenuItems({
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => {
+          closeMobileSidebar();
           void navigate({ to: ROUTES.DEV_EMAILS });
         }}
         data-testid="menu-emails"
@@ -81,6 +89,7 @@ function DevMenuItems({
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => {
+          closeMobileSidebar();
           void navigate({ to: ROUTES.DEV_ASSETS });
         }}
         data-testid="menu-assets"
@@ -88,12 +97,14 @@ function DevMenuItems({
         <Image className="mr-2 h-4 w-4" />
         Assets
       </DropdownMenuItem>
-      <DropdownMenuItem asChild data-testid="menu-db-studio">
-        <a href={DRIZZLE_STUDIO_URL} target="_blank" rel="noopener noreferrer">
-          <Database className="mr-2 h-4 w-4" />
-          Database Studio
-        </a>
-      </DropdownMenuItem>
+      {localStudioUrl && (
+        <DropdownMenuItem asChild data-testid="menu-db-studio">
+          <a href={buildDrizzleStudioUrl(localStudioUrl)} target="_blank" rel="noopener noreferrer">
+            <Database className="mr-2 h-4 w-4" />
+            Database Studio
+          </a>
+        </DropdownMenuItem>
+      )}
       <DropdownMenuItem
         onClick={(e) => {
           e.preventDefault();
@@ -111,9 +122,31 @@ function DevMenuItems({
 
 interface MenuItemsProps {
   navigate: ReturnType<typeof useNavigate>;
+  closeMobileSidebar: () => void;
 }
 
-function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.JSX.Element {
+function AccessibilityMenuItem({
+  navigate,
+  closeMobileSidebar,
+}: Readonly<MenuItemsProps>): React.JSX.Element {
+  return (
+    <DropdownMenuItem
+      onClick={() => {
+        closeMobileSidebar();
+        void navigate({ to: ROUTES.ACCESSIBILITY });
+      }}
+      data-testid="menu-accessibility"
+    >
+      <Accessibility className="mr-2 h-4 w-4" />
+      Accessibility
+    </DropdownMenuItem>
+  );
+}
+
+function AuthenticatedMenuItems({
+  navigate,
+  closeMobileSidebar,
+}: Readonly<MenuItemsProps>): React.JSX.Element {
   const handleLogout = async (): Promise<void> => {
     await signOutAndClearCache();
     void navigate({ to: ROUTES.LOGIN });
@@ -124,6 +157,7 @@ function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.J
       {FEATURE_FLAGS.SETTINGS_ENABLED && (
         <DropdownMenuItem
           onClick={() => {
+            closeMobileSidebar();
             void navigate({ to: ROUTES.SETTINGS });
           }}
           data-testid="menu-settings"
@@ -132,8 +166,10 @@ function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.J
           Settings
         </DropdownMenuItem>
       )}
+      <AccessibilityMenuItem navigate={navigate} closeMobileSidebar={closeMobileSidebar} />
       <DropdownMenuItem
         onClick={() => {
+          closeMobileSidebar();
           void navigate({ to: ROUTES.USAGE });
         }}
         data-testid="menu-usage"
@@ -143,6 +179,7 @@ function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.J
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => {
+          closeMobileSidebar();
           void navigate({ to: ROUTES.BILLING });
         }}
         data-testid="menu-add-credits"
@@ -156,6 +193,7 @@ function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.J
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={() => {
+          closeMobileSidebar();
           void handleLogout();
         }}
         data-testid="menu-logout"
@@ -163,19 +201,25 @@ function AuthenticatedMenuItems({ navigate }: Readonly<MenuItemsProps>): React.J
         <LogOut className="mr-2 h-4 w-4" />
         Log Out
       </DropdownMenuItem>
-      <DevMenuItems navigate={navigate} />
+      <DevMenuItems navigate={navigate} closeMobileSidebar={closeMobileSidebar} />
     </>
   );
 }
 
-function TrialMenuItems({ navigate }: Readonly<MenuItemsProps>): React.JSX.Element {
+function TrialMenuItems({
+  navigate,
+  closeMobileSidebar,
+}: Readonly<MenuItemsProps>): React.JSX.Element {
   return (
     <>
+      <AccessibilityMenuItem navigate={navigate} closeMobileSidebar={closeMobileSidebar} />
+      <DropdownMenuSeparator />
       <GitHubMenuItem />
       <MarketingMenuItem />
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={() => {
+          closeMobileSidebar();
           void navigate({ to: ROUTES.LOGIN });
         }}
         data-testid="menu-login"
@@ -185,6 +229,7 @@ function TrialMenuItems({ navigate }: Readonly<MenuItemsProps>): React.JSX.Eleme
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => {
+          closeMobileSidebar();
           void navigate({ to: ROUTES.SIGNUP });
         }}
         data-testid="menu-signup"
@@ -192,16 +237,21 @@ function TrialMenuItems({ navigate }: Readonly<MenuItemsProps>): React.JSX.Eleme
         <UserPlus className="mr-2 h-4 w-4" />
         Sign Up
       </DropdownMenuItem>
-      <DevMenuItems navigate={navigate} />
+      <DevMenuItems navigate={navigate} closeMobileSidebar={closeMobileSidebar} />
     </>
   );
 }
 
 export function SidebarFooter(): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
+  const setMobileSidebarOpen = useUIStore((state) => state.setMobileSidebarOpen);
   const { data: session } = useSession();
   const { displayBalance, isStable } = useStableBalance();
   const navigate = useNavigate();
+
+  const closeMobileSidebar = React.useCallback(() => {
+    setMobileSidebarOpen(false);
+  }, [setMobileSidebarOpen]);
 
   const isAuthenticated = !!session?.user;
   const displayName = isAuthenticated ? displayUsername(session.user.username) : 'Trial User';
@@ -219,9 +269,9 @@ export function SidebarFooter(): React.JSX.Element {
       testId="sidebar"
       dropdownContent={
         isAuthenticated ? (
-          <AuthenticatedMenuItems navigate={navigate} />
+          <AuthenticatedMenuItems navigate={navigate} closeMobileSidebar={closeMobileSidebar} />
         ) : (
-          <TrialMenuItems navigate={navigate} />
+          <TrialMenuItems navigate={navigate} closeMobileSidebar={closeMobileSidebar} />
         )
       }
     />

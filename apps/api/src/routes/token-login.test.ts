@@ -64,18 +64,26 @@ const DEFAULT_USER = {
   hasAcknowledgedPhrase: true,
 };
 
-function createTestApp(options?: { redis?: ReturnType<typeof createMapRedis>; db?: unknown }): {
+function createTestApp(options?: {
+  redis?: ReturnType<typeof createMapRedis>;
+  db?: unknown;
+  ironSessionSecret?: string | undefined;
+}): {
   app: Hono<AppEnv>;
   redis: ReturnType<typeof createMapRedis>;
 } {
   const redis = options?.redis ?? createMapRedis();
   const db = options?.db ?? createMockDb(DEFAULT_USER);
+  const sessionSecret =
+    options && 'ironSessionSecret' in options
+      ? options.ironSessionSecret
+      : 'test-secret-must-be-at-least-32-characters-long!!';
 
   const app = new Hono<AppEnv>();
 
   app.use('*', async (c, next) => {
     c.env = {
-      IRON_SESSION_SECRET: 'test-secret-must-be-at-least-32-characters-long!!',
+      ...(sessionSecret === undefined ? {} : { IRON_SESSION_SECRET: sessionSecret }),
     } as unknown as AppEnv['Bindings'];
     c.set('db', db as AppEnv['Variables']['db']);
     c.set('redis', redis as unknown as AppEnv['Variables']['redis']);
@@ -143,7 +151,6 @@ describe('POST /auth/token-login', () => {
     const data = await jsonBody<{ success: boolean }>(res);
     expect(data.success).toBe(true);
 
-    // Iron-session should set a cookie
     const setCookie = res.headers.get('set-cookie');
     expect(setCookie).toBeTruthy();
     expect(setCookie).toContain('hushbox_session');
@@ -212,7 +219,6 @@ describe('POST /auth/token-login', () => {
     });
     const { app } = createTestApp({ redis });
 
-    // First use — succeeds
     const res1 = await app.request('/auth/token-login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -227,6 +233,56 @@ describe('POST /auth/token-login', () => {
       body: JSON.stringify({ token: 'a0000000-0000-4000-8000-000000000006' }),
     });
     expect(res2.status).toBe(200);
+  });
+
+  it('returns 500 SERVER_MISCONFIGURED when IRON_SESSION_SECRET is missing', async () => {
+    const redis = createMapRedis();
+    redis.store.set('billing:login-token:a0000000-0000-4000-8000-000000000099', {
+      userId: 'user-1',
+    });
+    const { app } = createTestApp({ redis, ironSessionSecret: undefined });
+
+    const res = await app.request('/auth/token-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'a0000000-0000-4000-8000-000000000099' }),
+    });
+
+    expect(res.status).toBe(500);
+    const data = await jsonBody<{ code: string }>(res);
+    expect(data.code).toBe('SERVER_MISCONFIGURED');
+  });
+
+  it('fails fast on missing IRON_SESSION_SECRET before any I/O', async () => {
+    // Locks in the fail-fast ordering: a misconfigured deployment must surface
+    // 500 BEFORE the handler reads from Redis or queries the DB. If this test
+    // fails, the secret check has slipped back below the I/O calls.
+    const redis = createMapRedis();
+    redis.store.set('billing:login-token:a0000000-0000-4000-8000-0000000000aa', {
+      userId: 'user-1',
+    });
+    let dbCalled = false;
+    const sentinelDb = {
+      select: () => {
+        dbCalled = true;
+        return createMockDb(DEFAULT_USER) as { select: () => unknown };
+      },
+    };
+    const { app } = createTestApp({
+      redis,
+      db: sentinelDb,
+      ironSessionSecret: undefined,
+    });
+
+    const res = await app.request('/auth/token-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'a0000000-0000-4000-8000-0000000000aa' }),
+    });
+
+    expect(res.status).toBe(500);
+    expect(redis.get).not.toHaveBeenCalled();
+    expect(dbCalled).toBe(false);
   });
 
   it('retries produce the same sessionActive key (no orphaned sessions)', async () => {

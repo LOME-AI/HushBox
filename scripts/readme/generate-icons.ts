@@ -3,6 +3,7 @@ import path from 'node:path';
 import * as lucideStatic from 'lucide-static';
 import { SHIPPED_FEATURES, COMING_SOON_FEATURES } from '../../packages/shared/src/features.js';
 import { withCache } from './cache.js';
+import { isMainModule } from '../lib/is-main.js';
 
 const LIGHT_STROKE = '#1f2328';
 const DARK_STROKE = '#e6edf3';
@@ -90,9 +91,8 @@ export function generateIcons(outputDir: string, repoRoot?: string): string[] {
   return filenames;
 }
 
-// CLI entry point
 const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../packages/ui/src/assets/icons');
 
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) generateIcons(DEFAULT_OUTPUT);

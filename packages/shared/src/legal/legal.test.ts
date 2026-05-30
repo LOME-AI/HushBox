@@ -5,18 +5,16 @@ import {
   TERMS_OF_SERVICE_META,
   TERMS_SECTIONS,
 } from './index.js';
-import type { LegalSection } from './types.js';
 import {
   PRIVACY_POLICY_EFFECTIVE_DATE,
   TERMS_OF_SERVICE_EFFECTIVE_DATE,
   PRIVACY_CONTACT_EMAIL,
   BILLING_CONTACT_EMAIL,
   TOTAL_FEE_RATE,
-  HUSHBOX_FEE_RATE,
-  CREDIT_CARD_FEE_RATE,
-  PROVIDER_FEE_RATE,
   STORAGE_COST_PER_1K_CHARS,
 } from '../constants.js';
+import { ALL_FEE_CATEGORIES, FEE_CATEGORIES, formatFeePercent } from '../fees.js';
+import type { LegalSection } from './types.js';
 
 function assertValidSections(sections: LegalSection[]): void {
   const ids = sections.map((s) => s.id);
@@ -104,6 +102,14 @@ describe('Privacy Policy', () => {
       expect(allText.toLowerCase()).not.toContain('posthog');
     });
 
+    it('does not mention the AI gateway provider by name', () => {
+      const allText = PRIVACY_SECTIONS.flatMap((s) => [s.title, s.simplyPut, ...s.points]).join(
+        ' '
+      );
+      expect(allText.toLowerCase()).not.toContain('openrouter');
+      expect(allText.toLowerCase()).not.toContain('vercel');
+    });
+
     it('does not promise data export', () => {
       const allText = PRIVACY_SECTIONS.flatMap((s) => [s.title, s.simplyPut, ...s.points]).join(
         ' '
@@ -111,11 +117,37 @@ describe('Privacy Policy', () => {
       expect(allText.toLowerCase()).not.toContain('export your data');
     });
 
-    it('does not promise account deletion', () => {
+    it('promises account deletion in plain language', () => {
       const allText = PRIVACY_SECTIONS.flatMap((s) => [s.title, s.simplyPut, ...s.points]).join(
         ' '
       );
-      expect(allText.toLowerCase()).not.toContain('delete your account');
+      expect(allText.toLowerCase()).toContain('delete your account');
+    });
+
+    it('promises a 90-day retention for the deletion event record', () => {
+      const allText = PRIVACY_SECTIONS.flatMap((s) => [s.title, s.simplyPut, ...s.points]).join(
+        ' '
+      );
+      const lower = allText.toLowerCase();
+      expect(lower).toContain('90 days');
+      const ninetyDaysIndex = lower.indexOf('90 days');
+      const deletionIndex = lower.indexOf('deletion', Math.max(0, ninetyDaysIndex - 200));
+      expect(deletionIndex).toBeGreaterThanOrEqual(0);
+      expect(Math.abs(deletionIndex - ninetyDaysIndex)).toBeLessThan(200);
+    });
+
+    it('promises encryption keys are destroyed on account deletion', () => {
+      const retentionSection = PRIVACY_SECTIONS.find((s) => s.id === 'data-retention');
+      expect(retentionSection).toBeDefined();
+      const sectionText = [
+        retentionSection!.title,
+        retentionSection!.simplyPut,
+        ...retentionSection!.points,
+      ]
+        .join(' ')
+        .toLowerCase();
+      expect(sectionText).toContain('encryption keys');
+      expect(sectionText).toContain('destroyed');
     });
   });
 });
@@ -176,21 +208,50 @@ describe('Terms of Service', () => {
       expect(allPoints).toContain('final');
     });
 
-    it('references fee rate from constants', () => {
+    it('references the total fee rate from constants', () => {
       const paymentSection = TERMS_SECTIONS.find((s) => s.id === 'payment-terms');
       expect(paymentSection).toBeDefined();
       const allPoints = paymentSection!.points.join(' ');
-      const totalFeePercent = `${String(TOTAL_FEE_RATE * 100)}%`;
-      expect(allPoints).toContain(totalFeePercent);
+      expect(allPoints).toContain(formatFeePercent(TOTAL_FEE_RATE));
     });
 
-    it('references individual fee rates from constants', () => {
+    it('references every non-zero fee category by percent and label', () => {
       const paymentSection = TERMS_SECTIONS.find((s) => s.id === 'payment-terms');
       expect(paymentSection).toBeDefined();
       const allPoints = paymentSection!.points.join(' ');
-      expect(allPoints).toContain(`${String(HUSHBOX_FEE_RATE * 100)}%`);
-      expect(allPoints).toContain(`${String(CREDIT_CARD_FEE_RATE * 100)}%`);
-      expect(allPoints).toContain(`${String(PROVIDER_FEE_RATE * 100)}%`);
+      for (const category of FEE_CATEGORIES) {
+        expect(allPoints).toContain(formatFeePercent(category.rate));
+        expect(allPoints).toContain(category.label);
+      }
+    });
+
+    it('does not mention any zero-rate fee category label', () => {
+      const paymentSection = TERMS_SECTIONS.find((s) => s.id === 'payment-terms');
+      expect(paymentSection).toBeDefined();
+      const allPoints = paymentSection!.points.join(' ');
+      for (const category of ALL_FEE_CATEGORIES) {
+        if (category.rate === 0) {
+          expect(allPoints).not.toContain(category.label);
+        }
+      }
+    });
+
+    it('includes the breakdown bullet iff at least one fee is non-zero', () => {
+      const paymentSection = TERMS_SECTIONS.find((s) => s.id === 'payment-terms');
+      expect(paymentSection).toBeDefined();
+      const allPoints = paymentSection!.points.join(' ');
+      if (FEE_CATEGORIES.length > 0) {
+        expect(allPoints).toContain('Fee breakdown:');
+      } else {
+        expect(allPoints).not.toContain('Fee breakdown:');
+      }
+    });
+
+    it('does not contain a malformed empty breakdown ("Fee breakdown: .")', () => {
+      const paymentSection = TERMS_SECTIONS.find((s) => s.id === 'payment-terms');
+      expect(paymentSection).toBeDefined();
+      const allPoints = paymentSection!.points.join(' ');
+      expect(allPoints).not.toMatch(/Fee breakdown:\s*\./);
     });
 
     it('references storage cost from constants', () => {
@@ -205,6 +266,19 @@ describe('Terms of Service', () => {
       expect(govSection).toBeDefined();
       const allPoints = govSection!.points.join(' ');
       expect(allPoints).toContain('Indiana');
+    });
+
+    it('grants an explicit account-deletion right in the termination section', () => {
+      const terminationSection = TERMS_SECTIONS.find((s) => s.id === 'termination');
+      expect(terminationSection).toBeDefined();
+      const sectionText = [
+        terminationSection!.title,
+        terminationSection!.simplyPut,
+        ...terminationSection!.points,
+      ]
+        .join(' ')
+        .toLowerCase();
+      expect(sectionText).toContain('delete your account');
     });
   });
 });

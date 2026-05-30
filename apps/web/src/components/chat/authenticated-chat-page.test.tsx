@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { AuthenticatedChatPage } from './authenticated-chat-page';
 import { setEpochKey, clearEpochKeyCache } from '@/lib/epoch-key-cache';
+import { AuthenticatedChatPage } from './authenticated-chat-page';
 import type { Message } from '@/lib/api';
 
 const mockNavigate = vi.fn();
@@ -153,9 +153,13 @@ vi.mock('@/hooks/use-chat-page', () => ({
 }));
 
 const mockUseIsMobile = vi.fn<() => boolean>();
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: (): boolean => mockUseIsMobile(),
-}));
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: (): boolean => mockUseIsMobile(),
+  };
+});
 
 interface ChatStreamMock {
   isStreaming: boolean;
@@ -196,15 +200,18 @@ vi.mock('@/hooks/use-chat-stream', () => {
 
 const mockSetError = vi.fn();
 const mockClearError = vi.fn();
-const mockChatErrorState = {
-  error: null as null | {
-    id: string;
-    content: string;
-    retryable: boolean;
-    failedUserMessage: { id: string; content: string };
-  },
+const mockClearAll = vi.fn();
+interface MockChatError {
+  id: string;
+  content: string;
+  retryable: boolean;
+  failedUserMessage: { id: string; content: string };
+}
+const mockChatErrorState: { errorsByFork: Record<string, MockChatError | null> } = {
+  errorsByFork: {},
 };
 vi.mock('@/stores/chat-error', () => ({
+  MAIN_FORK_KEY: 'main',
   useChatErrorStore: Object.assign(
     (selector?: (state: typeof mockChatErrorState) => unknown) =>
       selector ? selector(mockChatErrorState) : mockChatErrorState,
@@ -213,6 +220,7 @@ vi.mock('@/stores/chat-error', () => ({
         ...mockChatErrorState,
         setError: mockSetError,
         clearError: mockClearError,
+        clearAll: mockClearAll,
       }),
     }
   ),
@@ -347,10 +355,8 @@ vi.mock('@/stores/pending-chat', () => ({
 
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
-  return {
-    ...actual,
-    useModelStore: () => ({ selectedModels: [{ id: 'test-model', name: 'Test Model' }] }),
-  };
+  const { createModelStoreStub, selectorFromState } = await import('@/test-utils/model-store-mock');
+  return { ...actual, useModelStore: selectorFromState(createModelStoreStub()) };
 });
 
 const mockScrollToBottom = vi.fn();
@@ -386,8 +392,8 @@ vi.mock('@hushbox/crypto', () => ({
     ],
   }),
   getPublicKeyFromPrivate: () => new Uint8Array(32).fill(13),
-  encryptMessageForStorage: () => new Uint8Array(64).fill(20),
-  decryptMessage: (_key: Uint8Array, _blob: Uint8Array) => 'Decrypted Title',
+  encryptTextForEpoch: () => new Uint8Array(64).fill(20),
+  decryptTextFromEpoch: (_key: Uint8Array, _blob: Uint8Array) => 'Decrypted Title',
 }));
 
 let mockAuthPrivateKey: Uint8Array | null = mockPrivateKey;
@@ -517,7 +523,7 @@ describe('AuthenticatedChatPage', () => {
     clearEpochKeyCache();
     mockPendingMessage = null;
     streamingMessageIdsRef.current = new Set<string>();
-    mockChatErrorState.error = null;
+    mockChatErrorState.errorsByFork = {};
     mockActiveForkId = null;
     mockAuthPrivateKey = mockPrivateKey;
     mockUseGroupChat.mockImplementation((conversationId: string | null) => {
@@ -713,6 +719,7 @@ describe('AuthenticatedChatPage', () => {
 
       await waitFor(() => {
         expect(mockSetError).toHaveBeenCalledWith(
+          'main',
           expect.objectContaining({
             retryable: false,
           })
@@ -1217,7 +1224,6 @@ describe('AuthenticatedChatPage', () => {
 
       const { rerender } = render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      // Navigate to different conversation
       setupMocks({
         conversationData: { id: 'conv-789', title: 'encrypted-2', titleEpochNumber: 1 },
         messagesData: [
@@ -1233,7 +1239,6 @@ describe('AuthenticatedChatPage', () => {
 
       rerender(<AuthenticatedChatPage routeConversationId="conv-789" />);
 
-      // Should show decrypted title for new conversation
       expect(screen.getByTestId('title')).toHaveTextContent('Decrypted Title');
     });
   });
@@ -1299,6 +1304,7 @@ describe('AuthenticatedChatPage', () => {
       });
 
       expect(mockSetError).toHaveBeenCalledWith(
+        'main',
         expect.objectContaining({
           retryable: false,
           failedUserMessage: expect.objectContaining({
@@ -1331,6 +1337,7 @@ describe('AuthenticatedChatPage', () => {
       });
 
       expect(mockSetError).toHaveBeenCalledWith(
+        'main',
         expect.objectContaining({
           retryable: true,
           failedUserMessage: expect.objectContaining({
@@ -1357,6 +1364,7 @@ describe('AuthenticatedChatPage', () => {
 
       await waitFor(() => {
         expect(mockSetError).toHaveBeenCalledWith(
+          'main',
           expect.objectContaining({
             retryable: false,
             failedUserMessage: expect.objectContaining({
@@ -1384,6 +1392,7 @@ describe('AuthenticatedChatPage', () => {
 
       await waitFor(() => {
         expect(mockSetError).toHaveBeenCalledWith(
+          'main',
           expect.objectContaining({
             retryable: true,
             failedUserMessage: expect.objectContaining({
@@ -1397,11 +1406,13 @@ describe('AuthenticatedChatPage', () => {
 
   describe('error message in messages list', () => {
     it('appends error message to messages when chat error exists', () => {
-      mockChatErrorState.error = {
-        id: 'error-id',
-        content: 'Please wait for your current messages to finish.',
-        retryable: true,
-        failedUserMessage: { id: 'failed-msg-id', content: 'Hello' },
+      mockChatErrorState.errorsByFork = {
+        main: {
+          id: 'error-id',
+          content: 'Please wait for your current messages to finish.',
+          retryable: true,
+          failedUserMessage: { id: 'failed-msg-id', content: 'Hello' },
+        },
       };
 
       setupMocks({
@@ -1474,7 +1485,7 @@ describe('AuthenticatedChatPage', () => {
       });
     });
 
-    it('clears chat error when navigating between conversations', () => {
+    it('clears all fork errors when navigating between conversations', () => {
       setEpochKey('conv-456', 1, new Uint8Array(32).fill(11));
       setEpochKey('conv-789', 1, new Uint8Array(32).fill(11));
       setupMocks({
@@ -1484,7 +1495,7 @@ describe('AuthenticatedChatPage', () => {
 
       const { rerender } = render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      mockClearError.mockClear();
+      mockClearAll.mockClear();
 
       setupMocks({
         conversationData: { id: 'conv-789', title: 'encrypted-2', titleEpochNumber: 1 },
@@ -1493,10 +1504,10 @@ describe('AuthenticatedChatPage', () => {
 
       rerender(<AuthenticatedChatPage routeConversationId="conv-789" />);
 
-      expect(mockClearError).toHaveBeenCalled();
+      expect(mockClearAll).toHaveBeenCalled();
     });
 
-    it('clears chat error on unmount', () => {
+    it('clears all fork errors on unmount', () => {
       setupMocks({
         conversationData: { id: 'conv-456', title: 'Test Chat' },
         messagesData: [],
@@ -1504,10 +1515,10 @@ describe('AuthenticatedChatPage', () => {
 
       const { unmount } = render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      mockClearError.mockClear();
+      mockClearAll.mockClear();
       unmount();
 
-      expect(mockClearError).toHaveBeenCalled();
+      expect(mockClearAll).toHaveBeenCalled();
     });
   });
 
@@ -1545,7 +1556,6 @@ describe('AuthenticatedChatPage', () => {
         expect(mockFetchJson).toHaveBeenCalled();
       });
 
-      // No streaming should be triggered
       expect(mockStartStream).not.toHaveBeenCalled();
     });
 
@@ -1648,13 +1658,10 @@ describe('AuthenticatedChatPage', () => {
 
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      // Initially no dialog
       expect(screen.queryByTestId('rename-fork-dialog')).not.toBeInTheDocument();
 
-      // Trigger fork rename
       await user.click(screen.getByTestId('trigger-fork-rename'));
 
-      // Dialog should now be visible with the current fork name
       expect(screen.getByTestId('rename-fork-dialog')).toBeInTheDocument();
       expect(screen.getByTestId('rename-fork-dialog')).toHaveAttribute('data-value', 'Fork 1');
     });
@@ -1668,13 +1675,10 @@ describe('AuthenticatedChatPage', () => {
 
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      // Initially no dialog
       expect(screen.queryByTestId('delete-fork-dialog')).not.toBeInTheDocument();
 
-      // Trigger fork delete
       await user.click(screen.getByTestId('trigger-fork-delete'));
 
-      // Dialog should now be visible
       expect(screen.getByTestId('delete-fork-dialog')).toBeInTheDocument();
     });
   });

@@ -1,7 +1,7 @@
-import type { MiddlewareHandler } from 'hono';
 import { ERROR_CODE_UPGRADE_REQUIRED } from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import { getVersionOverride } from '../lib/version-override.js';
+import type { MiddlewareHandler } from 'hono';
 import type { AppEnv } from '../types.js';
 
 /** Server versions that skip the check (dev / test environments). */

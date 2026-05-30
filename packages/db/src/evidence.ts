@@ -1,12 +1,30 @@
-import type { Database } from './client';
 import { serviceEvidence } from './schema/service-evidence';
+import type { Database } from './client';
 
 export const SERVICE_NAMES = {
-  OPENROUTER: 'openrouter',
+  AI_GATEWAY: 'ai-gateway',
+  HELCIM: 'helcim',
   HOOKDECK: 'hookdeck',
+  LINEAR: 'linear',
+  R2_STORAGE: 'r2-storage',
+  R2_GC: 'r2-gc',
+  BILLING_MISMATCH: 'billing-mismatch',
 } as const;
 
 export type ServiceName = (typeof SERVICE_NAMES)[keyof typeof SERVICE_NAMES];
+
+/**
+ * Shared shape for any external-service factory that records evidence after
+ * successful real API calls. Bundled by the `createEvidenceConfig(c)` helper
+ * in apps/api so middleware passes the same dependencies into every factory.
+ *
+ * The evidence row is only written when `isCI === true` — see
+ * `recordServiceEvidence`. Production sees `isCI === false` and skips.
+ */
+export interface EvidenceConfig {
+  db: Database;
+  isCI: boolean;
+}
 
 export async function recordServiceEvidence(
   db: Database,

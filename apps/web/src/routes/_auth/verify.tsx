@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, useSearch, Link } from '@tanstack/react-router';
 import { toast } from '@hushbox/ui';
-import { authClient } from '@/lib/auth';
 import { ROUTES } from '@hushbox/shared';
+import { authClient } from '@/lib/auth';
 
 type VerifyState = 'loading' | 'success' | 'error';
 
@@ -15,13 +15,15 @@ export function VerifyPage(): React.JSX.Element {
   const search = useSearch({ from: '/_auth/verify' });
   const [state, setState] = useState<VerifyState>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const sentForTokenRef = useRef<string | null>(null);
 
   const token = (search as { token?: string }).token;
 
   useEffect(() => {
     if (!token) return;
+    if (sentForTokenRef.current === token) return;
+    sentForTokenRef.current = token;
 
-    // Token is validated above, capture it for the async closure
     const verificationToken = token;
 
     async function verify(): Promise<void> {

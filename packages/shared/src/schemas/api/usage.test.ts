@@ -14,10 +14,6 @@ import {
   usageModelsResponseSchema,
 } from './usage.js';
 
-// ============================================================
-// usageGranularitySchema
-// ============================================================
-
 describe('usageGranularitySchema', () => {
   it('accepts "day"', () => {
     expect(usageGranularitySchema.parse('day')).toBe('day');
@@ -31,10 +27,6 @@ describe('usageGranularitySchema', () => {
     expect(() => usageGranularitySchema.parse('month')).toThrow();
   });
 });
-
-// ============================================================
-// usageDateRangeQuerySchema
-// ============================================================
 
 describe('usageDateRangeQuerySchema', () => {
   it('accepts valid date range', () => {
@@ -60,10 +52,6 @@ describe('usageDateRangeQuerySchema', () => {
   });
 });
 
-// ============================================================
-// usageTimeSeriesQuerySchema
-// ============================================================
-
 describe('usageTimeSeriesQuerySchema', () => {
   it('accepts date range with defaults', () => {
     const result = usageTimeSeriesQuerySchema.parse({
@@ -85,10 +73,6 @@ describe('usageTimeSeriesQuerySchema', () => {
     expect(result.model).toBe('anthropic/claude-opus-4.6');
   });
 });
-
-// ============================================================
-// usageConversationQuerySchema
-// ============================================================
 
 describe('usageConversationQuerySchema', () => {
   it('defaults limit to 5', () => {
@@ -119,10 +103,6 @@ describe('usageConversationQuerySchema', () => {
   });
 });
 
-// ============================================================
-// usageBalanceHistoryQuerySchema
-// ============================================================
-
 describe('usageBalanceHistoryQuerySchema', () => {
   it('defaults limit to 200', () => {
     const result = usageBalanceHistoryQuerySchema.parse({
@@ -142,10 +122,6 @@ describe('usageBalanceHistoryQuerySchema', () => {
     ).toThrow();
   });
 });
-
-// ============================================================
-// Response schemas
-// ============================================================
 
 describe('usageSummaryResponseSchema', () => {
   it('accepts valid summary data', () => {

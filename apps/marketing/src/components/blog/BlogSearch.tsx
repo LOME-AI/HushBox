@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Badge } from '@hushbox/ui';
 import { Search } from 'lucide-react';
+import { Badge } from '@hushbox/ui';
 
 interface BlogIndexEntry {
   slug: string;
@@ -11,14 +11,26 @@ interface BlogIndexEntry {
 
 interface BlogSearchProps {
   allTags: string[];
-  activeTag?: string;
+  tagCounts: Record<string, number>;
 }
 
-function BlogSearch({ allTags, activeTag }: Readonly<BlogSearchProps>): React.JSX.Element {
+function readTagFromLocation(): string | null {
+  const params = new URLSearchParams(globalThis.location.search);
+  const tag = params.get('tag');
+  return tag === null || tag === '' ? null : tag;
+}
+
+function tagUrl(tag: string | null): string {
+  if (tag === null) return '/blog';
+  return `/blog?${new URLSearchParams({ tag }).toString()}`;
+}
+
+function BlogSearch({ allTags, tagCounts }: Readonly<BlogSearchProps>): React.JSX.Element {
   const [query, setQuery] = React.useState('');
   const [index, setIndex] = React.useState<BlogIndexEntry[]>([]);
   const [results, setResults] = React.useState<BlogIndexEntry[]>([]);
   const [isOpen, setIsOpen] = React.useState(false);
+  const [activeTag, setActiveTag] = React.useState<string | null>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -46,6 +58,26 @@ function BlogSearch({ allTags, activeTag }: Readonly<BlogSearchProps>): React.JS
     };
   }, []);
 
+  React.useEffect(() => {
+    setActiveTag(readTagFromLocation());
+    function handlePopState(): void {
+      setActiveTag(readTagFromLocation());
+    }
+    globalThis.addEventListener('popstate', handlePopState);
+    return (): void => {
+      globalThis.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const cards = document.querySelectorAll<HTMLElement>('[data-blog-card]');
+    for (const card of cards) {
+      const tags = (card.dataset.tags ?? '').split(',').filter(Boolean);
+      const shouldShow = activeTag === null || tags.includes(activeTag);
+      card.hidden = !shouldShow;
+    }
+  }, [activeTag]);
+
   function handleSearch(value: string): void {
     setQuery(value);
     if (value.trim() === '') {
@@ -64,6 +96,14 @@ function BlogSearch({ allTags, activeTag }: Readonly<BlogSearchProps>): React.JS
     setResults(matched);
     setIsOpen(matched.length > 0);
   }
+
+  function handleTagClick(event: React.MouseEvent<HTMLAnchorElement>, tag: string | null): void {
+    event.preventDefault();
+    setActiveTag(tag);
+    globalThis.history.pushState({}, '', tagUrl(tag));
+  }
+
+  const activeCount = activeTag === null ? 0 : (tagCounts[activeTag] ?? 0);
 
   return (
     <div className="space-y-4">
@@ -104,22 +144,40 @@ function BlogSearch({ allTags, activeTag }: Readonly<BlogSearchProps>): React.JS
 
       {allTags.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          <a href="/blog">
-            <Badge
-              variant={activeTag === undefined ? 'default' : 'outline'}
-              className="cursor-pointer"
-            >
+          <a
+            href={tagUrl(null)}
+            aria-current={activeTag === null ? 'true' : undefined}
+            onClick={(e): void => {
+              handleTagClick(e, null);
+            }}
+          >
+            <Badge variant={activeTag === null ? 'default' : 'outline'} className="cursor-pointer">
               All
             </Badge>
           </a>
           {allTags.map((tag) => (
-            <a key={tag} href={`/blog/tag/${tag}`}>
+            <a
+              key={tag}
+              href={tagUrl(tag)}
+              aria-current={activeTag === tag ? 'true' : undefined}
+              onClick={(e): void => {
+                handleTagClick(e, tag);
+              }}
+            >
               <Badge variant={activeTag === tag ? 'default' : 'outline'} className="cursor-pointer">
                 {tag}
               </Badge>
             </a>
           ))}
         </div>
+      )}
+
+      {activeTag !== null && (
+        <p className="text-foreground-muted text-center text-sm">
+          Posts tagged: <span className="text-foreground font-semibold">{activeTag}</span>
+          {' · '}
+          {activeCount} {activeCount === 1 ? 'post' : 'posts'}
+        </p>
       )}
     </div>
   );

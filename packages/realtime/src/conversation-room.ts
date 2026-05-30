@@ -26,11 +26,6 @@ interface PresenceMember {
  *   POST /broadcast                     -- API Worker sends events to all connections
  */
 export class ConversationRoom extends DurableObject {
-  /**
-   * Handle incoming requests:
-   * - /websocket: WebSocket upgrade (stores connection metadata)
-   * - /broadcast: Fan out event to all connected WebSockets
-   */
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 

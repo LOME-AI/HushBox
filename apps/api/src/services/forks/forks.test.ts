@@ -5,6 +5,7 @@ import {
   LOCAL_NEON_DEV_CONFIG,
   users,
   messages,
+  contentItems,
   conversations,
   conversationMembers,
   epochs,
@@ -71,7 +72,8 @@ async function createTestSetup(db: Database): Promise<TestSetup> {
   };
 }
 
-const encryptedBlob = placeholderBytes(64);
+const textBlob = placeholderBytes(64);
+const wrappedContentKey = placeholderBytes(81);
 
 /** Generates a unique message ID to avoid PK collisions across test runs. */
 function msgId(): string {
@@ -92,13 +94,20 @@ async function insertMessage(
   await db.insert(messages).values({
     id: params.id,
     conversationId: params.conversationId,
-    encryptedBlob,
+    wrappedContentKey,
     senderType: params.senderType,
     senderId: params.senderId,
-    ...(params.senderType === 'ai' ? { modelName: 'test-model' } : {}),
     epochNumber: 1,
     sequenceNumber: params.sequenceNumber,
     parentMessageId: params.parentMessageId ?? undefined,
+  });
+  await db.insert(contentItems).values({
+    messageId: params.id,
+    contentType: 'text',
+    position: 0,
+    encryptedBlob: textBlob,
+    ...(params.senderType === 'ai' ? { modelName: 'test-model' } : {}),
+    isSmartModel: false,
   });
 }
 
@@ -491,7 +500,6 @@ describe('deleteFork', () => {
     const m4 = msgId();
     const m5 = msgId();
 
-    // Step 1: Insert only the Main branch (M1 -> M2 -> M3)
     await insertMessage(db, {
       id: m1,
       conversationId: setup.conversation.id,
@@ -521,7 +529,6 @@ describe('deleteFork', () => {
       .set({ nextSequence: 4 })
       .where(eq(conversations.id, setup.conversation.id));
 
-    // Step 2: Create fork at M2. Main tip = M3 (highest seq), Fork 1 tip = M2
     const forkId = crypto.randomUUID();
     await createFork(db, {
       id: forkId,
@@ -529,7 +536,6 @@ describe('deleteFork', () => {
       fromMessageId: m2,
     });
 
-    // Step 3: Insert fork branch messages (M4, M5) after fork creation
     await insertMessage(db, {
       id: m4,
       conversationId: setup.conversation.id,
@@ -546,13 +552,11 @@ describe('deleteFork', () => {
       parentMessageId: m4,
     });
 
-    // Step 4: Update Fork 1 tip to M5
     await db
       .update(conversationForks)
       .set({ tipMessageId: m5 })
       .where(eq(conversationForks.id, forkId));
 
-    // Delete Fork 1
     const result = await deleteFork(db, {
       conversationId: setup.conversation.id,
       forkId,
@@ -643,7 +647,6 @@ describe('deleteFork', () => {
       .set({ nextSequence: 7 })
       .where(eq(conversations.id, setup.conversation.id));
 
-    // Create initial forks: Main + Fork 1
     const forkId1 = crypto.randomUUID();
     await createFork(db, {
       id: forkId1,
@@ -651,7 +654,6 @@ describe('deleteFork', () => {
       fromMessageId: m1,
     });
 
-    // Create Fork 2
     const forkId2 = crypto.randomUUID();
     await createFork(db, {
       id: forkId2,
@@ -679,7 +681,6 @@ describe('deleteFork', () => {
       .set({ tipMessageId: m6 })
       .where(eq(conversationForks.id, forkId2));
 
-    // Delete Fork 1
     await deleteFork(db, {
       conversationId: setup.conversation.id,
       forkId: forkId1,

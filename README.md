@@ -100,7 +100,7 @@ We charge **15%** on AI model usage and **$0.0003** per 1,000 characters for sto
   <img alt="Pricing breakdown" src=".github/readme/pricing-light.svg" width="100%">
 </picture>
 
-Storage is cheap. $1 covers over 16,666 average messages. Most users spend less than $1/year on storage.
+Storage is cheap. $1 covers over 16,666 average messages. Most users spend less than $1/year on text storage.
 
 No subscriptions. No premium tier that locks features behind a paywall. No "free" plan subsidized by selling your data. You pay for the AI you use. We take a cut. The math is public.
 
@@ -162,14 +162,14 @@ flowchart LR
     API["API\n(Cloudflare Workers)"]
     DB[("Neon\nPostgreSQL")]
     Cache["Upstash\nRedis"]
-    OR["OpenRouter\n(100+ models)"]
+    AG["Vercel AI Gateway\n(100+ models)"]
     DO["Durable Objects\n(WebSocket)"]
     R2["Cloudflare R2"]
 
     Browser --> API
     API --> DB
     API --> Cache
-    API --> OR
+    API --> AG
     API --> DO
     API --> R2
     DO -.->|real-time| Browser

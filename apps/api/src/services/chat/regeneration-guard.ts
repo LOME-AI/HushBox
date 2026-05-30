@@ -1,20 +1,12 @@
 import { eq, and, desc, isNull } from 'drizzle-orm';
 import { messages, conversationMembers, type Database } from '@hushbox/db';
 
-// ============================================================================
-// Types
-// ============================================================================
-
 export interface CanRegenerateParams {
   conversationId: string;
   targetMessageId: string;
   userId: string;
   forkTipMessageId?: string;
 }
-
-// ============================================================================
-// Implementation
-// ============================================================================
 
 /**
  * Checks whether a user can regenerate from a target message.
@@ -75,7 +67,6 @@ function checkChainForOtherUsers(
 }
 
 export async function canRegenerate(tx: Database, params: CanRegenerateParams): Promise<boolean> {
-  // Check if this is a group chat (has more than one member)
   const members = await tx
     .select({ userId: conversationMembers.userId })
     .from(conversationMembers)
@@ -86,12 +77,10 @@ export async function canRegenerate(tx: Database, params: CanRegenerateParams): 
       )
     );
 
-  // Solo chat → always allowed
   if (members.length === 0) {
     return true;
   }
 
-  // Group chat → resolve tip and check chain
   const tipMessageId = await resolveTipMessageId(
     tx,
     params.conversationId,

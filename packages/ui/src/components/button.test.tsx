@@ -86,6 +86,23 @@ describe('Button', () => {
     expect(screen.getByRole('button')).toHaveAttribute('data-size', 'icon');
   });
 
+  it('icon size resolves to 44px (size-11) for HIG/Material minimum touch target', () => {
+    render(<Button size="icon">Icon</Button>);
+    expect(screen.getByRole('button')).toHaveClass('size-11');
+  });
+
+  it('icon-sm size resolves to 32px (size-8) for dense desktop contexts', () => {
+    render(<Button size="icon-sm">Icon</Button>);
+    expect(screen.getByRole('button')).toHaveAttribute('data-size', 'icon-sm');
+    expect(screen.getByRole('button')).toHaveClass('size-8');
+  });
+
+  it('icon-lg size resolves to 48px (size-12)', () => {
+    render(<Button size="icon-lg">Icon</Button>);
+    expect(screen.getByRole('button')).toHaveAttribute('data-size', 'icon-lg');
+    expect(screen.getByRole('button')).toHaveClass('size-12');
+  });
+
   it('applies custom className', () => {
     render(<Button className="custom-class">Custom</Button>);
     expect(screen.getByRole('button')).toHaveClass('custom-class');

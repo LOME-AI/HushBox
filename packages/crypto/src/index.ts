@@ -1,7 +1,5 @@
-// Errors
 export { CryptoError, DecryptionError, InvalidBlobError, KeyDerivationError } from './errors.js';
 
-// Account lifecycle
 export {
   createAccount,
   unwrapAccountKeyWithPassword,
@@ -11,7 +9,6 @@ export {
 } from './account.js';
 export type { CreateAccountResult, RegenerateRecoveryResult } from './account.js';
 
-// Epoch management
 export {
   createFirstEpoch,
   performEpochRotation,
@@ -21,21 +18,37 @@ export {
 } from './epoch.js';
 export type { EpochMemberWrap, CreateEpochResult, EpochRotationResult } from './epoch.js';
 
-// Message encryption
-export { encryptMessageForStorage, decryptMessage } from './message-encrypt.js';
+export {
+  generateContentKey,
+  wrapContentKeyForEpoch,
+  unwrapContentKeyForEpoch,
+  wrapContentKeyForShare,
+  unwrapContentKeyForShare,
+  CONTENT_KEY_LENGTH,
+  SHARE_WRAP_INFO,
+} from './content-key.js';
+export type { ContentKey, WrappedContentKey } from './content-key.js';
 
-// Member management
+export {
+  beginMessageEnvelope,
+  openMessageEnvelope,
+  encryptTextWithContentKey,
+  decryptTextWithContentKey,
+  encryptBinaryWithContentKey,
+  decryptBinaryWithContentKey,
+  encryptTextForEpoch,
+  decryptTextFromEpoch,
+} from './message-encrypt.js';
+export type { MessageEnvelope } from './message-encrypt.js';
+
 export { wrapEpochKeyForNewMember } from './member.js';
 
-// Shared links
 export { createSharedLink, deriveKeysFromLinkSecret } from './link.js';
 export type { CreateSharedLinkResult } from './link.js';
 
-// Message sharing
-export { createMessageShare, decryptMessageShare } from './message-share.js';
-export type { CreateMessageShareResult } from './message-share.js';
+export { createShare, openShare } from './message-share.js';
+export type { CreateShareResult } from './message-share.js';
 
-// TOTP (two-factor authentication)
 export {
   deriveTotpEncryptionKey,
   encryptTotpSecret,
@@ -44,16 +57,16 @@ export {
   generateTotpUri,
   verifyTotpCode,
   generateTotpCodeSync,
+  verifyTotpToken,
+  decryptAndVerifyTotp,
 } from './totp.js';
+export type { DecryptAndVerifyTotpResult, VerifyTotpTokenResult } from './totp.js';
 
-// Key pairs (domain-agnostic but needed externally)
 export { generateKeyPair, getPublicKeyFromPrivate } from './sharing.js';
 export type { KeyPair } from './sharing.js';
 
-// Recovery phrases
 export { generateRecoveryPhrase, validatePhrase, phraseToSeed } from './recovery-phrase.js';
 
-// OPAQUE client
 export {
   createOpaqueClient,
   startRegistration,
@@ -70,7 +83,6 @@ export type {
   LoginResult,
 } from './opaque-client.js';
 
-// OPAQUE server
 export {
   OpaqueServerConfig,
   deriveServerCredentials,
@@ -85,6 +97,8 @@ export {
   OpaqueExpectedAuthResult,
 } from './opaque-server.js';
 
-// Webhook verification (HMAC-SHA256)
+export { opaqueStepUpInit, opaqueStepUpFinish } from './opaque-step-up.js';
+export type { FinishOutcome as OpaqueStepUpFinishOutcome } from './opaque-step-up.js';
+
 export { verifyHmacSha256Webhook, signHmacSha256Webhook } from './webhook.js';
 export type { HmacWebhookSignParams, HmacWebhookVerifyParams } from './webhook.js';

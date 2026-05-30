@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { cn, DropdownMenuItem } from '@hushbox/ui';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
   BellOff,
@@ -12,9 +12,10 @@ import {
   PinOff,
   Trash2,
 } from 'lucide-react';
+import { cn, DropdownMenuItem } from '@hushbox/ui';
+import { encryptTextForEpoch, getPublicKeyFromPrivate } from '@hushbox/crypto';
+import { toBase64, ROUTES, type ConversationListItem } from '@hushbox/shared';
 import { ItemRow } from '@/components/shared/item-row';
-import { encryptMessageForStorage, getPublicKeyFromPrivate } from '@hushbox/crypto';
-import { toBase64, ROUTES } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { useDeleteConversation, useUpdateConversation, DECRYPTING_TITLE } from '@/hooks/chat';
 import {
@@ -22,23 +23,26 @@ import {
   useMuteConversation,
   usePinConversation,
 } from '@/hooks/use-conversation-members';
-import { getEpochKey } from '@/lib/epoch-key-cache';
+import { keyChainQueryOptions } from '@/hooks/keys';
+import { useAuthStore } from '@/lib/auth';
+import { getEpochKey, processKeyChain } from '@/lib/epoch-key-cache';
+import { leaveConversation } from '@/lib/leave-conversation';
 import { LeaveConfirmationModal } from '@/components/chat/leave-confirmation-modal';
 import { DeleteConversationDialog } from './delete-conversation-dialog';
 import { RenameConversationDialog } from './rename-conversation-dialog';
 
-interface Conversation {
-  id: string;
-  title: string;
-  currentEpoch: number;
-  updatedAt: string;
-  privilege: string;
-  muted: boolean;
-  pinned: boolean;
-}
+// Subset of the API conversation list-item we render in the sidebar. Pulling
+// the shape from the shared schema keeps `privilege` typed as `MemberPrivilege`
+// — a stringly-typed local would let an invalid value silently drift past TS.
+// Exported so parent components (chat-list, sidebar-content) share the same
+// definition rather than declaring their own widened copies.
+export type SidebarConversation = Pick<
+  ConversationListItem,
+  'id' | 'title' | 'currentEpoch' | 'updatedAt' | 'privilege' | 'muted' | 'pinned'
+>;
 
 interface ChatItemProps {
-  conversation: Conversation;
+  conversation: SidebarConversation;
   isActive?: boolean;
 }
 
@@ -67,7 +71,7 @@ function encryptTitle(
   const epochPrivateKey = getEpochKey(conversationId, currentEpoch);
   if (!epochPrivateKey) return undefined;
   const epochPublicKey = getPublicKeyFromPrivate(epochPrivateKey);
-  return toBase64(encryptMessageForStorage(epochPublicKey, trimmed));
+  return toBase64(encryptTextForEpoch(epochPublicKey, trimmed));
 }
 
 function ChatItemMenuContent({
@@ -76,7 +80,7 @@ function ChatItemMenuContent({
   onRename,
   onLeave,
 }: Readonly<{
-  conversation: Conversation;
+  conversation: SidebarConversation;
   onDelete: () => void;
   onRename: () => void;
   onLeave: () => void;
@@ -130,12 +134,18 @@ function ChatItemMenuContent({
   );
 }
 
-export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): React.JSX.Element {
+export function ChatItem({
+  conversation,
+  isActive = false,
+}: Readonly<ChatItemProps>): React.JSX.Element {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
+  const userId = useAuthStore((s) => s.user?.id);
+  const accountPrivateKey = useAuthStore((s) => s.privateKey);
   const deleteConversation = useDeleteConversation();
   const updateConversation = useUpdateConversation();
-  const leaveConversation = useLeaveConversation();
+  const leaveMutation = useLeaveConversation();
 
   const [showDeleteDialog, setShowDeleteDialog] = React.useState(false);
   const [showRenameDialog, setShowRenameDialog] = React.useState(false);
@@ -164,17 +174,36 @@ export function ChatItem({ conversation, isActive }: Readonly<ChatItemProps>): R
     setShowLeaveDialog(true);
   };
 
-  const handleConfirmLeave = (): void => {
-    leaveConversation.mutate(
-      { conversationId: conversation.id },
-      {
-        onSuccess: () => {
-          setShowLeaveDialog(false);
-          void navigate({ to: ROUTES.CHAT });
-        },
-      }
-    );
-  };
+  const handleConfirmLeave = React.useCallback(async (): Promise<void> => {
+    // Defensive: the leave option only renders inside the dropdown for an
+    // authenticated user, so a missing userId here represents broken invariant
+    // — bubble as a plain Error so it shows up in error tracking instead of
+    // being dressed up as a user-facing message.
+    if (!userId) throw new Error('chat-item leave invoked without authenticated user');
+    if (!accountPrivateKey) {
+      throw new Error('chat-item leave invoked without an unlocked account key');
+    }
+    await leaveConversation({
+      conversationId: conversation.id,
+      callerId: userId,
+      plaintextTitle: conversation.title,
+      privilege: conversation.privilege,
+      leave: leaveMutation.mutateAsync,
+      // Sidebar Leave can fire from /chat or any other page where the user
+      // has never opened this conversation, so its key chain may not yet be
+      // in the cache (`useDecryptedMessages` only runs on the active chat).
+      // Populate it on demand so the non-owner rotation path doesn't throw
+      // INTERNAL on first try.
+      ensureKeysCached: async (id) => {
+        const keyChain = await queryClient.ensureQueryData(keyChainQueryOptions(id));
+        processKeyChain(id, keyChain, accountPrivateKey);
+      },
+    });
+    // Only redirect when the user was actually viewing the chat that just
+    // disappeared — leaving a non-active chat from the sidebar list should
+    // leave the URL alone.
+    if (isActive) void navigate({ to: ROUTES.CHAT });
+  }, [userId, accountPrivateKey, queryClient, conversation, leaveMutation, isActive, navigate]);
 
   const handleConfirmRename = (): void => {
     const encrypted = encryptTitle(conversation.id, conversation.currentEpoch, renameValue);

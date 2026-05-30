@@ -45,7 +45,6 @@ export interface VariableConfig {
   readonly [Mode.Production]?: ModeValue;
 }
 
-// Helper functions
 export const ref = (env: EnvMode): Ref => ({ _type: 'ref', env });
 export const secret = (name: string): Secret => ({ _type: 'secret', name });
 

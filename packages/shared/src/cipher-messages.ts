@@ -1,0 +1,18 @@
+export const LANDING_CIPHER_MESSAGES: readonly string[] = [
+  'Encrypted By Default',
+  'Only You Hold The Key',
+  'Every Model, One Place',
+  'Private Group Chats',
+  'Zero-Knowledge Password',
+  'Switch Models Anytime',
+  'Your Messages, Your Control',
+  'No Subscriptions Required',
+  'One App, Every AI',
+  'Never Lose A Conversation',
+  'Stop Juggling Subscriptions',
+  'Try Any Model Instantly',
+  'Your Ideas Stay Yours',
+  'Simple, Honest Pricing',
+  'No More App Switching',
+  'Built For Your Workflow',
+];

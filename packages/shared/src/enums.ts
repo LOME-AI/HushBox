@@ -5,10 +5,6 @@ import { z } from 'zod';
  * Database schemas, API schemas, and frontend code should all import from here.
  */
 
-// ============================================================================
-// Message Role
-// ============================================================================
-
 /** Valid roles for chat messages */
 export const MESSAGE_ROLES = ['user', 'assistant', 'system'] as const;
 
@@ -17,10 +13,6 @@ export const messageRoleSchema = z.enum(MESSAGE_ROLES);
 
 /** TypeScript type for message role */
 export type MessageRole = z.infer<typeof messageRoleSchema>;
-
-// ============================================================================
-// Payment Status
-// ============================================================================
 
 /** Valid statuses for payments */
 export const PAYMENT_STATUSES = [
@@ -36,10 +28,6 @@ export const paymentStatusSchema = z.enum(PAYMENT_STATUSES);
 
 /** TypeScript type for payment status */
 export type PaymentStatus = z.infer<typeof paymentStatusSchema>;
-
-// ============================================================================
-// Ledger Entry Type
-// ============================================================================
 
 /** Valid types for ledger entries */
 export const LEDGER_ENTRY_TYPES = [
@@ -57,10 +45,6 @@ export const ledgerEntryTypeSchema = z.enum(LEDGER_ENTRY_TYPES);
 /** TypeScript type for ledger entry type */
 export type LedgerEntryType = z.infer<typeof ledgerEntryTypeSchema>;
 
-// ============================================================================
-// Deduction Source (for balance transactions)
-// ============================================================================
-
 /** Valid sources for deduction on usage transactions */
 export const DEDUCTION_SOURCES = ['balance', 'freeAllowance'] as const;
 
@@ -69,10 +53,6 @@ export const deductionSourceSchema = z.enum(DEDUCTION_SOURCES);
 
 /** TypeScript type for deduction source */
 export type StoredDeductionSource = z.infer<typeof deductionSourceSchema>;
-
-// ============================================================================
-// Member Privilege
-// ============================================================================
 
 /** Valid privilege levels for conversation members, ordered lowest to highest */
 export const MEMBER_PRIVILEGES = ['read', 'write', 'admin', 'owner'] as const;

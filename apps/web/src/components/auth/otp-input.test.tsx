@@ -76,7 +76,6 @@ describe('OtpInput', () => {
 
       const input = screen.getByTestId('otp-input');
       await user.click(input);
-      // Should not throw
       await user.keyboard('123456');
       expect(input).toBeInTheDocument();
     });

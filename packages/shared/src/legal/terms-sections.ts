@@ -1,13 +1,11 @@
-import type { LegalSection, LegalDocumentMeta } from './types.js';
 import {
   TERMS_OF_SERVICE_EFFECTIVE_DATE,
   BILLING_CONTACT_EMAIL,
   TOTAL_FEE_RATE,
-  HUSHBOX_FEE_RATE,
-  CREDIT_CARD_FEE_RATE,
-  PROVIDER_FEE_RATE,
   STORAGE_COST_PER_1K_CHARS,
 } from '../constants.js';
+import { FEE_CATEGORIES, formatFeePercent } from '../fees.js';
+import type { LegalSection, LegalDocumentMeta } from './types.js';
 
 export const TERMS_OF_SERVICE_META: LegalDocumentMeta = {
   title: 'Terms of Service',
@@ -15,10 +13,14 @@ export const TERMS_OF_SERVICE_META: LegalDocumentMeta = {
   contactEmail: BILLING_CONTACT_EMAIL,
 };
 
-const totalFeePercent = `${String(TOTAL_FEE_RATE * 100)}%`;
-const hushboxFeePercent = `${String(HUSHBOX_FEE_RATE * 100)}%`;
-const ccFeePercent = `${String(CREDIT_CARD_FEE_RATE * 100)}%`;
-const providerFeePercent = `${String(PROVIDER_FEE_RATE * 100)}%`;
+const totalFeePercent = formatFeePercent(TOTAL_FEE_RATE);
+const feeBreakdownClause = FEE_CATEGORIES.map(
+  (category) => `${formatFeePercent(category.rate)} ${category.label}`
+).join(', ');
+// Skip the breakdown bullet entirely when no fee category has a positive rate,
+// to avoid rendering a malformed "Fee breakdown: ." sentence.
+const feeBreakdownBullets =
+  FEE_CATEGORIES.length > 0 ? [`Fee breakdown: ${feeBreakdownClause}.`] : [];
 const storageCostPer1k = `$${String(STORAGE_COST_PER_1K_CHARS)}`;
 
 export const TERMS_SECTIONS: LegalSection[] = [
@@ -100,7 +102,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
     simplyPut: `Pay for what you use. ${totalFeePercent} fee. No hidden charges.`,
     points: [
       `HushBox operates on a pay-as-you-go basis. A ${totalFeePercent} fee is applied to all AI model usage.`,
-      `Fee breakdown: ${hushboxFeePercent} HushBox margin, ${ccFeePercent} credit card processing, ${providerFeePercent} AI provider overhead.`,
+      ...feeBreakdownBullets,
       `A storage fee of ${storageCostPer1k} per 1,000 characters is charged for storing your conversations.`,
       'All purchases are final. If you believe a charge was made in error, contact billing@hushbox.ai within 30 days.',
     ],
@@ -126,11 +128,13 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     id: 'termination',
     title: 'Termination',
-    simplyPut: 'You can leave anytime. We can terminate for violations.',
+    simplyPut:
+      'You can leave anytime, including permanently deleting your account. We can terminate for violations.',
     points: [
-      'You may stop using HushBox and delete your conversations at any time.',
+      'You may delete your account at any time from your Settings page.',
+      'You may stop using HushBox without deleting your account; we keep your encrypted data while your account exists.',
       'HushBox may suspend or terminate your account if you violate these Terms of Service.',
-      'Upon termination, certain provisions survive, including Limitation of Liability, Intellectual Property, Disclaimer of Warranties, and Governing Law.',
+      'Upon termination by either side, certain provisions survive, including Limitation of Liability, Intellectual Property, Disclaimer of Warranties, and Governing Law.',
     ],
   },
   {

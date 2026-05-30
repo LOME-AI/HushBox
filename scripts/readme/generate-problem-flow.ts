@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { getBrandColors, type ThemeColors } from './brand.js';
 import { withCache } from './cache.js';
+import { isMainModule } from '../lib/is-main.js';
 
 const FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
 
@@ -115,5 +116,5 @@ export function generateProblemFlows(outputDir: string, repoRoot?: string): void
 const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../.github/readme');
 
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) generateProblemFlows(DEFAULT_OUTPUT);

@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { z } from 'zod';
 
-// Will import from redis-registry once created
 import {
   REDIS_REGISTRY,
   redisGet,
@@ -84,6 +83,51 @@ describe('redis-registry', () => {
       expect(REDIS_REGISTRY.resendVerifyIpRateLimit).toBeDefined();
     });
 
+    it('has cost-amplification rate limit keys for chat/media/share endpoints', () => {
+      // chat streaming — per-user cap on AI gateway calls
+      expect(REDIS_REGISTRY.chatStreamUserRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.chatStreamUserRateLimit.rateLimitConfig.maxAttempts).toBe(30);
+      expect(REDIS_REGISTRY.chatStreamUserRateLimit.rateLimitConfig.windowSeconds).toBe(60);
+
+      // media presign — per-user cap on download URL minting
+      expect(REDIS_REGISTRY.mediaDownloadUserRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.mediaDownloadUserRateLimit.rateLimitConfig.maxAttempts).toBe(60);
+      expect(REDIS_REGISTRY.mediaDownloadUserRateLimit.rateLimitConfig.windowSeconds).toBe(60);
+
+      // public share lookup — per-IP cap (UNAUTHENTICATED)
+      expect(REDIS_REGISTRY.shareGetIpRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.shareGetIpRateLimit.rateLimitConfig.maxAttempts).toBe(30);
+      expect(REDIS_REGISTRY.shareGetIpRateLimit.rateLimitConfig.windowSeconds).toBe(60);
+
+      // share creation — per-user cap (writes a row)
+      expect(REDIS_REGISTRY.shareCreateUserRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.shareCreateUserRateLimit.rateLimitConfig.maxAttempts).toBe(20);
+      expect(REDIS_REGISTRY.shareCreateUserRateLimit.rateLimitConfig.windowSeconds).toBe(60);
+
+      // trial chat stream — per-IP burst cap (UNAUTHENTICATED, daily cap separate)
+      expect(REDIS_REGISTRY.trialChatStreamIpRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.trialChatStreamIpRateLimit.rateLimitConfig.maxAttempts).toBe(20);
+      expect(REDIS_REGISTRY.trialChatStreamIpRateLimit.rateLimitConfig.windowSeconds).toBe(60);
+    });
+
+    it('builds correct keys for cost-amplification rate limits', () => {
+      expect(REDIS_REGISTRY.chatStreamUserRateLimit.buildKey('user-123')).toBe(
+        'chat:stream:user:ratelimit:user-123'
+      );
+      expect(REDIS_REGISTRY.mediaDownloadUserRateLimit.buildKey('user-123')).toBe(
+        'media:download:user:ratelimit:user-123'
+      );
+      expect(REDIS_REGISTRY.shareGetIpRateLimit.buildKey('ip-hash-123')).toBe(
+        'share:get:ip:ratelimit:ip-hash-123'
+      );
+      expect(REDIS_REGISTRY.shareCreateUserRateLimit.buildKey('user-123')).toBe(
+        'share:create:user:ratelimit:user-123'
+      );
+      expect(REDIS_REGISTRY.trialChatStreamIpRateLimit.buildKey('ip-hash-456')).toBe(
+        'trial:chat:stream:ip:ratelimit:ip-hash-456'
+      );
+    });
+
     it('has all lockout keys defined', () => {
       expect(REDIS_REGISTRY.loginLockout).toBeDefined();
       expect(REDIS_REGISTRY.twoFactorLockout).toBeDefined();
@@ -95,6 +139,34 @@ describe('redis-registry', () => {
       expect(REDIS_REGISTRY.opaquePendingLogin).toBeDefined();
       expect(REDIS_REGISTRY.opaquePendingChangePassword).toBeDefined();
       expect(REDIS_REGISTRY.opaquePending2FADisable).toBeDefined();
+      expect(REDIS_REGISTRY.opaquePendingDeleteAccount).toBeDefined();
+    });
+
+    it('has delete-account rate-limit and lockout keys', () => {
+      expect(REDIS_REGISTRY.deleteAccountUserRateLimit).toBeDefined();
+      expect(REDIS_REGISTRY.deleteAccountUserRateLimit.rateLimitConfig.maxAttempts).toBe(3);
+      expect(REDIS_REGISTRY.deleteAccountUserRateLimit.rateLimitConfig.windowSeconds).toBe(3600);
+
+      expect(REDIS_REGISTRY.deleteAccountLockout).toBeDefined();
+      expect(REDIS_REGISTRY.deleteAccountLockout.ttl).toBe(24 * 60 * 60);
+    });
+
+    it('builds correct keys for delete-account entries', () => {
+      expect(REDIS_REGISTRY.opaquePendingDeleteAccount.buildKey('user-123')).toBe(
+        'opaque:delete-account:user-123'
+      );
+      expect(REDIS_REGISTRY.deleteAccountUserRateLimit.buildKey('user-123')).toBe(
+        'delete-account:user:ratelimit:user-123'
+      );
+      expect(REDIS_REGISTRY.deleteAccountLockout.buildKey('user-123')).toBe(
+        'delete-account:lockout:user-123'
+      );
+    });
+
+    it('opaquePendingDeleteAccount schema matches the same shape as opaquePendingChangePassword', () => {
+      const sample = { userId: 'u-1', expectedSerialized: [1, 2, 3] };
+      expect(REDIS_REGISTRY.opaquePendingDeleteAccount.schema.parse(sample)).toEqual(sample);
+      expect(REDIS_REGISTRY.opaquePendingDeleteAccount.ttl).toBe(300);
     });
 
     it('has all TOTP keys defined', () => {

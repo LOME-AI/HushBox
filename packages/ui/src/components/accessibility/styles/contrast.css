@@ -1,0 +1,50 @@
+/* Contrast modes — override CSS variables defined in packages/config/tailwind/index.css.
+ * !important is required because Tailwind's :root and .dark blocks are UNLAYERED, and
+ * unlayered rules always beat layered ones regardless of specificity. The accessibility
+ * stylesheets are imported into @layer accessibility, so without !important the variable
+ * redefinitions silently lose to :root. */
+html.a11y-contrast-high {
+  --background: #ffffff !important;
+  --foreground: #000000 !important;
+  --border: #000000 !important;
+  --muted-foreground: #1a1a1a !important;
+}
+html.a11y-contrast-high.dark {
+  --background: #000000 !important;
+  --foreground: #ffffff !important;
+  --border: #ffffff !important;
+  --muted-foreground: #f0f0f0 !important;
+}
+
+html.a11y-contrast-low {
+  --foreground: #4a4a4a !important;
+  --muted-foreground: #6b6b6b !important;
+  --border: #ececec !important;
+}
+html.a11y-contrast-low.dark {
+  --foreground: #b0b0b0 !important;
+  --muted-foreground: #909090 !important;
+  --border: #2a2a2a !important;
+}
+
+html.a11y-contrast-increased {
+  --foreground: #000000 !important;
+  --border: #4a4a4a !important;
+  --muted-foreground: #2a2a2a !important;
+}
+html.a11y-contrast-increased.dark {
+  --foreground: #ffffff !important;
+  --border: #b8b8b8 !important;
+  --muted-foreground: #e0e0e0 !important;
+}
+
+/* Saturation modes — apply to body, NOT html (avoids stacking-context bug breaking position:fixed portals) */
+html.a11y-saturate-0 body {
+  filter: saturate(0);
+}
+html.a11y-saturate-50 body {
+  filter: saturate(0.5);
+}
+html.a11y-saturate-150 body {
+  filter: saturate(1.5);
+}

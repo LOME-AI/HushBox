@@ -6,8 +6,8 @@
  * Works with recordServiceEvidence() from @hushbox/db.
  *
  * Usage:
- *   pnpm verify:evidence --require=openrouter
- *   pnpm verify:evidence --require=openrouter,hookdeck
+ *   pnpm verify:evidence --require=ai-gateway
+ *   pnpm verify:evidence --require=ai-gateway,hookdeck
  */
 import {
   createDb,
@@ -16,6 +16,7 @@ import {
   SERVICE_NAMES,
   type ServiceName,
 } from '@hushbox/db';
+import { isMainModule } from './lib/is-main.js';
 import { parseOrExit } from './lib/run-cli.js';
 
 const VALID_SERVICES = Object.values(SERVICE_NAMES);
@@ -31,7 +32,7 @@ export function parseCliArgs(args: string[]): ParsedArgs | { error: string } {
   const requireArgument = args.find((argument) => argument.startsWith('--require='));
 
   if (!requireArgument) {
-    return { error: 'Usage: pnpm verify:evidence --require=openrouter,hookdeck' };
+    return { error: 'Usage: pnpm verify:evidence --require=ai-gateway,hookdeck' };
   }
 
   const servicesRaw = requireArgument.replace('--require=', '');
@@ -92,8 +93,7 @@ async function main(): Promise<void> {
   }
 }
 
-// Only run main when executed directly
-if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
+if (isMainModule(import.meta.url)) {
   void main();
 }
 /* v8 ignore stop */

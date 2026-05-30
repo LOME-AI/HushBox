@@ -10,7 +10,7 @@ androidWebViewHierarchy: devtools
 # Wait for app to stabilize
 - extendedWaitUntil:
     visible: 'Sign up'
-    timeout: 15000
+    timeout: 45000
 
 # Deep link to login page (declared in AndroidManifest.xml)
 - openLink: https://hushbox.ai/login

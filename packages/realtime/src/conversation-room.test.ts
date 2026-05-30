@@ -2,8 +2,6 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 import type { PresenceUpdateEvent, RealtimeEvent } from './events.js';
 
-// --- Mock types ---
-
 interface MockWebSocket {
   send: Mock;
   close: Mock;
@@ -47,8 +45,6 @@ function createMockCtx(): {
     sockets,
   };
 }
-
-// --- Stub globals that exist in workerd but not Node.js ---
 
 vi.mock('cloudflare:workers', () => ({
   DurableObject: class DurableObject {
@@ -237,7 +233,6 @@ describe('ConversationRoom', () => {
 
       await room.fetch(request);
 
-      // Existing socket should receive presence:update with both members
       expect(existingSocket.send).toHaveBeenCalledTimes(1);
       const sentData = asPresenceUpdate(
         JSON.parse(existingSocket.send.mock.calls[0]?.[0] as string) as RealtimeEvent

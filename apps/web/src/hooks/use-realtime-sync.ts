@@ -1,11 +1,11 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import type { ConversationWebSocket } from '../lib/ws-client.js';
 import { chatKeys } from './chat.js';
 import { memberKeys } from './use-conversation-members.js';
 import { budgetKeys } from './use-conversation-budgets.js';
 import { billingKeys } from './billing.js';
+import type { ConversationWebSocket } from '../lib/ws-client.js';
 
 export function useRealtimeSync(
   ws: ConversationWebSocket | null,
@@ -14,6 +14,21 @@ export function useRealtimeSync(
 ): void {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+
+  // Catch-up refetch on every WS-ready transition: the DO retains only
+  // live sockets so events broadcast during a disconnect are lost. Without
+  // this, a missed `message:complete` leaves the client on stale state
+  // until manual nav. Initial-mount fires one redundant refetch.
+  const wsReady = ws?.ready ?? false;
+  React.useEffect(() => {
+    if (!wsReady || !conversationId) return;
+    void queryClient.invalidateQueries({
+      queryKey: chatKeys.conversation(conversationId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: memberKeys.list(conversationId),
+    });
+  }, [wsReady, conversationId, queryClient]);
 
   React.useEffect(() => {
     if (!ws || !conversationId) return;

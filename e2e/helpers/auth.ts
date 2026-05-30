@@ -1,9 +1,9 @@
-import type { Page, APIRequestContext } from '@playwright/test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { generateTotpCodeSync } from '@hushbox/crypto';
-import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
 import { isMobileWidth } from '@hushbox/shared';
+import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
 import { requireEnv } from './env.js';
+import type { Page, APIRequestContext } from '@playwright/test';
 
 const API_BASE = requireEnv('VITE_API_URL');
 
@@ -97,11 +97,42 @@ export function uniqueEmail(prefix: string): string {
 }
 
 /**
+ * Generates a unique canonical username for test isolation. Returns the
+ * already-normalized form (lowercase, no spaces) so callers don't have to
+ * think about USERNAME_REGEX (`/^[a-z][a-z0-9_]{2,19}$/`). Mirrors
+ * `uniqueEmail`'s entropy recipe — without 4 bytes of random suffix,
+ * parallel tests starting in the same millisecond collide on the
+ * `users_username_unique` constraint and the /register/finish call fails.
+ *
+ * Output length: 3 (prefix) + 4 (timestamp) + 8 (hex) = 15 chars.
+ */
+export function uniqueUsername(prefix: string): string {
+  const cleanPrefix =
+    prefix
+      .slice(0, 3)
+      .toLowerCase()
+      .replaceAll(/[^a-z]/g, '') || 'tst';
+  const random = crypto.getRandomValues(new Uint8Array(4));
+  const hex = [...random].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${cleanPrefix}${String(Date.now()).slice(-4)}${hex}`;
+}
+
+/**
  * Clears all auth-related rate limits via dev endpoint.
  * Call this in beforeEach to prevent rate limit failures across test runs.
  */
 export async function clearAuthRateLimits(request: APIRequestContext): Promise<void> {
   await request.delete(`${API_BASE}/api/dev/auth-rate-limits`);
+}
+
+/**
+ * Clears authenticated-user usage rate limits (chat stream, media download,
+ * share creation) so consecutive E2E tests sharing a user don't saturate the
+ * per-minute buckets. Excludes trial IP limits and IP-scoped anti-scraping
+ * limits, which `trial-chat.spec.ts` and friends legitimately exercise.
+ */
+export async function clearUsageRateLimits(request: APIRequestContext): Promise<void> {
+  await request.delete(`${API_BASE}/api/dev/usage-rate-limits`);
 }
 
 /**

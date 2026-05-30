@@ -1,10 +1,11 @@
 import * as React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatLayout } from './chat-layout';
 import type { GroupChatProps } from './chat-layout';
 import type { Message } from '@/lib/api';
+import type { ModelStoreStub } from '@/test-utils/model-store-mock';
 
 import type { ConversationWebSocket } from '@/lib/ws-client';
 
@@ -16,15 +17,11 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('@hushbox/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@hushbox/ui')>();
-  return { ...actual, useVisualViewportHeight: () => 800 };
+  return { ...actual, useVisualViewportHeight: () => 800, useIsMobile: () => false };
 });
 
 vi.mock('@/hooks/use-keyboard-offset', () => ({
   useKeyboardOffset: () => ({ bottom: 0, isKeyboardVisible: false }),
-}));
-
-vi.mock('@/hooks/use-is-mobile', () => ({
-  useIsMobile: () => false,
 }));
 
 vi.mock('@/hooks/use-scroll-behavior', () => ({
@@ -51,16 +48,32 @@ vi.mock('@/hooks/models', () => ({
   }),
 }));
 
+vi.mock('@/hooks/use-resolve-default-model', () => ({
+  useResolveDefaultModel: () => {
+    /* no-op in tests */
+  },
+}));
+
 vi.mock('@/hooks/billing', () => ({
   billingKeys: { balance: () => ['balance'] },
 }));
 
 vi.mock('@/stores/model', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/model')>();
-  const store = () => ({
-    selectedModels: [{ id: 'gpt-4', name: 'GPT-4' }],
+  const { createModelStoreStub, selectorFromState, attachStaticMethods } =
+    await import('@/test-utils/model-store-mock');
+  const state = createModelStoreStub({
+    selections: {
+      text: [{ id: 'gpt-4', name: 'GPT-4' }],
+      image: [],
+      audio: [],
+      video: [],
+    },
   });
-  store.setState = vi.fn();
+  const store = attachStaticMethods(
+    selectorFromState(state),
+    state
+  ) as unknown as typeof actual.useModelStore;
   return { ...actual, useModelStore: store };
 });
 
@@ -102,8 +115,20 @@ vi.mock('@/stores/ui-modals', () => ({
 }));
 
 vi.mock('@/components/chat/chat-header', () => ({
-  ChatHeader: ({ title, members }: { title?: string; members?: unknown[] }) => (
-    <div data-testid="chat-header" data-member-count={members?.length ?? 0}>
+  ChatHeader: ({
+    title,
+    members,
+    pickerOpen,
+  }: {
+    title?: string;
+    members?: unknown[];
+    pickerOpen?: boolean;
+  }) => (
+    <div
+      data-testid="chat-header"
+      data-member-count={members?.length ?? 0}
+      data-picker-open={pickerOpen === undefined ? 'unset' : String(pickerOpen)}
+    >
       {title}
     </div>
   ),
@@ -149,71 +174,64 @@ vi.mock('@/components/chat/message-list', () => ({
 
 let capturedOnTypingChange: ((isTyping: boolean) => void) | undefined;
 
+interface MockPromptInputProps {
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  disabled: boolean;
+  autoFocus?: boolean;
+  onTypingChange?: (isTyping: boolean) => void;
+  searchProps?: {
+    webSearchEnabled: boolean;
+    onToggleWebSearch: () => void;
+  };
+  isAuthenticated?: boolean;
+  conversationId?: string | null;
+  currentUserPrivilege?: string;
+}
+
+function buildPromptInputDataAttributes(props: MockPromptInputProps): Record<string, string> {
+  const attributes: Record<string, string> = {};
+  if (props.searchProps?.webSearchEnabled !== undefined) {
+    attributes['data-web-search-enabled'] = String(props.searchProps.webSearchEnabled);
+  }
+  if (props.searchProps?.onToggleWebSearch !== undefined) {
+    attributes['data-has-toggle-web-search'] = 'true';
+  }
+  if (props.isAuthenticated !== undefined) {
+    attributes['data-is-authenticated'] = String(props.isAuthenticated);
+  }
+  if (props.conversationId !== undefined) {
+    attributes['data-conversation-id'] = String(props.conversationId);
+  }
+  if (props.currentUserPrivilege !== undefined) {
+    attributes['data-current-user-privilege'] = props.currentUserPrivilege;
+  }
+  return attributes;
+}
+
 vi.mock('@/components/chat/prompt-input', () => ({
   PromptInput: React.forwardRef(function MockPromptInput(
-    {
-      value,
-      onChange,
-      onSubmit,
-      disabled,
-      autoFocus,
-      onTypingChange,
-      webSearchEnabled,
-      modelSupportsSearch,
-      isAuthenticated,
-      onToggleWebSearch,
-      conversationId,
-      currentUserPrivilege,
-    }: {
-      value: string;
-      onChange: (v: string) => void;
-      onSubmit: () => void;
-      disabled: boolean;
-      autoFocus?: boolean;
-      onTypingChange?: (isTyping: boolean) => void;
-      webSearchEnabled?: boolean;
-      modelSupportsSearch?: boolean;
-      isAuthenticated?: boolean;
-      onToggleWebSearch?: () => void;
-      conversationId?: string | null;
-      currentUserPrivilege?: string;
-    },
+    props: MockPromptInputProps,
     ref: React.ForwardedRef<{ focus: () => void }>
   ) {
     // eslint-disable-next-line react-hooks/globals -- test mock captures prop for later assertion
-    capturedOnTypingChange = onTypingChange;
+    capturedOnTypingChange = props.onTypingChange;
     React.useImperativeHandle(ref, () => ({ focus: vi.fn() }), []);
     return (
       <input
         data-testid="prompt-input"
-        data-autofocus={autoFocus ? 'true' : 'false'}
-        data-has-typing-change={onTypingChange ? 'true' : 'false'}
-        {...(webSearchEnabled !== undefined && {
-          'data-web-search-enabled': String(webSearchEnabled),
-        })}
-        {...(modelSupportsSearch !== undefined && {
-          'data-model-supports-search': String(modelSupportsSearch),
-        })}
-        {...(isAuthenticated !== undefined && {
-          'data-is-authenticated': String(isAuthenticated),
-        })}
-        {...(onToggleWebSearch !== undefined && {
-          'data-has-toggle-web-search': 'true',
-        })}
-        {...(conversationId !== undefined && {
-          'data-conversation-id': String(conversationId),
-        })}
-        {...(currentUserPrivilege !== undefined && {
-          'data-current-user-privilege': currentUserPrivilege,
-        })}
-        value={value}
+        data-autofocus={props.autoFocus ? 'true' : 'false'}
+        data-has-typing-change={props.onTypingChange ? 'true' : 'false'}
+        {...buildPromptInputDataAttributes(props)}
+        value={props.value}
         onChange={(e) => {
-          onChange(e.target.value);
+          props.onChange(e.target.value);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') onSubmit();
+          if (e.key === 'Enter') props.onSubmit();
         }}
-        disabled={disabled}
+        disabled={props.disabled}
       />
     );
   }),
@@ -352,7 +370,6 @@ describe('ChatLayout', () => {
 
     expect(screen.getByTestId('shared-conversation-loading')).toBeInTheDocument();
     expect(screen.getByText('Decrypting your conversation...')).toBeInTheDocument();
-    // Header and input should still be visible
     expect(screen.getByTestId('chat-header')).toBeInTheDocument();
     expect(screen.getByTestId('prompt-input')).toBeInTheDocument();
   });
@@ -529,7 +546,6 @@ describe('ChatLayout', () => {
         <ChatLayout {...defaultProps} conversationId="conv-123" groupChat={groupChatWithLinks} />
       );
 
-      // 2 members + 2 links = 4
       expect(screen.getByTestId('add-member-modal')).toHaveAttribute('data-member-count', '4');
       expect(screen.getByTestId('invite-link-modal')).toHaveAttribute('data-member-count', '4');
     });
@@ -1025,7 +1041,6 @@ describe('ChatLayout', () => {
 
       const input = screen.getByTestId('prompt-input');
       expect(input).toHaveAttribute('data-web-search-enabled', 'false');
-      expect(input).toHaveAttribute('data-model-supports-search');
       expect(input).toHaveAttribute('data-is-authenticated', 'true');
       expect(input).toHaveAttribute('data-has-toggle-web-search', 'true');
     });
@@ -1035,6 +1050,46 @@ describe('ChatLayout', () => {
 
       const input = screen.getByTestId('prompt-input');
       expect(input).toHaveAttribute('data-is-authenticated', 'false');
+    });
+  });
+
+  describe('+Add chip integration', () => {
+    /**
+     * Restore single-model selection after each test so unrelated tests see the
+     * default fixture (one model). Mutates the closed-over store state directly
+     * — the mock factory creates `state` once at module load and re-reads it on
+     * every selector call.
+     */
+    afterEach(async () => {
+      const { useModelStore } = await import('@/stores/model');
+      (useModelStore.getState() as unknown as ModelStoreStub).selections.text = [
+        { id: 'gpt-4', name: 'GPT-4' },
+      ];
+      (useModelStore.getState() as unknown as ModelStoreStub).setPickerMode.mockReset();
+    });
+
+    it('opens the picker in multi mode when the +Add chip is clicked', async () => {
+      const { useModelStore } = await import('@/stores/model');
+      const state = useModelStore.getState() as unknown as ModelStoreStub;
+      state.selections.text = [
+        { id: 'gpt-4', name: 'GPT-4' },
+        { id: 'claude', name: 'Claude' },
+      ];
+
+      const user = userEvent.setup();
+      render(<ChatLayout {...defaultProps} />);
+
+      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-picker-open', 'false');
+
+      await user.click(screen.getByTestId('comparison-bar-add-button'));
+
+      expect(state.setPickerMode).toHaveBeenCalledWith('text', 'multi');
+      expect(screen.getByTestId('chat-header')).toHaveAttribute('data-picker-open', 'true');
+    });
+
+    it('does not render the +Add chip when only one model is selected', () => {
+      render(<ChatLayout {...defaultProps} />);
+      expect(screen.queryByTestId('comparison-bar-add-button')).not.toBeInTheDocument();
     });
   });
 });

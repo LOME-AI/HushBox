@@ -1,16 +1,17 @@
 ---
+import * as lucideStatic from 'lucide-static';
 import { ROUTES } from '@hushbox/shared/routes';
-import { SHIPPED_FEATURES, COMING_SOON_FEATURES, COMPARISON_ROWS } from '@hushbox/shared';
 import {
-  buttonVariants,
-  CipherWall,
-  ScrollReveal,
-  DataGrid,
-  FeeBreakdown,
-  CostPieChart,
-} from '@hushbox/ui';
+  SHIPPED_FEATURES,
+  COMING_SOON_FEATURES,
+  COMPARISON_ROWS,
+  TOTAL_FEE_RATE,
+  formatFeePercent,
+} from '@hushbox/shared';
+import { buttonVariants, ScrollReveal, DataGrid, FeeBreakdown, CostPieChart } from '@hushbox/ui';
+import { LANDING_CIPHER_MESSAGES } from '@hushbox/shared/cipher-messages';
+import PageHero from '../components/PageHero.astro';
 import { EncryptionDemo } from '../components/encryption-demo';
-import { fetchModels, fetchZdrModelIds, processModels } from '@hushbox/shared/models';
 import LandingLayout from '../layouts/LandingLayout.astro';
 import LandingHeader from '../components/LandingHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
@@ -21,12 +22,24 @@ import FeatureCard from '../components/FeatureCard.astro';
 import ModelProviderStrip from '../components/ModelProviderStrip.astro';
 import { calculateMonthlyCost } from '../lib/calculate-cost';
 import { extractProviders } from '../lib/extract-providers';
-let models: Awaited<ReturnType<typeof processModels>>['models'] = [];
+import type { Model } from '@hushbox/shared';
 
+// Fetch models from the deployed API at build time. Staleness until next
+// marketing deploy is acceptable. If the API is unreachable, the page renders
+// with empty data via the catch below.
+const apiUrl = import.meta.env.VITE_API_URL;
+if (apiUrl === undefined || apiUrl.length === 0) {
+  throw new Error(
+    'VITE_API_URL is required for marketing builds. Check envConfig and run pnpm generate:env.'
+  );
+}
+let models: Model[] = [];
 try {
-  const [rawModels, zdrIds] = await Promise.all([fetchModels(), fetchZdrModelIds()]);
-  const processed = processModels(rawModels, zdrIds);
-  models = processed.models;
+  const response = await fetch(`${apiUrl}/api/models`);
+  if (response.ok) {
+    const data = (await response.json()) as { models: Model[] };
+    models = data.models;
+  }
 } catch {
   // Build continues with empty data — page renders with fallback values
 }
@@ -35,26 +48,19 @@ const costData = calculateMonthlyCost(models);
 const providers = extractProviders(models);
 const modelCount = models.length;
 
-/** Map shared comparison rows to DataGrid format */
 const comparisonRows = COMPARISON_ROWS.map((row) => ({
   label: row.label,
   values: [row.others ? 'Yes' : 'No', row.hushbox ? 'Yes' : 'No'],
 }));
 
-/**
- * Convert PascalCase Lucide icon name to kebab-case filename.
- * Must match the logic in scripts/generate-icons.ts.
- */
-function toKebabCase(name: string): string {
-  return name
-    .replaceAll(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replaceAll(/([A-Z])([A-Z][a-z])/g, '$1-$2')
-    .toLowerCase();
-}
+const icons = lucideStatic as unknown as Record<string, string>;
 
-/** Resolve a feature's Lucide icon to the path of its generated SVG file */
-function iconPath(lucideIcon: string): string {
-  return `@hushbox/ui/assets/icons/${toKebabCase(lucideIcon)}.svg`;
+function iconSvg(lucideIcon: string): string {
+  const svg = icons[lucideIcon];
+  if (!svg) {
+    throw new Error(`Lucide icon "${lucideIcon}" not found in lucide-static.`);
+  }
+  return svg.replace('<svg', '<svg aria-hidden="true" focusable="false"');
 }
 ---
 
@@ -64,15 +70,8 @@ function iconPath(lucideIcon: string): string {
 >
   <LandingHeader />
 
-  {/* ===== HERO ===== */}
-  <section class="relative flex min-h-svh items-center justify-center overflow-hidden">
+  <PageHero messages={LANDING_CIPHER_MESSAGES} fullscreen>
     <style is:inline>
-      /* Override Astro's display:contents so CipherWall can read parent dimensions */
-      [data-cipher-bg] > astro-island {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
       @keyframes bounce-arrow {
         0%,
         100% {
@@ -87,69 +86,66 @@ function iconPath(lucideIcon: string): string {
         transition: opacity 0.3s;
       }
     </style>
-    <div class="absolute inset-0" data-cipher-bg>
-      <CipherWall client:load fadeMask="radial" fadeMaskTarget="[data-hero-content]" />
+    <h1 class="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
+      One interface.<br />
+      Every feature.<br />
+      <span class="text-primary">Private.</span>
+    </h1>
+    <p class="text-foreground mx-auto mt-6 max-w-xl text-lg sm:text-xl">
+      Access the world's leading AI models from one private workspace. Your conversations stay
+      yours.
+    </p>
+    <div class="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+      <a href={ROUTES.CHAT} class={buttonVariants({ size: 'lg' })}> Try HushBox Free </a>
+      <a
+        href="#pillars"
+        class={`scroll-to-pillars ${buttonVariants({ variant: 'ghost', size: 'lg' })}`}
+      >
+        See How It Works &rarr;
+      </a>
     </div>
-    <div class="relative z-10 mx-auto max-w-3xl px-6 text-center" data-hero-content>
-      <h1 class="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-        One interface.<br />
-        Every feature.<br />
-        <span class="text-primary">Private.</span>
-      </h1>
-      <p class="text-foreground mx-auto mt-6 max-w-xl text-lg sm:text-xl">
-        Access the world's leading AI models from one private workspace. Your conversations stay
-        yours.
-      </p>
-      <div class="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-        <a href={ROUTES.CHAT} class={buttonVariants({ size: 'lg' })}> Try HushBox Free </a>
-        <a
-          href="#pillars"
-          class={`scroll-to-pillars ${buttonVariants({ variant: 'ghost', size: 'lg' })}`}
-        >
-          See How It Works &rarr;
-        </a>
-      </div>
-      <p class="text-foreground mt-4 text-sm">No account required to try.</p>
-    </div>
-    <a
-      id="scroll-arrow"
-      href="#pillars"
-      aria-label="Scroll to learn more"
-      class="scroll-arrow scroll-to-pillars absolute bottom-16 left-1/2 -translate-x-1/2 cursor-pointer"
-    >
-      <svg class="text-primary h-16 w-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"
-        ></path>
-      </svg>
-    </a>
-    <script is:inline>
-      (function () {
-        var arrow = document.getElementById('scroll-arrow');
-        if (!arrow) return;
-        window.addEventListener(
-          'scroll',
-          function () {
-            arrow.style.opacity = window.scrollY > 50 ? '0' : '1';
-          },
-          { passive: true }
-        );
-      })();
-      (function () {
-        var links = document.querySelectorAll('.scroll-to-pillars');
-        links.forEach(function (link) {
-          link.addEventListener('click', function (e) {
-            var target = document.getElementById('pillars');
-            if (!target) return;
-            e.preventDefault();
-            var offset = target.getBoundingClientRect().top + window.scrollY - 60;
-            window.scrollTo({ top: offset, behavior: 'smooth' });
-          });
-        });
-      })();
-    </script>
-  </section>
+    <p class="text-foreground mt-4 text-sm">No account required to try.</p>
 
-  {/* ===== THREE PILLARS ===== */}
+    <Fragment slot="below">
+      <a
+        id="scroll-arrow"
+        href="#pillars"
+        aria-label="Scroll to learn more"
+        class="scroll-arrow scroll-to-pillars absolute bottom-16 left-1/2 -translate-x-1/2 cursor-pointer"
+      >
+        <svg class="text-primary h-16 w-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"
+          ></path>
+        </svg>
+      </a>
+      <script is:inline>
+        (function () {
+          var arrow = document.getElementById('scroll-arrow');
+          if (!arrow) return;
+          window.addEventListener(
+            'scroll',
+            function () {
+              arrow.style.opacity = window.scrollY > 50 ? '0' : '1';
+            },
+            { passive: true }
+          );
+        })();
+        (function () {
+          var links = document.querySelectorAll('.scroll-to-pillars');
+          links.forEach(function (link) {
+            link.addEventListener('click', function (e) {
+              var target = document.getElementById('pillars');
+              if (!target) return;
+              e.preventDefault();
+              var offset = target.getBoundingClientRect().top + window.scrollY - 60;
+              window.scrollTo({ top: offset, behavior: 'smooth' });
+            });
+          });
+        })();
+      </script>
+    </Fragment>
+  </PageHero>
+
   <section id="pillars" class="py-12">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
@@ -164,14 +160,13 @@ function iconPath(lucideIcon: string): string {
           />
           <PillarCard
             title="Transparency"
-            description="Every single line of code is open source. Our pricing is public. A 15% fee, broken down to the penny. No subscriptions. You only pay for what you use. You don't have to trust our promises. You can read our code."
+            description={`Every single line of code is open source. Our pricing is public. A ${formatFeePercent(TOTAL_FEE_RATE)} fee, broken down to the penny. No subscriptions. You only pay for what you use. You don't have to trust our promises. You can read our code.`}
           />
         </div>
       </ScrollReveal>
     </div>
   </section>
 
-  {/* ===== PRIVACY PROOF ===== */}
   <section id="how-it-works" class="py-12">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
@@ -206,7 +201,6 @@ function iconPath(lucideIcon: string): string {
     </div>
   </section>
 
-  {/* ===== COST COMPARISON ===== */}
   {
     costData.monthlyCost > 0 && (
       <section class="py-12">
@@ -238,7 +232,6 @@ function iconPath(lucideIcon: string): string {
     )
   }
 
-  {/* ===== COMPARISON TABLE ===== */}
   <section class="py-12">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
@@ -256,7 +249,6 @@ function iconPath(lucideIcon: string): string {
     </div>
   </section>
 
-  {/* ===== FEATURES ===== */}
   <section class="py-12">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
@@ -267,7 +259,7 @@ function iconPath(lucideIcon: string): string {
           {
             SHIPPED_FEATURES.map((f) => (
               <FeatureCard name={f.name} description={f.description}>
-                <img slot="icon" src={iconPath(f.lucideIcon)} width="16" height="16" alt="" />
+                <Fragment slot="icon" set:html={iconSvg(f.lucideIcon)} />
               </FeatureCard>
             ))
           }
@@ -277,7 +269,7 @@ function iconPath(lucideIcon: string): string {
           {
             COMING_SOON_FEATURES.map((f) => (
               <FeatureCard name={f.name} comingSoon>
-                <img slot="icon" src={iconPath(f.lucideIcon)} width="16" height="16" alt="" />
+                <Fragment slot="icon" set:html={iconSvg(f.lucideIcon)} />
               </FeatureCard>
             ))
           }
@@ -286,7 +278,6 @@ function iconPath(lucideIcon: string): string {
     </div>
   </section>
 
-  {/* ===== TRANSPARENT PRICING ===== */}
   <section class="py-12">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
@@ -301,7 +292,6 @@ function iconPath(lucideIcon: string): string {
     </div>
   </section>
 
-  {/* ===== FINAL CTA ===== */}
   <section class="py-12">
     <div class="mx-auto max-w-3xl px-6 text-center">
       <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Ready to chat privately?</h2>

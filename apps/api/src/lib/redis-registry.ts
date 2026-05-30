@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import type { Redis } from '@upstash/redis';
+import { roadmapResponseSchema } from '@hushbox/shared';
 import { SESSION_MAX_AGE_SECONDS } from './session.js';
+import type { Redis } from '@upstash/redis';
 
 export function defineKey<TSchema extends z.ZodType, TArgs extends unknown[]>(config: {
   schema: TSchema;
@@ -80,6 +81,14 @@ export const REDIS_REGISTRY = {
     rateLimitConfig: { maxAttempts: 10, windowSeconds: 900 },
   }),
 
+  // Rate limit keys — delete-account
+  deleteAccountUserRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 3600,
+    buildKey: (userId: string) => `delete-account:user:ratelimit:${userId}`,
+    rateLimitConfig: { maxAttempts: 3, windowSeconds: 3600 },
+  }),
+
   // Rate limit keys — recovery
   recoveryUserRateLimit: defineRateLimitKey({
     schema: rateLimitDataSchema,
@@ -135,6 +144,62 @@ export const REDIS_REGISTRY = {
     rateLimitConfig: { maxAttempts: 5, windowSeconds: 60 },
   }),
 
+  // Rate limit keys — cost-amplification surfaces (chat/media/share)
+  // Per-user cap on AI Gateway calls. The bottleneck is the gateway itself,
+  // so a user-level cap is sufficient — IP-level adds little when the worst
+  // offender is an authenticated user repeatedly invoking inference.
+  chatStreamUserRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (userId: string) => `chat:stream:user:ratelimit:${userId}`,
+    rateLimitConfig: { maxAttempts: 30, windowSeconds: 60 },
+  }),
+  // Per-user cap on presigned URL minting. Minting is cheap, but a flood
+  // could DOS the signing path (R2 SigV4 / KMS) — cap at 60/min/user.
+  mediaDownloadUserRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (userId: string) => `media:download:user:ratelimit:${userId}`,
+    rateLimitConfig: { maxAttempts: 60, windowSeconds: 60 },
+  }),
+  // Per-IP cap on the UNAUTHENTICATED public share lookup endpoint.
+  // Throttle to slow down share-id scraping/scanning.
+  shareGetIpRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (ipHash: string) => `share:get:ip:ratelimit:${ipHash}`,
+    rateLimitConfig: { maxAttempts: 30, windowSeconds: 60 },
+  }),
+  // Per-user cap on share creation — each request inserts a DB row.
+  shareCreateUserRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (userId: string) => `share:create:user:ratelimit:${userId}`,
+    rateLimitConfig: { maxAttempts: 20, windowSeconds: 60 },
+  }),
+  // Per-IP burst cap on the UNAUTHENTICATED trial chat stream. The daily
+  // message-count cap (consumeTrialMessage) limits total spend, but a burst
+  // of requests under the daily cap can still flood Redis / the AI gateway
+  // before the daily counter saturates. 20/60s is generous for trial UX
+  // while throttling pathological floods.
+  trialChatStreamIpRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (ipHash: string) => `trial:chat:stream:ip:ratelimit:${ipHash}`,
+    rateLimitConfig: { maxAttempts: 20, windowSeconds: 60 },
+  }),
+  // Per-IP cap on the UNAUTHENTICATED public roadmap endpoint. The response
+  // is heavily cached (1h Redis + 5min CDN edge) so this primarily caps
+  // scrape-style traffic that bypasses the edge cache by varying headers.
+  // 30/60s aligns with shareGetIpRateLimit; a marketing roadmap page does
+  // not refresh that frequently in normal use.
+  roadmapIpRateLimit: defineRateLimitKey({
+    schema: rateLimitDataSchema,
+    ttl: 60,
+    buildKey: (ipHash: string) => `roadmap:ip:ratelimit:${ipHash}`,
+    rateLimitConfig: { maxAttempts: 30, windowSeconds: 60 },
+  }),
+
   // Lockout keys
   loginLockout: defineKey({
     schema: lockoutSchema,
@@ -150,6 +215,11 @@ export const REDIS_REGISTRY = {
     schema: lockoutSchema,
     ttl: 3600,
     buildKey: (userIdentifier: string) => `recovery:lockout:${userIdentifier.toLowerCase()}`,
+  }),
+  deleteAccountLockout: defineKey({
+    schema: lockoutSchema,
+    ttl: 24 * 60 * 60,
+    buildKey: (userId: string) => `delete-account:lockout:${userId}`,
   }),
 
   // OPAQUE state
@@ -187,6 +257,14 @@ export const REDIS_REGISTRY = {
     }),
     ttl: 300,
     buildKey: (userId: string) => `opaque:2fa-disable:${userId}`,
+  }),
+  opaquePendingDeleteAccount: defineKey({
+    schema: z.object({
+      userId: z.string(),
+      expectedSerialized: z.array(z.number()),
+    }),
+    ttl: 300,
+    buildKey: (userId: string) => `opaque:delete-account:${userId}`,
   }),
   opaquePendingRecoveryReset: defineKey({
     schema: z.object({
@@ -248,6 +326,16 @@ export const REDIS_REGISTRY = {
     buildKey: (token: string) => `billing:login-token:${token}`,
   }),
 
+  // Public roadmap cache. Key is `roadmap:<teamKey>:<schemaVersion>`; bump
+  // the literal schemaVersion when the response shape changes so old isolates
+  // can't serve stale data with a different schema.
+  roadmapCache: defineKey({
+    schema: roadmapResponseSchema,
+    ttl: 60 * 60,
+    buildKey: (teamKey: string, schemaVersion: string) =>
+      `roadmap:${teamKey.toLowerCase()}:${schemaVersion}`,
+  }),
+
   // Session tracking
   sessionActive: defineKey({
     schema: z.coerce.string(),
@@ -287,7 +375,6 @@ export async function redisSet<K extends keyof Registry>(
 ): Promise<void> {
   const entry = REDIS_REGISTRY[keyName];
 
-  // Extract options from the end of args if present
   const lastArgument = args.at(-1);
   const hasOptions = typeof lastArgument === 'object' && 'ttlOverride' in lastArgument;
   const options = hasOptions ? lastArgument : undefined;

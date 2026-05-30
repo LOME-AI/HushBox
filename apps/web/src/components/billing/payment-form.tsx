@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, ModalActions, OverlayContent, OverlayHeader } from '@hushbox/ui';
 import { DollarSign, CreditCard, Lock, MapPin, User, Home } from 'lucide-react';
-import { HelcimLogo } from './helcim-logo.js';
+import { useQueryClient } from '@tanstack/react-query';
+import { Button, ModalActions, OverlayContent, OverlayHeader } from '@hushbox/ui';
 import { FormInput } from '@/components/shared/form-input';
 import { DevOnly } from '@/components/shared/dev-only';
 import { env } from '@/lib/env';
+import { HelcimLogo } from './helcim-logo.js';
 import { useFormEnterNav } from '../../hooks/use-form-enter-nav.js';
 import {
   loadHelcimScript,
@@ -18,11 +19,9 @@ import {
   usePaymentStatus,
   billingKeys,
 } from '../../hooks/billing.js';
-import { useQueryClient } from '@tanstack/react-query';
 import { usePaymentForm } from '../../hooks/use-payment-form.js';
 import { MIN_DEPOSIT_AMOUNT, MAX_DEPOSIT_AMOUNT } from '../../lib/payment-validation.js';
 
-// Declare Helcim global functions
 declare global {
   interface Window {
     helcimProcess?: () => void;
@@ -359,7 +358,6 @@ export function PaymentForm({
   onCancel,
 }: Readonly<PaymentFormProps>): React.JSX.Element {
   const jsToken = import.meta.env['VITE_HELCIM_JS_TOKEN'] as string | undefined;
-  // Use shared env utility for mock mode detection
   const isDevMode = env.isLocalDev;
 
   const form = usePaymentForm();
@@ -382,7 +380,6 @@ export function PaymentForm({
   const createPayment = useCreatePayment();
   const processPayment = useProcessPayment();
 
-  // Poll payment status when awaiting webhook
   const { data: paymentStatus } = usePaymentStatus(paymentId, {
     enabled: isPolling,
     refetchInterval: isPolling ? 2000 : false,
@@ -503,7 +500,6 @@ export function PaymentForm({
     };
   }, []);
 
-  // Set up MutationObserver to detect Helcim response
   useEffect(() => {
     if (!scriptLoaded) return;
 
@@ -511,7 +507,6 @@ export function PaymentForm({
     if (!resultsDiv) return;
 
     observerRef.current = new MutationObserver(() => {
-      // Only process results when we're actively expecting tokenization
       if (!expectingTokenizationRef.current) return;
 
       const responseEl = document.querySelector<HTMLInputElement>('#response');

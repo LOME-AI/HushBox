@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useTierInfo } from './use-tier-info.js';
 
-// Mock dependencies
 vi.mock('@/lib/auth', () => ({
   useSession: vi.fn(),
 }));

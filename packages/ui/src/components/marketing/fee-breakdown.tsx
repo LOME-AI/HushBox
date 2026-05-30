@@ -1,9 +1,10 @@
 import * as React from 'react';
 import {
-  HUSHBOX_FEE_RATE,
-  CREDIT_CARD_FEE_RATE,
-  PROVIDER_FEE_RATE,
   STORAGE_COST_PER_CHARACTER,
+  FEE_BUCKET_BY_ID,
+  FEE_CATEGORIES,
+  roundPreservingSum,
+  type FeeBucketId,
 } from '@hushbox/shared';
 
 export interface FeeBreakdownProps {
@@ -20,40 +21,55 @@ interface FeeItem {
   pctTestId: string;
 }
 
-interface FeeCategory {
+interface FeeCategoryGroup {
   name: string;
   testId: string;
   pctTestId: string;
-  totalPercentage: number;
   approximateLabel: string;
   colorClass: string;
   items: FeeItem[];
 }
 
+function buildFeeItems(bucket: FeeBucketId): FeeItem[] {
+  return FEE_CATEGORIES.filter((c) => FEE_BUCKET_BY_ID[c.id] === bucket).map((c) => ({
+    label: c.label,
+    percentage: c.rate * 100,
+    testId: `item-fee-${c.id}`,
+    pctTestId: `item-fee-${c.id}-pct`,
+  }));
+}
+
 export function FeeBreakdown({
   depositAmount,
-  estimatedCharacters = 1_000_000, // Default 1M characters
+  estimatedCharacters = 1_000_000,
 }: Readonly<FeeBreakdownProps>): React.JSX.Element {
-  const hushboxFee = depositAmount * HUSHBOX_FEE_RATE;
-  const ccFee = depositAmount * CREDIT_CARD_FEE_RATE;
-  const providerFee = depositAmount * PROVIDER_FEE_RATE;
+  const totalFeesRate = FEE_CATEGORIES.reduce((sum, c) => sum + c.rate, 0);
+  const totalFees = depositAmount * totalFeesRate;
   const storageFee = estimatedCharacters * STORAGE_COST_PER_CHARACTER;
-  const modelUsage = depositAmount - hushboxFee - ccFee - providerFee - storageFee;
+  const modelUsage = depositAmount - totalFees - storageFee;
 
-  // Calculate percentages
   const modelUsagePct = (modelUsage / depositAmount) * 100;
   const storagePct = (storageFee / depositAmount) * 100;
   const serviceValuePct = modelUsagePct + storagePct;
-  const transactionCostsPct = (CREDIT_CARD_FEE_RATE + PROVIDER_FEE_RATE) * 100;
-  const platformFeePct = HUSHBOX_FEE_RATE * 100;
 
-  const categories: FeeCategory[] = [
+  const transactionCostsItems = buildFeeItems('transaction-costs');
+  const platformFeeItems = buildFeeItems('platform-fee');
+  const transactionCostsPct = transactionCostsItems.reduce((sum, item) => sum + item.percentage, 0);
+  const platformFeePct = platformFeeItems.reduce((sum, item) => sum + item.percentage, 0);
+
+  // Largest-remainder rounding so the three top-level approximate labels add to 100%.
+  const [serviceValueRounded, transactionCostsRounded, platformFeeRounded] = roundPreservingSum([
+    serviceValuePct,
+    transactionCostsPct,
+    platformFeePct,
+  ]);
+
+  const categories: FeeCategoryGroup[] = [
     {
       name: 'Service Value',
       testId: 'category-service-value',
       pctTestId: 'category-service-value-pct',
-      totalPercentage: serviceValuePct,
-      approximateLabel: '~85%',
+      approximateLabel: `~${String(serviceValueRounded)}%`,
       colorClass: 'text-blue-500',
       items: [
         {
@@ -70,45 +86,29 @@ export function FeeBreakdown({
         },
       ],
     },
-    {
+  ];
+
+  if (transactionCostsItems.length > 0) {
+    categories.push({
       name: 'Transaction Costs',
       testId: 'category-transaction-costs',
       pctTestId: 'category-transaction-costs-pct',
-      totalPercentage: transactionCostsPct,
-      approximateLabel: '~10%',
+      approximateLabel: `~${String(transactionCostsRounded)}%`,
       colorClass: 'text-amber-500',
-      items: [
-        {
-          label: 'Payment processing',
-          percentage: CREDIT_CARD_FEE_RATE * 100,
-          testId: 'item-payment-processing',
-          pctTestId: 'item-payment-processing-pct',
-        },
-        {
-          label: 'AI Provider fees',
-          percentage: PROVIDER_FEE_RATE * 100,
-          testId: 'item-provider-fees',
-          pctTestId: 'item-provider-fees-pct',
-        },
-      ],
-    },
-    {
+      items: transactionCostsItems,
+    });
+  }
+
+  if (platformFeeItems.length > 0) {
+    categories.push({
       name: 'Platform Fee',
       testId: 'category-platform-fee',
       pctTestId: 'category-platform-fee-pct',
-      totalPercentage: platformFeePct,
-      approximateLabel: '~5%',
+      approximateLabel: `~${String(platformFeeRounded)}%`,
       colorClass: 'text-[#ec4755]',
-      items: [
-        {
-          label: 'HushBox margin',
-          percentage: HUSHBOX_FEE_RATE * 100,
-          testId: 'item-hushbox-margin',
-          pctTestId: 'item-hushbox-margin-pct',
-        },
-      ],
-    },
-  ];
+      items: platformFeeItems,
+    });
+  }
 
   return (
     <div data-testid="fee-breakdown" className="space-y-4">

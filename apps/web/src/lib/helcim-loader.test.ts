@@ -10,7 +10,6 @@ import * as helcimMock from './helcim-mock';
 describe('helcim-loader', () => {
   beforeEach(() => {
     resetHelcimLoader();
-    // Clear any appended scripts
     document.head.innerHTML = '';
   });
 
@@ -24,13 +23,11 @@ describe('helcim-loader', () => {
 
       const promise = loadHelcimScript();
 
-      // Find the script element that was created
       const scripts = document.head.querySelectorAll('script');
       expect(scripts).toHaveLength(1);
       expect(scripts[0]?.src).toBe('https://secure.myhelcim.com/js/version2.js');
       expect(scripts[0]?.async).toBe(true);
 
-      // Simulate script load
       scripts[0]?.dispatchEvent(new Event('load'));
       await promise;
 
@@ -40,7 +37,6 @@ describe('helcim-loader', () => {
     it('resolves when script loads successfully', async () => {
       const promise = loadHelcimScript();
 
-      // Find and trigger load event
       const script = document.head.querySelector('script');
       script?.dispatchEvent(new Event('load'));
 
@@ -50,7 +46,6 @@ describe('helcim-loader', () => {
     it('rejects when script fails to load', async () => {
       const promise = loadHelcimScript();
 
-      // Find and trigger error event
       const script = document.head.querySelector('script');
       script?.dispatchEvent(new Event('error'));
 
@@ -63,43 +58,35 @@ describe('helcim-loader', () => {
 
       expect(promise1).toBe(promise2);
 
-      // Only one script should be created
       const scripts = document.head.querySelectorAll('script');
       expect(scripts).toHaveLength(1);
 
-      // Complete the load
       scripts[0]?.dispatchEvent(new Event('load'));
       await promise1;
     });
 
     it('returns immediately if already loaded', async () => {
-      // First load
       const promise1 = loadHelcimScript();
       const script = document.head.querySelector('script');
       script?.dispatchEvent(new Event('load'));
       await promise1;
 
-      // Second call should resolve immediately
       const promise2 = loadHelcimScript();
       await expect(promise2).resolves.toBeUndefined();
 
-      // Still only one script
       const scripts = document.head.querySelectorAll('script');
       expect(scripts).toHaveLength(1);
     });
 
     it('allows retry after error', async () => {
-      // First attempt fails
       const promise1 = loadHelcimScript();
       let script = document.head.querySelector('script');
       script?.dispatchEvent(new Event('error'));
 
       await expect(promise1).rejects.toThrow();
 
-      // Reset head for second attempt
       document.head.innerHTML = '';
 
-      // Second attempt should create new script
       const promise2 = loadHelcimScript();
       script = document.head.querySelector('script');
       script?.dispatchEvent(new Event('load'));
@@ -151,12 +138,10 @@ describe('helcim-loader', () => {
 
   describe('readHelcimResult', () => {
     beforeEach(() => {
-      // Clean up any existing elements
       document.body.innerHTML = '';
     });
 
     it('returns success result when response is 1', () => {
-      // Create mock DOM elements that Helcim populates
       createMockResultElements({
         response: '1',
         responseMessage: '',
@@ -204,7 +189,6 @@ describe('helcim-loader', () => {
     });
 
     it('handles missing DOM elements gracefully', () => {
-      // No elements created
       const result = readHelcimResult();
 
       expect(result.success).toBe(false);
@@ -250,9 +234,6 @@ describe('helcim-loader', () => {
   });
 });
 
-/**
- * Helper to create mock input elements that Helcim.js populates
- */
 function createMockResultElements(values: {
   response: string;
   responseMessage: string;

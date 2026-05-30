@@ -1,15 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import type { Model } from '@hushbox/shared';
 import { extractProviders } from './extract-providers';
+import type { Model } from '@hushbox/shared';
 
 function makeModel(provider: string): Model {
   return {
     id: `${provider.toLowerCase()}/test`,
     name: 'Test',
     provider,
+    modality: 'text' as const,
     contextLength: 128_000,
     pricePerInputToken: 0.000_001,
     pricePerOutputToken: 0.000_002,
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: 0,
     capabilities: [],
     description: 'Test',
     supportedParameters: [],

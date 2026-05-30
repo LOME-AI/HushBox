@@ -28,12 +28,14 @@ vi.mock('./use-app-lifecycle.js', () => ({
   }),
 }));
 
+import { useAppVersionStore } from '@/stores/app-version';
 import { useLiveUpdate } from './use-live-update';
 
 describe('useLiveUpdate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedCallbacks = undefined;
+    useAppVersionStore.setState({ upgradeRequired: false, otaInProgress: false });
     mockCheckForUpdate.mockResolvedValue({ updateAvailable: false });
     // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
     mockApplyUpdate.mockResolvedValue(undefined);
@@ -88,6 +90,61 @@ describe('useLiveUpdate', () => {
     expect(mockApplyUpdate).not.toHaveBeenCalled();
   });
 
+  it('marks otaInProgress while checking and clears it when no update is available', async () => {
+    mockIsNative.mockReturnValue(true);
+    let resolveCheck!: (value: { updateAvailable: boolean }) => void;
+    mockCheckForUpdate.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCheck = resolve;
+      })
+    );
+
+    renderHook(() => {
+      useLiveUpdate();
+    });
+
+    // True while the check is in flight — this is what suppresses the
+    // upgrade-required modal during the version-mismatch window.
+    await vi.waitFor(() => {
+      expect(useAppVersionStore.getState().otaInProgress).toBe(true);
+    });
+
+    resolveCheck({ updateAvailable: false });
+
+    await vi.waitFor(() => {
+      expect(useAppVersionStore.getState().otaInProgress).toBe(false);
+    });
+  });
+
+  it('keeps otaInProgress set through apply, then clears it (failed-apply fallback)', async () => {
+    mockIsNative.mockReturnValue(true);
+    mockCheckForUpdate.mockResolvedValue({ updateAvailable: true, serverVersion: 'v2' });
+    let resolveApply!: () => void;
+    mockApplyUpdate.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveApply = resolve;
+      })
+    );
+
+    renderHook(() => {
+      useLiveUpdate();
+    });
+
+    // Stays true across the download/apply window.
+    await vi.waitFor(() => {
+      expect(mockApplyUpdate).toHaveBeenCalledWith('v2');
+    });
+    expect(useAppVersionStore.getState().otaInProgress).toBe(true);
+
+    // A failed apply resolves without reloading the JS context — the flag must
+    // clear so the upgrade-required modal can surface as the fallback.
+    resolveApply();
+
+    await vi.waitFor(() => {
+      expect(useAppVersionStore.getState().otaInProgress).toBe(false);
+    });
+  });
+
   it('registers app lifecycle listener with onResume', async () => {
     const { useAppLifecycle } = vi.mocked(await import('./use-app-lifecycle.js'));
 
@@ -108,13 +165,11 @@ describe('useLiveUpdate', () => {
       useLiveUpdate();
     });
 
-    // Wait for mount check to complete, then clear
     await vi.waitFor(() => {
       expect(mockCheckForUpdate).toHaveBeenCalledOnce();
     });
     mockCheckForUpdate.mockClear();
 
-    // Simulate resume
     capturedCallbacks?.onResume?.();
 
     await vi.waitFor(() => {
@@ -130,7 +185,6 @@ describe('useLiveUpdate', () => {
       useLiveUpdate();
     });
 
-    // Wait for mount check, then reconfigure mock for resume
     await vi.waitFor(() => {
       expect(mockCheckForUpdate).toHaveBeenCalledOnce();
     });

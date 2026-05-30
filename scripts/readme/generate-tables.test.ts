@@ -3,6 +3,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COMPARISON_ROWS } from '../../packages/shared/src/comparison.js';
+import {
+  ALL_FEE_CATEGORIES,
+  FEE_CATEGORIES,
+  formatFeePercent,
+} from '../../packages/shared/src/fees.js';
+import { TOTAL_FEE_RATE } from '../../packages/shared/src/constants.js';
 import { getBrandColors } from './brand.js';
 import {
   generateComparisonSvg,
@@ -41,24 +47,36 @@ describe('generateComparisonSvg', () => {
 });
 
 describe('generatePricingSvg', () => {
-  it('shows all four fee slices', () => {
+  it('shows one row per non-zero fee category plus a Total row', () => {
     const brand = getBrandColors(REPO_ROOT);
     const svg = generatePricingSvg({ width: 720, theme: brand.light });
 
-    expect(svg).toContain('HushBox');
-    expect(svg).toContain('Card processing');
-    expect(svg).toContain('Provider overhead');
+    for (const category of FEE_CATEGORIES) {
+      expect(svg).toContain(category.shortLabel);
+    }
     expect(svg).toContain('Total');
   });
 
-  it('shows percentages derived from constants', () => {
+  it('shows the total fee rate and every non-zero category percent derived from constants', () => {
     const brand = getBrandColors(REPO_ROOT);
     const svg = generatePricingSvg({ width: 720, theme: brand.light });
 
-    expect(svg).toContain('5%');
-    expect(svg).toContain('4.5%');
-    expect(svg).toContain('5.5%');
-    expect(svg).toContain('15%');
+    for (const category of FEE_CATEGORIES) {
+      expect(svg).toContain(formatFeePercent(category.rate));
+    }
+    expect(svg).toContain(formatFeePercent(TOTAL_FEE_RATE));
+  });
+
+  it('does not render any row for a zero-rate fee category', () => {
+    const brand = getBrandColors(REPO_ROOT);
+    const svg = generatePricingSvg({ width: 720, theme: brand.light });
+
+    for (const category of ALL_FEE_CATEGORIES) {
+      if (category.rate === 0) {
+        expect(svg).not.toContain(category.shortLabel);
+        expect(svg).not.toContain(category.description);
+      }
+    }
   });
 });
 

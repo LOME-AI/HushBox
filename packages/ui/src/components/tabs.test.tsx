@@ -33,11 +33,9 @@ describe('Tabs', () => {
       </Tabs>
     );
 
-    // Initially tab1 content is active
     expect(screen.getByRole('tabpanel')).toHaveTextContent('Content 1');
 
     await user.click(screen.getByText('Tab 2'));
-    // After clicking tab2, content switches
     expect(screen.getByRole('tabpanel')).toHaveTextContent('Content 2');
   });
 

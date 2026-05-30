@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getGreeting } from './greetings';
 
-// Mock the shared random module to always return first element
 vi.mock('@hushbox/shared', async (importOriginal) => {
   const original = await importOriginal<typeof import('@hushbox/shared')>();
   return {
@@ -30,7 +29,6 @@ describe('getGreeting', () => {
 
     it('returns welcome-themed greeting', () => {
       const greeting = getGreeting(false);
-      // Check it contains welcome-related words
       const combinedText = (greeting.title + greeting.subtitle).toLowerCase();
       expect(
         combinedText.includes('welcome') ||

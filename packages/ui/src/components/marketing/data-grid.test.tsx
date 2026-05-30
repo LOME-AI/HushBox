@@ -48,6 +48,14 @@ describe('DataGrid', () => {
     expect(screen.getByRole('table')).toBeInTheDocument();
   });
 
+  it('wraps the table in a horizontally scrollable container so it does not get cut off on narrow viewports', () => {
+    render(<DataGrid columns={COLUMNS} rows={ROWS} />);
+    const table = screen.getByRole('table');
+    const scrollWrapper = table.parentElement;
+    expect(scrollWrapper).not.toBeNull();
+    expect(scrollWrapper).toHaveClass('overflow-x-auto');
+  });
+
   describe('animated prop', () => {
     it('sets data-animated attribute when animated is true', () => {
       render(<DataGrid columns={COLUMNS} rows={ROWS} animated data-testid="grid" />);

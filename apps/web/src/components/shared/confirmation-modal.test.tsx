@@ -101,4 +101,42 @@ describe('ConfirmationModal', () => {
     expect(screen.getByTestId('revoke-link-confirm')).toHaveTextContent('Revoke');
     expect(screen.getByTestId('revoke-link-cancel')).toHaveTextContent('Cancel');
   });
+
+  describe('async onConfirm', () => {
+    it('accepts a Promise-returning onConfirm and closes on resolve', async () => {
+      const user = userEvent.setup();
+      const onOpenChange = vi.fn();
+      const onConfirm = vi.fn(() => Promise.resolve());
+
+      render(
+        <ConfirmationModal {...defaultProps} onOpenChange={onOpenChange} onConfirm={onConfirm} />
+      );
+      await user.click(screen.getByTestId('remove-member-confirm'));
+
+      // The mutation fires and the modal closes.
+      expect(onConfirm).toHaveBeenCalledOnce();
+      // Allow microtasks to flush
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it('stays open with inline error when onConfirm rejects', async () => {
+      const user = userEvent.setup();
+      const onOpenChange = vi.fn();
+      const onConfirm = vi.fn(() => Promise.reject(new Error('STALE_EPOCH')));
+
+      render(
+        <ConfirmationModal {...defaultProps} onOpenChange={onOpenChange} onConfirm={onConfirm} />
+      );
+      await user.click(screen.getByTestId('remove-member-confirm'));
+
+      // Inline error appears, modal does not close. The warning Alert has
+      // role="alert" too — filter by the specific text we expect.
+      const errorMessage = await screen.findByText(
+        'Someone else just changed this conversation. Please try again.'
+      );
+      expect(errorMessage).toBeInTheDocument();
+      expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    });
+  });
 });

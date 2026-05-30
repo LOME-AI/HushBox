@@ -2,6 +2,29 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import * as React from 'react';
 import type { VirtuosoHandle } from 'react-virtuoso';
+
+// Break the import chain that requires VITE_API_URL at module load time.
+// Without these mocks, frontendEnvSchema.parse() runs in src/lib/api.ts and
+// throws ZodError, preventing every test in this file from loading.
+vi.mock('@/lib/api', () => ({
+  getApiUrl: vi.fn(() => 'http://localhost:8787'),
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public data?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  },
+}));
+
+vi.mock('@/lib/api-client', () => ({
+  client: {},
+  fetchJson: vi.fn(),
+}));
+
 import { MessageList, type MessageListHandle } from './message-list';
 import type { Message } from '@/lib/api';
 
@@ -23,7 +46,6 @@ vi.mock('@/hooks/models', () => ({
   }),
 }));
 
-// Capture Virtuoso props for scroll behavior testing
 let capturedVirtuosoProps: Record<string, unknown> = {};
 
 // Mock Virtuoso to render items directly (virtualization doesn't work in jsdom)
@@ -139,6 +161,49 @@ describe('MessageList', () => {
     expect(container).toHaveAttribute('data-message-count', '3');
   });
 
+  it('exposes data-decrypted-count equal to messages.length when every message has plaintext content', () => {
+    render(<MessageList messages={messages} />);
+    const container = screen.getByTestId('message-list');
+    expect(container).toHaveAttribute('data-decrypted-count', '3');
+  });
+
+  it('excludes messages with a decryption-failure fallback content from data-decrypted-count', () => {
+    const partiallyDecrypted = [
+      { ...messages[0]!, content: '[decryption failed: missing epoch key]' },
+      messages[1]!,
+      messages[2]!,
+    ];
+    render(<MessageList messages={partiallyDecrypted} />);
+    const container = screen.getByTestId('message-list');
+    expect(container).toHaveAttribute('data-message-count', '3');
+    expect(container).toHaveAttribute('data-decrypted-count', '2');
+  });
+
+  it('reports data-decrypted-count of 0 on the empty-state log', () => {
+    render(<MessageList messages={[]} />);
+    const emptyState = screen.getByTestId('message-list-empty');
+    expect(emptyState).toHaveAttribute('data-decrypted-count', '0');
+    expect(emptyState).toHaveAttribute('data-message-count', '0');
+  });
+
+  it('renders data-messages-ready="false" by default so tests can wait for parent readiness', () => {
+    render(<MessageList messages={messages} />);
+    const container = screen.getByTestId('message-list');
+    expect(container).toHaveAttribute('data-messages-ready', 'false');
+  });
+
+  it('renders data-messages-ready="true" when the parent passes messagesReady', () => {
+    render(<MessageList messages={messages} messagesReady />);
+    const container = screen.getByTestId('message-list');
+    expect(container).toHaveAttribute('data-messages-ready', 'true');
+  });
+
+  it('exposes data-messages-ready on the empty-state log too', () => {
+    render(<MessageList messages={[]} messagesReady />);
+    const emptyState = screen.getByTestId('message-list-empty');
+    expect(emptyState).toHaveAttribute('data-messages-ready', 'true');
+  });
+
   it('exposes data-message-id on every rendered message item', () => {
     render(<MessageList messages={messages} />);
     const messageItems = screen.getAllByTestId('message-item');
@@ -217,10 +282,8 @@ describe('MessageList', () => {
           onRegenerate={onRegenerate}
         />
       );
-      // While streaming, regenerate button should not be present on the AI message
       expect(screen.queryByLabelText('Regenerate')).not.toBeInTheDocument();
 
-      // Clear streaming WITHOUT changing the messages array reference
       rerender(
         <MessageList
           messages={singleAssistant}
@@ -228,8 +291,21 @@ describe('MessageList', () => {
           onRegenerate={onRegenerate}
         />
       );
-      // Now the regenerate button should appear
       expect(screen.getByLabelText('Regenerate')).toBeInTheDocument();
+    });
+  });
+
+  describe('initial scroll position', () => {
+    beforeEach(() => {
+      capturedVirtuosoProps = {};
+    });
+
+    it('mounts Virtuoso with initialTopMostItemIndex pointing at the last row', () => {
+      render(<MessageList messages={messages} />);
+      expect(capturedVirtuosoProps['initialTopMostItemIndex']).toEqual({
+        index: 'LAST',
+        align: 'end',
+      });
     });
   });
 
@@ -238,7 +314,6 @@ describe('MessageList', () => {
       const ref = React.createRef<MessageListHandle>();
       render(<MessageList ref={ref} messages={messages} />);
 
-      // MessageListHandle extends VirtuosoHandle with additional methods
       expect(ref.current).toBeDefined();
     });
   });
@@ -291,7 +366,6 @@ describe('MessageList', () => {
       const onRegenerate = vi.fn();
       render(<MessageList messages={messages} onRegenerate={onRegenerate} />);
 
-      // User messages should have a "Retry" button when onRegenerate is provided
       const retryButtons = screen.getAllByLabelText('Retry');
       expect(retryButtons.length).toBeGreaterThan(0);
     });
@@ -321,7 +395,7 @@ describe('MessageList', () => {
     });
   });
 
-  describe('multi-model regeneration guard', () => {
+  describe('multi-model regeneration', () => {
     const multiModelMessages: Message[] = [
       {
         id: 'u1',
@@ -351,24 +425,23 @@ describe('MessageList', () => {
       },
     ];
 
-    it('hides regenerate buttons on multi-model assistant messages', () => {
+    it('shows per-tile regenerate buttons on multi-model assistant messages (regenerate-one)', () => {
       const onRegenerate = vi.fn();
       render(<MessageList messages={multiModelMessages} onRegenerate={onRegenerate} />);
 
-      // Regenerate buttons should not render for multi-model responses
-      expect(screen.queryByLabelText('Regenerate')).not.toBeInTheDocument();
+      // One regenerate icon button per assistant tile.
+      expect(screen.getAllByLabelText('Regenerate')).toHaveLength(2);
     });
 
-    it('hides retry/edit buttons on user message with multiple assistant children', () => {
+    it('shows retry/edit buttons on user message with multiple assistant children (retry-all)', () => {
       const onRegenerate = vi.fn();
       const onEdit = vi.fn();
       render(
         <MessageList messages={multiModelMessages} onRegenerate={onRegenerate} onEdit={onEdit} />
       );
 
-      // The user message's retry/edit should be hidden
-      expect(screen.queryByLabelText('Retry')).not.toBeInTheDocument();
-      expect(screen.queryByLabelText('Edit')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Retry')).toBeInTheDocument();
+      expect(screen.getByLabelText('Edit')).toBeInTheDocument();
     });
 
     it('shows regenerate buttons on single-model messages', () => {
@@ -474,7 +547,6 @@ describe('MessageList', () => {
     it('does not group messages when not in group chat mode', () => {
       render(<MessageList messages={groupMessages} />);
 
-      // Without group chat mode, each message is a separate row
       const messageItems = screen.getAllByTestId('message-item');
       expect(messageItems).toHaveLength(4);
     });
@@ -489,7 +561,6 @@ describe('MessageList', () => {
         />
       );
 
-      // Both alice messages should be visible
       expect(screen.getByText('Hello from Alice')).toBeInTheDocument();
       expect(screen.getByText('Second from Alice')).toBeInTheDocument();
     });
@@ -531,7 +602,6 @@ describe('MessageList', () => {
         atBottom: boolean
       ) => void;
 
-      // User scrolls away
       atBottomStateChange(false);
 
       // Even if Virtuoso reports isAtBottom=true (e.g. smooth scroll animation),
@@ -549,11 +619,9 @@ describe('MessageList', () => {
       ) => void;
       const isScrolling = capturedVirtuosoProps['isScrolling'] as (scrolling: boolean) => void;
 
-      // User scrolls away
       atBottomStateChange(false);
       expect(followOutput(true)).toBe(false);
 
-      // User actively scrolls back to bottom
       isScrolling(true);
       atBottomStateChange(true);
       isScrolling(false);
@@ -569,7 +637,6 @@ describe('MessageList', () => {
         atBottom: boolean
       ) => void;
 
-      // User scrolls away
       atBottomStateChange(false);
       expect(followOutput(true)).toBe(false);
 
@@ -596,11 +663,9 @@ describe('MessageList', () => {
         atBottom: boolean
       ) => void;
 
-      // User scrolls away
       atBottomStateChange(false);
       expect(followOutput(true)).toBe(false);
 
-      // Parent resets breakaway (e.g. user sent a message)
       ref.current?.resetScrollBreakaway();
       expect(followOutput(true)).toBe(true);
     });

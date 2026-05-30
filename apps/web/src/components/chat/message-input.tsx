@@ -1,6 +1,8 @@
 import * as React from 'react';
-import { Button, Textarea } from '@hushbox/ui';
 import { Send, Square } from 'lucide-react';
+import { Button, Textarea } from '@hushbox/ui';
+import { useModelStore } from '@/stores/model';
+import { getPromptPlaceholder, getSendAriaLabel } from '@/lib/modality-strings';
 
 interface MessageInputProps {
   onSend: (message: string) => void;
@@ -16,6 +18,7 @@ export function MessageInput({
   onStop,
 }: Readonly<MessageInputProps>): React.JSX.Element {
   const [value, setValue] = React.useState('');
+  const activeModality = useModelStore((state) => state.activeModality);
 
   const handleSend = (): void => {
     const trimmed = value.trim();
@@ -40,12 +43,14 @@ export function MessageInput({
 
   const isEmpty = value.trim().length === 0;
   const isDisabled = (disabled ?? false) || isStreaming;
+  const placeholder = getPromptPlaceholder(activeModality, 'Type a message...');
+  const sendAriaLabel = getSendAriaLabel(activeModality);
 
   return (
     <div className="flex gap-2 p-4">
       <Textarea
-        placeholder="Type a message..."
-        aria-label="Type a message"
+        placeholder={placeholder}
+        aria-label={placeholder}
         value={value}
         onChange={(e) => {
           setValue(e.target.value);
@@ -66,7 +71,7 @@ export function MessageInput({
         </Button>
       ) : (
         <Button
-          aria-label="Send message"
+          aria-label={sendAriaLabel}
           onClick={handleSend}
           disabled={isDisabled || isEmpty}
           size="icon"

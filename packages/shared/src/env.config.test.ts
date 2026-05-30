@@ -115,16 +115,30 @@ describe('envConfig', () => {
     });
   });
 
-  describe('OPENROUTER_API_KEY', () => {
+  describe('AI_GATEWAY_API_KEY', () => {
     it('goes to Backend only', () => {
-      expect(envConfig.OPENROUTER_API_KEY.to).toEqual([Destination.Backend]);
+      expect(envConfig.AI_GATEWAY_API_KEY.to).toEqual([Destination.Backend]);
     });
 
-    it('is only in ciVitest and production (NOT e2e)', () => {
-      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.Development)).toBeUndefined();
-      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.CiVitest)).toBeDefined();
-      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.E2E)).toBeUndefined();
-      expect(resolveRaw(envConfig.OPENROUTER_API_KEY, Mode.Production)).toBeDefined();
+    it('is only set in CiVitest and Production (other modes use the mock AI client)', () => {
+      expect(resolveRaw(envConfig.AI_GATEWAY_API_KEY, Mode.Development)).toBeUndefined();
+      expect(resolveRaw(envConfig.AI_GATEWAY_API_KEY, Mode.E2E)).toBeUndefined();
+      expect(resolveRaw(envConfig.AI_GATEWAY_API_KEY, Mode.CiE2E)).toBeUndefined();
+      const ciVitest = resolveRaw(envConfig.AI_GATEWAY_API_KEY, Mode.CiVitest);
+      expect(isSecret(ciVitest)).toBe(true);
+      const production = resolveRaw(envConfig.AI_GATEWAY_API_KEY, Mode.Production);
+      expect(isSecret(production)).toBe(true);
+    });
+
+    it('uses _RESTRICTED secret in CiVitest and _PRODUCTION secret in Production', () => {
+      const ciVitest = resolveRaw(envConfig.AI_GATEWAY_API_KEY, Mode.CiVitest);
+      const production = resolveRaw(envConfig.AI_GATEWAY_API_KEY, Mode.Production);
+      // Distinct GitHub secrets resolve to the same env var name across modes,
+      // mirroring the deleted OpenRouter pattern. The actual secret-name suffix
+      // is opaque to this test (resolveRaw returns a Secret marker), but the
+      // marker objects are distinct references when sourced from different secrets.
+      expect(isSecret(ciVitest)).toBe(true);
+      expect(isSecret(production)).toBe(true);
     });
   });
 
@@ -232,6 +246,73 @@ describe('envConfig', () => {
     });
   });
 
+  describe('R2_S3_ENDPOINT', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.R2_S3_ENDPOINT.to).toEqual([Destination.Backend]);
+    });
+
+    it('has MinIO endpoint for development', () => {
+      expect(resolveRaw(envConfig.R2_S3_ENDPOINT, Mode.Development)).toBe('http://localhost:9000');
+    });
+
+    it('refs development for CI/E2E environments', () => {
+      expect(resolveRaw(envConfig.R2_S3_ENDPOINT, Mode.CiVitest)).toBe('http://localhost:9000');
+      expect(resolveRaw(envConfig.R2_S3_ENDPOINT, Mode.E2E)).toBe('http://localhost:9000');
+      expect(resolveRaw(envConfig.R2_S3_ENDPOINT, Mode.CiE2E)).toBe('http://localhost:9000');
+    });
+
+    it('is a secret in production', () => {
+      const raw = resolveRaw(envConfig.R2_S3_ENDPOINT, Mode.Production);
+      expect(isSecret(raw)).toBe(true);
+    });
+  });
+
+  describe('R2_ACCESS_KEY_ID', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.R2_ACCESS_KEY_ID.to).toEqual([Destination.Backend]);
+    });
+
+    it('has MinIO default for development', () => {
+      expect(resolveRaw(envConfig.R2_ACCESS_KEY_ID, Mode.Development)).toBe('minioadmin');
+    });
+
+    it('is a secret in production', () => {
+      const raw = resolveRaw(envConfig.R2_ACCESS_KEY_ID, Mode.Production);
+      expect(isSecret(raw)).toBe(true);
+    });
+  });
+
+  describe('R2_SECRET_ACCESS_KEY', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.R2_SECRET_ACCESS_KEY.to).toEqual([Destination.Backend]);
+    });
+
+    it('has MinIO default for development', () => {
+      expect(resolveRaw(envConfig.R2_SECRET_ACCESS_KEY, Mode.Development)).toBe('minioadmin');
+    });
+
+    it('is a secret in production', () => {
+      const raw = resolveRaw(envConfig.R2_SECRET_ACCESS_KEY, Mode.Production);
+      expect(isSecret(raw)).toBe(true);
+    });
+  });
+
+  describe('R2_BUCKET_MEDIA', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.R2_BUCKET_MEDIA.to).toEqual([Destination.Backend]);
+    });
+
+    it('has local bucket name for development', () => {
+      expect(resolveRaw(envConfig.R2_BUCKET_MEDIA, Mode.Development)).toBe('hushbox-media-dev');
+    });
+
+    it('has production bucket name as a literal (not a secret)', () => {
+      const raw = resolveRaw(envConfig.R2_BUCKET_MEDIA, Mode.Production);
+      expect(isSecret(raw)).toBe(false);
+      expect(raw).toBe('hushbox-media');
+    });
+  });
+
   describe('MIGRATION_DATABASE_URL', () => {
     it('goes to Scripts only', () => {
       expect(envConfig.MIGRATION_DATABASE_URL.to).toEqual([Destination.Scripts]);
@@ -280,13 +361,33 @@ describe('backendEnvSchema', () => {
       FRONTEND_URL: 'https://hushbox.ai',
       APP_VERSION: 'abc1234',
       RESEND_API_KEY: 're_123456789',
-      OPENROUTER_API_KEY: 'sk-or-123',
       HELCIM_API_TOKEN: 'helcim-token',
       HELCIM_WEBHOOK_VERIFIER: 'webhook-verifier',
       UPSTASH_REDIS_REST_URL: 'https://upstash-redis.upstash.io',
       UPSTASH_REDIS_REST_TOKEN: 'prod_token_value',
       OPAQUE_MASTER_SECRET: 'prod-opaque-master-secret-32-bytes-minimum', // gitleaks:allow
       IRON_SESSION_SECRET: 'prod-iron-session-secret-32-bytes-min', // gitleaks:allow
+    };
+
+    const result = backendEnvSchema.safeParse(validEnv);
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts R2 media storage vars when provided', () => {
+    const validEnv = {
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgres://neon.tech:5432/prod',
+      API_URL: 'https://api.hushbox.ai',
+      FRONTEND_URL: 'https://hushbox.ai',
+      APP_VERSION: 'abc1234',
+      UPSTASH_REDIS_REST_URL: 'https://upstash-redis.upstash.io',
+      UPSTASH_REDIS_REST_TOKEN: 'prod_token_value',
+      OPAQUE_MASTER_SECRET: 'prod-opaque-master-secret-32-bytes-minimum', // gitleaks:allow
+      IRON_SESSION_SECRET: 'prod-iron-session-secret-32-bytes-min', // gitleaks:allow
+      R2_S3_ENDPOINT: 'https://abc123.r2.cloudflarestorage.com',
+      R2_ACCESS_KEY_ID: 'r2-access-key',
+      R2_SECRET_ACCESS_KEY: 'r2-secret-key',
+      R2_BUCKET_MEDIA: 'hushbox-media',
     };
 
     const result = backendEnvSchema.safeParse(validEnv);
@@ -387,5 +488,25 @@ describe('frontendEnvSchema', () => {
     if (result.success) {
       expect(result.data.VITE_HELCIM_JS_TOKEN).toBe('some-token');
     }
+  });
+
+  it('accepts VITE_DRIZZLE_STUDIO_URL when provided', () => {
+    const result = frontendEnvSchema.safeParse({
+      VITE_API_URL: 'http://localhost:8787',
+      VITE_DRIZZLE_STUDIO_URL: 'http://localhost:4983',
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.VITE_DRIZZLE_STUDIO_URL).toBe('http://localhost:4983');
+    }
+  });
+
+  it('allows VITE_DRIZZLE_STUDIO_URL to be optional', () => {
+    const result = frontendEnvSchema.safeParse({
+      VITE_API_URL: 'http://localhost:8787',
+    });
+
+    expect(result.success).toBe(true);
   });
 });

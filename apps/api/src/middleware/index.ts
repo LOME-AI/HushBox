@@ -8,11 +8,14 @@ export { requireAuth } from './require-auth.js';
 export { requirePrivilege } from './require-privilege.js';
 export { requireLinkGuest } from './require-link-guest.js';
 export { versionCheck } from './version-check.js';
+export { requestLog } from './request-log.js';
+export { rateLimitByCaller, rateLimitByIp } from './rate-limit.js';
 export {
   dbMiddleware,
   redisMiddleware,
   sessionMiddleware,
-  openRouterMiddleware,
+  aiClientMiddleware,
+  mediaStorageMiddleware,
   helcimMiddleware,
   envMiddleware,
   ironSessionMiddleware,

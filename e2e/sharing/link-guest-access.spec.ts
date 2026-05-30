@@ -1,6 +1,6 @@
 import { test, expect } from '../fixtures.js';
 import { unsettledExpect } from '../helpers/settled-expect.js';
-import { MemberSidebarPage } from '../pages/index.js';
+import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import {
   setupConversationWithSidebar,
   setupGroupConversationWithSidebar,
@@ -48,11 +48,12 @@ test.describe('Link Guest Access', () => {
 
       await expectSharedConversationLoaded(unauthenticatedPage);
 
-      // Sees pre-existing messages (with-history)
-      await expect(unauthenticatedPage.getByText('Hello from Alice').first()).toBeVisible({
-        timeout: 10_000,
-      });
-      await expect(unauthenticatedPage.getByText('Hi from Bob').first()).toBeVisible();
+      // Sees pre-existing messages (with-history). Use ChatPage helpers so
+      // virtualization (chat now mounts at the latest message) doesn't hide
+      // first-seed rows from the assertion.
+      const guestChatPage = new ChatPage(unauthenticatedPage);
+      await guestChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
+      await guestChatPage.assertMessageVisible('Hi from Bob');
 
       await expectSendInputDisabled(unauthenticatedPage);
       await expectReadOnlyNotice(unauthenticatedPage);
@@ -75,17 +76,14 @@ test.describe('Link Guest Access', () => {
 
       await expectSharedConversationLoaded(freshPage);
 
-      // Sees pre-existing messages
-      await expect(freshPage.getByText('Hello from Alice').first()).toBeVisible({
-        timeout: 10_000,
-      });
+      const freshChatPage = new ChatPage(freshPage);
+      await freshChatPage.assertMessageVisible('Hello from Alice', { timeout: 15_000 });
 
       await expectDelegatedBudgetNotice(freshPage);
 
       // Sidebar budget should not show $0.00 for a guest with budget
       await expect(freshPage.getByText('/ $0.00 budget')).not.toBeVisible();
 
-      // Can send a message
       const guestInput = freshPage.getByRole('textbox', { name: /message/i });
       await expect(guestInput).toBeVisible({ timeout: 5000 });
 
@@ -98,7 +96,6 @@ test.describe('Link Guest Access', () => {
 
       await expect(freshPage.getByText(guestMessage).first()).toBeVisible({ timeout: 10_000 });
 
-      // AI Echo response appears
       await expect(
         freshPage.getByRole('log', { name: 'Chat messages' }).getByText('Echo:').first()
       ).toBeVisible({ timeout: 15_000 });
@@ -133,6 +130,9 @@ test.describe('Link Guest Access', () => {
       const newMessage = `Post-rotation message ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(newMessage);
       await chatPage.expectMessageVisible(newMessage);
+      // Stream + persistence runs under Workers waitUntil; the guest's GET
+      // below would otherwise race the DB write and see an empty messages array.
+      await chatPage.waitForStreamComplete();
     });
 
     await test.step('read guest does NOT see old messages, sees new message', async () => {
@@ -140,7 +140,6 @@ test.describe('Link Guest Access', () => {
 
       await expectSharedConversationLoaded(unauthenticatedPage);
 
-      // Should NOT see pre-rotation messages
       await expect(
         unauthenticatedPage.getByText('Hello from Alice', { exact: true })
       ).not.toBeVisible();
@@ -172,6 +171,7 @@ test.describe('Link Guest Access', () => {
       const latestMessage = `Latest epoch message ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(latestMessage);
       await chatPage.expectMessageVisible(latestMessage);
+      await chatPage.waitForStreamComplete();
     });
 
     await test.step('write guest sees only new messages and can send', async () => {
@@ -180,17 +180,15 @@ test.describe('Link Guest Access', () => {
 
       await expectSharedConversationLoaded(freshPage);
 
-      // Should NOT see pre-rotation messages
       await expect(freshPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      // Should see latest epoch message
-      await expect(freshPage.getByText('Latest epoch message').first()).toBeVisible({
-        timeout: 10_000,
+      // Decryption can paint after settled fires.
+      await unsettledExpect(freshPage.getByText('Latest epoch message').first()).toBeVisible({
+        timeout: 15_000,
       });
 
       await expectDelegatedBudgetNotice(freshPage);
 
-      // Can send a message
       const guestInput = freshPage.getByRole('textbox', { name: /message/i });
       await expect(guestInput).toBeVisible({ timeout: 5000 });
 
@@ -265,11 +263,9 @@ test.describe('Link Guest Access', () => {
       await guestSidebar.openViaFacepile();
       await guestSidebar.waitForLoaded();
 
-      // Guest should see their own link entry with (you) badge
       const youBadge = unauthenticatedPage.getByTestId('link-you-badge');
       await expect(youBadge).toBeVisible({ timeout: 5000 });
 
-      // Guest should NOT have the three-dots actions button on their row
       const memberLeaveAction = unauthenticatedPage.getByTestId('member-leave-action');
       await expect(memberLeaveAction).not.toBeVisible();
     });

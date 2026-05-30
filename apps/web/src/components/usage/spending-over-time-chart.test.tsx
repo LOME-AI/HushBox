@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import type { SpendingOverTimeResponse } from '@hushbox/shared';
 import { SpendingOverTimeChart } from './spending-over-time-chart';
+import type { SpendingOverTimeResponse } from '@hushbox/shared';
 
 // Recharts ResponsiveContainer needs a real width/height to render children.
 // In jsdom there is no layout engine, so we mock it to pass dimensions through.
@@ -87,7 +87,6 @@ describe('SpendingOverTimeChart', () => {
         { period: '2025-01-01', model: 'GPT-4', totalCost: '1.50', count: 10 },
       ]);
       const { container } = render(<SpendingOverTimeChart data={reversed} isLoading={false} />);
-      // Chart should render (not crash) with reversed input
       expect(container.querySelector('[data-chart]')).toBeInTheDocument();
     });
 

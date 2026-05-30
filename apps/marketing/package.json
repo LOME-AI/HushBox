@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "tsx ../../scripts/with-env.ts astro build",
     "preview": "astro preview",
     "lint": "eslint .",
     "typecheck": "astro check && tsgo --noEmit -p tsconfig.tests.json",
-    "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test": "tsx ../../scripts/with-env.ts vitest run --passWithNoTests",
+    "test:watch": "tsx ../../scripts/with-env.ts vitest",
+    "test:coverage": "tsx ../../scripts/with-env.ts vitest run --coverage"
   },
   "dependencies": {
     "@astrojs/mdx": "^4.3.14",
@@ -21,8 +21,9 @@
     "@hushbox/crypto": "workspace:*",
     "@hushbox/shared": "workspace:*",
     "@hushbox/ui": "workspace:*",
-    "lucide-react": "^0.577.0",
     "astro": "^5.18.0",
+    "lucide-react": "^0.577.0",
+    "lucide-static": "^1.8.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "zod": "^4.3.6"

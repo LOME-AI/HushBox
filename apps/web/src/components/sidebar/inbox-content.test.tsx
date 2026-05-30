@@ -4,15 +4,15 @@ import userEvent from '@testing-library/user-event';
 import { InboxContent } from './inbox-content';
 
 const mockAcceptMutate = vi.fn();
-const mockLeaveMutate = vi.fn();
+const mockDeclineMutateAsync = vi.fn(() => Promise.resolve());
 
 vi.mock('@/hooks/use-conversation-members', () => ({
   useAcceptMembership: () => ({
     mutate: mockAcceptMutate,
     isPending: false,
   }),
-  useLeaveConversation: () => ({
-    mutate: mockLeaveMutate,
+  useDeclineInvitation: () => ({
+    mutateAsync: mockDeclineMutateAsync,
     isPending: false,
   }),
   useMuteConversation: () => ({
@@ -25,7 +25,6 @@ vi.mock('@/hooks/use-conversation-members', () => ({
   }),
 }));
 
-// Mock router for navigation after accept
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));
@@ -108,7 +107,7 @@ describe('InboxContent', () => {
     const leaveButton = screen.getByTestId('leave-confirmation-confirm');
     await userEvent.click(leaveButton);
 
-    expect(mockLeaveMutate).toHaveBeenCalledWith({ conversationId: 'conv-1' });
+    expect(mockDeclineMutateAsync).toHaveBeenCalledWith({ conversationId: 'conv-1' });
   });
 
   it('shows empty state when no invites', () => {

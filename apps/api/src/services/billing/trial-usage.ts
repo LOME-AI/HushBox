@@ -1,6 +1,6 @@
-import type { Redis } from '@upstash/redis';
 import { TRIAL_MESSAGE_LIMIT, secondsUntilNextUtcMidnight } from '@hushbox/shared';
 import { REDIS_REGISTRY } from '../../lib/redis-registry.js';
+import type { Redis } from '@upstash/redis';
 
 export interface TrialUsageCheckResult {
   canSend: boolean;

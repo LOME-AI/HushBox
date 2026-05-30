@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { ChatHeader } from './chat-header';
 import type { Model } from '@hushbox/shared';
 
-// Mock the theme provider
 vi.mock('../providers/theme-provider', () => ({
   useTheme: () => ({
     mode: 'light',
@@ -33,7 +32,6 @@ vi.mock('@/hooks/use-header-layout', () => ({
   useHeaderLayout: () => 1,
 }));
 
-// Mock Link and useNavigate used by EncryptionBadge and SignupModal
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
     <a href={to} {...props}>
@@ -48,20 +46,28 @@ const mockModels: Model[] = [
     id: 'openai/gpt-4-turbo',
     name: 'GPT-4 Turbo',
     provider: 'OpenAI',
+    modality: 'text' as const,
     contextLength: 128_000,
     pricePerInputToken: 0.000_01,
     pricePerOutputToken: 0.000_03,
-    capabilities: ['internet-search'],
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: 0,
+    capabilities: [],
     description: 'Test description for GPT-4 Turbo.',
-    supportedParameters: ['web_search_options'],
+    supportedParameters: [],
   },
   {
     id: 'anthropic/claude-3.5-sonnet',
     name: 'Claude 3.5 Sonnet',
     provider: 'Anthropic',
+    modality: 'text' as const,
     contextLength: 200_000,
     pricePerInputToken: 0.000_003,
     pricePerOutputToken: 0.000_015,
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: 0,
     capabilities: [],
     description: 'Test description for Claude 3.5 Sonnet.',
     supportedParameters: [],
@@ -163,7 +169,7 @@ describe('ChatHeader', () => {
       expect(screen.getByTestId('model-selector-button')).toHaveTextContent('GPT-4 Turbo');
     });
 
-    it('calls onModelSelect when model is changed', async () => {
+    it('calls onModelSelect when model is changed in default single mode', async () => {
       const user = userEvent.setup();
       const onModelSelect = vi.fn();
       render(
@@ -174,7 +180,6 @@ describe('ChatHeader', () => {
         />
       );
 
-      // Click button to open modal
       await user.click(screen.getByTestId('model-selector-button'));
 
       // Wait for modal to open (search input appears twice for mobile/desktop)
@@ -182,18 +187,12 @@ describe('ChatHeader', () => {
         expect(screen.getAllByPlaceholderText('Search models').length).toBeGreaterThan(0);
       });
 
-      // Double-click to toggle Claude into selection
-      await user.dblClick(screen.getByText('Claude 3.5 Sonnet'));
+      // Single mode: row click commits + closes immediately
+      await user.click(screen.getByText('Claude 3.5 Sonnet'));
 
-      // Click confirm button to trigger onModelSelect
-      await user.click(screen.getByRole('button', { name: /select.*model/i }));
-
-      expect(onModelSelect).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
-          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
-        ])
-      );
+      expect(onModelSelect).toHaveBeenCalledWith([
+        { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+      ]);
     });
 
     it('centers model selector via CSS Grid columns', () => {
@@ -369,7 +368,6 @@ describe('ChatHeader', () => {
         const themeButton = screen.getByRole('button', { name: /switch to dark mode/i });
         const facepile = screen.getByTestId('member-facepile');
 
-        // Encryption badge and theme toggle should come before facepile
         const parent = encBadge.parentElement!;
         const children = [...parent.children];
         const encIndex = children.indexOf(encBadge);

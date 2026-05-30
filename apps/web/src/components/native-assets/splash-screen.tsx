@@ -1,9 +1,24 @@
 import * as React from 'react';
 import { CipherWall } from '@hushbox/ui';
-import type { ThemeColors } from '@hushbox/ui';
 import logoUrl from '@hushbox/ui/assets/HushBoxLogo.png';
+import type { ThemeColors } from '@hushbox/ui';
 
 const BRAND_RED = '#ec4755';
+
+/**
+ * The four strings baked into the native splash PNG. Listed in placement
+ * order — index N renders at row offset `[-8, -5, 5, 8][N]` from center
+ * (see createFrozenSnapshot). PNG byte-identicality with the previously
+ * shipped splash relies on this order and these exact strings; do not
+ * reorder or edit without regenerating the splash assets via
+ * `pnpm tsx scripts/generate-assets.ts`.
+ */
+const SPLASH_MESSAGES: readonly string[] = [
+  'Encrypted By Default',
+  'Every Model, One Place',
+  'Private Group Chats',
+  'No Subscriptions Required',
+];
 
 const THEMES: Record<
   'dark' | 'light',
@@ -44,22 +59,21 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
       style={{
         width: '100vw',
         height: '100vh',
+        // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
         backgroundColor: theme.background,
         position: 'relative',
         overflow: 'hidden',
       }}
     >
-      {/* Frozen cipher wall background at reduced opacity */}
       <div style={{ position: 'absolute', inset: 0, transform: 'scale(1.5)' }}>
         <CipherWall
           frozen
-          frozenMessageCount={4}
+          messages={SPLASH_MESSAGES}
           themeOverride={theme.colors}
           cipherOpacity={0.5}
         />
       </div>
 
-      {/* Centered logo overlay */}
       <div
         style={{
           position: 'absolute',
@@ -71,6 +85,7 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
           gap: '24px',
         }}
       >
+        {/* eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use <Img> from @hushbox/ui */}
         <img
           src={logoUrl}
           alt="HushBox Logo"
@@ -83,9 +98,12 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0' }}>
           <span
             style={{
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               fontSize: '48px',
               fontWeight: 700,
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               color: theme.foreground,
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               fontFamily: 'system-ui, -apple-system, sans-serif',
             }}
           >
@@ -93,9 +111,12 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
           </span>
           <span
             style={{
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               fontSize: '48px',
               fontWeight: 700,
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               color: BRAND_RED,
+              // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
               fontFamily: 'system-ui, -apple-system, sans-serif',
             }}
           >

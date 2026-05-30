@@ -7,6 +7,7 @@ import {
   LOCAL_NEON_DEV_CONFIG,
   conversations,
   messages,
+  contentItems,
   users,
   epochs,
   epochMembers,
@@ -14,8 +15,8 @@ import {
   conversationForks,
 } from '@hushbox/db';
 import { userFactory } from '@hushbox/db/factories';
-import type { ForkResponse } from '@hushbox/shared';
 import { forksRoute } from './forks.js';
+import type { ForkResponse } from '@hushbox/shared';
 import type { AppEnv } from '../types.js';
 import type { SessionData } from '../lib/session.js';
 
@@ -140,7 +141,6 @@ describe('fork routes', () => {
     msgId2 = crypto.randomUUID();
     msgId3 = crypto.randomUUID();
 
-    // Create a conversation with messages
     convId = crypto.randomUUID();
     cleanupConvIds.push(convId);
 
@@ -175,7 +175,6 @@ describe('fork routes', () => {
       }
     }
 
-    // Owner member
     await db.insert(conversationMembers).values({
       conversationId: convId,
       userId: ownerId,
@@ -184,7 +183,6 @@ describe('fork routes', () => {
       acceptedAt: new Date(),
     });
 
-    // Write member
     await db.insert(conversationMembers).values({
       conversationId: convId,
       userId: memberId,
@@ -193,12 +191,12 @@ describe('fork routes', () => {
       acceptedAt: new Date(),
     });
 
-    // Create messages: m1 (user) → m2 (ai) → m3 (user)
+    // Create messages: m1 (user) → m2 (ai) → m3 (user) under the wrap-once envelope model.
     await db.insert(messages).values([
       {
         id: msgId1,
         conversationId: convId,
-        encryptedBlob: toBytes('message-1'),
+        wrappedContentKey: placeholderBytes(81),
         senderType: 'user',
         senderId: ownerId,
         epochNumber: 1,
@@ -208,9 +206,8 @@ describe('fork routes', () => {
       {
         id: msgId2,
         conversationId: convId,
-        encryptedBlob: toBytes('message-2'),
+        wrappedContentKey: placeholderBytes(81),
         senderType: 'ai',
-        modelName: 'test-model',
         epochNumber: 1,
         sequenceNumber: 2,
         parentMessageId: msgId1,
@@ -218,12 +215,36 @@ describe('fork routes', () => {
       {
         id: msgId3,
         conversationId: convId,
-        encryptedBlob: toBytes('message-3'),
+        wrappedContentKey: placeholderBytes(81),
         senderType: 'user',
         senderId: ownerId,
         epochNumber: 1,
         sequenceNumber: 3,
         parentMessageId: msgId2,
+      },
+    ]);
+    await db.insert(contentItems).values([
+      {
+        messageId: msgId1,
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: toBytes('message-1'),
+        isSmartModel: false,
+      },
+      {
+        messageId: msgId2,
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: toBytes('message-2'),
+        modelName: 'test-model',
+        isSmartModel: false,
+      },
+      {
+        messageId: msgId3,
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: toBytes('message-3'),
+        isSmartModel: false,
       },
     ]);
   });
@@ -315,7 +336,6 @@ describe('fork routes', () => {
     });
 
     it('returns existing forks idempotently when same fork ID provided', async () => {
-      // Get current forks
       const forks = await db
         .select({ id: conversationForks.id })
         .from(conversationForks)
@@ -425,7 +445,6 @@ describe('fork routes', () => {
     });
 
     it('renames fork successfully', async () => {
-      // Find the "My Branch" fork to rename
       const forks = await db
         .select({ id: conversationForks.id, name: conversationForks.name })
         .from(conversationForks)
@@ -570,12 +589,19 @@ describe('fork routes', () => {
       await db.insert(messages).values({
         id: soloMsgId,
         conversationId: soloConvId,
-        encryptedBlob: toBytes('solo message'),
+        wrappedContentKey: placeholderBytes(81),
         senderType: 'user',
         senderId: ownerId,
         epochNumber: 1,
         sequenceNumber: 1,
         parentMessageId: null,
+      });
+      await db.insert(contentItems).values({
+        messageId: soloMsgId,
+        contentType: 'text',
+        position: 0,
+        encryptedBlob: toBytes('solo message'),
+        isSmartModel: false,
       });
     });
 

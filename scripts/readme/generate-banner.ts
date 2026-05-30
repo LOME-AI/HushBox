@@ -3,6 +3,8 @@ import path from 'node:path';
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import GIFEncoder from 'gif-encoder-2';
 import seedrandom from 'seedrandom';
+import { LANDING_CIPHER_MESSAGES } from '@hushbox/shared/cipher-messages';
+import { isMainModule } from '../lib/is-main.js';
 import {
   createGrid,
   seedInitialReveals,
@@ -234,7 +236,7 @@ export function generateBannerGif(
 
   const cols = Math.floor(internalW / cellW);
   const rows = Math.floor(internalH / cellH);
-  const state = createGrid(cols, rows);
+  const state = createGrid(cols, rows, LANDING_CIPHER_MESSAGES);
 
   // Exclusion oval is tighter than the visual oval so messages don't spawn
   // under the wordmark but rows above and below remain placeable.
@@ -340,7 +342,7 @@ export function countPlacedReveals(
 
   const cols = Math.floor(internalW / cellW);
   const rows = Math.floor(internalH / cellH);
-  const state = createGrid(cols, rows);
+  const state = createGrid(cols, rows, LANDING_CIPHER_MESSAGES);
   state.exclusionZone = computeOvalExclusion({
     cols,
     rows,
@@ -373,6 +375,7 @@ export function collectBannerInputs(repoRoot: string): string[] {
     path.join(repoRoot, 'scripts/readme/generate-banner.ts'),
     path.join(repoRoot, 'scripts/readme/brand.ts'),
     path.join(repoRoot, 'packages/ui/src/components/cipher-wall/cipher-wall-engine.ts'),
+    path.join(repoRoot, 'packages/shared/src/cipher-messages.ts'),
     path.join(repoRoot, 'packages/config/tailwind/index.css'),
     path.join(repoRoot, 'apps/web/public/fonts/jetbrains-mono-latin.woff2'),
     path.join(repoRoot, 'apps/web/public/fonts/merriweather-latin.woff2'),
@@ -405,5 +408,5 @@ export function generateBanners(outputDir: string, repoRoot?: string): void {
 const DEFAULT_OUTPUT = path.resolve(import.meta.dirname, '../../.github/readme');
 
 /* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
+const isMain = isMainModule(import.meta.url);
 if (isMain) generateBanners(DEFAULT_OUTPUT);

@@ -16,8 +16,8 @@ describe('safeJsonParse', () => {
       headers: { 'Content-Type': 'text/html' },
     });
 
-    await expect(safeJsonParse(response, 'OpenRouter models')).rejects.toThrow(
-      'OpenRouter models: expected JSON but received unparseable body (HTTP 503)'
+    await expect(safeJsonParse(response, 'AI Gateway models')).rejects.toThrow(
+      'AI Gateway models: expected JSON but received unparseable body (HTTP 503)'
     );
   });
 

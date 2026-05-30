@@ -166,14 +166,14 @@ export class BillingPage {
 
     while (Date.now() - startTime < timeout) {
       await this.page.reload({ waitUntil: 'domcontentloaded' });
-      await expect(this.balanceDisplay).toBeVisible();
+      // Settled fires after reload before the billing query paints.
+      await unsettledExpect(this.balanceDisplay).toBeVisible({ timeout: 10_000 });
 
       // Detect session loss — fail fast instead of waiting for timeout
       if (this.page.url().includes('/login')) {
         throw new Error('Session lost — redirected to login during webhook confirmation polling');
       }
 
-      // Wait for balance to stabilize (skeleton disappears, real balance shows)
       await this.page
         .locator('.animate-pulse')
         .first()
@@ -202,7 +202,6 @@ export class BillingPage {
    * Call this at the start of a test to begin collecting data.
    */
   enableDiagnostics(): void {
-    // Capture API responses for billing/webhook endpoints
     this.page.on('response', async (response) => {
       const url = response.url();
       if (url.includes('/billing/') || url.includes('/webhooks/') || url.includes('helcim')) {
@@ -223,7 +222,6 @@ export class BillingPage {
       }
     });
 
-    // Capture console errors/warnings from the browser
     this.page.on('console', (msg) => {
       const type = msg.type();
       if (type === 'error' || type === 'warning') {

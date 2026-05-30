@@ -3,10 +3,17 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
 import type { Model } from '@hushbox/shared';
-import { STRONGEST_MODEL_ID, VALUE_MODEL_ID, AUTO_ROUTER_MODEL_ID } from '@hushbox/shared';
+import {
+  STRONGEST_TEXT_MODEL_ID,
+  VALUE_TEXT_MODEL_ID,
+  STRONGEST_IMAGE_MODEL_ID,
+  VALUE_IMAGE_MODEL_ID,
+  STRONGEST_VIDEO_MODEL_ID,
+  VALUE_VIDEO_MODEL_ID,
+  SMART_MODEL_ID,
+} from '@hushbox/shared';
 import { useModels, getAccessibleModelIds, modelKeys, modelsQueryOptions } from './models.js';
 
-// Mock the api-client module
 vi.mock('../lib/api-client.js', () => ({
   client: {
     api: {
@@ -22,18 +29,21 @@ import { fetchJson } from '../lib/api-client.js';
 
 const mockFetchJson = vi.mocked(fetchJson);
 
-// Mock transformed Model objects (as returned by the API)
 const MOCK_MODELS: Model[] = [
   {
     id: 'openai/gpt-4-turbo',
     name: 'GPT-4 Turbo',
     description: 'Most capable GPT-4 model',
     provider: 'OpenAI',
+    modality: 'text' as const,
     contextLength: 128_000,
     pricePerInputToken: 0.000_01,
     pricePerOutputToken: 0.000_03,
-    capabilities: ['internet-search'],
-    supportedParameters: ['temperature', 'tools', 'tool_choice', 'web_search_options'],
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: 0,
+    capabilities: [],
+    supportedParameters: ['temperature', 'tools', 'tool_choice'],
     created: Math.floor(Date.now() / 1000),
   },
   {
@@ -41,16 +51,19 @@ const MOCK_MODELS: Model[] = [
     name: 'Claude 3.5 Sonnet',
     description: 'Balanced Claude model',
     provider: 'Anthropic',
+    modality: 'text' as const,
     contextLength: 200_000,
     pricePerInputToken: 0.000_003,
     pricePerOutputToken: 0.000_015,
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: 0,
     capabilities: [],
     supportedParameters: ['temperature', 'max_tokens'],
     created: Math.floor(Date.now() / 1000),
   },
 ];
 
-// Backend API response format
 const MOCK_API_RESPONSE = {
   models: MOCK_MODELS,
   premiumModelIds: ['openai/gpt-4-turbo'],
@@ -162,16 +175,19 @@ describe('useModels', () => {
 });
 
 describe('getAccessibleModelIds', () => {
-  // Models with varying prices for testing sorting
   const testModels: Model[] = [
     {
       id: 'expensive-basic',
       name: 'Expensive Basic',
       description: 'A pricey basic model',
       provider: 'TestProvider',
+      modality: 'text' as const,
       contextLength: 100_000,
       pricePerInputToken: 0.000_05, // Highest price
       pricePerOutputToken: 0.000_15,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -181,9 +197,13 @@ describe('getAccessibleModelIds', () => {
       name: 'Cheap Basic',
       description: 'An affordable basic model',
       provider: 'TestProvider',
+      modality: 'text' as const,
       contextLength: 50_000,
       pricePerInputToken: 0.000_001, // Lowest price
       pricePerOutputToken: 0.000_003,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -193,9 +213,13 @@ describe('getAccessibleModelIds', () => {
       name: 'Mid Basic',
       description: 'A mid-priced basic model',
       provider: 'TestProvider',
+      modality: 'text' as const,
       contextLength: 75_000,
       pricePerInputToken: 0.000_01, // Mid price
       pricePerOutputToken: 0.000_03,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -205,9 +229,13 @@ describe('getAccessibleModelIds', () => {
       name: 'Premium Model',
       description: 'A premium model',
       provider: 'TestProvider',
+      modality: 'text' as const,
       contextLength: 200_000,
       pricePerInputToken: 0.0001,
       pricePerOutputToken: 0.0003,
+      pricePerImage: 0,
+      pricePerSecondByResolution: {},
+      pricePerSecond: 0,
       capabilities: [],
       supportedParameters: [],
       created: Math.floor(Date.now() / 1000),
@@ -216,24 +244,54 @@ describe('getAccessibleModelIds', () => {
 
   const premiumIds = new Set(['premium-model']);
 
-  it('returns hardcoded premium IDs when canAccessPremium is true', () => {
+  it('paid users on text get the most-expensive non-premium as strongest and cheapest as value (dynamic)', () => {
+    // Plan §10.12: text "Strongest" / "Value" buttons must resolve dynamically
+    // for paid users — not the hardcoded constants.
     const result = getAccessibleModelIds(testModels, premiumIds, true);
 
-    expect(result.strongestId).toBe(STRONGEST_MODEL_ID);
-    expect(result.valueId).toBe(VALUE_MODEL_ID);
+    expect(result.strongestId).toBe('expensive-basic');
+    expect(result.valueId).toBe('cheap-basic');
+    // Sanity: never the hardcoded constants when dynamic data is available.
+    expect(result.strongestId).not.toBe(STRONGEST_TEXT_MODEL_ID);
+    expect(result.valueId).not.toBe(VALUE_TEXT_MODEL_ID);
+  });
+
+  it('paid users on text fall back to hardcoded text pins when no models are available', () => {
+    const result = getAccessibleModelIds([], new Set(), true);
+    expect(result.strongestId).toBe(STRONGEST_TEXT_MODEL_ID);
+    expect(result.valueId).toBe(VALUE_TEXT_MODEL_ID);
+  });
+
+  it('returns hardcoded image pins when canAccessPremium and modality is image', () => {
+    const result = getAccessibleModelIds(testModels, premiumIds, true, 'image');
+    expect(result.strongestId).toBe(STRONGEST_IMAGE_MODEL_ID);
+    expect(result.valueId).toBe(VALUE_IMAGE_MODEL_ID);
+  });
+
+  it('returns hardcoded video pins when canAccessPremium and modality is video', () => {
+    const result = getAccessibleModelIds(testModels, premiumIds, true, 'video');
+    expect(result.strongestId).toBe(STRONGEST_VIDEO_MODEL_ID);
+    expect(result.valueId).toBe(VALUE_VIDEO_MODEL_ID);
+  });
+
+  it('returns empty pins for non-premium users on media modalities', () => {
+    const resultImg = getAccessibleModelIds(testModels, premiumIds, false, 'image');
+    const resultVid = getAccessibleModelIds(testModels, premiumIds, false, 'video');
+    expect(resultImg.strongestId).toBe('');
+    expect(resultImg.valueId).toBe('');
+    expect(resultVid.strongestId).toBe('');
+    expect(resultVid.valueId).toBe('');
   });
 
   it('returns highest-price basic model as strongest when canAccessPremium is false', () => {
     const result = getAccessibleModelIds(testModels, premiumIds, false);
 
-    // 'expensive-basic' has the highest price among basic models
     expect(result.strongestId).toBe('expensive-basic');
   });
 
   it('returns lowest-price basic model as value when canAccessPremium is false', () => {
     const result = getAccessibleModelIds(testModels, premiumIds, false);
 
-    // 'cheap-basic' has the lowest price among basic models
     expect(result.valueId).toBe('cheap-basic');
   });
 
@@ -248,7 +306,6 @@ describe('getAccessibleModelIds', () => {
     const allPremium = new Set(testModels.map((m) => m.id));
     const result = getAccessibleModelIds(testModels, allPremium, false);
 
-    // When no basic models, falls back to first model
     expect(result.strongestId).toBe(testModels[0]?.id);
     expect(result.valueId).toBe(testModels[0]?.id);
   });
@@ -261,29 +318,33 @@ describe('getAccessibleModelIds', () => {
     expect(result.valueId).not.toBe('premium-model');
   });
 
-  it('excludes auto-router from strongest/value calculation', () => {
-    const modelsWithAutoRouter: Model[] = [
+  it('excludes the Smart Model from strongest/value calculation', () => {
+    const modelsWithSmart: Model[] = [
       ...testModels,
       {
-        id: AUTO_ROUTER_MODEL_ID,
+        id: SMART_MODEL_ID,
         name: 'Smart Model',
-        description: 'Auto-router model',
-        provider: 'OpenRouter',
+        description: 'Classifier-based router',
+        provider: 'HushBox',
+        modality: 'text' as const,
         contextLength: 2_000_000,
         pricePerInputToken: 0.000_000_039,
         pricePerOutputToken: 0.000_000_19,
+        pricePerImage: 0,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0,
         capabilities: [],
         supportedParameters: [],
-        isAutoRouter: true,
+        isSmartModel: true,
         created: Math.floor(Date.now() / 1000),
       },
     ];
 
-    // Auto-router has lowest price but should not be selected as "Best value"
-    const result = getAccessibleModelIds(modelsWithAutoRouter, premiumIds, false);
+    // Smart Model has lowest price but should not be selected as "Best value"
+    const result = getAccessibleModelIds(modelsWithSmart, premiumIds, false);
 
-    expect(result.strongestId).not.toBe(AUTO_ROUTER_MODEL_ID);
-    expect(result.valueId).not.toBe(AUTO_ROUTER_MODEL_ID);
+    expect(result.strongestId).not.toBe(SMART_MODEL_ID);
+    expect(result.valueId).not.toBe(SMART_MODEL_ID);
   });
 
   it('uses combined input+output price for sorting', () => {
@@ -294,9 +355,13 @@ describe('getAccessibleModelIds', () => {
         name: 'High Input Low Output',
         description: 'Test model',
         provider: 'TestProvider',
+        modality: 'text' as const,
         contextLength: 100_000,
         pricePerInputToken: 0.0001, // High input
         pricePerOutputToken: 0.000_01, // Low output
+        pricePerImage: 0,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0,
         capabilities: [],
         supportedParameters: [],
         created: Math.floor(Date.now() / 1000),
@@ -306,9 +371,13 @@ describe('getAccessibleModelIds', () => {
         name: 'Low Input High Output',
         description: 'Test model',
         provider: 'TestProvider',
+        modality: 'text' as const,
         contextLength: 100_000,
         pricePerInputToken: 0.000_01, // Low input
         pricePerOutputToken: 0.0001, // High output
+        pricePerImage: 0,
+        pricePerSecondByResolution: {},
+        pricePerSecond: 0,
         capabilities: [],
         supportedParameters: [],
         created: Math.floor(Date.now() / 1000),

@@ -9,6 +9,7 @@ import {
   useUsageModels,
 } from '@/hooks/usage';
 import { useDecryptedConversations } from '@/hooks/chat';
+import { PageBody } from '@/components/shared/page-body';
 import { UsageFilters, type DateRangePreset } from './usage-filters';
 import { UsageKpiCards } from './usage-kpi-cards';
 import { SpendingOverTimeChart } from './spending-over-time-chart';
@@ -57,10 +58,7 @@ export function UsageContent(): React.JSX.Element {
   const balanceHistory = useBalanceHistory(dateRange);
 
   return (
-    <div
-      className="container mx-auto max-w-4xl flex-1 space-y-6 overflow-y-auto p-4"
-      data-testid="usage-content"
-    >
+    <PageBody testId="usage-content" className="space-y-6">
       <UsageFilters
         range={range}
         onRangeChange={setRange}
@@ -88,6 +86,6 @@ export function UsageContent(): React.JSX.Element {
         />
         <BalanceHistoryChart data={balanceHistory.data} isLoading={balanceHistory.isLoading} />
       </div>
-    </div>
+    </PageBody>
   );
 }

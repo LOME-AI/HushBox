@@ -8,12 +8,14 @@ export function AppIcon(): React.JSX.Element {
       style={{
         width: '100vw',
         height: '100vh',
+        // eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use Tailwind/CSS variables
         backgroundColor: '#0a0a0a',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
       }}
     >
+      {/* eslint-disable-next-line no-restricted-syntax -- native asset generator: renders to PNG, can't use <Img> from @hushbox/ui */}
       <img
         src={logoUrl}
         alt="HushBox Logo"

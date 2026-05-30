@@ -1,10 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement, ReactNode } from 'react';
 import userEvent from '@testing-library/user-event';
-import { ChatItem } from './chat-item';
 import { useUIStore } from '@/stores/ui';
+import { ChatItem, type SidebarConversation } from './chat-item';
 
-// Mock Link component
+function render(ui: ReactElement): ReturnType<typeof rtlRender> {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  function Wrapper({ children }: Readonly<{ children: ReactNode }>): ReactNode {
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  }
+  Wrapper.displayName = 'TestWrapper';
+  return rtlRender(ui, { wrapper: Wrapper });
+}
+
+const mockNavigate = vi.fn();
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     children,
@@ -28,13 +39,12 @@ vi.mock('@tanstack/react-router', () => ({
       {children}
     </a>
   ),
-  useNavigate: () => vi.fn(),
+  useNavigate: () => mockNavigate,
 }));
 
-// Mock crypto — encryptMessageForStorage returns a known Uint8Array
 const MOCK_ENCRYPTED_BYTES = new Uint8Array([1, 2, 3, 4]);
 vi.mock('@hushbox/crypto', () => ({
-  encryptMessageForStorage: vi.fn(() => MOCK_ENCRYPTED_BYTES),
+  encryptTextForEpoch: vi.fn(() => MOCK_ENCRYPTED_BYTES),
   getPublicKeyFromPrivate: vi.fn(() => new Uint8Array([10, 20, 30])),
 }));
 
@@ -46,13 +56,21 @@ vi.mock('@hushbox/shared', async (importOriginal) => {
   };
 });
 
-// Mock epoch-key-cache — return a fake epoch private key
 const MOCK_EPOCH_KEY = new Uint8Array([99, 88, 77]);
 vi.mock('@/lib/epoch-key-cache', () => ({
   getEpochKey: vi.fn(() => MOCK_EPOCH_KEY),
+  getCurrentEpoch: vi.fn(() => 2),
+  processKeyChain: vi.fn(),
 }));
 
-// Mock chat hooks
+vi.mock('@/hooks/keys', () => ({
+  keyChainQueryOptions: vi.fn((conversationId: string) => ({
+    queryKey: ['keys', conversationId],
+    queryFn: () => Promise.resolve({}),
+    staleTime: 0,
+  })),
+}));
+
 const mockDeleteMutate = vi.fn();
 const mockUpdateMutate = vi.fn();
 
@@ -68,13 +86,12 @@ vi.mock('@/hooks/chat', () => ({
   DECRYPTING_TITLE: 'Decrypting...',
 }));
 
-// Mock leave conversation hook
-const mockLeaveMutate = vi.fn();
+const mockLeaveMutateAsync = vi.fn(() => Promise.resolve());
 const mockMuteMutate = vi.fn();
 const mockPinMutate = vi.fn();
 vi.mock('@/hooks/use-conversation-members', () => ({
   useLeaveConversation: () => ({
-    mutate: mockLeaveMutate,
+    mutateAsync: mockLeaveMutateAsync,
     isPending: false,
   }),
   useMuteConversation: () => ({
@@ -87,8 +104,21 @@ vi.mock('@/hooks/use-conversation-members', () => ({
   }),
 }));
 
+const mockExecuteWithRotation = vi.fn<(...args: unknown[]) => Promise<void>>(() =>
+  Promise.resolve()
+);
+vi.mock('@/lib/rotation', () => ({
+  executeWithRotation: (...args: unknown[]) => mockExecuteWithRotation(...args),
+}));
+
+vi.mock('@/lib/auth', () => ({
+  useAuthStore: <T,>(
+    selector: (s: { user: { id: string } | null; privateKey: Uint8Array }) => T
+  ): T => selector({ user: { id: 'caller-user-id' }, privateKey: new Uint8Array([7, 7, 7]) }),
+}));
+
 describe('ChatItem', () => {
-  const mockConversation = {
+  const mockConversation: SidebarConversation = {
     id: 'conv-123',
     title: 'Test Conversation',
     currentEpoch: 2,
@@ -102,7 +132,9 @@ describe('ChatItem', () => {
     vi.clearAllMocks();
     mockDeleteMutate.mockClear();
     mockUpdateMutate.mockClear();
-    mockLeaveMutate.mockClear();
+    mockLeaveMutateAsync.mockClear();
+    mockExecuteWithRotation.mockClear();
+    mockNavigate.mockClear();
     mockMuteMutate.mockClear();
     mockPinMutate.mockClear();
     useUIStore.setState({ sidebarOpen: true, mobileSidebarOpen: false });
@@ -145,7 +177,6 @@ describe('ChatItem', () => {
     it('highlights when active', () => {
       render(<ChatItem conversation={mockConversation} isActive />);
       const link = screen.getByTestId('chat-link');
-      // The active styling is on the parent wrapper div, not the link
       expect(link.parentElement).toHaveClass('bg-sidebar-border');
     });
   });
@@ -190,7 +221,6 @@ describe('ChatItem', () => {
       const moreButton = screen.getByTestId('chat-item-more-button');
       await user.click(moreButton);
 
-      // Dropdown should be open, link navigation should not have occurred
       expect(screen.getByText('Rename')).toBeInTheDocument();
     });
   });
@@ -295,7 +325,7 @@ describe('ChatItem', () => {
   });
 
   describe('non-owner actions', () => {
-    const nonOwnerConversation = {
+    const nonOwnerConversation: SidebarConversation = {
       ...mockConversation,
       privilege: 'write',
     };
@@ -313,7 +343,11 @@ describe('ChatItem', () => {
 
     it('shows Leave for read privilege', async () => {
       const user = userEvent.setup();
-      render(<ChatItem conversation={{ ...mockConversation, privilege: 'read' }} />);
+      render(
+        <ChatItem
+          conversation={{ ...mockConversation, privilege: 'read' } satisfies SidebarConversation}
+        />
+      );
 
       await user.click(screen.getByTestId('chat-item-more-button'));
 
@@ -323,7 +357,11 @@ describe('ChatItem', () => {
 
     it('shows Leave for admin privilege', async () => {
       const user = userEvent.setup();
-      render(<ChatItem conversation={{ ...mockConversation, privilege: 'admin' }} />);
+      render(
+        <ChatItem
+          conversation={{ ...mockConversation, privilege: 'admin' } satisfies SidebarConversation}
+        />
+      );
 
       await user.click(screen.getByTestId('chat-item-more-button'));
 
@@ -343,7 +381,7 @@ describe('ChatItem', () => {
       });
     });
 
-    it('calls leave mutation when confirmed', async () => {
+    it('routes non-owner leave through executeWithRotation', async () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={nonOwnerConversation} />);
 
@@ -355,13 +393,26 @@ describe('ChatItem', () => {
       });
       await user.click(screen.getByTestId('leave-confirmation-confirm'));
 
-      expect(mockLeaveMutate).toHaveBeenCalledWith(
-        { conversationId: 'conv-123' },
-        expect.any(Object)
+      await waitFor(() => {
+        expect(mockExecuteWithRotation).toHaveBeenCalledOnce();
+      });
+      // The contract: the rotation generator receives the conversation id,
+      // the cached epoch key + number, the plaintext title (so the new epoch
+      // can re-encrypt it), a filter that excludes the leaving user, and an
+      // execute callback that issues the API request.
+      expect(mockExecuteWithRotation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: 'conv-123',
+          currentEpochPrivateKey: MOCK_EPOCH_KEY,
+          currentEpochNumber: 2,
+          plaintextTitle: 'Test Conversation',
+          filterMembers: expect.any(Function),
+          execute: expect.any(Function),
+        })
       );
     });
 
-    it('does not call leave mutation when cancelled', async () => {
+    it('does not call any leave path when cancelled', async () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={nonOwnerConversation} />);
 
@@ -376,7 +427,42 @@ describe('ChatItem', () => {
       await waitFor(() => {
         expect(screen.queryByTestId('leave-confirmation-modal')).not.toBeInTheDocument();
       });
-      expect(mockLeaveMutate).not.toHaveBeenCalled();
+      expect(mockExecuteWithRotation).not.toHaveBeenCalled();
+      expect(mockLeaveMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('navigates to /chat when leaving the active conversation', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={nonOwnerConversation} isActive />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByText('Leave'));
+      await waitFor(() => {
+        expect(screen.getByTestId('leave-confirmation-modal')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('leave-confirmation-confirm'));
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith({ to: '/chat' });
+      });
+    });
+
+    it('does not navigate when leaving a non-active conversation', async () => {
+      const user = userEvent.setup();
+      render(<ChatItem conversation={nonOwnerConversation} />);
+
+      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByText('Leave'));
+      await waitFor(() => {
+        expect(screen.getByTestId('leave-confirmation-modal')).toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId('leave-confirmation-confirm'));
+
+      // Wait for the leave action to settle, then assert no navigation
+      await waitFor(() => {
+        expect(mockExecuteWithRotation).toHaveBeenCalledOnce();
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
 
     it('shows Rename and Delete for owner privilege', async () => {
@@ -440,7 +526,11 @@ describe('ChatItem', () => {
 
     it('shows Mute option for non-owner members', async () => {
       const user = userEvent.setup();
-      render(<ChatItem conversation={{ ...mockConversation, privilege: 'write' }} />);
+      render(
+        <ChatItem
+          conversation={{ ...mockConversation, privilege: 'write' } satisfies SidebarConversation}
+        />
+      );
 
       await user.click(screen.getByTestId('chat-item-more-button'));
 
@@ -497,7 +587,11 @@ describe('ChatItem', () => {
 
     it('shows Pin option for non-owner members', async () => {
       const user = userEvent.setup();
-      render(<ChatItem conversation={{ ...mockConversation, privilege: 'write' }} />);
+      render(
+        <ChatItem
+          conversation={{ ...mockConversation, privilege: 'write' } satisfies SidebarConversation}
+        />
+      );
 
       await user.click(screen.getByTestId('chat-item-more-button'));
 

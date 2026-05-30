@@ -1,4 +1,4 @@
-import { eq, and, ne, isNull, ilike } from 'drizzle-orm';
+import { eq, and, ne, isNull, ilike, asc } from 'drizzle-orm';
 import { users, conversationMembers, type Database } from '@hushbox/db';
 import { toBase64, normalizeUsername } from '@hushbox/shared';
 
@@ -47,6 +47,7 @@ export async function searchUsers(
           isNull(conversationMembers.id)
         )
       )
+      .orderBy(asc(users.username))
       .limit(limit);
 
     return rows.map((r) => ({
@@ -64,6 +65,7 @@ export async function searchUsers(
     })
     .from(users)
     .where(and(ilike(users.username, `${normalizedQuery}%`), ne(users.id, requesterId)))
+    .orderBy(asc(users.username))
     .limit(limit);
 
   return rows.map((r) => ({

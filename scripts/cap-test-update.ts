@@ -1,4 +1,9 @@
 import path from 'node:path';
+import { createWriteStream } from 'node:fs';
+import archiver from 'archiver';
+import { $ } from 'execa';
+import { isMainModule } from './lib/is-main.js';
+import { runMain } from './lib/run-main.js';
 import type { MobilePlatform } from '@hushbox/shared';
 
 const API_BASE_URL = 'http://localhost:8787';
@@ -37,6 +42,25 @@ export function getR2ObjectKey(platform: MobilePlatform, version: string): strin
 }
 
 /**
+ * Pack the contents of a directory into a zip file. Mirrors `cd <source> && zip -r <dest> .`:
+ * entries are stored relative to the source directory root, not the source directory itself.
+ */
+export function zipDirectory(source: string, destination: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const output = createWriteStream(destination);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    output.on('close', () => {
+      resolve();
+    });
+    output.on('error', reject);
+    archive.on('error', reject);
+    archive.pipe(output);
+    archive.directory(source, false);
+    void archive.finalize();
+  });
+}
+
+/**
  * Automated local live update testing script.
  *
  * Flow:
@@ -54,9 +78,6 @@ export async function runCapTestUpdate(
   rootDir: string,
   platform: MobilePlatform = 'android-direct'
 ): Promise<void> {
-  const { $ } = await import('execa');
-
-  // 1. Query current version
   console.log('Querying current server version...');
   const res = await fetch(getUpdatesCurrentUrl());
   if (!res.ok) {
@@ -65,11 +86,9 @@ export async function runCapTestUpdate(
   const { version: currentVersion } = (await res.json()) as { version: string };
   console.log(`  Current version: ${currentVersion}`);
 
-  // 2. Generate new version
   const newVersion = generateVersionString();
   console.log(`  New version: ${newVersion}`);
 
-  // 3. Build with new version
   console.log('Building web with new version...');
   const webDir = path.join(rootDir, 'apps', 'web');
   await $({
@@ -78,13 +97,11 @@ export async function runCapTestUpdate(
     env: { ...process.env, VITE_APP_VERSION: newVersion, VITE_PLATFORM: platform },
   })`pnpm exec vite build`;
 
-  // 4. Zip dist
   const distributionDir = getDistributionZipPath(rootDir);
   const zipPath = path.join(rootDir, 'web-dist.zip');
   console.log('Zipping dist...');
-  await $({ cwd: distributionDir, stdio: 'inherit' })`zip -r ${zipPath} .`;
+  await zipDirectory(distributionDir, zipPath);
 
-  // 5. Upload to local R2
   const r2Key = getR2ObjectKey(platform, newVersion);
   console.log(`Uploading to R2: ${r2Key}`);
   const apiDir = path.join(rootDir, 'apps', 'api');
@@ -93,7 +110,6 @@ export async function runCapTestUpdate(
     stdio: 'inherit',
   })`pnpm exec wrangler r2 object put ${r2Key} --file ${zipPath}`;
 
-  // 6. Set version override
   console.log('Setting version override...');
   const setRes = await fetch(getSetVersionUrl(), {
     method: 'POST',
@@ -104,7 +120,6 @@ export async function runCapTestUpdate(
     throw new Error(`Failed to set version: ${String(setRes.status)}`);
   }
 
-  // 7. Done
   console.log('');
   console.log('Version updated successfully!');
   console.log(`  Old: ${currentVersion}`);
@@ -120,16 +135,11 @@ export function parsePlatformArgument(args: string[]): MobilePlatform | undefine
   return args[index + 1] as MobilePlatform;
 }
 
-// CLI entry point
-/* v8 ignore next 2 */
-const isMain = import.meta.url === `file://${String(process.argv[1])}`;
-if (isMain) {
-  /* v8 ignore next 6 */
-  try {
+/* v8 ignore start -- CLI entry point exercised via cap:test-update script */
+if (isMainModule(import.meta.url)) {
+  await runMain(async () => {
     const platform = parsePlatformArgument(process.argv.slice(2));
     await runCapTestUpdate(process.cwd(), platform);
-  } catch (error: unknown) {
-    console.error('Cap test update failed:', error);
-    process.exit(1);
-  }
+  });
 }
+/* v8 ignore stop */

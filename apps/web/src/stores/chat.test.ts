@@ -3,7 +3,6 @@ import { useChatStore } from './chat';
 
 describe('useChatStore', () => {
   beforeEach(() => {
-    // Reset store state before each test
     useChatStore.setState({
       pendingMessages: {},
       streamingContent: null,
@@ -88,7 +87,6 @@ describe('useChatStore', () => {
     it('handles removing from non-existent conversation gracefully', () => {
       const { removePendingMessage } = useChatStore.getState();
 
-      // Should not throw
       expect(() => {
         removePendingMessage('non-existent', 'some-id');
       }).not.toThrow();

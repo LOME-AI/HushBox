@@ -6,7 +6,7 @@ import {
   isPremiumModel,
   exceedsTrialBudget,
 } from './premium-check.js';
-import type { OpenRouterModel } from './types.js';
+import type { RawModel } from './types.js';
 
 describe('PREMIUM_PRICE_PERCENTILE', () => {
   it('is 0.75 (75th percentile)', () => {
@@ -15,14 +15,14 @@ describe('PREMIUM_PRICE_PERCENTILE', () => {
 });
 
 describe('PREMIUM_RECENCY_MS', () => {
-  it('is 1 year in milliseconds', () => {
-    const oneYearMs = 365 * 24 * 60 * 60 * 1000;
-    expect(PREMIUM_RECENCY_MS).toBe(oneYearMs);
+  it('is 6 months (182 days) in milliseconds', () => {
+    const sixMonthsMs = 182 * 24 * 60 * 60 * 1000;
+    expect(PREMIUM_RECENCY_MS).toBe(sixMonthsMs);
   });
 });
 
 describe('isPremiumModel', () => {
-  const createModel = (overrides: Partial<OpenRouterModel> = {}): OpenRouterModel => ({
+  const createModel = (overrides: Partial<RawModel> = {}): RawModel => ({
     id: 'test/model',
     name: 'Test Model',
     description: 'A test model',
@@ -30,6 +30,7 @@ describe('isPremiumModel', () => {
     pricing: { prompt: '0.001', completion: '0.002' },
     supported_parameters: [],
     created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60, // 400 days ago
+    modality: 'text' as const,
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
     ...overrides,
   });
@@ -79,7 +80,7 @@ describe('TRIAL_AFFORDABILITY_MULTIPLIER', () => {
 });
 
 describe('exceedsTrialBudget', () => {
-  const createModel = (overrides: Partial<OpenRouterModel> = {}): OpenRouterModel => ({
+  const createModel = (overrides: Partial<RawModel> = {}): RawModel => ({
     id: 'test/model',
     name: 'Test Model',
     description: 'A test model',
@@ -87,6 +88,7 @@ describe('exceedsTrialBudget', () => {
     pricing: { prompt: '0.000001', completion: '0.000001' },
     supported_parameters: [],
     created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60,
+    modality: 'text' as const,
     architecture: { input_modalities: ['text'], output_modalities: ['text'] },
     ...overrides,
   });

@@ -1,14 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { processModels } from './process-models.js';
-import {
-  AUTO_ROUTER_MODEL_ID,
-  AUTO_ROUTER_INPUT_PRICE_PER_TOKEN,
-  AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN,
-} from '../constants.js';
 
-// ============================================================
-// Test Fixtures
-// ============================================================
+// Override ZDR to allow all models in this test — this isolates processing logic
+// (free-model filter, name patterns, age, premium classification) from ZDR concerns,
+// which are tested separately in zdr.test.ts.
+vi.mock('./zdr.js', () => ({
+  isZdrModel: () => true,
+}));
+
+import { processModels, pickValueTextModel } from './process-models.js';
+import { SMART_MODEL_ID } from '../constants.js';
+
+/**
+ * Strip the synthetic Smart Model entry so tests can assert against only
+ * the real gateway models. Smart Model injection is covered in its own describe.
+ */
+function realModelIds(result: ReturnType<typeof processModels>): string[] {
+  return result.models.filter((m) => m.id !== SMART_MODEL_ID).map((m) => m.id);
+}
 
 const now = Date.now();
 const twoYearsAgo = now - 2 * 365 * 24 * 60 * 60 * 1000;
@@ -19,6 +27,7 @@ function createModel(overrides: Partial<Parameters<typeof processModels>[0][0]> 
     id: 'test/model',
     name: 'Test Model',
     description: 'A test model',
+    modality: 'text' as const,
     context_length: 100_000,
     pricing: { prompt: '0.001', completion: '0.002' },
     supported_parameters: ['temperature'],
@@ -31,9 +40,44 @@ function createModel(overrides: Partial<Parameters<typeof processModels>[0][0]> 
   };
 }
 
-/** Build a ZDR set containing all model IDs (pass-all filter for non-ZDR tests). */
-function allZdr(models: ReturnType<typeof createModel>[]): Set<string> {
-  return new Set(models.map((m) => m.id));
+function createImageModel(overrides: Partial<Parameters<typeof processModels>[0][0]> = {}) {
+  return createModel({
+    id: 'google/imagen-4.0-generate-001',
+    name: 'Imagen 4',
+    modality: 'image',
+    context_length: 0,
+    pricing: { prompt: '0', completion: '0', per_image: '0.04' },
+    architecture: { input_modalities: ['image'], output_modalities: ['image'] },
+    ...overrides,
+  });
+}
+
+function createVideoModel(overrides: Partial<Parameters<typeof processModels>[0][0]> = {}) {
+  return createModel({
+    id: 'google/veo-3.1-generate-001',
+    name: 'Veo 3.1',
+    modality: 'video',
+    context_length: 0,
+    pricing: {
+      prompt: '0',
+      completion: '0',
+      per_second_by_resolution: { '720p': '0.4', '1080p': '0.4' },
+    },
+    architecture: { input_modalities: ['video'], output_modalities: ['video'] },
+    ...overrides,
+  });
+}
+
+function createAudioModel(overrides: Partial<Parameters<typeof processModels>[0][0]> = {}) {
+  return createModel({
+    id: 'openai/tts-1',
+    name: 'TTS-1',
+    modality: 'audio',
+    context_length: 0,
+    pricing: { prompt: '0', completion: '0', per_second: '0.015' },
+    architecture: { input_modalities: ['text'], output_modalities: ['audio'] },
+    ...overrides,
+  });
 }
 
 describe('processModels', () => {
@@ -46,38 +90,6 @@ describe('processModels', () => {
     vi.useRealTimers();
   });
 
-  describe('filtering - ZDR compliance', () => {
-    it('filters to only ZDR-compliant models when zdrModelIds provided', () => {
-      const models = [
-        createModel({ id: 'zdr/model-a' }),
-        createModel({ id: 'non-zdr/model-b' }),
-        createModel({ id: 'zdr/model-c' }),
-      ];
-      const zdrModelIds = new Set(['zdr/model-a', 'zdr/model-c']);
-
-      const result = processModels(models, zdrModelIds);
-
-      expect(result.models.map((m) => m.id)).toEqual(['zdr/model-a', 'zdr/model-c']);
-    });
-
-    it('excludes non-ZDR models even if they pass other filters', () => {
-      const models = [
-        createModel({
-          id: 'non-zdr/expensive-recent',
-          pricing: { prompt: '0.01', completion: '0.01' },
-          context_length: 200_000,
-          created: Math.floor(now / 1000),
-        }),
-        createModel({ id: 'zdr/basic' }),
-      ];
-      const zdrModelIds = new Set(['zdr/basic']);
-
-      const result = processModels(models, zdrModelIds);
-
-      expect(result.models.map((m) => m.id)).toEqual(['zdr/basic']);
-    });
-  });
-
   describe('filtering - always excluded', () => {
     it('excludes free models (both prices = 0)', () => {
       const models = [
@@ -85,9 +97,9 @@ describe('processModels', () => {
         createModel({ id: 'free/model', pricing: { prompt: '0', completion: '0' } }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['paid/model']);
+      expect(realModelIds(result)).toEqual(['paid/model']);
     });
 
     it('excludes Body Builder models', () => {
@@ -96,9 +108,9 @@ describe('processModels', () => {
         createModel({ id: 'utility/builder', name: 'Body Builder (beta)' }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+      expect(realModelIds(result)).toEqual(['normal/model']);
     });
 
     it('excludes Auto Router models', () => {
@@ -107,9 +119,9 @@ describe('processModels', () => {
         createModel({ id: 'utility/router', name: 'Auto Router' }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+      expect(realModelIds(result)).toEqual(['normal/model']);
     });
 
     it('excludes models with audio in name', () => {
@@ -119,9 +131,9 @@ describe('processModels', () => {
         createModel({ id: 'openai/audio-preview', name: 'OpenAI: Audio Preview' }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+      expect(realModelIds(result)).toEqual(['normal/model']);
     });
 
     it('excludes models with image in name', () => {
@@ -131,9 +143,9 @@ describe('processModels', () => {
         createModel({ id: 'openai/image-gen', name: 'OpenAI: Image Generator' }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+      expect(realModelIds(result)).toEqual(['normal/model']);
     });
 
     it('excludes models without text in input_modalities', () => {
@@ -145,9 +157,9 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['text/model']);
+      expect(realModelIds(result)).toEqual(['text/model']);
     });
 
     it('excludes models without text in output_modalities', () => {
@@ -159,9 +171,9 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['text/model']);
+      expect(realModelIds(result)).toEqual(['text/model']);
     });
 
     it('includes multimodal models with text input and output', () => {
@@ -172,9 +184,9 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['vision/model']);
+      expect(realModelIds(result)).toEqual(['vision/model']);
     });
 
     it('applies name pattern matching case-insensitively', () => {
@@ -184,9 +196,9 @@ describe('processModels', () => {
         createModel({ id: 'utility/2', name: 'auto router' }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['normal/model']);
+      expect(realModelIds(result)).toEqual(['normal/model']);
     });
   });
 
@@ -208,7 +220,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.models.map((m) => m.id)).not.toContain('old/model');
     });
@@ -218,9 +230,9 @@ describe('processModels', () => {
         createModel({ id: 'boundary/model', created: Math.floor(twoYearsAgo / 1000) }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models.map((m) => m.id)).toEqual(['boundary/model']);
+      expect(realModelIds(result)).toEqual(['boundary/model']);
     });
 
     it('excludes models cheaper than $0.0002 per 1K tokens combined', () => {
@@ -239,7 +251,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.models.map((m) => m.id)).not.toContain('cheap/model');
     });
@@ -262,7 +274,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.models.map((m) => m.id)).toContain('old-but-large-context/model');
     });
@@ -283,7 +295,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.models.map((m) => m.id)).toContain('cheap-but-large-context/model');
     });
@@ -303,7 +315,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.models.map((m) => m.id)).not.toContain('free-large-context/model');
     });
@@ -323,7 +335,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.models.map((m) => m.id)).not.toContain('utility-large-context/model');
     });
@@ -343,7 +355,7 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.premiumIds).toContain('model-9');
       expect(result.premiumIds).toContain('model-8');
@@ -364,7 +376,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.premiumIds).toContain('new-cheap/model');
     });
@@ -386,15 +398,16 @@ describe('processModels', () => {
         })
       );
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.models.map((m) => m.id)).not.toContain('old-expensive/model');
-      expect(result.models).toHaveLength(20);
+      // 20 real models + 1 Smart Model entry
+      expect(realModelIds(result)).toHaveLength(20);
     });
   });
 
   describe('transformation', () => {
-    it('transforms OpenRouter model to Model type', () => {
+    it('transforms raw gateway model to Model type', () => {
       const models = [
         createModel({
           id: 'openai/gpt-4-turbo',
@@ -407,7 +420,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
       const model = result.models[0];
 
       expect(model).toMatchObject({
@@ -435,7 +448,7 @@ describe('processModels', () => {
 
       for (const { id, expected } of testCases) {
         const models = [createModel({ id })];
-        const result = processModels(models, allZdr(models));
+        const result = processModels(models);
         expect(result.models[0]?.provider).toBe(expected);
       }
     });
@@ -448,7 +461,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.models[0]?.provider).toBe('Acme Corp');
       expect(result.models[0]?.name).toBe('Super Model');
@@ -462,7 +475,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.models[0]?.provider).toBe('Provider');
       expect(result.models[0]?.name).toBe('Model: Version 2');
@@ -476,20 +489,16 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       expect(result.models[0]?.provider).toBe('OpenAI');
     });
 
-    it('derives internet-search capability from web_search_options parameter', () => {
+    it('assigns no capabilities to text models (Perplexity tool runs model-agnostically)', () => {
       const modelsData = [
         createModel({
-          id: 'with-search/model',
+          id: 'with-tools/model',
           supported_parameters: ['tools', 'web_search_options'],
-        }),
-        createModel({
-          id: 'without-search/model',
-          supported_parameters: ['tools', 'temperature'],
         }),
         createModel({
           id: 'basic/model',
@@ -497,91 +506,63 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(modelsData, allZdr(modelsData));
+      const result = processModels(modelsData);
 
-      const withSearch = result.models.find((m) => m.id === 'with-search/model');
-      const withoutSearch = result.models.find((m) => m.id === 'without-search/model');
-      const basic = result.models.find((m) => m.id === 'basic/model');
-
-      expect(withSearch?.capabilities).toEqual(['internet-search']);
-      expect(withoutSearch?.capabilities).toEqual([]);
-      expect(basic?.capabilities).toEqual([]);
-    });
-
-    it('extracts webSearchPrice from pricing.web_search', () => {
-      const modelsData = [
-        createModel({
-          id: 'search/model',
-          pricing: { prompt: '0.001', completion: '0.002', web_search: '0.005' },
-          supported_parameters: ['web_search_options'],
-        }),
-      ];
-
-      const result = processModels(modelsData, allZdr(modelsData));
-      const model = result.models.find((m) => m.id === 'search/model');
-
-      expect(model?.webSearchPrice).toBe(0.005);
-    });
-
-    it('omits webSearchPrice when pricing.web_search is absent', () => {
-      const modelsData = [
-        createModel({
-          id: 'no-search/model',
-          pricing: { prompt: '0.001', completion: '0.002' },
-        }),
-      ];
-
-      const result = processModels(modelsData, allZdr(modelsData));
-      const model = result.models.find((m) => m.id === 'no-search/model');
-
-      expect(model?.webSearchPrice).toBeUndefined();
+      for (const model of result.models) {
+        expect(model.capabilities).toEqual([]);
+      }
     });
   });
 
-  describe('auto-router', () => {
-    const autoRouterRaw = createModel({
-      id: AUTO_ROUTER_MODEL_ID,
-      name: 'Auto Router',
-      description: 'Automatically selects the best model for your task',
-      context_length: 2_000_000,
-      pricing: { prompt: '0', completion: '0' },
+  describe('smart model injection', () => {
+    it('injects a synthetic Smart Model entry when the pool has at least one real model', () => {
+      const models = [createModel({ id: 'normal/model' })];
+
+      const result = processModels(models);
+
+      expect(result.models.map((m) => m.id)).toContain(SMART_MODEL_ID);
     });
 
-    it('includes auto-router when present in ZDR list', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+    it('sets isSmartModel flag on the injected entry', () => {
+      const models = [createModel({ id: 'normal/model' })];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
+      const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(result.models.map((m) => m.id)).toContain(AUTO_ROUTER_MODEL_ID);
+      expect(smart?.isSmartModel).toBe(true);
     });
 
-    it('includes auto-router even when not in ZDR set', () => {
-      const normal = createModel({ id: 'normal/model' });
-      const models = [normal, autoRouterRaw];
-      const zdr = new Set([normal.id]); // auto-router NOT in ZDR set
+    it('uses Smart Model display name and HushBox provider', () => {
+      const models = [createModel({ id: 'normal/model' })];
 
-      const result = processModels(models, zdr);
+      const result = processModels(models);
+      const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(result.models.map((m) => m.id)).toContain(AUTO_ROUTER_MODEL_ID);
+      expect(smart?.name).toBe('Smart Model');
+      expect(smart?.provider).toBe('HushBox');
     });
 
-    it('sets isAutoRouter flag on the auto-router model', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+    it('headline price tracks the cheapest pool input/output (dynamic, not the static constant)', () => {
+      const cheapModel = createModel({
+        id: 'cheap/model',
+        pricing: { prompt: '0.0001', completion: '0.0002' },
+      });
+      const expensiveModel = createModel({
+        id: 'expensive/model',
+        pricing: { prompt: '0.01', completion: '0.02' },
+      });
+      const result = processModels([cheapModel, expensiveModel]);
+      const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      const result = processModels(models, allZdr(models));
-      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
-
-      expect(autoModel?.isAutoRouter).toBe(true);
+      // Plan §10.12: headline pricing is derived from the eligible-model
+      // price spread, not the static `SMART_MODEL_*_PRICE_PER_TOKEN` constants.
+      expect(smart?.pricePerInputToken).toBe(0.0001);
+      expect(smart?.pricePerOutputToken).toBe(0.0002);
     });
 
-    it('uses hardcoded client estimation prices', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
-
-      const result = processModels(models, allZdr(models));
-      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
-
-      expect(autoModel?.pricePerInputToken).toBe(AUTO_ROUTER_INPUT_PRICE_PER_TOKEN);
-      expect(autoModel?.pricePerOutputToken).toBe(AUTO_ROUTER_OUTPUT_PRICE_PER_TOKEN);
+    it('omits the Smart Model entry entirely when the eligible pool is empty', () => {
+      const result = processModels([]);
+      expect(result.models.find((m) => m.id === SMART_MODEL_ID)).toBeUndefined();
     });
 
     it('computes price ranges from the model pool', () => {
@@ -593,49 +574,44 @@ describe('processModels', () => {
         id: 'expensive/model',
         pricing: { prompt: '0.01', completion: '0.02' },
       });
-      const models = [cheapModel, expensiveModel, autoRouterRaw];
+      const models = [cheapModel, expensiveModel];
 
-      const result = processModels(models, allZdr(models));
-      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+      const result = processModels(models);
+      const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(autoModel?.minPricePerInputToken).toBe(0.0001);
-      expect(autoModel?.minPricePerOutputToken).toBe(0.0002);
-      expect(autoModel?.maxPricePerInputToken).toBe(0.01);
-      expect(autoModel?.maxPricePerOutputToken).toBe(0.02);
+      expect(smart?.minPricePerInputToken).toBe(0.0001);
+      expect(smart?.minPricePerOutputToken).toBe(0.0002);
+      expect(smart?.maxPricePerInputToken).toBe(0.01);
+      expect(smart?.maxPricePerOutputToken).toBe(0.02);
     });
 
-    it('does not classify auto-router as premium', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+    it('does not classify the Smart Model entry as premium', () => {
+      const models = [createModel({ id: 'normal/model' })];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.premiumIds).not.toContain(AUTO_ROUTER_MODEL_ID);
+      expect(result.premiumIds).not.toContain(SMART_MODEL_ID);
     });
 
-    it('uses "Smart Model" as display name', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
+    it('is omitted entirely when every real model is filtered out', () => {
+      // Only a free model — filtered out by isExcludedAlways → pool empty.
+      const models = [createModel({ id: 'free/model', pricing: { prompt: '0', completion: '0' } })];
 
-      const result = processModels(models, allZdr(models));
-      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
+      const result = processModels(models);
 
-      expect(autoModel?.name).toBe('Smart Model');
+      expect(result.models.map((m) => m.id)).not.toContain(SMART_MODEL_ID);
     });
 
-    it('does not include auto-router when pool is empty after filtering', () => {
-      const models = [autoRouterRaw]; // Only auto-router, no other models
+    it('uses the max context length from the pool', () => {
+      const models = [
+        createModel({ id: 'a/model', context_length: 100_000 }),
+        createModel({ id: 'b/model', context_length: 1_000_000 }),
+      ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
+      const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(result.models.map((m) => m.id)).not.toContain(AUTO_ROUTER_MODEL_ID);
-    });
-
-    it('preserves context length from OpenRouter', () => {
-      const models = [createModel({ id: 'normal/model' }), autoRouterRaw];
-
-      const result = processModels(models, allZdr(models));
-      const autoModel = result.models.find((m) => m.id === AUTO_ROUTER_MODEL_ID);
-
-      expect(autoModel?.contextLength).toBe(2_000_000);
+      expect(smart?.contextLength).toBe(1_000_000);
     });
   });
 
@@ -670,7 +646,7 @@ describe('processModels', () => {
         }),
       ];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
       // Sonar should be marked premium due to trial affordability, not price percentile
       expect(result.premiumIds).toContain('perplexity/sonar-reasoning-pro');
@@ -681,7 +657,7 @@ describe('processModels', () => {
 
   describe('edge cases', () => {
     it('handles empty array', () => {
-      const result = processModels([], new Set());
+      const result = processModels([]);
 
       expect(result.models).toEqual([]);
       expect(result.premiumIds).toEqual([]);
@@ -690,10 +666,376 @@ describe('processModels', () => {
     it('handles single model', () => {
       const models = [createModel({ id: 'only/model' })];
 
-      const result = processModels(models, allZdr(models));
+      const result = processModels(models);
 
-      expect(result.models).toHaveLength(1);
-      expect(result.models[0]?.id).toBe('only/model');
+      // 1 real model + 1 Smart Model entry
+      expect(realModelIds(result)).toEqual(['only/model']);
     });
+  });
+
+  describe('image modality', () => {
+    it('includes image models with flat per_image pricing', () => {
+      const models = [
+        createModel({ id: 'text/model' }),
+        createImageModel({ id: 'google/imagen-4.0-generate-001' }),
+      ];
+
+      const result = processModels(models);
+
+      const imagen = result.models.find((m) => m.id === 'google/imagen-4.0-generate-001');
+      expect(imagen).toBeDefined();
+      expect(imagen?.modality).toBe('image');
+      expect(imagen?.pricePerImage).toBeCloseTo(0.04, 6);
+      expect(imagen?.pricePerInputToken).toBe(0);
+      expect(imagen?.pricePerOutputToken).toBe(0);
+    });
+
+    it('excludes image models without per_image pricing', () => {
+      const models = [
+        createImageModel({
+          id: 'gemini/variable',
+          pricing: { prompt: '0', completion: '0' },
+        }),
+      ];
+
+      const result = processModels(models);
+
+      expect(result.models.find((m) => m.id === 'gemini/variable')).toBeUndefined();
+    });
+
+    it('excludes image models with per_image price of zero', () => {
+      const models = [
+        createImageModel({
+          id: 'free/image',
+          pricing: { prompt: '0', completion: '0', per_image: '0' },
+        }),
+      ];
+      expect(processModels(models).models.find((m) => m.id === 'free/image')).toBeUndefined();
+    });
+
+    it('marks every image model as premium', () => {
+      const models = [createImageModel({ id: 'google/imagen-4.0-generate-001' })];
+
+      const result = processModels(models);
+
+      expect(result.premiumIds).toContain('google/imagen-4.0-generate-001');
+    });
+
+    it('does not inject Smart Model for image modality', () => {
+      const models = [createImageModel({ id: 'google/imagen-4.0-generate-001' })];
+
+      const result = processModels(models);
+
+      // Smart Model only appears when the text pool is non-empty
+      expect(result.models.find((m) => m.id === SMART_MODEL_ID)).toBeUndefined();
+    });
+  });
+
+  describe('video modality', () => {
+    it('includes video models with per-resolution pricing', () => {
+      const models = [createVideoModel({ id: 'google/veo-3.1-generate-001' })];
+
+      const result = processModels(models);
+
+      const veo = result.models.find((m) => m.id === 'google/veo-3.1-generate-001');
+      expect(veo).toBeDefined();
+      expect(veo?.modality).toBe('video');
+      expect(veo?.pricePerSecondByResolution).toEqual({ '720p': 0.4, '1080p': 0.4 });
+      expect(veo?.pricePerInputToken).toBe(0);
+      expect(veo?.pricePerOutputToken).toBe(0);
+      expect(veo?.pricePerImage).toBe(0);
+    });
+
+    it('excludes video models without per_second_by_resolution', () => {
+      const models = [
+        createVideoModel({
+          id: 'bytedance/seedance',
+          pricing: { prompt: '0', completion: '0' },
+        }),
+      ];
+
+      const result = processModels(models);
+
+      expect(result.models.find((m) => m.id === 'bytedance/seedance')).toBeUndefined();
+    });
+
+    it('excludes video models with empty per_second_by_resolution', () => {
+      const models = [
+        createVideoModel({
+          id: 'empty/video',
+          pricing: { prompt: '0', completion: '0', per_second_by_resolution: {} },
+        }),
+      ];
+      expect(processModels(models).models.find((m) => m.id === 'empty/video')).toBeUndefined();
+    });
+
+    it('marks every video model as premium', () => {
+      const models = [createVideoModel({ id: 'google/veo-3.1-generate-001' })];
+
+      const result = processModels(models);
+
+      expect(result.premiumIds).toContain('google/veo-3.1-generate-001');
+    });
+
+    it('parses per-resolution prices as numbers', () => {
+      const models = [
+        createVideoModel({
+          id: 'vendor/v',
+          pricing: {
+            prompt: '0',
+            completion: '0',
+            per_second_by_resolution: { '720p': '0.15', '1080p': '0.30' },
+          },
+        }),
+      ];
+
+      const result = processModels(models);
+      const v = result.models.find((m) => m.id === 'vendor/v');
+      expect(v?.pricePerSecondByResolution).toEqual({ '720p': 0.15, '1080p': 0.3 });
+    });
+  });
+
+  describe('audio modality', () => {
+    it('includes audio models with positive per_second pricing', () => {
+      const models = [createAudioModel({ id: 'openai/tts-1' })];
+
+      const result = processModels(models);
+
+      const tts = result.models.find((m) => m.id === 'openai/tts-1');
+      expect(tts).toBeDefined();
+      expect(tts?.modality).toBe('audio');
+      expect(tts?.pricePerSecond).toBeCloseTo(0.015, 6);
+      expect(tts?.pricePerInputToken).toBe(0);
+      expect(tts?.pricePerOutputToken).toBe(0);
+      expect(tts?.pricePerImage).toBe(0);
+    });
+
+    it('excludes audio models without per_second pricing', () => {
+      const models = [
+        createAudioModel({
+          id: 'no-price/audio',
+          pricing: { prompt: '0', completion: '0' },
+        }),
+      ];
+      expect(processModels(models).models.find((m) => m.id === 'no-price/audio')).toBeUndefined();
+    });
+
+    it('excludes audio models with zero per_second pricing', () => {
+      const models = [
+        createAudioModel({
+          id: 'zero/audio',
+          pricing: { prompt: '0', completion: '0', per_second: '0' },
+        }),
+      ];
+      expect(processModels(models).models.find((m) => m.id === 'zero/audio')).toBeUndefined();
+    });
+
+    it('marks every audio model as premium', () => {
+      const models = [createAudioModel({ id: 'openai/tts-1' })];
+
+      const result = processModels(models);
+
+      expect(result.premiumIds).toContain('openai/tts-1');
+    });
+
+    it('parses per_second pricing as a number', () => {
+      const models = [
+        createAudioModel({
+          id: 'vendor/a',
+          pricing: { prompt: '0', completion: '0', per_second: '0.030' },
+        }),
+      ];
+
+      const result = processModels(models);
+      const a = result.models.find((m) => m.id === 'vendor/a');
+      expect(a?.pricePerSecond).toBeCloseTo(0.03, 6);
+    });
+  });
+
+  describe('multi-modality combinations', () => {
+    it('returns text, image, video, and audio models in a single array', () => {
+      const models = [
+        createModel({ id: 'text/one' }),
+        createImageModel({ id: 'image/one' }),
+        createVideoModel({ id: 'video/one' }),
+        createAudioModel({ id: 'audio/one' }),
+      ];
+
+      const result = processModels(models);
+      const ids = result.models.map((m) => m.id);
+
+      expect(ids).toContain('text/one');
+      expect(ids).toContain('image/one');
+      expect(ids).toContain('video/one');
+      expect(ids).toContain('audio/one');
+      expect(ids).toContain(SMART_MODEL_ID);
+    });
+
+    it('text and media models each classify under their own modality', () => {
+      const models = [
+        createModel({ id: 'text/one' }),
+        createImageModel({ id: 'image/one' }),
+        createVideoModel({ id: 'video/one' }),
+        createAudioModel({ id: 'audio/one' }),
+      ];
+
+      const result = processModels(models);
+      const text = result.models.find((m) => m.id === 'text/one');
+      const image = result.models.find((m) => m.id === 'image/one');
+      const video = result.models.find((m) => m.id === 'video/one');
+      const audio = result.models.find((m) => m.id === 'audio/one');
+
+      expect(text?.modality).toBe('text');
+      expect(image?.modality).toBe('image');
+      expect(video?.modality).toBe('video');
+      expect(audio?.modality).toBe('audio');
+    });
+  });
+
+  describe('per-model capability annotations', () => {
+    it('annotates Imagen 4 with the 5 standard aspect ratios', () => {
+      const models = [createImageModel({ id: 'google/imagen-4.0-generate-001' })];
+      const result = processModels(models);
+      const imagen = result.models.find((m) => m.id === 'google/imagen-4.0-generate-001');
+      expect(imagen?.supportedAspectRatios).toEqual(['1:1', '4:3', '3:4', '16:9', '9:16']);
+    });
+
+    it('annotates Veo 3.1 with 4-6-8s durations and 720p/1080p/4k resolutions', () => {
+      const models = [
+        createVideoModel({
+          id: 'google/veo-3.1-generate-001',
+          pricing: {
+            prompt: '0',
+            completion: '0',
+            per_second_by_resolution: { '720p': '0.4', '1080p': '0.4', '4k': '0.6' },
+          },
+        }),
+      ];
+      const result = processModels(models);
+      const veo = result.models.find((m) => m.id === 'google/veo-3.1-generate-001');
+      expect(veo?.supportedAspectRatios).toEqual(['16:9', '9:16']);
+      expect(veo?.supportedVideoResolutions).toEqual(['720p', '1080p', '4k']);
+      expect(veo?.supportedVideoDurationsSeconds).toEqual([4, 6, 8]);
+    });
+
+    it('annotates Veo 3.0 with 5-6-7-8s durations and 720p/1080p only (no 4k)', () => {
+      const models = [createVideoModel({ id: 'google/veo-3.0-generate-001' })];
+      const result = processModels(models);
+      const veo30 = result.models.find((m) => m.id === 'google/veo-3.0-generate-001');
+      expect(veo30?.supportedVideoResolutions).toEqual(['720p', '1080p']);
+      expect(veo30?.supportedVideoDurationsSeconds).toEqual([5, 6, 7, 8]);
+    });
+
+    it('leaves capability fields undefined for non-Veo, non-Imagen models', () => {
+      const models = [createModel({ id: 'openai/gpt-5' })];
+      const result = processModels(models);
+      const gpt = result.models.find((m) => m.id === 'openai/gpt-5');
+      expect(gpt?.supportedAspectRatios).toBeUndefined();
+      expect(gpt?.supportedVideoResolutions).toBeUndefined();
+      expect(gpt?.supportedVideoDurationsSeconds).toBeUndefined();
+    });
+  });
+});
+
+describe('pickValueTextModel', () => {
+  // `isPremiumModel` flags anything <6 months old as premium (regardless of
+  // price), and `isExcludedByStandardCriteria` excludes anything >2 years old.
+  // Fixtures use a value safely inside the [6mo, 2y] window so they appear in
+  // `filtered` AND are not flagged premium-by-recency.
+  const oldCreated = Math.floor((now - 365 * 24 * 60 * 60 * 1000) / 1000);
+
+  it('returns the id of the cheapest non-premium text model in the catalog', () => {
+    // Output prices stay below the trial-budget ceiling (~0.000005/token) so
+    // `exceedsTrialBudget` doesn't downgrade these to premium.
+    const raws = [
+      createModel({
+        id: 'openai/gpt-5',
+        modality: 'text',
+        pricing: { prompt: '0.000004', completion: '0.000004' },
+        created: oldCreated,
+      }),
+      createModel({
+        id: 'anthropic/claude-haiku-4.5',
+        modality: 'text',
+        pricing: { prompt: '0.000001', completion: '0.000001' },
+        created: oldCreated,
+      }),
+      createModel({
+        id: 'openai/gpt-4o-mini',
+        modality: 'text',
+        pricing: { prompt: '0.000002', completion: '0.000002' },
+        created: oldCreated,
+      }),
+    ];
+
+    expect(pickValueTextModel(raws)).toBe('anthropic/claude-haiku-4.5');
+  });
+
+  it('skips premium text models even when they are the cheapest', () => {
+    // The cheaper entry is recent → flagged premium by recency, despite low
+    // price. Selector must skip it and return the older non-premium entry.
+    // Prices follow the working pattern from the 'premium classification'
+    // describe above so output cost stays under the trial budget.
+    const raws = [
+      createModel({
+        id: 'recent/expensive',
+        modality: 'text',
+        pricing: { prompt: '0.000010', completion: '0.000010' },
+        created: Math.floor(now / 1000),
+      }),
+      createModel({
+        id: 'recent/cheaper-but-recent',
+        modality: 'text',
+        pricing: { prompt: '0.000002', completion: '0.000002' },
+        created: Math.floor(now / 1000),
+      }),
+      createModel({
+        id: 'old/stable-value',
+        modality: 'text',
+        pricing: { prompt: '0.000001', completion: '0.000001' },
+        created: oldCreated,
+      }),
+    ];
+
+    expect(pickValueTextModel(raws)).toBe('old/stable-value');
+  });
+
+  it('skips image, video, and audio models', () => {
+    // Two text models so the cheaper one escapes the 75th-percentile premium
+    // check; an image model in the same catalog must be ignored entirely.
+    const raws = [
+      createImageModel({ id: 'google/imagen-4.0-generate-001' }),
+      createModel({
+        id: 'anthropic/claude-haiku-4.5',
+        modality: 'text',
+        pricing: { prompt: '0.000001', completion: '0.000001' },
+        created: oldCreated,
+      }),
+      createModel({
+        id: 'openai/gpt-5',
+        modality: 'text',
+        pricing: { prompt: '0.000004', completion: '0.000004' },
+        created: oldCreated,
+      }),
+    ];
+
+    expect(pickValueTextModel(raws)).toBe('anthropic/claude-haiku-4.5');
+  });
+
+  it('throws when no non-premium text model exists (catalog drift guard)', () => {
+    const raws = [
+      createModel({
+        id: 'recent/only',
+        modality: 'text',
+        pricing: { prompt: '0.00010', completion: '0.00020' },
+        created: Math.floor(now / 1000),
+      }),
+    ];
+
+    expect(() => pickValueTextModel(raws)).toThrow(/no non-premium text model/i);
+  });
+
+  it('throws when no text models exist at all', () => {
+    expect(() => pickValueTextModel([])).toThrow(/no non-premium text model/i);
   });
 });

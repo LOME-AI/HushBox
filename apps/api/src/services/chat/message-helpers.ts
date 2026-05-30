@@ -1,13 +1,17 @@
-import { eq, and, desc, sql } from 'drizzle-orm';
-import { messages, conversations, epochs, conversationForks, type Database } from '@hushbox/db';
-import { encryptMessageForStorage } from '@hushbox/crypto';
-import { ERROR_CODE_INVALID_PARENT_MESSAGE } from '@hushbox/shared';
-import { chargeForUsage } from '../billing/transaction-writer.js';
+import { eq, and, desc, sql, isNull } from 'drizzle-orm';
+import {
+  messages,
+  contentItems,
+  conversations,
+  epochs,
+  conversationForks,
+  type Database,
+  type DatabaseClient,
+} from '@hushbox/db';
+import { beginMessageEnvelope, encryptTextWithContentKey } from '@hushbox/crypto';
+import { ERROR_CODE_FORK_TIP_CONFLICT, ERROR_CODE_INVALID_PARENT_MESSAGE } from '@hushbox/shared';
+import { chargeForUsage, chargeForMediaGeneration } from '../billing/transaction-writer.js';
 import { updateGroupSpending } from '../billing/budgets.js';
-
-// ============================================================================
-// Parent Message Validation
-// ============================================================================
 
 export class InvalidParentMessageError extends Error {
   constructor(
@@ -28,7 +32,7 @@ export class InvalidParentMessageError extends Error {
  * Runs inside a transaction to guarantee atomicity.
  */
 export async function validateParentMessageId(
-  tx: Database,
+  tx: DatabaseClient,
   conversationId: string,
   parentMessageId: string | null
 ): Promise<void> {
@@ -61,10 +65,6 @@ export async function validateParentMessageId(
   }
 }
 
-// ============================================================================
-// Sequence Number Assignment
-// ============================================================================
-
 export interface AssignSequenceNumbersResult {
   sequences: number[];
   currentEpoch: number;
@@ -81,7 +81,7 @@ export interface AssignSequenceNumbersResult {
  * @throws Error('Conversation not found') if conversation does not exist
  */
 export async function assignSequenceNumbers(
-  tx: Database,
+  tx: DatabaseClient,
   conversationId: string,
   count: number
 ): Promise<AssignSequenceNumbersResult> {
@@ -106,10 +106,6 @@ export async function assignSequenceNumbers(
   return { sequences, currentEpoch: updated.currentEpoch };
 }
 
-// ============================================================================
-// Epoch Public Key Fetch
-// ============================================================================
-
 export interface EpochKeyResult {
   epochPublicKey: Uint8Array;
   epochNumber: number;
@@ -121,7 +117,7 @@ export interface EpochKeyResult {
  * @throws Error('Epoch not found') if epoch does not exist
  */
 export async function fetchEpochPublicKey(
-  tx: Database,
+  tx: DatabaseClient,
   conversationId: string,
   currentEpoch: number
 ): Promise<EpochKeyResult> {
@@ -139,53 +135,104 @@ export async function fetchEpochPublicKey(
   return { epochPublicKey: epoch.epochPublicKey, epochNumber: currentEpoch };
 }
 
-// ============================================================================
-// Encrypted Message Insertion
-// ============================================================================
-
-export interface InsertEncryptedMessageParams {
+export interface InsertEnvelopeTextMessageParams {
   id: string;
   conversationId: string;
-  content: string;
+  textContent: string;
   epochPublicKey: Uint8Array;
   epochNumber: number;
   sequenceNumber: number;
   senderType: 'user' | 'ai';
   senderId?: string;
   modelName?: string;
-  payerId?: string;
   cost?: string;
+  isSmartModel?: boolean;
   parentMessageId: string | null;
+  /**
+   * Per-turn identifier. `saveChatTurn` mints one UUID per turn and forwards
+   * it to every message persisted in that turn so the fork-filter can tell
+   * multi-model peers from fork-preserve orphans. Omitted → schema default
+   * (`gen_random_uuid()`) writes a unique id, which yields the legacy
+   * "treat each message as its own batch" semantics for callers that
+   * haven't been updated yet (dev seeds, single-message inserts).
+   */
+  batchId?: string;
+}
+
+export interface InsertedTextContentItem {
+  id: string;
+  contentType: 'text';
+  position: number;
+  encryptedBlob: Uint8Array;
+  modelName: string | null;
+  cost: string | null;
+  isSmartModel: boolean;
+}
+
+export interface InsertEnvelopeTextMessageResult {
+  wrappedContentKey: Uint8Array;
+  contentItem: InsertedTextContentItem;
 }
 
 /**
- * Encrypts content with the epoch public key and inserts into the messages table.
- * Optional fields passed as `undefined` are omitted from the INSERT (DB defaults apply).
+ * Persists a single-text-content message under the wrap-once envelope model.
+ *
+ * Generates a fresh content key, wraps it under the epoch public key, encrypts the
+ * plaintext under the content key, and inserts one `messages` row plus one
+ * `content_items` row with `content_type = 'text'`. The content key is discarded
+ * from memory after the inserts.
+ *
+ * Returns the `wrappedContentKey` and the inserted content item so the caller can
+ * forward them to the client via the SSE `done` event.
  */
-export async function insertEncryptedMessage(
-  tx: Database,
-  params: InsertEncryptedMessageParams
-): Promise<void> {
-  const blob = encryptMessageForStorage(params.epochPublicKey, params.content);
+export async function insertEnvelopeTextMessage(
+  tx: DatabaseClient,
+  params: InsertEnvelopeTextMessageParams
+): Promise<InsertEnvelopeTextMessageResult> {
+  const { contentKey, wrappedContentKey } = beginMessageEnvelope(params.epochPublicKey);
+  const encryptedBlob = encryptTextWithContentKey(contentKey, params.textContent);
 
   await tx.insert(messages).values({
     id: params.id,
     conversationId: params.conversationId,
-    encryptedBlob: blob,
+    wrappedContentKey,
     senderType: params.senderType,
     senderId: params.senderId,
-    modelName: params.modelName,
-    payerId: params.payerId,
-    cost: params.cost,
     epochNumber: params.epochNumber,
     sequenceNumber: params.sequenceNumber,
     parentMessageId: params.parentMessageId,
+    ...(params.batchId !== undefined && { batchId: params.batchId }),
   });
-}
 
-// ============================================================================
-// Billing: Charge and Track Usage
-// ============================================================================
+  const contentItemId = crypto.randomUUID();
+  const modelName = params.modelName ?? null;
+  const cost = params.cost ?? null;
+  const isSmartModel = params.isSmartModel ?? false;
+
+  await tx.insert(contentItems).values({
+    id: contentItemId,
+    messageId: params.id,
+    contentType: 'text',
+    position: 0,
+    encryptedBlob,
+    modelName,
+    cost,
+    isSmartModel,
+  });
+
+  return {
+    wrappedContentKey,
+    contentItem: {
+      id: contentItemId,
+      contentType: 'text',
+      position: 0,
+      encryptedBlob,
+      modelName,
+      cost,
+      isSmartModel,
+    },
+  };
+}
 
 export interface ChargeAndTrackUsageParams {
   userId: string;
@@ -204,17 +251,35 @@ export interface ChargeAndTrackUsageResult {
 }
 
 /**
+ * Updates per-member group spending when the charge belongs to a group
+ * conversation. No-op for solo conversations (no group billing context).
+ */
+async function applyGroupSpending(
+  tx: DatabaseClient,
+  conversationId: string,
+  groupBillingContext: { memberId: string } | undefined,
+  cost: string
+): Promise<void> {
+  if (groupBillingContext === undefined) return;
+  await updateGroupSpending(tx, {
+    conversationId,
+    memberId: groupBillingContext.memberId,
+    costDollars: cost,
+  });
+}
+
+/**
  * Charges the user's wallet for usage and optionally updates group spending tables.
  */
 export async function chargeAndTrackUsage(
-  tx: Database,
+  tx: DatabaseClient,
   params: ChargeAndTrackUsageParams
 ): Promise<ChargeAndTrackUsageResult> {
   const chargeResult = await chargeForUsage(tx, {
     userId: params.userId,
     cost: params.cost,
     model: params.model,
-    provider: 'openrouter',
+    provider: 'ai-gateway',
     inputTokens: params.inputTokens,
     outputTokens: params.outputTokens,
     cachedTokens: params.cachedTokens,
@@ -222,20 +287,169 @@ export async function chargeAndTrackUsage(
     sourceId: params.assistantMessageId,
   });
 
-  if (params.groupBillingContext !== undefined) {
-    await updateGroupSpending(tx, {
-      conversationId: params.conversationId,
-      memberId: params.groupBillingContext.memberId,
-      costDollars: params.cost,
-    });
-  }
+  await applyGroupSpending(tx, params.conversationId, params.groupBillingContext, params.cost);
 
   return { usageRecordId: chargeResult.usageRecordId };
 }
 
-// ============================================================================
-// Resolve Parent Message ID
-// ============================================================================
+export type MediaContentType = 'image' | 'audio' | 'video';
+
+export interface MediaContentItemInput {
+  id: string;
+  contentType: MediaContentType;
+  position: number;
+  storageKey: string;
+  mimeType: string;
+  sizeBytes: number;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+  modelName: string;
+  cost: string;
+  isSmartModel: boolean;
+}
+
+export interface InsertedMediaContentItem {
+  id: string;
+  contentType: MediaContentType;
+  position: number;
+  storageKey: string;
+  mimeType: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  modelName: string;
+  cost: string;
+  isSmartModel: boolean;
+  /** Presigned download URL, populated by the pipeline after R2 upload. Not persisted in DB. */
+  downloadUrl?: string;
+}
+
+export interface InsertEnvelopeMediaMessageParams {
+  id: string;
+  conversationId: string;
+  /** Supply epochPublicKey to generate a fresh envelope, OR supply wrappedContentKey to use a pre-created one. */
+  epochPublicKey?: Uint8Array;
+  wrappedContentKey?: Uint8Array;
+  epochNumber: number;
+  sequenceNumber: number;
+  senderType: 'ai';
+  parentMessageId: string | null;
+  mediaItems: MediaContentItemInput[];
+  /** See {@link InsertEnvelopeTextMessageParams.batchId}. */
+  batchId?: string;
+}
+
+export interface InsertEnvelopeMediaMessageResult {
+  wrappedContentKey: Uint8Array;
+  contentItems: InsertedMediaContentItem[];
+}
+
+function resolveWrappedContentKey(
+  params: Pick<InsertEnvelopeMediaMessageParams, 'wrappedContentKey' | 'epochPublicKey'>
+): Uint8Array {
+  if (params.wrappedContentKey !== undefined) return params.wrappedContentKey;
+  if (params.epochPublicKey !== undefined) {
+    return beginMessageEnvelope(params.epochPublicKey).wrappedContentKey;
+  }
+  throw new Error('Either wrappedContentKey or epochPublicKey must be provided');
+}
+
+/**
+ * Persists a media message under the wrap-once envelope model.
+ *
+ * If `wrappedContentKey` is provided, uses it directly (caller already
+ * created the envelope for R2 encryption). Otherwise generates a fresh one
+ * from `epochPublicKey`.
+ */
+export async function insertEnvelopeMediaMessage(
+  tx: DatabaseClient,
+  params: InsertEnvelopeMediaMessageParams
+): Promise<InsertEnvelopeMediaMessageResult> {
+  const wrappedContentKey = resolveWrappedContentKey(params);
+
+  await tx.insert(messages).values({
+    id: params.id,
+    conversationId: params.conversationId,
+    wrappedContentKey,
+    senderType: params.senderType,
+    epochNumber: params.epochNumber,
+    sequenceNumber: params.sequenceNumber,
+    parentMessageId: params.parentMessageId,
+    ...(params.batchId !== undefined && { batchId: params.batchId }),
+  });
+
+  const insertedItems: InsertedMediaContentItem[] = [];
+
+  for (const item of params.mediaItems) {
+    const resolved: InsertedMediaContentItem = {
+      id: item.id,
+      contentType: item.contentType,
+      position: item.position,
+      storageKey: item.storageKey,
+      mimeType: item.mimeType,
+      sizeBytes: item.sizeBytes,
+      width: item.width ?? null,
+      height: item.height ?? null,
+      durationMs: item.durationMs ?? null,
+      modelName: item.modelName,
+      cost: item.cost,
+      isSmartModel: item.isSmartModel,
+    };
+
+    await tx.insert(contentItems).values({
+      ...resolved,
+      messageId: params.id,
+    });
+
+    insertedItems.push(resolved);
+  }
+
+  return { wrappedContentKey, contentItems: insertedItems };
+}
+
+export interface ChargeAndTrackMediaUsageParams {
+  userId: string;
+  cost: string;
+  model: string;
+  assistantMessageId: string;
+  conversationId: string;
+  mediaType: MediaContentType;
+  imageCount?: number;
+  durationMs?: number;
+  resolution?: string;
+  groupBillingContext?: { memberId: string };
+}
+
+export interface ChargeAndTrackMediaUsageResult {
+  usageRecordId: string;
+}
+
+/**
+ * Charges the user's wallet for media generation usage and optionally updates group spending.
+ */
+export async function chargeAndTrackMediaUsage(
+  tx: DatabaseClient,
+  params: ChargeAndTrackMediaUsageParams
+): Promise<ChargeAndTrackMediaUsageResult> {
+  const chargeResult = await chargeForMediaGeneration(tx, {
+    userId: params.userId,
+    cost: params.cost,
+    model: params.model,
+    provider: 'ai-gateway',
+    mediaType: params.mediaType,
+    imageCount: params.imageCount,
+    durationMs: params.durationMs,
+    resolution: params.resolution,
+    sourceType: 'message',
+    sourceId: params.assistantMessageId,
+  });
+
+  await applyGroupSpending(tx, params.conversationId, params.groupBillingContext, params.cost);
+
+  return { usageRecordId: chargeResult.usageRecordId };
+}
 
 /**
  * Resolves the parentMessageId for a new user message.
@@ -266,18 +480,59 @@ export async function resolveParentMessageId(
   return lastMsg?.id ?? null;
 }
 
-// ============================================================================
-// Fork Tip Update
-// ============================================================================
+export class ForkTipConflictError extends Error {
+  constructor(
+    public readonly code: string,
+    public readonly forkId: string,
+    public readonly expectedTipMessageId: string | null
+  ) {
+    super(
+      `fork tip conflict: fork ${forkId} expected tip ${
+        expectedTipMessageId ?? 'null'
+      } but actual tip differs`
+    );
+    this.name = 'ForkTipConflictError';
+  }
+}
 
 /**
- * Updates the tip message ID for a fork.
- * No-op if forkId is undefined.
+ * Atomically advances a fork's tip message id.
+ *
+ * Uses a conditional UPDATE: the row is updated only when the current
+ * `tip_message_id` matches `expectedTipMessageId`. A concurrent writer that
+ * already advanced the tip will cause this call to affect zero rows, which we
+ * treat as a conflict and surface to the route as
+ * {@link ERROR_CODE_FORK_TIP_CONFLICT}. The caller decides whether to retry.
+ *
+ * If the fork doesn't exist at all, this remains a no-op (matches prior
+ * behaviour: no fork = nothing to update; the caller already validated
+ * existence upstream when needed).
  */
 export async function updateForkTip(
-  tx: Database,
+  tx: DatabaseClient,
   forkId: string,
-  tipMessageId: string
+  newTipMessageId: string,
+  expectedTipMessageId: string | null
 ): Promise<void> {
-  await tx.update(conversationForks).set({ tipMessageId }).where(eq(conversationForks.id, forkId));
+  // Fast-path: if the fork is gone, do nothing (preserves no-op semantics).
+  const [existing] = await tx
+    .select({ id: conversationForks.id, tipMessageId: conversationForks.tipMessageId })
+    .from(conversationForks)
+    .where(eq(conversationForks.id, forkId));
+  if (!existing) return;
+
+  const tipCondition =
+    expectedTipMessageId === null
+      ? isNull(conversationForks.tipMessageId)
+      : eq(conversationForks.tipMessageId, expectedTipMessageId);
+
+  const result = await tx
+    .update(conversationForks)
+    .set({ tipMessageId: newTipMessageId })
+    .where(and(eq(conversationForks.id, forkId), tipCondition))
+    .returning({ id: conversationForks.id });
+
+  if (result.length === 0) {
+    throw new ForkTipConflictError(ERROR_CODE_FORK_TIP_CONFLICT, forkId, expectedTipMessageId);
+  }
 }

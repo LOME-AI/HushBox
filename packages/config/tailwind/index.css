@@ -21,8 +21,8 @@
   --foreground-muted: #525252;
 
   /* Borders */
-  --border: #e5e3de;
-  --border-strong: #d1cfc9;
+  --border: #b5b1a8;
+  --border-strong: #8f8b81;
 
   /* Interactive */
   --secondary: #e5e2db;
@@ -207,6 +207,41 @@
   h6 {
     color: var(--color-brand-red);
   }
+}
+
+/* Global scrollbar styling - shared across web + marketing.
+   Thin Firefox scrollbar, custom webkit-scrollbar for Chromium/Safari. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Hide scrollbar but keep scrollability */
+.scrollbar-hide {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
 }
 
 @utility h-dvh {

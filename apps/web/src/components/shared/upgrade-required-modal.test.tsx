@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { UpgradeRequiredModal } from './upgrade-required-modal';
 import { useAppVersionStore } from '@/stores/app-version';
+import { UpgradeRequiredModal } from './upgrade-required-modal';
 
 const { mockIsNative, mockCheckForUpdate, mockApplyUpdate } = vi.hoisted(() => ({
   mockIsNative: vi.fn(() => false),
@@ -22,7 +22,7 @@ vi.mock('@/capacitor/live-update', () => ({
 describe('UpgradeRequiredModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAppVersionStore.setState({ upgradeRequired: false });
+    useAppVersionStore.setState({ upgradeRequired: false, otaInProgress: false });
     mockIsNative.mockReturnValue(false);
     mockCheckForUpdate.mockResolvedValue({ updateAvailable: false });
     // eslint-disable-next-line unicorn/no-useless-undefined -- mockResolvedValue requires an argument
@@ -41,6 +41,14 @@ describe('UpgradeRequiredModal', () => {
     render(<UpgradeRequiredModal />);
 
     expect(screen.getByTestId('upgrade-required-modal')).toBeInTheDocument();
+  });
+
+  it('stays hidden while an OTA update is in progress, even if upgradeRequired', () => {
+    useAppVersionStore.setState({ upgradeRequired: true, otaInProgress: true });
+
+    render(<UpgradeRequiredModal />);
+
+    expect(screen.queryByTestId('upgrade-required-modal')).not.toBeInTheDocument();
   });
 
   it('displays update required title', () => {

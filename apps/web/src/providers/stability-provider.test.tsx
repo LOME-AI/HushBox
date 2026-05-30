@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, renderHook } from '@testing-library/react';
-import type { ReactNode } from 'react';
 
 // Unmock the stability provider (it's globally mocked in test-setup.ts)
 // so we can test the actual implementation
@@ -9,7 +8,6 @@ vi.unmock('@/providers/stability-provider');
 // Must import after unmock
 import { StabilityProvider, useStability } from './stability-provider';
 
-// Mock dependencies
 vi.mock('@/lib/auth', () => ({
   useSession: vi.fn(),
   initAuth: vi.fn().mockImplementation(() => Promise.resolve()),
@@ -26,6 +24,7 @@ vi.mock('@/lib/auth-client', () => ({
 import { useSession, initAuth } from '@/lib/auth';
 import { useBalance } from '@/hooks/billing';
 import { hasStoredAuth } from '@/lib/auth-client';
+import type { ReactNode } from 'react';
 
 const mockedUseSession = vi.mocked(useSession);
 const mockedUseBalance = vi.mocked(useBalance);
@@ -180,7 +179,6 @@ describe('useStability', () => {
     });
 
     it('returns true for trial users even while balance is pending', () => {
-      // Trial users don't need to wait for balance
       mockedUseSession.mockReturnValue({
         data: null,
         isPending: false,
@@ -246,7 +244,6 @@ describe('useStability', () => {
         wrapper: createWrapper(),
       });
 
-      // Has cached data, so considered stable
       expect(result.current.isBalanceStable).toBe(true);
     });
   });

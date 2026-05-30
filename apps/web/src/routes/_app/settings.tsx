@@ -1,13 +1,15 @@
 import * as React from 'react';
 import { useState, useCallback } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@hushbox/ui';
 import { Shield, Key, FileText, Scale, ChevronRight, MessageSquare } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@hushbox/ui';
 import { PRIVACY_POLICY_META } from '@hushbox/shared/legal';
-import { requireAuth, changePassword, useAuthStore } from '@/lib/auth';
 import { ROUTES } from '@hushbox/shared';
+import { requireAuth, useAuthStore } from '@/lib/auth';
+import { useChangePassword } from '@/hooks/auth-mutations';
 import { openExternalPage } from '@/capacitor';
 import { PageHeader } from '@/components/shared/page-header';
+import { PageBody } from '@/components/shared/page-body';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { ChangePasswordModal } from '@/components/auth/ChangePasswordModal';
 import { TwoFactorSetup } from '@/components/auth/TwoFactorSetup';
@@ -15,6 +17,7 @@ import { DisableTwoFactorModal } from '@/components/auth/DisableTwoFactorModal';
 import { RecoveryPhraseModal } from '@/components/auth/RecoveryPhraseModal';
 import { RegenerateConfirmModal } from '@/components/auth/RegenerateConfirmModal';
 import { CustomInstructionsModal } from '@/components/settings/CustomInstructionsModal';
+import { DeleteAccountModal } from '@/components/settings/DeleteAccountModal';
 
 export const Route = createFileRoute('/_app/settings')({
   beforeLoad: async () => {
@@ -144,6 +147,7 @@ export function SettingsPage(): React.JSX.Element {
   const [showRecoveryPhrase, setShowRecoveryPhrase] = useState(false);
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
   const [showCustomInstructions, setShowCustomInstructions] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
 
   const handleCustomInstructionsSuccess = useCallback(() => {
     setShowCustomInstructions(false);
@@ -161,14 +165,21 @@ export function SettingsPage(): React.JSX.Element {
     }
   }, []);
 
+  const changePasswordMutation = useChangePassword();
   const handleChangePasswordSubmit = useCallback(
     async (data: {
       currentPassword: string;
       newPassword: string;
     }): Promise<{ success: boolean; error?: string }> => {
-      return changePassword(data.currentPassword, data.newPassword);
+      try {
+        await changePasswordMutation.mutateAsync(data);
+        return { success: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : undefined;
+        return { success: false, ...(message !== undefined && { error: message }) };
+      }
     },
-    []
+    [changePasswordMutation]
   );
 
   const handleRecoveryClick = useCallback(() => {
@@ -188,7 +199,7 @@ export function SettingsPage(): React.JSX.Element {
     <div className="flex h-full flex-col">
       <PageHeader title="Settings" right={<ThemeToggle />} />
 
-      <div className="container mx-auto max-w-4xl flex-1 space-y-6 overflow-y-auto p-4">
+      <PageBody testId="settings-content" className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-[#ec4755]">Account</CardTitle>
@@ -288,7 +299,29 @@ export function SettingsPage(): React.JSX.Element {
             </p>
           </CardContent>
         </Card>
-      </div>
+
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="text-destructive">Danger zone</CardTitle>
+            <CardDescription>
+              Permanently delete your account and all associated data.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setShowDeleteAccount(true);
+              }}
+              data-testid="delete-account-trigger"
+            >
+              Delete Account
+            </Button>
+          </CardContent>
+        </Card>
+      </PageBody>
+
+      <DeleteAccountModal open={showDeleteAccount} onOpenChange={setShowDeleteAccount} />
 
       <CustomInstructionsModal
         open={showCustomInstructions}

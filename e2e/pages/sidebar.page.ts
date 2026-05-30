@@ -1,7 +1,7 @@
 import { type Page, type Locator } from '@playwright/test';
+import { isMobileWidth } from '@hushbox/shared';
 import { expect } from '../helpers/settled-expect.js';
 import { expectCorrectOverlayVariant } from '../helpers/overlay.js';
-import { isMobileWidth } from '@hushbox/shared';
 
 export class SidebarPage {
   readonly page: Page;
@@ -106,5 +106,10 @@ export class SidebarPage {
     await this.ensureSidebarExpanded();
     const matchingLinks = this.sidebar.locator('a[href^="/chat/"]').filter({ hasText: text });
     return matchingLinks.count();
+  }
+
+  async openInvitesTab(): Promise<void> {
+    await this.ensureSidebarExpanded();
+    await this.sidebar.getByRole('button', { name: /Invites/ }).click();
   }
 }

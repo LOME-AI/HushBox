@@ -1,15 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import type { Model } from '@hushbox/shared';
 import { calculateMonthlyCost } from './calculate-cost';
+import type { Model } from '@hushbox/shared';
 
 function makeModel(overrides: Partial<Model> = {}): Model {
   return {
     id: 'test/model',
     name: 'Test Model',
     provider: 'Test',
+    modality: 'text' as const,
     contextLength: 128_000,
     pricePerInputToken: 0.000_001,
     pricePerOutputToken: 0.000_002,
+    pricePerImage: 0,
+    pricePerSecondByResolution: {},
+    pricePerSecond: 0,
     capabilities: [],
     description: 'A test model',
     supportedParameters: ['temperature'],
@@ -49,12 +53,9 @@ describe('calculateMonthlyCost', () => {
     expect(result.monthlyCost).toBeGreaterThan(0);
   });
 
-  it('includes the 15% fee in the cost', () => {
+  it('includes the total fee rate in the cost', () => {
     const models = [makeModel()];
     const result = calculateMonthlyCost(models);
-    // The cost should be higher than raw token cost alone
-    // Raw cost for 50 msgs/day * 30 days = 1500 messages
-    // Each message: input tokens + output tokens + storage
     expect(result.monthlyCost).toBeGreaterThan(0);
   });
 
@@ -64,7 +65,6 @@ describe('calculateMonthlyCost', () => {
       pricePerOutputToken: 0.000_01,
     });
     const result = calculateMonthlyCost([model]);
-    // 1500 messages total
     expect(result.messagesPerDay).toBe(50);
     expect(result.daysPerMonth).toBe(30);
   });
