@@ -120,6 +120,20 @@ function mockSubprocess(value: unknown = {}): never {
   }) as never;
 }
 
+// Mirrors the three readiness probes in `checkBootCompleted`: adb connect,
+// any `getprop` (sys.boot_completed and service.bootanim.exit both want '1'),
+// and `pm path com.android.webview` returning a `package:` line. Returning
+// null lets callers chain their own dispatch logic for non-readiness calls.
+function bootReadinessMock(cmd: string, args: readonly string[]): { stdout: string } | null {
+  if (cmd !== 'adb') return null;
+  if (args.includes('connect')) return { stdout: 'connected to localhost:5555' };
+  if (args.includes('getprop')) return { stdout: '1' };
+  if (args.includes('pm') && args.includes('path')) {
+    return { stdout: 'package:/system/app/webview/webview.apk' };
+  }
+  return null;
+}
+
 describe('mobile-test script', () => {
   let savedEmulatorAdbPort: string | undefined;
 
@@ -505,15 +519,8 @@ describe('mobile-test script', () => {
 
   describe('startEmulator', () => {
     const emulatorMock = ((cmd: string, args?: readonly string[]) => {
-      if (cmd === 'adb' && Array.isArray(args) && args.includes('connect')) {
-        return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
-      }
-      if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
-        return Promise.resolve({ stdout: '1' } as never);
-      }
-      if (cmd === 'adb' && Array.isArray(args) && args.includes('pm') && args.includes('path')) {
-        return Promise.resolve({ stdout: 'package:/system/app/webview/webview.apk' } as never);
-      }
+      const probe = bootReadinessMock(cmd, Array.isArray(args) ? args : []);
+      if (probe) return Promise.resolve(probe as never);
       // Default for any other docker/adb call in this mock.
       return Promise.resolve({ stdout: '' } as never);
     }) as never;
@@ -573,18 +580,11 @@ describe('mobile-test script', () => {
         if (cmd === 'docker' && args.includes('run')) {
           return Promise.resolve({ stdout: 'container-id' });
         }
-        if (cmd === 'adb' && args.includes('connect')) {
-          return Promise.resolve({ stdout: 'connected to localhost:5555' });
-        }
         if (cmd === 'adb' && args.includes('getprop') && args.includes('sys.boot_completed')) {
           return sysBootCompletedResponse();
         }
-        if (cmd === 'adb' && args.includes('getprop')) {
-          return Promise.resolve({ stdout: '1' });
-        }
-        if (cmd === 'adb' && args.includes('pm') && args.includes('path')) {
-          return Promise.resolve({ stdout: 'package:/system/app/webview/webview.apk' });
-        }
+        const probe = bootReadinessMock(cmd, args);
+        if (probe) return Promise.resolve(probe);
         return Promise.resolve({ stdout: '' });
       }
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) =>
@@ -611,17 +611,8 @@ describe('mobile-test script', () => {
   describe('startEmulators', () => {
     it('starts n emulators in parallel with distinct container names', async () => {
       mockExeca.mockImplementation(((cmd: string, args?: readonly string[]) => {
-        if (cmd === 'adb' && Array.isArray(args) && args.includes('connect')) {
-          return Promise.resolve({ stdout: 'connected to localhost:5555' } as never);
-        }
-        if (cmd === 'adb' && Array.isArray(args) && args.includes('getprop')) {
-          return Promise.resolve({ stdout: '1' } as never);
-        }
-        if (cmd === 'adb' && Array.isArray(args) && args.includes('pm') && args.includes('path')) {
-          return Promise.resolve({
-            stdout: 'package:/system/app/webview/webview.apk',
-          } as never);
-        }
+        const probe = bootReadinessMock(cmd, Array.isArray(args) ? args : []);
+        if (probe) return Promise.resolve(probe as never);
         return Promise.resolve({ stdout: '' } as never);
       }) as never);
 
@@ -1472,15 +1463,8 @@ describe('mobile-test script', () => {
 
       function dispatchMainCall(cmd: string, args: readonly string[]): unknown {
         if (cmd === 'stat') return Promise.resolve({ stdout: '993' });
-        if (cmd === 'adb' && args.includes('connect')) {
-          return Promise.resolve({ stdout: 'connected to localhost:5555' });
-        }
-        if (cmd === 'adb' && args.includes('getprop')) {
-          return Promise.resolve({ stdout: '1' });
-        }
-        if (cmd === 'adb' && args.includes('pm') && args.includes('path')) {
-          return Promise.resolve({ stdout: 'package:/system/app/webview/webview.apk' });
-        }
+        const probe = bootReadinessMock(cmd, args);
+        if (probe) return Promise.resolve(probe);
         if (cmd === 'maestro' && args.includes('test')) {
           return mockSubprocess({ exitCode: 0, stdout: '' });
         }
