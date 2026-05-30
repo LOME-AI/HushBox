@@ -11,6 +11,8 @@
  */
 import { promises as fs, openSync, closeSync } from 'node:fs';
 import { connect } from 'node:net';
+import path from 'node:path';
+import { createRequire } from 'node:module';
 import type { spawn as nodeSpawn } from 'node:child_process';
 
 /** Bucket consecutive heartbeat ticks to one filesystem touch every 5s. */
@@ -173,6 +175,28 @@ export interface EnsureDaemonOptions {
   lockPath?: string;
 }
 
+/**
+ * The daemon entry point is a `.ts` file (the orchestrator and the daemon both
+ * run via tsx). `process.execPath` is plain node, which can't load TypeScript
+ * directly. Resolve tsx's `bin` from its package.json and run
+ * `node <tsx-cli> <daemon-entry>` so the daemon inherits the same TS loader
+ * as its parent. tsx's package `exports` map omits `./dist/cli.mjs`, so we
+ * pull it from the published `bin` field on the package.json. Cross-platform:
+ * the bin is a portable ESM entry shipped with the package.
+ */
+export function resolveTsxCliPath(): string {
+  /* v8 ignore start -- requires real node_modules layout; covered by integration test */
+  const require_ = createRequire(import.meta.url);
+  const packageJsonPath = require_.resolve('tsx/package.json');
+  const package_ = require_(packageJsonPath) as { bin?: string | Record<string, string> };
+  const binEntry = typeof package_.bin === 'string' ? package_.bin : package_.bin?.['tsx'];
+  if (binEntry === undefined) {
+    throw new Error('idle-killer: tsx package.json has no resolvable bin entry');
+  }
+  return path.resolve(path.dirname(packageJsonPath), binEntry);
+  /* v8 ignore stop */
+}
+
 /* v8 ignore start -- defaults fork a real subprocess at runtime; tests inject. */
 async function resolveEnsureDaemonDefaults(options: EnsureDaemonOptions): Promise<{
   isAlive: (port: number) => Promise<boolean>;
@@ -210,9 +234,14 @@ export async function ensureDaemonRunning(options: EnsureDaemonOptions): Promise
     // and our lock acquisition; re-check before spending the spawn.
     if (await isAlive(options.port)) return;
 
+    // Spawn shape: `node <tsx-cli> <daemon-entry.ts> --flags…`. Without the
+    // tsx-cli interposed, node would reject the `.ts` extension and the
+    // daemon would crash silently under `stdio: 'ignore'`.
+    const tsxCliPath = resolveTsxCliPath();
     const child = spawn(
       process.execPath,
       [
+        tsxCliPath,
         options.daemonScriptPath,
         '--port',
         String(options.port),

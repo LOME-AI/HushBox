@@ -1,8 +1,11 @@
+/* eslint-disable sonarjs/publicly-writable-directories -- tmpdir is standard test fixture root */
+/* eslint-disable @typescript-eslint/require-await -- mock callbacks intentionally async */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer, type Server } from 'node:net';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   shouldTearDown,
   heartbeatAgeMs,
@@ -11,6 +14,7 @@ import {
   releaseLaunchLock,
   isDaemonAlive,
   ensureDaemonRunning,
+  resolveTsxCliPath,
   HEARTBEAT_BUCKET_MS,
   LAUNCH_LOCK_STALE_MS,
   type SpawnFunction,
@@ -178,6 +182,112 @@ describe('isDaemonAlive', () => {
   });
 });
 
+describe('resolveTsxCliPath', () => {
+  it('resolves to an existing tsx cli binary inside node_modules', async () => {
+    const { existsSync: existsSyncReal } = await import('node:fs');
+    const cliPath = resolveTsxCliPath();
+    expect(cliPath).toMatch(/tsx\/dist\/cli\.mjs$/);
+    expect(existsSyncReal(cliPath)).toBe(true);
+  });
+});
+
+describe('daemon-entry (integration)', () => {
+  // End-to-end: launch the real daemon binary the same way `ensureDaemonRunning`
+  // would (`node <tsx-cli> <daemon-entry>`) and verify it binds the singleton
+  // TCP port. Regression guard against the earlier bug where the spawn used
+  // `process.execPath` directly on a .ts file and crashed silently.
+  //
+  // This test does NOT route through `ensureDaemonRunning` because the daemon's
+  // teardown path reads `COMPOSE_PROJECT_NAME` from inherited env. If we let it
+  // inherit the real-stack value and the daemon survived past the test (e.g.,
+  // detached + slow kill on a busy CI host), it would `docker compose down`
+  // the actual hushbox stack on its first poll. We sandbox env here so even a
+  // worst-case orphan can't touch real containers.
+  it('binds the singleton port when launched via node + tsx CLI', async () => {
+    const { spawn } = await import('node:child_process');
+    const tickerDir = fileURLToPath(new URL('.', import.meta.url));
+    const entryPath = path.join(tickerDir, 'idle-killer-daemon-entry.ts');
+    const port = 18_999 + Math.floor(Math.random() * 1000);
+    await touchHeartbeat(path.join(workDir, 'heartbeat'));
+
+    const child = spawn(
+      process.execPath,
+      [
+        resolveTsxCliPath(),
+        entryPath,
+        '--port',
+        String(port),
+        '--slot',
+        '999',
+        '--ttl-ms',
+        '3600000',
+        '--cache-dir',
+        workDir,
+      ],
+      {
+        // detached:true puts the child in its OWN process group. tsx's CLI
+        // then spawns the actual daemon process inside that group. Killing
+        // the negative pid (process group) at cleanup time signals the whole
+        // group — including the inner tsx-launched daemon — so we don't leak
+        // an orphan that would later run its teardown loop.
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        env: {
+          ...process.env,
+          // Fake compose project — even if the daemon ever runs its teardown
+          // path, `docker compose -p <this> down` is a no-op against a name
+          // that doesn't exist. Hard isolation from the real stack.
+          COMPOSE_PROJECT_NAME: `hushbox-test-stub-${String(Math.floor(Math.random() * 1_000_000))}`,
+          // Force the port-veto check to find a listener so the daemon won't
+          // try to tear anything down even if its heartbeat ages out: set the
+          // observed API port to its own singleton port (always bound).
+          HB_API_PORT: String(port),
+          HB_VITE_PORT: '0',
+          HB_PREVIEW_PORT: '0',
+        },
+      }
+    );
+
+    try {
+      // Generous bind window: under heavy parallel vitest load, the daemon's
+      // initial tsx-loader + module-graph import can take 5–8s on the cold
+      // path. 10s of polling avoids flakiness on a loaded runner.
+      let alive = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (await isDaemonAlive(port)) {
+          alive = true;
+          break;
+        }
+        await new Promise((resolve) => {
+          setTimeout(resolve, 100);
+        });
+      }
+      expect(alive).toBe(true);
+    } finally {
+      // Kill the entire process group (negative pid). The outer node + the
+      // tsx-spawned inner daemon both belong to it, so a single SIGKILL ends
+      // both. Without this, tsx's child node survives a plain child.kill().
+      if (child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          /* group may already be gone if the child died first */
+        }
+      }
+      await new Promise<void>((resolve) => {
+        if (child.exitCode !== null) {
+          resolve();
+          return;
+        }
+        child.once('exit', () => {
+          resolve();
+        });
+      });
+    }
+  }, 30_000);
+});
+
 describe('ensureDaemonRunning', () => {
   it('is a no-op when a daemon is already alive', async () => {
     const spawn = vi.fn() as unknown as SpawnFunction;
@@ -237,6 +347,27 @@ describe('ensureDaemonRunning', () => {
       isAlive: () => Promise.resolve(false),
     });
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('passes tsx CLI as argv[0] so the .ts daemon entry actually loads', async () => {
+    const spawn = vi.fn().mockReturnValue({ unref: vi.fn() }) as unknown as SpawnFunction;
+    await ensureDaemonRunning({
+      port: 1234,
+      cacheDir: workDir,
+      daemonScriptPath: '/fake/daemon.ts',
+      slot: 0,
+      ttlMs: 60_000,
+      spawn,
+      isAlive: () => Promise.resolve(false),
+    });
+    const [bin, args] = (spawn as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      string[],
+    ];
+    // argv[0] = node, argv[1] = tsx CLI, argv[2] = daemon script.
+    expect(bin).toBe(process.execPath);
+    expect(args[0]).toBe(resolveTsxCliPath());
+    expect(args[1]).toBe('/fake/daemon.ts');
   });
 
   it('rechecks isAlive after acquiring the lock (covers the race)', async () => {

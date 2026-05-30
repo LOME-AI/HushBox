@@ -4,6 +4,13 @@ import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN } from '@hushbox/shared';
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((col: unknown, val: unknown) => ({ col, val })),
   getTableColumns: vi.fn(() => ({ id: { name: 'id' }, name: { name: 'name' } })),
+  // getTableName is consumed at module-eval time by seed.ts's
+  // TRACKED_TABLE_NAMES = TRACKED_TABLE_OBJECTS.map((t) => getTableName(t)).
+  // Use the schema-symbol fallback Drizzle exposes via Symbol.for so the test
+  // doesn't depend on each schema file's metadata shape.
+  getTableName: vi.fn((table: { _?: { name?: string } } | null | undefined) => {
+    return table?._?.name ?? 'unknown';
+  }),
   sql: Object.assign(
     (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
     {

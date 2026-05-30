@@ -14,7 +14,7 @@
  * the media pipeline (which both encrypts the bytes and uploads them to
  * MinIO via the same code path used in production).
  */
-import { eq, getTableColumns, sql, type Column, type SQL } from 'drizzle-orm';
+import { eq, getTableColumns, getTableName, sql, type Column, type SQL } from 'drizzle-orm';
 import { config } from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1781,25 +1781,45 @@ export async function generateTestPersonaData(
 }
 
 type DbClient = ReturnType<typeof createDb>;
-type Table =
-  | typeof users
-  | typeof conversations
-  | typeof messages
-  | typeof contentItems
-  | typeof projects
-  | typeof payments
-  | typeof wallets
-  | typeof ledgerEntries
-  | typeof epochs
-  | typeof epochMembers
-  | typeof conversationMembers
-  | typeof usageRecords
-  | typeof llmCompletions
-  | typeof conversationSpending;
+
+/**
+ * Source of truth for which physical tables `seed()` writes to.
+ *
+ * Both this seed itself AND `scripts/ensure-stack-cli.ts` consume this list:
+ *   - The seed: `bulkUpsert` is typed against `TrackedTable`, so adding a new
+ *     `bulkUpsert(db, X, …)` call where X is not in this array is a compile
+ *     error.
+ *   - ensure-stack-cli: derives SQL identifiers via `getTableName(t)` for the
+ *     `__stack_meta` trigger install and the TRUNCATE … CASCADE step.
+ *
+ * Adding a table here ripples through both sides; forgetting to update it on
+ * one side is a type error on the other.
+ */
+export const TRACKED_TABLE_OBJECTS = [
+  users,
+  conversations,
+  messages,
+  contentItems,
+  projects,
+  payments,
+  wallets,
+  ledgerEntries,
+  epochs,
+  epochMembers,
+  conversationMembers,
+  usageRecords,
+  llmCompletions,
+  conversationSpending,
+] as const;
+
+export type TrackedTable = (typeof TRACKED_TABLE_OBJECTS)[number];
+
+/** Snake-case physical names derived from the Drizzle table objects. */
+export const TRACKED_TABLE_NAMES = TRACKED_TABLE_OBJECTS.map((t) => getTableName(t));
 
 export async function upsertEntity(
   db: DbClient,
-  table: Table,
+  table: TrackedTable,
   data: { id: string }
 ): Promise<'created' | 'updated'> {
   const existing = await db.select().from(table).where(eq(table.id, data.id)).limit(1);
@@ -1830,7 +1850,7 @@ const BULK_UPSERT_BATCH_SIZE = 500;
 
 async function bulkUpsert(
   db: DbClient,
-  table: Table,
+  table: TrackedTable,
   entities: { id: string }[]
 ): Promise<{ total: number }> {
   if (entities.length === 0) return { total: 0 };

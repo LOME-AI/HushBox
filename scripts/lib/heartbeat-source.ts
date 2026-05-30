@@ -1,12 +1,13 @@
 /**
  * Heartbeat tick sources, gathered behind one bucketed helper. Used by:
  *
- *   - scripts/wrangler-dev.ts: tee stdout into the ticker so each request-log
- *     line from the API middleware counts as activity (request-driven heartbeat,
- *     not presence-driven — wrangler being alive alone never ticks).
- *   - vitest setup file: tick once per suite start, so long test runs keep
- *     the stack from being reaped mid-run.
- *   - playwright global-setup: tick once per E2E run start, same reason.
+ *   - scripts/wrangler-dev.ts: pipes the API process's stdout through
+ *     `createLineObserver` and ticks for each `[req]` line emitted by
+ *     apps/api/src/middleware/request-log.ts. Wrangler running with no
+ *     observed requests does NOT tick — only real API activity does.
+ *   - scripts/lib/vitest-setup.ts: ticks once per Vitest worker process,
+ *     so long test runs keep the stack from being reaped mid-run.
+ *   - e2e/global-setup.ts: ticks once per Playwright run start, same reason.
  *
  * The bucket means even a flood of requests turns into at most one fs.utimes
  * call per HEARTBEAT_TICK_BUCKET_MS — cheap regardless of traffic shape.

@@ -20,28 +20,19 @@ import { cleanupOrphanedProjects } from './docker-cleanup.js';
 import { isMainModule } from './lib/is-main.js';
 import { runMain } from './lib/run-main.js';
 import { ensureStack, type EnsureStackDeps, type EnsureStackOptions } from './ensure-stack.js';
+import { TRACKED_TABLE_NAMES } from './seed.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..');
 const DAEMON_SCRIPT = path.join(SCRIPTS_DIR, 'lib', 'idle-killer-daemon-entry.ts');
 
-/** Snake-case physical table names the seed writes to. */
-export const TRACKED_TABLES = [
-  'users',
-  'wallets',
-  'projects',
-  'conversations',
-  'conversation_members',
-  'epochs',
-  'epoch_members',
-  'messages',
-  'content_items',
-  'usage_records',
-  'llm_completions',
-  'conversation_spending',
-  'payments',
-  'ledger_entries',
-] as const;
+/**
+ * Snake-case physical table names the seed writes to. Sourced from seed.ts
+ * via `TRACKED_TABLE_NAMES` so adding a new bulkUpsert in seed.ts automatically
+ * flows here. See seed.ts's `TRACKED_TABLE_OBJECTS` for the source-of-truth
+ * type guard.
+ */
+export const TRACKED_TABLES = TRACKED_TABLE_NAMES;
 
 const DOCKER_SERVICES = ['postgres', 'neon-proxy', 'redis', 'serverless-redis-http', 'minio'];
 
@@ -127,11 +118,7 @@ function buildDeps(envMode: EnvMode): EnsureStackDeps {
     },
     async query<T>(query: string): Promise<T[]> {
       const result = await db.execute(sql.raw(query));
-      // Drizzle returns { rows: T[] } for neon-http; some adapters return T[] directly.
-      const rows = Array.isArray(result)
-        ? (result as unknown as T[])
-        : ((result as { rows?: T[] }).rows ?? []);
-      return rows;
+      return result.rows as T[];
     },
   };
 
@@ -141,10 +128,10 @@ function buildDeps(envMode: EnvMode): EnsureStackDeps {
       generateEnvFiles(repoRoot, envMode);
     },
     installDeps: async (repoRoot) => {
-      await execa('pnpm', ['install', '--frozen-lockfile'], {
-        cwd: repoRoot,
-        stdio: 'inherit',
-      });
+      // No --frozen-lockfile: a developer editing pnpm-lock.yaml locally
+      // should not have ensureStack reject the install. CI's setup-action
+      // does run --frozen-lockfile separately for reproducibility.
+      await execa('pnpm', ['install'], { cwd: repoRoot, stdio: 'inherit' });
     },
     cleanupOrphans: async () => {
       await cleanupOrphanedProjects({ dryRun: false }).catch((error: unknown) => {

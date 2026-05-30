@@ -7,7 +7,7 @@
   "scripts": {
     "ensure-stack": "tsx scripts/ensure-stack-cli.ts",
     "dev": "pnpm ensure-stack && tsx scripts/with-env.ts turbo dev",
-    "dev:clean": "tsx scripts/with-env.ts tsx scripts/kill-ports.ts HB_VITE_PORT HB_API_PORT",
+    "dev:clean": "tsx scripts/with-env.ts tsx scripts/kill-ports.ts HB_VITE_PORT HB_API_PORT HB_IDLE_DAEMON_PORT",
     "dev:restart": "pnpm dev:clean && pnpm dev",
     "build": "turbo build",
     "lint": "turbo lint",

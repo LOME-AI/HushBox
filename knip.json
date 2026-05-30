@@ -23,7 +23,7 @@
       "ignore": ["import-meta-env.d.ts"]
     },
     "scripts": {
-      "entry": ["*.ts", "!*.test.ts"],
+      "entry": ["*.ts", "!*.test.ts", "lib/idle-killer-daemon-entry.ts"],
       "project": ["**/*.ts"]
     },
     "ops": {

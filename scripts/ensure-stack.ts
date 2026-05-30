@@ -84,9 +84,15 @@ async function tryReadMeta(
 ): Promise<StackMeta | null> {
   try {
     return await deps.readMeta(executor);
-  } catch {
-    // First-ever run: __stack_meta doesn't exist yet. Fall through to the
-    // migrate-then-install path so the table gets created.
+  } catch (error) {
+    // Two reasons this can throw:
+    //   1. First-ever run — __stack_meta doesn't exist yet. Expected.
+    //   2. Real DB error (connection refused, permission denied, etc.).
+    // In both cases we fall through to migrate, which is the right recovery
+    // for case 1 and surfaces the real failure mode for case 2. Log so the
+    // original error isn't lost when migrate fails next.
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`ensure-stack: optimistic readMeta failed (${message}); will run migrations.`);
     return null;
   }
 }
