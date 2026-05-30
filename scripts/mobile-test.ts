@@ -19,7 +19,13 @@ import { wranglerLogPath } from './wrangler-dev.js';
 import { SHARDS } from '../mobile-tests/config.js';
 
 const APK_PATH = 'apps/web/android/app/build/outputs/apk/debug/app-debug.apk';
-const BOOT_TIMEOUT_POLLS = 120;
+// Cold boot on budtmo/docker-android (no quick-boot snapshot baked in) takes
+// 30-60 s on a quiet host. On the Blacksmith 4-vCPU runner with two emulator
+// containers KVM-accelerating in parallel against a contended CPU, observed
+// boots have reached ~5 minutes. 600 s = 10 min leaves enough headroom that
+// the timeout fires on a genuinely-wedged emulator, not on a slow-but-healthy
+// one. Drop back down once a snapshot-baking path is back in service.
+const BOOT_TIMEOUT_POLLS = 300;
 const BOOT_POLL_INTERVAL_MS = 2000;
 const BOOT_DIAGNOSTIC_INTERVAL = 10;
 const API_TIMEOUT_POLLS = 30;
@@ -202,10 +208,20 @@ async function checkBootCompleted(
     // `mobile-tests/flows/*.yaml` absorb the residual WebView warm-up
     // window so that probe set doesn't need to model it directly.
     const kernel = await execa('adb', ['-s', host, 'shell', 'getprop', 'sys.boot_completed']);
-    if (kernel.stdout.trim() !== '1') return { connected: true, booted: false };
+    if (kernel.stdout.trim() !== '1') {
+      if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
+        console.log(`[poll ${String(index)}] ${host}: sys.boot_completed not yet '1'`);
+      }
+      return { connected: true, booted: false };
+    }
 
     const anim = await execa('adb', ['-s', host, 'shell', 'getprop', 'service.bootanim.exit']);
-    if (anim.stdout.trim() !== '1') return { connected: true, booted: false };
+    if (anim.stdout.trim() !== '1') {
+      if (index % BOOT_DIAGNOSTIC_INTERVAL === 0) {
+        console.log(`[poll ${String(index)}] ${host}: service.bootanim.exit not yet '1'`);
+      }
+      return { connected: true, booted: false };
+    }
 
     return { connected: true, booted: true };
   } catch (error: unknown) {
