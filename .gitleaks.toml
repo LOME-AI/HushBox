@@ -1,7 +1,7 @@
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Inert base64 test fixtures in stream-handler.test.ts. Each string decodes to a human-readable label ('wrapped-b', 'user-wrapped', 'ai_wrapped') used as opaque envelope bytes in SSE writer tests. AND-condition pins them to that single file."
 condition = "AND"
 paths = ['''^apps/api/src/lib/stream-handler\.test\.ts$''']
@@ -11,3 +11,7 @@ regexes = [
   '''^dXNlci13cmFwcGVk$''',
   '''^YWlfd3JhcHBlZA==$''',
 ]
+
+[[allowlists]]
+description = "Deterministic dev-only seed-crypto cache committed for fast CI seeding (see .gitignore). Files contain OPAQUE/ECIES output for fixed dev personas + dev password + dev OPAQUE_MASTER_SECRET — high entropy but not secret."
+paths = ['''^scripts/\.cache/seed-crypto/.*\.json$''']
