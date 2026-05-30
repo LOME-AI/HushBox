@@ -3305,8 +3305,7 @@ describe('chat routes', () => {
         expect(text).toContain('event: model:done');
         expect(text).toContain('event: done');
         expect(text).toContain('"contentType":"video"');
-        // Mock video yields durationMs: 5000 — the content item payload should carry it
-        expect(text).toContain('"durationMs":5000');
+        expect(text).toContain('"durationMs":3000');
       });
 
       it('bills each video model at its own price (not the max) in a multi-model request', async () => {

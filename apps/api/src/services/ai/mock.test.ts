@@ -490,7 +490,7 @@ describe('createMockAIClient', () => {
       expect(done).toBeDefined();
       expect(done!.bytes.length).toBeGreaterThan(0);
       expect(done!.mimeType).toBe('video/mp4');
-      expect(done!.durationMs).toBe(5000);
+      expect(done!.durationMs).toBe(3000);
     });
 
     it('canned video bytes carry the ISO BMFF ftyp box at offset 4', () => {
