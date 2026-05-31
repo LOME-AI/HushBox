@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { ChatPage } from '../pages';
 import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
 
@@ -410,6 +410,13 @@ test.describe('Image Generation', () => {
     // Inject a 500 response on the next download-url mint call. The route
     // returns this exact payload when `mintDownloadUrl` throws, so the
     // intercept matches the real failure path byte-for-byte.
+    expectApiErrors(page, [
+      /500 Internal Server Error GET .*\/api\/media\/.*\/download-url/,
+      /"code":"STORAGE_READ_FAILED"/,
+    ]);
+    expectConsoleErrors(page, [
+      /Failed to load resource: the server responded with a status of 500/,
+    ]);
     await page.route('**/api/media/*/download-url', async (route) => {
       await route.fulfill({
         status: 500,

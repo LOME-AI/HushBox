@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { SidebarPage } from '../pages/sidebar.page.js';
 
 test.describe('Inbox decline invite', () => {
@@ -8,6 +8,16 @@ test.describe('Inbox decline invite', () => {
     testBobPage,
     authenticatedRequest,
   }, testInfo) => {
+    // Deliberate: after Bob declines the invite and `goto`s the declined
+    // conversation, the prefetch for per-conversation resources he no
+    // longer has access to returns 404 CONVERSATION_NOT_FOUND for each.
+    expectApiErrors(testBobPage, [
+      /404 Not Found GET .*\/api\/(conversations|keys|links|members)\/[0-9a-f-]+/,
+      /"code":"CONVERSATION_NOT_FOUND"/,
+    ]);
+    expectConsoleErrors(testBobPage, [
+      /Failed to load resource: the server responded with a status of 404/,
+    ]);
     const projectName = testInfo.project.name;
     const aliceEmail = `test-alice-${projectName}@test.hushbox.ai`;
     const bobEmail = `test-bob-${projectName}@test.hushbox.ai`;

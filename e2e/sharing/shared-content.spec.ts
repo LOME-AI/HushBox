@@ -1,4 +1,10 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import {
+  test,
+  expect,
+  unsettledExpect,
+  expectApiErrors,
+  expectConsoleErrors,
+} from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { createInviteLink } from '../helpers/invite-link.js';
 import { createMessageShareUrl } from '../helpers/share-message.js';
@@ -37,6 +43,18 @@ test.describe('Shared Content', () => {
     });
 
     await test.step('unauthenticated user sees decrypted messages', async () => {
+      // Deliberate: opening the invite link briefly fires user-auth prefetches
+      // of every per-conversation resource through the page's `unauthenticatedPage`
+      // session — each 401s with NOT_AUTHENTICATED before the link-guest
+      // context establishes.
+      expectApiErrors(unauthenticatedPage, [
+        /401 Unauthorized GET .*\/api\/(budgets|conversations|keys|links|members)\/[0-9a-f-]+/,
+        /"code":"NOT_AUTHENTICATED"/,
+      ]);
+      expectConsoleErrors(unauthenticatedPage, [
+        /Failed to load resource: the server responded with a status of 401/,
+      ]);
+
       await unauthenticatedPage.goto(inviteUrl, { waitUntil: 'domcontentloaded' });
 
       await expect(unauthenticatedPage.getByTestId('shared-conversation-loading')).not.toBeVisible({
@@ -64,6 +82,16 @@ test.describe('Shared Content', () => {
     await test.step('revoked link shows error', async () => {
       // Fresh context to avoid TanStack Query cache from step 2
       const freshPage = await createPage();
+      // Deliberate: after the invite link is revoked, the guest's fetch
+      // of every per-conversation resource through that link 401s with
+      // NOT_AUTHENTICATED.
+      expectApiErrors(freshPage, [
+        /401 Unauthorized GET .*\/api\/(budgets|conversations|keys|links|members)\/[0-9a-f-]+/,
+        /"code":"NOT_AUTHENTICATED"/,
+      ]);
+      expectConsoleErrors(freshPage, [
+        /Failed to load resource: the server responded with a status of 401/,
+      ]);
       await freshPage.goto(inviteUrl, { waitUntil: 'domcontentloaded' });
 
       await expect(freshPage.getByTestId('shared-conversation-error')).toBeVisible({
@@ -103,6 +131,16 @@ test.describe('Shared Content', () => {
   });
 
   test('invalid share links show error states', async ({ unauthenticatedPage }) => {
+    // Deliberate: this test fetches `/share/{c,m}/nonexistent` URLs and
+    // asserts the error state. The underlying share-lookup API returns
+    // 404 SHARE_NOT_FOUND for both.
+    expectApiErrors(unauthenticatedPage, [
+      /404 Not Found GET .*\/api\/shares\/nonexistent/,
+      /"code":"SHARE_NOT_FOUND"/,
+    ]);
+    expectConsoleErrors(unauthenticatedPage, [
+      /Failed to load resource: the server responded with a status of 404/,
+    ]);
     await test.step('invalid conversation link shows error', async () => {
       await unauthenticatedPage.goto('/share/c/nonexistent#invalidkey', {
         waitUntil: 'domcontentloaded',
@@ -352,6 +390,14 @@ test.describe('Shared Content', () => {
     expect(revoke.ok()).toBe(true);
 
     const recipient = await createPage();
+
+    expectApiErrors(recipient, [
+      /404 Not Found GET .*\/api\/shares\/[0-9a-f-]+/,
+      /"code":"SHARE_NOT_FOUND"/,
+    ]);
+    expectConsoleErrors(recipient, [
+      /Failed to load resource: the server responded with a status of 404/,
+    ]);
 
     const fetchAfterRevoke = await recipient.request.get(`${apiUrl}/api/shares/${shareId}`);
     expect(fetchAfterRevoke.status()).toBe(404);

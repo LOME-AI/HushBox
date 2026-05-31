@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { X, PanelLeft, PanelRight } from 'lucide-react';
 import { cn } from '../lib/utilities';
-import { Sheet, SheetContent } from './sheet';
+import { Sheet, SheetContent, SheetTitle } from './sheet';
 import { useIsMobile } from '../hooks/use-is-mobile';
 
 interface SidebarPanelProps {
@@ -11,6 +11,12 @@ interface SidebarPanelProps {
   collapsed?: boolean | undefined;
   headerIcon?: React.ReactNode | undefined;
   headerTitle?: React.ReactNode | undefined;
+  /**
+   * Accessible name for the mobile Sheet — Radix Dialog requires a Title for
+   * screen readers. Rendered visually-hidden inside SheetContent; the visible
+   * header still uses `headerTitle`. Defaults to "Sidebar".
+   */
+  ariaLabel?: string | undefined;
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode | undefined;
@@ -100,6 +106,7 @@ export function SidebarPanel({
   collapsed,
   headerIcon,
   headerTitle,
+  ariaLabel = 'Sidebar',
   onClose,
   children,
   footer,
@@ -138,6 +145,7 @@ export function SidebarPanel({
           data-chrome=""
           {...(testId === undefined ? {} : { 'data-testid': testId })}
         >
+          <SheetTitle className="sr-only">{ariaLabel}</SheetTitle>
           {content}
         </SheetContent>
       </Sheet>

@@ -1,4 +1,10 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import {
+  test,
+  expect,
+  unsettledExpect,
+  expectApiErrors,
+  expectConsoleErrors,
+} from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
 
 test.describe('Fork Lifecycle', () => {
@@ -188,6 +194,15 @@ test.describe('Fork Lifecycle', () => {
     testConversation: _testConversation,
   }) => {
     test.slow();
+    // Deliberate: this test creates forks beyond the per-conversation cap
+    // and asserts the 6th attempt 400s with FORK_LIMIT_REACHED.
+    expectApiErrors(authenticatedPage, [
+      /400 Bad Request POST .*\/api\/forks\/[0-9a-f-]+/,
+      /"code":"FORK_LIMIT_REACHED"/,
+    ]);
+    expectConsoleErrors(authenticatedPage, [
+      /Failed to load resource: the server responded with a status of 400/,
+    ]);
     const chatPage = new ChatPage(authenticatedPage);
 
     await test.step('create 5 forks (hitting MAX_FORKS_PER_CONVERSATION)', async () => {

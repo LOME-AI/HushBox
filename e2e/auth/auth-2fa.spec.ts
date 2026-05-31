@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import {
   LoginPage,
   SettingsPage,
@@ -32,6 +32,14 @@ test.describe('Two-Factor Authentication', () => {
     test.describe.configure({ mode: 'serial' });
 
     test('invalid 2FA code shows error', async ({ unauthenticatedPage }) => {
+      // Deliberate: this test submits `000000` and asserts the 400 response.
+      expectApiErrors(unauthenticatedPage, [
+        /400 Bad Request POST .*\/api\/auth\/login\/2fa\/verify/,
+        /"code":"INVALID_TOTP_CODE"/,
+      ]);
+      expectConsoleErrors(unauthenticatedPage, [
+        /Failed to load resource: the server responded with a status of 400/,
+      ]);
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
       await loginPage.login(personaEmail('test-2fa'), DEV_PASSWORD);

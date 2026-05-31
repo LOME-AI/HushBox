@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures.js';
+import { test, expect, expectApiErrors, expectConsoleErrors } from './fixtures.js';
 import { LoginPage, SettingsPage, TwoFactorSetupModal, ChatPage } from './pages/index.js';
 import {
   generateTOTPCode,
@@ -18,7 +18,17 @@ const FRESH_PASSWORD = 'TestPassword123!';
 
 // Post-delete redirect to ROUTES.MARKETING. waitForURL is independent of the
 // settled-aware indicator, which can flip true mid-navigation.
+//
+// TanStack Query's pending refetch of `/api/billing/balance` can land after
+// the iron-session cookie has been cleared and 401 with NOT_AUTHENTICATED
+// before user-only providers unmount. Anchor on `$` so the leaf endpoint
+// match can't accidentally mask a 401 on a different `/api/billing/...` route.
 async function expectRedirectedToMarketing(page: Page): Promise<void> {
+  expectApiErrors(page, [
+    /401 Unauthorized GET .*\/api\/billing\/balance$/m,
+    /"code":"NOT_AUTHENTICATED"/,
+  ]);
+  expectConsoleErrors(page, [/Failed to load resource: the server responded with a status of 401/]);
   await page.waitForURL(new RegExp(ROUTES.MARKETING), { timeout: 15_000 });
 }
 
@@ -299,6 +309,16 @@ test.describe('Account deletion', () => {
       await expectRedirectedToMarketing(unauthenticatedPage);
 
       const guestAfterDelete = await createPage();
+      // Deliberate: this test asserts the share URL surfaces an error to a
+      // guest once the owner deletes their account. The guest's GET against
+      // the share endpoint resolves to 404 SHARE_NOT_FOUND.
+      expectApiErrors(guestAfterDelete, [
+        /404 Not Found GET .*\/api\/shares\/[A-Za-z0-9_-]+/,
+        /"code":"SHARE_NOT_FOUND"/,
+      ]);
+      expectConsoleErrors(guestAfterDelete, [
+        /Failed to load resource: the server responded with a status of 404/,
+      ]);
       await guestAfterDelete.goto(shareUrl, { waitUntil: 'domcontentloaded' });
       await expect(guestAfterDelete.getByTestId('shared-message-error')).toBeVisible({
         timeout: 15_000,
@@ -377,6 +397,14 @@ test.describe('Account deletion', () => {
       request,
     }) => {
       test.setTimeout(180_000);
+      // Deliberate: this test submits `000000` and asserts the 400 response.
+      expectApiErrors(unauthenticatedPage, [
+        /400 Bad Request POST .*\/api\/auth\/delete-account\/finish/,
+        /"code":"INVALID_TOTP_CODE"/,
+      ]);
+      expectConsoleErrors(unauthenticatedPage, [
+        /Failed to load resource: the server responded with a status of 400/,
+      ]);
       const user = await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-wrongtotp');
       await enableTwoFactorViaUI(unauthenticatedPage);
 

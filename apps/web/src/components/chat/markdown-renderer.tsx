@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { Streamdown } from 'streamdown';
-import { code } from '@streamdown/code';
 import { mermaid } from '@streamdown/mermaid';
 import { math } from '@streamdown/math';
 import { cn } from '@hushbox/ui';
+import { safeCode } from './code-plugin';
 import { ErrorBoundary } from '../shared/error-boundary';
 import { DocumentCard } from './document-card';
 import {
@@ -157,7 +157,7 @@ export function MarkdownRenderer({
     >
       <ErrorBoundary fallback={<MarkdownRenderFallback content={content} />} resetKey={content}>
         <Streamdown
-          plugins={{ code, mermaid, math }}
+          plugins={{ code: safeCode, mermaid, math }}
           components={components}
           controls={{ code: true, mermaid: { copy: true, download: true } }}
           isAnimating={isStreaming ?? false}

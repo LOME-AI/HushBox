@@ -213,10 +213,16 @@ test.describe('Solo Regeneration', () => {
         { timeout: 15_000 }
       );
 
-      // Testid disambiguates from the user-message retry icon (same
-      // aria-label); a role-name selector would match-first the user icon
-      // and trigger retry-all instead of single-tile regenerate.
-      const retryButton = authenticatedPage.getByTestId('retry-error-button');
+      // Scope Regenerate to the errored tile's own toolbar by climbing from
+      // `model-error-message` to its enclosing `message-item`. A page-wide
+      // `getByRole('button', { name: 'Regenerate' })` would also match the
+      // successful sibling tile's Regenerate, and the user message above
+      // exposes "Retry" (not "Regenerate"), so a role-name selector at this
+      // scope is unambiguous.
+      const retryButton = errorTile
+        .locator('xpath=ancestor::*[@data-testid="message-item"][1]')
+        .getByTestId('message-actions')
+        .getByRole('button', { name: 'Regenerate' });
       await unsettledExpect(retryButton).toBeVisible({ timeout: 10_000 });
       await retryButton.click();
 

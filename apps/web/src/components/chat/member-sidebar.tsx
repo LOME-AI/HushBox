@@ -299,6 +299,7 @@ export function MemberSidebar(props: Readonly<MemberSidebarProps>): React.JSX.El
       open={panelConfig.open}
       onOpenChange={panelConfig.onOpenChange}
       collapsed={collapsed}
+      ariaLabel="Members"
       headerIcon={<Users className="h-5 w-5" data-testid="member-sidebar-header-icon" />}
       headerTitle={panelConfig.headerTitle}
       onClose={panelConfig.onClose}

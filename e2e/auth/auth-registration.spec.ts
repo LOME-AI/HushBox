@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { LoginPage, SignupPage } from '../pages';
 import {
   signUpViaUI,
@@ -108,6 +108,16 @@ test.describe('Registration & Verification', () => {
       request,
     }) => {
       test.setTimeout(120_000);
+      // Deliberate: logging in with an unverified email returns 401
+      // EMAIL_NOT_VERIFIED, which the UI translates to a redirect to
+      // /check-your-email plus an auto-resend.
+      expectApiErrors(unauthenticatedPage, [
+        /401 Unauthorized POST .*\/api\/auth\/login\/finish/,
+        /"code":"EMAIL_NOT_VERIFIED"/,
+      ]);
+      expectConsoleErrors(unauthenticatedPage, [
+        /Failed to load resource: the server responded with a status of 401/,
+      ]);
       const email = uniqueEmail('e2e-unverified');
       const username = uniqueUsername('unver');
       const password = 'TestPassword123!';

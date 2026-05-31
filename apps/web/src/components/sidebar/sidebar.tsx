@@ -119,6 +119,7 @@ export function Sidebar(): React.JSX.Element {
             }
       }
       collapsed={collapsed}
+      ariaLabel="Conversations"
       headerIcon={
         <Link to={ROUTES.CHAT} aria-label="HushBox - Go to chat">
           <Logo />

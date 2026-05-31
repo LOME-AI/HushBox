@@ -1,8 +1,24 @@
+import { expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { expect, unsettledExpect } from './settled-expect.js';
 import type { Page } from '@playwright/test';
 
-/** Wait for the shared conversation loading spinner to appear then disappear. */
+/**
+ * Wait for the shared conversation loading spinner to appear then disappear.
+ *
+ * Opening a guest invite link briefly fires user-auth prefetches
+ * (`/api/billing/balance`, `/api/conversations?`, and the per-conversation
+ * resources still queued for already-logged-in callers like `testBobPage`)
+ * before the link-guest context establishes — each 401s with
+ * NOT_AUTHENTICATED. Opt out here so every caller doesn't have to repeat
+ * the pattern.
+ */
 export async function expectSharedConversationLoaded(page: Page): Promise<void> {
+  expectApiErrors(page, [
+    /401 Unauthorized GET .*\/api\/(billing\/balance|conversations\?|(?:budgets|conversations|keys|links|members)\/[0-9a-f-]+)/,
+    /"code":"NOT_AUTHENTICATED"/,
+  ]);
+  expectConsoleErrors(page, [/Failed to load resource: the server responded with a status of 401/]);
+
   const loading = page.getByTestId('shared-conversation-loading');
   await loading
     .waitFor({ state: 'visible', timeout: 10_000 })

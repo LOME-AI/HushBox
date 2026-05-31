@@ -115,7 +115,13 @@ function buildSpaHeaders(
         // (signup, recovery-phrase verify, password change) calls argon2id
         // from hash-wasm, which loads via WebAssembly.compile/instantiate.
         // Same in prod as in dev: every account-creation flow needs WASM.
-        "script-src 'self' 'wasm-unsafe-eval'; " +
+        //
+        // 'unsafe-eval' is REQUIRED — transitive deps in the streamdown and
+        // marketing chunks evaluate `Function("return this")` at module init
+        // (the legacy global-this polyfill from lodash/d3-era libs). Without
+        // this token, every page that loads those chunks throws CSP violations
+        // and the marketing site's astro-island hydration fails outright.
+        "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; " +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' blob: data:; " +
         "media-src 'self' blob:; " +

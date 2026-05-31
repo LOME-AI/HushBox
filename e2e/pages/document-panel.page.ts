@@ -19,7 +19,7 @@ export class DocumentPanelPage {
     this.resizeHandle = page.getByTestId('resize-handle');
     this.highlightedCode = page.getByTestId('highlighted-code');
     this.closeButton = page.getByRole('button', { name: 'Close panel' });
-    this.downloadButton = page.getByRole('button', { name: 'Download file' });
+    this.downloadButton = this.panel.getByRole('button', { name: 'Download file' });
     this.mermaidDiagram = page.getByTestId('mermaid-diagram');
   }
 

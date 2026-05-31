@@ -57,6 +57,11 @@ vi.mock('./sheet', async (importOriginal) => {
         {children}
       </div>
     ),
+    SheetTitle: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+      <h2 data-slot="sheet-title" className={className}>
+        {children}
+      </h2>
+    ),
   };
 });
 
@@ -282,6 +287,19 @@ describe('SidebarPanel', () => {
       render(<SidebarPanel {...defaultProps} open={true} />);
       const sheetContent = screen.getByTestId('mock-sheet-content');
       expect(sheetContent).toHaveAttribute('data-chrome', '');
+    });
+
+    it('renders a visually-hidden SheetTitle so Radix Dialog has an accessible name', () => {
+      render(<SidebarPanel {...defaultProps} open={true} ariaLabel="Conversations" />);
+      const title = screen.getByText('Conversations', { selector: '[data-slot="sheet-title"]' });
+      expect(title).toBeInTheDocument();
+      expect(title).toHaveClass('sr-only');
+    });
+
+    it('falls back to a generic SheetTitle when ariaLabel is omitted', () => {
+      render(<SidebarPanel {...defaultProps} open={true} />);
+      const title = screen.getByText('Sidebar', { selector: '[data-slot="sheet-title"]' });
+      expect(title).toBeInTheDocument();
     });
   });
 

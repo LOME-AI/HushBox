@@ -324,6 +324,34 @@ describe('PickerModeToggle', () => {
     expect(single).toHaveAttribute('data-active', 'false');
   });
 
+  it('shows a pointer cursor on the inactive option', () => {
+    render(
+      <PickerModeToggle
+        mode="single"
+        onChange={vi.fn()}
+        orientation="horizontal"
+        singleLabel="Talk to one model"
+        multiLabel="Multiple models at once"
+      />
+    );
+    const multi = screen.getByRole('radio', { name: /multiple models at once/i });
+    expect(multi.className).toContain('cursor-pointer');
+  });
+
+  it('does not show a pointer cursor on the active option', () => {
+    render(
+      <PickerModeToggle
+        mode="single"
+        onChange={vi.fn()}
+        orientation="horizontal"
+        singleLabel="Talk to one model"
+        multiLabel="Multiple models at once"
+      />
+    );
+    const single = screen.getByRole('radio', { name: /talk to one model/i });
+    expect(single.className).not.toContain('cursor-pointer');
+  });
+
   it('exposes a stable testid for the toggle root', () => {
     render(
       <PickerModeToggle

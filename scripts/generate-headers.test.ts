@@ -211,7 +211,7 @@ describe('generateHeaders', () => {
     const spaBlockStart = content.lastIndexOf('/*\n');
     expect(spaBlockStart).toBeGreaterThan(0);
     const spaBlock = content.slice(spaBlockStart);
-    expect(spaBlock).toContain("script-src 'self' 'wasm-unsafe-eval';");
+    expect(spaBlock).toContain("script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval';");
     expect(spaBlock).not.toContain('sha256-');
     expect(spaBlock).toContain("default-src 'self'");
     expect(spaBlock).toContain("frame-ancestors 'none'");
@@ -356,7 +356,7 @@ describe('generateHeaders', () => {
     expect(nonComment).toContain('http://localhost:9050');
   });
 
-  it('emits script-src with wasm-unsafe-eval on every block (required by argon2id)', async () => {
+  it('emits script-src with wasm-unsafe-eval and unsafe-eval on every block', async () => {
     await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
     const result = await generateHeaders({ repoRoot, apiUrl: 'http://localhost:8787' });
     const nonComment = stripComments(await fs.readFile(result.outputPath, 'utf8'));
@@ -365,6 +365,7 @@ describe('generateHeaders', () => {
     expect(scriptSourceLines.length).toBeGreaterThan(0);
     for (const line of scriptSourceLines) {
       expect(line).toContain("'wasm-unsafe-eval'");
+      expect(line).toContain("'unsafe-eval'");
     }
   });
 

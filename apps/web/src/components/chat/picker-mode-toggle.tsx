@@ -57,7 +57,7 @@ function PickerModeOption({
       className={cn(
         'relative flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
         'focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none',
-        active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground/80'
+        active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground/80 cursor-pointer'
       )}
     >
       {active && (

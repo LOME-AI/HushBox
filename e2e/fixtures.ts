@@ -127,9 +127,19 @@ function toRegExp(pattern: string | RegExp): RegExp {
 }
 
 /**
- * Opt a page out of failing on specific console errors during the current
- * test. Pass either substrings (matched case-insensitively) or RegExps.
- * Call before any action that might produce the error.
+ * Opt a page out of failing on console errors that the test **purposely**
+ * provokes — e.g. a wrong-password assertion that surfaces a friendly error
+ * banner, or a test that revokes a share link and then visits it.
+ *
+ * Do NOT use this to hide real application problems (accessibility hints,
+ * `setState`-in-render warnings, hydration errors, etc.). Those should
+ * surface as failures so they get fixed at the source. If a console error
+ * fires on a test that isn't intentionally producing it, the right move is
+ * to fix the app code, not to suppress the warning here.
+ *
+ * Patterns match each captured console line independently. Pass substrings
+ * (matched case-insensitively) or RegExps. Call before any action that
+ * might produce the error.
  */
 export function expectConsoleErrors(page: Page, patterns: (string | RegExp)[]): void {
   const list = getAllowList(page);
@@ -137,14 +147,71 @@ export function expectConsoleErrors(page: Page, patterns: (string | RegExp)[]): 
 }
 
 /**
- * Opt a page out of failing on specific API errors during the current test.
- * Patterns are matched against the captured error line, which includes the
- * status code, method, URL, and (when re-readable) body.
+ * Opt a page out of failing on API errors that the test **purposely**
+ * provokes — e.g. a test that posts an invalid TOTP code and asserts the
+ * 400 response, or a test that fetches a deliberately-nonexistent share
+ * link and asserts the 404.
+ *
+ * Do NOT use this to hide real application problems (unexpected 4xx/5xx
+ * responses from endpoints the test isn't deliberately exercising). Those
+ * should surface as failures. Match precisely on `<status> <method> <url>`
+ * (and optionally the body's `code`) so the opt-out can only mask the
+ * exact request the test is asserting against — not other failures on the
+ * same page.
+ *
+ * Patterns match each captured error line independently. Each line
+ * includes the status code, method, URL, and (when re-readable) body.
+ * Call before any action that might produce the error.
  */
 export function expectApiErrors(page: Page, patterns: (string | RegExp)[]): void {
   const list = getAllowList(page);
   list.api.push(...patterns.map((p) => toRegExp(p)));
 }
+
+/**
+ * Universally-allowed API errors: the navigation-cancel families each
+ * browser engine emits when a request is dropped because the page
+ * navigated, closed, or its `AbortController` fired (`net::ERR_ABORTED`
+ * on Chromium, `NS_BINDING_ABORTED` on Firefox, `Load request cancelled`
+ * on WebKit). Always teardown noise, never an app concern.
+ */
+const DEFAULT_API_ALLOW: RegExp[] = [
+  /NETWORK_FAILED .* — net::ERR_ABORTED/,
+  /NETWORK_FAILED .* — NS_BINDING_ABORTED/,
+  /NETWORK_FAILED .* — Load request cancelled/,
+];
+
+/**
+ * Universally-allowed console errors:
+ *
+ * 1. WebKit's local-network gating on iOS surfaces blocked fetches to
+ *    `localhost`/private addresses as a `pageerror`
+ *    (`<url> due to access control checks.`) even when the request ultimately
+ *    succeeds via Playwright's request routing. Production never serves the
+ *    app from localhost, so this pattern cannot mask a real cross-origin bug
+ *    — it is a Playwright-on-WebKit artifact.
+ *
+ * 2. `Viewport argument key "interactive-widget" not recognized and ignored.`
+ *    — the SPA's viewport meta sets `interactive-widget=resizes-content` for
+ *    Android keyboard handling; WebKit doesn't recognize the Chrome-only
+ *    attribute and logs a console.error on every page load. Real noise on
+ *    every iphone-15/webkit test.
+ *
+ * 3. `[astro-island] Error hydrating /_astro/<chunk>.js TypeError: Importing a
+ *    module script failed.` — WebKit (desktop Safari + iPhone-15) rejects
+ *    in-flight dynamic `import()` calls when the page begins unloading. Tests
+ *    that land on the Astro marketing site and then navigate away (e.g.
+ *    post-delete-account → /welcome → /login) cancel hydration mid-flight,
+ *    and Astro's hydration runner surfaces the rejection as a console error.
+ *    Chromium and Firefox swallow the same rejection silently. The chunks
+ *    load cleanly when the page stays put — see `marketing-roadmap.spec.ts`.
+ *    Pure WebKit artifact, not a real hydration failure.
+ */
+const DEFAULT_CONSOLE_ALLOW: RegExp[] = [
+  /\[UNCAUGHT\] (https?:)?\/\/?(localhost|127\.0\.0\.1|0\.0\.0\.0)[:/].*due to access control checks\.?/,
+  /Viewport argument key "interactive-widget" not recognized and ignored\./,
+  /\[astro-island\] Error hydrating .*TypeError: Importing a module script failed/,
+];
 
 function filterUnexpected(captured: string[], allowed: RegExp[]): string[] {
   return captured.filter((line) => !allowed.some((pattern) => pattern.test(line)));
@@ -371,8 +438,11 @@ async function teardownPage(
   // Promote captured errors to test assertions when the test would otherwise
   // pass. Tests opt-out per-page via `expectConsoleErrors` / `expectApiErrors`.
   const allowList = getAllowList(entry.page);
-  const unexpectedConsole = filterUnexpected(entry.errors, allowList.console);
-  const unexpectedApi = filterUnexpected(entry.apiErrors, allowList.api);
+  const unexpectedConsole = filterUnexpected(entry.errors, [
+    ...DEFAULT_CONSOLE_ALLOW,
+    ...allowList.console,
+  ]);
+  const unexpectedApi = filterUnexpected(entry.apiErrors, [...DEFAULT_API_ALLOW, ...allowList.api]);
   const hasUnexpected = unexpectedConsole.length > 0 || unexpectedApi.length > 0;
 
   if (failed || hasUnexpected) {

@@ -1,10 +1,26 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import {
+  test,
+  expect,
+  unsettledExpect,
+  expectApiErrors,
+  expectConsoleErrors,
+} from '../fixtures.js';
 import { setupConversationWithSidebar } from '../helpers/group-test-setup.js';
 import { ChatPage, MemberSidebarPage, SidebarPage } from '../pages/index.js';
 
 test.describe('Group Chat Leave', () => {
   // Each test is destructive (leaving a conversation), so each gets its own groupConversation fixture
   test('non-owner leave navigates to /chat', async ({ testBobPage, groupConversation }) => {
+    // Deliberate: after Bob leaves and navigates back to the conversation
+    // URL, the router prefetches per-conversation resources Bob has now
+    // lost access to — each returns 404 CONVERSATION_NOT_FOUND.
+    expectApiErrors(testBobPage, [
+      /404 Not Found GET .*\/api\/(budgets|conversations|keys|links|members)\/[0-9a-f-]+/,
+      /"code":"CONVERSATION_NOT_FOUND"/,
+    ]);
+    expectConsoleErrors(testBobPage, [
+      /Failed to load resource: the server responded with a status of 404/,
+    ]);
     // Verify message visibility BEFORE opening sidebar — on mobile the sidebar
     // is a modal Sheet that covers the chat, making messages invisible.
     const chatPage = new ChatPage(testBobPage);
@@ -45,6 +61,16 @@ test.describe('Group Chat Leave', () => {
     groupConversation,
   }) => {
     test.slow();
+    // Deliberate: after the owner leaves, the conversation is destroyed.
+    // The post-leave `goto` then prefetches resources that no longer
+    // exist for anyone — each returns 404 CONVERSATION_NOT_FOUND.
+    expectApiErrors(authenticatedPage, [
+      /404 Not Found GET .*\/api\/(budgets|conversations|keys|links|members)\/[0-9a-f-]+/,
+      /"code":"CONVERSATION_NOT_FOUND"/,
+    ]);
+    expectConsoleErrors(authenticatedPage, [
+      /Failed to load resource: the server responded with a status of 404/,
+    ]);
     const { sidebar } = await setupConversationWithSidebar(authenticatedPage, groupConversation.id);
 
     await test.step('trigger leave and verify owner-specific warning', async () => {
@@ -79,6 +105,16 @@ test.describe('Group Chat Leave', () => {
     testBobPage,
     groupConversation,
   }) => {
+    // Deliberate: after Bob leaves and `goto`s back to the conversation,
+    // the prefetch for per-conversation resources he can no longer access
+    // returns 404 CONVERSATION_NOT_FOUND for each.
+    expectApiErrors(testBobPage, [
+      /404 Not Found GET .*\/api\/(budgets|conversations|keys|links|members)\/[0-9a-f-]+/,
+      /"code":"CONVERSATION_NOT_FOUND"/,
+    ]);
+    expectConsoleErrors(testBobPage, [
+      /Failed to load resource: the server responded with a status of 404/,
+    ]);
     // Sidebar's per-conversation Leave action shares the same rotation code
     // path as the member-sidebar Leave — both go through `leaveConversation()`
     // in lib/leave-conversation.ts. Regression target: before the unification

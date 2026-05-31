@@ -15,7 +15,16 @@ vi.mock('streamdown', () => ({
   },
 }));
 
-vi.mock('@streamdown/code', () => ({ code: {} }));
+vi.mock('@streamdown/code', () => ({
+  code: {
+    name: 'shiki',
+    type: 'code-highlighter',
+    supportsLanguage: () => false,
+    getSupportedLanguages: () => [],
+    getThemes: () => ['github-light', 'github-dark'],
+    highlight: () => null,
+  },
+}));
 vi.mock('@streamdown/mermaid', () => ({ mermaid: {} }));
 vi.mock('@streamdown/math', () => ({ math: {} }));
 
