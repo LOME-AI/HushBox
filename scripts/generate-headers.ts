@@ -16,8 +16,8 @@
  *
  * Style hashes are NOT emitted: that would invalidate `'unsafe-inline'`,
  * which is required for Tailwind's runtime style insertion and for inline
- * `style="..."` attributes (e.g. ThemeToggle SVG transitions, see the
- * Shiki TODO in `apps/marketing/astro.config.mjs`).
+ * `style="..."` attributes (e.g. ThemeToggle SVG transitions, plus the
+ * Shiki incompatibility documented in `apps/marketing/astro.config.mjs`).
  *
  * Single source of truth for the marketing route list:
  *   packages/shared/src/routes.ts → MARKETING_ROUTES
@@ -34,6 +34,7 @@ import { fileURLToPath } from 'node:url';
 import { MARKETING_ROUTES } from '../packages/shared/src/routes.js';
 import { isMainModule } from './lib/is-main.js';
 import { runMain } from './lib/run-main.js';
+import type { Dirent } from 'node:fs';
 
 export interface GenerateHeadersOptions {
   readonly repoRoot: string;
@@ -88,8 +89,8 @@ function buildSpaHeaders(apiOrigin: ApiOrigin): readonly { name: string; value: 
         "default-src 'self'; " +
         "script-src 'self'; " +
         "style-src 'self' 'unsafe-inline'; " +
-        'img-src \'self\' blob: data:; ' +
-        'media-src \'self\' blob:; ' +
+        "img-src 'self' blob: data:; " +
+        "media-src 'self' blob:; " +
         `connect-src 'self' ${apiOrigin.http} https://*.r2.cloudflarestorage.com https://*.r2.dev ${apiOrigin.ws}; ` +
         "font-src 'self' data:; " +
         "frame-ancestors 'none'; " +
@@ -159,7 +160,7 @@ const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do no
 export async function generateHeaders(
   options: GenerateHeadersOptions
 ): Promise<GenerateHeadersResult> {
-  const distDir = path.resolve(options.repoRoot, options.distRelativePath ?? DEFAULT_DIST);
+  const distributionDir = path.resolve(options.repoRoot, options.distRelativePath ?? DEFAULT_DIST);
   const outputPath = path.resolve(options.repoRoot, options.outputRelativePath ?? DEFAULT_OUTPUT);
   const apiUrl = options.apiUrl ?? process.env['VITE_API_URL'];
   if (!apiUrl) {
@@ -171,11 +172,11 @@ export async function generateHeaders(
   const apiOrigin = deriveApiOrigin(apiUrl);
   const spaHeaders = buildSpaHeaders(apiOrigin);
 
-  await assertDirectory(distDir);
-  const pages = await findMarketingPages(distDir);
+  await assertDirectory(distributionDir);
+  const pages = await findMarketingPages(distributionDir);
   if (pages.length === 0) {
     throw new Error(
-      `No marketing pages found under ${distDir} for routes ${MARKETING_ROUTES.join(', ')}. ` +
+      `No marketing pages found under ${distributionDir} for routes ${MARKETING_ROUTES.join(', ')}. ` +
         `Did the marketing build run before this script?`
     );
   }
@@ -214,42 +215,49 @@ async function assertDirectory(directory: string): Promise<void> {
   }
 }
 
-async function findMarketingPages(distDir: string): Promise<MarketingPage[]> {
+async function readRouteEntries(routeDir: string, route: string): Promise<Dirent[]> {
+  try {
+    return await fs.readdir(routeDir, { withFileTypes: true, recursive: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(
+        `Marketing route ${route} has no built directory at ${routeDir}.\n` +
+          `Run the build + merge chain first:\n` +
+          `  pnpm --filter @hushbox/marketing build\n` +
+          `  pnpm --filter @hushbox/web build\n` +
+          `  pnpm tsx scripts/merge-marketing-into-web.ts\n` +
+          `  pnpm generate:headers\n` +
+          `(If you only changed marketing content, the marketing build + merge is enough.)`
+      );
+    }
+    throw error;
+  }
+}
+
+function entryToPage(entry: Dirent, distributionDir: string): MarketingPage {
+  const directoryOfIndex = entry.parentPath;
+  const relativePath = path.relative(distributionDir, directoryOfIndex).split(path.sep).join('/');
+  return {
+    urlPath: `/${relativePath}`,
+    htmlFile: path.join(directoryOfIndex, entry.name),
+  };
+}
+
+async function findMarketingPages(distributionDir: string): Promise<MarketingPage[]> {
   const pages: MarketingPage[] = [];
   for (const route of MARKETING_ROUTES) {
     const prefix = route.replace(/^\//, '');
-    const routeDir = path.join(distDir, prefix);
-    let entries;
-    try {
-      entries = await fs.readdir(routeDir, { withFileTypes: true, recursive: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new Error(
-          `Marketing route ${route} has no built directory at ${routeDir}.\n` +
-            `Run the build + merge chain first:\n` +
-            `  pnpm --filter @hushbox/marketing build\n` +
-            `  pnpm --filter @hushbox/web build\n` +
-            `  pnpm tsx scripts/merge-marketing-into-web.ts\n` +
-            `  pnpm generate:headers\n` +
-            `(If you only changed marketing content, the marketing build + merge is enough.)`
-        );
-      }
-      throw error;
-    }
-    let foundForRoute = 0;
-    for (const entry of entries) {
-      if (!entry.isFile() || entry.name !== 'index.html') continue;
-      const directoryOfIndex = entry.parentPath;
-      const relPath = path.relative(distDir, directoryOfIndex).split(path.sep).join('/');
-      const urlPath = `/${relPath}`;
-      pages.push({ urlPath, htmlFile: path.join(directoryOfIndex, entry.name) });
-      foundForRoute++;
-    }
-    if (foundForRoute === 0) {
+    const routeDir = path.join(distributionDir, prefix);
+    const entries = await readRouteEntries(routeDir, route);
+    const indexEntries = entries.filter((e) => e.isFile() && e.name === 'index.html');
+    if (indexEntries.length === 0) {
       throw new Error(
         `Marketing route ${route} produced no index.html under ${routeDir}. ` +
           `Did the Astro build complete?`
       );
+    }
+    for (const entry of indexEntries) {
+      pages.push(entryToPage(entry, distributionDir));
     }
   }
   return pages;
@@ -300,7 +308,10 @@ function formatSpaBlock(spaHeaders: readonly { name: string; value: string }[]):
 }
 
 function inlineHashesIntoSpaCsp(baseCsp: string, csp: PageCsp): string {
-  const directives = baseCsp.split(';').map((d) => d.trim()).filter(Boolean);
+  const directives = baseCsp
+    .split(';')
+    .map((d) => d.trim())
+    .filter(Boolean);
   return directives
     .map((directive) => {
       if (directive.toLowerCase().startsWith('script-src')) {

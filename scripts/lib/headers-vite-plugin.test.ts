@@ -14,9 +14,11 @@ import {
 } from './headers-vite-plugin.js';
 
 function rule(pattern: string, headers: Record<string, string>): HeaderRule {
-  const [parsed] = parseHeadersFile(`${pattern}\n  ${Object.entries(headers)
-    .map(([n, v]) => `${n}: ${v}`)
-    .join('\n  ')}`);
+  const [parsed] = parseHeadersFile(
+    `${pattern}\n  ${Object.entries(headers)
+      .map(([n, v]) => `${n}: ${v}`)
+      .join('\n  ')}`
+  );
   if (!parsed) throw new Error('failed to build test rule');
   return parsed;
 }
@@ -144,10 +146,7 @@ describe('matchHeaders', () => {
   });
 
   it('lets more specific rules override the same header from less specific ones', () => {
-    const rules = [
-      rule('/*', { 'X-CSP': 'spa' }),
-      rule('/welcome', { 'X-CSP': 'marketing' }),
-    ];
+    const rules = [rule('/*', { 'X-CSP': 'spa' }), rule('/welcome', { 'X-CSP': 'marketing' })];
     expect(matchHeaders(rules, '/welcome')['X-CSP']).toBe('marketing');
     expect(matchHeaders(rules, '/chat')['X-CSP']).toBe('spa');
   });
@@ -185,16 +184,16 @@ describe('applyHeaders', () => {
 });
 
 describe('headersPlugin', () => {
-  let tmpDir: string;
+  let temporaryDir: string;
   let headersFile: string;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'headers-plugin-'));
-    headersFile = path.join(tmpDir, '_headers');
+    temporaryDir = await fs.mkdtemp(path.join(os.tmpdir(), 'headers-plugin-'));
+    headersFile = path.join(temporaryDir, '_headers');
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await fs.rm(temporaryDir, { recursive: true, force: true });
   });
 
   it('returns a Plugin with the expected name', () => {
@@ -214,7 +213,8 @@ describe('headersPlugin', () => {
     );
     const plugin = headersPlugin({ headersFile });
 
-    const middlewares: Array<(req: { url?: string }, res: ServerResponse, next: () => void) => void> = [];
+    const middlewares: ((req: { url?: string }, res: ServerResponse, next: () => void) => void)[] =
+      [];
     const fakeServer = {
       middlewares: {
         use: (mw: (req: { url?: string }, res: ServerResponse, next: () => void) => void) =>
@@ -238,10 +238,10 @@ describe('headersPlugin', () => {
     expect(res.getHeader('X-Frame-Options')).toBe('DENY');
   });
 
-  it('throws when the headers file is missing (fail-loud — broken chain must not silently skip CSP)', async () => {
+  it('throws when the headers file is missing (fail-loud — broken chain must not silently skip CSP)', () => {
     const plugin = headersPlugin({ headersFile });
     const fakeServer = {
-      middlewares: { use: () => undefined },
+      middlewares: { use: () => {} },
     } as never;
 
     const configure = plugin.configurePreviewServer;
@@ -251,10 +251,11 @@ describe('headersPlugin', () => {
   });
 
   it('middleware passes through when request has no URL', async () => {
-    await fs.writeFile(headersFile, "/welcome\n  X-Foo: bar");
+    await fs.writeFile(headersFile, '/welcome\n  X-Foo: bar');
     const plugin = headersPlugin({ headersFile });
 
-    const middlewares: Array<(req: { url?: string }, res: ServerResponse, next: () => void) => void> = [];
+    const middlewares: ((req: { url?: string }, res: ServerResponse, next: () => void) => void)[] =
+      [];
     const fakeServer = {
       middlewares: {
         use: (mw: (req: { url?: string }, res: ServerResponse, next: () => void) => void) =>

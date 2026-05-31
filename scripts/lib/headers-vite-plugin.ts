@@ -44,61 +44,88 @@ export class HeadersParseError extends Error {
   }
 }
 
+interface ParsedHeaderLine {
+  readonly name: string;
+  readonly value: string;
+}
+
+function parseHeaderLine(trimmed: string, lineNumber: number): ParsedHeaderLine {
+  const colonIndex = trimmed.indexOf(':');
+  if (colonIndex <= 0) {
+    throw new HeadersParseError(`Malformed header line: "${trimmed}"`, lineNumber);
+  }
+  const name = trimmed.slice(0, colonIndex).trim();
+  const value = trimmed.slice(colonIndex + 1).trim();
+  if (name === '' || value === '') {
+    throw new HeadersParseError(`Empty header name or value: "${trimmed}"`, lineNumber);
+  }
+  return { name, value };
+}
+
+function finalizeRule(current: { pattern: string; headers: Record<string, string> }): HeaderRule {
+  return {
+    pattern: current.pattern,
+    regex: patternToRegex(current.pattern),
+    specificity: computeSpecificity(current.pattern),
+    headers: current.headers,
+  };
+}
+
+interface CurrentRule {
+  pattern: string;
+  headers: Record<string, string>;
+}
+
+interface ClassifiedLine {
+  readonly kind: 'skip' | 'header' | 'pattern';
+  readonly trimmed: string;
+  readonly indented: boolean;
+}
+
+function classifyLine(rawLine: string): ClassifiedLine {
+  const line = rawLine.replace(/\r$/, '');
+  const trimmed = line.trim();
+  if (trimmed === '' || trimmed.startsWith('#')) return { kind: 'skip', trimmed, indented: false };
+  const indented = /^[ \t]/.test(line);
+  return { kind: indented ? 'header' : 'pattern', trimmed, indented };
+}
+
+function applyHeaderToCurrent(
+  current: CurrentRule | null,
+  trimmed: string,
+  lineNumber: number
+): void {
+  if (!current) {
+    throw new HeadersParseError(
+      `Indented header line with no preceding path pattern: "${trimmed}"`,
+      lineNumber
+    );
+  }
+  const { name, value } = parseHeaderLine(trimmed, lineNumber);
+  current.headers[name] = value;
+}
+
 export function parseHeadersFile(content: string): HeaderRule[] {
   const rules: HeaderRule[] = [];
-  const lines = content.split('\n');
-  let current: { pattern: string; headers: Record<string, string> } | null = null;
+  let current: CurrentRule | null = null;
 
-  function pushCurrent(): void {
-    if (current) {
-      rules.push({
-        pattern: current.pattern,
-        regex: patternToRegex(current.pattern),
-        specificity: computeSpecificity(current.pattern),
-        headers: current.headers,
-      });
-      current = null;
-    }
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const lineNumber = i + 1;
-    const rawLine = lines[i] ?? '';
-    const line = rawLine.replace(/\r$/, '');
-    const trimmed = line.trim();
-
-    if (trimmed === '' || trimmed.startsWith('#')) continue;
-
-    const isIndented = /^[ \t]/.test(line);
-
-    if (isIndented) {
-      if (!current) {
-        throw new HeadersParseError(
-          `Indented header line with no preceding path pattern: "${trimmed}"`,
-          lineNumber
-        );
-      }
-      const colonIdx = trimmed.indexOf(':');
-      if (colonIdx <= 0) {
-        throw new HeadersParseError(`Malformed header line: "${trimmed}"`, lineNumber);
-      }
-      const name = trimmed.slice(0, colonIdx).trim();
-      const value = trimmed.slice(colonIdx + 1).trim();
-      if (name === '' || value === '') {
-        throw new HeadersParseError(`Empty header name or value: "${trimmed}"`, lineNumber);
-      }
-      current.headers[name] = value;
+  for (const [index, rawLine] of content.split('\n').entries()) {
+    const lineNumber = index + 1;
+    const classified = classifyLine(rawLine);
+    if (classified.kind === 'skip') continue;
+    if (classified.kind === 'header') {
+      applyHeaderToCurrent(current, classified.trimmed, lineNumber);
     } else {
-      pushCurrent();
-      current = { pattern: trimmed, headers: {} };
+      if (current) rules.push(finalizeRule(current));
+      current = { pattern: classified.trimmed, headers: {} };
     }
   }
-  pushCurrent();
+  if (current) rules.push(finalizeRule(current));
   return rules;
 }
 
 function patternToRegex(pattern: string): RegExp {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  const escaped = pattern.replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`).replaceAll('*', '.*');
   const withTrailingSlash = escaped.endsWith('/') ? escaped : `${escaped}/?`;
   return new RegExp(`^${withTrailingSlash}$`);
 }
@@ -111,8 +138,7 @@ export function matchHeaders(rules: readonly HeaderRule[], url: string): Record<
   const pathname = (url.split('?')[0] ?? '').split('#')[0] ?? '';
   const matched = rules
     .filter((rule) => rule.regex.test(pathname))
-    .slice()
-    .sort((a, b) => a.specificity - b.specificity);
+    .toSorted((a, b) => a.specificity - b.specificity);
 
   const merged: Record<string, string> = {};
   for (const rule of matched) {

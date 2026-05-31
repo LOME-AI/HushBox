@@ -1,5 +1,3 @@
-/* eslint-disable sonarjs/publicly-writable-directories -- tmpdir is standard test fixture root */
-/* eslint-disable @typescript-eslint/require-await -- mock callbacks intentionally async */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';

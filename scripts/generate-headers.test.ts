@@ -26,11 +26,11 @@ function htmlWithInlineScripts(...bodies: string[]): string {
   return `<!DOCTYPE html><html><head>${scripts}</head><body></body></html>`;
 }
 
-async function seedAllMarketingRoutes(distDir: string): Promise<void> {
+async function seedAllMarketingRoutes(distributionDir: string): Promise<void> {
   for (const route of MARKETING_ROUTES) {
     const prefix = route.replace(/^\//, '');
     await writeHtml(
-      path.join(distDir, prefix, 'index.html'),
+      path.join(distributionDir, prefix, 'index.html'),
       htmlWithInlineScripts(`/*${route}*/`)
     );
   }
@@ -48,7 +48,10 @@ describe('computePageCsp', () => {
   it('hashes the body of every inline <script>', () => {
     const html = htmlWithInlineScripts('console.log(1)', 'console.log(2)');
     const csp = computePageCsp(html);
-    expect(csp.scriptHashes).toEqual([sha256Token('console.log(1)'), sha256Token('console.log(2)')]);
+    expect(csp.scriptHashes).toEqual([
+      sha256Token('console.log(1)'),
+      sha256Token('console.log(2)'),
+    ]);
   });
 
   it('ignores <script src=...> external loads', () => {
@@ -98,14 +101,17 @@ describe('generateHeaders', () => {
   });
 
   it('inlines per-page script hashes into the marketing CSP script-src', async () => {
-    const dist = path.join(repoRoot, 'apps/web/dist');
+    const distribution = path.join(repoRoot, 'apps/web/dist');
     await writeHtml(
-      path.join(dist, 'welcome/index.html'),
+      path.join(distribution, 'welcome/index.html'),
       htmlWithInlineScripts('alpha', 'beta')
     );
     for (const route of MARKETING_ROUTES.filter((r) => r !== '/welcome')) {
       const prefix = route.replace(/^\//, '');
-      await writeHtml(path.join(dist, prefix, 'index.html'), htmlWithInlineScripts(`x-${prefix}`));
+      await writeHtml(
+        path.join(distribution, prefix, 'index.html'),
+        htmlWithInlineScripts(`x-${prefix}`)
+      );
     }
 
     const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
@@ -117,23 +123,26 @@ describe('generateHeaders', () => {
     expect(welcomeBlock).toContain(sha256Token('beta'));
   });
 
-  it('isolates hashes per-path so no page gets another page\'s hashes', async () => {
-    const dist = path.join(repoRoot, 'apps/web/dist');
+  it("isolates hashes per-path so no page gets another page's hashes", async () => {
+    const distribution = path.join(repoRoot, 'apps/web/dist');
     await writeHtml(
-      path.join(dist, 'blog/index.html'),
+      path.join(distribution, 'blog/index.html'),
       htmlWithInlineScripts('only-on-blog-index')
     );
     await writeHtml(
-      path.join(dist, 'blog/post-a/index.html'),
+      path.join(distribution, 'blog/post-a/index.html'),
       htmlWithInlineScripts('only-on-post-a')
     );
     await writeHtml(
-      path.join(dist, 'blog/post-b/index.html'),
+      path.join(distribution, 'blog/post-b/index.html'),
       htmlWithInlineScripts('only-on-post-b')
     );
     for (const route of MARKETING_ROUTES.filter((r) => r !== '/blog')) {
       const prefix = route.replace(/^\//, '');
-      await writeHtml(path.join(dist, prefix, 'index.html'), htmlWithInlineScripts(`x-${prefix}`));
+      await writeHtml(
+        path.join(distribution, prefix, 'index.html'),
+        htmlWithInlineScripts(`x-${prefix}`)
+      );
     }
 
     const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
@@ -146,13 +155,16 @@ describe('generateHeaders', () => {
   });
 
   it('emits one block per concrete blog post in addition to /blog', async () => {
-    const dist = path.join(repoRoot, 'apps/web/dist');
-    await writeHtml(path.join(dist, 'blog/index.html'), htmlWithInlineScripts('idx'));
-    await writeHtml(path.join(dist, 'blog/post-a/index.html'), htmlWithInlineScripts('a'));
-    await writeHtml(path.join(dist, 'blog/post-b/index.html'), htmlWithInlineScripts('b'));
+    const distribution = path.join(repoRoot, 'apps/web/dist');
+    await writeHtml(path.join(distribution, 'blog/index.html'), htmlWithInlineScripts('idx'));
+    await writeHtml(path.join(distribution, 'blog/post-a/index.html'), htmlWithInlineScripts('a'));
+    await writeHtml(path.join(distribution, 'blog/post-b/index.html'), htmlWithInlineScripts('b'));
     for (const route of MARKETING_ROUTES.filter((r) => r !== '/blog')) {
       const prefix = route.replace(/^\//, '');
-      await writeHtml(path.join(dist, prefix, 'index.html'), htmlWithInlineScripts(`x-${prefix}`));
+      await writeHtml(
+        path.join(distribution, prefix, 'index.html'),
+        htmlWithInlineScripts(`x-${prefix}`)
+      );
     }
 
     const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
@@ -196,15 +208,17 @@ describe('generateHeaders', () => {
   });
 
   it('fails when the web dist directory is missing', async () => {
-    await expect(generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' })).rejects.toThrow(/Web dist directory does not exist/);
+    await expect(generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' })).rejects.toThrow(
+      /Web dist directory does not exist/
+    );
   });
 
   it('fails when a marketing route has no built directory', async () => {
-    const dist = path.join(repoRoot, 'apps/web/dist');
-    await fs.mkdir(dist, { recursive: true });
+    const distribution = path.join(repoRoot, 'apps/web/dist');
+    await fs.mkdir(distribution, { recursive: true });
     for (const route of MARKETING_ROUTES.filter((r) => r !== '/welcome')) {
       const prefix = route.replace(/^\//, '');
-      await writeHtml(path.join(dist, prefix, 'index.html'), htmlWithInlineScripts('x'));
+      await writeHtml(path.join(distribution, prefix, 'index.html'), htmlWithInlineScripts('x'));
     }
     await expect(generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' })).rejects.toThrow(
       /Marketing route \/welcome has no built directory/
@@ -212,13 +226,15 @@ describe('generateHeaders', () => {
   });
 
   it('fails when a marketing route directory exists but has no index.html', async () => {
-    const dist = path.join(repoRoot, 'apps/web/dist');
-    await fs.mkdir(path.join(dist, 'welcome'), { recursive: true });
+    const distribution = path.join(repoRoot, 'apps/web/dist');
+    await fs.mkdir(path.join(distribution, 'welcome'), { recursive: true });
     for (const route of MARKETING_ROUTES.filter((r) => r !== '/welcome')) {
       const prefix = route.replace(/^\//, '');
-      await writeHtml(path.join(dist, prefix, 'index.html'), htmlWithInlineScripts('x'));
+      await writeHtml(path.join(distribution, prefix, 'index.html'), htmlWithInlineScripts('x'));
     }
-    await expect(generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' })).rejects.toThrow(/produced no index\.html/);
+    await expect(generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' })).rejects.toThrow(
+      /produced no index\.html/
+    );
   });
 
   it('writes to a custom output path when provided', async () => {
