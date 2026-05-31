@@ -102,6 +102,13 @@ jobs:
         # END GENERATED: build-env-web-release
       - name: Merge marketing into web dist
         run: pnpm tsx scripts/merge-marketing-into-web.ts
+      - name: Generate _headers (CSP hashes per marketing route)
+        run: pnpm tsx scripts/generate-headers.ts
+        env:
+          # Must match the VITE_API_URL the marketing build used above so the
+          # generated connect-src CSP allows the API origin the client bundles
+          # actually fetch from.
+          VITE_API_URL: https://api.hushbox.ai
       - name: Upload web build artifact
         uses: actions/upload-artifact@v6
         with:

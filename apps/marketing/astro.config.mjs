@@ -11,6 +11,20 @@ const astroPort = process.env['HB_ASTRO_PORT'];
 export default defineConfig({
   site: 'https://hushbox.ai',
   integrations: [mdx(), react(), sitemap()],
+  // CSP hashes for inline scripts are produced by `scripts/generate-headers.ts`,
+  // which walks built HTML directly and hashes every <script> body (Astro-emitted
+  // and `is:inline` project scripts alike). Astro's own `experimental.csp` is
+  // deliberately NOT enabled: it only hashes scripts it owns and skips
+  // `<script is:inline>`, so the four project-authored bootstrap scripts
+  // (theme, a11y, menu toggle, scroll arrow) would be missing hashes and
+  // blocked in production. Doing all hashing in the generator gives us one
+  // source of truth and covers every inline script regardless of how it was
+  // emitted.
+  //
+  // TODO: code blocks in MDX go through Shiki, which emits per-token inline
+  // style="color:#..." attributes that cannot be hashed. No blog post
+  // currently uses code fences. Adding one will fail the e2e regression test
+  // once style-src drops 'unsafe-inline'.
   server: {
     port: Number(astroPort ?? 4321),
   },

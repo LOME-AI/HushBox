@@ -35,6 +35,22 @@ export const ROUTES = {
   DEV_RENDER_ASSET: '/dev/render-asset/$name',
 } as const;
 
+/**
+ * Routes served by the Astro marketing site (prerendered HTML with hashed
+ * inline scripts via `experimental.csp`). Consumed by
+ * `scripts/generate-headers.ts` to decide which paths get the per-page CSP
+ * with extracted hashes vs the SPA `/*` fallback. Add a new entry here AND
+ * an Astro page under `apps/marketing/src/pages/` together — the generator
+ * fails loud if a listed route has no matching built HTML.
+ */
+export const MARKETING_ROUTES = [
+  ROUTES.MARKETING,
+  ROUTES.BLOG,
+  ROUTES.ROADMAP,
+  ROUTES.PRIVACY,
+  ROUTES.TERMS,
+] as const;
+
 export const FOOTER_LINKS = [
   { group: 'Product', label: 'Welcome', href: ROUTES.MARKETING },
   { group: 'Product', label: 'Chat', href: ROUTES.CHAT },

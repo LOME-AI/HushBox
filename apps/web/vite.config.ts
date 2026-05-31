@@ -6,6 +6,7 @@ import { createReadStream, readFileSync } from 'node:fs';
 import { resolve } from 'path';
 import { transformStreamdownSource } from './src/lib/inline-streamdown-lazy-imports';
 import { previewDirectoryIndexFallback } from './src/lib/preview-directory-index-fallback';
+import { headersPlugin } from '../../scripts/lib/headers-vite-plugin';
 
 const envDir = resolve(__dirname, '../..');
 
@@ -138,6 +139,10 @@ export default defineConfig(({ mode }) => {
       sharedFaviconPlugin(),
       devAssetsPlugin(),
       marketingRedirectPlugin(),
+      // Must run BEFORE previewDirectoryIndexFallback so we match against the
+      // original request URL (/welcome) rather than the rewritten one
+      // (/welcome/index.html).
+      headersPlugin({ headersFile: resolve(__dirname, 'dist/_headers') }),
       previewDirectoryIndexFallback(resolve(__dirname, 'dist')),
     ],
     build: {

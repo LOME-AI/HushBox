@@ -52,6 +52,7 @@ export default defineConfig({
         `pnpm --filter @hushbox/marketing build --mode development && ` +
         `pnpm --filter @hushbox/web build --mode development && ` +
         `tsx scripts/merge-marketing-into-web.ts && ` +
+        `tsx scripts/generate-headers.ts && ` +
         `pnpm --filter @hushbox/web preview --port ${previewPort}`,
       url: previewUrl,
       reuseExistingServer: false,

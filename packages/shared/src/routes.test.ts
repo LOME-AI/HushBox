@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ROUTES, MARKETING_BASE_URL, FOOTER_LINKS } from './routes.js';
+import { ROUTES, MARKETING_BASE_URL, FOOTER_LINKS, MARKETING_ROUTES } from './routes.js';
 
 describe('ROUTES constants', () => {
   const routeEntries = Object.entries(ROUTES);
@@ -129,6 +129,40 @@ describe('FOOTER_LINKS', () => {
     for (const link of FOOTER_LINKS) {
       expect(link.label.length).toBeGreaterThan(0);
       expect(link.group.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('MARKETING_ROUTES', () => {
+  const routeValues = new Set<string>(Object.values(ROUTES));
+
+  it('matches the expected marketing routes', () => {
+    expect(MARKETING_ROUTES).toMatchInlineSnapshot(`
+      [
+        "/welcome",
+        "/blog",
+        "/roadmap",
+        "/privacy",
+        "/terms",
+      ]
+    `);
+  });
+
+  it('contains only values that exist in ROUTES', () => {
+    for (const route of MARKETING_ROUTES) {
+      expect(routeValues.has(route), `"${route}" is not a value in ROUTES`).toBe(true);
+    }
+  });
+
+  it('has no duplicate entries', () => {
+    const unique = new Set(MARKETING_ROUTES);
+    expect(unique.size).toBe(MARKETING_ROUTES.length);
+  });
+
+  it('has no entries pointing at the root or chat surface', () => {
+    for (const route of MARKETING_ROUTES) {
+      expect(route).not.toBe('/');
+      expect(route.startsWith('/chat')).toBe(false);
     }
   });
 });
