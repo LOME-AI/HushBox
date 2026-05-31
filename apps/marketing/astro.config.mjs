@@ -21,10 +21,10 @@ export default defineConfig({
   // source of truth and covers every inline script regardless of how it was
   // emitted.
   //
-  // TODO: code blocks in MDX go through Shiki, which emits per-token inline
-  // style="color:#..." attributes that cannot be hashed. No blog post
-  // currently uses code fences. Adding one will fail the e2e regression test
-  // once style-src drops 'unsafe-inline'.
+  // Known limitation: code blocks in MDX go through Shiki, which emits
+  // per-token inline style="color:#..." attributes that cannot be hashed.
+  // No blog post currently uses code fences. Adding one will fail the e2e
+  // regression test once style-src drops 'unsafe-inline'.
   server: {
     port: Number(astroPort ?? 4321),
   },
