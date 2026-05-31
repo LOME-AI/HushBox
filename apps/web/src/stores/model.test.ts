@@ -4,6 +4,9 @@ import { useModelStore, DEFAULT_MODEL_ID, DEFAULT_MODEL_NAME, getPrimaryModel } 
 import type { Modality } from '@hushbox/shared';
 import type { SelectedModelEntry } from './model';
 
+const VEO_30 = 'google/veo-3.0-generate-001';
+const VEO_31 = 'google/veo-3.1-generate-001';
+
 const defaultTextEntry: SelectedModelEntry = { id: DEFAULT_MODEL_ID, name: DEFAULT_MODEL_NAME };
 
 function emptySelections(): Record<Modality, SelectedModelEntry[]> {
@@ -489,6 +492,97 @@ describe('useModelStore', () => {
 
     it('falls back to a blank entry when list is empty and modality is video', () => {
       expect(getPrimaryModel([], 'video')).toEqual({ id: '', name: '' });
+    });
+  });
+
+  describe('video model selection re-snaps videoConfig', () => {
+    // Previously the duration / resolution / aspect-ratio snap lived inside an
+    // effect in modality-config-panel.tsx, which only fired when the panel was
+    // mounted. A user who selected Veo 3.0 (supports 5s), closed the panel,
+    // then switched to Veo 3.1 (does not support 5s) and hit Send sent the
+    // stale `5` to the gateway and got a runtime "Unsupported duration" error.
+    // The snap now lives in the store so it always runs.
+
+    it('snaps duration to nearest supported when video model changes via setSelectedModels', () => {
+      useModelStore.setState({
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 5, resolution: '720p' },
+      });
+
+      useModelStore.getState().setSelectedModels('video', [{ id: VEO_31, name: 'Veo 3.1' }]);
+
+      // Veo 3.1 supports [4, 6, 8]; 5 snaps to 4 (floor on tie).
+      expect(useModelStore.getState().videoConfig.durationSeconds).toBe(4);
+    });
+
+    it('snaps duration when video model changes via toggleModel', () => {
+      // Select Veo 3.0 first, then user moves duration to 5 (its native default).
+      useModelStore.getState().setSelectedModels('video', [{ id: VEO_30, name: 'Veo 3.0' }]);
+      useModelStore.setState({
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 5, resolution: '720p' },
+      });
+
+      // Switch to Veo 3.1 via toggle: deselect old, select new.
+      useModelStore.getState().toggleModel('video', { id: VEO_30, name: 'Veo 3.0' });
+      useModelStore.getState().toggleModel('video', { id: VEO_31, name: 'Veo 3.1' });
+
+      expect(useModelStore.getState().videoConfig.durationSeconds).toBe(4);
+    });
+
+    it('snaps duration when removeModel changes the video selection', () => {
+      useModelStore.setState({
+        selections: {
+          ...useModelStore.getState().selections,
+          video: [
+            { id: VEO_31, name: 'Veo 3.1' },
+            { id: VEO_30, name: 'Veo 3.0' },
+          ],
+        },
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 5, resolution: '720p' },
+      });
+
+      // Remove Veo 3.0; only Veo 3.1 left.
+      useModelStore.getState().removeModel('video', VEO_30);
+
+      expect(useModelStore.getState().videoConfig.durationSeconds).toBe(4);
+    });
+
+    it('does not re-snap when the value is already supported', () => {
+      useModelStore.setState({
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 6, resolution: '720p' },
+      });
+
+      useModelStore.getState().setSelectedModels('video', [{ id: VEO_31, name: 'Veo 3.1' }]);
+
+      expect(useModelStore.getState().videoConfig.durationSeconds).toBe(6);
+    });
+
+    it('snaps resolution when video model changes to one that does not support the current resolution', () => {
+      // 4k is Veo 3.1 only; switching to Veo 3.0 must snap it to a supported value.
+      useModelStore.setState({
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 6, resolution: '4k' },
+      });
+
+      useModelStore.getState().setSelectedModels('video', [{ id: VEO_30, name: 'Veo 3.0' }]);
+
+      // Veo 3.0 supports ['720p', '1080p']; 4k isn't in the set so falls back
+      // to the first supported resolution.
+      expect(useModelStore.getState().videoConfig.resolution).toBe('720p');
+    });
+
+    it('leaves videoConfig untouched when no video model is selected', () => {
+      const before = useModelStore.getState().videoConfig;
+      useModelStore.getState().setSelectedModels('video', []);
+      expect(useModelStore.getState().videoConfig).toEqual(before);
+    });
+
+    it('does not touch videoConfig when a non-video modality selection changes', () => {
+      useModelStore.setState({
+        videoConfig: { aspectRatio: '16:9', durationSeconds: 5, resolution: '720p' },
+      });
+      useModelStore
+        .getState()
+        .setSelectedModels('image', [{ id: 'google/imagen-4.0-generate-001', name: 'Imagen 4' }]);
+      expect(useModelStore.getState().videoConfig.durationSeconds).toBe(5);
     });
   });
 });

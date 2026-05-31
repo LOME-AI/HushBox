@@ -4,7 +4,12 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MARKETING_ROUTES } from '../packages/shared/src/routes.js';
-import { generateHeaders, computePageCsp, deriveApiOrigin } from './generate-headers.js';
+import {
+  generateHeaders,
+  computePageCsp,
+  deriveApiOrigin,
+  deriveLocalR2Origin,
+} from './generate-headers.js';
 
 let repoRoot: string;
 
@@ -36,12 +41,35 @@ async function seedAllMarketingRoutes(distributionDir: string): Promise<void> {
   }
 }
 
+/**
+ * Strip the file banner / comment lines so assertions don't trip on tokens
+ * (`localhost`, `script-src`, `connect-src`) that appear in directive-notes
+ * prose. The banner is documentation; only the directives below it govern
+ * what the browser enforces.
+ */
+function stripComments(content: string): string {
+  return content
+    .split('\n')
+    .filter((l) => !l.startsWith('#'))
+    .join('\n');
+}
+
+// Most tests don't care about MinIO; clearing this keeps them deterministic
+// regardless of what's in the dev shell when `pnpm test` is run.
+// Tests that DO care opt in by passing `minioApiPort` explicitly or by
+// manipulating `process.env.HB_MINIO_API_PORT` inside the test body.
+let originalMinioPort: string | undefined;
+
 beforeEach(async () => {
   repoRoot = await makeTemporaryRoot();
+  originalMinioPort = process.env['HB_MINIO_API_PORT'];
+  delete process.env['HB_MINIO_API_PORT'];
 });
 
 afterEach(async () => {
   await fs.rm(repoRoot, { recursive: true, force: true });
+  if (originalMinioPort === undefined) delete process.env['HB_MINIO_API_PORT'];
+  else process.env['HB_MINIO_API_PORT'] = originalMinioPort;
 });
 
 describe('computePageCsp', () => {
@@ -183,7 +211,7 @@ describe('generateHeaders', () => {
     const spaBlockStart = content.lastIndexOf('/*\n');
     expect(spaBlockStart).toBeGreaterThan(0);
     const spaBlock = content.slice(spaBlockStart);
-    expect(spaBlock).toContain("script-src 'self';");
+    expect(spaBlock).toContain("script-src 'self' 'wasm-unsafe-eval';");
     expect(spaBlock).not.toContain('sha256-');
     expect(spaBlock).toContain("default-src 'self'");
     expect(spaBlock).toContain("frame-ancestors 'none'");
@@ -255,28 +283,89 @@ describe('generateHeaders', () => {
       repoRoot,
       apiUrl: 'https://api.hushbox.ai',
     });
-    const content = await fs.readFile(result.outputPath, 'utf8');
-    expect(content).toContain('https://api.hushbox.ai');
-    expect(content).toContain('wss://api.hushbox.ai');
-    expect(content).not.toContain('localhost');
+    const nonComment = stripComments(await fs.readFile(result.outputPath, 'utf8'));
+    expect(nonComment).toContain('https://api.hushbox.ai');
+    expect(nonComment).toContain('wss://api.hushbox.ai');
+    expect(nonComment).not.toContain('localhost');
   });
 
-  it('templates connect-src with a local API origin (http → ws)', async () => {
+  it('does not leak HB_MINIO_API_PORT into the prod CSP', async () => {
+    // Even if the prod CI/CD env somehow has HB_MINIO_API_PORT set, the
+    // localhost-only gate in deriveLocalR2Origin must keep it out.
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({
+      repoRoot,
+      apiUrl: 'https://api.hushbox.ai',
+      minioApiPort: '9000',
+    });
+    const nonComment = stripComments(await fs.readFile(result.outputPath, 'utf8'));
+    expect(nonComment).not.toContain('localhost');
+    expect(nonComment).not.toContain('http://localhost:9000');
+  });
+
+  it('templates connect-src with a local API origin (http → ws) and no MinIO when port is unset', async () => {
     await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
     const result = await generateHeaders({
       repoRoot,
       apiUrl: 'http://localhost:8787',
     });
-    const content = await fs.readFile(result.outputPath, 'utf8');
-    expect(content).toContain('http://localhost:8787');
-    expect(content).toContain('ws://localhost:8787');
-    // Strip comment lines before asserting absence of api.hushbox.ai — the
-    // file banner mentions it as an example.
-    const nonComment = content
-      .split('\n')
-      .filter((l) => !l.startsWith('#'))
-      .join('\n');
+    const nonComment = stripComments(await fs.readFile(result.outputPath, 'utf8'));
+    expect(nonComment).toContain('http://localhost:8787');
+    expect(nonComment).toContain('ws://localhost:8787');
     expect(nonComment).not.toContain('api.hushbox.ai');
+    expect(nonComment).not.toContain('http://localhost:9000');
+  });
+
+  it('appends localhost MinIO to connect-src when minioApiPort is provided (dev/E2E path)', async () => {
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({
+      repoRoot,
+      apiUrl: 'http://localhost:8787',
+      minioApiPort: '9000',
+    });
+    const nonComment = stripComments(await fs.readFile(result.outputPath, 'utf8'));
+    expect(nonComment).toContain('http://localhost:9000');
+    // Token sits inside the connect-src directive of every block (marketing
+    // pages + SPA fallback). The banner is comments-only and stripped above.
+    const connectLines = nonComment.split('\n').filter((l) => l.includes('connect-src'));
+    expect(connectLines.length).toBeGreaterThan(0);
+    for (const line of connectLines) {
+      expect(line).toContain('http://localhost:9000');
+    }
+  });
+
+  it('honors worktree-offset MinIO ports (slot 142 → port 9142)', async () => {
+    // Confirms the design works for worktrees: BASE_PORTS.minioApi (9000) +
+    // slot offset is what `scripts/generate-env.ts` writes to .env.scripts.
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({
+      repoRoot,
+      apiUrl: 'http://localhost:8929',
+      minioApiPort: '9142',
+    });
+    const nonComment = stripComments(await fs.readFile(result.outputPath, 'utf8'));
+    expect(nonComment).toContain('http://localhost:9142');
+    expect(nonComment).not.toContain('http://localhost:9000');
+  });
+
+  it('reads HB_MINIO_API_PORT from process.env when minioApiPort is not passed', async () => {
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    process.env['HB_MINIO_API_PORT'] = '9050';
+    const result = await generateHeaders({ repoRoot, apiUrl: 'http://localhost:8787' });
+    const nonComment = stripComments(await fs.readFile(result.outputPath, 'utf8'));
+    expect(nonComment).toContain('http://localhost:9050');
+  });
+
+  it('emits script-src with wasm-unsafe-eval on every block (required by argon2id)', async () => {
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({ repoRoot, apiUrl: 'http://localhost:8787' });
+    const nonComment = stripComments(await fs.readFile(result.outputPath, 'utf8'));
+    // One script-src directive per marketing route + one for SPA fallback.
+    const scriptSourceLines = nonComment.split('\n').filter((l) => l.includes('script-src'));
+    expect(scriptSourceLines.length).toBeGreaterThan(0);
+    for (const line of scriptSourceLines) {
+      expect(line).toContain("'wasm-unsafe-eval'");
+    }
   });
 
   it('throws when VITE_API_URL is not set anywhere', async () => {
@@ -333,5 +422,45 @@ describe('deriveApiOrigin', () => {
 
   it('throws on non-http(s) scheme', () => {
     expect(() => deriveApiOrigin('ftp://example.com')).toThrow(/must use http or https/);
+  });
+});
+
+describe('deriveLocalR2Origin', () => {
+  const localApi = deriveApiOrigin('http://localhost:8787');
+  const productionApi = deriveApiOrigin('https://api.hushbox.ai');
+
+  it('returns http://localhost:<port> for a localhost API + numeric port', () => {
+    expect(deriveLocalR2Origin(localApi, '9000')).toBe('http://localhost:9000');
+  });
+
+  it('returns the worktree-offset port verbatim (no rewriting)', () => {
+    // The port comes from .env.scripts already slot-adjusted by
+    // generate-env.ts; the headers generator must NOT recompute the offset.
+    expect(deriveLocalR2Origin(localApi, '9142')).toBe('http://localhost:9142');
+  });
+
+  it('returns null when the API origin is production (prevents leak)', () => {
+    expect(deriveLocalR2Origin(productionApi, '9000')).toBeNull();
+  });
+
+  it('returns null when the API origin is any non-localhost host', () => {
+    const stagingApi = deriveApiOrigin('https://staging-api.hushbox.ai');
+    expect(deriveLocalR2Origin(stagingApi, '9000')).toBeNull();
+  });
+
+  it('returns null when the port is omitted', () => {
+    expect(deriveLocalR2Origin(localApi)).toBeNull();
+  });
+
+  it('returns null when the port is an empty string', () => {
+    expect(deriveLocalR2Origin(localApi, '')).toBeNull();
+  });
+
+  it('throws when the port is non-numeric', () => {
+    expect(() => deriveLocalR2Origin(localApi, '9000a')).toThrow(/numeric port string/);
+  });
+
+  it('throws when the port contains whitespace', () => {
+    expect(() => deriveLocalR2Origin(localApi, ' 9000')).toThrow(/numeric port string/);
   });
 });

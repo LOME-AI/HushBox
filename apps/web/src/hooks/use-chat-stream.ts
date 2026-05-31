@@ -126,6 +126,15 @@ interface StreamOptions {
   onStageStart?: (data: StageStartPayload) => void;
   onStageDone?: (data: StageDoneEventData) => void;
   onStageError?: (data: StageErrorPayload) => void;
+  /**
+   * Fires as soon as every model in the turn has emitted a `model:done` or
+   * `model:error` — the moment token streaming is over for the user, even
+   * though the server is still settling cost / persistence. Callers use this
+   * to clear `streamingMessageIds` and re-enable the next message early.
+   * Without this, the action toolbar and message input both freeze for the
+   * full cost-polling window (multiple seconds in production).
+   */
+  onAllModelsComplete?: () => void;
   signal?: AbortSignal;
 }
 
@@ -475,6 +484,53 @@ async function executeStream(
   }
 }
 
+/**
+ * Wraps a StreamOptions object so `isStreaming` can flip false as soon as the
+ * last `model:done` / `model:error` arrives, rather than waiting for the
+ * server's final `done` event (which only fires after cost settlement). This
+ * is what unblocks the next message send and the action toolbar render in the
+ * "long cost polling" cost UX bug — the user can type and the message buttons
+ * appear the moment tokens stop flowing, not several seconds later when the
+ * cost badge finishes settling.
+ */
+function wrapForEarlyStreamingFlip(
+  options: StreamOptions | undefined,
+  onAllModelsComplete: () => void
+): StreamOptions {
+  let expected = Number.POSITIVE_INFINITY;
+  let completed = 0;
+  let fired = false;
+
+  const tryFire = (): void => {
+    if (fired) return;
+    if (completed >= expected) {
+      fired = true;
+      onAllModelsComplete();
+      options?.onAllModelsComplete?.();
+    }
+  };
+
+  return {
+    ...options,
+    onStart: (data: StartEventData): void => {
+      expected = data.models.length;
+      // If expected was already 0, fire immediately.
+      tryFire();
+      options?.onStart?.(data);
+    },
+    onModelDone: (data: ModelDoneData): void => {
+      completed++;
+      tryFire();
+      options?.onModelDone?.(data);
+    },
+    onModelError: (data: ModelErrorData): void => {
+      completed++;
+      tryFire();
+      options?.onModelError?.(data);
+    },
+  };
+}
+
 export function useChatStream(mode: StreamMode): ChatStreamHook {
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -482,10 +538,17 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
     async (request: StreamRequest, options?: StreamOptions): Promise<StreamResult> => {
       setIsStreaming(true);
       useStreamingActivityStore.getState().startStream();
+      const wrapped = wrapForEarlyStreamingFlip(options, () => {
+        setIsStreaming(false);
+      });
       try {
         const config = buildStreamRequest(mode, request, options?.signal);
-        return await executeStream(config, mode, options);
+        return await executeStream(config, mode, wrapped);
       } finally {
+        // Idempotent — already flipped on last model:done in the happy path,
+        // but covers the cases where the stream errored before any model:done
+        // (no models started) or where the final `done` arrived before our
+        // counter caught up.
         setIsStreaming(false);
         // Note: endStream() is NOT called here. The caller is responsible for
         // calling useStreamingActivityStore.getState().endStream() after all
@@ -501,9 +564,12 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
     async (request: RegenerateStreamRequest, options?: StreamOptions): Promise<StreamResult> => {
       setIsStreaming(true);
       useStreamingActivityStore.getState().startStream();
+      const wrapped = wrapForEarlyStreamingFlip(options, () => {
+        setIsStreaming(false);
+      });
       try {
         const config = buildRegenerateRequest(request, options?.signal);
-        return await executeStream(config, 'authenticated', options);
+        return await executeStream(config, 'authenticated', wrapped);
       } finally {
         setIsStreaming(false);
       }

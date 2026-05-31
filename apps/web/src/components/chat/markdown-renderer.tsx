@@ -155,7 +155,7 @@ export function MarkdownRenderer({
         className
       )}
     >
-      <ErrorBoundary fallback={<MarkdownRenderFallback content={content} />}>
+      <ErrorBoundary fallback={<MarkdownRenderFallback content={content} />} resetKey={content}>
         <Streamdown
           plugins={{ code, mermaid, math }}
           components={components}

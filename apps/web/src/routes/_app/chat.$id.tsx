@@ -15,6 +15,10 @@ export const Route = createFileRoute('/_app/chat/$id')({
     await requireAuth();
   },
   loader: ({ params, context }) => {
+    // `new` is a create-mode sentinel from the welcome page send — there is
+    // no real conversation or key chain to fetch yet. Letting it through hits
+    // GET /api/conversations/new and GET /api/keys/new, both of which 404.
+    if (params.id === 'new') return;
     // Fire-and-forget: start fetching during route transition, don't block navigation.
     // useQuery in components deduplicates with these in-flight prefetches.
     void context.queryClient.prefetchQuery(conversationQueryOptions(params.id));

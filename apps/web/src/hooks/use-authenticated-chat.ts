@@ -828,6 +828,14 @@ export function useAuthenticatedChat({
       onStageError: (data: StageErrorPayload) => {
         setOptimisticMessageStageError(data.assistantMessageId, data.errorCode);
       },
+      // Token streaming has ended for every model in this turn. The server is
+      // still settling cost / persistence and the SSE `done` event hasn't
+      // arrived yet, but the user has seen all the tokens — re-enable the
+      // input and let `resolveMessageActions` show the toolbar now rather
+      // than several seconds later. Fixes the "long awkward delay" UX bug.
+      onAllModelsComplete: () => {
+        state.stopStreaming();
+      },
     }),
     [
       state,

@@ -117,7 +117,7 @@ vi.mock('@/lib/epoch-key-cache', () => ({
 const ALL_USER_ACTIONS = new Set<MessageAction>(['copy', 'retry', 'edit', 'fork']);
 const ALL_AI_ACTIONS = new Set<MessageAction>(['copy', 'regenerate', 'fork', 'share']);
 const NO_ACTIONS = new Set<MessageAction>();
-const ERROR_AI_ACTIONS = new Set<MessageAction>(['retry-error']);
+const ERROR_AI_ACTIONS = new Set<MessageAction>(['copy', 'regenerate']);
 
 describe('MessageItem', () => {
   const userMessage = {
@@ -296,41 +296,55 @@ describe('MessageItem', () => {
       expect(container).toHaveAttribute('data-role', 'assistant');
     });
 
-    it('does not render copy button when isError', () => {
+    it('renders copy button on errored assistant messages', () => {
+      // With the standalone retry button removed, the toolbar carries every
+      // affordance — including Copy — even on errored turns. Pre-fix, errored
+      // messages had only the orphan Retry button and no toolbar.
       render(<MessageItem message={errorMessage} isError allowedActions={ERROR_AI_ACTIONS} />);
-      expect(screen.queryByRole('button', { name: /copy/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument();
     });
 
-    it('renders retry button when onRetry is provided', () => {
-      const onRetry = vi.fn();
+    it('does not render a standalone retry-error button (folded into toolbar Regenerate)', () => {
+      const onRegenerate = vi.fn();
       render(
         <MessageItem
           message={errorMessage}
           isError
-          onRetry={onRetry}
+          onRegenerate={onRegenerate}
           allowedActions={ERROR_AI_ACTIONS}
         />
       );
-      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      // The dedicated `retry-error-button` testid belonged to the lone
+      // RetryButton that rendered above the error bubble; deleting it removes
+      // the duplicate retry affordance and the misplaced position.
+      expect(screen.queryByTestId('retry-error-button')).not.toBeInTheDocument();
     });
 
-    it('does not render retry button when onRetry is not provided', () => {
-      render(<MessageItem message={errorMessage} isError allowedActions={ERROR_AI_ACTIONS} />);
-      expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
-    });
-
-    it('calls onRetry when retry button is clicked', () => {
-      const onRetry = vi.fn();
+    it('renders Regenerate in the toolbar on errored assistant messages', () => {
+      const onRegenerate = vi.fn();
       render(
         <MessageItem
           message={errorMessage}
           isError
-          onRetry={onRetry}
+          onRegenerate={onRegenerate}
           allowedActions={ERROR_AI_ACTIONS}
         />
       );
-      fireEvent.click(screen.getByRole('button', { name: /retry/i }));
-      expect(onRetry).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: /regenerate/i })).toBeInTheDocument();
+    });
+
+    it('calls onRegenerate when the errored message Regenerate button is clicked', () => {
+      const onRegenerate = vi.fn();
+      render(
+        <MessageItem
+          message={errorMessage}
+          isError
+          onRegenerate={onRegenerate}
+          allowedActions={ERROR_AI_ACTIONS}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: /regenerate/i }));
+      expect(onRegenerate).toHaveBeenCalledWith(errorMessage.id);
     });
 
     it('applies error styling with data-error attribute', () => {
@@ -1466,7 +1480,7 @@ describe('MessageItem', () => {
       expect(screen.getByRole('button', { name: /fork/i })).toBeInTheDocument();
     });
 
-    it('does not render regeneration action buttons on error messages', () => {
+    it('renders Regenerate (folded from the deleted Retry button) but not Fork on errored messages', () => {
       const errorMsg = {
         id: 'err-1',
         conversationId: 'conv-1',
@@ -1485,7 +1499,9 @@ describe('MessageItem', () => {
           allowedActions={ERROR_AI_ACTIONS}
         />
       );
-      expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /regenerate/i })).toBeInTheDocument();
+      // Fork stays off on errored messages — there's no successful assistant
+      // turn to branch from.
       expect(screen.queryByRole('button', { name: /fork/i })).not.toBeInTheDocument();
     });
 

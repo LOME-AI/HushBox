@@ -319,36 +319,78 @@ function processDataLine(
   }
 }
 
+interface SSEChunkContext {
+  buffer: string;
+  currentEvent: string;
+  dataBuffer: string;
+  eventHandlers: Record<string, EventHandler>;
+  state: ParserState;
+}
+
+function dispatchAccumulatedFrame(context: SSEChunkContext): void {
+  if (context.dataBuffer.length === 0) {
+    context.currentEvent = '';
+    return;
+  }
+  const data = context.dataBuffer.endsWith('\n')
+    ? context.dataBuffer.slice(0, -1)
+    : context.dataBuffer;
+  const eventType = context.currentEvent === '' ? 'message' : context.currentEvent;
+  processDataLine(eventType, data, context.eventHandlers, context.state);
+  context.currentEvent = '';
+  context.dataBuffer = '';
+}
+
+function processOneLine(context: SSEChunkContext, rawLine: string): void {
+  // Treat both LF-only and CRLF terminators as blank lines.
+  const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+
+  if (line === '') {
+    dispatchAccumulatedFrame(context);
+    context.dataBuffer = '';
+    return;
+  }
+
+  const parsed = parseSSELine(line);
+  if (!parsed) return;
+
+  if (parsed.type === 'event') {
+    context.currentEvent = parsed.value;
+    return;
+  }
+  context.dataBuffer += parsed.value + '\n';
+}
+
 export function createSSEParser(handlers: SSEHandlers): SSEParser {
-  let buffer = '';
-  let currentEvent = '';
-  const state: ParserState = {
-    userMessageId: '',
-    modelContent: new Map(),
+  // Per the SSE spec
+  // (https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation):
+  // `data:` lines are accumulated (joined with `\n`) until a blank line, at
+  // which point the event is dispatched and the event-type / data buffers
+  // reset to defaults. Dispatching per-`data:`-line would mis-parse any frame
+  // whose `data` value contained a literal newline (e.g. pretty-printed JSON
+  // produced by `JSON.stringify(obj, null, 2)`, which Hono's `streamSSE`
+  // splits into multiple `data:` lines).
+  const context: SSEChunkContext = {
+    buffer: '',
+    currentEvent: '',
+    dataBuffer: '',
+    eventHandlers: createEventHandlers(handlers),
+    state: { userMessageId: '', modelContent: new Map() },
   };
-  const eventHandlers = createEventHandlers(handlers);
 
   function processChunk(chunk: string): void {
-    buffer += chunk;
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-
-    for (const line of lines) {
-      const parsed = parseSSELine(line);
-      if (!parsed) continue;
-
-      if (parsed.type === 'event') {
-        currentEvent = parsed.value;
-      } else if (currentEvent) {
-        processDataLine(currentEvent, parsed.value, eventHandlers, state);
-      }
+    context.buffer += chunk;
+    const lines = context.buffer.split('\n');
+    context.buffer = lines.pop() ?? '';
+    for (const rawLine of lines) {
+      processOneLine(context, rawLine);
     }
   }
 
   return {
     processChunk,
-    getUserMessageId: () => state.userMessageId,
-    getModelContent: (modelId: string) => state.modelContent.get(modelId) ?? '',
+    getUserMessageId: () => context.state.userMessageId,
+    getModelContent: (modelId: string) => context.state.modelContent.get(modelId) ?? '',
   };
 }
 

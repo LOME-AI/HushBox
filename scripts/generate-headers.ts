@@ -49,6 +49,16 @@ export interface GenerateHeadersOptions {
    * generated CSP will block those fetches.
    */
   readonly apiUrl?: string;
+  /**
+   * Local MinIO/R2 emulator port for dev + E2E builds. Defaults to
+   * `process.env.HB_MINIO_API_PORT` (written to .env.scripts by
+   * `scripts/generate-env.ts`, slot-offset for worktrees per
+   * `scripts/worktree.ts` → `BASE_PORTS.minioApi`). When omitted *and* the
+   * env var is unset, no MinIO origin is added — that's the production
+   * path, where R2 reads go through the `https://*.r2.cloudflarestorage.com`
+   * wildcard already baked into connect-src.
+   */
+  readonly minioApiPort?: string;
 }
 
 export interface GenerateHeadersResult {
@@ -81,17 +91,35 @@ const DEFAULT_OUTPUT = `${DEFAULT_DIST}/_headers`;
  * Marketing routes get their own per-path block with hashes inlined into
  * `script-src` — see `formatMarketingBlock`.
  */
-function buildSpaHeaders(apiOrigin: ApiOrigin): readonly { name: string; value: string }[] {
+function buildSpaHeaders(
+  apiOrigin: ApiOrigin,
+  localR2Origin: string | null
+): readonly { name: string; value: string }[] {
+  // Local MinIO emulator (dev/E2E only — see deriveLocalR2Origin). Prod R2
+  // reads are covered by the `*.r2.cloudflarestorage.com` wildcard below;
+  // localR2Origin is null on prod builds and contributes nothing.
+  const connectSource = [
+    "'self'",
+    apiOrigin.http,
+    'https://*.r2.cloudflarestorage.com',
+    'https://*.r2.dev',
+    apiOrigin.ws,
+    ...(localR2Origin === null ? [] : [localR2Origin]),
+  ].join(' ');
   return [
     {
       name: 'Content-Security-Policy',
       value:
         "default-src 'self'; " +
-        "script-src 'self'; " +
+        // 'wasm-unsafe-eval' is REQUIRED — packages/crypto's key-derivation
+        // (signup, recovery-phrase verify, password change) calls argon2id
+        // from hash-wasm, which loads via WebAssembly.compile/instantiate.
+        // Same in prod as in dev: every account-creation flow needs WASM.
+        "script-src 'self' 'wasm-unsafe-eval'; " +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' blob: data:; " +
         "media-src 'self' blob:; " +
-        `connect-src 'self' ${apiOrigin.http} https://*.r2.cloudflarestorage.com https://*.r2.dev ${apiOrigin.ws}; ` +
+        `connect-src ${connectSource}; ` +
         "font-src 'self' data:; " +
         "frame-ancestors 'none'; " +
         "base-uri 'self'; " +
@@ -129,6 +157,36 @@ export function deriveApiOrigin(apiUrl: string): ApiOrigin {
   };
 }
 
+/**
+ * Resolve the local MinIO/R2 emulator origin for dev + E2E CSP, or null
+ * when no local origin should be allowlisted (production path).
+ *
+ * Two gates, both must pass:
+ *   1. `apiOrigin.http` is a localhost URL — prod sets VITE_API_URL to
+ *      `https://api.hushbox.ai`, so this trips on every prod build and
+ *      prevents a stray HB_MINIO_API_PORT from leaking localhost into a
+ *      production CSP.
+ *   2. `minioApiPort` is a numeric string — present in dev/E2E via
+ *      `.env.scripts` (worktree-offset; see `scripts/worktree.ts`),
+ *      absent in prod CI/CD which injects only the GitHub Secrets it needs.
+ *
+ * Throws on malformed port values rather than silently producing a broken
+ * URL — the build chain should fail loud, not ship a CSP that allows
+ * `http://localhost:NaN`.
+ */
+export function deriveLocalR2Origin(apiOrigin: ApiOrigin, minioApiPort?: string): string | null {
+  if (!apiOrigin.http.startsWith('http://localhost:')) return null;
+  if (minioApiPort === undefined || minioApiPort === '') return null;
+  if (!/^\d+$/.test(minioApiPort)) {
+    throw new Error(
+      `HB_MINIO_API_PORT must be a numeric port string, got "${minioApiPort}". ` +
+        `It is written to .env.scripts by scripts/generate-env.ts and loaded by ` +
+        `scripts/ensure-stack-cli.ts before invoking the headers generator.`
+    );
+  }
+  return `http://localhost:${minioApiPort}`;
+}
+
 const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do not edit by hand.
 # Source of truth for marketing route list: packages/shared/src/routes.ts → MARKETING_ROUTES
 # Source of truth for SPA policy: scripts/generate-headers.ts → SPA_HEADERS
@@ -141,8 +199,12 @@ const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do no
 #
 # Directive notes
 #  - default-src 'self': fall-through deny for anything not enumerated below.
-#  - script-src: 'self' plus per-page SHA-256 hashes on marketing routes. SPA route stays
-#    'self' alone since the SPA serves no inline scripts.
+#  - script-src: 'self' + 'wasm-unsafe-eval' plus per-page SHA-256 hashes on marketing
+#    routes. SPA route stays without inline-script hashes since it serves no inline
+#    scripts. 'wasm-unsafe-eval' is required by hash-wasm/argon2id, called from
+#    packages/crypto's key-derivation during signup, recovery-phrase verify, and
+#    password change. Without it, WebAssembly.compile is blocked and signUpEmail's
+#    catch swallows the failure silently.
 #  - style-src 'self' 'unsafe-inline': required by Tailwind's runtime style insertion and
 #    by inline style="..." attributes (e.g. ThemeToggle SVG transitions). Shiki output —
 #    if/when blog posts add code fences — also lands here and is the main reason this
@@ -150,8 +212,11 @@ const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do no
 #  - img-src 'self' blob: data:: 'blob:' is REQUIRED — decrypted media bytes are exposed
 #    to <img> tags through URL.createObjectURL(...). 'data:' covers small inline icons.
 #  - media-src 'self' blob:: same reason for <video>/<audio> elements with Object URLs.
-#  - connect-src 'self' + api.hushbox.ai + R2 hosts + wss: front-end fetches encrypted
-#    blobs directly from R2 via presigned URLs and opens a WebSocket to the API.
+#  - connect-src 'self' + api origin + R2 hosts + wss: front-end fetches encrypted blobs
+#    directly from R2 via presigned URLs and opens a WebSocket to the API. The local
+#    MinIO emulator at http://localhost:<HB_MINIO_API_PORT> is appended for dev/E2E
+#    builds (the port is slot-offset for worktrees; see scripts/worktree.ts); prod builds
+#    skip it since the *.r2.cloudflarestorage.com wildcard already covers prod reads.
 #  - frame-ancestors 'none': belt-and-suspenders with X-Frame-Options: DENY.
 #  - base-uri 'self', form-action 'self': close the usual base-tag and form-hijack avenues.
 #  - font-src 'self' data:: locally hosted fonts plus inline data: glyphs.
@@ -170,7 +235,9 @@ export async function generateHeaders(
     );
   }
   const apiOrigin = deriveApiOrigin(apiUrl);
-  const spaHeaders = buildSpaHeaders(apiOrigin);
+  const minioApiPort = options.minioApiPort ?? process.env['HB_MINIO_API_PORT'];
+  const localR2Origin = deriveLocalR2Origin(apiOrigin, minioApiPort);
+  const spaHeaders = buildSpaHeaders(apiOrigin, localR2Origin);
 
   await assertDirectory(distributionDir);
   const pages = await findMarketingPages(distributionDir);

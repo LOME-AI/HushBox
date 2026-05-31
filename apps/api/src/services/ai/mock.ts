@@ -3,7 +3,7 @@ import {
   CLASSIFIER_SYSTEM_PROMPT_MARKER,
   assertNever,
 } from '@hushbox/shared';
-import { fetchModels } from '@hushbox/shared/models';
+import { fetchModels, getSupportedVideoDurations } from '@hushbox/shared/models';
 
 import { rawModelToModelInfo } from './model-mapping.js';
 import { buildModelViewsForModality, type ModelViewFor } from './model-view.js';
@@ -34,6 +34,7 @@ import type {
   ModelInfo,
   RecordedInferenceRequest,
   TextRequest,
+  VideoRequest,
 } from './types.js';
 
 /**
@@ -234,7 +235,13 @@ function createFirstCallDelay(delayMs: number): () => Promise<void> {
 }
 
 function createTextStream(request: TextRequest, mint: MintGenerationId): InferenceStream {
-  const echoContent = `Echo:\n${extractLastUserContent(request.messages)}`;
+  // Emit a response that exercises both edge cases that broke production:
+  // (a) embedded newlines in streamed content (the SSE multi-line data: path)
+  // (b) a fenced code block containing `{`/`}` braces (the streamdown
+  //     incomplete-markdown parsing path)
+  // Existing tests substring-match on "Echo:" so the prefix is preserved.
+  const echoContent =
+    `Echo:\n${extractLastUserContent(request.messages)}\n\n` + '```json\n{\n  "ok": true\n}\n```';
 
   return syncStream(function* (): Generator<InferenceEvent> {
     for (const char of echoContent) {
@@ -274,7 +281,40 @@ function createImageStream(): InferenceStream {
   });
 }
 
-function createVideoStream(): InferenceStream {
+/**
+ * Build an `InferenceStream` whose first `next()` rejects with `error`.
+ * Mirrors the real Gateway's video-rejection path, which throws a raw
+ * provider Error on the consumer's iteration rather than emitting a
+ * structured event. Lets the stream-pipeline surface the error verbatim
+ * the same way it does in production.
+ */
+function rejectingStream(error: Error): InferenceStream {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      return {
+        next(): Promise<IteratorResult<InferenceEvent>> {
+          return Promise.reject(error);
+        },
+      };
+    },
+  };
+}
+
+function createVideoStream(request: VideoRequest): InferenceStream {
+  const requested = request.durationSeconds;
+  if (requested !== undefined) {
+    const supported = getSupportedVideoDurations(request.model);
+    if (supported !== undefined && !supported.includes(requested)) {
+      // Veo's wire response is the exact byte string below — keep the mock
+      // symmetric so E2E tests fail on the same message production users see.
+      return rejectingStream(
+        new Error(
+          `Video generation failed: Unsupported output video duration ${String(requested)} seconds, supported durations are [${supported.join(',')}] for feature text_to_video.`
+        )
+      );
+    }
+  }
+
   return syncStream(function* (): Generator<InferenceEvent> {
     yield { kind: 'media-start', mediaType: 'video', mimeType: TEST_VIDEO_MIME };
     yield {
@@ -395,7 +435,7 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
           return createImageStream();
         }
         case 'video': {
-          return createVideoStream();
+          return createVideoStream(request);
         }
         case 'audio': {
           return createAudioStream();

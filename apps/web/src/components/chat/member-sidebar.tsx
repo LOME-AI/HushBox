@@ -371,6 +371,7 @@ function MemberSidebarBody({
   onInviteLink,
   onLeaveClick,
   collapsed,
+  conversationId,
 }: Readonly<MemberSidebarBodyProps>): React.JSX.Element {
   const [searchQuery, setSearchQuery] = React.useState('');
   const [leaveModalOpen, setLeaveModalOpen] = React.useState(false);
@@ -383,6 +384,19 @@ function MemberSidebarBody({
     name: string;
   } | null>(null);
   const isAdmin = canManageLinks(currentUserPrivilege);
+
+  // Reset transient UI state when switching conversations. Replaces the
+  // parent's `key={conversationId}` remount, which (along with the
+  // MessageList remount) was the source of the welcome → conversation flash.
+  const previousConversationIdRef = React.useRef<string>(conversationId);
+  React.useEffect(() => {
+    if (previousConversationIdRef.current === conversationId) return;
+    previousConversationIdRef.current = conversationId;
+    setSearchQuery('');
+    setLeaveModalOpen(false);
+    setRemoveMemberTarget(null);
+    setRevokeLinkTarget(null);
+  }, [conversationId]);
 
   // Inline-control mutations (privilege select-on-change, name inline-edit,
   // link-privilege select-on-change) have no modal to attach an error to.

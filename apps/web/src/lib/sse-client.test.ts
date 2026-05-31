@@ -456,4 +456,111 @@ describe('createSSEParser', () => {
       expect(callArgument.models?.[0]?.modelId).toBe('openai/gpt-4o');
     });
   });
+
+  describe('multi-line data: field buffering (SSE spec)', () => {
+    it('buffers consecutive data: lines and concatenates them with newlines before dispatch', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      // Server emits a JSON payload that contains literal newlines (e.g., the
+      // sender pretty-printed with JSON.stringify(obj, null, 2)).
+      // Per SSE spec, multiple `data:` lines must be joined with `\n` and
+      // dispatched on the blank line.
+      const frame =
+        'event: token\n' +
+        'data: {\n' +
+        'data:   "modelId": "openai/gpt-4o",\n' +
+        'data:   "content": "Hello"\n' +
+        'data: }\n' +
+        '\n';
+      parser.processChunk(frame);
+
+      expect(mocks.onToken).toHaveBeenCalledTimes(1);
+      expect(mocks.onToken).toHaveBeenCalledWith({
+        modelId: 'openai/gpt-4o',
+        content: 'Hello',
+      });
+    });
+
+    it('dispatches on blank line, not on the last data: line', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      // Send the data: line without the trailing blank line — should NOT dispatch yet.
+      parser.processChunk('event: token\ndata: {"modelId":"openai/gpt-4o","content":"Hi"}\n');
+      expect(mocks.onToken).not.toHaveBeenCalled();
+
+      // Now the blank line arrives.
+      parser.processChunk('\n');
+      expect(mocks.onToken).toHaveBeenCalledWith({
+        modelId: 'openai/gpt-4o',
+        content: 'Hi',
+      });
+    });
+
+    it('resets event and data buffer after dispatch', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk('event: token\ndata: {"modelId":"openai/gpt-4o","content":"A"}\n\n');
+      // A second frame with NO event: line should not be dispatched as a token —
+      // per SSE spec the event type resets to default ("message") after dispatch.
+      // Our parser has no `message` handler, so it should be silently dropped.
+      parser.processChunk('data: {"modelId":"openai/gpt-4o","content":"B"}\n\n');
+
+      expect(mocks.onToken).toHaveBeenCalledTimes(1);
+      expect(mocks.onToken).toHaveBeenCalledWith({
+        modelId: 'openai/gpt-4o',
+        content: 'A',
+      });
+    });
+
+    it('ignores SSE id: and retry: fields without crashing', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk(
+        'event: token\n' +
+          'id: 42\n' +
+          'retry: 3000\n' +
+          'data: {"modelId":"openai/gpt-4o","content":"X"}\n' +
+          '\n'
+      );
+
+      expect(mocks.onToken).toHaveBeenCalledWith({
+        modelId: 'openai/gpt-4o',
+        content: 'X',
+      });
+    });
+
+    it('handles chunk boundary at the blank-line terminator', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk('event: token\ndata: {"modelId":"openai/gpt-4o","content":"Hi"}');
+      parser.processChunk('\n');
+      // Still no dispatch — only one newline.
+      expect(mocks.onToken).not.toHaveBeenCalled();
+      parser.processChunk('\n');
+      // Two newlines = blank line = dispatch.
+      expect(mocks.onToken).toHaveBeenCalledWith({
+        modelId: 'openai/gpt-4o',
+        content: 'Hi',
+      });
+    });
+
+    it('handles chunk boundary mid-data: line and accumulates correctly', () => {
+      const { handlers, mocks } = createMockHandlers();
+      const parser = createSSEParser(handlers);
+
+      parser.processChunk('event: token\ndata: {"mo');
+      parser.processChunk('delId":"openai/gpt-4o","content":"split"}');
+      parser.processChunk('\n\n');
+
+      expect(mocks.onToken).toHaveBeenCalledWith({
+        modelId: 'openai/gpt-4o',
+        content: 'split',
+      });
+    });
+  });
 });

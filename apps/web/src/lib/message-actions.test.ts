@@ -191,23 +191,22 @@ describe('resolveMessageActions', () => {
       expect(actions.has('edit')).toBe(false);
     });
 
-    it('shows retry-error on error AI message', () => {
+    it('keeps copy and regenerate available on errored AI message (replaces the deleted Retry button)', () => {
       const actions = resolveMessageActions(
         soloCtx,
         makeMsgContext({ message: { role: 'assistant' }, isError: true })
       );
 
-      expect(actions.has('retry-error')).toBe(true);
+      expect(actions.has('copy')).toBe(true);
+      expect(actions.has('regenerate')).toBe(true);
     });
 
-    it('hides all normal actions on error message', () => {
+    it('hides fork and share on errored AI message (no successful turn to branch from)', () => {
       const actions = resolveMessageActions(
         soloCtx,
         makeMsgContext({ message: { role: 'assistant' }, isError: true })
       );
 
-      expect(actions.has('copy')).toBe(false);
-      expect(actions.has('regenerate')).toBe(false);
       expect(actions.has('fork')).toBe(false);
       expect(actions.has('share')).toBe(false);
     });
@@ -360,13 +359,13 @@ describe('resolveMessageActions', () => {
       expect(actions.size).toBe(0);
     });
 
-    it('shows no actions on error message', () => {
+    it('keeps copy available on errored message (so readers can quote the error)', () => {
       const actions = resolveMessageActions(
         groupReadCtx,
         makeMsgContext({ message: { role: 'assistant' }, isError: true })
       );
 
-      expect(actions.size).toBe(0);
+      expect(actionsArray(actions)).toEqual(['copy']);
     });
   });
 
@@ -464,13 +463,13 @@ describe('resolveMessageActions', () => {
       expect(actions.has('fork')).toBe(false);
     });
 
-    it('shows retry-error on error AI message', () => {
+    it('keeps regenerate available on errored AI message (link-guest write)', () => {
       const actions = resolveMessageActions(
         linkWriteCtx,
         makeMsgContext({ message: { role: 'assistant' }, isError: true })
       );
 
-      expect(actions.has('retry-error')).toBe(true);
+      expect(actions.has('regenerate')).toBe(true);
     });
   });
 
@@ -509,13 +508,13 @@ describe('resolveMessageActions', () => {
       expect(actions.size).toBe(0);
     });
 
-    it('shows no actions on error message', () => {
+    it('keeps copy available on errored message (link-guest read)', () => {
       const actions = resolveMessageActions(
         linkReadCtx,
         makeMsgContext({ message: { role: 'assistant' }, isError: true })
       );
 
-      expect(actions.size).toBe(0);
+      expect(actionsArray(actions)).toEqual(['copy']);
     });
   });
 

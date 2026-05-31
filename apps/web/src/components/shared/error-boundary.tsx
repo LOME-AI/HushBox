@@ -6,6 +6,13 @@ interface ErrorBoundaryProps {
   children: React.ReactNode;
   fallback?: React.ReactNode;
   onError?: (error: Error, errorInfo: React.ErrorInfo) => void;
+  /**
+   * When this value changes, the boundary clears its error state so the next
+   * render re-attempts the children. Used by streaming consumers (markdown
+   * renderer) where a transient failure on chunk N should not freeze the
+   * fallback for chunk N+1.
+   */
+  resetKey?: unknown;
 }
 
 interface ErrorBoundaryState {
@@ -25,6 +32,16 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     this.props.onError?.(error, errorInfo);
+  }
+
+  componentDidUpdate(previousProps: ErrorBoundaryProps): void {
+    if (
+      this.state.hasError &&
+      'resetKey' in this.props &&
+      previousProps.resetKey !== this.props.resetKey
+    ) {
+      this.setState({ hasError: false, error: null });
+    }
   }
 
   handleRetry = (): void => {

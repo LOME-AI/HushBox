@@ -1,10 +1,17 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// Mock Streamdown to throw — simulates chunk load failure or any rendering error
+// Mock Streamdown so individual tests can toggle whether the next render throws.
+// Defaults to throwing — the recovery test below flips this to false mid-test
+// to simulate streamdown succeeding once content advances past the problem
+// chunk (e.g. an incomplete code-fence at chunk N is completed by chunk N+1).
+let mockStreamdownShouldThrow = true;
 vi.mock('streamdown', () => ({
-  Streamdown: () => {
-    throw new Error('Failed to fetch dynamically imported module');
+  Streamdown: ({ children }: { children?: React.ReactNode }) => {
+    if (mockStreamdownShouldThrow) {
+      throw new Error('Failed to fetch dynamically imported module');
+    }
+    return <span data-testid="streamdown-rendered">{children}</span>;
   },
 }));
 
@@ -24,6 +31,7 @@ import { MarkdownRenderer } from './markdown-renderer';
 describe('MarkdownRenderer error handling', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockStreamdownShouldThrow = true;
   });
 
   it('shows raw content as fallback when Streamdown throws', () => {
@@ -70,5 +78,20 @@ describe('MarkdownRenderer error handling', () => {
     expect(screen.getByText(/line1/)).toBeInTheDocument();
     expect(screen.getByText(/line2/)).toBeInTheDocument();
     expect(screen.getByText(/line3/)).toBeInTheDocument();
+  });
+
+  it('recovers from a transient streamdown failure when content changes', () => {
+    // Simulates the streaming case: streamdown throws on a partial chunk
+    // (e.g. incomplete code fence with a `{`), and we want subsequent
+    // chunks to re-attempt rendering rather than getting stuck on the fallback.
+    const { rerender } = render(<MarkdownRenderer content="partial {" />);
+    expect(screen.getByTestId('markdown-render-fallback')).toBeInTheDocument();
+
+    // Next chunk arrives; streamdown can now render successfully.
+    mockStreamdownShouldThrow = false;
+    rerender(<MarkdownRenderer content="partial { complete }" />);
+
+    expect(screen.queryByTestId('markdown-render-fallback')).not.toBeInTheDocument();
+    expect(screen.getByTestId('streamdown-rendered')).toBeInTheDocument();
   });
 });

@@ -7,6 +7,17 @@ import type {
   AudioRequest,
 } from './types.js';
 
+// Inlined to dodge the vi.mock hoisting that this file relies on. Stays in
+// lockstep with `ZDR_PROVIDER_OPTIONS` in `packages/shared/src/models/
+// capabilities.ts` — `capabilities.test.ts` is the single owner of the shape
+// assertion.
+const ZDR_PROVIDER_OPTIONS = {
+  gateway: { zeroDataRetention: true },
+  openai: { serviceTier: 'flex' },
+  google: { serviceTier: 'flex' },
+  vertex: { sharedRequestType: 'flex' },
+} as const;
+
 const mockStreamText = vi.fn();
 const mockGenerateImage = vi.fn();
 const mockGenerateVideo = vi.fn();
@@ -128,9 +139,7 @@ describe('createRealAIClient', () => {
 
       expect(mockStreamText).toHaveBeenCalledTimes(1);
       const callArgs = mockStreamText.mock.calls[0]![0]!;
-      expect(callArgs.providerOptions).toEqual({
-        gateway: { zeroDataRetention: true },
-      });
+      expect(callArgs.providerOptions).toEqual(ZDR_PROVIDER_OPTIONS);
     });
 
     it('passes the model via gateway provider', async () => {
@@ -406,9 +415,7 @@ describe('createRealAIClient', () => {
       expect(mockGenerateImage).toHaveBeenCalledTimes(1);
 
       const callArgs = mockGenerateImage.mock.calls[0]![0]!;
-      expect(callArgs.providerOptions).toEqual({
-        gateway: { zeroDataRetention: true },
-      });
+      expect(callArgs.providerOptions).toEqual(ZDR_PROVIDER_OPTIONS);
       expect(callArgs.prompt).toBe('A sunset');
       expect(callArgs.aspectRatio).toBe('16:9');
     });
@@ -549,7 +556,9 @@ describe('createRealAIClient', () => {
           })
         );
         const callArgs = mockGenerateImage.mock.calls[0]![0]!;
-        expect(callArgs.providerOptions?.google).toBeUndefined();
+        // `google.serviceTier: 'flex'` is the global ZDR default — what must
+        // be absent on non-Imagen-4 models is `sampleImageSize` specifically.
+        expect(callArgs.providerOptions?.google?.sampleImageSize).toBeUndefined();
       });
 
       it('still sets ZDR providerOptions alongside the google sampleImageSize override', async () => {
@@ -593,9 +602,7 @@ describe('createRealAIClient', () => {
       expect(mockGenerateVideo).toHaveBeenCalledTimes(1);
 
       const callArgs = mockGenerateVideo.mock.calls[0]![0]!;
-      expect(callArgs.providerOptions).toEqual({
-        gateway: { zeroDataRetention: true },
-      });
+      expect(callArgs.providerOptions).toEqual(ZDR_PROVIDER_OPTIONS);
     });
 
     it('uses gateway.video() (not videoModel) to resolve the model', async () => {
@@ -657,7 +664,7 @@ describe('createRealAIClient', () => {
   // modality and forgetting `providerOptions: ZDR_PROVIDER_OPTIONS` should
   // immediately fail this test.
   describe('ZDR enforcement at the SDK boundary', () => {
-    const EXPECTED_ZDR = { gateway: { zeroDataRetention: true } };
+    const EXPECTED_ZDR = ZDR_PROVIDER_OPTIONS;
 
     it('text streaming sets ZDR providerOptions on every streamText call', async () => {
       mockStreamText.mockReturnValue(

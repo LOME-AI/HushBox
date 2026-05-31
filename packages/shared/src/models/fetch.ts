@@ -86,6 +86,35 @@ function extractStringPricing(
 }
 
 /**
+ * Returns the effective per-token rate for `key` (`'input'` or `'output'`),
+ * preferring the gateway's `service_tiers.flex` band when present (50% of
+ * standard for every flex-eligible model in the live catalog). Models without
+ * flex pricing fall back to the top-level standard rate.
+ *
+ * Because the chat path opts into flex globally (see ZDR_PROVIDER_OPTIONS),
+ * the gateway will route flex-eligible requests to the cheaper pool and bill
+ * accordingly — surfacing the same number we estimate here. On flex-pool
+ * exhaustion the gateway falls back to standard and bills at standard; that
+ * widens the cost-reconciliation window, which `cost-calculator` already
+ * handles via the `wasEstimated` path.
+ */
+function extractEffectivePerTokenPricing(
+  pricing: Record<string, unknown> | undefined,
+  key: 'input' | 'output'
+): string | undefined {
+  if (!pricing) return undefined;
+  const tiers = pricing['service_tiers'];
+  if (tiers !== null && typeof tiers === 'object') {
+    const flex = (tiers as Record<string, unknown>)['flex'];
+    if (flex !== null && typeof flex === 'object') {
+      const value = (flex as Record<string, unknown>)[key];
+      if (typeof value === 'string') return value;
+    }
+  }
+  return extractStringPricing(pricing, key);
+}
+
+/**
  * Extract flat per-image price from a public-endpoint entry.
  * Returns undefined for empty pricing or variable (`image_dimension_quality_pricing`)
  * entries, which are filtered out downstream in processModels.
@@ -125,8 +154,8 @@ function extractVideoPricing(
 
 function buildPricing(modality: Modality, entry: PublicModelEntry): RawModel['pricing'] {
   const base = {
-    prompt: extractStringPricing(entry.pricing, 'input') ?? '0',
-    completion: extractStringPricing(entry.pricing, 'output') ?? '0',
+    prompt: extractEffectivePerTokenPricing(entry.pricing, 'input') ?? '0',
+    completion: extractEffectivePerTokenPricing(entry.pricing, 'output') ?? '0',
   };
   if (modality === 'image') {
     const perImage = extractImagePricing(entry.pricing);

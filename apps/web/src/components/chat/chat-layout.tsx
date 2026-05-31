@@ -497,15 +497,28 @@ interface ChatMainContentProps {
   readonly messagesReady: boolean | undefined;
 }
 
-// Drives MessageList remount on conversation/fork switch so Virtuoso re-applies
-// `initialTopMostItemIndex` and each fresh open lands on the latest message.
-// The prop is mount-only; without a key change Virtuoso would stay parked
-// wherever the previous conversation left it.
-function buildMessageListKey(
-  conversationId: string | undefined,
-  activeForkId: string | null | undefined
-): string {
-  return `${conversationId ?? 'init'}-${activeForkId ?? 'main'}`;
+function buildOptionalCallbackProps(
+  props: Pick<ChatMainContentProps, 'onRegenerate' | 'onEdit' | 'onFork'>
+): Partial<React.ComponentProps<typeof MessageList>> {
+  return {
+    ...(props.onRegenerate !== undefined && { onRegenerate: props.onRegenerate }),
+    ...(props.onEdit !== undefined && { onEdit: props.onEdit }),
+    ...(props.onFork !== undefined && { onFork: props.onFork }),
+  };
+}
+
+function DecryptingPlaceholder(): React.JSX.Element {
+  return (
+    <div
+      className="flex flex-1 items-center justify-center"
+      data-testid="shared-conversation-loading"
+    >
+      <div className="flex flex-col items-center gap-3">
+        <Lock className="text-muted-foreground h-8 w-8" />
+        <span className="text-muted-foreground text-sm">Decrypting your conversation...</span>
+      </div>
+    </div>
+  );
 }
 
 function ChatMainContent({
@@ -528,13 +541,15 @@ function ChatMainContent({
   messagesReady,
 }: Readonly<ChatMainContentProps>): React.JSX.Element {
   const showDecrypting = messages.length === 0 && isDecrypting;
-  const messageListKey = buildMessageListKey(conversationId, activeForkId);
+  const typingMembers = groupChat?.typingUserIds;
+  const showTyping = typingMembers !== undefined && typingMembers.size > 0;
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      {!showDecrypting && (
+      {showDecrypting ? (
+        <DecryptingPlaceholder />
+      ) : (
         <MessageList
-          key={messageListKey}
           ref={virtuosoRef}
           messages={messages}
           streamingMessageIds={streamingMessageIds}
@@ -545,25 +560,13 @@ function ChatMainContent({
           isLinkGuest={isLinkGuest}
           callerPrivilege={callerPrivilege}
           messagesReady={messagesReady}
-          {...(onRegenerate !== undefined && { onRegenerate })}
-          {...(onEdit !== undefined && { onEdit })}
-          {...(onFork !== undefined && { onFork })}
+          conversationKey={`${conversationId ?? 'init'}-${activeForkId ?? 'main'}`}
+          {...buildOptionalCallbackProps({ onRegenerate, onEdit, onFork })}
           {...buildMessageListGroupProps(groupChat)}
         />
       )}
-      {showDecrypting && (
-        <div
-          className="flex flex-1 items-center justify-center"
-          data-testid="shared-conversation-loading"
-        >
-          <div className="flex flex-col items-center gap-3">
-            <Lock className="text-muted-foreground h-8 w-8" />
-            <span className="text-muted-foreground text-sm">Decrypting your conversation...</span>
-          </div>
-        </div>
-      )}
-      {groupChat?.typingUserIds !== undefined && groupChat.typingUserIds.size > 0 && (
-        <TypingIndicator typingUserIds={groupChat.typingUserIds} members={groupChat.members} />
+      {showTyping && (
+        <TypingIndicator typingUserIds={typingMembers} members={groupChat?.members ?? []} />
       )}
     </div>
   );
@@ -1001,7 +1004,6 @@ export function ChatLayout({
         <DocumentPanel />
         {conversationId !== undefined && (
           <MemberSidebar
-            key={conversationId}
             conversationId={conversationId}
             {...buildMemberSidebarProps(groupChat)}
             {...(isLinkGuest && { onLeaveClick: undefined })}

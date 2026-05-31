@@ -1,7 +1,22 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { SMART_MODEL_ID, MAX_SELECTED_MODELS, MAX_AUDIO_DURATION_SECONDS } from '@hushbox/shared';
-import type { Modality, ImageConfig, VideoConfig, AudioConfig } from '@hushbox/shared';
+import {
+  SMART_MODEL_ID,
+  MAX_SELECTED_MODELS,
+  MAX_AUDIO_DURATION_SECONDS,
+  getSupportedVideoDurations,
+  getSupportedVideoResolutions,
+  getSupportedVideoAspectRatios,
+} from '@hushbox/shared';
+import { snapToNearest } from '@/lib/multi-model-agreement';
+import type {
+  Modality,
+  ImageConfig,
+  VideoConfig,
+  AudioConfig,
+  VideoAspectRatio,
+  VideoResolution,
+} from '@hushbox/shared';
 
 export const DEFAULT_MODEL_ID = SMART_MODEL_ID;
 export const DEFAULT_MODEL_NAME = 'Smart Model';
@@ -95,6 +110,84 @@ function entriesEqual(a: SelectedModelEntry[], b: SelectedModelEntry[]): boolean
   return a.every((entry, index) => entry.id === b[index]?.id);
 }
 
+// Intersection of a per-model option list across every selected video model.
+// Returns `undefined` when at least one model is missing from the capability
+// map — that lets the caller leave the user-chosen value alone rather than
+// snapping to a possibly-empty intersection.
+function agreedVideoOptions<T extends string | number>(
+  selected: readonly SelectedModelEntry[],
+  pluck: (modelId: string) => readonly T[] | undefined
+): readonly T[] | undefined {
+  if (selected.length === 0) return undefined;
+  const supportedSets: (readonly T[])[] = [];
+  for (const entry of selected) {
+    const supported = pluck(entry.id);
+    if (supported === undefined) continue;
+    supportedSets.push(supported);
+  }
+  if (supportedSets.length === 0) return undefined;
+  const [firstSet, ...rest] = supportedSets;
+  if (firstSet === undefined) return undefined;
+  return firstSet.filter((option) => rest.every((set) => set.includes(option)));
+}
+
+/**
+ * Returns a new `VideoConfig` whose duration / resolution / aspect ratio are
+ * guaranteed to be in the agreed supported set across `selected`. Snaps each
+ * field independently — duration via nearest-neighbour (Veo's discrete set is
+ * non-uniform), resolution / aspect ratio via "first supported if current
+ * isn't in the set". When `selected` is empty or none of the models advertise
+ * capabilities, the existing config is returned unchanged so the user keeps
+ * their last input.
+ *
+ * Lives at the store level so it always fires on selection change, regardless
+ * of whether the modality config panel is mounted — a panel-effect snap can
+ * miss switches that happen elsewhere in the UI.
+ */
+function snapDuration(current: number, supported: readonly number[] | undefined): number {
+  if (supported === undefined || supported.length === 0 || supported.includes(current)) {
+    return current;
+  }
+  return snapToNearest(supported, current) ?? current;
+}
+
+function snapToFirstSupported<T extends string>(
+  current: T,
+  supported: readonly T[] | undefined
+): T {
+  if (supported === undefined || supported.length === 0 || supported.includes(current)) {
+    return current;
+  }
+  return supported[0] ?? current;
+}
+
+function snapVideoConfigToSelection(
+  current: VideoConfig,
+  selected: readonly SelectedModelEntry[]
+): VideoConfig {
+  if (selected.length === 0) return current;
+  const durationSeconds = snapDuration(
+    current.durationSeconds,
+    agreedVideoOptions(selected, getSupportedVideoDurations)
+  );
+  const resolution = snapToFirstSupported<VideoResolution>(
+    current.resolution,
+    agreedVideoOptions(selected, getSupportedVideoResolutions)
+  );
+  const aspectRatio = snapToFirstSupported<VideoAspectRatio>(
+    current.aspectRatio,
+    agreedVideoOptions(selected, getSupportedVideoAspectRatios)
+  );
+  if (
+    durationSeconds === current.durationSeconds &&
+    resolution === current.resolution &&
+    aspectRatio === current.aspectRatio
+  ) {
+    return current;
+  }
+  return { ...current, aspectRatio, durationSeconds, resolution };
+}
+
 // Returning the same `state` reference when the next entries are structurally
 // equal short-circuits Zustand's subscriber broadcast; this is the bottom-layer
 // defense against effect loops in callers like `useModelValidation` that may
@@ -103,9 +196,21 @@ function updateModalitySelection(
   state: ModelStoreState,
   modality: Modality,
   next: SelectedModelEntry[]
-): ModelStoreState | Pick<ModelStoreState, 'selections'> {
+): ModelStoreState | Partial<ModelStoreState> {
   if (entriesEqual(state.selections[modality], next)) return state;
-  return { selections: { ...state.selections, [modality]: next } };
+  const patch: Partial<ModelStoreState> = {
+    selections: { ...state.selections, [modality]: next },
+  };
+  // Re-snap videoConfig whenever the video selection changes, so values that
+  // were valid for the old model but not the new one never reach the gateway.
+  // No-op for other modalities and for empty selections.
+  if (modality === 'video') {
+    const nextVideoConfig = snapVideoConfigToSelection(state.videoConfig, next);
+    if (nextVideoConfig !== state.videoConfig) {
+      patch.videoConfig = nextVideoConfig;
+    }
+  }
+  return patch;
 }
 
 export const useModelStore = create<ModelStoreState>()(
@@ -187,11 +292,26 @@ export const useModelStore = create<ModelStoreState>()(
     }),
     {
       name: 'hushbox-model-storage',
+      version: 1,
       partialize: (state) => ({
         activeModality: state.activeModality,
         selections: state.selections,
         pickerMode: state.pickerMode,
       }),
+      // Pre-v1 builds persisted `videoConfig` / `imageConfig` / `audioConfig`
+      // alongside selections. Carrying those across a model switch could leave
+      // the stored value invalid for the newly selected model. Strip them so
+      // the in-memory defaults win.
+      migrate: (persisted, version) => {
+        if (typeof persisted !== 'object' || persisted === null) return persisted;
+        if (version >= 1) return persisted;
+        const staleKeys = new Set(['videoConfig', 'imageConfig', 'audioConfig']);
+        return Object.fromEntries(
+          Object.entries(persisted as Record<string, unknown>).filter(
+            ([key]) => !staleKeys.has(key)
+          )
+        );
+      },
       merge: (persisted, current) => {
         const merged: ModelStoreState = {
           ...current,

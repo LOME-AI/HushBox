@@ -85,8 +85,30 @@ export const IMAGEN_SAMPLE_SIZE_BY_MODEL = {
 // with the catalog filter and `assertZdrModel()` at the stream() boundary.
 // ---------------------------------------------------------------------------
 
+/**
+ * Provider options forwarded on every inference call.
+ *
+ * `gateway.zeroDataRetention` is the belt-and-suspenders ZDR guarantee paired
+ * with the catalog filter and `assertZdrModel()` at the stream boundary.
+ *
+ * `openai.serviceTier: 'flex'` and `google.serviceTier: 'flex'` opt into the
+ * Vercel AI Gateway's flex pricing pool (50% off standard). On models that
+ * don't expose a flex tier (Anthropic, xAI, Veo, etc.) the field is a
+ * documented no-op — the gateway routes at standard, bills at standard, and
+ * surfaces the served tier in `providerMetadata.gateway.serviceTier`.
+ * `vertex.sharedRequestType` is the Vertex-routed-Gemini variant of the
+ * same flag.
+ *
+ * Once `@ai-sdk/gateway` is bumped to ≥ 3.0.120 these three keys collapse to
+ * a single `gateway.serviceTier: 'flex'` (the unified field added in that
+ * release). Until then the per-provider form is the only way the installed
+ * 3.0.95 schema accepts.
+ */
 export const ZDR_PROVIDER_OPTIONS = {
   gateway: { zeroDataRetention: true },
+  openai: { serviceTier: 'flex' },
+  google: { serviceTier: 'flex' },
+  vertex: { sharedRequestType: 'flex' },
 } as const;
 
 // ---------------------------------------------------------------------------

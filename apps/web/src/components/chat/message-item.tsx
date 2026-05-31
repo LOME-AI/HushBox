@@ -34,7 +34,6 @@ interface MessageItemProps {
   /** Display name of the selected model, shown in thinking indicator */
   modelName?: string;
   isError?: boolean;
-  onRetry?: () => void;
   onShare?: (messageId: string) => void;
   /** Called when user clicks regenerate (AI) or retry (user) */
   onRegenerate?: (messageId: string) => void;
@@ -52,26 +51,6 @@ interface MessageItemProps {
   members?: MemberInfo[];
   /** Shared links for resolving link guest sender names */
   links?: LinkInfo[];
-}
-
-interface RetryButtonProps {
-  onRetry: () => void;
-}
-
-function RetryButton({ onRetry }: Readonly<RetryButtonProps>): React.JSX.Element {
-  return (
-    <div className="px-4 pt-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onRetry}
-        aria-label="Retry"
-        data-testid="retry-error-button"
-      >
-        Retry
-      </Button>
-    </div>
-  );
 }
 
 function computeContainerClasses(
@@ -241,7 +220,10 @@ function UserMessageActions({
   if (actions.length === 0) return null;
 
   return (
-    <div className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-center justify-end px-1">
+    <div
+      data-testid="message-actions"
+      className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-center justify-end px-1"
+    >
       <div className="ml-auto flex items-center gap-0.5">
         {actions.map((a) => (
           <React.Fragment key={a.key}>{a.render()}</React.Fragment>
@@ -274,7 +256,10 @@ function MessageActions({
   const showCopy = allowedActions.has('copy');
 
   return (
-    <div className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-end gap-2 px-1">
+    <div
+      data-testid="message-actions"
+      className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-end gap-2 px-1"
+    >
       <div className="flex items-center gap-0.5">
         {showRegenerate && (
           <TooltipIconButton
@@ -633,7 +618,6 @@ function MessageActionButtons({
   isUser,
   primaryMessage,
   allowedActions,
-  onRetry,
   onShare,
   onRegenerate,
   onEdit,
@@ -644,7 +628,6 @@ function MessageActionButtons({
   isUser: boolean;
   primaryMessage: Message;
   allowedActions: Set<MessageAction>;
-  onRetry?: (() => void) | undefined;
   onShare?: ((messageId: string) => void) | undefined;
   onRegenerate?: ((messageId: string) => void) | undefined;
   onEdit?: ((messageId: string, content: string) => void) | undefined;
@@ -652,34 +635,26 @@ function MessageActionButtons({
   copied: boolean;
   onCopy: () => void;
 }>): React.JSX.Element | null {
-  const showRetryError = allowedActions.has('retry-error') && onRetry;
-
   if (isUser) {
     return (
-      <>
-        {showRetryError && <RetryButton onRetry={onRetry} />}
-        <UserMessageActions
-          message={primaryMessage}
-          allowedActions={allowedActions}
-          {...omitUndefined({ onRegenerate, onEdit, onFork })}
-          copied={copied}
-          onCopy={onCopy}
-        />
-      </>
+      <UserMessageActions
+        message={primaryMessage}
+        allowedActions={allowedActions}
+        {...omitUndefined({ onRegenerate, onEdit, onFork })}
+        copied={copied}
+        onCopy={onCopy}
+      />
     );
   }
 
   return (
-    <>
-      {showRetryError && <RetryButton onRetry={onRetry} />}
-      <MessageActions
-        primaryMessage={primaryMessage}
-        allowedActions={allowedActions}
-        {...omitUndefined({ onShare, onRegenerate, onFork })}
-        copied={copied}
-        onCopy={onCopy}
-      />
-    </>
+    <MessageActions
+      primaryMessage={primaryMessage}
+      allowedActions={allowedActions}
+      {...omitUndefined({ onShare, onRegenerate, onFork })}
+      copied={copied}
+      onCopy={onCopy}
+    />
   );
 }
 
@@ -689,7 +664,6 @@ export function MessageItem({
   isStreaming,
   modelName,
   isError,
-  onRetry,
   onShare,
   onRegenerate,
   onEdit,
@@ -783,7 +757,6 @@ export function MessageItem({
             isUser={isUser}
             primaryMessage={primaryMessage}
             allowedActions={allowedActions}
-            onRetry={onRetry}
             onShare={onShare}
             onRegenerate={onRegenerate}
             onEdit={onEdit}

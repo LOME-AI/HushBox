@@ -94,6 +94,15 @@ interface MessageListProps {
    * never lets a test trust an in-flight render.
    */
   messagesReady?: boolean | undefined;
+  /**
+   * Stable identifier for the current conversation/fork pair. When it changes,
+   * the component resets the user-scrolled-away flag and snaps Virtuoso back
+   * to the latest message — without unmounting. The previous implementation
+   * achieved this reset via `key=` on the parent, which forced a full remount
+   * during the welcome → first-real-id transition and produced a visible
+   * blank-frame flash.
+   */
+  conversationKey?: string | undefined;
 }
 
 export interface MessageListHandle extends VirtuosoHandle {
@@ -134,6 +143,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     isLinkGuest,
     callerPrivilege,
     messagesReady = false,
+    conversationKey,
   },
   ref
 ) {
@@ -141,6 +151,19 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   const userScrolledAwayRef = useRef(false);
   const isScrollingRef = useRef(false);
   const [isVirtuosoScrolling, setIsVirtuosoScrolling] = useState(false);
+
+  // Reset scroll state when the conversation/fork pair changes. Replaces the
+  // parent's `key=` remount, which previously unmounted Virtuoso (and the
+  // surrounding chat layout) during the /chat → /chat/{realId} transition,
+  // producing a visible blank-frame flash. The initial mount sets the ref
+  // here too; the first render still runs `initialTopMostItemIndex='LAST'`.
+  const previousConversationKeyRef = useRef<string | undefined>(conversationKey);
+  useEffect(() => {
+    if (previousConversationKeyRef.current === conversationKey) return;
+    previousConversationKeyRef.current = conversationKey;
+    userScrolledAwayRef.current = false;
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+  }, [conversationKey]);
 
   // Must exceed Footer height (10dvh) so scrollToIndex({ index: 'LAST' })
   // lands within the threshold and atBottomStateChange reports true.
@@ -303,15 +326,6 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       ),
     };
     const allowedActions = resolveMessageActions(chatContext, msgContext);
-    // retry-error outer RetryButton routes through the same handleRegenerate
-    // as a per-tile click: resolveRegenerateTarget detects multi-model context
-    // and sets replaceAssistantId so only this failed tile gets re-run.
-    const onRetry =
-      isError && onRegenerate
-        ? (): void => {
-            onRegenerate(message.id);
-          }
-        : undefined;
     return (
       <MessageItem
         key={group?.id ?? message.id}
@@ -319,7 +333,6 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
         allowedActions={allowedActions}
         isStreaming={isStreaming}
         isError={isError}
-        {...omitUndefined({ onRetry })}
         {...buildOptionalMessageProps(group)}
       />
     );

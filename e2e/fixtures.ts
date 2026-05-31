@@ -98,6 +98,59 @@ const ARTIFACT_JOINER: Record<'console-errors' | 'api-errors', string> = {
 };
 
 /**
+ * Per-page opt-out lists for tests that intentionally provoke console/API
+ * errors. By default, any uncaught console error or unsuccessful API response
+ * fails the test at teardown — this catches regressions like the chat stream
+ * parse failure and the `/chat/new` 404 prefetch without per-test boilerplate.
+ *
+ * Tests that need to allow specific patterns call `expectConsoleErrors(page, [...])`
+ * or `expectApiErrors(page, [...])`. WeakMap keying means the lists are
+ * garbage-collected with the page itself.
+ */
+interface AllowList {
+  console: RegExp[];
+  api: RegExp[];
+}
+const pageAllowList = new WeakMap<Page, AllowList>();
+
+function getAllowList(page: Page): AllowList {
+  let list = pageAllowList.get(page);
+  if (list === undefined) {
+    list = { console: [], api: [] };
+    pageAllowList.set(page, list);
+  }
+  return list;
+}
+
+function toRegExp(pattern: string | RegExp): RegExp {
+  return typeof pattern === 'string' ? new RegExp(pattern, 'i') : pattern;
+}
+
+/**
+ * Opt a page out of failing on specific console errors during the current
+ * test. Pass either substrings (matched case-insensitively) or RegExps.
+ * Call before any action that might produce the error.
+ */
+export function expectConsoleErrors(page: Page, patterns: (string | RegExp)[]): void {
+  const list = getAllowList(page);
+  list.console.push(...patterns.map((p) => toRegExp(p)));
+}
+
+/**
+ * Opt a page out of failing on specific API errors during the current test.
+ * Patterns are matched against the captured error line, which includes the
+ * status code, method, URL, and (when re-readable) body.
+ */
+export function expectApiErrors(page: Page, patterns: (string | RegExp)[]): void {
+  const list = getAllowList(page);
+  list.api.push(...patterns.map((p) => toRegExp(p)));
+}
+
+function filterUnexpected(captured: string[], allowed: RegExp[]): string[] {
+  return captured.filter((line) => !allowed.some((pattern) => pattern.test(line)));
+}
+
+/**
  * Attach a labeled text artifact (`console-errors-<label>`, `api-errors-<label>`)
  * to the failing test. Skips attachment when there are no errors — Playwright
  * shows empty attachments which clutter the report. Used by every page-creating
@@ -258,6 +311,49 @@ async function zeroLowBalanceWallets(
   });
 }
 
+function formatUnexpectedErrors(
+  title: string,
+  label: string,
+  unexpectedConsole: string[],
+  unexpectedApi: string[]
+): string {
+  const sections: string[] = [];
+  if (unexpectedConsole.length > 0) {
+    sections.push(`Console:\n  ${unexpectedConsole.join('\n  ')}`);
+  }
+  if (unexpectedApi.length > 0) {
+    sections.push(`API:\n  ${unexpectedApi.join('\n  ')}`);
+  }
+  return (
+    `Unexpected errors during test "${title}" (page "${label}"):\n${sections.join('\n')}\n\n` +
+    `If these are expected, opt out with expectConsoleErrors(page, [...]) / expectApiErrors(page, [...]).`
+  );
+}
+
+async function attachFailureArtifacts(
+  testInfo: TestInfo,
+  entry: { page: Page; label: string; errors: string[]; apiErrors: string[]; harPath: string }
+): Promise<void> {
+  await attachLabeledArtifact(testInfo, 'console-errors', entry.label, entry.errors);
+  await attachLabeledArtifact(testInfo, 'api-errors', entry.label, entry.apiErrors);
+  const snapshot = await entry.page
+    .locator(':root')
+    .ariaSnapshot()
+    .catch(() => null);
+  if (snapshot) {
+    await testInfo.attach(`page-snapshot-${entry.label}`, {
+      body: snapshot,
+      contentType: 'text/yaml',
+    });
+  }
+  if (existsSync(entry.harPath)) {
+    await testInfo.attach(`har-${entry.label}`, {
+      path: entry.harPath,
+      contentType: 'application/json',
+    });
+  }
+}
+
 async function teardownPage(
   entry: {
     page: Page;
@@ -272,28 +368,24 @@ async function teardownPage(
   failed: boolean,
   testInfo: TestInfo
 ): Promise<void> {
-  if (failed) {
-    await attachLabeledArtifact(testInfo, 'console-errors', entry.label, entry.errors);
-    await attachLabeledArtifact(testInfo, 'api-errors', entry.label, entry.apiErrors);
-    const snapshot = await entry.page
-      .locator(':root')
-      .ariaSnapshot()
-      .catch(() => null);
-    if (snapshot) {
-      await testInfo.attach(`page-snapshot-${entry.label}`, {
-        body: snapshot,
-        contentType: 'text/yaml',
-      });
-    }
+  // Promote captured errors to test assertions when the test would otherwise
+  // pass. Tests opt-out per-page via `expectConsoleErrors` / `expectApiErrors`.
+  const allowList = getAllowList(entry.page);
+  const unexpectedConsole = filterUnexpected(entry.errors, allowList.console);
+  const unexpectedApi = filterUnexpected(entry.apiErrors, allowList.api);
+  const hasUnexpected = unexpectedConsole.length > 0 || unexpectedApi.length > 0;
+
+  if (failed || hasUnexpected) {
+    await attachFailureArtifacts(testInfo, entry);
   }
   entry.cleanup();
   entry.cleanupApi();
   await entry.context.close();
-  if (failed && existsSync(entry.harPath)) {
-    await testInfo.attach(`har-${entry.label}`, {
-      path: entry.harPath,
-      contentType: 'application/json',
-    });
+
+  if (!failed && hasUnexpected) {
+    throw new Error(
+      formatUnexpectedErrors(testInfo.title, entry.label, unexpectedConsole, unexpectedApi)
+    );
   }
 }
 

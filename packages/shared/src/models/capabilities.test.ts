@@ -85,7 +85,17 @@ describe('getImagenSampleSize', () => {
 
 describe('ZDR_PROVIDER_OPTIONS', () => {
   it('sets gateway.zeroDataRetention to true', () => {
-    expect(ZDR_PROVIDER_OPTIONS).toEqual({ gateway: { zeroDataRetention: true } });
+    expect(ZDR_PROVIDER_OPTIONS.gateway.zeroDataRetention).toBe(true);
+  });
+
+  it('opts into flex pricing on OpenAI, Google AI Studio, and Vertex routes', () => {
+    // The gateway treats flex as a no-op on providers that don't expose it
+    // (Anthropic, xAI, Veo, etc.) and bills at the tier actually served, so
+    // the flag is safe to send universally. ~50% cost reduction on supported
+    // models, no consistency risk for the rest.
+    expect(ZDR_PROVIDER_OPTIONS.openai.serviceTier).toBe('flex');
+    expect(ZDR_PROVIDER_OPTIONS.google.serviceTier).toBe('flex');
+    expect(ZDR_PROVIDER_OPTIONS.vertex.sharedRequestType).toBe('flex');
   });
 });
 

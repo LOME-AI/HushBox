@@ -138,6 +138,25 @@ describe('chat.$id route loader', () => {
     expect(mockPrefetchQuery).toHaveBeenCalledWith(mockConversationOptions);
     expect(mockPrefetchQuery).toHaveBeenCalledWith(mockKeyChainOptions);
   });
+
+  it('does not prefetch when id is the "new" sentinel', async () => {
+    // The "new" segment in /chat/new is a create-mode marker, not a real
+    // conversation id. Treating it as an id triggers GET /api/conversations/new
+    // and GET /api/keys/new, both of which 404 and polluted production
+    // observability with phantom errors on every welcome-page send.
+    mockRequireAuth.mockResolvedValue({ user: { id: 'user-1' } });
+
+    const { Route } = await import('./chat.$id');
+    const routeConfig = Route as unknown as RouteConfig;
+
+    const mockPrefetchQuery = vi.fn();
+    routeConfig.loader!({
+      params: { id: 'new' },
+      context: { queryClient: { prefetchQuery: mockPrefetchQuery } },
+    });
+
+    expect(mockPrefetchQuery).not.toHaveBeenCalled();
+  });
 });
 
 describe('chat.$id validateSearch', () => {

@@ -45,7 +45,12 @@ function createSSEStream(events: string[]): ReadableStream<Uint8Array> {
       if (event === undefined) {
         controller.close();
       } else {
-        controller.enqueue(encoder.encode(event + '\n'));
+        // `data:` lines need a trailing blank line to trigger dispatch per
+        // the SSE spec; the parser buffers data and only fires on the empty
+        // separator. Pre-buffer-fix the parser dispatched per `data:` line so
+        // these chunk arrays got away with `\n` alone.
+        const suffix = event.startsWith('data:') ? '\n\n' : '\n';
+        controller.enqueue(encoder.encode(event + suffix));
         index++;
       }
     },

@@ -400,7 +400,10 @@ export class ChatPage {
    * reply was persisted — and a reader fetching from another context (a link
    * guest) saw an empty thread.
    */
-  async waitForStreamComplete(timeout = 15_000): Promise<void> {
+  async waitForStreamComplete(
+    timeout = 15_000,
+    options?: { readyTimeoutMs?: number; skipReadyAssertion?: boolean }
+  ): Promise<void> {
     const streamingCount = async (): Promise<number> =>
       Number((await this.messageList.getAttribute('data-streaming-count')) ?? '0');
 
@@ -420,6 +423,18 @@ export class ChatPage {
     await unsettledExpect(this.messageList).toHaveAttribute('data-streaming-count', '0', {
       timeout,
     });
+
+    // Once streaming has drained, the user should be able to type the next
+    // message immediately and the assistant message's action toolbar should
+    // be visible — gating either of these on cost settlement (the Bug 6
+    // anti-pattern) makes the UI feel frozen. Tests that intentionally
+    // exercise a cost-polling pause can either bump `readyTimeoutMs` or set
+    // `skipReadyAssertion: true`.
+    if (options?.skipReadyAssertion === true) return;
+    const readyTimeoutMs = options?.readyTimeoutMs ?? 500;
+    await expect(this.sendButton).toBeEnabled({ timeout: readyTimeoutMs });
+    const lastToolbar = this.messageList.locator('[data-testid="message-actions"]').last();
+    await expect(lastToolbar).toBeVisible({ timeout: readyTimeoutMs });
   }
 
   /** Switch the prompt input to image generation modality. Click the image icon button. */

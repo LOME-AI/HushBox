@@ -2,14 +2,7 @@ import type { MemberPrivilege } from '@hushbox/shared';
 import type { Message } from './api.js';
 
 /** Every possible action button on a message */
-export type MessageAction =
-  | 'copy'
-  | 'regenerate'
-  | 'retry'
-  | 'edit'
-  | 'fork'
-  | 'share'
-  | 'retry-error';
+export type MessageAction = 'copy' | 'regenerate' | 'retry' | 'edit' | 'fork' | 'share';
 
 type ChatMode = 'solo' | 'group' | 'trial' | 'link-guest';
 
@@ -39,19 +32,19 @@ const BASE_PERMISSIONS: Record<
   Partial<Record<MemberPrivilege | 'none', readonly MessageAction[]>>
 > = {
   solo: {
-    owner: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share', 'retry-error'],
+    owner: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share'],
   },
   group: {
-    owner: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share', 'retry-error'],
-    admin: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share', 'retry-error'],
-    write: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share', 'retry-error'],
+    owner: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share'],
+    admin: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share'],
+    write: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share'],
     read: ['copy'],
   },
   trial: {
     none: ['copy', 'retry', 'regenerate', 'edit'],
   },
   'link-guest': {
-    write: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'retry-error'],
+    write: ['copy', 'regenerate', 'retry', 'edit', 'fork'],
     read: ['copy'],
   },
 };
@@ -63,16 +56,17 @@ const BASE_PERMISSIONS: Record<
 const ACTION_GUARDS: Partial<
   Record<MessageAction, (chat: ChatContext, msg: MessageContext) => boolean>
 > = {
-  copy: (_chat, msg) => !msg.isStreaming && !msg.isError,
+  // Copy + regenerate stay available on errored assistant turns — that's the
+  // sole retry affordance now that the standalone Retry button is gone.
+  copy: (_chat, msg) => !msg.isStreaming,
   regenerate: (_chat, msg) =>
-    msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
+    msg.message.role === 'assistant' && !msg.isStreaming && msg.canRegenerate,
   retry: (_chat, msg) =>
     msg.message.role === 'user' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
   edit: (_chat, msg) =>
     msg.message.role === 'user' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
   fork: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
   share: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
-  'retry-error': (_chat, msg) => msg.isError,
 };
 
 export function resolveMessageActions(chat: ChatContext, msg: MessageContext): Set<MessageAction> {

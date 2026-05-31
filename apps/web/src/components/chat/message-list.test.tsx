@@ -47,6 +47,17 @@ vi.mock('@/hooks/models', () => ({
 }));
 
 let capturedVirtuosoProps: Record<string, unknown> = {};
+// Module-level imperative-handle mocks so tests can observe calls across
+// re-renders (useImperativeHandle's factory runs each render, so per-render
+// vi.fn()s lose their call history).
+const virtuosoMockHandle = {
+  scrollToIndex: vi.fn(),
+  scrollTo: vi.fn(),
+  scrollBy: vi.fn(),
+  scrollIntoView: vi.fn(),
+  getState: vi.fn(),
+  autoscrollToBottom: vi.fn(),
+};
 
 // Mock Virtuoso to render items directly (virtualization doesn't work in jsdom)
 vi.mock('react-virtuoso', () => ({
@@ -58,14 +69,7 @@ vi.mock('react-virtuoso', () => ({
     const data = props['data'] as unknown[];
     const itemContent = props['itemContent'] as (index: number, item: unknown) => React.ReactNode;
     const components = props['components'] as { Footer?: () => React.ReactNode } | undefined;
-    React.useImperativeHandle(ref, () => ({
-      scrollToIndex: vi.fn(),
-      scrollTo: vi.fn(),
-      scrollBy: vi.fn(),
-      scrollIntoView: vi.fn(),
-      getState: vi.fn(),
-      autoscrollToBottom: vi.fn(),
-    }));
+    React.useImperativeHandle(ref, () => virtuosoMockHandle);
     return (
       <div data-testid="virtuoso-mock">
         {data.map((item, index) => (
@@ -306,6 +310,55 @@ describe('MessageList', () => {
         index: 'LAST',
         align: 'end',
       });
+    });
+  });
+
+  describe('conversationKey transitions (no-flash refactor)', () => {
+    beforeEach(() => {
+      virtuosoMockHandle.scrollToIndex.mockClear();
+    });
+
+    it('keeps the underlying virtuoso-mock DOM node identity across conversationKey changes', () => {
+      // Previously the parent passed `key={conversationId}`, which forced
+      // unmount/remount on every conversation switch — including the
+      // welcome → first-real-id case, producing a visible blank-frame flash.
+      const { rerender } = render(<MessageList messages={messages} conversationKey="init-main" />);
+      const before = screen.getByTestId('virtuoso-mock');
+
+      rerender(<MessageList messages={messages} conversationKey="real-id-main" />);
+
+      // Same DOM node — React preserved the instance because nothing above
+      // it keyed on conversationId.
+      expect(screen.getByTestId('virtuoso-mock')).toBe(before);
+    });
+
+    it('snaps Virtuoso to the last row when conversationKey changes', () => {
+      const { rerender } = render(
+        <MessageList messages={messages} conversationKey="conv-a-main" />
+      );
+      // Initial mount registers the conversationKey but should not scroll —
+      // Virtuoso already starts at LAST via initialTopMostItemIndex.
+      expect(virtuosoMockHandle.scrollToIndex).not.toHaveBeenCalled();
+
+      rerender(<MessageList messages={messages} conversationKey="conv-b-main" />);
+
+      expect(virtuosoMockHandle.scrollToIndex).toHaveBeenCalledWith({
+        index: 'LAST',
+        align: 'end',
+      });
+    });
+
+    it('does not snap on re-render when conversationKey is unchanged', () => {
+      const { rerender } = render(
+        <MessageList messages={messages} conversationKey="conv-a-main" />
+      );
+      rerender(
+        <MessageList
+          messages={[...messages, { ...messages[0]!, id: '4' }]}
+          conversationKey="conv-a-main"
+        />
+      );
+      expect(virtuosoMockHandle.scrollToIndex).not.toHaveBeenCalled();
     });
   });
 

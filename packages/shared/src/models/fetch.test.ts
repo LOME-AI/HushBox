@@ -424,4 +424,61 @@ describe('fetchModels', () => {
     expect(second[0]?.id).toBe('openai/gpt-5');
     expect(second.some((m) => m.id === 'malicious-injection')).toBe(false);
   });
+
+  describe('flex pricing extraction', () => {
+    it('prefers service_tiers.flex when present so estimates reflect the price the gateway actually bills', async () => {
+      mockPublicModels([
+        {
+          id: 'openai/gpt-5',
+          name: 'GPT-5',
+          type: 'language',
+          pricing: {
+            input: '0.00001',
+            output: '0.00003',
+            service_tiers: {
+              flex: { input: '0.000005', output: '0.000015' },
+            },
+          },
+        },
+      ]);
+
+      const models = await fetchModels({ publicModelsUrl: 'https://test.example/v1/models' });
+      expect(models[0]?.pricing.prompt).toBe('0.000005');
+      expect(models[0]?.pricing.completion).toBe('0.000015');
+    });
+
+    it('falls back to standard pricing when service_tiers.flex is absent', async () => {
+      mockPublicModels([
+        {
+          id: 'anthropic/claude-opus-4.6',
+          name: 'Claude Opus 4.6',
+          type: 'language',
+          pricing: { input: '0.00002', output: '0.00006' },
+        },
+      ]);
+
+      const models = await fetchModels({ publicModelsUrl: 'https://test.example/v1/models' });
+      expect(models[0]?.pricing.prompt).toBe('0.00002');
+      expect(models[0]?.pricing.completion).toBe('0.00006');
+    });
+
+    it('falls back to standard pricing when service_tiers exists but flex is missing or malformed', async () => {
+      mockPublicModels([
+        {
+          id: 'openai/gpt-4o',
+          name: 'GPT-4o',
+          type: 'language',
+          pricing: {
+            input: '0.00001',
+            output: '0.00003',
+            service_tiers: { priority: { input: '0.000025', output: '0.000075' } },
+          },
+        },
+      ]);
+
+      const models = await fetchModels({ publicModelsUrl: 'https://test.example/v1/models' });
+      expect(models[0]?.pricing.prompt).toBe('0.00001');
+      expect(models[0]?.pricing.completion).toBe('0.00003');
+    });
+  });
 });
