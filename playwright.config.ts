@@ -21,6 +21,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 1,
+  maxFailures: isCI ? 1 : 0,
   workers: isCI ? 3 : '45%',
   timeout: 45_000,
   // Backstop so a wedged run can't hang forever. Playwright aborts via its
