@@ -1959,9 +1959,7 @@ describe('chat routes', () => {
         const allTokens = streamEvents
           .map((e) => (e as Record<string, unknown>)['token'] as string)
           .join('');
-        expect(allTokens).toBe(
-          `Echo:\nHello\n\n` + '```json\n{\n  "ok": true\n}\n```'
-        );
+        expect(allTokens).toBe(`Echo:\nHello\n\n` + '```json\n{\n  "ok": true\n}\n```');
       });
 
       it('does not broadcast message:stream when no DO binding is present', async () => {
