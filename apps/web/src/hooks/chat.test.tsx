@@ -12,6 +12,7 @@ import {
   useUpdateConversation,
   useDecryptedConversations,
 } from './chat';
+import { useSession } from '../lib/auth';
 import type { ReactNode } from 'react';
 
 // Mock auth to break transitive import chain to api.ts (env parse)
@@ -20,6 +21,13 @@ vi.mock('../lib/auth', () => ({
   useAuthStore: vi.fn((selector: (s: Record<string, unknown>) => unknown) =>
     selector(mockAuthState)
   ),
+  useSession: vi.fn(() => {
+    const user = mockAuthState['user'];
+    return {
+      data: user ? { user, session: { id: (user as { id: string }).id } } : null,
+      isPending: false,
+    };
+  }),
 }));
 
 // Mock crypto and epoch-key-cache (used by useDecryptedConversations)
@@ -187,6 +195,23 @@ describe('useConversations', () => {
     expect(mockFetchJson).not.toHaveBeenCalled();
 
     mockAuthState = previousState;
+  });
+
+  it('does not fetch when masked by link-guest session', async () => {
+    // Guards the link-guest path: Zustand still holds the logged-in user, but
+    // useSession() returns null because getLinkGuestAuth() is active. The query
+    // must respect the session mask — if it reads useAuthStore directly it will
+    // fire under `credentials: 'omit'` and 401.
+    vi.mocked(useSession).mockReturnValueOnce({ data: null, isPending: false });
+
+    const { result } = renderHook(() => useConversations(), { wrapper: createWrapper() });
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
+
+    expect(result.current.data).toBeUndefined();
+    expect(mockFetchJson).not.toHaveBeenCalled();
   });
 });
 

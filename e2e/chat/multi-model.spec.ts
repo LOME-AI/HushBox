@@ -260,7 +260,10 @@ test.describe('Multi-Model Chat', () => {
       await firstNonPremium.locator('button').first().click();
 
       await modal.getByTestId('cancel-button').click();
-      await expect(modal).not.toBeVisible();
+      // Close is a Radix CSS animation with no in-flight queries — settled-aware
+      // expect short-circuits on slow webkit before the close animation paints.
+      // Matches the pattern used in the sibling test above (line 232).
+      await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
 
       // Comparison bar should NOT appear because we discarded the second model
       await chatPage.expectComparisonBarHidden();

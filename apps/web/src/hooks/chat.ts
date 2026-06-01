@@ -2,7 +2,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { decryptTextFromEpoch } from '@hushbox/crypto';
 import { fromBase64, type MemberPrivilege } from '@hushbox/shared';
-import { useAuthStore } from '../lib/auth';
+import { useAuthStore, useSession } from '../lib/auth';
 import { client, fetchJson } from '../lib/api-client';
 import {
   getEpochKey,
@@ -59,7 +59,11 @@ export function useConversations(): {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
 } {
-  const user = useAuthStore((s) => s.user);
+  // Gate on useSession(), not useAuthStore: useSession masks the user under
+  // link-guest auth, where the API client switches to `credentials: 'omit'`
+  // and a user-scoped query would 401.
+  const { data: session } = useSession();
+  const isAuthenticated = Boolean(session?.user);
 
   const query = useInfiniteQuery({
     queryKey: chatKeys.conversations(),
@@ -72,7 +76,7 @@ export function useConversations(): {
     },
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     initialPageParam: undefined as string | undefined,
-    enabled: !!user,
+    enabled: isAuthenticated,
   });
 
   const flatData = useMemo(

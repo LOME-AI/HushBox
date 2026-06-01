@@ -27,16 +27,15 @@ export class MemberSidebarPage {
     const isExpanded = await this.searchInput.isVisible().catch(() => false);
     if (!isExpanded) await this.facepile.click();
     await this.waitForLoaded();
-    // Mobile mounts the sidebar inside a Radix Sheet with a 500ms slide-in.
-    // Clicks dispatched mid-animation can land on a moving target and be
-    // dropped, so wait for any in-flight CSS animations on the sidebar
-    // subtree to finish before returning.
+    // Mobile mounts the sidebar inside a Radix Sheet. The data-state attribute
+    // flips on mount; Playwright's actionability check waits out the slide-in
+    // animation before any subsequent interaction. Don't replace this with
+    // `getAnimations({ subtree: true })`: the sidebar contains an
+    // `animate-pulse` "Decrypting…" placeholder, and `.finished` never resolves
+    // for infinite animations — the wait would hang until test timeout.
     const viewport = this.page.viewportSize();
     if (viewport && isMobileWidth(viewport.width)) {
-      await this.content
-        .evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
-        // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional swallow
-        .catch(() => {});
+      await expect(this.sidebar).toHaveAttribute('data-state', 'open');
     }
   }
 
