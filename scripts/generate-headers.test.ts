@@ -120,12 +120,57 @@ describe('generateHeaders', () => {
     const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
 
     expect(result.pagesProcessed).toBe(MARKETING_ROUTES.length);
-    expect(result.blocksEmitted).toBe(MARKETING_ROUTES.length + 1);
+    // Each marketing page emits two blocks (`/route` + `/route/`), plus the SPA `/*` fallback.
+    expect(result.blocksEmitted).toBe(MARKETING_ROUTES.length * 2 + 1);
     const content = await fs.readFile(result.outputPath, 'utf8');
     for (const route of MARKETING_ROUTES) {
       expect(content).toMatch(new RegExp(`^${route}$`, 'm'));
     }
     expect(content).toMatch(/^\/\*$/m);
+  });
+
+  it('emits the marketing block at both path forms (slash + no-slash)', async () => {
+    // Cloudflare Pages serves Astro's `<route>/index.html` at `/route/`
+    // (trailing slash, after a 308 redirect from `/route`). Its `_headers`
+    // matching is exact, so the hashed block must be keyed at BOTH path
+    // forms. Otherwise the hashed CSP applies only to the 308 redirect
+    // and the actual HTML response falls through to the SPA `/*` block
+    // with no hashes, blocking every inline Astro hydration script.
+    const distribution = path.join(repoRoot, 'apps/web/dist');
+    await writeHtml(path.join(distribution, 'welcome/index.html'), htmlWithInlineScripts('alpha'));
+    await writeHtml(path.join(distribution, 'blog/index.html'), htmlWithInlineScripts('blog-idx'));
+    await writeHtml(
+      path.join(distribution, 'blog/post-a/index.html'),
+      htmlWithInlineScripts('post-a')
+    );
+    for (const route of MARKETING_ROUTES.filter((r) => r !== '/welcome' && r !== '/blog')) {
+      const prefix = route.replace(/^\//, '');
+      await writeHtml(path.join(distribution, prefix, 'index.html'), htmlWithInlineScripts('x'));
+    }
+
+    const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
+    const content = await fs.readFile(result.outputPath, 'utf8');
+
+    for (const route of MARKETING_ROUTES) {
+      expect(content).toMatch(new RegExp(`^${route}$`, 'm'));
+      expect(content).toMatch(new RegExp(`^${route}/$`, 'm'));
+    }
+    expect(content).toMatch(/^\/blog\/post-a$/m);
+    expect(content).toMatch(/^\/blog\/post-a\/$/m);
+
+    const blocks = content.split('\n\n');
+    const blockHead = (block: string): string => block.split('\n')[0] ?? '';
+    const welcomeNoSlash = blocks.find((b) => blockHead(b) === '/welcome');
+    const welcomeSlash = blocks.find((b) => blockHead(b) === '/welcome/');
+    const postNoSlash = blocks.find((b) => blockHead(b) === '/blog/post-a');
+    const postSlash = blocks.find((b) => blockHead(b) === '/blog/post-a/');
+
+    expect(welcomeNoSlash).toContain(sha256Token('alpha'));
+    expect(welcomeSlash).toContain(sha256Token('alpha'));
+    expect(postNoSlash).toContain(sha256Token('post-a'));
+    expect(postSlash).toContain(sha256Token('post-a'));
+    expect(welcomeSlash).not.toContain(sha256Token('post-a'));
+    expect(postSlash).not.toContain(sha256Token('alpha'));
   });
 
   it('inlines per-page script hashes into the marketing CSP script-src', async () => {

@@ -122,11 +122,14 @@ describe('matchHeaders', () => {
     });
   });
 
-  it('matches a path with trailing slash as equivalent', () => {
-    expect(matchHeaders(allRules, '/welcome/')).toEqual({
-      'X-Marketing': 'true',
-      'X-Catch-All': 'true',
-    });
+  it('treats a trailing slash as a distinct path (Cloudflare Pages parity)', () => {
+    // Cloudflare Pages `_headers` is exact-match per path. The preview
+    // server must mirror that — otherwise lenient trailing-slash matching
+    // here hides production CSP bugs (e.g. an `_headers` block keyed at
+    // `/welcome` would silently work in preview but miss `/welcome/` in
+    // prod, falling through to the SPA `/*` fallback).
+    expect(matchHeaders(allRules, '/welcome/')).toEqual({ 'X-Catch-All': 'true' });
+    expect(matchHeaders(allRules, '/welcome/')['X-Marketing']).toBeUndefined();
   });
 
   it('strips query strings before matching', () => {

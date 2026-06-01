@@ -273,7 +273,16 @@ export async function generateHeaders(
   for (const page of pages) {
     const html = await fs.readFile(page.htmlFile, 'utf8');
     const csp = computePageCsp(html);
-    blocks.push(formatMarketingBlock(page.urlPath, csp, spaHeaders));
+    // Cloudflare Pages serves Astro's `<route>/index.html` at `/route/`
+    // (trailing slash, after a 308 from `/route`); its `_headers` matcher
+    // is exact-match per path. Emit blocks at BOTH forms — otherwise the
+    // hashed CSP attaches only to the 308 redirect and the HTML response
+    // falls through to the SPA `/*` block with no script-src hashes,
+    // blocking every inline Astro hydration script.
+    blocks.push(
+      formatMarketingBlock(page.urlPath, csp, spaHeaders),
+      formatMarketingBlock(`${page.urlPath}/`, csp, spaHeaders)
+    );
   }
 
   blocks.push(formatSpaBlock(spaHeaders));

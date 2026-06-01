@@ -125,9 +125,15 @@ export function parseHeadersFile(content: string): HeaderRule[] {
 }
 
 function patternToRegex(pattern: string): RegExp {
+  // Exact-match per path, mirroring Cloudflare Pages `_headers`. Only `*`
+  // expands (to `.*` for splat globs like `/blog/*`). No automatic
+  // trailing-slash equivalence — a rule keyed at `/welcome` matches
+  // ONLY `/welcome`, not `/welcome/`. Otherwise the preview server is
+  // more lenient than production and silently masks bugs where a rule
+  // is keyed under the wrong path form (the original cause of the
+  // `/welcome` CSP regression).
   const escaped = pattern.replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`).replaceAll('*', '.*');
-  const withTrailingSlash = escaped.endsWith('/') ? escaped : `${escaped}/?`;
-  return new RegExp(`^${withTrailingSlash}$`);
+  return new RegExp(`^${escaped}$`);
 }
 
 function computeSpecificity(pattern: string): number {
