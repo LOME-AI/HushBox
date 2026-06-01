@@ -31,7 +31,7 @@ services:
         condition: service_healthy
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     ports:
       - '${HB_REDIS_PORT:-6379}:6379'
     healthcheck:
