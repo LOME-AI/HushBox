@@ -1,8 +1,26 @@
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { ChatPage } from '../pages';
 import { requireEnv } from '../helpers/env.js';
+import type { Page } from '@playwright/test';
 
 const apiUrl = requireEnv('VITE_API_URL');
+
+/**
+ * The 6th send in a trial session deliberately trips the daily cap. The
+ * resulting 429 from /api/trial/stream is the behavior under test, not a
+ * regression — silence it on the page's allow-list so the default guard
+ * (`fixtures.ts:455-459`) doesn't fire at teardown. Patterns split into
+ * status-line + body-code matches the `account-deletion.spec.ts` convention;
+ * combining them with `.*` doesn't work because the captured entry is
+ * multi-line and `.` doesn't cross `\n`.
+ */
+function allowTrialRateLimitErrors(page: Page): void {
+  expectApiErrors(page, [
+    /429 Too Many Requests POST .*\/api\/trial\/stream/,
+    /"code":"DAILY_LIMIT_EXCEEDED"/,
+  ]);
+  expectConsoleErrors(page, [/Failed to load resource: .*status of 429/]);
+}
 
 // All trial chat tests share localhost IP for rate limiting - run only on chromium, serially
 test.describe('Trial Chat', () => {
@@ -78,15 +96,7 @@ test.describe('Trial Chat', () => {
 
     test('shows rate limit message after 5 messages', async ({ unauthenticatedPage }) => {
       const chatPage = new ChatPage(unauthenticatedPage);
-
-      // The 6th send deliberately trips the trial daily cap; the 429 is the
-      // behavior under test, not a regression.
-      expectApiErrors(unauthenticatedPage, [
-        /429 Too Many Requests POST .*\/api\/trial\/stream.*DAILY_LIMIT_EXCEEDED/,
-      ]);
-      expectConsoleErrors(unauthenticatedPage, [
-        /Failed to load resource: .*status of 429/,
-      ]);
+      allowTrialRateLimitErrors(unauthenticatedPage);
 
       await chatPage.goto();
       await chatPage.selectNonPremiumModel();
@@ -116,13 +126,7 @@ test.describe('Trial Chat', () => {
 
     test('input is disabled after rate limit', async ({ unauthenticatedPage }) => {
       const chatPage = new ChatPage(unauthenticatedPage);
-
-      expectApiErrors(unauthenticatedPage, [
-        /429 Too Many Requests POST .*\/api\/trial\/stream.*DAILY_LIMIT_EXCEEDED/,
-      ]);
-      expectConsoleErrors(unauthenticatedPage, [
-        /Failed to load resource: .*status of 429/,
-      ]);
+      allowTrialRateLimitErrors(unauthenticatedPage);
 
       await chatPage.goto();
       await chatPage.selectNonPremiumModel();
