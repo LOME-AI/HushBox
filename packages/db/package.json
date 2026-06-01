@@ -22,21 +22,21 @@
   },
   "dependencies": {
     "@hushbox/shared": "workspace:*",
-    "@neondatabase/serverless": "^1.0.2",
-    "drizzle-orm": "^0.45.1",
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.2",
     "drizzle-zod": "^0.8.3",
-    "ws": "^8.19.0",
-    "zod": "^4.3.6"
+    "ws": "^8.21.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@faker-js/faker": "^10.3.0",
+    "@faker-js/faker": "^10.4.0",
     "@hushbox/config": "workspace:*",
     "@hushbox/crypto": "workspace:*",
     "@types/ws": "^8.18.1",
-    "drizzle-kit": "^0.31.9",
+    "drizzle-kit": "^0.31.10",
     "fishery": "^2.4.0",
-    "pg": "^8.20.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "pg": "^8.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   }
 }

@@ -15,21 +15,21 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@hono/zod-validator": "^0.7.6",
+    "@hono/zod-validator": "^0.8.0",
     "@hushbox/crypto": "workspace:*",
     "@hushbox/realtime": "workspace:*",
-    "@upstash/redis": "^1.36.4",
-    "ai": "^6.0.158",
+    "@upstash/redis": "^1.38.0",
+    "ai": "^6.0.193",
     "aws4fetch": "^1.0.20",
-    "hono": "^4.12.6",
+    "hono": "^4.12.23",
     "iron-session": "^8.0.4",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260310.1",
+    "@cloudflare/workers-types": "^4.20260601.1",
     "@hushbox/config": "workspace:*",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.18",
-    "wrangler": "^4.71.0"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7",
+    "wrangler": "^4.95.0"
   }
 }
