@@ -55,6 +55,13 @@ test.describe('Login & Session', () => {
           timeout: 10_000,
         });
         await expect(unauthenticatedPage.getByText(email)).toBeVisible();
+        // CheckYourEmail fires resendVerification on mount when rendered from
+        // the login flow. That call rotates users.emailVerifyToken, so the dev
+        // endpoint must be read after it lands or the verify-email POST will
+        // use a stale token and 400 with INVALID_OR_EXPIRED_TOKEN.
+        await expect(unauthenticatedPage.getByTestId('resend-feedback')).toBeVisible({
+          timeout: 10_000,
+        });
       });
 
       await test.step('verify email via dev endpoint', async () => {

@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { ChatPage } from '../pages';
 import { requireEnv } from '../helpers/env.js';
 
@@ -79,6 +79,15 @@ test.describe('Trial Chat', () => {
     test('shows rate limit message after 5 messages', async ({ unauthenticatedPage }) => {
       const chatPage = new ChatPage(unauthenticatedPage);
 
+      // The 6th send deliberately trips the trial daily cap; the 429 is the
+      // behavior under test, not a regression.
+      expectApiErrors(unauthenticatedPage, [
+        /429 Too Many Requests POST .*\/api\/trial\/stream.*DAILY_LIMIT_EXCEEDED/,
+      ]);
+      expectConsoleErrors(unauthenticatedPage, [
+        /Failed to load resource: .*status of 429/,
+      ]);
+
       await chatPage.goto();
       await chatPage.selectNonPremiumModel();
 
@@ -107,6 +116,13 @@ test.describe('Trial Chat', () => {
 
     test('input is disabled after rate limit', async ({ unauthenticatedPage }) => {
       const chatPage = new ChatPage(unauthenticatedPage);
+
+      expectApiErrors(unauthenticatedPage, [
+        /429 Too Many Requests POST .*\/api\/trial\/stream.*DAILY_LIMIT_EXCEEDED/,
+      ]);
+      expectConsoleErrors(unauthenticatedPage, [
+        /Failed to load resource: .*status of 429/,
+      ]);
 
       await chatPage.goto();
       await chatPage.selectNonPremiumModel();

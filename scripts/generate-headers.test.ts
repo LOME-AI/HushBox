@@ -211,7 +211,9 @@ describe('generateHeaders', () => {
     const spaBlockStart = content.lastIndexOf('/*\n');
     expect(spaBlockStart).toBeGreaterThan(0);
     const spaBlock = content.slice(spaBlockStart);
-    expect(spaBlock).toContain("script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval';");
+    expect(spaBlock).toContain(
+      "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://secure.myhelcim.com;"
+    );
     expect(spaBlock).not.toContain('sha256-');
     expect(spaBlock).toContain("default-src 'self'");
     expect(spaBlock).toContain("frame-ancestors 'none'");
@@ -356,7 +358,7 @@ describe('generateHeaders', () => {
     expect(nonComment).toContain('http://localhost:9050');
   });
 
-  it('emits script-src with wasm-unsafe-eval and unsafe-eval on every block', async () => {
+  it('emits script-src with wasm-unsafe-eval, unsafe-eval, and Helcim on every block', async () => {
     await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
     const result = await generateHeaders({ repoRoot, apiUrl: 'http://localhost:8787' });
     const nonComment = stripComments(await fs.readFile(result.outputPath, 'utf8'));
@@ -366,6 +368,21 @@ describe('generateHeaders', () => {
     for (const line of scriptSourceLines) {
       expect(line).toContain("'wasm-unsafe-eval'");
       expect(line).toContain("'unsafe-eval'");
+      expect(line).toContain('https://secure.myhelcim.com');
+    }
+  });
+
+  it('emits connect-src with Helcim on every block (tokenization XHR)', async () => {
+    // version2.js POSTs the card payload back to secure.myhelcim.com — if
+    // the host is missing from connect-src the script loads (script-src
+    // allows it) but tokenization silently fails in the browser.
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({ repoRoot, apiUrl: 'http://localhost:8787' });
+    const nonComment = stripComments(await fs.readFile(result.outputPath, 'utf8'));
+    const connectSourceLines = nonComment.split('\n').filter((l) => l.includes('connect-src'));
+    expect(connectSourceLines.length).toBeGreaterThan(0);
+    for (const line of connectSourceLines) {
+      expect(line).toContain('https://secure.myhelcim.com');
     }
   });
 

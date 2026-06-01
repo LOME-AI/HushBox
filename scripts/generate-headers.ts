@@ -98,11 +98,18 @@ function buildSpaHeaders(
   // Local MinIO emulator (dev/E2E only — see deriveLocalR2Origin). Prod R2
   // reads are covered by the `*.r2.cloudflarestorage.com` wildcard below;
   // localR2Origin is null on prod builds and contributes nothing.
+  //
+  // `https://secure.myhelcim.com` is the host for Helcim.js v2 — the
+  // billing modal loads `version2.js` from it and the script POSTs the
+  // card-tokenization request back to the same origin. Both directives
+  // need the host or the payment form fails at mount (script-src) or at
+  // submit (connect-src). See apps/web/src/lib/helcim-loader.ts.
   const connectSource = [
     "'self'",
     apiOrigin.http,
     'https://*.r2.cloudflarestorage.com',
     'https://*.r2.dev',
+    'https://secure.myhelcim.com',
     apiOrigin.ws,
     ...(localR2Origin === null ? [] : [localR2Origin]),
   ].join(' ');
@@ -121,7 +128,12 @@ function buildSpaHeaders(
         // (the legacy global-this polyfill from lodash/d3-era libs). Without
         // this token, every page that loads those chunks throws CSP violations
         // and the marketing site's astro-island hydration fails outright.
-        "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; " +
+        //
+        // `https://secure.myhelcim.com` is the only third-party script host
+        // we allow. It serves Helcim.js v2 (loaded lazily by the billing
+        // modal). No wildcard — the host is named explicitly so the policy
+        // can't drift into accepting arbitrary external scripts.
+        "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://secure.myhelcim.com; " +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' blob: data:; " +
         "media-src 'self' blob:; " +
@@ -205,12 +217,14 @@ const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do no
 #
 # Directive notes
 #  - default-src 'self': fall-through deny for anything not enumerated below.
-#  - script-src: 'self' + 'wasm-unsafe-eval' plus per-page SHA-256 hashes on marketing
-#    routes. SPA route stays without inline-script hashes since it serves no inline
-#    scripts. 'wasm-unsafe-eval' is required by hash-wasm/argon2id, called from
-#    packages/crypto's key-derivation during signup, recovery-phrase verify, and
-#    password change. Without it, WebAssembly.compile is blocked and signUpEmail's
-#    catch swallows the failure silently.
+#  - script-src: 'self' + 'wasm-unsafe-eval' + 'unsafe-eval' + secure.myhelcim.com plus
+#    per-page SHA-256 hashes on marketing routes. SPA route stays without inline-script
+#    hashes since it serves no inline scripts. 'wasm-unsafe-eval' is required by
+#    hash-wasm/argon2id, called from packages/crypto's key-derivation during signup,
+#    recovery-phrase verify, and password change. Without it, WebAssembly.compile is
+#    blocked and signUpEmail's catch swallows the failure silently. secure.myhelcim.com
+#    is the only third-party script host — the billing modal lazy-loads Helcim.js v2
+#    from it for client-side card tokenization.
 #  - style-src 'self' 'unsafe-inline': required by Tailwind's runtime style insertion and
 #    by inline style="..." attributes (e.g. ThemeToggle SVG transitions). Shiki output —
 #    if/when blog posts add code fences — also lands here and is the main reason this
@@ -218,8 +232,9 @@ const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do no
 #  - img-src 'self' blob: data:: 'blob:' is REQUIRED — decrypted media bytes are exposed
 #    to <img> tags through URL.createObjectURL(...). 'data:' covers small inline icons.
 #  - media-src 'self' blob:: same reason for <video>/<audio> elements with Object URLs.
-#  - connect-src 'self' + api origin + R2 hosts + wss: front-end fetches encrypted blobs
-#    directly from R2 via presigned URLs and opens a WebSocket to the API. The local
+#  - connect-src 'self' + api origin + R2 hosts + secure.myhelcim.com + wss: front-end
+#    fetches encrypted blobs directly from R2 via presigned URLs, posts card tokenization
+#    requests to Helcim from version2.js, and opens a WebSocket to the API. The local
 #    MinIO emulator at http://localhost:<HB_MINIO_API_PORT> is appended for dev/E2E
 #    builds (the port is slot-offset for worktrees; see scripts/worktree.ts); prod builds
 #    skip it since the *.r2.cloudflarestorage.com wildcard already covers prod reads.

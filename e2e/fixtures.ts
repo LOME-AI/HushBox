@@ -275,19 +275,19 @@ function createPageFixture(
 ) => Promise<void> {
   return async ({ browser }, use, testInfo) => {
     const harPath = testInfo.outputPath(`${label}.har`);
-    const isRetry = testInfo.retry > 0;
     const storageState =
       'persona' in spec ? `e2e/.auth/${testInfo.project.name}/${spec.persona}.json` : spec.state;
     const { state, initScript } = await buildContextOptions(storageState);
+    // Record HAR on every attempt — `attachFailureArtifacts` only attaches it
+    // when the attempt fails, so a flaky test's first (failing) attempt has
+    // network data in the report instead of only the retry that passed.
     const context = await browser.newContext({
       storageState: state,
-      ...(isRetry && {
-        recordHar: {
-          path: harPath,
-          mode: 'minimal',
-          urlFilter: /\/api\//,
-        },
-      }),
+      recordHar: {
+        path: harPath,
+        mode: 'minimal',
+        urlFilter: /\/api\//,
+      },
     });
     if (initScript !== null) await context.addInitScript({ content: initScript });
     const page = await context.newPage();
@@ -492,7 +492,6 @@ export const test = base.extend<CustomFixtures>({
     let counter = 0;
 
     const DEFAULT_STORAGE_STATE: StorageState = { cookies: [], origins: [] };
-    const isRetry = testInfo.retry > 0;
     const factory = async (storageState: StorageState = DEFAULT_STORAGE_STATE): Promise<Page> => {
       counter++;
       const label = `unauthenticatedPage-${String(counter)}`;
@@ -500,9 +499,7 @@ export const test = base.extend<CustomFixtures>({
       const { state, initScript } = await buildContextOptions(storageState);
       const context = await browser.newContext({
         storageState: state,
-        ...(isRetry && {
-          recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
-        }),
+        recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
       });
       if (initScript !== null) await context.addInitScript({ content: initScript });
       const page = await context.newPage();
