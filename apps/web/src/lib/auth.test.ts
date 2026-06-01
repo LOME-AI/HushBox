@@ -33,6 +33,7 @@ import {
   parseErrorMessage,
   type UserData,
 } from './auth';
+import { urlFromFetchInput } from '@/test-utils/fetch-mock';
 
 function defined<T>(value: T | null | undefined, label = 'value'): NonNullable<T> {
   if (value == null) throw new Error(`Expected ${label} to be defined`);
@@ -1476,10 +1477,13 @@ describe('auth', () => {
 
       await signOutAndClearCache();
 
-      expect(fetch).toHaveBeenCalledWith('http://localhost:8787/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-      });
+      const call = vi
+        .mocked(fetch)
+        .mock.calls.find((c) => urlFromFetchInput(c[0]).endsWith('/api/auth/logout'));
+      expect(call).toBeDefined();
+      const init = call![1]!;
+      expect(init.method).toBe('POST');
+      expect(init.credentials).toBe('include');
       expect(clearStoredAuth).toHaveBeenCalled();
       expect(mockQueryClientClear).toHaveBeenCalled();
 
@@ -2075,12 +2079,15 @@ describe('auth', () => {
       const result = await authClient.tokenLogin({ token: 'valid-token' });
 
       expect(result.error).toBeUndefined();
-      expect(fetch).toHaveBeenCalledWith('http://localhost:8787/api/auth/token-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: 'valid-token' }),
-        credentials: 'include',
-      });
+      const call = vi
+        .mocked(fetch)
+        .mock.calls.find((c) => urlFromFetchInput(c[0]).endsWith('/api/auth/token-login'));
+      expect(call).toBeDefined();
+      const init = call![1]!;
+      expect(init.method).toBe('POST');
+      expect(init.credentials).toBe('include');
+      expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
+      expect(JSON.parse(init.body as string)).toEqual({ token: 'valid-token' });
     });
 
     it('should return error on failed token login', async () => {
@@ -2117,12 +2124,15 @@ describe('auth', () => {
       const result = await authClient.resendVerification({ email: 'test@example.com' });
 
       expect(result.error).toBeUndefined();
-      expect(fetch).toHaveBeenCalledWith('http://localhost:8787/api/auth/resend-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'test@example.com' }),
-        credentials: 'include',
-      });
+      const call = vi
+        .mocked(fetch)
+        .mock.calls.find((c) => urlFromFetchInput(c[0]).endsWith('/api/auth/resend-verification'));
+      expect(call).toBeDefined();
+      const init = call![1]!;
+      expect(init.method).toBe('POST');
+      expect(init.credentials).toBe('include');
+      expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
+      expect(JSON.parse(init.body as string)).toEqual({ email: 'test@example.com' });
     });
 
     it('should return error on failed resend', async () => {
@@ -2159,12 +2169,15 @@ describe('auth', () => {
       const result = await authClient.verifyEmail({ query: { token: 'valid-token' } });
 
       expect(result.error).toBeUndefined();
-      expect(fetch).toHaveBeenCalledWith('http://localhost:8787/api/auth/verify-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: 'valid-token' }),
-        credentials: 'include',
-      });
+      const call = vi
+        .mocked(fetch)
+        .mock.calls.find((c) => urlFromFetchInput(c[0]).endsWith('/api/auth/verify-email'));
+      expect(call).toBeDefined();
+      const init = call![1]!;
+      expect(init.method).toBe('POST');
+      expect(init.credentials).toBe('include');
+      expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
+      expect(JSON.parse(init.body as string)).toEqual({ token: 'valid-token' });
     });
 
     it('should return error when verification fails', async () => {

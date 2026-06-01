@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { applyFees, calculateMediaGenerationCost } from '@hushbox/shared';
+import { calculateMediaGenerationCost } from '@hushbox/shared';
 import {
   assertValidMediaBytes,
   clearTestModelCache,
@@ -54,7 +54,7 @@ describe('AIClient image generation integration', () => {
     expect(generated.generationId).toBeDefined();
   });
 
-  it('calculateMediaGenerationCost matches applyFees(perImage × n) + mediaStorageCost(bytes)', async () => {
+  it('calculateMediaGenerationCost matches perImage × n + mediaStorageCost(bytes) (fee-inclusive prices)', async () => {
     expect(generated.mediaBytes).toBeDefined();
     if (spec.parameters.kind !== 'image') throw new Error('expected image spec');
     const model = await client.getModel(spec.modelId);
@@ -65,7 +65,8 @@ describe('AIClient image generation integration', () => {
       sizeBytes,
       imageCount: 1,
     });
-    const modelComponent = applyFees(model.pricing.perImage);
+    // `model.pricing.perImage` is fee-inclusive per the `ModelInfo.pricing` contract.
+    const modelComponent = model.pricing.perImage;
     expect(cost).toBeGreaterThanOrEqual(modelComponent);
     const storageComponent = cost - modelComponent;
     expect(storageComponent).toBeGreaterThanOrEqual(0);

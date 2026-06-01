@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RecoveryPhraseModal } from './RecoveryPhraseModal';
+import { urlFromFetchInput } from '@/test-utils/fetch-mock';
 
 const mockRecoveryWrappedPrivateKey = new Uint8Array([10, 20, 30, 40, 50]);
 const mockRegenerateRecoveryPhrase = vi.fn().mockResolvedValue({
@@ -473,26 +474,26 @@ describe('RecoveryPhraseModal', () => {
     it('calls POST /api/auth/recovery/save with recoveryWrappedPrivateKey', async () => {
       await setupForCryptoSaveTest();
 
-      await waitFor(() => {
-        expect(globalThis.fetch).toHaveBeenCalledWith(
-          'http://localhost:8787/api/auth/recovery/save',
-          expect.objectContaining({
-            method: 'POST',
-            credentials: 'include',
-            headers: expect.objectContaining({
-              'Content-Type': 'application/json',
-            }),
-          })
-        );
+      // The save is routed through the typed Hono client (`client.api.auth.
+      // recovery.save.$post`) which calls fetch with the absolute URL produced
+      // by `hc(baseUrl)`. Normalize string | URL | Request inputs so a future
+      // change in input type does not break this assertion.
+      const matchedCall = await waitFor(() => {
+        const call = vi
+          .mocked(globalThis.fetch)
+          .mock.calls.find((c) => urlFromFetchInput(c[0]).endsWith('/api/auth/recovery/save'));
+        expect(call).toBeDefined();
+        return call!;
       });
 
-      const fetchCall = vi
-        .mocked(globalThis.fetch)
-        .mock.calls.find((call) => call[0] === 'http://localhost:8787/api/auth/recovery/save');
-      expect(fetchCall).toBeDefined();
-      const fetchCallArgs = fetchCall?.[1];
-      if (!fetchCallArgs) throw new Error('Expected fetch call to have arguments');
-      const body = JSON.parse(fetchCallArgs.body as string) as Record<string, unknown>;
+      const init = matchedCall[1];
+      if (!init) throw new Error('Expected fetch call to have init arguments');
+      expect(init.method).toBe('POST');
+      expect(init.credentials).toBe('include');
+      const headers = new Headers(init.headers);
+      expect(headers.get('Content-Type')).toBe('application/json');
+
+      const body = JSON.parse(init.body as string) as Record<string, unknown>;
       expect(body).toHaveProperty('recoveryWrappedPrivateKey');
       expect(body).not.toHaveProperty('phraseSalt');
       expect(body).not.toHaveProperty('phraseVerifier');

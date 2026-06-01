@@ -1,11 +1,18 @@
 import { isZdrModel, type RawModel } from '@hushbox/shared/models';
-import { parseTokenPrice, assertNever } from '@hushbox/shared';
+import { applyFees, parseTokenPrice, assertNever } from '@hushbox/shared';
 import type { ModelInfo, ModelPricing } from './types.js';
 
 /**
  * Map a fully-merged RawModel (output of shared `fetchModels`, which merges
  * the SDK `/config` endpoint with the public `/v1/models` endpoint for media
  * pricing) to the AIClient-layer ModelInfo shape.
+ *
+ * Fee contract: every `ModelInfo.pricing.*` price field is fee-inclusive —
+ * fees are applied once inside `pricingFromRawModel`. This matches the
+ * contract for `Model.pricePer*` (see `process-models.ts`) so downstream
+ * billing math (`computeImageExactCents`, `computeVideoExactCents`, etc.)
+ * never needs to re-apply fees regardless of which Model-like view the
+ * price came from.
  *
  * Lives in its own module so both `real.ts` and `mock.ts` derive ModelInfo
  * the same way, keeping one source of truth for the raw → info translation.
@@ -35,11 +42,14 @@ function pricingFromRawModel(raw: RawModel): ModelPricing {
   switch (raw.modality) {
     case 'text': {
       const ws = raw.pricing.web_search;
+      // Web-search-per-call is a raw constant — fees applied at billing time
+      // via `applyFees(webSearchCost)` in pricing.ts. Keep it raw here so the
+      // billing pipeline can charge it correctly.
       const webSearchPerCall = ws === undefined ? undefined : parseTokenPrice(ws);
       return {
         kind: 'token',
-        inputPerToken: parseTokenPrice(raw.pricing.prompt),
-        outputPerToken: parseTokenPrice(raw.pricing.completion),
+        inputPerToken: applyFees(parseTokenPrice(raw.pricing.prompt)),
+        outputPerToken: applyFees(parseTokenPrice(raw.pricing.completion)),
         ...(webSearchPerCall === undefined ? {} : { webSearchPerCall }),
       };
     }
@@ -47,13 +57,13 @@ function pricingFromRawModel(raw: RawModel): ModelPricing {
       const rawPerImage = raw.pricing.per_image;
       return {
         kind: 'image',
-        perImage: rawPerImage === undefined ? 0 : parseTokenPrice(rawPerImage),
+        perImage: rawPerImage === undefined ? 0 : applyFees(parseTokenPrice(rawPerImage)),
       };
     }
     case 'video': {
       const rawMap = raw.pricing.per_second_by_resolution ?? {};
       const perSecondByResolution = Object.fromEntries(
-        Object.entries(rawMap).map(([res, price]) => [res, parseTokenPrice(price)])
+        Object.entries(rawMap).map(([res, price]) => [res, applyFees(parseTokenPrice(price))])
       );
       return { kind: 'video', perSecondByResolution };
     }
@@ -66,8 +76,9 @@ function pricingFromRawModel(raw: RawModel): ModelPricing {
       //   1. Add the ZDR audio model id to `ZDR_AUDIO_MODEL_IDS`.
       //   2. Add an `extractAudioPricing` to `packages/shared/src/models/fetch.ts`
       //      mirroring `extractImagePricing` against the real catalog key.
-      //   3. Replace this `0` with `parseTokenPrice(raw.pricing.per_second ?? '0')`.
-      // Mocks override `pricing.perSecond` on the ModelInfo for billing tests.
+      //   3. Replace this `0` with `applyFees(parseTokenPrice(raw.pricing.per_second ?? '0'))`.
+      // Mocks override `pricing.perSecond` on the ModelInfo for billing tests
+      // — those overrides must use fee-inclusive prices to stay consistent.
       return { kind: 'audio', perSecond: 0 };
     }
     default: {

@@ -653,6 +653,7 @@ describe('useDecryptedConversations', () => {
           'conv-1': { wraps: [], chainLinks: [], currentEpoch: 1 },
           'conv-2': { wraps: [], chainLinks: [], currentEpoch: 1 },
         },
+        missing: [],
       });
 
     // Simulate needing keys (no cached epoch keys)

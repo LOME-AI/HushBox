@@ -59,6 +59,7 @@ vi.mock('@hushbox/shared/models', async (importOriginal) => {
 });
 
 const { createRealAIClient } = await import('./real.js');
+const { applyFees } = await import('@hushbox/shared');
 
 async function collectEvents(stream: AsyncIterable<InferenceEvent>): Promise<InferenceEvent[]> {
   const events: InferenceEvent[] = [];
@@ -842,16 +843,18 @@ describe('createRealAIClient', () => {
       expect(models.length).toBe(3);
       expect(models[0]!.id).toBe('anthropic/claude-sonnet-4.6');
       expect(models[0]!.modality).toBe('text');
+      // ModelInfo.pricing.* is fee-inclusive per the `pricingFromRawModel` contract.
       if (models[0]!.pricing.kind === 'token') {
-        expect(models[0]!.pricing.inputPerToken).toBeCloseTo(0.000_003, 9);
+        expect(models[0]!.pricing.inputPerToken).toBeCloseTo(applyFees(0.000_003), 15);
       }
       expect(models[1]!.modality).toBe('image');
       if (models[1]!.pricing.kind === 'image') {
-        expect(models[1]!.pricing.perImage).toBeCloseTo(0.04, 6);
+        expect(models[1]!.pricing.perImage).toBeCloseTo(applyFees(0.04), 15);
       }
       expect(models[2]!.modality).toBe('video');
       if (models[2]!.pricing.kind === 'video') {
-        expect(models[2]!.pricing.perSecondByResolution).toEqual({ '720p': 0.4, '1080p': 0.4 });
+        expect(models[2]!.pricing.perSecondByResolution['720p']).toBeCloseTo(applyFees(0.4), 15);
+        expect(models[2]!.pricing.perSecondByResolution['1080p']).toBeCloseTo(applyFees(0.4), 15);
       }
     });
 

@@ -1,13 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@hushbox/shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@hushbox/shared')>();
-  return {
-    ...actual,
-    getModelPricing: vi.fn(actual.getModelPricing),
-  };
-});
-
 vi.mock('./broadcast.js', () => ({
   broadcastFireAndForget: vi.fn(),
 }));
@@ -16,9 +8,8 @@ vi.mock('@hushbox/realtime/events', () => ({
   createEvent: vi.fn((type: string, payload: unknown) => ({ type, payload })),
 }));
 
-import { getModelPricing } from '@hushbox/shared';
 import { createEvent } from '@hushbox/realtime/events';
-import { computeImageWorstCaseCents } from '@hushbox/shared';
+import { applyFees, computeImageWorstCaseCents } from '@hushbox/shared';
 import { broadcastFireAndForget } from './broadcast.js';
 import {
   BATCH_INTERVAL_MS,
@@ -88,27 +79,24 @@ describe('BATCH_INTERVAL_MS', () => {
 });
 
 describe('lookupModelPricing', () => {
-  beforeEach(() => {
-    vi.mocked(getModelPricing).mockClear();
-  });
-
-  it('finds a model by id and delegates to getModelPricing', () => {
+  it('finds a model by id and returns fee-inclusive per-token prices', () => {
     const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
 
     const result = lookupModelPricing(models, 'openai/gpt-4o');
 
-    expect(getModelPricing).toHaveBeenCalledWith(0.000_005, 0.000_015, 128_000);
-    expect(result).toHaveProperty('inputPricePerToken');
-    expect(result).toHaveProperty('outputPricePerToken');
-    expect(result).toHaveProperty('contextLength', 128_000);
+    expect(result.inputPricePerToken).toBeCloseTo(applyFees(0.000_005), 15);
+    expect(result.outputPricePerToken).toBeCloseTo(applyFees(0.000_015), 15);
+    expect(result.contextLength).toBe(128_000);
   });
 
-  it('passes 0 for pricing when model is not found', () => {
+  it('returns 0 prices and default context when model is not found', () => {
     const models = [makeModelInfo({ id: 'openai/gpt-4o' })];
 
-    lookupModelPricing(models, 'nonexistent/model');
+    const result = lookupModelPricing(models, 'nonexistent/model');
 
-    expect(getModelPricing).toHaveBeenCalledWith(0, 0, 128_000);
+    expect(result.inputPricePerToken).toBe(0);
+    expect(result.outputPricePerToken).toBe(0);
+    expect(result.contextLength).toBe(128_000);
   });
 
   it('uses model context_length when found', () => {
@@ -120,12 +108,14 @@ describe('lookupModelPricing', () => {
   });
 
   it('falls back to 128_000 context length when model is not found', () => {
-    lookupModelPricing([], 'missing/model');
+    const result = lookupModelPricing([], 'missing/model');
 
-    expect(getModelPricing).toHaveBeenCalledWith(0, 0, 128_000);
+    expect(result.inputPricePerToken).toBe(0);
+    expect(result.outputPricePerToken).toBe(0);
+    expect(result.contextLength).toBe(128_000);
   });
 
-  it('correctly parses string pricing to numbers', () => {
+  it('correctly parses string pricing to fee-inclusive numbers', () => {
     const models = [
       makeModelInfo({
         id: 'test/model',
@@ -133,9 +123,11 @@ describe('lookupModelPricing', () => {
       }),
     ];
 
-    lookupModelPricing(models, 'test/model');
+    const result = lookupModelPricing(models, 'test/model');
 
-    expect(getModelPricing).toHaveBeenCalledWith(0.000_01, 0.000_03, 128_000);
+    expect(result.inputPricePerToken).toBeCloseTo(applyFees(0.000_01), 15);
+    expect(result.outputPricePerToken).toBeCloseTo(applyFees(0.000_03), 15);
+    expect(result.contextLength).toBe(128_000);
   });
 
   it('selects the correct model from multiple entries', () => {
@@ -144,9 +136,10 @@ describe('lookupModelPricing', () => {
       makeModelInfo({ id: 'model/b', pricing: { prompt: '0.003', completion: '0.004' } }),
     ];
 
-    lookupModelPricing(models, 'model/b');
+    const result = lookupModelPricing(models, 'model/b');
 
-    expect(getModelPricing).toHaveBeenCalledWith(0.003, 0.004, 128_000);
+    expect(result.inputPricePerToken).toBeCloseTo(applyFees(0.003), 15);
+    expect(result.outputPricePerToken).toBeCloseTo(applyFees(0.004), 15);
   });
 });
 

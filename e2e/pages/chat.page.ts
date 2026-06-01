@@ -208,7 +208,7 @@ export class ChatPage {
     // needing to scroll. If the message is genuinely off-screen due to
     // virtualization, this wait returns fast (locator stays not-visible)
     // and we fall through to the scroll path.
-    const happyWait = Math.min(3000, timeout);
+    const happyWait = Math.min(10_000, timeout);
     const appeared = await locator
       .waitFor({ state: 'visible', timeout: happyWait })
       .then(() => true)

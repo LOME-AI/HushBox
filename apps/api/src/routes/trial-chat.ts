@@ -26,7 +26,7 @@ import { textStrategy } from '../lib/modality-strategies.js';
 import { hashIp, getClientIp } from '../lib/client-ip.js';
 import { rateLimitByIp } from '../middleware/rate-limit.js';
 import type { AppEnv } from '../types.js';
-import type { getModelPricing } from '@hushbox/shared';
+import type { ModelPricingResult } from '@hushbox/shared';
 import type { Context } from 'hono';
 
 interface TrialMessage {
@@ -96,7 +96,7 @@ type TrialBudgetResult =
 function calculateTrialBudget(
   c: Context<AppEnv>,
   messages: TrialMessage[],
-  pricing: ReturnType<typeof getModelPricing>
+  pricing: ModelPricingResult
 ): TrialBudgetResult {
   const systemPromptForBudget = buildSystemPrompt([]);
   const historyCharacters = messages.reduce((sum, m) => sum + m.content.length, 0);

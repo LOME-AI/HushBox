@@ -14,9 +14,13 @@ import type { ImageAspectRatio, VideoAspectRatio, VideoResolution } from '@hushb
 import type { ImageModelView, TextModelView, VideoModelView } from './model-view.js';
 import type { AIClient, Modality } from './types.js';
 
-const MAX_TEST_TOKEN_PRICE = 0.000_01;
-const MAX_TEST_IMAGE_PRICE = 0.05;
-const MAX_TEST_VIDEO_PRICE_PER_SECOND = 0.2;
+// Test-budget ceilings compared against fee-inclusive `ModelView` prices
+// (see `model-view.ts`'s fee contract). Choose generous enough thresholds that
+// the ~15% fee bump from raw → fee-inclusive doesn't shift which model the
+// picker selects in practice.
+const MAX_TEST_TOKEN_PRICE_FEE_INCLUSIVE = 0.000_01;
+const MAX_TEST_IMAGE_PRICE_FEE_INCLUSIVE = 0.05;
+const MAX_TEST_VIDEO_PRICE_PER_SECOND_FEE_INCLUSIVE = 0.2;
 
 export interface TextTestParameters {
   kind: 'text';
@@ -95,7 +99,9 @@ function pickCheapestTextModel(candidates: readonly TextModelView[]): TestModelS
     (a, b) => a.inputPerToken + a.outputPerToken - (b.inputPerToken + b.outputPerToken)
   );
   const withinThreshold = sortedAll.find(
-    (m) => m.inputPerToken <= MAX_TEST_TOKEN_PRICE && m.outputPerToken <= MAX_TEST_TOKEN_PRICE
+    (m) =>
+      m.inputPerToken <= MAX_TEST_TOKEN_PRICE_FEE_INCLUSIVE &&
+      m.outputPerToken <= MAX_TEST_TOKEN_PRICE_FEE_INCLUSIVE
   );
   const cheapest = withinThreshold ?? sortedAll[0];
   if (cheapest === undefined) {
@@ -112,13 +118,15 @@ function pickCheapestImageModel(candidates: readonly ImageModelView[]): TestMode
       m.supportedAspectRatios !== undefined &&
       m.supportedAspectRatios.length > 0 &&
       m.perImage > 0 &&
-      m.perImage <= MAX_TEST_IMAGE_PRICE
+      m.perImage <= MAX_TEST_IMAGE_PRICE_FEE_INCLUSIVE
   );
   const sorted = withCapability.toSorted((a, b) => a.perImage - b.perImage);
   const cheapest = sorted[0];
   const firstAspectRatio = cheapest?.supportedAspectRatios?.[0];
   if (cheapest === undefined || firstAspectRatio === undefined) {
-    throw new Error('No image model with capability data found within MAX_TEST_IMAGE_PRICE.');
+    throw new Error(
+      'No image model with capability data found within MAX_TEST_IMAGE_PRICE_FEE_INCLUSIVE.'
+    );
   }
   return {
     modelId: cheapest.id,
@@ -154,7 +162,7 @@ function videoCandidatesFrom(model: VideoModelView): VideoCandidate[] {
   for (const resolution of model.supportedResolutions) {
     const pricePerSecond = model.perSecondByResolution[resolution];
     if (pricePerSecond === undefined || pricePerSecond <= 0) continue;
-    if (pricePerSecond > MAX_TEST_VIDEO_PRICE_PER_SECOND) continue;
+    if (pricePerSecond > MAX_TEST_VIDEO_PRICE_PER_SECOND_FEE_INCLUSIVE) continue;
     candidates.push({
       model,
       resolution,
@@ -175,7 +183,7 @@ function pickCheapestVideoModel(candidates: readonly VideoModelView[]): TestMode
   const cheapest = sorted[0];
   if (cheapest === undefined) {
     throw new Error(
-      'No video model with capability data found within MAX_TEST_VIDEO_PRICE_PER_SECOND.'
+      'No video model with capability data found within MAX_TEST_VIDEO_PRICE_PER_SECOND_FEE_INCLUSIVE.'
     );
   }
   return {

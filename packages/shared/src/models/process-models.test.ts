@@ -9,6 +9,7 @@ vi.mock('./zdr.js', () => ({
 
 import { processModels, pickValueTextModel } from './process-models.js';
 import { SMART_MODEL_ID } from '../constants.js';
+import { applyFees } from '../pricing.js';
 
 /**
  * Strip the synthetic Smart Model entry so tests can assert against only
@@ -407,7 +408,7 @@ describe('processModels', () => {
   });
 
   describe('transformation', () => {
-    it('transforms raw gateway model to Model type', () => {
+    it('transforms raw gateway model to Model type with fees baked in', () => {
       const models = [
         createModel({
           id: 'openai/gpt-4-turbo',
@@ -429,10 +430,11 @@ describe('processModels', () => {
         description: 'Most capable GPT-4',
         provider: 'OpenAI',
         contextLength: 128_000,
-        pricePerInputToken: 0.000_01,
-        pricePerOutputToken: 0.000_03,
         created: 1_704_067_200,
       });
+      // Prices are fee-inclusive per the `processModels` contract.
+      expect(model?.pricePerInputToken).toBeCloseTo(applyFees(0.000_01), 15);
+      expect(model?.pricePerOutputToken).toBeCloseTo(applyFees(0.000_03), 15);
     });
 
     it('extracts provider from model ID prefix', () => {
@@ -542,7 +544,7 @@ describe('processModels', () => {
       expect(smart?.provider).toBe('HushBox');
     });
 
-    it('headline price tracks the cheapest pool input/output (dynamic, not the static constant)', () => {
+    it('headline price tracks the cheapest pool input/output (fee-inclusive, dynamic)', () => {
       const cheapModel = createModel({
         id: 'cheap/model',
         pricing: { prompt: '0.0001', completion: '0.0002' },
@@ -556,8 +558,9 @@ describe('processModels', () => {
 
       // Plan §10.12: headline pricing is derived from the eligible-model
       // price spread, not the static `SMART_MODEL_*_PRICE_PER_TOKEN` constants.
-      expect(smart?.pricePerInputToken).toBe(0.0001);
-      expect(smart?.pricePerOutputToken).toBe(0.0002);
+      // Fee-inclusive per the `processModels` contract.
+      expect(smart?.pricePerInputToken).toBeCloseTo(applyFees(0.0001), 15);
+      expect(smart?.pricePerOutputToken).toBeCloseTo(applyFees(0.0002), 15);
     });
 
     it('omits the Smart Model entry entirely when the eligible pool is empty', () => {
@@ -565,7 +568,7 @@ describe('processModels', () => {
       expect(result.models.find((m) => m.id === SMART_MODEL_ID)).toBeUndefined();
     });
 
-    it('computes price ranges from the model pool', () => {
+    it('computes fee-inclusive price ranges from the model pool', () => {
       const cheapModel = createModel({
         id: 'cheap/model',
         pricing: { prompt: '0.0001', completion: '0.0002' },
@@ -579,10 +582,10 @@ describe('processModels', () => {
       const result = processModels(models);
       const smart = result.models.find((m) => m.id === SMART_MODEL_ID);
 
-      expect(smart?.minPricePerInputToken).toBe(0.0001);
-      expect(smart?.minPricePerOutputToken).toBe(0.0002);
-      expect(smart?.maxPricePerInputToken).toBe(0.01);
-      expect(smart?.maxPricePerOutputToken).toBe(0.02);
+      expect(smart?.minPricePerInputToken).toBeCloseTo(applyFees(0.0001), 15);
+      expect(smart?.minPricePerOutputToken).toBeCloseTo(applyFees(0.0002), 15);
+      expect(smart?.maxPricePerInputToken).toBeCloseTo(applyFees(0.01), 15);
+      expect(smart?.maxPricePerOutputToken).toBeCloseTo(applyFees(0.02), 15);
     });
 
     it('does not classify the Smart Model entry as premium', () => {
@@ -685,7 +688,8 @@ describe('processModels', () => {
       const imagen = result.models.find((m) => m.id === 'google/imagen-4.0-generate-001');
       expect(imagen).toBeDefined();
       expect(imagen?.modality).toBe('image');
-      expect(imagen?.pricePerImage).toBeCloseTo(0.04, 6);
+      // Fee-inclusive per the `processModels` contract.
+      expect(imagen?.pricePerImage).toBeCloseTo(applyFees(0.04), 15);
       expect(imagen?.pricePerInputToken).toBe(0);
       expect(imagen?.pricePerOutputToken).toBe(0);
     });
@@ -740,7 +744,9 @@ describe('processModels', () => {
       const veo = result.models.find((m) => m.id === 'google/veo-3.1-generate-001');
       expect(veo).toBeDefined();
       expect(veo?.modality).toBe('video');
-      expect(veo?.pricePerSecondByResolution).toEqual({ '720p': 0.4, '1080p': 0.4 });
+      // Fee-inclusive per the `processModels` contract.
+      expect(veo?.pricePerSecondByResolution['720p']).toBeCloseTo(applyFees(0.4), 15);
+      expect(veo?.pricePerSecondByResolution['1080p']).toBeCloseTo(applyFees(0.4), 15);
       expect(veo?.pricePerInputToken).toBe(0);
       expect(veo?.pricePerOutputToken).toBe(0);
       expect(veo?.pricePerImage).toBe(0);
@@ -791,7 +797,9 @@ describe('processModels', () => {
 
       const result = processModels(models);
       const v = result.models.find((m) => m.id === 'vendor/v');
-      expect(v?.pricePerSecondByResolution).toEqual({ '720p': 0.15, '1080p': 0.3 });
+      // Fee-inclusive per the `processModels` contract.
+      expect(v?.pricePerSecondByResolution['720p']).toBeCloseTo(applyFees(0.15), 15);
+      expect(v?.pricePerSecondByResolution['1080p']).toBeCloseTo(applyFees(0.3), 15);
     });
   });
 
@@ -804,7 +812,8 @@ describe('processModels', () => {
       const tts = result.models.find((m) => m.id === 'openai/tts-1');
       expect(tts).toBeDefined();
       expect(tts?.modality).toBe('audio');
-      expect(tts?.pricePerSecond).toBeCloseTo(0.015, 6);
+      // Fee-inclusive per the `processModels` contract.
+      expect(tts?.pricePerSecond).toBeCloseTo(applyFees(0.015), 15);
       expect(tts?.pricePerInputToken).toBe(0);
       expect(tts?.pricePerOutputToken).toBe(0);
       expect(tts?.pricePerImage).toBe(0);
@@ -848,7 +857,8 @@ describe('processModels', () => {
 
       const result = processModels(models);
       const a = result.models.find((m) => m.id === 'vendor/a');
-      expect(a?.pricePerSecond).toBeCloseTo(0.03, 6);
+      // Fee-inclusive per the `processModels` contract.
+      expect(a?.pricePerSecond).toBeCloseTo(applyFees(0.03), 15);
     });
   });
 

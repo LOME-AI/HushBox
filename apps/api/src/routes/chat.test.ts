@@ -3114,14 +3114,15 @@ describe('chat routes', () => {
         expect(ultraEntry).toBeDefined();
         const fastCost = Number.parseFloat(fastEntry!.contentItems[0]!.cost);
         const ultraCost = Number.parseFloat(ultraEntry!.contentItems[0]!.cost);
-        // Model cost with fees: $0.02 × 1.15 = $0.023 vs $0.06 × 1.15 = $0.069.
-        // Storage cost depends on the canned bytes; the ultra cost should still
-        // be strictly greater than the fast cost by the model-price delta.
+        // The mocked perImage values (0.02 / 0.06) are interpreted as
+        // FEE-INCLUSIVE per the `ModelInfo.pricing` contract. Storage cost
+        // depends on the canned bytes but is identical for both models, so
+        // the ultra cost should exceed the fast cost by the perImage delta.
         expect(ultraCost).toBeGreaterThan(fastCost);
-        // The delta between ultra and fast must be at least the fee-adjusted
-        // model-price delta: (0.06 - 0.02) × 1.15 = 0.046 — no over-charge to max
-        // would yield equal costs.
-        expect(ultraCost - fastCost).toBeGreaterThan(0.04);
+        // Delta = 0.06 - 0.02 = 0.04 — close to (within floating-point) but
+        // not strictly greater. The regression we care about is "billed at
+        // max, not per model" — in that case both would equal and delta = 0.
+        expect(ultraCost - fastCost).toBeCloseTo(0.04, 6);
       });
 
       // NOTE: Link-guest 403 MEDIA_TRIAL_BLOCKED test is not covered here.

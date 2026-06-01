@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { applyFees, calculateMediaGenerationCost } from '@hushbox/shared';
+import { calculateMediaGenerationCost } from '@hushbox/shared';
 import {
   assertValidMediaBytes,
   clearTestModelCache,
@@ -58,7 +58,7 @@ describe('AIClient video generation integration', () => {
     expect(generated.generationId).toBeDefined();
   });
 
-  it('calculateMediaGenerationCost matches applyFees(perSecond × duration) + storage(actualBytes)', async () => {
+  it('calculateMediaGenerationCost matches perSecond × duration + storage(actualBytes) (fee-inclusive prices)', async () => {
     expect(generated.mediaBytes).toBeDefined();
     if (spec.parameters.kind !== 'video') throw new Error('expected video spec');
     const model = await client.getModel(spec.modelId);
@@ -76,7 +76,8 @@ describe('AIClient video generation integration', () => {
       durationSeconds: duration,
     });
 
-    const expectedModelCost = applyFees(perSecond * duration);
+    // `perSecond` from `ModelInfo.pricing.perSecondByResolution` is fee-inclusive.
+    const expectedModelCost = perSecond * duration;
     expect(cost).toBeGreaterThanOrEqual(expectedModelCost);
   });
 });

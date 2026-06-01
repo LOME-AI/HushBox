@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { friendlyErrorMessage, type ErrorCode } from '@hushbox/shared';
+import { useAsyncActivityStore } from '../stores/async-activity-store';
 
 export interface UseAsyncActionOptions {
   /**
@@ -108,6 +109,7 @@ export function useAsyncAction(options?: UseAsyncActionOptions): UseAsyncActionR
     async <T>(action: () => Promise<T>): Promise<AsyncActionResult<T>> => {
       setIsPending(true);
       setError(null);
+      useAsyncActivityStore.getState().begin();
       try {
         const value = await action();
         return { ok: true, value };
@@ -122,6 +124,7 @@ export function useAsyncAction(options?: UseAsyncActionOptions): UseAsyncActionR
         }
         return { ok: false };
       } finally {
+        useAsyncActivityStore.getState().end();
         setIsPending(false);
       }
     },

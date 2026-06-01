@@ -1,7 +1,11 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { ERROR_CODE_CONVERSATION_NOT_FOUND, toBase64 } from '@hushbox/shared';
+import {
+  ERROR_CODE_CONVERSATION_NOT_FOUND,
+  ERROR_CODE_NOT_AUTHENTICATED,
+  toBase64,
+} from '@hushbox/shared';
 import { createErrorResponse } from '../lib/error-response.js';
 import { requirePrivilege } from '../middleware/index.js';
 import {
@@ -42,25 +46,34 @@ function serializeKeyChain(result: KeyChainResult): SerializedKeyChain {
 }
 
 export const keysRoute = new Hono<AppEnv>()
+  // Partial-result endpoint: returns per-conversation results plus a `missing`
+  // array for ids the caller cannot access. The frontend's conversation list
+  // refreshes asynchronously after WebSocket-driven membership changes; an
+  // all-or-nothing 404 would surface as a transient error on every epoch
+  // rotation, leave, or remove. Membership is enforced by `getKeyChainBatch`
+  // (filters wraps by `epochMembers.memberPublicKey`), so unauthorized ids
+  // never appear in `keys`.
   .post(
     '/batch',
     zValidator('json', z.object({ conversationIds: z.array(z.string()).min(1).max(100) })),
-    requirePrivilege('read', {
-      resolve: (c) =>
-        (c.req.valid('json' as never) as { conversationIds: string[] }).conversationIds,
-    }),
     async (c) => {
       const user = c.get('user');
-      if (!user) throw new Error('User required after requirePrivilege');
+      if (!user) return c.json(createErrorResponse(ERROR_CODE_NOT_AUTHENTICATED), 401);
       const db = c.get('db');
       const { conversationIds } = c.req.valid('json');
 
       const batchResults = await getKeyChainBatch(db, conversationIds, user.publicKey);
       const keys: Record<string, SerializedKeyChain> = {};
-      for (const [id, result] of batchResults) {
-        keys[id] = serializeKeyChain(result);
+      const missing: string[] = [];
+      for (const id of conversationIds) {
+        const result = batchResults.get(id);
+        if (result) {
+          keys[id] = serializeKeyChain(result);
+        } else {
+          missing.push(id);
+        }
       }
-      return c.json({ keys }, 200);
+      return c.json({ keys, missing }, 200);
     }
   )
   .get(

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import {
-  TOTAL_FEE_RATE,
   MEDIA_STORAGE_COST_PER_BYTE,
   ESTIMATED_IMAGE_BYTES,
   ESTIMATED_VIDEO_BYTES_PER_SECOND,
@@ -15,7 +14,8 @@ describe('useMediaCostEstimate', () => {
     expect(result.current.estimatedCents).toBe(0);
   });
 
-  it('computes image cost summing per-model prices with fees and per-model storage', () => {
+  it('computes image cost summing per-model fee-inclusive prices and per-model storage', () => {
+    // Inputs are fee-inclusive per the `Model.pricePerImage` contract.
     const pricesPerImage = [0.04, 0.06];
     const { result } = renderHook(() =>
       useMediaCostEstimate({
@@ -23,9 +23,7 @@ describe('useMediaCostEstimate', () => {
         imagePricing: { pricesPerImage },
       })
     );
-    const expectedDollars =
-      (0.04 + 0.06) * (1 + TOTAL_FEE_RATE) +
-      ESTIMATED_IMAGE_BYTES * MEDIA_STORAGE_COST_PER_BYTE * 2;
+    const expectedDollars = 0.04 + 0.06 + ESTIMATED_IMAGE_BYTES * MEDIA_STORAGE_COST_PER_BYTE * 2;
     expect(result.current.estimatedCents).toBeCloseTo(expectedDollars * 100, 3);
   });
 
@@ -45,7 +43,7 @@ describe('useMediaCostEstimate', () => {
     expect(mixed.current.estimatedCents).toBeLessThan(maxOnly.current.estimatedCents);
   });
 
-  it('computes video cost summing per-model (perSecond × duration) with fees and storage', () => {
+  it('computes video cost summing per-model (fee-inclusive perSecond × duration) and storage', () => {
     const pricesPerSecond = [0.1, 0.4];
     const durationSeconds = 4;
     const { result } = renderHook(() =>
@@ -55,7 +53,7 @@ describe('useMediaCostEstimate', () => {
       })
     );
     const expectedDollars =
-      (0.1 + 0.4) * durationSeconds * (1 + TOTAL_FEE_RATE) +
+      (0.1 + 0.4) * durationSeconds +
       durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND * MEDIA_STORAGE_COST_PER_BYTE * 2;
     expect(result.current.estimatedCents).toBeCloseTo(expectedDollars * 100, 3);
   });
@@ -92,7 +90,7 @@ describe('useMediaCostEstimate', () => {
     expect(three.current.estimatedCents).toBeCloseTo(one.current.estimatedCents * 3, 3);
   });
 
-  it('computes audio cost summing per-model (perSecond × maxDuration) with fees and storage', () => {
+  it('computes audio cost summing per-model (fee-inclusive perSecond × maxDuration) and storage', () => {
     const pricesPerSecond = [0.015, 0.03];
     const durationSeconds = 60;
     const { result } = renderHook(() =>
@@ -102,7 +100,7 @@ describe('useMediaCostEstimate', () => {
       })
     );
     const expectedDollars =
-      (0.015 + 0.03) * durationSeconds * (1 + TOTAL_FEE_RATE) +
+      (0.015 + 0.03) * durationSeconds +
       durationSeconds * ESTIMATED_AUDIO_BYTES_PER_SECOND * MEDIA_STORAGE_COST_PER_BYTE * 2;
     expect(result.current.estimatedCents).toBeCloseTo(expectedDollars * 100, 3);
   });

@@ -40,6 +40,7 @@ interface KeyChainResponseBody {
 
 interface BatchKeysResponse {
   keys: Record<string, KeyChainResponseBody>;
+  missing: string[];
 }
 
 interface MemberKeysResponse {
@@ -689,6 +690,8 @@ describe('keys routes', () => {
 
       // Both conversations should be present
       expect(Object.keys(json.keys)).toHaveLength(2);
+      // No missing entries when caller has access to all ids
+      expect(json.missing).toEqual([]);
 
       // Conv1: single epoch
       const conv1Id = createdConversationIds[0]!;
@@ -705,7 +708,7 @@ describe('keys routes', () => {
       expect(conv2Keys.currentEpoch).toBe(2);
     });
 
-    it('returns 404 when user is not a member of any requested conversation', async () => {
+    it('returns 200 with empty keys and all ids as missing when user is not a member of any requested conversation', async () => {
       const res = await app.request('/keys/batch', {
         method: 'POST',
         headers: {
@@ -715,13 +718,18 @@ describe('keys routes', () => {
         body: JSON.stringify({ conversationIds: createdConversationIds }),
       });
 
-      expect(res.status).toBe(404);
-      const json = (await res.json()) as ErrorResponse;
-      expect(json.code).toBe('CONVERSATION_NOT_FOUND');
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as BatchKeysResponse;
+      expect(json.keys).toEqual({});
+      expect([...json.missing].toSorted((a, b) => a.localeCompare(b))).toEqual(
+        [...createdConversationIds].toSorted((a, b) => a.localeCompare(b))
+      );
     });
 
-    it('returns 404 when user is member of only some requested conversations', async () => {
-      // otherUser is only a member of conv2 — requesting both triggers all-or-nothing denial
+    it('returns accessible keys and lists unauthorized ids in missing when user is member of only some requested conversations', async () => {
+      // otherUser is a member of conv2 only — partial-success contract avoids
+      // the membership-vs-cache race condition that produced 404s in the
+      // /api/keys/batch frontend hook under WebSocket-driven epoch changes.
       const res = await app.request('/keys/batch', {
         method: 'POST',
         headers: {
@@ -731,9 +739,11 @@ describe('keys routes', () => {
         body: JSON.stringify({ conversationIds: createdConversationIds }),
       });
 
-      expect(res.status).toBe(404);
-      const json = (await res.json()) as ErrorResponse;
-      expect(json.code).toBe('CONVERSATION_NOT_FOUND');
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as BatchKeysResponse;
+
+      expect(Object.keys(json.keys)).toEqual([conversationWithChainId]);
+      expect(json.missing).toEqual([createdConversationIds[0]]);
     });
 
     it('returns keys when user requests only conversations they are a member of', async () => {
@@ -753,6 +763,7 @@ describe('keys routes', () => {
       // Only conv2 should be returned
       expect(Object.keys(json.keys)).toHaveLength(1);
       expect(json.keys[conversationWithChainId]).toBeDefined();
+      expect(json.missing).toEqual([]);
 
       // otherUser has visibleFromEpoch=2, so only epoch 2 wrap
       const conv2Keys = json.keys[conversationWithChainId]!;
@@ -760,7 +771,7 @@ describe('keys routes', () => {
       expect(conv2Keys.wraps[0]!.epochNumber).toBe(2);
     });
 
-    it('returns 404 for non-existent conversation ID', async () => {
+    it('returns 200 with id reported as missing for a non-existent conversation ID', async () => {
       const res = await app.request('/keys/batch', {
         method: 'POST',
         headers: {
@@ -770,9 +781,10 @@ describe('keys routes', () => {
         body: JSON.stringify({ conversationIds: ['non-existent-id'] }),
       });
 
-      expect(res.status).toBe(404);
-      const json = (await res.json()) as ErrorResponse;
-      expect(json.code).toBe('CONVERSATION_NOT_FOUND');
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as BatchKeysResponse;
+      expect(json.keys).toEqual({});
+      expect(json.missing).toEqual(['non-existent-id']);
     });
 
     it('rejects request with more than 100 conversation IDs', async () => {

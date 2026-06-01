@@ -1,14 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyFees,
-  calculateTokenCostWithFees,
+  calculateTokenCost,
   estimateMessageCostDevelopment,
   calculateMessageCostFromActual,
   estimateTokenCount,
   getModelCostPer1k,
   isExpensiveModel,
   effectiveOutputCostPerToken,
-  getModelPricing,
   parseTokenPrice,
   mediaStorageCost,
   calculateMediaGenerationCost,
@@ -72,28 +71,27 @@ describe('applyFees', () => {
   });
 });
 
-describe('calculateTokenCostWithFees', () => {
-  it('calculates token cost and applies fees', () => {
-    const result = calculateTokenCostWithFees(100, 200, 0.000_01, 0.000_03);
-    const baseCost = 100 * 0.000_01 + 200 * 0.000_03;
-    expect(result).toBeCloseTo(applyFees(baseCost), 10);
+describe('calculateTokenCost', () => {
+  // Inputs are fee-inclusive per-token prices (the `Model.pricePer*` contract).
+  // The function does not re-apply fees; it just multiplies and sums.
+  it('multiplies token counts by per-token prices and sums', () => {
+    const result = calculateTokenCost(100, 200, 0.000_01, 0.000_03);
+    expect(result).toBeCloseTo(100 * 0.000_01 + 200 * 0.000_03, 10);
   });
 
   it('handles zero tokens', () => {
-    const result = calculateTokenCostWithFees(0, 0, 0.000_01, 0.000_03);
+    const result = calculateTokenCost(0, 0, 0.000_01, 0.000_03);
     expect(result).toBe(0);
   });
 
   it('handles input tokens only', () => {
-    const result = calculateTokenCostWithFees(100, 0, 0.000_01, 0.000_03);
-    const baseCost = 100 * 0.000_01;
-    expect(result).toBeCloseTo(applyFees(baseCost), 10);
+    const result = calculateTokenCost(100, 0, 0.000_01, 0.000_03);
+    expect(result).toBeCloseTo(100 * 0.000_01, 10);
   });
 
   it('handles output tokens only', () => {
-    const result = calculateTokenCostWithFees(0, 200, 0.000_01, 0.000_03);
-    const baseCost = 200 * 0.000_03;
-    expect(result).toBeCloseTo(applyFees(baseCost), 10);
+    const result = calculateTokenCost(0, 200, 0.000_01, 0.000_03);
+    expect(result).toBeCloseTo(200 * 0.000_03, 10);
   });
 });
 
@@ -126,6 +124,10 @@ describe('estimateTokenCount', () => {
 });
 
 describe('estimateMessageCostDevelopment', () => {
+  // `pricePerInputToken` / `pricePerOutputToken` are fee-inclusive per the
+  // `Model.pricePer*` contract — the helper does not re-apply fees on them.
+  // `webSearchCost` is the one exception: it's a raw constant, so the helper
+  // applies fees on it before adding to the total.
   const baseParams: MessageCostParams = {
     inputTokens: 100,
     outputTokens: 200,
@@ -136,13 +138,12 @@ describe('estimateMessageCostDevelopment', () => {
   };
 
   describe('model cost calculation', () => {
-    it('calculates model cost from tokens and prices', () => {
+    it('calculates model cost from tokens and fee-inclusive prices', () => {
       const result = estimateMessageCostDevelopment(baseParams);
-      const expectedModelCost = 100 * 0.000_01 + 200 * 0.000_03; // 0.007
-      const expectedHushboxFee = expectedModelCost * TOTAL_FEE_RATE;
+      const expectedModelCost = 100 * 0.000_01 + 200 * 0.000_03;
       const expectedStorageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
-      expect(result).toBeCloseTo(expectedModelCost + expectedHushboxFee + expectedStorageFee, 10);
+      expect(result).toBeCloseTo(expectedModelCost + expectedStorageFee, 10);
     });
 
     it('handles zero tokens', () => {
@@ -168,20 +169,8 @@ describe('estimateMessageCostDevelopment', () => {
     });
   });
 
-  describe('HushBox fee calculation', () => {
-    it('applies TOTAL_FEE_RATE to model cost only', () => {
-      const paramsNoStorage: MessageCostParams = {
-        ...baseParams,
-        inputCharacters: 0,
-        outputCharacters: 0,
-      };
-      const result = estimateMessageCostDevelopment(paramsNoStorage);
-      const modelCost = 100 * 0.000_01 + 200 * 0.000_03;
-
-      expect(result).toBeCloseTo(modelCost * (1 + TOTAL_FEE_RATE), 10);
-    });
-
-    it('does not apply HushBox fee to storage fee', () => {
+  describe('storage fee separation', () => {
+    it('storage fee adds linearly on top of model cost', () => {
       const modelOnlyResult = estimateMessageCostDevelopment({
         ...baseParams,
         inputCharacters: 0,
@@ -190,7 +179,6 @@ describe('estimateMessageCostDevelopment', () => {
       const fullResult = estimateMessageCostDevelopment(baseParams);
       const storageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
-      // Full result should be model cost with HushBox fee + raw storage fee (no HushBox fee on storage)
       expect(fullResult).toBeCloseTo(modelOnlyResult + storageFee, 10);
     });
   });
@@ -241,23 +229,23 @@ describe('estimateMessageCostDevelopment', () => {
       });
       const modelCost = 100 * 0.000_01 + 200 * 0.000_03;
 
-      expect(result).toBeCloseTo(modelCost * (1 + TOTAL_FEE_RATE), 10);
+      expect(result).toBeCloseTo(modelCost, 10);
     });
   });
 
   describe('combined calculation', () => {
-    it('sums model cost, HushBox fee, and storage fee', () => {
+    it('sums model cost (fee-inclusive) and storage fee', () => {
       const result = estimateMessageCostDevelopment(baseParams);
 
       const modelCost = 100 * 0.000_01 + 200 * 0.000_03;
-      const hushboxFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = (400 + 800) * STORAGE_COST_PER_CHARACTER;
 
-      expect(result).toBeCloseTo(modelCost + hushboxFee + storageFee, 10);
+      expect(result).toBeCloseTo(modelCost + storageFee, 10);
     });
 
     it('returns correct result with real-world pricing', () => {
-      // GPT-4 style pricing: $0.03/1k input, $0.06/1k output
+      // GPT-4 style fee-inclusive pricing (~$0.035/1k input, ~$0.069/1k output
+      // including HushBox + cc + provider fees)
       const gpt4Params: MessageCostParams = {
         inputTokens: 1000,
         outputTokens: 500,
@@ -268,11 +256,10 @@ describe('estimateMessageCostDevelopment', () => {
       };
       const result = estimateMessageCostDevelopment(gpt4Params);
 
-      const modelCost = 1000 * 0.000_03 + 500 * 0.000_06; // 0.03 + 0.03 = 0.06
-      const hushboxFee = modelCost * TOTAL_FEE_RATE;
+      const modelCost = 1000 * 0.000_03 + 500 * 0.000_06;
       const storageFee = (4000 + 2000) * STORAGE_COST_PER_CHARACTER;
 
-      expect(result).toBeCloseTo(modelCost + hushboxFee + storageFee, 10);
+      expect(result).toBeCloseTo(modelCost + storageFee, 10);
     });
 
     it('handles very large messages', () => {
@@ -349,10 +336,9 @@ describe('estimateMessageCostDevelopment', () => {
       const result = estimateMessageCostDevelopment(inputOnlyParams);
 
       const modelCost = 100 * 0.000_01;
-      const hushboxFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = 400 * STORAGE_COST_PER_CHARACTER;
 
-      expect(result).toBeCloseTo(modelCost + hushboxFee + storageFee, 10);
+      expect(result).toBeCloseTo(modelCost + storageFee, 10);
     });
 
     it('correctly handles output-only messages', () => {
@@ -367,10 +353,9 @@ describe('estimateMessageCostDevelopment', () => {
       const result = estimateMessageCostDevelopment(outputOnlyParams);
 
       const modelCost = 200 * 0.000_03;
-      const hushboxFee = modelCost * TOTAL_FEE_RATE;
       const storageFee = 800 * STORAGE_COST_PER_CHARACTER;
 
-      expect(result).toBeCloseTo(modelCost + hushboxFee + storageFee, 10);
+      expect(result).toBeCloseTo(modelCost + storageFee, 10);
     });
   });
 });
@@ -545,11 +530,11 @@ describe('calculateMessageCostFromActual', () => {
 });
 
 describe('getModelCostPer1k', () => {
-  it('calculates combined cost per 1k tokens with fees applied', () => {
-    // input: $0.01/1k, output: $0.03/1k → combined base: $0.04/1k → with TOTAL_FEE_RATE applied
+  // Inputs are fee-inclusive per-token prices (the `Model.pricePer*` contract).
+  // The helper multiplies and sums; it does not re-apply fees.
+  it('calculates combined cost per 1k tokens from fee-inclusive prices', () => {
     const result = getModelCostPer1k(0.000_01, 0.000_03);
-    const baseCostPer1k = (0.000_01 + 0.000_03) * 1000; // 0.04
-    expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
+    expect(result).toBeCloseTo((0.000_01 + 0.000_03) * 1000, 10);
   });
 
   it('handles zero prices', () => {
@@ -558,64 +543,56 @@ describe('getModelCostPer1k', () => {
 
   it('handles input price only', () => {
     const result = getModelCostPer1k(0.000_01, 0);
-    const baseCostPer1k = 0.000_01 * 1000; // 0.01
-    expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
+    expect(result).toBeCloseTo(0.000_01 * 1000, 10);
   });
 
   it('handles output price only', () => {
     const result = getModelCostPer1k(0, 0.000_03);
-    const baseCostPer1k = 0.000_03 * 1000; // 0.03
-    expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
+    expect(result).toBeCloseTo(0.000_03 * 1000, 10);
   });
 
   it('handles very small prices', () => {
     // Llama-style cheap pricing
     const result = getModelCostPer1k(0.000_000_59, 0.000_000_79);
-    const baseCostPer1k = (0.000_000_59 + 0.000_000_79) * 1000;
-    expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
+    expect(result).toBeCloseTo((0.000_000_59 + 0.000_000_79) * 1000, 10);
   });
 
   it('handles expensive model pricing', () => {
-    // Claude Opus-style expensive pricing: $15/1M input, $75/1M output
+    // Claude Opus-style expensive pricing
     const result = getModelCostPer1k(0.000_015, 0.000_075);
-    const baseCostPer1k = (0.000_015 + 0.000_075) * 1000; // 0.09
-    expect(result).toBeCloseTo(applyFees(baseCostPer1k), 10);
+    expect(result).toBeCloseTo((0.000_015 + 0.000_075) * 1000, 10);
   });
 });
 
 describe('isExpensiveModel', () => {
+  // Inputs are fee-inclusive per-token prices; threshold is fee-inclusive too.
   it('returns false for cheap models (well below threshold)', () => {
-    // Llama 3.1 70B: $0.00159/1k with fees - way below $0.10
+    // Llama-style cheap fee-inclusive pricing
     expect(isExpensiveModel(0.000_000_59, 0.000_000_79)).toBe(false);
   });
 
   it('returns false for mid-range models (below threshold)', () => {
-    // GPT-4 Turbo: $0.046/1k with fees - below $0.10
+    // Mid-range fee-inclusive pricing: ~$0.04/1k combined
     expect(isExpensiveModel(0.000_01, 0.000_03)).toBe(false);
   });
 
   it('returns true when exactly at threshold', () => {
-    // Need prices that result in exactly $0.10 per 1k with fees
-    // $0.10 = baseCostPer1k * 1.15
-    // baseCostPer1k = $0.10 / 1.15 ≈ $0.0869565
-    // Per token = $0.0869565 / 1000 / 2 ≈ $0.0000434783 each
-    const pricePerToken = 0.1 / (1 + TOTAL_FEE_RATE) / 1000 / 2;
+    // (input + output) * 1000 = 0.1 → input = output = 0.000_05
+    const pricePerToken = 0.000_05;
     expect(isExpensiveModel(pricePerToken, pricePerToken)).toBe(true);
   });
 
   it('returns false when just below threshold', () => {
-    // Slightly below $0.10 threshold
-    const pricePerToken = (0.1 / (1 + TOTAL_FEE_RATE) / 1000 / 2) * 0.99;
+    const pricePerToken = 0.000_05 * 0.99;
     expect(isExpensiveModel(pricePerToken, pricePerToken)).toBe(false);
   });
 
   it('returns true for expensive models (above threshold)', () => {
-    // High-end model: input $0.05/1k, output $0.05/1k → $0.115/1k with fees
-    expect(isExpensiveModel(0.000_05, 0.000_05)).toBe(true);
+    // Combined fee-inclusive $0.12/1k — over threshold
+    expect(isExpensiveModel(0.000_06, 0.000_06)).toBe(true);
   });
 
   it('uses EXPENSIVE_MODEL_THRESHOLD_PER_1K constant', () => {
-    // Verify the threshold constant is $0.10
     expect(EXPENSIVE_MODEL_THRESHOLD_PER_1K).toBe(0.1);
   });
 });
@@ -664,47 +641,6 @@ describe('effectiveOutputCostPerToken', () => {
   });
 });
 
-describe('getModelPricing', () => {
-  it('applies fees to input and output prices', () => {
-    const result = getModelPricing(0.000_01, 0.000_03, 128_000);
-
-    expect(result.inputPricePerToken).toBeCloseTo(applyFees(0.000_01), 15);
-    expect(result.outputPricePerToken).toBeCloseTo(applyFees(0.000_03), 15);
-  });
-
-  it('passes through context length unchanged', () => {
-    const result = getModelPricing(0.000_01, 0.000_03, 200_000);
-
-    expect(result.contextLength).toBe(200_000);
-  });
-
-  it('handles zero prices', () => {
-    const result = getModelPricing(0, 0, 128_000);
-
-    expect(result.inputPricePerToken).toBe(0);
-    expect(result.outputPricePerToken).toBe(0);
-    expect(result.contextLength).toBe(128_000);
-  });
-
-  it('handles very small prices (auto-router cheapest)', () => {
-    const result = getModelPricing(0.000_000_039, 0.000_000_19, 2_000_000);
-
-    expect(result.inputPricePerToken).toBeCloseTo(applyFees(0.000_000_039), 15);
-    expect(result.outputPricePerToken).toBeCloseTo(applyFees(0.000_000_19), 15);
-    expect(result.contextLength).toBe(2_000_000);
-  });
-
-  it('returns fee-inclusive prices matching applyFees exactly', () => {
-    // Verify the shared helper produces the same result as manual applyFees
-    const inputPrice = 0.000_015;
-    const outputPrice = 0.000_075;
-    const result = getModelPricing(inputPrice, outputPrice, 200_000);
-
-    expect(result.inputPricePerToken).toBe(applyFees(inputPrice));
-    expect(result.outputPricePerToken).toBe(applyFees(outputPrice));
-  });
-});
-
 describe('mediaStorageCost', () => {
   it('multiplies bytes by MEDIA_STORAGE_COST_PER_BYTE', () => {
     const bytes = 1_000_000;
@@ -727,14 +663,16 @@ describe('mediaStorageCost', () => {
 });
 
 describe('calculateMediaGenerationCost', () => {
+  // Inputs (`perImage`, `perSecond`) are fee-inclusive per-unit prices (the
+  // `ModelInfo.pricing` contract); the helper does not re-apply fees.
   describe('image pricing', () => {
-    it('charges perImage × imageCount + fees + storage', () => {
+    it('charges perImage × imageCount + storage', () => {
       const result = calculateMediaGenerationCost({
         pricing: { kind: 'image', perImage: 0.04 },
         sizeBytes: 1_000_000,
         imageCount: 1,
       });
-      const expectedModelCost = applyFees(0.04 * 1);
+      const expectedModelCost = 0.04 * 1;
       const expectedStorage = mediaStorageCost(1_000_000);
       expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
     });
@@ -745,7 +683,7 @@ describe('calculateMediaGenerationCost', () => {
         sizeBytes: 3_000_000,
         imageCount: 3,
       });
-      const expectedModelCost = applyFees(0.04 * 3);
+      const expectedModelCost = 0.04 * 3;
       const expectedStorage = mediaStorageCost(3_000_000);
       expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
     });
@@ -755,20 +693,20 @@ describe('calculateMediaGenerationCost', () => {
         pricing: { kind: 'image', perImage: 0.04 },
         sizeBytes: 1_000_000,
       });
-      const expectedModelCost = applyFees(0.04 * 1);
+      const expectedModelCost = 0.04 * 1;
       const expectedStorage = mediaStorageCost(1_000_000);
       expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
     });
   });
 
   describe('video pricing', () => {
-    it('charges perSecond × duration + fees + storage', () => {
+    it('charges perSecond × duration + storage', () => {
       const result = calculateMediaGenerationCost({
         pricing: { kind: 'video', perSecond: 0.1 },
         sizeBytes: 5_000_000,
         durationSeconds: 6,
       });
-      const expectedModelCost = applyFees(0.1 * 6);
+      const expectedModelCost = 0.1 * 6;
       const expectedStorage = mediaStorageCost(5_000_000);
       expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
     });
@@ -784,13 +722,13 @@ describe('calculateMediaGenerationCost', () => {
   });
 
   describe('audio pricing', () => {
-    it('charges perSecond × duration + fees + storage', () => {
+    it('charges perSecond × duration + storage', () => {
       const result = calculateMediaGenerationCost({
         pricing: { kind: 'audio', perSecond: 0.015 },
         sizeBytes: 500_000,
         durationSeconds: 10,
       });
-      const expectedModelCost = applyFees(0.015 * 10);
+      const expectedModelCost = 0.015 * 10;
       const expectedStorage = mediaStorageCost(500_000);
       expect(result).toBeCloseTo(expectedModelCost + expectedStorage, 10);
     });
@@ -836,15 +774,16 @@ describe('calculateMediaGenerationCost', () => {
         sizeBytes: 0,
         imageCount: 1,
       });
-      expect(result).toBeCloseTo(applyFees(0.04), 10);
+      expect(result).toBeCloseTo(0.04, 10);
     });
   });
 });
 
 describe('computeImageWorstCaseCents', () => {
-  it('returns cents, fees applied to model cost, storage added', () => {
+  // `perImage` is fee-inclusive (the `Model.pricePerImage` contract).
+  it('returns cents: perImage + storage', () => {
     const result = computeImageWorstCaseCents(0.04, 1);
-    const expectedDollars = applyFees(0.04) + mediaStorageCost(ESTIMATED_IMAGE_BYTES);
+    const expectedDollars = 0.04 + mediaStorageCost(ESTIMATED_IMAGE_BYTES);
     expect(result).toBeCloseTo(expectedDollars * 100, 5);
   });
 
@@ -865,12 +804,12 @@ describe('computeImageWorstCaseCents', () => {
 });
 
 describe('estimateVideoWorstCaseCents', () => {
-  it('applies fees to perSecond × duration and adds storage for duration × bytes/sec', () => {
+  it('sums fee-inclusive perSecond × duration + storage for duration × bytes/sec', () => {
     const perSecond = 0.1;
     const durationSeconds = 4;
     const modelCount = 1;
     const expectedDollars =
-      applyFees(perSecond * durationSeconds) +
+      perSecond * durationSeconds +
       mediaStorageCost(durationSeconds * ESTIMATED_VIDEO_BYTES_PER_SECOND);
     const result = estimateVideoWorstCaseCents({ perSecond, durationSeconds, modelCount });
     expect(result).toBeCloseTo(expectedDollars * 100, 5);
@@ -925,9 +864,9 @@ describe('computeImageExactCents', () => {
     expect(computeImageExactCents([])).toBe(0);
   });
 
-  it('sums per-model prices with fees and per-model storage', () => {
+  it('sums per-model fee-inclusive prices and per-model storage', () => {
     const prices = [0.02, 0.06];
-    const expectedDollars = applyFees(0.02 + 0.06) + mediaStorageCost(ESTIMATED_IMAGE_BYTES) * 2;
+    const expectedDollars = 0.02 + 0.06 + mediaStorageCost(ESTIMATED_IMAGE_BYTES) * 2;
     expect(computeImageExactCents(prices)).toBeCloseTo(expectedDollars * 100, 5);
   });
 
@@ -956,12 +895,11 @@ describe('computeVideoExactCents', () => {
     expect(computeVideoExactCents([0.1, 0.4], 0)).toBe(0);
   });
 
-  it('sums per-model (perSecond × duration) with fees and per-model storage', () => {
+  it('sums per-model (fee-inclusive perSecond × duration) and per-model storage', () => {
     const prices = [0.1, 0.4];
     const duration = 4;
     const expectedDollars =
-      applyFees((0.1 + 0.4) * duration) +
-      mediaStorageCost(duration * ESTIMATED_VIDEO_BYTES_PER_SECOND) * 2;
+      (0.1 + 0.4) * duration + mediaStorageCost(duration * ESTIMATED_VIDEO_BYTES_PER_SECOND) * 2;
     expect(computeVideoExactCents(prices, duration)).toBeCloseTo(expectedDollars * 100, 5);
   });
 
@@ -997,11 +935,11 @@ describe('computeAudioWorstCaseCents', () => {
     expect(computeAudioWorstCaseCents([0.015, 0.03], 0)).toBe(0);
   });
 
-  it('sums per-model (perSecond × maxDurationSeconds) with fees and per-model storage', () => {
+  it('sums per-model (fee-inclusive perSecond × maxDurationSeconds) and per-model storage', () => {
     const prices = [0.015, 0.03];
     const maxDurationSeconds = 60;
     const expectedDollars =
-      applyFees((0.015 + 0.03) * maxDurationSeconds) +
+      (0.015 + 0.03) * maxDurationSeconds +
       mediaStorageCost(maxDurationSeconds * ESTIMATED_AUDIO_BYTES_PER_SECOND) * 2;
     expect(computeAudioWorstCaseCents(prices, maxDurationSeconds)).toBeCloseTo(
       expectedDollars * 100,

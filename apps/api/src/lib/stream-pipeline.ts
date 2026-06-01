@@ -10,7 +10,6 @@ import {
   calculateBudget,
   applyFees,
   buildEligibleModels,
-  getModelPricing,
   buildSystemPrompt,
   estimateTokenCount,
   buildCostManifest,
@@ -64,7 +63,7 @@ import { safeExecutionCtx } from './safe-execution-ctx.js';
 import { fireAndForget } from './fire-and-forget.js';
 import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
 import { buildGroupBillingContext } from './billing-types.js';
-import type { Model } from '@hushbox/shared';
+import type { Model, ModelPricingResult } from '@hushbox/shared';
 import type { Context } from 'hono';
 import type { EvidenceConfig } from '@hushbox/db';
 import type {
@@ -187,14 +186,15 @@ type SSEEventWriter = ReturnType<typeof createSSEEventWriter>;
 
 export const BATCH_INTERVAL_MS = 100;
 
-export function lookupModelPricing(
-  models: RawModel[],
-  modelId: string
-): ReturnType<typeof getModelPricing> {
+export function lookupModelPricing(models: RawModel[], modelId: string): ModelPricingResult {
   const modelInfo = models.find((m) => m.id === modelId);
   const rawInput = modelInfo ? parseTokenPrice(modelInfo.pricing.prompt) : 0;
   const rawOutput = modelInfo ? parseTokenPrice(modelInfo.pricing.completion) : 0;
-  return getModelPricing(rawInput, rawOutput, modelInfo?.context_length ?? 128_000);
+  return {
+    inputPricePerToken: applyFees(rawInput),
+    outputPricePerToken: applyFees(rawOutput),
+    contextLength: modelInfo?.context_length ?? 128_000,
+  };
 }
 
 /**
@@ -656,10 +656,8 @@ function computeMaxEligibleFees(
   let maxOutputFee = 0;
   for (const pm of poolModels) {
     if (!eligibleSet.has(pm.id)) continue;
-    const inputFee = applyFees(pm.pricePerInputToken);
-    const outputFee = applyFees(pm.pricePerOutputToken);
-    if (inputFee > maxInputFee) maxInputFee = inputFee;
-    if (outputFee > maxOutputFee) maxOutputFee = outputFee;
+    if (pm.pricePerInputToken > maxInputFee) maxInputFee = pm.pricePerInputToken;
+    if (pm.pricePerOutputToken > maxOutputFee) maxOutputFee = pm.pricePerOutputToken;
   }
   return { maxInputFee, maxOutputFee };
 }

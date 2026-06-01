@@ -39,9 +39,15 @@ export function estimateTokenCount(text: string): number {
  * Apply all fees to a base price.
  * SINGLE SOURCE OF TRUTH for fee application.
  *
- * Used by:
- * - Model selector to show per-token pricing with fees
- * - calculateTokenCostWithFees as building block
+ * Reserved for prices that don't come from a `Model` / `ModelInfo`. As of the
+ * `processModels` / `pricingFromRawModel` boundary, every `Model.pricePer*`
+ * and `ModelInfo.pricing.*` field is already fee-inclusive — wrapping those
+ * in `applyFees(...)` would double-apply. Legitimate callers today:
+ *   - `calculateMessageCostFromActual(gatewayCost)` — raw gateway response
+ *   - `worstCaseSearchCost()` — raw constants
+ *   - `estimateMessageCostDevelopment({...webSearchCost})` — raw constant
+ *   - `cost-calculator.ts` stage breakdown — raw `gatewayCost`
+ *   - `lookupModelPricing` in stream-pipeline — converts RawModel to ModelPricingResult
  *
  * The total fee rate is the sum of every non-zero category in FEE_CATEGORIES
  * (see `./fees.ts`). Setting any individual rate to 0 cascades through every
@@ -52,17 +58,17 @@ export function applyFees(basePrice: number): number {
 }
 
 /**
- * Calculate token cost with all fees applied.
- * Used by model selector to show per-token pricing.
+ * Calculate token cost. Inputs are fee-inclusive per-token prices (as returned
+ * from `processModels()`); the result is the fee-inclusive token cost — fees
+ * are not re-applied here.
  */
-export function calculateTokenCostWithFees(
+export function calculateTokenCost(
   inputTokens: number,
   outputTokens: number,
   pricePerInputToken: number,
   pricePerOutputToken: number
 ): number {
-  const baseTokenCost = inputTokens * pricePerInputToken + outputTokens * pricePerOutputToken;
-  return applyFees(baseTokenCost);
+  return inputTokens * pricePerInputToken + outputTokens * pricePerOutputToken;
 }
 
 export interface MessageCostParams {
@@ -88,9 +94,14 @@ export interface MessageCostParams {
  * Use this when exact AI Gateway generation stats are not available (local development).
  * For production, use calculateMessageCostFromActual with exact costs.
  *
+ * Inputs `pricePerInputToken` and `pricePerOutputToken` are fee-inclusive per-token
+ * prices (as returned from `processModels()`); `webSearchCost` is a raw constant,
+ * so fees are applied to it here.
+ *
  * Components:
- * 1. Token cost with fees: uses calculateTokenCostWithFees (TOTAL_FEE_RATE markup)
+ * 1. Token cost (fee-inclusive, already includes markup) via calculateTokenCost
  * 2. Storage fee: (inputCharacters + outputCharacters) × STORAGE_COST_PER_CHARACTER
+ * 3. Web search: applyFees(webSearchCost)
  *
  * Storage fee applies only to new messages (input + output), not conversation history.
  * Fees apply only to model cost (and web search), not to the storage fee.
@@ -106,7 +117,7 @@ export function estimateMessageCostDevelopment(params: MessageCostParams): numbe
     webSearchCost = 0,
   } = params;
 
-  const tokenCostWithFees = calculateTokenCostWithFees(
+  const tokenCost = calculateTokenCost(
     inputTokens,
     outputTokens,
     pricePerInputToken,
@@ -115,7 +126,7 @@ export function estimateMessageCostDevelopment(params: MessageCostParams): numbe
 
   const storageFee = (inputCharacters + outputCharacters) * STORAGE_COST_PER_CHARACTER;
 
-  return tokenCostWithFees + storageFee + applyFees(webSearchCost);
+  return tokenCost + storageFee + applyFees(webSearchCost);
 }
 
 export interface MessageCostFromActualParams {
@@ -149,28 +160,29 @@ export function calculateMessageCostFromActual(params: MessageCostFromActualPara
 }
 
 /**
- * Get combined model cost per 1k tokens with fees applied.
- * SINGLE SOURCE OF TRUTH for model cost comparison.
+ * Get combined model cost per 1k tokens. Inputs are fee-inclusive per-token
+ * prices (as returned from `processModels()`); the result is fee-inclusive
+ * combined cost per 1k tokens.
  *
  * Used by:
  * - Model selector for sorting
  * - isExpensiveModel() check
  * - Any UI showing combined model cost
  *
- * @param pricePerInputToken - Model's price per input token in USD
- * @param pricePerOutputToken - Model's price per output token in USD
- * @returns Combined cost per 1k tokens with fees applied
+ * @param pricePerInputToken - Model's fee-inclusive price per input token in USD
+ * @param pricePerOutputToken - Model's fee-inclusive price per output token in USD
+ * @returns Combined cost per 1k tokens, fee-inclusive
  */
 export function getModelCostPer1k(pricePerInputToken: number, pricePerOutputToken: number): number {
-  const baseCostPer1k = (pricePerInputToken + pricePerOutputToken) * 1000;
-  return applyFees(baseCostPer1k);
+  return (pricePerInputToken + pricePerOutputToken) * 1000;
 }
 
 /**
- * Check if a model is considered expensive (>= threshold per 1k tokens with fees).
+ * Check if a model is considered expensive (>= threshold per 1k tokens).
+ * Threshold and inputs are both fee-inclusive.
  *
- * @param pricePerInputToken - Model's price per input token in USD
- * @param pricePerOutputToken - Model's price per output token in USD
+ * @param pricePerInputToken - Model's fee-inclusive price per input token in USD
+ * @param pricePerOutputToken - Model's fee-inclusive price per output token in USD
  * @returns true if model cost per 1k >= EXPENSIVE_MODEL_THRESHOLD_PER_1K
  */
 export function isExpensiveModel(pricePerInputToken: number, pricePerOutputToken: number): boolean {
@@ -180,28 +192,13 @@ export function isExpensiveModel(pricePerInputToken: number, pricePerOutputToken
 }
 
 /**
- * Compute fee-inclusive model pricing from raw per-token prices.
- * SINGLE SOURCE OF TRUTH for extracting model pricing with fees applied.
- *
- * Accepts raw (pre-fee) prices — callers parse strings or pass numbers directly.
- * Returns fee-inclusive prices ready for budget calculation.
+ * Pricing tuple consumed by budget calculations. Both per-token prices are
+ * fee-inclusive (`Model.pricePer*` already includes fees as of `processModels`).
  */
 export interface ModelPricingResult {
   inputPricePerToken: number;
   outputPricePerToken: number;
   contextLength: number;
-}
-
-export function getModelPricing(
-  inputPricePerToken: number,
-  outputPricePerToken: number,
-  contextLength: number
-): ModelPricingResult {
-  return {
-    inputPricePerToken: applyFees(inputPricePerToken),
-    outputPricePerToken: applyFees(outputPricePerToken),
-    contextLength,
-  };
 }
 
 /**
@@ -243,7 +240,8 @@ export interface CalculateMediaGenerationCostParams {
 
 /**
  * Calculate the final billable cost for a media generation.
- * Deterministic — no gateway call needed. Fees apply to model cost;
+ * Deterministic — no gateway call needed. Inputs are fee-inclusive
+ * per-unit prices (as carried by `ModelInfo.pricing` / `Model.pricePer*`);
  * storage cost is additive (no fee on storage).
  */
 export function calculateMediaGenerationCost(params: CalculateMediaGenerationCostParams): number {
@@ -253,17 +251,17 @@ export function calculateMediaGenerationCost(params: CalculateMediaGenerationCos
   switch (pricing.kind) {
     case 'image': {
       const count = imageCount ?? 1;
-      return applyFees(pricing.perImage * count) + storage;
+      return pricing.perImage * count + storage;
     }
     case 'video': {
       if (durationSeconds === undefined)
         throw new Error('durationSeconds required for video pricing');
-      return applyFees(pricing.perSecond * durationSeconds) + storage;
+      return pricing.perSecond * durationSeconds + storage;
     }
     case 'audio': {
       if (durationSeconds === undefined)
         throw new Error('durationSeconds required for audio pricing');
-      return applyFees(pricing.perSecond * durationSeconds) + storage;
+      return pricing.perSecond * durationSeconds + storage;
     }
     default: {
       return assertNever(pricing);
@@ -273,7 +271,11 @@ export function calculateMediaGenerationCost(params: CalculateMediaGenerationCos
 
 /**
  * Shared recipe for media pre-inference cost in cents:
- *   (fee-inflated Σ(price × multiplier)) + per-model storage
+ *   Σ(price × multiplier) + per-model storage
+ *
+ * `prices` are fee-inclusive per-unit prices (as carried by `Model.pricePer*` /
+ * `ModelInfo.pricing.*` after `processModels` / `rawModelToModelInfo` bake fees
+ * in). Fees are NOT re-applied here.
  *
  * Image: multiplier = 1, storageBytes = ESTIMATED_IMAGE_BYTES.
  * Video/Audio: multiplier = duration, storageBytes = duration × bytesPerSecond.
@@ -291,7 +293,7 @@ function computeMediaWorstCaseCents(input: {
   if (prices.length === 0 || multiplier === 0) return 0;
   const sumModelCost = prices.reduce((s, p) => s + p * multiplier, 0);
   const storage = mediaStorageCost(storageBytesPerModel) * prices.length;
-  return (applyFees(sumModelCost) + storage) * 100;
+  return (sumModelCost + storage) * 100;
 }
 
 /**
@@ -331,9 +333,9 @@ export function estimateVideoWorstCaseCents(input: EstimateVideoWorstCaseCentsIn
 
 /**
  * Exact pre-inference cost for image generation in cents, given the actual
- * per-image price of each selected model. Image pricing is deterministic at
- * reservation time, so there's no need for a worst-case estimate — we sum
- * the real prices, apply fees once to the sum, and add per-model storage.
+ * fee-inclusive per-image price of each selected model. Image pricing is
+ * deterministic at reservation time, so there's no need for a worst-case
+ * estimate — we sum the real prices and add per-model storage.
  */
 export function computeImageExactCents(pricesPerImage: readonly number[]): number {
   return computeMediaWorstCaseCents({
@@ -366,10 +368,10 @@ export function computeVideoExactCents(
  * output length emerges from the synthesis, so we reserve against the user's
  * `maxDurationSeconds` cap and rebill at the actual generated `durationMs`.
  *
- * Same shape as `computeVideoExactCents`: sum per-model (perSecond × maxDuration),
- * apply fees once, add per-model storage. The "WorstCase" suffix mirrors text's
- * `computeWorstCaseCents` (both reserve against an upper bound that the actual
- * output usually undershoots).
+ * Same shape as `computeVideoExactCents`: sum per-model (fee-inclusive
+ * perSecond × maxDuration), add per-model storage. The "WorstCase" suffix
+ * mirrors text's `computeWorstCaseCents` (both reserve against an upper
+ * bound that the actual output usually undershoots).
  */
 export function computeAudioWorstCaseCents(
   pricesPerSecond: readonly number[],

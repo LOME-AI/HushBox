@@ -207,14 +207,16 @@ describe('calculateMessageCost', () => {
 
       // Subtract the model-cost component from each to isolate storage.
       // Success: applyFees(0) + storage = storage
-      // Fallback: tokenCost(applyFees) + storage
+      // Fallback: tokenCost (fee-inclusive prices, no extra wrap) + storage
       // For the success case the model cost is exactly 0, so totalDollars IS storage.
       expect(success.totalDollars).toBeCloseTo(storageFee(inputContent, outputContent), 10);
-      // Fallback total = estimate (tokens with fees + storage). Subtract token piece to get storage.
-      const tokensWithFees =
+      // Fallback total = estimate (tokens at fee-inclusive prices + storage). Subtract token piece to get storage.
+      // TOKEN_PRICING_* are fee-inclusive per the `ModelInfo.pricing` contract,
+      // so no extra applyFees wrap is needed here.
+      const tokensCost =
         estimateTokenCount(inputContent) * TOKEN_PRICING_INPUT +
         estimateTokenCount(outputContent) * TOKEN_PRICING_OUTPUT;
-      const fallbackStorage = fallback.totalDollars - applyFees(tokensWithFees);
+      const fallbackStorage = fallback.totalDollars - tokensCost;
       expect(fallbackStorage).toBeCloseTo(storageFee(inputContent, outputContent), 10);
     });
 
@@ -581,16 +583,17 @@ describe('calculateMessageCostWithStages', () => {
       const stage = result.stageBreakdown[0]!;
       expect(stage.wasEstimated).toBe(true);
 
-      // Stage cost = applyFees(estimateTokenCost) only — no storage component.
+      // Stage cost = estimateTokenCost (already fee-inclusive because
+      // ModelInfo.pricing.* prices are fee-inclusive). No storage on stages.
       const estimatedTokenCost =
         estimateTokenCount(stageBilling.inputContent) * TOKEN_PRICING_INPUT +
         estimateTokenCount(stageBilling.outputContent) * TOKEN_PRICING_OUTPUT;
-      expect(stage.costDollars).toBeCloseTo(applyFees(estimatedTokenCost), 12);
+      expect(stage.costDollars).toBeCloseTo(estimatedTokenCost, 12);
 
       // Stage costDollars must be strictly less than what an estimate-with-storage
       // would have produced; this is the regression check.
       const stageStorage = storageFee(stageBilling.inputContent, stageBilling.outputContent);
-      expect(stage.costDollars).toBeLessThan(applyFees(estimatedTokenCost) + stageStorage * 0.99);
+      expect(stage.costDollars).toBeLessThan(estimatedTokenCost + stageStorage * 0.99);
     });
 
     it('re-throws when any failing call has non-token pricing (still hard-fail in that case)', async () => {

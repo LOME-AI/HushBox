@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { applyFees } from '@hushbox/shared';
 import { rawModelToModelInfo } from './model-mapping.js';
 import type { RawModel } from '@hushbox/shared/models';
 
@@ -62,10 +63,10 @@ describe('rawModelToModelInfo', () => {
       });
     }
 
-    it('parses per_image when present', () => {
+    it('parses per_image when present and bakes in fees', () => {
       const info = rawModelToModelInfo(imageModel({ per_image: '0.04' }));
       if (info.pricing.kind !== 'image') throw new Error('expected image pricing');
-      expect(info.pricing.perImage).toBeCloseTo(0.04, 6);
+      expect(info.pricing.perImage).toBeCloseTo(applyFees(0.04), 15);
     });
 
     it('returns perImage = 0 when per_image is undefined', () => {
@@ -86,12 +87,13 @@ describe('rawModelToModelInfo', () => {
       });
     }
 
-    it('maps per_second_by_resolution entries to numeric values', () => {
+    it('maps per_second_by_resolution entries to numeric fee-inclusive values', () => {
       const info = rawModelToModelInfo(
         videoModel({ per_second_by_resolution: { '720p': '0.1', '1080p': '0.15' } })
       );
       if (info.pricing.kind !== 'video') throw new Error('expected video pricing');
-      expect(info.pricing.perSecondByResolution).toEqual({ '720p': 0.1, '1080p': 0.15 });
+      expect(info.pricing.perSecondByResolution['720p']).toBeCloseTo(applyFees(0.1), 15);
+      expect(info.pricing.perSecondByResolution['1080p']).toBeCloseTo(applyFees(0.15), 15);
     });
 
     it('returns an empty resolution map when per_second_by_resolution is undefined', () => {

@@ -208,43 +208,38 @@ function resolveUserContent(
   return allMessages.find((m) => m.id === targetMessageId)?.content ?? '';
 }
 
-export function pruneMessagesAfterTarget(
-  allMessages: Message[],
-  targetMessageId: string,
-  setLocalMessages: React.Dispatch<React.SetStateAction<Message[]>>
-): void {
-  const targetIndex = allMessages.findIndex((m) => m.id === targetMessageId);
-  if (targetIndex === -1) return;
-  const idsToKeep = new Set(allMessages.slice(0, targetIndex + 1).map((m) => m.id));
-  setLocalMessages((previous) => previous.filter((m) => idsToKeep.has(m.id)));
-}
-
 /**
- * Compute the ids that a retry will remove from the rendered list.
+ * Compute the ids that retry/edit/regenerate will remove from the rendered list.
  *
  * - regenerate-one (`replaceAssistantId` set) → only that one tile
- * - retry-all (`replaceAssistantId` undefined) → every descendant of the
- *   anchor user message
+ * - retry-all (action `retry`, no replaceAssistantId) → every descendant of
+ *   the anchor user message (the user message itself is reused).
+ * - edit (action `edit`, no replaceAssistantId) → the anchor user message
+ *   itself **and** every descendant (the user message is replaced by a new
+ *   one with the edited content).
  *
  * Mirrors the backend's tree-action deletion rule so the optimistic UI and
  * the eventual server state stay in sync.
  */
-function computeRetryPruneIds(
+export function computePruneIds(
   allMsgs: Message[],
   targetMessageId: string,
-  replaceAssistantId: string | undefined
+  action: RegenerateAction,
+  replaceAssistantId?: string
 ): Set<string> {
   if (replaceAssistantId !== undefined) {
     return new Set([replaceAssistantId]);
   }
   const targetIndex = allMsgs.findIndex((m) => m.id === targetMessageId);
   if (targetIndex === -1) return new Set();
-  return new Set(allMsgs.slice(targetIndex + 1).map((m) => m.id));
+  const startIndex = action === 'edit' ? targetIndex : targetIndex + 1;
+  return new Set(allMsgs.slice(startIndex).map((m) => m.id));
 }
 
-interface ApplyRetryPruneInput {
+interface ApplyPruneInput {
   allMsgs: Message[];
   targetMessageId: string;
+  action: RegenerateAction;
   replaceAssistantId: string | undefined;
   conversationId: string;
   setRetryPrunedIds: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
@@ -252,15 +247,51 @@ interface ApplyRetryPruneInput {
   queryClient: ReturnType<typeof useQueryClient>;
 }
 
+interface AddEditedUserOptimisticInput {
+  allMsgs: Message[];
+  targetMessageId: string;
+  userMessageId: string;
+  userContent: string;
+  conversationId: string;
+  callerId: string | undefined;
+  addOptimisticMessage: (message: Message) => void;
+}
+
 /**
- * Optimistic prune for retry-all and regenerate-one. Applied at the top of
+ * Surface the edit's replacement user message in the same React commit as the
+ * prune that removed the original. Without this, the edited text only appears
+ * after the post-stream `invalidateQueries` refetch — a multi-second gap
+ * during which the chat shows neither the old nor the new user message.
+ *
+ * Parent is the message preceding the edited target, mirroring the backend's
+ * tree placement after edit.
+ */
+function addEditedUserOptimistic(input: AddEditedUserOptimisticInput): void {
+  const targetIndex = input.allMsgs.findIndex((m) => m.id === input.targetMessageId);
+  const parentMessageId = targetIndex > 0 ? (input.allMsgs[targetIndex - 1]?.id ?? null) : null;
+  input.addOptimisticMessage({
+    id: input.userMessageId,
+    conversationId: input.conversationId,
+    role: 'user',
+    content: input.userContent,
+    createdAt: new Date().toISOString(),
+    ...(input.callerId !== undefined && { senderId: input.callerId }),
+    parentMessageId,
+  });
+}
+
+/**
+ * Optimistic prune for retry, edit, and regenerate-one. Applied at the top of
  * the message pipeline AND to the query cache so the stale rows disappear in
  * the same React commit, avoiding a flash of the about-to-be-replaced tiles.
+ *
+ * The prune scope differs by action — see {@link computePruneIds}.
  */
-function applyRetryPrune(input: ApplyRetryPruneInput): void {
+function applyPrune(input: ApplyPruneInput): void {
   const {
     allMsgs,
     targetMessageId,
+    action,
     replaceAssistantId,
     conversationId,
     setRetryPrunedIds,
@@ -268,21 +299,15 @@ function applyRetryPrune(input: ApplyRetryPruneInput): void {
     queryClient,
   } = input;
 
-  const idsToRemove = computeRetryPruneIds(allMsgs, targetMessageId, replaceAssistantId);
-  if (idsToRemove.size > 0) {
-    setRetryPrunedIds(idsToRemove);
-    queryClient.setQueryData<import('@/lib/api').ConversationResponse>(
-      chatKeys.conversation(conversationId),
-      (old) =>
-        old ? { ...old, messages: old.messages.filter((m) => !idsToRemove.has(m.id)) } : old
-    );
-  }
+  const idsToRemove = computePruneIds(allMsgs, targetMessageId, action, replaceAssistantId);
+  if (idsToRemove.size === 0) return;
 
-  if (replaceAssistantId === undefined) {
-    pruneMessagesAfterTarget(allMsgs, targetMessageId, setLocalMessages);
-  } else {
-    setLocalMessages((previous) => previous.filter((m) => m.id !== replaceAssistantId));
-  }
+  setRetryPrunedIds(idsToRemove);
+  queryClient.setQueryData<import('@/lib/api').ConversationResponse>(
+    chatKeys.conversation(conversationId),
+    (old) => (old ? { ...old, messages: old.messages.filter((m) => !idsToRemove.has(m.id)) } : old)
+  );
+  setLocalMessages((previous) => previous.filter((m) => !idsToRemove.has(m.id)));
 }
 
 interface ChatError {
@@ -1244,15 +1269,26 @@ export function useAuthenticatedChat({
       const userMessageId = crypto.randomUUID();
       const userContent = resolveUserContent(action, editedContent, allMsgs, targetMessageId);
 
-      if (action === 'retry') {
-        applyRetryPrune({
+      applyPrune({
+        allMsgs,
+        targetMessageId,
+        action,
+        replaceAssistantId,
+        conversationId: realConversationId,
+        setRetryPrunedIds,
+        setLocalMessages,
+        queryClient,
+      });
+
+      if (action === 'edit') {
+        addEditedUserOptimistic({
           allMsgs,
           targetMessageId,
-          replaceAssistantId,
+          userMessageId,
+          userContent,
           conversationId: realConversationId,
-          setRetryPrunedIds,
-          setLocalMessages,
-          queryClient,
+          callerId,
+          addOptimisticMessage,
         });
       }
 
@@ -1309,6 +1345,7 @@ export function useAuthenticatedChat({
           void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
 
           for (const id of placeholderIds) removeOptimisticMessage(id);
+          if (action === 'edit') removeOptimisticMessage(userMessageId);
           useStreamingActivityStore.getState().endStream();
         } catch (error: unknown) {
           state.stopStreaming();
@@ -1324,6 +1361,7 @@ export function useAuthenticatedChat({
           setRetryPrunedIds(new Set());
 
           for (const id of placeholderIds) removeOptimisticMessage(id);
+          if (action === 'edit') removeOptimisticMessage(userMessageId);
           useStreamingActivityStore.getState().endStream();
         }
       })();
@@ -1342,9 +1380,14 @@ export function useAuthenticatedChat({
       audioConfig,
       startRegenerateStream,
       removeOptimisticMessage,
+      addOptimisticMessage,
+      callerId,
       createOptimisticStreamCallbacks,
       state,
       queryClient,
+      promptInputRef,
+      setRetryPrunedIds,
+      setLocalMessages,
     ]
   );
 

@@ -18,7 +18,7 @@ import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { ModalSuccessStep } from '@/components/shared/modal-success-step';
 import { useAuthStore } from '@/lib/auth';
-import { getApiUrl } from '@/lib/api';
+import { client, fetchJson } from '@/lib/api-client';
 
 interface RecoveryPhraseModalProps {
   open: boolean;
@@ -114,18 +114,11 @@ function ErrorBanner({
 }
 
 async function saveRecoveryMaterial(recoveryWrappedPrivateKey: Uint8Array): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/api/auth/recovery/save`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      recoveryWrappedPrivateKey: toBase64(recoveryWrappedPrivateKey),
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error('API request failed');
-  }
+  await fetchJson(
+    client.api.auth.recovery.save.$post({
+      json: { recoveryWrappedPrivateKey: toBase64(recoveryWrappedPrivateKey) },
+    })
+  );
 }
 
 export function RecoveryPhraseModal({

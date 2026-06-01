@@ -2,7 +2,6 @@ import * as React from 'react';
 import {
   buildSystemPrompt,
   worstCaseSearchCost,
-  getModelPricing,
   generateNotifications,
   type ModelFeatureId,
   type BudgetError,
@@ -229,15 +228,10 @@ function buildModelTokenPricing(
 ): ModelTokenPricing[] {
   return selectedModels.map((sm) => {
     const model = modelCatalog?.find((m) => m.id === sm.id);
-    const pricing = getModelPricing(
-      model?.pricePerInputToken ?? 0,
-      model?.pricePerOutputToken ?? 0,
-      model?.contextLength ?? 0
-    );
     return {
-      modelInputPricePerToken: pricing.inputPricePerToken,
-      modelOutputPricePerToken: pricing.outputPricePerToken,
-      contextLength: pricing.contextLength,
+      modelInputPricePerToken: model?.pricePerInputToken ?? 0,
+      modelOutputPricePerToken: model?.pricePerOutputToken ?? 0,
+      contextLength: model?.contextLength ?? 0,
     };
   });
 }

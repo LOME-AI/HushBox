@@ -1,6 +1,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useAsyncAction } from './use-async-action';
+import { useAsyncActivityStore } from '../stores/async-activity-store';
 
 const { toastErrorMock } = vi.hoisted(() => ({ toastErrorMock: vi.fn() }));
 
@@ -191,6 +192,91 @@ describe('useAsyncAction', () => {
         'Someone else just changed this conversation. Please try again.'
       );
       expect(result.current.error).toBeNull();
+    });
+  });
+
+  describe('global activity tracking (drives useIsSettled)', () => {
+    beforeEach(() => {
+      useAsyncActivityStore.setState({ activeCount: 0 });
+    });
+
+    it('increments and decrements the global active count around a successful run', async () => {
+      const { result } = renderHook(() => useAsyncAction());
+      expect(useAsyncActivityStore.getState().activeCount).toBe(0);
+
+      let resolveAction: (() => void) | undefined;
+      const blocking = new Promise<void>((resolve) => {
+        resolveAction = resolve;
+      });
+
+      let runPromise: Promise<unknown> | undefined;
+      act(() => {
+        runPromise = result.current.run(async () => {
+          await blocking;
+        });
+      });
+
+      await waitFor(() => {
+        expect(useAsyncActivityStore.getState().activeCount).toBe(1);
+      });
+
+      await act(async () => {
+        resolveAction!();
+        await runPromise;
+      });
+
+      expect(useAsyncActivityStore.getState().activeCount).toBe(0);
+    });
+
+    it('decrements on failure too so a thrown action does not leak activity', async () => {
+      const { result } = renderHook(() => useAsyncAction());
+      await act(async () => {
+        await result.current.run(() => Promise.reject(new Error('STALE_EPOCH')));
+      });
+      expect(useAsyncActivityStore.getState().activeCount).toBe(0);
+    });
+
+    it('tracks concurrent runs additively', async () => {
+      const { result: a } = renderHook(() => useAsyncAction());
+      const { result: b } = renderHook(() => useAsyncAction());
+
+      let resolveA: (() => void) | undefined;
+      let resolveB: (() => void) | undefined;
+      const blockA = new Promise<void>((resolve) => {
+        resolveA = resolve;
+      });
+      const blockB = new Promise<void>((resolve) => {
+        resolveB = resolve;
+      });
+
+      let aPromise: Promise<unknown> | undefined;
+      let bPromise: Promise<unknown> | undefined;
+      act(() => {
+        aPromise = a.current.run(async () => {
+          await blockA;
+        });
+        bPromise = b.current.run(async () => {
+          await blockB;
+        });
+      });
+
+      await waitFor(() => {
+        expect(useAsyncActivityStore.getState().activeCount).toBe(2);
+      });
+
+      await act(async () => {
+        resolveA!();
+        await aPromise;
+      });
+
+      expect(useAsyncActivityStore.getState().activeCount).toBe(1);
+
+      await act(async () => {
+        resolveB!();
+        await bPromise;
+      });
+
+      expect(useAsyncActivityStore.getState().activeCount).toBe(0);
     });
   });
 

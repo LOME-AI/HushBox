@@ -2,7 +2,7 @@ import * as React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { TOTAL_FEE_RATE, formatPricePer1k, type Model } from '@hushbox/shared';
+import { formatPricePer1k, type Model } from '@hushbox/shared';
 import { TouchDeviceOverrideContext } from '@hushbox/ui';
 import { useModelStore } from '@/stores/model';
 import { ModelSelectorModal } from './model-selector-modal';
@@ -644,7 +644,10 @@ describe('ModelSelectorModal', () => {
     expect(screen.getByText(/128,000 tokens/)).toBeInTheDocument();
   });
 
-  it('displays prices with the total fee rate applied', () => {
+  it('displays fee-inclusive per-token prices (Model.pricePer* contract)', () => {
+    // Model fixtures carry FEE-INCLUSIVE per-token prices per the
+    // `processModels` contract. The component reads them directly without
+    // re-applying fees.
     render(
       <ModelSelectorModal
         open={true}
@@ -655,8 +658,8 @@ describe('ModelSelectorModal', () => {
       />
     );
 
-    const expectedInput = formatPricePer1k(0.000_01 * (1 + TOTAL_FEE_RATE));
-    const expectedOutput = formatPricePer1k(0.000_03 * (1 + TOTAL_FEE_RATE));
+    const expectedInput = formatPricePer1k(0.000_01);
+    const expectedOutput = formatPricePer1k(0.000_03);
     expect(screen.getByText(`${expectedInput} / 1k`)).toBeInTheDocument();
     expect(screen.getByText(`${expectedOutput} / 1k`)).toBeInTheDocument();
   });

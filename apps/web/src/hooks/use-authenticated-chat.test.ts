@@ -45,7 +45,7 @@ vi.mock('@hushbox/crypto', () => ({}));
 import {
   shouldRedirect,
   computeRenderState,
-  pruneMessagesAfterTarget,
+  computePruneIds,
   mergeMessages,
   shouldClearStateOnConversationSwitch,
   DECRYPTING_TITLE,
@@ -76,54 +76,45 @@ function baseParams(): Parameters<typeof computeRenderState>[0] {
   };
 }
 
-describe('pruneMessagesAfterTarget', () => {
-  it('keeps target and removes messages after it', () => {
-    const messages = [makeMessage('u1'), makeMessage('a1', 'assistant'), makeMessage('u2')];
-    let result: typeof messages = [];
-    const setter = (function_: (previous: typeof messages) => typeof messages): void => {
-      result = function_(messages);
-    };
-
-    pruneMessagesAfterTarget(messages, 'a1', setter as never);
-    expect(result.map((m) => m.id)).toEqual(['u1', 'a1']);
-  });
-
-  it('keeps user message target and removes AI after it', () => {
-    const messages = [makeMessage('u1'), makeMessage('a1', 'assistant')];
-    let result: typeof messages = [];
-    const setter = (function_: (previous: typeof messages) => typeof messages): void => {
-      result = function_(messages);
-    };
-
-    pruneMessagesAfterTarget(messages, 'u1', setter as never);
-    expect(result.map((m) => m.id)).toEqual(['u1']);
-  });
-
-  it('removes multiple messages after target in longer conversation', () => {
+describe('computePruneIds', () => {
+  it('retry: removes every descendant of the user-message target, keeps target', () => {
     const messages = [
       makeMessage('u1'),
       makeMessage('a1', 'assistant'),
       makeMessage('u2'),
       makeMessage('a2', 'assistant'),
     ];
-    let result: typeof messages = [];
-    const setter = (function_: (previous: typeof messages) => typeof messages): void => {
-      result = function_(messages);
-    };
-
-    pruneMessagesAfterTarget(messages, 'u1', setter as never);
-    expect(result.map((m) => m.id)).toEqual(['u1']);
+    const ids = computePruneIds(messages, 'u1', 'retry');
+    expect([...ids]).toEqual(['a1', 'u2', 'a2']);
   });
 
-  it('does nothing when target not found', () => {
-    const messages = [makeMessage('u1')];
-    let called = false;
-    const setter = (): void => {
-      called = true;
-    };
+  it('edit: removes the target user message itself plus every descendant', () => {
+    const messages = [
+      makeMessage('u1'),
+      makeMessage('a1', 'assistant'),
+      makeMessage('u2'),
+      makeMessage('a2', 'assistant'),
+    ];
+    const ids = computePruneIds(messages, 'u2', 'edit');
+    expect([...ids]).toEqual(['u2', 'a2']);
+  });
 
-    pruneMessagesAfterTarget(messages, 'missing', setter as never);
-    expect(called).toBe(false);
+  it('regenerate-one: returns only the named assistant id regardless of action', () => {
+    const messages = [
+      makeMessage('u1'),
+      makeMessage('a1', 'assistant'),
+      makeMessage('a2', 'assistant'),
+    ];
+    const retryOne = computePruneIds(messages, 'u1', 'retry', 'a1');
+    expect([...retryOne]).toEqual(['a1']);
+    const editOne = computePruneIds(messages, 'u1', 'edit', 'a2');
+    expect([...editOne]).toEqual(['a2']);
+  });
+
+  it('returns empty set when target not found', () => {
+    const messages = [makeMessage('u1'), makeMessage('a1', 'assistant')];
+    expect(computePruneIds(messages, 'missing', 'retry').size).toBe(0);
+    expect(computePruneIds(messages, 'missing', 'edit').size).toBe(0);
   });
 });
 

@@ -136,6 +136,17 @@ test.describe('Video Generation', () => {
     await expect(chatPage.sendButton).toBeEnabled({ timeout: 15_000 });
     await chatPage.sendButton.click();
 
+    // Optimistic prune: the pre-edit user message and its AI reply both
+    // disappear in the same React commit as the new edited message lands,
+    // matching the state of a fresh send at the end of the conversation.
+    await expect(chatPage.messageList.getByText(prompt, { exact: true })).toHaveCount(0, {
+      timeout: 2000,
+    });
+    await expect(chatPage.messageList.locator(`video[src="${originalSource ?? ''}"]`)).toHaveCount(
+      0,
+      { timeout: 2000 }
+    );
+
     await chatPage.expectMessageVisible(editedMessage);
     await chatPage.waitForStreamComplete();
     await chatPage.expectVideoVisible();

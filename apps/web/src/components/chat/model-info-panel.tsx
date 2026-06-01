@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { formatNumber, formatPriceRange, isExpensiveModel } from '@hushbox/shared';
-import { applyFees, formatPricePer1k } from '../../lib/format';
+import { formatPricePer1k } from '../../lib/format';
 import type { Model } from '@hushbox/shared';
 
 interface ModelInfoPanelProps {
@@ -34,10 +34,7 @@ function SmartModelPanel({
         </div>
         <div className={valueClass}>
           {model.minPricePerInputToken !== undefined && model.maxPricePerInputToken !== undefined
-            ? formatPriceRange(
-                applyFees(model.minPricePerInputToken),
-                applyFees(model.maxPricePerInputToken)
-              )
+            ? formatPriceRange(model.minPricePerInputToken, model.maxPricePerInputToken)
             : 'Varies'}
         </div>
       </div>
@@ -48,10 +45,7 @@ function SmartModelPanel({
         </div>
         <div className={valueClass}>
           {model.minPricePerOutputToken !== undefined && model.maxPricePerOutputToken !== undefined
-            ? formatPriceRange(
-                applyFees(model.minPricePerOutputToken),
-                applyFees(model.maxPricePerOutputToken)
-              )
+            ? formatPriceRange(model.minPricePerOutputToken, model.maxPricePerOutputToken)
             : 'Varies'}
         </div>
       </div>
@@ -113,11 +107,11 @@ function TextStandardPanel({
       <ProviderRow provider={model.provider} valueClass={valueClass} />
 
       <LabeledValue label="Input Price / Token" valueClass={valueClass}>
-        {formatPricePer1k(applyFees(model.pricePerInputToken))} / 1k
+        {formatPricePer1k(model.pricePerInputToken)} / 1k
       </LabeledValue>
 
       <LabeledValue label="Output Price / Token" valueClass={valueClass}>
-        {formatPricePer1k(applyFees(model.pricePerOutputToken))} / 1k
+        {formatPricePer1k(model.pricePerOutputToken)} / 1k
       </LabeledValue>
 
       {!compact && isExpensiveModel(model.pricePerInputToken, model.pricePerOutputToken) && (

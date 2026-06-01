@@ -130,6 +130,7 @@ export {
   type UseAsyncActionReturn,
   type AsyncActionResult,
 } from './hooks/use-async-action';
+export { useAsyncActivityStore } from './stores/async-activity-store';
 export {
   useReducedMotion,
   shouldReduceMotion,

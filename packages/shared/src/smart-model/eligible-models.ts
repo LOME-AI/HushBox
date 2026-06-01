@@ -4,7 +4,6 @@ import {
   CHARS_PER_TOKEN_STANDARD,
 } from '../constants.js';
 import { canAffordModel, estimateTokensForTier, getEffectiveBalance } from '../budget.js';
-import { applyFees } from '../pricing.js';
 import { computeClassifierPromptOverhead } from './prompts.js';
 import { MAX_CLASSIFIER_CONTEXT_CHARS } from './truncate.js';
 import type { Model } from '../schemas/api/models.js';
@@ -50,7 +49,7 @@ export function computeMaxClassifierOverhead(models: readonly Model[]): number {
 }
 
 export interface EligibleModelsInput {
-  /** Text models from `processModels(...).models` (raw prices, no fees applied). */
+  /** Text models from `processModels(...).models` (fee-inclusive prices). */
   textModels: readonly Model[];
   /** Premium ids that require paid tier (from `processModels(...).premiumIds`). */
   premiumIds: ReadonlySet<string>;
@@ -105,7 +104,9 @@ function filterAndSortCandidates(input: EligibleModelsInput): RealCandidate[] {
 }
 
 /**
- * Conservative classifier-cost worst-case in cents (fees applied).
+ * Conservative classifier-cost worst-case in cents (fee-inclusive — the
+ * `classifier.pricePer*` inputs are already fee-inclusive per the
+ * `processModels` contract).
  *
  * Treats the prompt as the largest plausible classifier call: full
  * conversation truncation budget plus system prompt and model list overhead.
@@ -127,10 +128,9 @@ function computeClassifierWorstCaseCents(
     tier === 'paid' ? CHARS_PER_TOKEN_CONSERVATIVE : CHARS_PER_TOKEN_STANDARD;
 
   const inputCostUsd =
-    applyFees(inputTokens * classifier.pricePerInputToken) +
-    inputChars * STORAGE_COST_PER_CHARACTER;
+    inputTokens * classifier.pricePerInputToken + inputChars * STORAGE_COST_PER_CHARACTER;
   const outputCostUsd =
-    applyFees(CLASSIFIER_OUTPUT_TOKEN_CAP * classifier.pricePerOutputToken) +
+    CLASSIFIER_OUTPUT_TOKEN_CAP * classifier.pricePerOutputToken +
     CLASSIFIER_OUTPUT_TOKEN_CAP * outputCharsPerToken * STORAGE_COST_PER_CHARACTER;
 
   return (inputCostUsd + outputCostUsd) * 100;
@@ -155,8 +155,8 @@ function findAffordableCandidates(
       balanceCents: input.payerBalanceCents,
       freeAllowanceCents: input.payerFreeAllowanceCents,
       promptCharacterCount: input.promptCharacterCount,
-      modelInputPricePerToken: applyFees(candidate.pricePerInputToken),
-      modelOutputPricePerToken: applyFees(candidate.pricePerOutputToken),
+      modelInputPricePerToken: candidate.pricePerInputToken,
+      modelOutputPricePerToken: candidate.pricePerOutputToken,
       isPremium: candidate.isPremium,
     });
     if (!result.affordable) continue;

@@ -25,6 +25,7 @@ import {
 
 import { queryClient } from '@/providers/query-provider';
 import { getApiUrl } from '@/lib/api';
+import { client } from '@/lib/api-client';
 import { clearEpochKeyCache } from '@/lib/epoch-key-cache';
 import { useModelStore } from '@/stores/model';
 import {
@@ -620,31 +621,20 @@ export function clearLocalAuthState(): void {
 }
 
 export async function signOutAndClearCache(): Promise<void> {
-  await fetch(`${getApiUrl()}/api/auth/logout`, {
-    method: 'POST',
-    credentials: 'include',
-  });
+  await client.api.auth.logout.$post();
   clearLocalAuthState();
 }
 
-async function simpleAuthPost(
-  path: string,
-  body: Record<string, unknown>,
+async function runSimpleAuthPost(
+  request: Promise<Response>,
   fallbackErrorCode = 'INTERNAL'
 ): Promise<{ error?: { message: string } }> {
   try {
-    const response = await fetch(`${getApiUrl()}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      credentials: 'include',
-    });
-
+    const response = await request;
     if (!response.ok) {
       const responseBody: unknown = await response.json();
       return { error: { message: parseErrorMessage(responseBody) } };
     }
-
     return {};
   } catch {
     return { error: { message: friendlyErrorMessage(fallbackErrorCode) } };
@@ -662,13 +652,18 @@ export const authClient = {
   },
 
   tokenLogin: (options: { token: string }): Promise<{ error?: { message: string } }> =>
-    simpleAuthPost('/api/auth/token-login', { token: options.token }),
+    runSimpleAuthPost(client.api.auth['token-login'].$post({ json: { token: options.token } })),
 
   resendVerification: (options: { email: string }): Promise<{ error?: { message: string } }> =>
-    simpleAuthPost('/api/auth/resend-verification', { email: options.email }),
+    runSimpleAuthPost(
+      client.api.auth['resend-verification'].$post({ json: { email: options.email } })
+    ),
 
   verifyEmail: (options: { query: { token: string } }): Promise<VerifyEmailResult> =>
-    simpleAuthPost('/api/auth/verify-email', { token: options.query.token }, 'VERIFICATION_FAILED'),
+    runSimpleAuthPost(
+      client.api.auth['verify-email'].$post({ json: { token: options.query.token } }),
+      'VERIFICATION_FAILED'
+    ),
 };
 
 function decryptCustomInstructions(

@@ -7,19 +7,19 @@ import {
 import type { Modality } from '@hushbox/shared';
 
 export interface ImagePricing {
-  /** Pre-fee USD per image, one entry per selected model. */
+  /** Fee-inclusive USD per image, one entry per selected model (from `Model.pricePerImage`). */
   pricesPerImage: readonly number[];
 }
 
 export interface VideoPricing {
-  /** Pre-fee USD per second at the chosen resolution, one entry per selected model. */
+  /** Fee-inclusive USD per second at the chosen resolution, one entry per selected model. */
   pricesPerSecond: readonly number[];
   /** Duration in seconds (fixed at request time for video). */
   durationSeconds: number;
 }
 
 export interface AudioPricing {
-  /** Pre-fee USD per second of synthesized speech, one entry per selected model. */
+  /** Fee-inclusive USD per second of synthesized speech, one entry per selected model. */
   pricesPerSecond: readonly number[];
   /** User-set worst-case cap on the synthesized duration. */
   durationSeconds: number;

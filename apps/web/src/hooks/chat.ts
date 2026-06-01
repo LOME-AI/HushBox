@@ -125,9 +125,16 @@ export function useDecryptedConversations(): {
   const batchResult = useQuery({
     queryKey: ['keys', 'batch', batchIds] as const,
     queryFn: async (): Promise<Record<string, KeyChainResponse>> => {
-      const response = await fetchJson<{ keys: Record<string, KeyChainResponse> }>(
-        client.api.keys.batch.$post({ json: { conversationIds: batchIds } })
-      );
+      // The endpoint returns `{ keys, missing }` — `missing` lists ids the
+      // caller has no membership for (revoked, deleted, or not yet replicated
+      // after a membership change). Dropping `missing` is intentional: the
+      // conversation list refetch that fires after any membership-changing
+      // event will re-derive `batchIds` without the missing entries on the
+      // next render.
+      const response = await fetchJson<{
+        keys: Record<string, KeyChainResponse>;
+        missing: string[];
+      }>(client.api.keys.batch.$post({ json: { conversationIds: batchIds } }));
       return response.keys;
     },
     staleTime: 1000 * 60 * 60,

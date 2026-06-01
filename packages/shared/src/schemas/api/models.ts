@@ -151,6 +151,12 @@ function refineModalityPricing(model: PricingShape, ctx: z.RefinementCtx): void 
 
 /**
  * Schema for an AI model available through the AI Gateway.
+ *
+ * Fee contract: every `pricePer*` / `minPricePer*` / `maxPricePer*` price
+ * field on a `Model` is FEE-INCLUSIVE (raw provider price multiplied by
+ * `1 + TOTAL_FEE_RATE`). Fees are applied once by `processModels` (see
+ * `packages/shared/src/models/process-models.ts`); downstream consumers
+ * (UI display, sort, budget math, billing) must NOT re-apply fees.
  */
 export const modelSchema = z
   .object({
@@ -169,27 +175,27 @@ export const modelSchema = z
     /** Maximum context window in tokens (text models); for image models this is 0 or irrelevant. */
     contextLength: z.number().int().nonnegative(),
 
-    /** Cost per input token in USD (text models); 0 for image models */
+    /** Fee-inclusive cost per input token in USD (text models); 0 for non-text. */
     pricePerInputToken: z.number().nonnegative(),
 
-    /** Cost per output token in USD (text models); 0 for image models */
+    /** Fee-inclusive cost per output token in USD (text models); 0 for non-text. */
     pricePerOutputToken: z.number().nonnegative(),
 
-    /** Cost per image in USD (image models); 0 for text models */
+    /** Fee-inclusive cost per image in USD (image models); 0 for non-image. */
     pricePerImage: z.number().nonnegative().default(0),
 
     /**
-     * Cost per second of output in USD, keyed by resolution (video models).
-     * Empty for non-video models. Populated from the gateway's
-     * `video_duration_pricing` array, preferring the `audio: true` entry
-     * per resolution since HushBox always requests audio when supported.
+     * Fee-inclusive cost per second of output in USD, keyed by resolution
+     * (video models). Empty for non-video models. Populated from the
+     * gateway's `video_duration_pricing` array, preferring the `audio: true`
+     * entry per resolution since HushBox always requests audio when supported.
      */
     pricePerSecondByResolution: z.record(z.string(), z.number().nonnegative()).default({}),
 
     /**
-     * Flat per-second cost in USD for audio (TTS) models. 0 for non-audio
-     * models. Audio is priced per-second of generated speech (no resolution
-     * split, unlike video).
+     * Flat fee-inclusive per-second cost in USD for audio (TTS) models. 0 for
+     * non-audio models. Audio is priced per-second of generated speech (no
+     * resolution split, unlike video).
      */
     pricePerSecond: z.number().nonnegative().default(0),
 
@@ -212,16 +218,16 @@ export const modelSchema = z
     /** Whether this model is the synthetic Smart Model router */
     isSmartModel: z.boolean().optional(),
 
-    /** Minimum input price per token across the Smart Model's pool (for price range display) */
+    /** Fee-inclusive minimum input price per token across the Smart Model's pool (for price range display) */
     minPricePerInputToken: z.number().nonnegative().optional(),
 
-    /** Minimum output price per token across the Smart Model's pool (for price range display) */
+    /** Fee-inclusive minimum output price per token across the Smart Model's pool (for price range display) */
     minPricePerOutputToken: z.number().nonnegative().optional(),
 
-    /** Maximum input price per token across the Smart Model's pool (for price range display) */
+    /** Fee-inclusive maximum input price per token across the Smart Model's pool (for price range display) */
     maxPricePerInputToken: z.number().nonnegative().optional(),
 
-    /** Maximum output price per token across the Smart Model's pool (for price range display) */
+    /** Fee-inclusive maximum output price per token across the Smart Model's pool (for price range display) */
     maxPricePerOutputToken: z.number().nonnegative().optional(),
 
     /**

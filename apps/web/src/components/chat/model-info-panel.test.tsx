@@ -3,6 +3,11 @@ import { describe, it, expect } from 'vitest';
 import { ModelInfoPanel } from './model-info-panel';
 import type { Model } from '@hushbox/shared';
 
+// Model fixtures use FEE-INCLUSIVE prices for `pricePerImage`, `pricePerSecond`,
+// `pricePerSecondByResolution[*]`, `pricePer{Input,Output}Token` per the
+// `processModels` contract. The component reads these fields directly without
+// applying fees — so the displayed value matches the fixture.
+
 function buildModel(overrides: Partial<Model> = {}): Model {
   return {
     id: 'openai/gpt-4o',

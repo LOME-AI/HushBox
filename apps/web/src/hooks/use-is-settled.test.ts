@@ -19,16 +19,22 @@ vi.mock('@/lib/auth', () => ({
   useAuthStore: vi.fn(),
 }));
 
+vi.mock('@hushbox/ui', () => ({
+  useAsyncActivityStore: vi.fn(),
+}));
+
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { useDecryptionActivityStore } from '@/stores/decryption-activity';
 import { useWebsocketInboundActivityStore } from '@/stores/websocket-inbound-activity';
 import { useAuthStore } from '@/lib/auth';
+import { useAsyncActivityStore } from '@hushbox/ui';
 import { useIsSettled, DEBOUNCE_MS } from './use-is-settled.js';
 
 const mockedUseStreamingActivityStore = vi.mocked(useStreamingActivityStore);
 const mockedUseDecryptionActivityStore = vi.mocked(useDecryptionActivityStore);
 const mockedUseWebsocketInboundActivityStore = vi.mocked(useWebsocketInboundActivityStore);
 const mockedUseAuthStore = vi.mocked(useAuthStore);
+const mockedUseAsyncActivityStore = vi.mocked(useAsyncActivityStore);
 
 function createWrapper(): React.FC<{ children: React.ReactNode }> {
   const queryClient = new QueryClient({
@@ -47,6 +53,7 @@ describe('useIsSettled', () => {
     mockedUseDecryptionActivityStore.mockReturnValue(0);
     mockedUseWebsocketInboundActivityStore.mockReturnValue(0);
     mockedUseAuthStore.mockReturnValue(false);
+    mockedUseAsyncActivityStore.mockReturnValue(0);
   });
 
   afterEach(() => {
@@ -96,6 +103,43 @@ describe('useIsSettled', () => {
     });
 
     expect(result.current).toBe(false);
+  });
+
+  it('returns false when async actions are pending (raw-fetch path)', () => {
+    // Auth flows (resend, recovery save, etc.) call `useAsyncAction.run(...)`
+    // which increments `useAsyncActivityStore`. settled-expect must wait for
+    // those to resolve, not short-circuit while the underlying fetch is in
+    // flight.
+    mockedUseAsyncActivityStore.mockReturnValue(1);
+
+    const { result } = renderHook(() => useIsSettled(), { wrapper: createWrapper() });
+
+    act(() => {
+      vi.advanceTimersByTime(DEBOUNCE_MS);
+    });
+
+    expect(result.current).toBe(false);
+  });
+
+  it('returns true after debounce once async actions complete', () => {
+    mockedUseAsyncActivityStore.mockReturnValue(1);
+    const { result, rerender } = renderHook(() => useIsSettled(), {
+      wrapper: createWrapper(),
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(result.current).toBe(false);
+
+    mockedUseAsyncActivityStore.mockReturnValue(0);
+    rerender();
+
+    act(() => {
+      vi.advanceTimersByTime(DEBOUNCE_MS);
+    });
+
+    expect(result.current).toBe(true);
   });
 
   it('transitions from false to true when streams end', () => {

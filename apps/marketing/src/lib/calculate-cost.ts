@@ -1,4 +1,4 @@
-import { applyFees, estimateTokenCount, STORAGE_COST_PER_CHARACTER } from '@hushbox/shared';
+import { estimateTokenCount, STORAGE_COST_PER_CHARACTER } from '@hushbox/shared';
 import type { Model } from '@hushbox/shared';
 
 const MESSAGES_PER_DAY = 50;
@@ -45,9 +45,8 @@ export function calculateMonthlyCost(models: Model[]): MonthlyCostResult {
 
   const tokenCost =
     inputTokens * cheapest.pricePerInputToken + outputTokens * cheapest.pricePerOutputToken;
-  const tokenCostWithFees = applyFees(tokenCost);
   const storageCost = (inputChars + outputChars) * STORAGE_COST_PER_CHARACTER;
-  const costPerMessage = tokenCostWithFees + storageCost;
+  const costPerMessage = tokenCost + storageCost;
 
   const totalMessages = MESSAGES_PER_DAY * DAYS_PER_MONTH;
   const monthlyCost = costPerMessage * totalMessages;

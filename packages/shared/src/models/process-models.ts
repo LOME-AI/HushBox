@@ -2,10 +2,17 @@
  * Model processing service.
  *
  * Handles filtering, classification, and transformation of AI Gateway models.
+ *
+ * Fee contract: every `Model.pricePer*` field returned from `processModels()`
+ * is fee-inclusive — fees are applied once inside `transform{Text,Image,Video,
+ * Audio}` and `buildSmartModelEntry`. Downstream consumers (UI display, sort,
+ * budget math, billing) must NOT re-apply fees. `applyFees(...)` is reserved
+ * for prices that did not come from a `Model` — the post-inference
+ * `gatewayCost` and standalone constants like web-search-per-call.
  */
 
 import { SMART_MODEL_ID, IMAGE_ASPECT_RATIOS } from '../constants.js';
-import { parseTokenPrice } from '../pricing.js';
+import { applyFees, parseTokenPrice } from '../pricing.js';
 
 import { buildSystemPrompt } from '../prompt/build-system-prompt.js';
 
@@ -91,8 +98,8 @@ function transformText(model: RawModel): Model {
     provider,
     modality: 'text',
     contextLength: model.context_length,
-    pricePerInputToken: parseTokenPrice(model.pricing.prompt),
-    pricePerOutputToken: parseTokenPrice(model.pricing.completion),
+    pricePerInputToken: applyFees(parseTokenPrice(model.pricing.prompt)),
+    pricePerOutputToken: applyFees(parseTokenPrice(model.pricing.completion)),
     pricePerImage: 0,
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
@@ -149,8 +156,8 @@ function processTextModels(raws: RawModel[]): TextProcessingResult {
  * is non-empty (gated at `processModels`'s `smartPrefix` construction).
  */
 function buildSmartModelEntry(pool: RawModel[]): Model {
-  const inputPrices = pool.map((m) => parseTokenPrice(m.pricing.prompt));
-  const outputPrices = pool.map((m) => parseTokenPrice(m.pricing.completion));
+  const inputPrices = pool.map((m) => applyFees(parseTokenPrice(m.pricing.prompt)));
+  const outputPrices = pool.map((m) => applyFees(parseTokenPrice(m.pricing.completion)));
   const contexts = pool.map((m) => m.context_length);
 
   const minInput = Math.min(...inputPrices);
@@ -198,7 +205,7 @@ function transformImage(model: RawModel): Model {
     contextLength: 0,
     pricePerInputToken: 0,
     pricePerOutputToken: 0,
-    pricePerImage: perImageRaw === undefined ? 0 : parseTokenPrice(perImageRaw),
+    pricePerImage: perImageRaw === undefined ? 0 : applyFees(parseTokenPrice(perImageRaw)),
     pricePerSecondByResolution: {},
     pricePerSecond: 0,
     capabilities: [],
@@ -230,7 +237,7 @@ function transformVideo(model: RawModel): Model {
   const { provider, displayName } = extractProvider(model);
   const rawByResolution = model.pricing.per_second_by_resolution ?? {};
   const pricePerSecondByResolution = Object.fromEntries(
-    Object.entries(rawByResolution).map(([res, price]) => [res, parseTokenPrice(price)])
+    Object.entries(rawByResolution).map(([res, price]) => [res, applyFees(parseTokenPrice(price))])
   );
   // Per-Veo-version capability — durations and resolutions are non-overlapping
   // across 3.0 vs 3.1. Models not in the lookup omit the fields entirely so
@@ -286,7 +293,7 @@ function transformAudio(model: RawModel): Model {
     pricePerOutputToken: 0,
     pricePerImage: 0,
     pricePerSecondByResolution: {},
-    pricePerSecond: perSecondRaw === undefined ? 0 : parseTokenPrice(perSecondRaw),
+    pricePerSecond: perSecondRaw === undefined ? 0 : applyFees(parseTokenPrice(perSecondRaw)),
     capabilities: [],
     supportedParameters: model.supported_parameters,
     created: model.created,

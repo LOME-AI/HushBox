@@ -16,6 +16,11 @@
  * model, omitted otherwise. Omission means "we haven't verified — the gateway
  * is the gate." Consumers that require capability data (e.g., the test
  * picker) filter to entries that carry it.
+ *
+ * Fee contract: every price field on a `ModelView` (`inputPerToken`,
+ * `outputPerToken`, `perImage`, `perSecondByResolution[*]`, `perSecond`) is
+ * FEE-INCLUSIVE — passes through unchanged from `Model.pricePer*`, which is
+ * fee-inclusive per the `processModels` contract.
  */
 
 import {

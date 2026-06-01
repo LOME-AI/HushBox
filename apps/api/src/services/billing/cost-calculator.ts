@@ -2,19 +2,25 @@ import {
   applyFees,
   calculateMessageCostFromActual,
   estimateTokenCount,
+  STORAGE_COST_PER_CHARACTER,
   type PreInferenceBilling,
 } from '@hushbox/shared';
 import { recordServiceEvidence, SERVICE_NAMES, type EvidenceConfig } from '@hushbox/db';
 import type { AIClient } from '../ai/index.js';
 
 /**
- * Result of resolving a model's raw (pre-fee, pre-storage) cost.
+ * Result of resolving a model's cost (pre-storage).
  *
- *   - Success path: `modelCostUsd` is the gateway's `totalCost` — already
- *     reflects any web-search calls, cache discounts, and tier pricing.
+ *   - Success path: `modelCostUsd` is the gateway's `totalCost` — RAW
+ *     (pre-fee) cost that already reflects any web-search calls, cache
+ *     discounts, and tier pricing. Caller applies fees on top.
  *   - Fallback path: `modelCostUsd` is a token-count × catalog-price estimate.
- *     Storage is intentionally NOT included so the caller can add it exactly
- *     once at the right attribution level (always main, never per-stage).
+ *     The catalog prices on `ModelInfo.pricing` are fee-inclusive per the
+ *     `pricingFromRawModel` contract, so the estimate is ALREADY fee-inclusive
+ *     and the caller must NOT re-apply fees.
+ *
+ * Storage is intentionally NOT included so the caller can add it exactly
+ * once at the right attribution level (always main, never per-stage).
  *
  * Known fallback inaccuracies (acceptable for the rare path):
  *   - Web-search-enabled requests are UNDER-billed because the estimate
@@ -39,9 +45,10 @@ interface ResolveGatewayCostOrEstimateParams {
 
 /**
  * Try the gateway lookup; on failure (retries already exhausted inside the
- * AIClient) fall back to a token-count × catalog-price estimate. Returns the
- * RAW model cost — fees and storage are added by the caller so attribution
- * stays correct across single-message and staged paths.
+ * AIClient) fall back to a token-count × catalog-price estimate.
+ *
+ * Returns `wasEstimated: false` with RAW gateway cost (caller applies fees), or
+ * `wasEstimated: true` with FEE-INCLUSIVE estimate (caller adds storage only).
  *
  * Non-token-priced models (image/video/audio) can't be meaningfully estimated
  * this way — re-throw so the operator sees a real failure rather than a wrong
@@ -61,6 +68,8 @@ async function resolveGatewayCostOrEstimate(
     if (model.pricing.kind !== 'token') {
       throw error;
     }
+    // `ModelInfo.pricing.{input,output}PerToken` is fee-inclusive per the
+    // `pricingFromRawModel` contract, so the result here is already fee-inclusive.
     const tokenInputCost = estimateTokenCount(inputContent) * model.pricing.inputPerToken;
     const tokenOutputCost = estimateTokenCount(outputContent) * model.pricing.outputPerToken;
     const modelCostUsd = tokenInputCost + tokenOutputCost;
@@ -73,6 +82,30 @@ async function resolveGatewayCostOrEstimate(
     });
     return { modelCostUsd, wasEstimated: true };
   }
+}
+
+function storageCostForChars(inputCharacters: number, outputCharacters: number): number {
+  return (inputCharacters + outputCharacters) * STORAGE_COST_PER_CHARACTER;
+}
+
+/**
+ * Combine a resolved model cost with storage. Branches on `wasEstimated`:
+ * gateway path applies fees to raw cost via `calculateMessageCostFromActual`;
+ * estimate path is already fee-inclusive and just adds storage.
+ */
+function finalizeMessageCost(
+  resolution: CostResolution,
+  inputCharacters: number,
+  outputCharacters: number
+): number {
+  if (resolution.wasEstimated) {
+    return resolution.modelCostUsd + storageCostForChars(inputCharacters, outputCharacters);
+  }
+  return calculateMessageCostFromActual({
+    gatewayCost: resolution.modelCostUsd,
+    inputCharacters,
+    outputCharacters,
+  });
 }
 
 /**
@@ -128,7 +161,7 @@ export async function calculateMessageCost(
 ): Promise<CalculateMessageCostResult> {
   const { aiClient, generationId, modelId, inputContent, outputContent } = params;
 
-  const { modelCostUsd, wasEstimated } = await resolveGatewayCostOrEstimate({
+  const resolution = await resolveGatewayCostOrEstimate({
     aiClient,
     generationId,
     modelId,
@@ -136,13 +169,9 @@ export async function calculateMessageCost(
     outputContent,
   });
 
-  const totalDollars = calculateMessageCostFromActual({
-    gatewayCost: modelCostUsd,
-    inputCharacters: inputContent.length,
-    outputCharacters: outputContent.length,
-  });
+  const totalDollars = finalizeMessageCost(resolution, inputContent.length, outputContent.length);
 
-  return { totalDollars, wasEstimated };
+  return { totalDollars, wasEstimated: resolution.wasEstimated };
 }
 
 export interface CalculateMessageCostWithStagesParams {
@@ -161,9 +190,20 @@ export interface CalculateMessageCostWithStagesParams {
 
 export interface StageCostAttribution {
   billing: PreInferenceBilling;
-  /** Pre-fee gateway USD cost from getGenerationStats. */
+  /**
+   * USD cost from the underlying cost resolution.
+   *   - `wasEstimated: false` — raw (pre-fee) gateway cost from `getGenerationStats`.
+   *   - `wasEstimated: true`  — fee-inclusive token-count × catalog-price estimate
+   *     (catalog prices on `ModelInfo.pricing.*` are fee-inclusive per the
+   *     `pricingFromRawModel` contract).
+   */
   gatewayCostUsd: number;
-  /** Cost in dollars attributable to this stage (gateway cost × fee multiplier). */
+  /**
+   * Cost in dollars attributable to this stage.
+   *   - `wasEstimated: false` — `applyFees(gatewayCostUsd)`.
+   *   - `wasEstimated: true`  — `gatewayCostUsd` directly (already fee-inclusive).
+   * No storage component — stages don't attribute storage.
+   */
   costDollars: number;
   /** True when this stage fell back to an estimate. */
   wasEstimated: boolean;
@@ -226,26 +266,30 @@ export async function calculateMessageCostWithStages(
     ),
   ]);
 
-  // Resolutions return RAW model cost (no fees, no storage). Apply fees once
-  // here per row; storage is added only to main.
+  // Resolutions return RAW gateway cost (apply fees) or FEE-INCLUSIVE estimate
+  // (already includes fees). `finalizeMessageCost` branches; we re-use a
+  // 0-char variant here since stages have no storage attribution.
   const stageBreakdown: StageCostAttribution[] = stageBillings.map((billing, index) => {
     const resolution = stageResolutions[index];
     if (!resolution) {
       throw new Error('stageResolutions invariant: missing resolution for stage');
     }
+    const costDollars = resolution.wasEstimated
+      ? resolution.modelCostUsd
+      : applyFees(resolution.modelCostUsd);
     return {
       billing,
       gatewayCostUsd: resolution.modelCostUsd,
-      costDollars: applyFees(resolution.modelCostUsd),
+      costDollars,
       wasEstimated: resolution.wasEstimated,
     };
   });
 
-  const mainCostDollars = calculateMessageCostFromActual({
-    gatewayCost: mainResolution.modelCostUsd,
-    inputCharacters: inputContent.length,
-    outputCharacters: outputContent.length,
-  });
+  const mainCostDollars = finalizeMessageCost(
+    mainResolution,
+    inputContent.length,
+    outputContent.length
+  );
   const stageDollarsSum = stageBreakdown.reduce((sum, b) => sum + b.costDollars, 0);
   const totalDollars = mainCostDollars + stageDollarsSum;
 
