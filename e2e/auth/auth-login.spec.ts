@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { LoginPage } from '../pages';
 import {
   logoutViaUI,
@@ -45,6 +45,19 @@ test.describe('Login & Session', () => {
       unauthenticatedPage,
       request,
     }) => {
+      // The initial login intentionally hits the EMAIL_NOT_VERIFIED branch
+      // (401 from /api/auth/login/finish). Without these opt-outs the
+      // auto-error-guard treats the 401 as an unexpected failure in the
+      // After Hooks, the initial attempt is marked failed, and the retry
+      // sees test-charlie already verified (by this test's own
+      // verifyEmailViaAPI call) — so the check-your-email assertion can no
+      // longer pass.
+      expectApiErrors(unauthenticatedPage, [/EMAIL_NOT_VERIFIED/]);
+      expectConsoleErrors(unauthenticatedPage, [
+        /Failed to load resource.*401/,
+        /the server responded with a status of 401/,
+      ]);
+
       const email = personaEmail('test-charlie');
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();

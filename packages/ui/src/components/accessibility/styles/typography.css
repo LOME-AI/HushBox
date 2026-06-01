@@ -31,6 +31,31 @@ html.a11y-font-scale-88 select {
   font-size: 16px;
 }
 
+/* Mobile baseline — drop the root from 17px (desktop) to 16px under Tailwind's
+   md: breakpoint so every rem-derived utility (text-*, p-*, gap-*, h-*) shrinks
+   proportionally on narrow viewports. The 48rem literal is load-bearing: it
+   must match Tailwind's --breakpoint-md AND the MOBILE_BREAKPOINT constant in
+   @hushbox/shared (the breakpoint-coupling test in
+   packages/shared/src/mobile.test.ts enforces 768 === 48 × 16). rem inside an
+   @media condition resolves against the CSS initial 16px — not the document
+   root — so the boundary is stable even as the html font-size changes.
+
+   The a11y class rules above have higher specificity (0,0,1,1) than `html`
+   (0,0,0,1), so any explicit accessibility tier still overrides this baseline
+   — `Smaller`, `Larger`, etc. keep their absolute pixel sizes across viewports.
+   The mobile override below for `a11y-font-scale-88` exists only because the
+   default 93.75% (15px) lands too close to the new mobile Normal (16px) for
+   the step to read as distinct; 87.5% (14px) restores a perceptible gap. The
+   iOS form-zoom carve-out above keeps inputs at 16px regardless. */
+@media (width < 48rem) {
+  html {
+    font-size: 100%;
+  }
+  html.a11y-font-scale-88 {
+    font-size: 87.5%;
+  }
+}
+
 /* Letter / line / paragraph spacing — scoped to text elements, not all */
 html.a11y-letter-spacing-loose body p,
 html.a11y-letter-spacing-loose body li,

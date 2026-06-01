@@ -102,6 +102,29 @@ describe('accessibility styles bundle', () => {
     );
   });
 
+  it('typography.css drops the root to 100% (16px) below Tailwind --breakpoint-md', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    // The 48rem literal is load-bearing: it must match Tailwind's --breakpoint-md.
+    // packages/shared/src/mobile.test.ts asserts MOBILE_BREAKPOINT === 48 * 16,
+    // which keeps useIsMobile, the sidebar md: breakpoint, and this media query
+    // in lock-step. rem in @media resolves against the CSS initial 16px (not the
+    // document root), so 48rem = 768px regardless of html font-size.
+    expect(contents).toMatch(
+      /@media\s*\(\s*width\s*<\s*48rem\s*\)\s*{[\s\S]*?html\s*{\s*font-size:\s*100%/
+    );
+  });
+
+  it('typography.css mobile Smaller tier overrides to 87.5% so Smaller stays perceptibly below mobile Normal', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    // Without this, mobile Normal (100%, 16px) sits 1px above the global
+    // Smaller (93.75%, 15px) — too close to read as a distinct step. 87.5%
+    // restores a 2px gap (14px Smaller vs 16px Normal). The iOS form-zoom
+    // carve-out above keeps inputs at 16px regardless.
+    expect(contents).toMatch(
+      /@media\s*\(\s*width\s*<\s*48rem\s*\)\s*{[\s\S]*?html\.a11y-font-scale-88\s*{\s*font-size:\s*87\.5%/
+    );
+  });
+
   it('typography.css scopes paragraph spacing to non-trailing paragraphs', () => {
     const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
     // :not(:last-child) is load-bearing — without it the trailing <p> in every
