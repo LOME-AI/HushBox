@@ -19,7 +19,7 @@
     "@hushbox/crypto": "workspace:*",
     "@hushbox/realtime": "workspace:*",
     "@upstash/redis": "^1.36.4",
-    "ai": "^6.0.158",
+    "ai": "^6.0.194",
     "aws4fetch": "^1.0.20",
     "hono": "^4.12.6",
     "iron-session": "^8.0.4",

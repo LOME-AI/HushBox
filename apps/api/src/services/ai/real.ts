@@ -71,21 +71,17 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-function imageProviderOptions(modelId: string): {
-  gateway: { zeroDataRetention: true };
-  openai: { serviceTier: 'flex' };
-  google: { serviceTier: 'flex'; sampleImageSize?: ImagenSampleSize };
-  vertex: { sharedRequestType: 'flex' };
-} {
+function imageProviderOptions(modelId: string):
+  | typeof ZDR_PROVIDER_OPTIONS
+  | (typeof ZDR_PROVIDER_OPTIONS & { google: { sampleImageSize: ImagenSampleSize } }) {
   const sampleImageSize = getImagenSampleSize(modelId);
   if (sampleImageSize === undefined) return ZDR_PROVIDER_OPTIONS;
-  // Merge into the `google` namespace rather than replacing it so the
-  // flex-tier opt-in survives. A bare `google: { sampleImageSize }` would
-  // shadow `google.serviceTier` from ZDR_PROVIDER_OPTIONS and silently bill
-  // Imagen requests at standard while every other modality runs on flex.
+  // Imagen 4 needs `google.sampleImageSize` set; the flex-tier opt-in lives
+  // on `gateway.serviceTier` now (3.0.120 consolidation), so no per-provider
+  // serviceTier needs to ride alongside.
   return {
     ...ZDR_PROVIDER_OPTIONS,
-    google: { ...ZDR_PROVIDER_OPTIONS.google, sampleImageSize },
+    google: { sampleImageSize },
   };
 }
 

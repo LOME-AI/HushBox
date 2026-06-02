@@ -169,7 +169,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   // `atBottom` branch; a drag-up-and-stop is the only case followOutput
   // will keep pinning — rare on a chat list.
   const userScrolledRef = useRef(false);
-  const userScrollDecayTimeoutRef = useRef<number | undefined>(undefined);
+  const userScrollDecayTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scrollerElRef = useRef<HTMLElement | null>(null);
 
   // Monotonic counter of completed stream cycles. Increments whenever

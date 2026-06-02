@@ -12,10 +12,7 @@ import type {
 // capabilities.ts` — `capabilities.test.ts` is the single owner of the shape
 // assertion.
 const ZDR_PROVIDER_OPTIONS = {
-  gateway: { zeroDataRetention: true },
-  openai: { serviceTier: 'flex' },
-  google: { serviceTier: 'flex' },
-  vertex: { sharedRequestType: 'flex' },
+  gateway: { zeroDataRetention: true, serviceTier: 'flex' },
 } as const;
 
 const mockStreamText = vi.fn();
@@ -557,8 +554,8 @@ describe('createRealAIClient', () => {
           })
         );
         const callArgs = mockGenerateImage.mock.calls[0]![0]!;
-        // `google.serviceTier: 'flex'` is the global ZDR default — what must
-        // be absent on non-Imagen-4 models is `sampleImageSize` specifically.
+        // The flex-tier opt-in lives on `gateway.serviceTier` post-consolidation
+        // so the `google` namespace is absent unless `sampleImageSize` adds it.
         expect(callArgs.providerOptions?.google?.sampleImageSize).toBeUndefined();
       });
 
@@ -576,7 +573,10 @@ describe('createRealAIClient', () => {
           })
         );
         const callArgs = mockGenerateImage.mock.calls[0]![0]!;
-        expect(callArgs.providerOptions?.gateway).toEqual({ zeroDataRetention: true });
+        expect(callArgs.providerOptions?.gateway).toEqual({
+          zeroDataRetention: true,
+          serviceTier: 'flex',
+        });
       });
     });
   });
@@ -1339,6 +1339,111 @@ describe('createRealAIClient', () => {
       } as unknown as TextRequest;
 
       expect(() => client.stream(badRequest)).toThrow(/exhaustiveness/i);
+    });
+  });
+
+  // Regression cover for the production "Expected property name or '}' in JSON
+  // at position 4 (line 2 column 3)" failure. The Vercel AI SDK builds a
+  // four-layer error chain when the gateway returns malformed JSON:
+  //   GatewayResponseError → APICallError → JSONParseError → SyntaxError
+  // Our diagnostics helper must walk that chain and surface the raw response
+  // body in the log line — otherwise we can't tell why the gateway misbehaved.
+  describe('gateway parse-failure error chain propagation', () => {
+    function buildSdkParseErrorChain(rawBody: string): Error {
+      const v8SyntaxError = new SyntaxError(
+        "Expected property name or '}' in JSON at position 4 (line 2 column 3)"
+      );
+      const jsonParseError = Object.assign(
+        new Error(
+          `JSON parsing failed: Text: ${rawBody}. Error message: ${v8SyntaxError.message}`,
+          { cause: v8SyntaxError }
+        ),
+        { name: 'AI_JSONParseError', text: rawBody }
+      );
+      const apiCallError = Object.assign(new Error('Invalid JSON response', { cause: jsonParseError }), {
+        name: 'AI_APICallError',
+        statusCode: 200,
+        url: 'https://ai-gateway.vercel.sh/v3/ai/image-model',
+        responseBody: rawBody,
+      });
+      return Object.assign(new Error('Gateway request failed', { cause: apiCallError }), {
+        name: 'AI_GatewayResponseError',
+      });
+    }
+
+    it('image: SDK parse failure preserves the raw body on cause.cause.text', async () => {
+      const rawBody = '{\n  ,"images":[]}';
+      mockGenerateImage.mockRejectedValue(buildSdkParseErrorChain(rawBody));
+
+      let caught: unknown;
+      try {
+        await collectEvents(
+          client.stream({ modality: 'image', model: 'google/imagen-4.0-generate-001', prompt: 'A cat' })
+        );
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeDefined();
+      // SDK contract: outer GatewayResponseError → APICallError (responseBody)
+      // → JSONParseError (text) → V8 SyntaxError.
+      const apiCall = (caught as { cause?: { cause?: { text?: string; cause?: unknown } } }).cause;
+      expect(apiCall).toBeDefined();
+      const jsonParse = apiCall?.cause;
+      expect(jsonParse?.text).toBe(rawBody);
+      expect((jsonParse?.cause as Error).message).toContain(
+        "Expected property name or '}' in JSON at position 4"
+      );
+    });
+
+    it('video: SDK SSE parse failure preserves the same chain shape', async () => {
+      const rawBody = '{\n  ,"videos":[]}';
+      mockGenerateVideo.mockRejectedValue(buildSdkParseErrorChain(rawBody));
+
+      let caught: unknown;
+      try {
+        await collectEvents(
+          client.stream({ modality: 'video', model: 'google/veo-3.1-generate-001', prompt: 'A wave' })
+        );
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeDefined();
+      const apiCall = (caught as { cause?: { cause?: { text?: string } } }).cause;
+      expect(apiCall?.cause?.text).toBe(rawBody);
+    });
+
+    it('extractErrorDiagnostics surfaces the raw body four layers deep', async () => {
+      const { extractErrorDiagnostics } = await import('../../lib/error-diagnostics.js');
+      const rawBody = '{\n  ,"images":[]}';
+      mockGenerateImage.mockRejectedValue(buildSdkParseErrorChain(rawBody));
+
+      let caught: unknown;
+      try {
+        await collectEvents(
+          client.stream({ modality: 'image', model: 'google/imagen-4.0-generate-001', prompt: 'A cat' })
+        );
+      } catch (err) {
+        caught = err;
+      }
+
+      const diagnostics = extractErrorDiagnostics(caught);
+      // GatewayResponseError + APICallError + JSONParseError + SyntaxError
+      expect(diagnostics.layers).toHaveLength(4);
+      expect(diagnostics.layers.map((l) => l.name)).toEqual([
+        'AI_GatewayResponseError',
+        'AI_APICallError',
+        'AI_JSONParseError',
+        'SyntaxError',
+      ]);
+      // The raw body must be present in at least one layer's bodyPreview — the
+      // whole point of the diagnostic chain walker.
+      expect(diagnostics.layers.some((l) => l.bodyPreview === rawBody)).toBe(true);
+      // APICallError carries statusCode and url; assert both make it through.
+      const apiLayer = diagnostics.layers[1]!;
+      expect(apiLayer.statusCode).toBe(200);
+      expect(apiLayer.url).toBe('https://ai-gateway.vercel.sh/v3/ai/image-model');
     });
   });
 });

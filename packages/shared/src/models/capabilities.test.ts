@@ -88,14 +88,21 @@ describe('ZDR_PROVIDER_OPTIONS', () => {
     expect(ZDR_PROVIDER_OPTIONS.gateway.zeroDataRetention).toBe(true);
   });
 
-  it('opts into flex pricing on OpenAI, Google AI Studio, and Vertex routes', () => {
-    // The gateway treats flex as a no-op on providers that don't expose it
-    // (Anthropic, xAI, Veo, etc.) and bills at the tier actually served, so
-    // the flag is safe to send universally. ~50% cost reduction on supported
-    // models, no consistency risk for the rest.
-    expect(ZDR_PROVIDER_OPTIONS.openai.serviceTier).toBe('flex');
-    expect(ZDR_PROVIDER_OPTIONS.google.serviceTier).toBe('flex');
-    expect(ZDR_PROVIDER_OPTIONS.vertex.sharedRequestType).toBe('flex');
+  it('opts into flex pricing via the unified gateway.serviceTier field', () => {
+    // The gateway translates `gateway.serviceTier` into whatever per-provider
+    // key each provider expects, and treats flex as a no-op on providers that
+    // don't expose it (Anthropic, xAI, Veo, etc.) — bills at the tier actually
+    // served. Safe to send universally. ~50% cost reduction on supported models,
+    // no consistency risk for the rest.
+    expect(ZDR_PROVIDER_OPTIONS.gateway.serviceTier).toBe('flex');
+  });
+
+  it('exposes only the gateway namespace (no legacy per-provider keys)', () => {
+    // 3.0.120 consolidated openai.serviceTier / google.serviceTier /
+    // vertex.sharedRequestType into a single gateway.serviceTier. Asserting
+    // the namespace shape directly so a regression that re-adds the legacy
+    // keys is caught here rather than at the gateway.
+    expect(Object.keys(ZDR_PROVIDER_OPTIONS)).toEqual(['gateway']);
   });
 });
 

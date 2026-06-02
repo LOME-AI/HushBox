@@ -95,24 +95,18 @@ export const IMAGEN_SAMPLE_SIZE_BY_MODEL = {
  * `gateway.zeroDataRetention` is the belt-and-suspenders ZDR guarantee paired
  * with the catalog filter and `assertZdrModel()` at the stream boundary.
  *
- * `openai.serviceTier: 'flex'` and `google.serviceTier: 'flex'` opt into the
- * Vercel AI Gateway's flex pricing pool (50% off standard). On models that
- * don't expose a flex tier (Anthropic, xAI, Veo, etc.) the field is a
- * documented no-op — the gateway routes at standard, bills at standard, and
- * surfaces the served tier in `providerMetadata.gateway.serviceTier`.
- * `vertex.sharedRequestType` is the Vertex-routed-Gemini variant of the
- * same flag.
+ * `gateway.serviceTier: 'flex'` opts into the Vercel AI Gateway's flex pricing
+ * pool (50% off standard). The gateway translates this into whatever
+ * per-provider key each provider expects (openai/google `serviceTier`,
+ * vertex `sharedRequestType`) and overrides any tier set in the per-provider
+ * options. On models that don't expose a flex tier (Anthropic, xAI, Veo, etc.)
+ * the field is a documented no-op — the gateway routes at standard, bills at
+ * standard, and surfaces the served tier in `providerMetadata.gateway.serviceTier`.
  *
- * Once `@ai-sdk/gateway` is bumped to ≥ 3.0.120 these three keys collapse to
- * a single `gateway.serviceTier: 'flex'` (the unified field added in that
- * release). Until then the per-provider form is the only way the installed
- * 3.0.95 schema accepts.
+ * The unified field replaced the per-provider form in `@ai-sdk/gateway@3.0.120`.
  */
 export const ZDR_PROVIDER_OPTIONS = {
-  gateway: { zeroDataRetention: true },
-  openai: { serviceTier: 'flex' },
-  google: { serviceTier: 'flex' },
-  vertex: { sharedRequestType: 'flex' },
+  gateway: { zeroDataRetention: true, serviceTier: 'flex' },
 } as const;
 
 // ---------------------------------------------------------------------------

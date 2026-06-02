@@ -6,6 +6,7 @@
 
 import { ERROR_CODE_STREAM_ERROR } from '@hushbox/shared';
 import type { StageDonePayload, StageErrorPayload, StageStartPayload } from '@hushbox/shared';
+import { extractErrorDiagnostics } from './error-diagnostics.js';
 
 export interface SSEStream {
   writeSSE: (event: { event: string; data: string }) => Promise<void>;
@@ -185,7 +186,13 @@ export async function writeStreamErrorFromException(
   writer: SSEEventWriter,
   err: unknown
 ): Promise<void> {
-  console.error('sse stream: uncaught exception', err);
+  // Workers' default `console.error` serializer only prints name/message/stack
+  // and drops every enumerable property — including the cause chain that
+  // carries the gateway's raw response body. Walk the chain ourselves and emit
+  // a single JSON line so `wrangler tail` shows the full picture. The helper
+  // omits user-data fields (prompts, headers, secrets) — see error-diagnostics.ts.
+  const diagnostics = extractErrorDiagnostics(err);
+  console.error('sse stream: uncaught exception', JSON.stringify(diagnostics));
   const message = err instanceof Error ? err.message : 'Stream processing failed';
   await writer.writeError({ message, code: ERROR_CODE_STREAM_ERROR });
 }
