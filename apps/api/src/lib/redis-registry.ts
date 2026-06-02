@@ -222,7 +222,16 @@ export const REDIS_REGISTRY = {
     buildKey: (userId: string) => `delete-account:lockout:${userId}`,
   }),
 
-  // OPAQUE state
+  // OPAQUE state. All six OPAQUE handshakes (registration, login, change
+  // password, 2FA disable, delete account, recovery reset) are keyed by a
+  // server-issued UUID, not by the identifier or userId. The identifier or
+  // userId moves into the stored value so the finish step can still verify
+  // it matches the request — defense-in-depth against a stolen session
+  // token being used with a different account. Per-identifier keying caused
+  // a race where two concurrent handshakes for the same user clobbered each
+  // other's `expected` value in Redis, breaking both handshakes; the
+  // sessionId-keyed scheme matches how RFC-compliant PAKE implementations
+  // track per-handshake state.
   opaquePendingRegistration: defineKey({
     schema: z.object({
       email: z.string(),
@@ -231,7 +240,7 @@ export const REDIS_REGISTRY = {
       existing: z.boolean().optional(),
     }),
     ttl: 300,
-    buildKey: (identifier: string) => `opaque:pending:${identifier.toLowerCase()}`,
+    buildKey: (sessionId: string) => `opaque:pending:${sessionId}`,
   }),
   opaquePendingLogin: defineKey({
     schema: z.object({
@@ -240,7 +249,7 @@ export const REDIS_REGISTRY = {
       expectedSerialized: z.array(z.number()),
     }),
     ttl: 120,
-    buildKey: (identifier: string) => `opaque:login:${identifier.toLowerCase()}`,
+    buildKey: (sessionId: string) => `opaque:login:${sessionId}`,
   }),
   opaquePendingChangePassword: defineKey({
     schema: z.object({
@@ -248,7 +257,7 @@ export const REDIS_REGISTRY = {
       expectedSerialized: z.array(z.number()),
     }),
     ttl: 300,
-    buildKey: (userId: string) => `opaque:change-pw:${userId}`,
+    buildKey: (sessionId: string) => `opaque:change-pw:${sessionId}`,
   }),
   opaquePending2FADisable: defineKey({
     schema: z.object({
@@ -256,7 +265,7 @@ export const REDIS_REGISTRY = {
       expectedSerialized: z.array(z.number()),
     }),
     ttl: 300,
-    buildKey: (userId: string) => `opaque:2fa-disable:${userId}`,
+    buildKey: (sessionId: string) => `opaque:2fa-disable:${sessionId}`,
   }),
   opaquePendingDeleteAccount: defineKey({
     schema: z.object({
@@ -264,14 +273,14 @@ export const REDIS_REGISTRY = {
       expectedSerialized: z.array(z.number()),
     }),
     ttl: 300,
-    buildKey: (userId: string) => `opaque:delete-account:${userId}`,
+    buildKey: (sessionId: string) => `opaque:delete-account:${sessionId}`,
   }),
   opaquePendingRecoveryReset: defineKey({
     schema: z.object({
       identifier: z.string(),
     }),
     ttl: 300,
-    buildKey: (identifier: string) => `opaque:recovery-reset:${identifier.toLowerCase()}`,
+    buildKey: (sessionId: string) => `opaque:recovery-reset:${sessionId}`,
   }),
 
   // TOTP state

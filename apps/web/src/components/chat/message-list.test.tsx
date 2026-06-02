@@ -69,9 +69,20 @@ vi.mock('react-virtuoso', () => ({
     const data = props['data'] as unknown[];
     const itemContent = props['itemContent'] as (index: number, item: unknown) => React.ReactNode;
     const components = props['components'] as { Footer?: () => React.ReactNode } | undefined;
+    const scrollerRefCallback = props['scrollerRef'] as
+      | ((el: HTMLElement | Window | null) => void)
+      | undefined;
     React.useImperativeHandle(ref, () => virtuosoMockHandle);
+    // Forward the scroller DOM node so tests can dispatch wheel/touchmove/
+    // keydown events on it the way MessageList expects in production.
+    const scrollerRef = React.useCallback(
+      (el: HTMLDivElement | null) => {
+        scrollerRefCallback?.(el);
+      },
+      [scrollerRefCallback]
+    );
     return (
-      <div data-testid="virtuoso-mock">
+      <div data-testid="virtuoso-mock" ref={scrollerRef}>
         {data.map((item, index) => (
           <div key={index}>{itemContent(index, item)}</div>
         ))}
@@ -254,6 +265,50 @@ describe('MessageList', () => {
       const secondData = capturedVirtuosoProps['data'];
 
       expect(firstData).not.toBe(secondData);
+    });
+
+    it('exposes data-streams-completed starting at 0 when no stream has run', () => {
+      render(<MessageList messages={messages} streamingMessageIds={new Set()} />);
+      const container = screen.getByTestId('message-list');
+      expect(container).toHaveAttribute('data-streams-completed', '0');
+    });
+
+    it('increments data-streams-completed when streamingMessageIds transitions from non-empty to empty', () => {
+      const { rerender } = render(
+        <MessageList messages={messages} streamingMessageIds={new Set(['2'])} />
+      );
+      const container = screen.getByTestId('message-list');
+      expect(container).toHaveAttribute('data-streams-completed', '0');
+
+      rerender(<MessageList messages={messages} streamingMessageIds={new Set()} />);
+      expect(container).toHaveAttribute('data-streams-completed', '1');
+    });
+
+    it('does not increment data-streams-completed when streaming set merely shrinks but stays non-empty', () => {
+      const { rerender } = render(
+        <MessageList messages={messages} streamingMessageIds={new Set(['2', '3'])} />
+      );
+      const container = screen.getByTestId('message-list');
+      expect(container).toHaveAttribute('data-streams-completed', '0');
+
+      rerender(<MessageList messages={messages} streamingMessageIds={new Set(['2'])} />);
+      expect(container).toHaveAttribute('data-streams-completed', '0');
+    });
+
+    it('counts each non-empty→empty transition independently across multiple cycles', () => {
+      const { rerender } = render(
+        <MessageList messages={messages} streamingMessageIds={new Set(['2'])} />
+      );
+      const container = screen.getByTestId('message-list');
+
+      rerender(<MessageList messages={messages} streamingMessageIds={new Set()} />);
+      expect(container).toHaveAttribute('data-streams-completed', '1');
+
+      rerender(<MessageList messages={messages} streamingMessageIds={new Set(['3'])} />);
+      expect(container).toHaveAttribute('data-streams-completed', '1');
+
+      rerender(<MessageList messages={messages} streamingMessageIds={new Set()} />);
+      expect(container).toHaveAttribute('data-streams-completed', '2');
     });
 
     it('clearing streamingMessageIds re-renders items without isStreaming so action buttons appear', () => {
@@ -646,7 +701,7 @@ describe('MessageList', () => {
       expect(followOutput(false)).toBe(true);
     });
 
-    it('followOutput returns false after user scrolls away even when isAtBottom is true', () => {
+    it('followOutput returns false after user-driven scroll-away even when isAtBottom is true', () => {
       render(<MessageList messages={messages} />);
       const followOutput = capturedVirtuosoProps['followOutput'] as (
         isAtBottom: boolean
@@ -654,15 +709,19 @@ describe('MessageList', () => {
       const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
         atBottom: boolean
       ) => void;
+      const scroller = screen.getByTestId('virtuoso-mock');
 
+      // Simulate user scrolling on the scroller, then Virtuoso reports
+      // the user is no longer at the bottom.
+      scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
       atBottomStateChange(false);
 
       // Even if Virtuoso reports isAtBottom=true (e.g. smooth scroll animation),
-      // followOutput should respect the breakaway state
+      // followOutput should respect the breakaway state.
       expect(followOutput(true)).toBe(false);
     });
 
-    it('followOutput re-engages after user scrolls back to bottom', () => {
+    it('followOutput re-engages once Virtuoso reports atBottom=true again', () => {
       render(<MessageList messages={messages} />);
       const followOutput = capturedVirtuosoProps['followOutput'] as (
         isAtBottom: boolean
@@ -670,18 +729,22 @@ describe('MessageList', () => {
       const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
         atBottom: boolean
       ) => void;
-      const isScrolling = capturedVirtuosoProps['isScrolling'] as (scrolling: boolean) => void;
+      const scroller = screen.getByTestId('virtuoso-mock');
 
+      scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
       atBottomStateChange(false);
       expect(followOutput(true)).toBe(false);
 
-      isScrolling(true);
+      // Whether followOutput catches up or the user scrolled back, the
+      // atBottom=true notification should re-engage auto-follow.
       atBottomStateChange(true);
-      isScrolling(false);
       expect(followOutput(true)).toBe(true);
     });
 
-    it('followOutput stays disengaged when content growth moves user within threshold', () => {
+    it('does NOT mark scrolled-away on atBottomStateChange(false) without prior user input', () => {
+      // Regression: streaming content growth can push the view past the
+      // bottom threshold for one frame. Without user input, the auto-follow
+      // must keep chasing the bottom — not disengage.
       render(<MessageList messages={messages} />);
       const followOutput = capturedVirtuosoProps['followOutput'] as (
         isAtBottom: boolean
@@ -691,11 +754,84 @@ describe('MessageList', () => {
       ) => void;
 
       atBottomStateChange(false);
+      expect(followOutput(true)).toBe(true);
+    });
+
+    it('marks scrolled-away on touchmove + atBottomStateChange(false)', () => {
+      render(<MessageList messages={messages} />);
+      const followOutput = capturedVirtuosoProps['followOutput'] as (
+        isAtBottom: boolean
+      ) => boolean;
+      const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
+        atBottom: boolean
+      ) => void;
+      const scroller = screen.getByTestId('virtuoso-mock');
+
+      scroller.dispatchEvent(new TouchEvent('touchmove', { bubbles: true }));
+      atBottomStateChange(false);
+
+      expect(followOutput(true)).toBe(false);
+    });
+
+    it.each([['PageDown'], ['PageUp'], ['Home'], ['End'], ['ArrowDown'], ['ArrowUp'], [' ']])(
+      'marks scrolled-away on keydown "%s" + atBottomStateChange(false)',
+      (key) => {
+        render(<MessageList messages={messages} />);
+        const followOutput = capturedVirtuosoProps['followOutput'] as (
+          isAtBottom: boolean
+        ) => boolean;
+        const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
+          atBottom: boolean
+        ) => void;
+        const scroller = screen.getByTestId('virtuoso-mock');
+
+        scroller.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+        atBottomStateChange(false);
+
+        expect(followOutput(true)).toBe(false);
+      }
+    );
+
+    it('does NOT mark scrolled-away on non-scroll keydown (e.g. typing letters)', () => {
+      render(<MessageList messages={messages} />);
+      const followOutput = capturedVirtuosoProps['followOutput'] as (
+        isAtBottom: boolean
+      ) => boolean;
+      const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
+        atBottom: boolean
+      ) => void;
+      const scroller = screen.getByTestId('virtuoso-mock');
+
+      scroller.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+      atBottomStateChange(false);
+
+      expect(followOutput(true)).toBe(true);
+    });
+
+    it('user-input flag decays so a later atBottom(false) without input does not mark scrolled-away', () => {
+      render(<MessageList messages={messages} />);
+      const followOutput = capturedVirtuosoProps['followOutput'] as (
+        isAtBottom: boolean
+      ) => boolean;
+      const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
+        atBottom: boolean
+      ) => void;
+      const scroller = screen.getByTestId('virtuoso-mock');
+
+      // First user input then immediate atBottom(false) sticks.
+      scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+      atBottomStateChange(false);
       expect(followOutput(true)).toBe(false);
 
-      // Content grows, user passively enters threshold (not actively scrolling)
+      // Re-engage at bottom.
       atBottomStateChange(true);
-      expect(followOutput(true)).toBe(false);
+      expect(followOutput(true)).toBe(true);
+
+      // Decay window passes — a later content-growth-only atBottom(false)
+      // must NOT mark scrolled-away.
+      vi.advanceTimersByTime(500);
+      atBottomStateChange(false);
+      expect(followOutput(true)).toBe(true);
     });
 
     it('exposes resetScrollBreakaway via ref', () => {
@@ -715,7 +851,9 @@ describe('MessageList', () => {
       const atBottomStateChange = capturedVirtuosoProps['atBottomStateChange'] as (
         atBottom: boolean
       ) => void;
+      const scroller = screen.getByTestId('virtuoso-mock');
 
+      scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
       atBottomStateChange(false);
       expect(followOutput(true)).toBe(false);
 

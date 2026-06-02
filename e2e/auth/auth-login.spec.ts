@@ -10,6 +10,17 @@ import { DEV_PASSWORD } from '../../packages/shared/src/constants.js';
 import { personaEmail, personaUsername } from '../helpers/personas.js';
 
 test.describe('Login & Session', () => {
+  // File-level serial: the `Login variants` and `Session & route protection`
+  // describes both authenticate as the same persona (`test-alice`). Without
+  // file-level serial, Playwright's `fullyParallel` config lets them run in
+  // different workers concurrently — they then race for the same Redis state.
+  // The OPAQUE handshake itself is now sessionId-keyed (see
+  // apps/api/src/lib/redis-registry.ts), so the race no longer corrupts the
+  // server state, but a single shared persona still means concurrent logins
+  // exercise overlapping rate-limit windows; serializing keeps the tests
+  // deterministic.
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async ({ request }, testInfo) => {
     if (testInfo.project.name !== 'chromium') {
       test.skip(true, 'Auth tests run only on chromium');
@@ -18,8 +29,6 @@ test.describe('Login & Session', () => {
   });
 
   test.describe('Login variants', () => {
-    test.describe.configure({ mode: 'serial' });
-
     test('login with email navigates to /chat', async ({ unauthenticatedPage }) => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();

@@ -30,6 +30,7 @@ function createRecordingWriter(): SSEEventWriter & {
     writeStageDone: record('writeStageDone') as SSEEventWriter['writeStageDone'],
     writeStageError: record('writeStageError') as SSEEventWriter['writeStageError'],
     isConnected: () => true,
+    isDoneWritten: () => false,
   };
 }
 

@@ -149,8 +149,44 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
 ) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const userScrolledAwayRef = useRef(false);
-  const isScrollingRef = useRef(false);
   const [isVirtuosoScrolling, setIsVirtuosoScrolling] = useState(false);
+
+  // Sticky-with-decay flag set by wheel/touchmove/keydown listeners attached
+  // to the Virtuoso scroller. True while the user is actively scrolling or
+  // within `USER_SCROLL_DECAY_MS` of a user-input event. Programmatic
+  // scrolls (`followOutput`, `scrollToIndex`, the Playwright
+  // `__virtuosoScrollToIndex` backdoor) do not fire these events, so they
+  // leave the flag false.
+  //
+  // The `isScrolling` callback Virtuoso surfaces can't be used as a "user
+  // is scrolling" signal because it fires on any `scrollTop` change,
+  // including programmatic scrolls — see the operator chain at
+  // node_modules/.../react-virtuoso/dist/index.mjs (the `p` stream is a
+  // debounced derivative of `scrollTop` changes, regardless of source).
+  //
+  // Known gap: native desktop scrollbar drag fires neither wheel nor
+  // touchmove. In practice a drag back to bottom re-engages via the
+  // `atBottom` branch; a drag-up-and-stop is the only case followOutput
+  // will keep pinning — rare on a chat list.
+  const userScrolledRef = useRef(false);
+  const userScrollDecayTimeoutRef = useRef<number | undefined>(undefined);
+  const scrollerElRef = useRef<HTMLElement | null>(null);
+
+  // Monotonic counter of completed stream cycles. Increments whenever
+  // `streamingMessageIds` transitions from non-empty to empty — i.e. every
+  // time a streaming turn finishes. Exposed as `data-streams-completed` so
+  // E2E tests can capture a baseline before triggering an action and wait
+  // for it to advance, avoiding races where the stream finishes faster than
+  // a polling assertion can observe `data-streaming-count > 0`.
+  const currentStreamingCount = streamingMessageIds?.size ?? 0;
+  const [streamsCompleted, setStreamsCompleted] = useState(0);
+  const [previousStreamingCount, setPreviousStreamingCount] = useState(currentStreamingCount);
+  if (previousStreamingCount !== currentStreamingCount) {
+    setPreviousStreamingCount(currentStreamingCount);
+    if (previousStreamingCount > 0 && currentStreamingCount === 0) {
+      setStreamsCompleted((n) => n + 1);
+    }
+  }
 
   // Reset scroll state when the conversation/fork pair changes. Replaces the
   // parent's `key=` remount, which previously unmounted Virtuoso (and the
@@ -170,7 +206,6 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   const [atBottomThreshold] = useState((): number => Math.ceil(window.innerHeight * 0.1) + 20);
 
   const handleIsScrolling = useCallback((scrolling: boolean): void => {
-    isScrollingRef.current = scrolling;
     setIsVirtuosoScrolling(scrolling);
   }, []);
 
@@ -210,12 +245,87 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     };
   }, []);
 
+  // Time after the last user-input event during which a subsequent
+  // `atBottomStateChange(false)` is still attributed to the user. Long enough
+  // to span an inertia-scroll fling on touch devices; short enough that a
+  // stream chunk arriving more than ~250ms after the last user input is
+  // correctly treated as content growth, not user action.
+  const USER_SCROLL_DECAY_MS = 250;
+
+  const markUserScroll = useCallback((): void => {
+    userScrolledRef.current = true;
+    if (userScrollDecayTimeoutRef.current !== undefined) {
+      globalThis.clearTimeout(userScrollDecayTimeoutRef.current);
+    }
+    userScrollDecayTimeoutRef.current = globalThis.setTimeout(() => {
+      userScrolledRef.current = false;
+      userScrollDecayTimeoutRef.current = undefined;
+    }, USER_SCROLL_DECAY_MS);
+  }, []);
+
+  const handleUserScrollKey = useCallback(
+    (event: KeyboardEvent): void => {
+      // Keys that move the scroll position when the scroller has focus.
+      // Space scrolls down a viewport; Shift+Space scrolls up.
+      if (
+        event.key === 'PageDown' ||
+        event.key === 'PageUp' ||
+        event.key === 'Home' ||
+        event.key === 'End' ||
+        event.key === 'ArrowDown' ||
+        event.key === 'ArrowUp' ||
+        event.key === ' '
+      ) {
+        markUserScroll();
+      }
+    },
+    [markUserScroll]
+  );
+
+  // Attach/detach listeners as Virtuoso provides/replaces the scroller DOM
+  // element. Doing this inside the ref callback (not a useEffect) handles
+  // remounts cleanly: Virtuoso invokes the callback with `null` on unmount
+  // and with the new element on remount.
+  const handleScrollerRef = useCallback(
+    (el: HTMLElement | Window | null): void => {
+      const previous = scrollerElRef.current;
+      if (previous) {
+        previous.removeEventListener('wheel', markUserScroll);
+        previous.removeEventListener('touchmove', markUserScroll);
+        previous.removeEventListener('keydown', handleUserScrollKey);
+      }
+      scrollerElRef.current = el instanceof HTMLElement ? el : null;
+      const next = scrollerElRef.current;
+      if (next) {
+        next.addEventListener('wheel', markUserScroll, { passive: true });
+        next.addEventListener('touchmove', markUserScroll, { passive: true });
+        next.addEventListener('keydown', handleUserScrollKey);
+      }
+    },
+    [markUserScroll, handleUserScrollKey]
+  );
+
+  // Clear any pending decay timeout when the component unmounts. The
+  // listeners themselves are released through `handleScrollerRef(null)`.
+  useEffect(() => {
+    return () => {
+      if (userScrollDecayTimeoutRef.current !== undefined) {
+        globalThis.clearTimeout(userScrollDecayTimeoutRef.current);
+        userScrollDecayTimeoutRef.current = undefined;
+      }
+    };
+  }, []);
+
   const handleAtBottomStateChange = useCallback((atBottom: boolean): void => {
-    if (!atBottom) {
+    if (!atBottom && userScrolledRef.current) {
+      // Only flag scrolled-away when the user is actively scrolling. A
+      // bare `!atBottom` would also fire during streaming when content
+      // grows faster than the auto-scroll catches up — a webkit-prone race
+      // that previously disengaged followOutput mid-stream.
       userScrolledAwayRef.current = true;
-    } else if (isScrollingRef.current) {
-      // Only re-engage when the user is actively scrolling to bottom,
-      // not when content growth passively moves them within threshold.
+    } else if (atBottom) {
+      // Always re-engage when we land back at the bottom — whether the user
+      // scrolled there or followOutput caught up.
       userScrolledAwayRef.current = false;
     }
   }, []);
@@ -353,6 +463,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       data-assistant-count={assistantCount}
       data-cost-count={costCount}
       data-streaming-count={streamingMessageIds?.size ?? 0}
+      data-streams-completed={streamsCompleted}
       data-message-count={messages.length}
       data-decrypted-count={decryptedCount}
       data-rows-count={rows.length}
@@ -362,6 +473,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     >
       <Virtuoso<MessageRow>
         ref={virtuosoRef}
+        scrollerRef={handleScrollerRef}
         data={rows}
         initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
         computeItemKey={computeItemKey}

@@ -30,9 +30,15 @@ describe('DisableTwoFactorModal', () => {
     onSuccess: vi.fn(),
   };
 
+  const STUB_DISABLE_2FA_SESSION_ID = '00000000-0000-4000-8000-deadbeefdead';
+
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDisable2FAInit.mockResolvedValue({ success: true, ke3: [4, 5, 6] });
+    mockDisable2FAInit.mockResolvedValue({
+      success: true,
+      ke3: [4, 5, 6],
+      disable2FASessionId: STUB_DISABLE_2FA_SESSION_ID,
+    });
     mockDisable2FAFinish.mockResolvedValue({ success: true });
   });
 
@@ -261,7 +267,11 @@ describe('DisableTwoFactorModal', () => {
       await user.keyboard('123456');
 
       await waitFor(() => {
-        expect(mockDisable2FAFinish).toHaveBeenCalledWith([4, 5, 6], '123456');
+        expect(mockDisable2FAFinish).toHaveBeenCalledWith(
+          [4, 5, 6],
+          '123456',
+          STUB_DISABLE_2FA_SESSION_ID
+        );
         expect(onSuccess).toHaveBeenCalledTimes(1);
       });
     });

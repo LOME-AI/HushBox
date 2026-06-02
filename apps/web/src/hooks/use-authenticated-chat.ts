@@ -1179,6 +1179,15 @@ export function useAuthenticatedChat({
           }
           handleRegenerationError(error, content, errorForkKey, promptInputRef);
 
+          // Stream threw after `start` fired: drop the AI placeholders that
+          // `onStart` added optimistically. Without this, each placeholder
+          // renders as an invisible empty bubble whose action toolbar floats
+          // above the chat-error tile.
+          for (const placeholderId of optimisticModelMapRef.current.values()) {
+            removeOptimisticMessage(placeholderId);
+          }
+          optimisticModelMapRef.current.clear();
+
           removeOptimisticMessage(optimisticUserMessage.id);
           state.stopStreaming();
           useStreamingActivityStore.getState().endStream();

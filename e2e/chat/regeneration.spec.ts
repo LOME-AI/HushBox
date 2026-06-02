@@ -27,9 +27,7 @@ test.describe('Solo Regeneration', () => {
     });
 
     await test.step('click retry and wait for new response', async () => {
-      await chatPage.clickRetry(0);
-      await chatPage.waitForAIResponse();
-      await chatPage.waitForStreamComplete();
+      await chatPage.withStreamCycle(() => chatPage.clickRetry(0));
       await chatPage.expectAssistantMessageContains('Echo:');
     });
 
@@ -55,9 +53,7 @@ test.describe('Solo Regeneration', () => {
     });
 
     await test.step('click regenerate and wait for new response', async () => {
-      await chatPage.clickRegenerate(1);
-      await chatPage.waitForAIResponse();
-      await chatPage.waitForStreamComplete();
+      await chatPage.withStreamCycle(() => chatPage.clickRegenerate(1));
       await chatPage.expectAssistantMessageContains('Echo:');
     });
 
@@ -142,9 +138,7 @@ test.describe('Solo Regeneration', () => {
     });
 
     await test.step('retry first user message', async () => {
-      await chatPage.clickRetry(0);
-      await chatPage.waitForAIResponse();
-      await chatPage.waitForStreamComplete();
+      await chatPage.withStreamCycle(() => chatPage.clickRetry(0));
     });
 
     await test.step('verify only 2 messages remain', async () => {

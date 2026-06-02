@@ -45,6 +45,7 @@ function noopWriter(): SSEEventWriter {
     writeStageDone: noop,
     writeStageError: noop,
     isConnected: () => true,
+    isDoneWritten: () => false,
   };
 }
 

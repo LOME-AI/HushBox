@@ -31,6 +31,10 @@ function htmlWithInlineScripts(...bodies: string[]): string {
   return `<!DOCTYPE html><html><head>${scripts}</head><body></body></html>`;
 }
 
+function blockHead(block: string): string {
+  return block.split('\n')[0] ?? '';
+}
+
 async function seedAllMarketingRoutes(distributionDir: string): Promise<void> {
   for (const route of MARKETING_ROUTES) {
     const prefix = route.replace(/^\//, '');
@@ -159,7 +163,6 @@ describe('generateHeaders', () => {
     expect(content).toMatch(/^\/blog\/post-a\/$/m);
 
     const blocks = content.split('\n\n');
-    const blockHead = (block: string): string => block.split('\n')[0] ?? '';
     const welcomeNoSlash = blocks.find((b) => blockHead(b) === '/welcome');
     const welcomeSlash = blocks.find((b) => blockHead(b) === '/welcome/');
     const postNoSlash = blocks.find((b) => blockHead(b) === '/blog/post-a');
@@ -171,6 +174,37 @@ describe('generateHeaders', () => {
     expect(postSlash).toContain(sha256Token('post-a'));
     expect(welcomeSlash).not.toContain(sha256Token('post-a'));
     expect(postSlash).not.toContain(sha256Token('alpha'));
+  });
+
+  it('prepends `! Content-Security-Policy` in each marketing block to unset SPA inheritance', async () => {
+    // Cloudflare Pages comma-joins same-name headers from every matching
+    // rule. Without the `! HeaderName` unset, browsers receive both the
+    // marketing CSP (with hashes) and the SPA `/*` block's CSP (no hashes)
+    // and AND them together — the hashes become useless because the second
+    // policy denies all inline scripts. The `! HeaderName` syntax in a
+    // more-specific rule removes the inherited value before the rule sets
+    // its own. SPA block stays untouched (no unset there).
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
+    const content = await fs.readFile(result.outputPath, 'utf8');
+
+    const blocks = content.split('\n\n');
+    for (const route of MARKETING_ROUTES) {
+      for (const variant of [route, `${route}/`]) {
+        const block = blocks.find((b) => blockHead(b) === variant);
+        expect(block, `block for ${variant} not found`).toBeDefined();
+        const lines = (block ?? '').split('\n').map((l) => l.trim());
+        const unsetIndex = lines.indexOf('! Content-Security-Policy');
+        const setterIndex = lines.findIndex((l) => l.startsWith('Content-Security-Policy:'));
+        expect(unsetIndex, `${variant} missing ! Content-Security-Policy`).toBeGreaterThan(-1);
+        expect(setterIndex).toBeGreaterThan(-1);
+        expect(unsetIndex).toBeLessThan(setterIndex);
+      }
+    }
+
+    const spaBlock = blocks.find((b) => blockHead(b) === '/*');
+    expect(spaBlock).toBeDefined();
+    expect(spaBlock).not.toContain('! Content-Security-Policy');
   });
 
   it('inlines per-page script hashes into the marketing CSP script-src', async () => {

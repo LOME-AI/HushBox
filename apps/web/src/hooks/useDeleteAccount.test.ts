@@ -77,6 +77,8 @@ describe('useDeleteAccountInit', () => {
 });
 
 describe('useDeleteAccountFinish', () => {
+  const TEST_SESSION_ID = '00000000-0000-4000-8000-deadbeefdead';
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -91,6 +93,7 @@ describe('useDeleteAccountFinish', () => {
         ke3: [4, 5, 6],
         totpCode: '123456',
         confirmationPhrase: 'delete my account',
+        deleteAccountSessionId: TEST_SESSION_ID,
       });
     });
 
@@ -99,7 +102,12 @@ describe('useDeleteAccountFinish', () => {
     });
 
     expect(finishMock).toHaveBeenCalledWith({
-      json: { ke3: [4, 5, 6], totpCode: '123456', confirmationPhrase: 'delete my account' },
+      json: {
+        ke3: [4, 5, 6],
+        totpCode: '123456',
+        confirmationPhrase: 'delete my account',
+        deleteAccountSessionId: TEST_SESSION_ID,
+      },
     });
   });
 
@@ -112,6 +120,7 @@ describe('useDeleteAccountFinish', () => {
       result.current.mutate({
         ke3: [4, 5, 6],
         confirmationPhrase: 'delete my account',
+        deleteAccountSessionId: TEST_SESSION_ID,
       });
     });
 
@@ -120,7 +129,11 @@ describe('useDeleteAccountFinish', () => {
     });
 
     expect(finishMock).toHaveBeenCalledWith({
-      json: { ke3: [4, 5, 6], confirmationPhrase: 'delete my account' },
+      json: {
+        ke3: [4, 5, 6],
+        confirmationPhrase: 'delete my account',
+        deleteAccountSessionId: TEST_SESSION_ID,
+      },
     });
   });
 
@@ -133,6 +146,7 @@ describe('useDeleteAccountFinish', () => {
       result.current.mutate({
         ke3: [4, 5, 6],
         confirmationPhrase: 'delete my account',
+        deleteAccountSessionId: TEST_SESSION_ID,
       });
     });
 
@@ -166,7 +180,11 @@ describe('useDeleteAccountFinish', () => {
 
     const { result } = renderHook(() => useDeleteAccountFinish(), { wrapper: createWrapper() });
     act(() => {
-      result.current.mutate({ ke3: [4, 5, 6], confirmationPhrase: 'delete my account' });
+      result.current.mutate({
+        ke3: [4, 5, 6],
+        confirmationPhrase: 'delete my account',
+        deleteAccountSessionId: TEST_SESSION_ID,
+      });
     });
     await waitFor(() => {
       expect(result.current.isError).toBe(true);

@@ -385,7 +385,13 @@ function formatMarketingBlock(
   csp: PageCsp,
   spaHeaders: readonly { name: string; value: string }[]
 ): string {
-  const lines: string[] = [urlPath];
+  // `! Content-Security-Policy` removes the value inherited from the SPA
+  // `/*` block before this rule sets the hashed CSP. Cloudflare Pages
+  // comma-joins same-name headers from every matching rule; without this
+  // unset, the response carries both the marketing CSP (with hashes) and
+  // the SPA fallback CSP (without hashes), browsers intersect them, and
+  // the hashes are defeated — every inline Astro hydration script blocked.
+  const lines: string[] = [urlPath, '  ! Content-Security-Policy'];
   for (const header of spaHeaders) {
     const value =
       header.name === 'Content-Security-Policy'

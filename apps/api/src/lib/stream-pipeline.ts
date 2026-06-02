@@ -48,7 +48,7 @@ import { createEvidenceConfig } from './evidence-config.js';
 import { executePreInferenceChain, resolveStagesForSlot } from './pre-inference/index.js';
 import { createErrorResponse } from './error-response.js';
 import { classifyStreamErrorCode } from './classify-stream-error.js';
-import { createSSEEventWriter, writeStreamErrorFromException } from './stream-handler.js';
+import { createSSEEventWriter, handleStreamException } from './stream-handler.js';
 import { collectMultiModelStreams } from './multi-stream.js';
 import { executeMediaPipeline as executeMediaPipelineImpl } from './media-pipeline.js';
 import { getStrategy } from './modality-strategies.js';
@@ -60,8 +60,8 @@ import {
   reserveMediaBilling,
 } from './billing-reservation.js';
 import { safeExecutionCtx } from './safe-execution-ctx.js';
-import { fireAndForget } from './fire-and-forget.js';
-import { getPushClient, sendPushForNewMessage } from '../services/push/index.js';
+import { getActiveConversationUserIds } from './broadcast.js';
+import { dispatchPushNotification } from '../services/push/index.js';
 import { buildGroupBillingContext } from './billing-types.js';
 import type { Model, ModelPricingResult } from '@hushbox/shared';
 import type { Context } from 'hono';
@@ -529,18 +529,18 @@ export async function finalizeTurn(options: FinalizeTurnOptions): Promise<void> 
     );
   }
 
-  fireAndForget(
-    sendPushForNewMessage({
-      db,
-      pushClient: getPushClient(c.env),
-      conversationId,
-      senderUserId: senderId,
-      title: 'New Message',
-      body: 'You have a new message',
-    }),
-    'send push notifications for AI response',
-    safeExecutionCtx(c)
-  );
+  const executionCtx = safeExecutionCtx(c);
+  const activeUserIds = await getActiveConversationUserIds(c.env, conversationId);
+  dispatchPushNotification({
+    env: c.env,
+    db,
+    conversationId,
+    senderUserId: senderId,
+    title: 'New Message',
+    body: 'You have a new message',
+    activeUserIds,
+    ...(executionCtx !== undefined && { executionCtx }),
+  });
 }
 
 export interface ResolveAndReserveBillingInput {
@@ -1562,11 +1562,14 @@ export function executeStreamPipeline(input: StreamPipelineInput): Response {
         primaryModel: model,
       });
     } catch (error) {
-      // Catch is structural: every exception inside runStreamingTurn used to
-      // close the SSE socket cleanly after the last successful event (typically
-      // `model:done`), leaving the client hung on STREAM_TIMEOUT_MS. The
-      // helper writes an `event: error` and logs the exception server-side.
-      await writeStreamErrorFromException(writer, error);
+      // Structural catch: any uncaught exception in `runStreamingTurn` would
+      // otherwise close the SSE socket cleanly after the last successful
+      // event and leave the client hung on STREAM_TIMEOUT_MS.
+      //
+      // `handleStreamException` branches on whether `writeDone` already ran:
+      // pre-done, it surfaces the error to the client; post-done, it logs
+      // server-side without retracting the success the client already saw.
+      await handleStreamException(writer, error);
     } finally {
       await releaseReservation();
     }

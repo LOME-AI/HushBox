@@ -9,6 +9,7 @@ import type { SessionData } from '../lib/session.js';
 interface ApiResponse {
   code?: string;
   ke2?: number[];
+  deleteAccountSessionId?: string;
   details?: { retryAfterSeconds?: number };
 }
 
@@ -259,9 +260,13 @@ describe('delete-account routes', () => {
       expect(startOpaqueStepUpMock).not.toHaveBeenCalled();
     });
 
-    it('returns ke2 from the OPAQUE step-up helper on success', async () => {
+    it('returns ke2 and the server-issued sessionId from the OPAQUE step-up helper', async () => {
       stubUserRow();
-      startOpaqueStepUpMock.mockResolvedValue({ ke2: new Uint8Array([9, 8, 7]) });
+      const issuedSessionId = '00000000-0000-4000-8000-deadbeefdead';
+      startOpaqueStepUpMock.mockResolvedValue({
+        ke2: new Uint8Array([9, 8, 7]),
+        sessionId: issuedSessionId,
+      });
 
       const res = await app.request('/api/auth/delete-account/init', {
         method: 'POST',
@@ -271,6 +276,7 @@ describe('delete-account routes', () => {
       expect(res.status).toBe(200);
       const body = await jsonBody(res);
       expect(body.ke2).toEqual([9, 8, 7]);
+      expect(body.deleteAccountSessionId).toBe(issuedSessionId);
 
       expect(startOpaqueStepUpMock).toHaveBeenCalledTimes(1);
       const args = startOpaqueStepUpMock.mock.calls[0]![0] as {
@@ -347,12 +353,19 @@ describe('delete-account routes', () => {
   });
 
   describe('POST /api/auth/delete-account/finish', () => {
+    const DUMMY_SESSION_ID = '00000000-0000-4000-8000-cafebabecafe';
+
     function happyPathBody(
-      overrides: { confirmationPhrase?: string; totpCode?: string } = {}
+      overrides: {
+        confirmationPhrase?: string;
+        totpCode?: string;
+        deleteAccountSessionId?: string;
+      } = {}
     ): string {
       const body: Record<string, unknown> = {
         ke3: [1, 2, 3, 4],
         confirmationPhrase: overrides.confirmationPhrase ?? 'delete my account',
+        deleteAccountSessionId: overrides.deleteAccountSessionId ?? DUMMY_SESSION_ID,
       };
       if (overrides.totpCode !== undefined) body['totpCode'] = overrides.totpCode;
       return JSON.stringify(body);

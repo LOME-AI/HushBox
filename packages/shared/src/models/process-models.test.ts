@@ -928,12 +928,12 @@ describe('processModels', () => {
       expect(veo?.supportedVideoDurationsSeconds).toEqual([4, 6, 8]);
     });
 
-    it('annotates Veo 3.0 with 5-6-7-8s durations and 720p/1080p only (no 4k)', () => {
+    it('annotates Veo 3.0 with 4-6-8s durations and 720p/1080p only (no 4k)', () => {
       const models = [createVideoModel({ id: 'google/veo-3.0-generate-001' })];
       const result = processModels(models);
       const veo30 = result.models.find((m) => m.id === 'google/veo-3.0-generate-001');
       expect(veo30?.supportedVideoResolutions).toEqual(['720p', '1080p']);
-      expect(veo30?.supportedVideoDurationsSeconds).toEqual([5, 6, 7, 8]);
+      expect(veo30?.supportedVideoDurationsSeconds).toEqual([4, 6, 8]);
     });
 
     it('leaves capability fields undefined for non-Veo, non-Imagen models', () => {

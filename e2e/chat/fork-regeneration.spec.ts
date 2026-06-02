@@ -43,9 +43,9 @@ test.describe('Fork and Regeneration Interaction', () => {
       // any index — `followup` is unique to Main's chain so this also confirms
       // we're not still painting Fork 1's content.
       await chatPage.expectMessageVisible(followup);
-      // Retry the followup user message (index 2)
-      await chatPage.clickRetry(2);
-      await chatPage.waitForStreamComplete();
+      // Retry the followup user message (index 2). Use the cycle-bounded wrap
+      // so the helper doesn't race against the stream finishing instantly.
+      await chatPage.withStreamCycle(() => chatPage.clickRetry(2));
     });
 
     await test.step('switch to Fork 1 — verify unchanged', async () => {
@@ -99,8 +99,7 @@ test.describe('Fork and Regeneration Interaction', () => {
       // remounts on fork-tab switch and Virtuoso needs to measure rows before
       // `clickRetry` can scroll/attach by index.
       await chatPage.expectMessageVisible(followup);
-      await chatPage.clickRetry(0);
-      await chatPage.waitForAIResponse();
+      await chatPage.withStreamCycle(() => chatPage.clickRetry(0));
       // After retry + refetch, Main's fork chain should have only 2 messages.
       // Use poll — the fork filter updates asynchronously after query refetch.
       await unsettledExpect.poll(() => chatPage.countMessages(), { timeout: 10_000 }).toBe(2);

@@ -32,6 +32,7 @@ interface ApiResponse {
 /** Registration init response shape. */
 interface RegistrationInitResponse {
   registrationResponse: number[];
+  registerSessionId: string;
 }
 
 /** Registration finish response shape. */
@@ -43,6 +44,7 @@ interface RegistrationFinishResponse {
 /** Login init response shape. */
 interface LoginInitResponse {
   ke2: number[];
+  loginSessionId: string;
   passwordSalt?: unknown;
 }
 
@@ -63,7 +65,12 @@ interface TotpSetupResponse {
 /** Recovery reset init response shape. */
 interface RecoveryResetInitResponse {
   newRegistrationResponse: number[];
+  recoverySessionId: string;
 }
+
+/** A fixed-format UUID for tests that need to pass schema validation without
+ *  actually exercising the Redis lookup (e.g. "returns 400 if no pending …"). */
+const DUMMY_SESSION_ID = '00000000-0000-0000-0000-000000000000';
 
 /** Recovery wrapped key response shape. */
 interface RecoveryWrappedKeyResponse {
@@ -405,9 +412,10 @@ describe('OPAQUE auth routes', () => {
       });
 
       expect(res.status).toBe(200);
-      // Verify Redis was called with existing flag
+      const body = await jsonBody<RegistrationInitResponse>(res);
+      // Redis key is now scoped to the server-issued sessionId, not the email.
       expect(mockRedis.set).toHaveBeenCalledWith(
-        'opaque:pending:existing@example.com',
+        `opaque:pending:${body.registerSessionId}`,
         expect.objectContaining({
           email: 'existing@example.com',
           username: 'test_user',
@@ -472,6 +480,7 @@ describe('OPAQUE auth routes', () => {
           accountPublicKey: 'YmFzZTY0cHVia2V5',
           passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+          registerSessionId: DUMMY_SESSION_ID,
         }),
       });
 
@@ -511,6 +520,7 @@ describe('OPAQUE auth routes', () => {
           accountPublicKey: 'YmFzZTY0cHVia2V5',
           passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+          registerSessionId: initBody.registerSessionId,
         }),
       });
 
@@ -557,6 +567,7 @@ describe('OPAQUE auth routes', () => {
           accountPublicKey: 'YmFzZTY0cHVia2V5',
           passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+          registerSessionId: initBody.registerSessionId,
         }),
       });
 
@@ -602,6 +613,7 @@ describe('OPAQUE auth routes', () => {
           accountPublicKey: 'YmFzZTY0cHVia2V5',
           passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+          registerSessionId: initBody.registerSessionId,
         }),
       });
 
@@ -643,6 +655,7 @@ describe('OPAQUE auth routes', () => {
           accountPublicKey: 'YmFzZTY0cHVia2V5',
           passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+          registerSessionId: initBody.registerSessionId,
         }),
       });
 
@@ -681,6 +694,7 @@ describe('OPAQUE auth routes', () => {
           accountPublicKey: 'YmFzZTY0cHVia2V5',
           passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+          registerSessionId: initBody.registerSessionId,
         }),
       });
 
@@ -827,6 +841,7 @@ describe('OPAQUE auth routes', () => {
         body: JSON.stringify({
           identifier: 'test@example.com',
           ke3: [1, 2, 3],
+          loginSessionId: DUMMY_SESSION_ID,
         }),
       });
 
@@ -854,7 +869,8 @@ describe('OPAQUE auth routes', () => {
         }),
       });
       expect(initRes.status).toBe(200);
-      const { registrationResponse } = await jsonBody<RegistrationInitResponse>(initRes);
+      const { registrationResponse, registerSessionId } =
+        await jsonBody<RegistrationInitResponse>(initRes);
 
       const { record } = await finishRegistration(
         regClient,
@@ -871,6 +887,7 @@ describe('OPAQUE auth routes', () => {
           accountPublicKey: 'YmFzZTY0cHVia2V5',
           passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+          registerSessionId,
         }),
       });
       expect(finishRes.status).toBe(201);
@@ -913,7 +930,11 @@ describe('OPAQUE auth routes', () => {
       const loginFinishRes = await app.request('/api/auth/login/finish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: email, ke3 }),
+        body: JSON.stringify({
+          identifier: email,
+          ke3,
+          loginSessionId: loginInitBody.loginSessionId,
+        }),
       });
 
       expect(loginFinishRes.status).toBe(401);
@@ -939,7 +960,8 @@ describe('OPAQUE auth routes', () => {
         }),
       });
       expect(initRes.status).toBe(200);
-      const { registrationResponse } = await jsonBody<RegistrationInitResponse>(initRes);
+      const { registrationResponse, registerSessionId } =
+        await jsonBody<RegistrationInitResponse>(initRes);
 
       const { record } = await finishRegistration(
         regClient,
@@ -956,6 +978,7 @@ describe('OPAQUE auth routes', () => {
           accountPublicKey: 'YmFzZTY0cHVia2V5',
           passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+          registerSessionId,
         }),
       });
       expect(finishRes.status).toBe(201);
@@ -996,7 +1019,11 @@ describe('OPAQUE auth routes', () => {
       const loginFinishRes = await app.request('/api/auth/login/finish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: username, ke3 }),
+        body: JSON.stringify({
+          identifier: username,
+          ke3,
+          loginSessionId: loginInitBody.loginSessionId,
+        }),
       });
 
       expect(loginFinishRes.status).toBe(200);
@@ -1022,7 +1049,8 @@ describe('OPAQUE auth routes', () => {
         }),
       });
       expect(initRes.status).toBe(200);
-      const { registrationResponse } = await jsonBody<RegistrationInitResponse>(initRes);
+      const { registrationResponse, registerSessionId } =
+        await jsonBody<RegistrationInitResponse>(initRes);
 
       const { record } = await finishRegistration(
         regClient,
@@ -1039,6 +1067,7 @@ describe('OPAQUE auth routes', () => {
           accountPublicKey: 'YmFzZTY0cHVia2V5',
           passwordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
           recoveryWrappedPrivateKey: 'YmFzZTY0cmVjb3Zlcnk=', // gitleaks:allow
+          registerSessionId,
         }),
       });
       expect(finishRes.status).toBe(201);
@@ -1080,7 +1109,11 @@ describe('OPAQUE auth routes', () => {
       const loginFinishRes = await app.request('/api/auth/login/finish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: 'noemailuser', ke3 }),
+        body: JSON.stringify({
+          identifier: 'noemailuser',
+          ke3,
+          loginSessionId: loginInitBody.loginSessionId,
+        }),
       });
 
       expect(loginFinishRes.status).toBe(200);
@@ -1405,7 +1438,11 @@ describe('OPAQUE auth routes', () => {
       const res = await app.request('/api/auth/2fa/disable/finish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ke3: [1, 2, 3], code: '123456' }),
+        body: JSON.stringify({
+          ke3: [1, 2, 3],
+          code: '123456',
+          disable2FASessionId: DUMMY_SESSION_ID,
+        }),
       });
       expect(res.status).toBe(401);
       const body = await jsonBody(res);
@@ -1419,7 +1456,11 @@ describe('OPAQUE auth routes', () => {
           'Content-Type': 'application/json',
           Cookie: 'hushbox_session=test-session-value',
         },
-        body: JSON.stringify({ ke3: [1, 2, 3], code: '123456' }),
+        body: JSON.stringify({
+          ke3: [1, 2, 3],
+          code: '123456',
+          disable2FASessionId: DUMMY_SESSION_ID,
+        }),
       });
       expect(res.status).toBe(400);
       const body = await jsonBody(res);
@@ -1427,7 +1468,8 @@ describe('OPAQUE auth routes', () => {
     });
 
     it('returns 500 when server is misconfigured', async () => {
-      // Store pending state first
+      // Store pending state first (under the sessionId key used by the request).
+      const pendingSessionId = '11111111-1111-4111-8111-111111111111';
       const { redisSet } = await import('../lib/redis-registry.js');
       await redisSet(
         mockRedis as unknown as Parameters<typeof redisSet>[0],
@@ -1436,7 +1478,7 @@ describe('OPAQUE auth routes', () => {
           userId: 'test-user-id',
           expectedSerialized: [1, 2, 3],
         },
-        'test-user-id'
+        pendingSessionId
       );
 
       // Override env to remove OPAQUE_MASTER_SECRET
@@ -1477,7 +1519,11 @@ describe('OPAQUE auth routes', () => {
           'Content-Type': 'application/json',
           Cookie: 'hushbox_session=test-session-value',
         },
-        body: JSON.stringify({ ke3: [1, 2, 3], code: '123456' }),
+        body: JSON.stringify({
+          ke3: [1, 2, 3],
+          code: '123456',
+          disable2FASessionId: pendingSessionId,
+        }),
       });
       expect(res.status).toBe(500);
       const body = await jsonBody(res);
@@ -1793,6 +1839,7 @@ describe('OPAQUE auth routes', () => {
           ke3: [1, 2, 3],
           newRegistrationRecord: [4, 5, 6],
           newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          changePasswordSessionId: DUMMY_SESSION_ID,
         }),
       });
 
@@ -1812,6 +1859,7 @@ describe('OPAQUE auth routes', () => {
           ke3: [1, 2, 3],
           newRegistrationRecord: [4, 5, 6],
           newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+          changePasswordSessionId: DUMMY_SESSION_ID,
         }),
       });
 
@@ -1936,6 +1984,7 @@ describe('OPAQUE auth routes', () => {
             identifier: 'user@example.com',
             newRegistrationRecord: record,
             newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+            recoverySessionId: initBody.recoverySessionId,
           }),
         });
 
@@ -1978,6 +2027,7 @@ describe('OPAQUE auth routes', () => {
             identifier: 'test_user',
             newRegistrationRecord: record,
             newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+            recoverySessionId: initBody.recoverySessionId,
           }),
         });
 
@@ -1996,6 +2046,7 @@ describe('OPAQUE auth routes', () => {
             identifier: 'user@example.com',
             newRegistrationRecord: [1, 2, 3],
             newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+            recoverySessionId: DUMMY_SESSION_ID,
           }),
         });
 
@@ -2035,6 +2086,7 @@ describe('OPAQUE auth routes', () => {
             identifier: 'user@example.com',
             newRegistrationRecord: record,
             newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+            recoverySessionId: initBody.recoverySessionId,
           }),
         });
 
@@ -2079,6 +2131,7 @@ describe('OPAQUE auth routes', () => {
             identifier: 'user@example.com',
             newRegistrationRecord: record,
             newPasswordWrappedPrivateKey: 'YmFzZTY0d3JhcHBlZA==', // gitleaks:allow
+            recoverySessionId: initBody.recoverySessionId,
           }),
         });
 

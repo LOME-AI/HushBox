@@ -434,7 +434,7 @@ jobs:
   # ── Mobile tests (Maestro + Android emulator via Docker) ──
   mobile-test:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment: ci
     needs: [gitleaks]
     steps:

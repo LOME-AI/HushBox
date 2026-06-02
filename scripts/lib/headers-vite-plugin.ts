@@ -32,6 +32,14 @@ export interface HeaderRule {
   readonly regex: RegExp;
   readonly specificity: number;
   readonly headers: Record<string, string>;
+  /**
+   * Header names this rule strips when applied. Mirrors Cloudflare Pages'
+   * `! HeaderName` syntax — a more-specific rule can remove a value that
+   * a less-specific rule (typically `/*`) would otherwise carry into the
+   * response. Used by marketing blocks to drop the SPA fallback CSP that
+   * CF Pages would otherwise comma-join with the hashed marketing CSP.
+   */
+  readonly unsets: readonly string[];
 }
 
 export class HeadersParseError extends Error {
@@ -62,18 +70,20 @@ function parseHeaderLine(trimmed: string, lineNumber: number): ParsedHeaderLine 
   return { name, value };
 }
 
-function finalizeRule(current: { pattern: string; headers: Record<string, string> }): HeaderRule {
+function finalizeRule(current: CurrentRule): HeaderRule {
   return {
     pattern: current.pattern,
     regex: patternToRegex(current.pattern),
     specificity: computeSpecificity(current.pattern),
     headers: current.headers,
+    unsets: current.unsets,
   };
 }
 
 interface CurrentRule {
   pattern: string;
   headers: Record<string, string>;
+  unsets: string[];
 }
 
 interface ClassifiedLine {
@@ -101,6 +111,14 @@ function applyHeaderToCurrent(
       lineNumber
     );
   }
+  if (trimmed.startsWith('! ')) {
+    // `classifyLine` trims, so reaching here implies a non-empty token
+    // after `! `. No empty-name guard needed — input `  ! ` collapses to
+    // `!` and falls through to the standard header parser, which throws
+    // "Malformed header line".
+    current.unsets.push(trimmed.slice(2));
+    return;
+  }
   const { name, value } = parseHeaderLine(trimmed, lineNumber);
   current.headers[name] = value;
 }
@@ -117,7 +135,7 @@ export function parseHeadersFile(content: string): HeaderRule[] {
       applyHeaderToCurrent(current, classified.trimmed, lineNumber);
     } else {
       if (current) rules.push(finalizeRule(current));
-      current = { pattern: classified.trimmed, headers: {} };
+      current = { pattern: classified.trimmed, headers: {}, unsets: [] };
     }
   }
   if (current) rules.push(finalizeRule(current));
@@ -146,13 +164,23 @@ export function matchHeaders(rules: readonly HeaderRule[], url: string): Record<
     .filter((rule) => rule.regex.test(pathname))
     .toSorted((a, b) => a.specificity - b.specificity);
 
-  const merged: Record<string, string> = {};
+  // Map (not plain Record) for the working set so `.delete(name)` is allowed
+  // by `@typescript-eslint/no-dynamic-delete` without an escape hatch. The
+  // serialized return value still matches the public Record<string, string>
+  // contract via Object.fromEntries.
+  const merged = new Map<string, string>();
   for (const rule of matched) {
+    // Unsets fire before setters in the same rule: they strip values
+    // inherited from less-specific rules processed earlier in this loop.
+    // The rule's own setters then write fresh values on top.
+    for (const name of rule.unsets) {
+      merged.delete(name);
+    }
     for (const [name, value] of Object.entries(rule.headers)) {
-      merged[name] = value;
+      merged.set(name, value);
     }
   }
-  return merged;
+  return Object.fromEntries(merged);
 }
 
 export function applyHeaders(res: ServerResponse, headers: Record<string, string>): void {

@@ -152,8 +152,9 @@ describe('redis-registry', () => {
     });
 
     it('builds correct keys for delete-account entries', () => {
-      expect(REDIS_REGISTRY.opaquePendingDeleteAccount.buildKey('user-123')).toBe(
-        'opaque:delete-account:user-123'
+      // OPAQUE handshakes key by a server-issued sessionId (UUID).
+      expect(REDIS_REGISTRY.opaquePendingDeleteAccount.buildKey('sess-uuid-1')).toBe(
+        'opaque:delete-account:sess-uuid-1'
       );
       expect(REDIS_REGISTRY.deleteAccountUserRateLimit.buildKey('user-123')).toBe(
         'delete-account:user:ratelimit:user-123'
@@ -217,17 +218,20 @@ describe('redis-registry', () => {
       expect(REDIS_REGISTRY.recoveryLockout.buildKey('user@test.com')).toBe(
         'recovery:lockout:user@test.com'
       );
-      expect(REDIS_REGISTRY.opaquePendingRegistration.buildKey('user@test.com')).toBe(
-        'opaque:pending:user@test.com'
+      // OPAQUE handshakes key by server-issued sessionId (a UUID), not by the
+      // identifier/userId — that moves into the stored value. Prevents concurrent
+      // handshakes for the same user from clobbering each other's `expected`.
+      expect(REDIS_REGISTRY.opaquePendingRegistration.buildKey('sess-register')).toBe(
+        'opaque:pending:sess-register'
       );
-      expect(REDIS_REGISTRY.opaquePendingLogin.buildKey('user@test.com')).toBe(
-        'opaque:login:user@test.com'
+      expect(REDIS_REGISTRY.opaquePendingLogin.buildKey('sess-login')).toBe(
+        'opaque:login:sess-login'
       );
-      expect(REDIS_REGISTRY.opaquePendingChangePassword.buildKey('user-123')).toBe(
-        'opaque:change-pw:user-123'
+      expect(REDIS_REGISTRY.opaquePendingChangePassword.buildKey('sess-change-pw')).toBe(
+        'opaque:change-pw:sess-change-pw'
       );
-      expect(REDIS_REGISTRY.opaquePending2FADisable.buildKey('user-123')).toBe(
-        'opaque:2fa-disable:user-123'
+      expect(REDIS_REGISTRY.opaquePending2FADisable.buildKey('sess-2fa-disable')).toBe(
+        'opaque:2fa-disable:sess-2fa-disable'
       );
       expect(REDIS_REGISTRY.totpPendingSetup.buildKey('user-123')).toBe('totp:pending:user-123');
       expect(REDIS_REGISTRY.totpUsedCode.buildKey('user-123', '123456')).toBe(
@@ -375,13 +379,13 @@ describe('redis-registry', () => {
   describe('OPAQUE state schemas', () => {
     it('validates pending registration data', async () => {
       const data = { email: 'user@test.com', username: 'test_user', userId: 'user-123' };
-      const key = REDIS_REGISTRY.opaquePendingRegistration.buildKey('user@test.com');
+      const key = REDIS_REGISTRY.opaquePendingRegistration.buildKey('sess-register');
       mockRedis.store.set(key, data);
 
       const result = await redisGet(
         mockRedis as unknown as Parameters<typeof redisGet>[0],
         'opaquePendingRegistration',
-        'user@test.com'
+        'sess-register'
       );
 
       expect(result).toEqual(data);
@@ -393,13 +397,13 @@ describe('redis-registry', () => {
         userId: null,
         expectedSerialized: [1, 2, 3],
       };
-      const key = REDIS_REGISTRY.opaquePendingLogin.buildKey('user@test.com');
+      const key = REDIS_REGISTRY.opaquePendingLogin.buildKey('sess-login-1');
       mockRedis.store.set(key, data);
 
       const result = await redisGet(
         mockRedis as unknown as Parameters<typeof redisGet>[0],
         'opaquePendingLogin',
-        'user@test.com'
+        'sess-login-1'
       );
 
       expect(result).toEqual(data);
@@ -411,13 +415,13 @@ describe('redis-registry', () => {
         userId: 'user-123',
         expectedSerialized: [1, 2, 3],
       };
-      const key = REDIS_REGISTRY.opaquePendingLogin.buildKey('user@test.com');
+      const key = REDIS_REGISTRY.opaquePendingLogin.buildKey('sess-login-2');
       mockRedis.store.set(key, data);
 
       const result = await redisGet(
         mockRedis as unknown as Parameters<typeof redisGet>[0],
         'opaquePendingLogin',
-        'user@test.com'
+        'sess-login-2'
       );
 
       expect(result).toEqual(data);

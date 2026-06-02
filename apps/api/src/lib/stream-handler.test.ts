@@ -3,6 +3,7 @@ import { ERROR_CODE_CLASSIFIER_FAILED, ERROR_CODE_STREAM_ERROR } from '@hushbox/
 import {
   createSSEEventWriter,
   writeStreamErrorFromException,
+  handleStreamException,
   type SSEStream,
 } from './stream-handler.js';
 
@@ -445,6 +446,83 @@ describe('createSSEEventWriter', () => {
     });
   });
 
+  describe('done-event tracking', () => {
+    it('isDoneWritten returns false before writeDone is called', () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      expect(writer.isDoneWritten()).toBe(false);
+    });
+
+    it('isDoneWritten returns true after writeDone is called', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeDone({
+        userMessageId: 'u',
+        assistantMessageId: 'a',
+        userSequence: 1,
+        aiSequence: 2,
+        epochNumber: 1,
+        cost: '0.001',
+      });
+
+      expect(writer.isDoneWritten()).toBe(true);
+    });
+
+    it('isDoneWritten is set even if the underlying SSE write fails', async () => {
+      const stream = createMockStream();
+      stream.writeSSE = vi.fn().mockRejectedValue(new Error('socket closed'));
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeDone({
+        userMessageId: 'u',
+        assistantMessageId: 'a',
+        userSequence: 1,
+        aiSequence: 2,
+        epochNumber: 1,
+        cost: '0.001',
+      });
+
+      // We marked the turn as past `done` for the catch-suppression check,
+      // even though the wire write failed. Any subsequent thrown exception in
+      // post-`done` work must not be surfaced as a new SSE error event.
+      expect(writer.isDoneWritten()).toBe(true);
+    });
+
+    it('isDoneWritten stays false when writeDone is skipped because the writer is disconnected', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      stream.triggerAbort();
+
+      await writer.writeDone({
+        userMessageId: 'u',
+        assistantMessageId: 'a',
+        userSequence: 1,
+        aiSequence: 2,
+        epochNumber: 1,
+        cost: '0.001',
+      });
+
+      // The client never received `done` (the socket was already gone), so
+      // the catch suppression doesn't kick in. There's no "successful turn"
+      // for the client to confuse with a subsequent error.
+      expect(writer.isDoneWritten()).toBe(false);
+    });
+
+    it('writes an empty done payload when invoked with no argument (trial-chat shape)', async () => {
+      const stream = createMockStream();
+      const writer = createSSEEventWriter(stream);
+
+      await writer.writeDone();
+
+      expect(stream.events).toHaveLength(1);
+      expect(stream.events[0]).toEqual({ event: 'done', data: '{}' });
+      expect(writer.isDoneWritten()).toBe(true);
+    });
+  });
+
   describe('connection tracking', () => {
     it('isConnected returns true initially', () => {
       const stream = createMockStream();
@@ -542,5 +620,71 @@ describe('writeStreamErrorFromException', () => {
     await writeStreamErrorFromException(writer, new Error('after-disconnect'));
 
     expect(stream.events).toHaveLength(0);
+  });
+});
+
+describe('handleStreamException', () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+  });
+
+  it('writes the SSE error event when done has NOT been written', async () => {
+    const stream = createMockStream();
+    const writer = createSSEEventWriter(stream);
+
+    await handleStreamException(writer, new Error('pre-done blowup'));
+
+    expect(stream.events).toHaveLength(1);
+    expect(stream.events[0]?.event).toBe('error');
+    const parsed = JSON.parse(stream.events[0]?.data ?? '{}') as { message: string; code: string };
+    expect(parsed.message).toBe('pre-done blowup');
+    expect(parsed.code).toBe(ERROR_CODE_STREAM_ERROR);
+  });
+
+  it('does NOT write an SSE error event when done has already been written', async () => {
+    const stream = createMockStream();
+    const writer = createSSEEventWriter(stream);
+
+    await writer.writeDone({
+      userMessageId: 'u',
+      assistantMessageId: 'a',
+      userSequence: 1,
+      aiSequence: 2,
+      epochNumber: 1,
+      cost: '0.001',
+    });
+
+    const beforeEventCount = stream.events.length;
+    await handleStreamException(writer, new Error('post-done blowup'));
+
+    expect(stream.events).toHaveLength(beforeEventCount);
+  });
+
+  it('still logs the exception to console.error when suppressing the SSE error', async () => {
+    const stream = createMockStream();
+    const writer = createSSEEventWriter(stream);
+
+    await writer.writeDone({
+      userMessageId: 'u',
+      assistantMessageId: 'a',
+      userSequence: 1,
+      aiSequence: 2,
+      epochNumber: 1,
+      cost: '0.001',
+    });
+
+    const err = new Error('post-done blowup');
+    await handleStreamException(writer, err);
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'sse stream: uncaught exception after done event was already written',
+      err
+    );
   });
 });

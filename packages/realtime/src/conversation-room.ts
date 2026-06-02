@@ -24,6 +24,7 @@ interface PresenceMember {
  *   GET /websocket?userId=xxx           -- authenticated user WebSocket upgrade
  *   GET /websocket?guest=true&name=xxx  -- link guest WebSocket upgrade
  *   POST /broadcast                     -- API Worker sends events to all connections
+ *   GET /presence                       -- API Worker queries currently-subscribed userIds
  */
 export class ConversationRoom extends DurableObject {
   async fetch(request: Request): Promise<Response> {
@@ -37,7 +38,33 @@ export class ConversationRoom extends DurableObject {
       return this.handleBroadcast(request);
     }
 
+    if (url.pathname === '/presence' && request.method === 'GET') {
+      return this.handlePresenceQuery();
+    }
+
     return new Response('Not found', { status: 404 });
+  }
+
+  /**
+   * Returns the deduplicated set of authenticated userIds currently holding
+   * an open WebSocket to this room. Used by the API Worker at push-dispatch
+   * time to suppress notifications for users who already see the new message
+   * via the `message:complete` WebSocket event.
+   *
+   * Guest sockets are deliberately omitted — guests don't have userIds and
+   * can't be the target of a userId-keyed push lookup. Sockets with missing
+   * attachment metadata are also skipped (no userId to report).
+   */
+  private handlePresenceQuery(): Response {
+    const sockets = this.ctx.getWebSockets();
+    const userIds = new Set<string>();
+    for (const ws of sockets) {
+      const meta = ws.deserializeAttachment() as ConnectionMeta | null;
+      if (meta?.userId !== undefined) {
+        userIds.add(meta.userId);
+      }
+    }
+    return Response.json({ userIds: [...userIds] });
   }
 
   private handleWebSocketUpgrade(url: URL): Response {

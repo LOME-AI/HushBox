@@ -25,13 +25,24 @@ interface StartArgs {
 interface FinishArgs {
   ke3: Uint8Array;
   userId: string;
+  sessionId: string;
   redis: Redis;
   redisKeyName: OpaqueStepUpKeyName;
 }
 
-export type FinishResult = { ok: true } | { ok: false; reason: 'no-pending' | 'bad-proof' };
+export type FinishResult =
+  | { ok: true }
+  | { ok: false; reason: 'no-pending' | 'bad-proof' | 'session-mismatch' };
 
-export async function startOpaqueStepUp(args: StartArgs): Promise<{ ke2: Uint8Array }> {
+/**
+ * Persists a per-handshake session token. The token is the Redis key — the
+ * stored `userId` moves into the value so the finish step can verify the
+ * caller's session is bound to the same user. Concurrent step-ups for the
+ * same user therefore can't clobber each other's `expected`.
+ */
+export async function startOpaqueStepUp(
+  args: StartArgs
+): Promise<{ ke2: Uint8Array; sessionId: string }> {
   const { ke2, expectedSerialized } = await opaqueStepUpInit({
     masterSecret: args.masterSecret,
     opaqueRegistration: args.opaqueRegistration,
@@ -39,24 +50,33 @@ export async function startOpaqueStepUp(args: StartArgs): Promise<{ ke2: Uint8Ar
     ke1: args.ke1,
   });
 
+  const sessionId = crypto.randomUUID();
   await redisSet(
     args.redis,
     args.redisKeyName,
     { userId: args.userId, expectedSerialized },
-    args.userId
+    sessionId
   );
 
-  return { ke2 };
+  return { ke2, sessionId };
 }
 
 /**
  * On bad-proof, the Redis entry is intentionally left in place so clients can
  * retry within the configured TTL. Only a successful proof clears it.
+ *
+ * `session-mismatch` indicates a stolen sessionId being used to step up a
+ * different account — clears the entry and reports failure.
  */
 export async function finishOpaqueStepUp(args: FinishArgs): Promise<FinishResult> {
-  const pending = await redisGet(args.redis, args.redisKeyName, args.userId);
+  const pending = await redisGet(args.redis, args.redisKeyName, args.sessionId);
   if (!pending) {
     return { ok: false, reason: 'no-pending' };
+  }
+
+  if (pending.userId !== args.userId) {
+    await redisDel(args.redis, args.redisKeyName, args.sessionId);
+    return { ok: false, reason: 'session-mismatch' };
   }
 
   const result = opaqueStepUpFinish({
@@ -68,6 +88,6 @@ export async function finishOpaqueStepUp(args: FinishArgs): Promise<FinishResult
     return result;
   }
 
-  await redisDel(args.redis, args.redisKeyName, args.userId);
+  await redisDel(args.redis, args.redisKeyName, args.sessionId);
   return { ok: true };
 }

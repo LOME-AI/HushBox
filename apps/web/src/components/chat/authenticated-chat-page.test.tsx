@@ -1402,6 +1402,44 @@ describe('AuthenticatedChatPage', () => {
         );
       });
     });
+
+    it('removes orphan AI placeholders when stream throws after onStart', async () => {
+      const user = userEvent.setup();
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(vi.fn());
+
+      // Real-world failure shape: SSE `start` arrives (placeholder gets added
+      // to optimistic state), then the stream fails — transport drop, billing
+      // error past start, context-length error, etc. Without cleanup the empty
+      // placeholder renders as an invisible AI bubble whose action toolbar
+      // floats above the synthetic "Something went wrong" tile.
+      mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
+        options?.onStart?.({
+          userMessageId: 'user-pending',
+          models: [{ modelId: 'test-model', assistantMessageId: 'assistant-orphan' }],
+        });
+        return Promise.reject(new Error('Stream failed after start'));
+      });
+
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test Chat' },
+        messagesData: [],
+        inputValue: 'Test message',
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      await user.click(screen.getByTestId('submit'));
+
+      await waitFor(() => {
+        expect(mockSetError).toHaveBeenCalled();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('message-ids').textContent).not.toContain('assistant-orphan');
+      });
+
+      consoleErrorSpy.mockRestore();
+    });
   });
 
   describe('error message in messages list', () => {

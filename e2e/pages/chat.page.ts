@@ -389,38 +389,79 @@ export class ChatPage {
   }
 
   /**
+   * Read the current value of `data-streams-completed` — a monotonic counter
+   * the MessageList increments each time `streamingMessageIds` transitions
+   * from non-empty to empty (i.e. each completed stream cycle).
+   *
+   * Capture this BEFORE the action that triggers a stream, then pair with
+   * `waitForStreamCycle(baseline)` (or use `withStreamCycle(action)`) to
+   * deterministically wait for the cycle to complete. This is strictly
+   * better than `waitForStreamComplete()` for new callers: there's no
+   * window in which the stream can start-and-finish faster than a poller
+   * can observe `data-streaming-count > 0`.
+   */
+  async captureStreamBaseline(): Promise<number> {
+    return Number((await this.messageList.getAttribute('data-streams-completed')) ?? '0');
+  }
+
+  /**
+   * Wait for at least one stream cycle to complete since `baseline`. Pair with
+   * `captureStreamBaseline()` taken before the action that triggers the stream.
+   *
+   * Unlike the legacy `waitForStreamComplete`, the assertion is over the
+   * cycle counter (a fact: "a cycle finished") rather than over a transient
+   * state (`streaming-count > 0`) that can transition too quickly to observe.
+   */
+  async waitForStreamCycle(baseline: number, timeout = 15_000): Promise<void> {
+    await expect
+      .poll(
+        async () => Number((await this.messageList.getAttribute('data-streams-completed')) ?? '0'),
+        { timeout }
+      )
+      .toBeGreaterThan(baseline);
+    // After the cycle counter increments, streaming-count is by definition 0;
+    // a short deadline catches any incoherent state.
+    await expect(this.messageList).toHaveAttribute('data-streaming-count', '0', { timeout: 1000 });
+    const lastToolbar = this.messageList.locator('[data-testid="message-actions"]').last();
+    await expect(lastToolbar).toBeVisible({ timeout: 500 });
+  }
+
+  /**
+   * Strict cycle-bounded helper: capture baseline, run `action`, wait for one
+   * stream cycle to complete. Prefer this for tests that submit a turn and
+   * then assert on the post-turn state.
+   */
+  async withStreamCycle<T>(action: () => Promise<T>, timeout = 15_000): Promise<T> {
+    const baseline = await this.captureStreamBaseline();
+    const result = await action();
+    await this.waitForStreamCycle(baseline, timeout);
+    return result;
+  }
+
+  /**
    * Wait for the active streaming turn (text or media) to complete and persist.
    * Gates on the message list's live `data-streaming-count` — the size of the
    * client's `streamingMessageIds`, which only returns to 0 after the SSE `done`
    * event, i.e. after the turn's messages are persisted server-side.
    *
-   * The previous implementation waited for the LAST `[data-testid="message-cost"]`
-   * badge to be visible; a prior reply's badge already satisfied that, so a
-   * second message in the same conversation resolved instantly — before its
-   * reply was persisted — and a reader fetching from another context (a link
-   * guest) saw an empty thread.
+   * Contract: caller must have already established that a stream is incoming
+   * (e.g. via `waitForAIResponse(specificContent)`), otherwise this returns
+   * immediately on a pre-existing `data-streaming-count === '0'`. For strict
+   * cycle gating that doesn't rely on caller discipline, prefer
+   * `withStreamCycle(action)` or `captureStreamBaseline()` +
+   * `waitForStreamCycle(baseline)`.
+   *
+   * The previous implementation tried to bridge the contract gap with an
+   * `expect.poll(...).toBeGreaterThan(0).catch(...)` grace window. The
+   * `.catch` swallowed the throw but Playwright still recorded the failed
+   * assertion on the test result, causing the test to retry. The grace is
+   * removed; callers that need start-or-skip-equivalence should adopt the
+   * cycle-counter helpers above.
    */
   async waitForStreamComplete(timeout = 15_000): Promise<void> {
-    const streamingCount = async (): Promise<number> =>
-      Number((await this.messageList.getAttribute('data-streaming-count')) ?? '0');
-
-    // A send/regenerate starts its stream a tick after submit (inside the async
-    // send path), so a bare drain check could read the pre-start 0 and return
-    // early. Wait briefly for the stream to register; if it never does (the turn
-    // already finished before this call), fall through — the drain assertion
-    // below is then already satisfied.
-    await expect
-      .poll(streamingCount, { timeout: 2000 })
-      .toBeGreaterThan(0)
-      .catch(() => {
-        // No stream registered within the grace window — the turn already
-        // finished before this call; the drain assertion below is satisfied.
-      });
-
     await unsettledExpect(this.messageList).toHaveAttribute('data-streaming-count', '0', {
       timeout,
     });
-
     // Once streaming has drained, the assistant message's action toolbar
     // should be visible — gating it on cost settlement (the Bug 6
     // anti-pattern) makes the UI feel frozen.

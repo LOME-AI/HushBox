@@ -157,6 +157,16 @@ export interface SSEEventWriter {
   /** Pre-inference stage failure — generic across all stage types. */
   writeStageError: (data: StageErrorPayload) => Promise<void>;
   isConnected: () => boolean;
+  /**
+   * True once `writeDone` has been invoked, regardless of whether the
+   * underlying SSE write reached the client. The structural catches in
+   * stream-pipeline and media-pipeline use this to suppress a misleading
+   * `event: error` for exceptions that happen *after* the turn has already
+   * been reported as successful (e.g., a post-`done` fire-and-forget
+   * synchronously throwing). Stays false if `writeDone` no-oped because the
+   * writer was already disconnected.
+   */
+  isDoneWritten: () => boolean;
 }
 
 /**
@@ -181,6 +191,32 @@ export async function writeStreamErrorFromException(
 }
 
 /**
+ * The structural catch used by streamSSE pipelines. Behaviour splits on
+ * whether the `done` event has already been written:
+ *
+ *   - **Pre-`done`** — the turn never reached the success boundary. Surface the
+ *     failure to the client via `writeStreamErrorFromException` so it can
+ *     render an inline error instead of hanging on STREAM_TIMEOUT_MS.
+ *
+ *   - **Post-`done`** — the turn already reported success to the client
+ *     (cost, envelopes, sequences all sent). Writing another `event: error`
+ *     here would flip the client's perception from "message saved" to "chat
+ *     stream failed" even though the assistant message is persisted and the
+ *     billing is settled. Log server-side, but do not retract the success.
+ *
+ * The post-`done` branch is the one that catches synchronous throws from
+ * fire-and-forget side-effects (push notifications, analytics) that run after
+ * persistence.
+ */
+export async function handleStreamException(writer: SSEEventWriter, err: unknown): Promise<void> {
+  if (writer.isDoneWritten()) {
+    console.error('sse stream: uncaught exception after done event was already written', err);
+    return;
+  }
+  await writeStreamErrorFromException(writer, err);
+}
+
+/**
  * Create a typed SSE event writer with connection tracking.
  *
  * Handles:
@@ -190,6 +226,7 @@ export async function writeStreamErrorFromException(
  */
 export function createSSEEventWriter(stream: SSEStream): SSEEventWriter {
   let connected = true;
+  let doneWritten = false;
 
   stream.onAbort(() => {
     connected = false;
@@ -237,6 +274,14 @@ export function createSSEEventWriter(stream: SSEStream): SSEEventWriter {
     },
 
     writeDone: async (data?: DoneEventData) => {
+      // Set the flag whenever the writer was still connected when `done`
+      // was attempted, regardless of whether the actual wire write threw
+      // (which flips `connected` inside writeIfConnected). A pipeline that
+      // got far enough to call writeDone is, semantically, past the
+      // success boundary for the catch-suppression check.
+      if (connected) {
+        doneWritten = true;
+      }
       await writeIfConnected('done', data ?? {});
     },
 
@@ -253,5 +298,6 @@ export function createSSEEventWriter(stream: SSEStream): SSEEventWriter {
     },
 
     isConnected: () => connected,
+    isDoneWritten: () => doneWritten,
   };
 }

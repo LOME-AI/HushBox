@@ -45,6 +45,7 @@ const finishSchema = z.object({
     .regex(/^\d{6}$/)
     .optional(),
   confirmationPhrase: z.string().max(MAX_CONFIRMATION_PHRASE_LENGTH),
+  deleteAccountSessionId: z.uuid(),
 });
 
 interface FinishUserRow {
@@ -162,16 +163,18 @@ async function loadFinishUser(db: Database, userId: string): Promise<FinishUserR
 async function verifyOpaqueGate(args: {
   redis: Redis;
   userId: string;
+  sessionId: string;
   ke3: number[];
 }): Promise<GateResult> {
   const result = await finishOpaqueStepUp({
     ke3: new Uint8Array(args.ke3),
     userId: args.userId,
+    sessionId: args.sessionId,
     redis: args.redis,
     redisKeyName: 'opaquePendingDeleteAccount',
   });
   if (result.ok) return { ok: true };
-  if (result.reason === 'no-pending') {
+  if (result.reason === 'no-pending' || result.reason === 'session-mismatch') {
     return { ok: false, code: ERROR_CODE_NO_PENDING_DELETE_ACCOUNT, status: 400 };
   }
   const failure = await recordDeleteAccountFailure(args.redis, args.userId);
@@ -253,7 +256,7 @@ export const deleteAccountRoute = new Hono<AppEnv>()
     }
 
     const { ke1 } = c.req.valid('json');
-    const { ke2 } = await startOpaqueStepUp({
+    const { ke2, sessionId } = await startOpaqueStepUp({
       ke1: new Uint8Array(ke1),
       userId: user.id,
       opaqueRegistration: user.opaqueRegistration,
@@ -262,7 +265,7 @@ export const deleteAccountRoute = new Hono<AppEnv>()
       redis,
       redisKeyName: 'opaquePendingDeleteAccount',
     });
-    return c.json({ ke2: [...ke2] }, 200);
+    return c.json({ ke2: [...ke2], deleteAccountSessionId: sessionId }, 200);
   })
 
   .post('/finish', zValidator('json', finishSchema), async (c) => {
@@ -276,7 +279,7 @@ export const deleteAccountRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(lockout.code, lockout.details), lockout.status);
     }
 
-    const { ke3, totpCode, confirmationPhrase } = c.req.valid('json');
+    const { ke3, totpCode, confirmationPhrase, deleteAccountSessionId } = c.req.valid('json');
 
     // Cheap, server-state-free gate runs before crypto. ASCII trim + lowercase
     // only — homoglyphs do not match because no Unicode normalization is applied.
@@ -290,7 +293,12 @@ export const deleteAccountRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_USER_NOT_FOUND), 500);
     }
 
-    const opaqueGate = await verifyOpaqueGate({ redis, userId: user.id, ke3 });
+    const opaqueGate = await verifyOpaqueGate({
+      redis,
+      userId: user.id,
+      sessionId: deleteAccountSessionId,
+      ke3,
+    });
     if (!opaqueGate.ok) {
       return c.json(createErrorResponse(opaqueGate.code, opaqueGate.details), opaqueGate.status);
     }

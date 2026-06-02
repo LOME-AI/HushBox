@@ -136,6 +136,7 @@ const mockTrialChatStore = {
   clearPendingMessage: vi.fn(),
   setRateLimited: vi.fn(),
   removeMessagesAfter: vi.fn(),
+  removeMessage: vi.fn(),
 };
 
 interface TrialChatStoreMock {
@@ -148,6 +149,7 @@ interface TrialChatStoreMock {
   clearPendingMessage: ReturnType<typeof vi.fn>;
   setRateLimited: ReturnType<typeof vi.fn>;
   removeMessagesAfter: ReturnType<typeof vi.fn>;
+  removeMessage: ReturnType<typeof vi.fn>;
 }
 
 const mockUseTrialChatStore = vi.fn<() => TrialChatStoreMock>();
@@ -265,6 +267,7 @@ describe('TrialChatPage', () => {
       clearPendingMessage: mockTrialChatStore.clearPendingMessage,
       setRateLimited: mockTrialChatStore.setRateLimited,
       removeMessagesAfter: mockTrialChatStore.removeMessagesAfter,
+      removeMessage: mockTrialChatStore.removeMessage,
     });
 
     mockUseIsMobile.mockReturnValue(config.isMobile);
@@ -513,6 +516,31 @@ describe('TrialChatPage', () => {
         })
       );
       expect(mockStopStreaming).toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('removes orphan assistant placeholder when stream throws after onStart', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(vi.fn());
+
+      // onStart adds the empty assistant placeholder via addMessage, then the
+      // stream rejects. Without cleanup the placeholder renders as an invisible
+      // bubble whose action toolbar floats above the chat-error tile.
+      mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
+        options?.onStart?.({
+          models: [{ modelId: 'test-model', assistantMessageId: 'assistant-orphan' }],
+        });
+        return Promise.reject(new Error('Stream failed after start'));
+      });
+
+      setupMocks({ pendingMessage: 'Hello' });
+
+      render(<TrialChatPage />);
+
+      await waitFor(() => {
+        expect(mockSetError).toHaveBeenCalled();
+      });
+
+      expect(mockTrialChatStore.removeMessage).toHaveBeenCalledWith('assistant-orphan');
       consoleErrorSpy.mockRestore();
     });
   });

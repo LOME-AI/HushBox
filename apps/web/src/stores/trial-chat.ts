@@ -30,6 +30,8 @@ interface TrialChatState {
   setRateLimited: (limited: boolean) => void;
   /** Remove all messages after the given message ID (keeps the target) */
   removeMessagesAfter: (messageId: string) => void;
+  /** Drop a single message by id; no-op if not present */
+  removeMessage: (messageId: string) => void;
   /** Clear all trial messages and reset state */
   reset: () => void;
 }
@@ -68,6 +70,9 @@ export const useTrialChatStore = create<TrialChatState>((set) => ({
       if (index === -1) return state;
       return { messages: state.messages.slice(0, index + 1) };
     });
+  },
+  removeMessage: (messageId) => {
+    set((state) => ({ messages: state.messages.filter((m) => m.id !== messageId) }));
   },
   reset: () => {
     set({ messages: [], pendingMessage: null, isRateLimited: false });

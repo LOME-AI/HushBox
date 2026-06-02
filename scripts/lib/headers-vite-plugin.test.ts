@@ -106,6 +106,32 @@ describe('parseHeadersFile', () => {
     expect(parseHeadersFile('')).toEqual([]);
     expect(parseHeadersFile('\n\n# only comments\n')).toEqual([]);
   });
+
+  it('accepts `! HeaderName` unset directives without throwing', () => {
+    expect(() =>
+      parseHeadersFile('/welcome/\n  ! Content-Security-Policy\n  X-Foo: bar')
+    ).not.toThrow();
+  });
+
+  it('records `! HeaderName` lines as unsets on the rule, separate from headers', () => {
+    const rules = parseHeadersFile('/welcome/\n  ! Content-Security-Policy\n  X-Foo: bar');
+    expect(rules[0]?.unsets).toEqual(['Content-Security-Policy']);
+    expect(rules[0]?.headers).toEqual({ 'X-Foo': 'bar' });
+  });
+
+  it('rejects `! ` with no header name following (trims to bare `!`, no colon)', () => {
+    expect(() => parseHeadersFile('/welcome/\n  ! ')).toThrow(HeadersParseError);
+  });
+
+  it('rejects `!HeaderName` without the required space separator', () => {
+    // The unset directive requires the literal `! ` (bang + space) per
+    // Cloudflare Pages docs. `!Foo` is not recognized as an unset; it falls
+    // through to the standard header line parser, which throws because
+    // there is no colon.
+    expect(() => parseHeadersFile('/welcome/\n  !Content-Security-Policy')).toThrow(
+      HeadersParseError
+    );
+  });
 });
 
 describe('matchHeaders', () => {
@@ -157,6 +183,20 @@ describe('matchHeaders', () => {
   it('returns an empty object when nothing matches', () => {
     const rules = [rule('/only-this-path', { 'X-Foo': 'bar' })];
     expect(matchHeaders(rules, '/something-else')).toEqual({});
+  });
+
+  it('removes a header set by a less-specific rule when a more-specific rule unsets it', () => {
+    // Mirrors Cloudflare Pages `! HeaderName` semantics. The SPA `/*` block
+    // sets a permissive CSP; the marketing block unsets that inheritance
+    // and supplies its own hashed CSP. Result: only the marketing CSP
+    // ends up in the response, with other SPA headers preserved.
+    const rules = parseHeadersFile(
+      '/*\n  Content-Security-Policy: spa\n  X-Frame-Options: DENY\n\n' +
+        '/welcome/\n  ! Content-Security-Policy\n  Content-Security-Policy: marketing'
+    );
+    const merged = matchHeaders(rules, '/welcome/');
+    expect(merged['Content-Security-Policy']).toBe('marketing');
+    expect(merged['X-Frame-Options']).toBe('DENY');
   });
 
   it('matches wildcard prefix paths like /welcome*', () => {

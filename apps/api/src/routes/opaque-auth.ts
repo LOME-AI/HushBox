@@ -94,11 +94,11 @@ async function handleLoginFailure(options: {
   redis: import('@upstash/redis').Redis;
   db: ReturnType<typeof import('@hushbox/db').createDb>;
   env: Bindings;
-  identifier: string;
+  loginSessionId: string;
   userIdentifier: string;
   pendingUserId: string | null;
 }): Promise<void> {
-  await redisDel(options.redis, 'opaquePendingLogin', options.identifier);
+  await redisDel(options.redis, 'opaquePendingLogin', options.loginSessionId);
   const failureResult = await recordFailedAttempt(
     options.redis,
     'loginUserRateLimit',
@@ -220,6 +220,127 @@ function resolveIdentifierCondition(identifier: string): ReturnType<typeof eq> {
     : eq(users.username, identifier.toLowerCase());
 }
 
+type InsertRegisteredUserResult =
+  | { ok: true; id: string }
+  | { ok: false; code: string; status: 409 | 500 };
+
+/**
+ * Insert a new user row from a completed OPAQUE registration. Maps the two
+ * discriminable unique-violation constraints onto typed 409s so the signup UI
+ * can render them; any other DB error is re-thrown for the global handler.
+ */
+async function insertRegisteredUser(
+  db: ReturnType<typeof import('@hushbox/db').createDb>,
+  values: {
+    id: string;
+    email: string;
+    username: string;
+    opaqueRegistration: Uint8Array;
+    publicKey: Uint8Array;
+    passwordWrappedPrivateKey: Uint8Array;
+    recoveryWrappedPrivateKey: Uint8Array;
+  }
+): Promise<InsertRegisteredUserResult> {
+  try {
+    const result = await db
+      .insert(users)
+      .values({ ...values, emailVerified: false })
+      .returning({ id: users.id });
+    const newUser = result[0];
+    if (!newUser) {
+      return { ok: false, code: ERROR_CODE_USER_CREATION_FAILED, status: 500 };
+    }
+    return { ok: true, id: newUser.id };
+  } catch (error) {
+    const constraint = getUniqueViolationConstraint(error);
+    if (constraint === 'users_username_unique') {
+      return { ok: false, code: ERROR_CODE_USERNAME_TAKEN, status: 409 };
+    }
+    if (constraint === 'users_email_unique') {
+      return { ok: false, code: ERROR_CODE_EMAIL_TAKEN, status: 409 };
+    }
+    throw error;
+  }
+}
+
+type LoginHandshakeResult =
+  | { ok: true; userId: string }
+  | { ok: false; code: string; status: 400 | 401 };
+
+/**
+ * Validate the pending login slot and complete the OPAQUE AKE.
+ *
+ * Encapsulates: pending lookup, identifier-mismatch defense-in-depth, the
+ * OPAQUE authFinish failure path (which records the rate-limit failure and
+ * may trigger an account-locked notification), and the no-userId case for
+ * enumeration-resistant fake-record flows.
+ */
+async function verifyOpaqueLoginHandshake(args: {
+  redis: import('@upstash/redis').Redis;
+  db: ReturnType<typeof import('@hushbox/db').createDb>;
+  env: Bindings;
+  masterSecret: string;
+  identifier: string;
+  ke3: number[];
+  loginSessionId: string;
+}): Promise<LoginHandshakeResult> {
+  const { redis, db, env, masterSecret, identifier, ke3, loginSessionId } = args;
+
+  const pendingData = await redisGet(redis, 'opaquePendingLogin', loginSessionId);
+  if (!pendingData) {
+    return { ok: false, code: ERROR_CODE_NO_PENDING_LOGIN, status: 400 };
+  }
+
+  const pending = pendingData;
+  // Defense-in-depth: a stolen sessionId must not let an attacker complete
+  // a handshake for a different identifier. The stored identifier was
+  // canonicalized on init; canonicalize the request side identically here.
+  if (pending.identifier !== identifier.toLowerCase()) {
+    await redisDel(redis, 'opaquePendingLogin', loginSessionId);
+    return { ok: false, code: ERROR_CODE_AUTH_FAILED, status: 401 };
+  }
+
+  const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
+  const ke3Message = KE3.deserialize(OpaqueServerConfig, ke3);
+  const expected = ExpectedAuthResult.deserialize(OpaqueServerConfig, pending.expectedSerialized);
+  const result = opaqueServer.authFinish(ke3Message, expected);
+
+  if (result instanceof Error) {
+    const userIdentifier = pending.userId ?? identifier.toLowerCase();
+    await handleLoginFailure({
+      redis,
+      db,
+      env,
+      loginSessionId,
+      userIdentifier,
+      pendingUserId: pending.userId,
+    });
+    return { ok: false, code: ERROR_CODE_AUTH_FAILED, status: 401 };
+  }
+
+  if (!pending.userId) {
+    await redisDel(redis, 'opaquePendingLogin', loginSessionId);
+    return { ok: false, code: ERROR_CODE_AUTH_FAILED, status: 401 };
+  }
+
+  return { ok: true, userId: pending.userId };
+}
+
+/**
+ * Map an OPAQUE step-up `finishOpaqueStepUp` failure reason onto the
+ * disable-2FA error response. `no-pending` and `session-mismatch` both surface
+ * as the no-pending error so a stolen sessionId cannot probe account state.
+ */
+function mapDisable2FAFinishError(reason: 'no-pending' | 'bad-proof' | 'session-mismatch'): {
+  code: string;
+  status: 400 | 401;
+} {
+  if (reason === 'bad-proof') {
+    return { code: ERROR_CODE_INCORRECT_PASSWORD, status: 401 };
+  }
+  return { code: ERROR_CODE_NO_PENDING_DISABLE, status: 400 };
+}
+
 const registerInitRequestSchema = z.object({
   email: z.email(),
   username: z.string().min(1),
@@ -232,6 +353,7 @@ const registerFinishRequestSchema = z.object({
   accountPublicKey: z.string().min(1),
   passwordWrappedPrivateKey: z.string().min(1),
   recoveryWrappedPrivateKey: z.string().min(1),
+  registerSessionId: z.uuid(),
 });
 
 const loginInitRequestSchema = z.object({
@@ -242,6 +364,7 @@ const loginInitRequestSchema = z.object({
 const loginFinishRequestSchema = z.object({
   identifier: z.string().min(1).max(254),
   ke3: z.array(z.number()).min(1),
+  loginSessionId: z.uuid(),
 });
 
 const login2FAVerifyRequestSchema = z.object({
@@ -268,6 +391,7 @@ const twoFactorDisableFinishRequestSchema = z.object({
     .string()
     .length(6)
     .regex(/^\d{6}$/, 'Code must be 6 digits'),
+  disable2FASessionId: z.uuid(),
 });
 
 const verifyEmailRequestSchema = z.object({
@@ -287,6 +411,7 @@ const changePasswordFinishRequestSchema = z.object({
   ke3: z.array(z.number()).min(1),
   newRegistrationRecord: z.array(z.number()).min(1),
   newPasswordWrappedPrivateKey: z.string().min(1),
+  changePasswordSessionId: z.uuid(),
 });
 
 const recoveryResetRequestSchema = z.object({
@@ -298,6 +423,7 @@ const recoveryResetFinishRequestSchema = z.object({
   identifier: z.string().min(1).max(254),
   newRegistrationRecord: z.array(z.number()).min(1),
   newPasswordWrappedPrivateKey: z.string().min(1),
+  recoverySessionId: z.uuid(),
 });
 
 const recoveryGetWrappedKeyRequestSchema = z.object({
@@ -374,6 +500,9 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_REGISTRATION_FAILED), 500);
     }
 
+    // Server-issued handshake ID. Concurrent registrations for the same email
+    // each get their own Redis slot — see redis-registry.ts for rationale.
+    const registerSessionId = crypto.randomUUID();
     await redisSet(
       redis,
       'opaquePendingRegistration',
@@ -383,12 +512,13 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         userId,
         ...(userExists && { existing: true }),
       },
-      email
+      registerSessionId
     );
 
     return c.json(
       {
         registrationResponse: result.serialize(),
+        registerSessionId,
       },
       200
     );
@@ -401,20 +531,27 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       accountPublicKey,
       passwordWrappedPrivateKey,
       recoveryWrappedPrivateKey,
+      registerSessionId,
     } = c.req.valid('json');
     const db = c.get('db');
     const redis = c.get('redis');
 
-    const pendingData = await redisGet(redis, 'opaquePendingRegistration', email);
+    const pendingData = await redisGet(redis, 'opaquePendingRegistration', registerSessionId);
     if (!pendingData) {
       return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_REGISTRATION), 400);
     }
 
     const pending = pendingData;
+    // Defense-in-depth: a stolen sessionId must not let an attacker complete
+    // a registration for a different email.
+    if (pending.email !== email.toLowerCase()) {
+      await redisDel(redis, 'opaquePendingRegistration', registerSessionId);
+      return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_REGISTRATION), 400);
+    }
 
     // If this is a fake registration for an existing user, skip DB insert
     if (pending.existing) {
-      await redisDel(redis, 'opaquePendingRegistration', email);
+      await redisDel(redis, 'opaquePendingRegistration', registerSessionId);
 
       // Return success with a fake userId (prevents enumeration)
       return c.json(
@@ -429,51 +566,24 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     const record = RegistrationRecord.deserialize(OpaqueServerConfig, registrationRecord);
     const recordBytes = new Uint8Array(record.serialize());
 
-    const publicKeyBytes = fromBase64(accountPublicKey);
-    const passwordWrappedPrivateKeyBytes = fromBase64(passwordWrappedPrivateKey);
-    const recoveryWrappedPrivateKeyBytes = fromBase64(recoveryWrappedPrivateKey);
-
-    // Catch users_username_unique / users_email_unique violations explicitly
-    // so a username race or an email-existence race past /init surfaces as a
-    // typed 409 the signup UI can render — without this, both fall through
-    // to the global handler as a generic INTERNAL 500.
-    let newUser: { id: string } | undefined;
-    try {
-      const result = await db
-        .insert(users)
-        .values({
-          id: pending.userId,
-          email: pending.email,
-          username: pending.username,
-          opaqueRegistration: recordBytes,
-          publicKey: publicKeyBytes,
-          passwordWrappedPrivateKey: passwordWrappedPrivateKeyBytes,
-          recoveryWrappedPrivateKey: recoveryWrappedPrivateKeyBytes,
-          emailVerified: false,
-        })
-        .returning({ id: users.id });
-      newUser = result[0];
-    } catch (error) {
-      const constraint = getUniqueViolationConstraint(error);
-      if (constraint === 'users_username_unique') {
-        return c.json(createErrorResponse(ERROR_CODE_USERNAME_TAKEN), 409);
-      }
-      if (constraint === 'users_email_unique') {
-        return c.json(createErrorResponse(ERROR_CODE_EMAIL_TAKEN), 409);
-      }
-      // Either a generic unique violation we can't discriminate, or an
-      // unrelated DB error. Let the global handler surface it as INTERNAL.
-      throw error;
+    const insertResult = await insertRegisteredUser(db, {
+      id: pending.userId,
+      email: pending.email,
+      username: pending.username,
+      opaqueRegistration: recordBytes,
+      publicKey: fromBase64(accountPublicKey),
+      passwordWrappedPrivateKey: fromBase64(passwordWrappedPrivateKey),
+      recoveryWrappedPrivateKey: fromBase64(recoveryWrappedPrivateKey),
+    });
+    if (!insertResult.ok) {
+      return c.json(createErrorResponse(insertResult.code), insertResult.status);
     }
-
-    if (!newUser) {
-      return c.json(createErrorResponse(ERROR_CODE_USER_CREATION_FAILED), 500);
-    }
+    const newUser = { id: insertResult.id };
 
     // Provision wallets (purchased with welcome credit + free tier with daily allowance)
     await ensureWalletsExist(db, newUser.id);
 
-    await redisDel(redis, 'opaquePendingRegistration', email);
+    await redisDel(redis, 'opaquePendingRegistration', registerSessionId);
 
     // Send verification email (fire-and-forget, don't block registration)
     const emailToken = crypto.randomUUID();
@@ -612,58 +722,46 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
     const { ke2, expected } = result;
 
+    // Server-issued handshake ID. Concurrent logins for the same identifier
+    // each get their own Redis slot so they can't clobber each other's
+    // `expected` value. See the OPAQUE state section of redis-registry.ts
+    // for rationale.
+    const loginSessionId = crypto.randomUUID();
     await redisSet(
       redis,
       'opaquePendingLogin',
       { identifier: identifier.toLowerCase(), userId, expectedSerialized: expected.serialize() },
-      identifier
+      loginSessionId
     );
 
     return c.json(
       {
         ke2: ke2.serialize(),
+        loginSessionId,
       },
       200
     );
   })
 
   .post('/login/finish', zValidator('json', loginFinishRequestSchema), async (c) => {
-    const { identifier, ke3 } = c.req.valid('json');
+    const { identifier, ke3, loginSessionId } = c.req.valid('json');
     const db = c.get('db');
     const redis = c.get('redis');
     const authEnv = getAuthEnvWithSession(c.env);
     if (!authEnv) return c.json(createErrorResponse(ERROR_CODE_SERVER_MISCONFIGURED), 500);
     const { masterSecret, sessionSecret } = authEnv;
 
-    const pendingData = await redisGet(redis, 'opaquePendingLogin', identifier);
-    if (!pendingData) {
-      return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_LOGIN), 400);
-    }
-
-    const pending = pendingData;
-
-    const opaqueServer = await createOpaqueServerFromEnv(masterSecret);
-
-    const ke3Message = KE3.deserialize(OpaqueServerConfig, ke3);
-    const expected = ExpectedAuthResult.deserialize(OpaqueServerConfig, pending.expectedSerialized);
-
-    const result = opaqueServer.authFinish(ke3Message, expected);
-    if (result instanceof Error) {
-      const userIdentifier = pending.userId ?? identifier.toLowerCase();
-      await handleLoginFailure({
-        redis,
-        db,
-        env: c.env,
-        identifier: identifier.toLowerCase(),
-        userIdentifier,
-        pendingUserId: pending.userId,
-      });
-      return c.json(createErrorResponse(ERROR_CODE_AUTH_FAILED), 401);
-    }
-
-    if (!pending.userId) {
-      await redisDel(redis, 'opaquePendingLogin', identifier);
-      return c.json(createErrorResponse(ERROR_CODE_AUTH_FAILED), 401);
+    const handshake = await verifyOpaqueLoginHandshake({
+      redis,
+      db,
+      env: c.env,
+      masterSecret,
+      identifier,
+      ke3,
+      loginSessionId,
+    });
+    if (!handshake.ok) {
+      return c.json(createErrorResponse(handshake.code), handshake.status);
     }
 
     const [user] = await db
@@ -677,7 +775,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         passwordWrappedPrivateKey: users.passwordWrappedPrivateKey,
       })
       .from(users)
-      .where(eq(users.id, pending.userId));
+      .where(eq(users.id, handshake.userId));
 
     if (!user) {
       return c.json(createErrorResponse(ERROR_CODE_AUTH_FAILED), 401);
@@ -685,11 +783,11 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
 
     // Check email verification (skip for no-email users)
     if (user.email && !user.emailVerified) {
-      await redisDel(redis, 'opaquePendingLogin', identifier);
+      await redisDel(redis, 'opaquePendingLogin', loginSessionId);
       return c.json(createErrorResponse(ERROR_CODE_EMAIL_NOT_VERIFIED), 401);
     }
 
-    await redisDel(redis, 'opaquePendingLogin', identifier);
+    await redisDel(redis, 'opaquePendingLogin', loginSessionId);
 
     await clearLockout(redis, 'loginLockout', user.id, 'loginUserRateLimit');
 
@@ -1109,6 +1207,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     return c.json(
       {
         ke2: [...stepUp.ke2],
+        disable2FASessionId: stepUp.sessionId,
       },
       200
     );
@@ -1118,7 +1217,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     '/2fa/disable/finish',
     zValidator('json', twoFactorDisableFinishRequestSchema),
     async (c) => {
-      const { ke3, code } = c.req.valid('json');
+      const { ke3, code, disable2FASessionId } = c.req.valid('json');
       const db = c.get('db');
       const redis = c.get('redis');
       const masterSecret = c.env.OPAQUE_MASTER_SECRET;
@@ -1146,14 +1245,13 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       const finishResult = await finishOpaqueStepUp({
         ke3: new Uint8Array(ke3),
         userId: sessionData.userId,
+        sessionId: disable2FASessionId,
         redis,
         redisKeyName: 'opaquePending2FADisable',
       });
       if (!finishResult.ok) {
-        if (finishResult.reason === 'no-pending') {
-          return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_DISABLE), 400);
-        }
-        return c.json(createErrorResponse(ERROR_CODE_INCORRECT_PASSWORD), 401);
+        const err = mapDisable2FAFinishError(finishResult.reason);
+        return c.json(createErrorResponse(err.code), err.status);
       }
 
       const totpUserResult = await getUserWithTotpConfig(db, sessionData.userId);
@@ -1358,6 +1456,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       {
         ke2: [...stepUp.ke2],
         newRegistrationResponse: newRegResult.serialize(),
+        changePasswordSessionId: stepUp.sessionId,
       },
       200
     );
@@ -1367,7 +1466,8 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
     '/change-password/finish',
     zValidator('json', changePasswordFinishRequestSchema),
     async (c) => {
-      const { ke3, newRegistrationRecord, newPasswordWrappedPrivateKey } = c.req.valid('json');
+      const { ke3, newRegistrationRecord, newPasswordWrappedPrivateKey, changePasswordSessionId } =
+        c.req.valid('json');
       const db = c.get('db');
       const redis = c.get('redis');
       const masterSecret = c.env.OPAQUE_MASTER_SECRET;
@@ -1385,11 +1485,12 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       const finishResult = await finishOpaqueStepUp({
         ke3: new Uint8Array(ke3),
         userId: sessionData.userId,
+        sessionId: changePasswordSessionId,
         redis,
         redisKeyName: 'opaquePendingChangePassword',
       });
       if (!finishResult.ok) {
-        if (finishResult.reason === 'no-pending') {
+        if (finishResult.reason === 'no-pending' || finishResult.reason === 'session-mismatch') {
           return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_CHANGE), 400);
         }
         return c.json(createErrorResponse(ERROR_CODE_INCORRECT_PASSWORD), 401);
@@ -1464,31 +1565,35 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
       return c.json(createErrorResponse(ERROR_CODE_REGISTRATION_FAILED), 500);
     }
 
+    // Server-issued handshake ID for concurrent-safe recovery state.
+    const recoverySessionId = crypto.randomUUID();
     await redisSet(
       redis,
       'opaquePendingRecoveryReset',
       { identifier: identifier.toLowerCase() },
-      identifier.toLowerCase()
+      recoverySessionId
     );
 
-    return c.json({ newRegistrationResponse: result.serialize() }, 200);
+    return c.json({ newRegistrationResponse: result.serialize(), recoverySessionId }, 200);
   })
 
   .post(
     '/recovery/reset/finish',
     zValidator('json', recoveryResetFinishRequestSchema),
     async (c) => {
-      const { identifier, newRegistrationRecord, newPasswordWrappedPrivateKey } =
+      const { identifier, newRegistrationRecord, newPasswordWrappedPrivateKey, recoverySessionId } =
         c.req.valid('json');
       const db = c.get('db');
       const redis = c.get('redis');
 
-      const pendingData = await redisGet(
-        redis,
-        'opaquePendingRecoveryReset',
-        identifier.toLowerCase()
-      );
+      const pendingData = await redisGet(redis, 'opaquePendingRecoveryReset', recoverySessionId);
       if (!pendingData) {
+        return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_RECOVERY), 400);
+      }
+
+      // Defense-in-depth: stored identifier must match the request's.
+      if (pendingData.identifier !== identifier.toLowerCase()) {
+        await redisDel(redis, 'opaquePendingRecoveryReset', recoverySessionId);
         return c.json(createErrorResponse(ERROR_CODE_NO_PENDING_RECOVERY), 400);
       }
 
@@ -1512,7 +1617,7 @@ export const opaqueAuthRoute = new Hono<AppEnv>()
         })
         .where(eq(users.id, user.id));
 
-      await redisDel(redis, 'opaquePendingRecoveryReset', identifier.toLowerCase());
+      await redisDel(redis, 'opaquePendingRecoveryReset', recoverySessionId);
 
       await redisSet(redis, 'passwordChangedAt', Date.now(), user.id);
 

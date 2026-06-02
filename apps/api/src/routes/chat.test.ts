@@ -1719,6 +1719,15 @@ describe('chat routes', () => {
         const doId = { toString: () => 'mock-do-id' };
         const mockStub = {
           fetch: vi.fn().mockImplementation(async (req: Request) => {
+            const pathname = new URL(req.url).pathname;
+            // GET /presence is the active-viewer query used by push dispatch;
+            // it carries no body and returns the userId list.
+            if (pathname === '/presence' && req.method === 'GET') {
+              return Response.json(
+                { userIds: [] },
+                { headers: { 'Content-Type': 'application/json' } }
+              );
+            }
             const body: unknown = await req.json();
             broadcastBodies.push(body);
             return Response.json({ sent: 1 }, { headers: { 'Content-Type': 'application/json' } });
@@ -1775,7 +1784,7 @@ describe('chat routes', () => {
 
       it('broadcasts message:new, message:stream, and message:complete events', async () => {
         vi.useRealTimers();
-        const { app, mockStub, broadcastBodies } = createBroadcastApp({
+        const { app, broadcastBodies } = createBroadcastApp({
           conversations: [
             {
               id: TEST_CONVERSATION_ID,
@@ -1796,7 +1805,10 @@ describe('chat routes', () => {
         });
         await res.text();
         await new Promise((resolve) => setTimeout(resolve, 50));
-        expect(mockStub.fetch).toHaveBeenCalledTimes(3);
+        // `broadcastBodies` only records POST /broadcast (the mock skips the
+        // GET /presence call that push dispatch also makes). 3 broadcasts:
+        // message:new, message:stream, message:complete.
+        expect(broadcastBodies).toHaveLength(3);
         const eventTypes = broadcastBodies.map((b) => (b as Record<string, unknown>)['type']);
         expect(eventTypes).toContain('message:new');
         expect(eventTypes).toContain('message:stream');
@@ -1980,6 +1992,15 @@ describe('chat routes', () => {
         const doId = { toString: () => 'mock-do-id' };
         const mockStub = {
           fetch: vi.fn().mockImplementation(async (req: Request) => {
+            const pathname = new URL(req.url).pathname;
+            // GET /presence is the active-viewer query used by push dispatch;
+            // it carries no body and returns the userId list.
+            if (pathname === '/presence' && req.method === 'GET') {
+              return Response.json(
+                { userIds: [] },
+                { headers: { 'Content-Type': 'application/json' } }
+              );
+            }
             const body: unknown = await req.json();
             broadcastBodies.push(body);
             return Response.json({ sent: 1 }, { headers: { 'Content-Type': 'application/json' } });

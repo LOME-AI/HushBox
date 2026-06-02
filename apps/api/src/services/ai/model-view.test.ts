@@ -160,11 +160,11 @@ describe('toModelView — video', () => {
     expect(view.supportedDurationsSeconds).toEqual([4, 6, 8]);
   });
 
-  it('populates Veo 3.0 capability axes (no 4k, different durations)', () => {
+  it('populates Veo 3.0 capability axes (no 4k, shares 3.1 durations)', () => {
     const view = toModelView(videoModel({ id: 'google/veo-3.0-generate-001' }), false);
     if (view.modality !== 'video') throw new Error('discriminator');
     expect(view.supportedResolutions).toEqual(['720p', '1080p']);
-    expect(view.supportedDurationsSeconds).toEqual([5, 6, 7, 8]);
+    expect(view.supportedDurationsSeconds).toEqual([4, 6, 8]);
   });
 
   it('omits capability fields for unknown video model', () => {

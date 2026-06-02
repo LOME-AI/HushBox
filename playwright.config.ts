@@ -21,8 +21,12 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 1,
+<<<<<<< Updated upstream
   maxFailures: isCI ? 1 : 0,
   workers: isCI ? 3 : '45%',
+=======
+  workers: isCI ? 3 : '50%',
+>>>>>>> Stashed changes
   timeout: 45_000,
   // Backstop so a wedged run can't hang forever. Playwright aborts via its
   // normal shutdown, which group-kills each webServer — so it won't leak orphan

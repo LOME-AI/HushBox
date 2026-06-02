@@ -354,6 +354,7 @@ export function DeleteAccountModal({
   const [confirmation, setConfirmation] = useState('');
   const [showStartOver, setShowStartOver] = useState(false);
   const [ke3, setKe3] = useState<number[] | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const passwordAction = useAsyncAction();
   const finishAction = useAsyncAction();
 
@@ -375,6 +376,7 @@ export function DeleteAccountModal({
     setConfirmation('');
     setShowStartOver(false);
     setKe3(null);
+    setSessionId(null);
     clearPasswordError();
     clearFinishError();
   }, [clearPasswordError, clearFinishError]);
@@ -398,7 +400,7 @@ export function DeleteAccountModal({
     try {
       const opaqueClient = createOpaqueClient();
       const { ke1 } = await startLogin(opaqueClient, password);
-      const { ke2 } = await initMutation.mutateAsync({ ke1: [...ke1] });
+      const { ke2, deleteAccountSessionId } = await initMutation.mutateAsync({ ke1: [...ke1] });
       // OPAQUE is constant-time: `/init` always succeeds, so wrong-password
       // surfaces as a thrown crypto error in `finishLogin`. Map that to
       // INCORRECT_PASSWORD instead of the generic INTERNAL fallback.
@@ -409,6 +411,7 @@ export function DeleteAccountModal({
         throw new UserMessageError(friendlyErrorMessage('INCORRECT_PASSWORD'));
       }
       setKe3([...loginResult.ke3]);
+      setSessionId(deleteAccountSessionId);
       setStep(totpEnabled ? 'totp' : 'final');
     } catch (error) {
       throw mapOpaqueError(error);
@@ -427,13 +430,19 @@ export function DeleteAccountModal({
   );
 
   const runFinishSubmit = useCallback(async (): Promise<void> => {
-    if (!phraseMatches || ke3 === null) return;
+    if (!phraseMatches || ke3 === null || sessionId === null) return;
     setTotpError(null);
     setShowStartOver(false);
     try {
-      const body: { ke3: number[]; totpCode?: string; confirmationPhrase: string } = {
+      const body: {
+        ke3: number[];
+        totpCode?: string;
+        confirmationPhrase: string;
+        deleteAccountSessionId: string;
+      } = {
         ke3,
         confirmationPhrase: confirmation.trim().toLowerCase(),
+        deleteAccountSessionId: sessionId,
       };
       if (totpEnabled) body.totpCode = otpValue;
       await finishMutation.mutateAsync(body);
@@ -455,7 +464,7 @@ export function DeleteAccountModal({
       if (code === 'NO_PENDING_DELETE_ACCOUNT') setShowStartOver(true);
       throw mapOpaqueError(error);
     }
-  }, [phraseMatches, ke3, confirmation, totpEnabled, otpValue, finishMutation]);
+  }, [phraseMatches, ke3, sessionId, confirmation, totpEnabled, otpValue, finishMutation]);
 
   const handleFinishSubmit = useCallback((): void => {
     void finishAction.run(runFinishSubmit);

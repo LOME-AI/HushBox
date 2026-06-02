@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createEvent, type RealtimeEvent } from '@hushbox/realtime/events';
-import { broadcastToRoom, broadcastFireAndForget } from './broadcast.js';
+import {
+  broadcastToRoom,
+  broadcastFireAndForget,
+  getActiveConversationUserIds,
+} from './broadcast.js';
 import type { Bindings } from '../types.js';
 
 function createMockEvent(): RealtimeEvent {
@@ -181,6 +185,84 @@ describe('broadcastFireAndForget', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+function createPresenceDONamespace(userIds: string[] | { status: number }): {
+  namespace: MockNamespace;
+  stub: MockStub;
+} {
+  const id = { toString: () => 'mock-do-id' };
+  const responseInit = 'status' in userIds ? { status: userIds.status } : { status: 200 };
+  const responseBody = 'status' in userIds ? '' : JSON.stringify({ userIds });
+  const stub: MockStub = {
+    fetch: vi.fn().mockResolvedValue(new Response(responseBody, responseInit)),
+  };
+  const namespace: MockNamespace = {
+    idFromName: vi.fn().mockReturnValue(id),
+    get: vi.fn().mockReturnValue(stub),
+  };
+  return { namespace, stub };
+}
+
+describe('getActiveConversationUserIds', () => {
+  it('returns an empty set when CONVERSATION_ROOM binding is unavailable', async () => {
+    const env = {} as Bindings;
+
+    const result = await getActiveConversationUserIds(env, 'conv-1');
+
+    expect(result).toEqual(new Set());
+  });
+
+  it('returns the set of userIds reported by the DO', async () => {
+    const { namespace } = createPresenceDONamespace(['user-1', 'user-2', 'user-3']);
+    const env = { CONVERSATION_ROOM: namespace } as unknown as Bindings;
+
+    const result = await getActiveConversationUserIds(env, 'conv-1');
+
+    expect(result).toEqual(new Set(['user-1', 'user-2', 'user-3']));
+  });
+
+  it('calls GET /presence on the DO stub', async () => {
+    const { namespace, stub } = createPresenceDONamespace(['user-1']);
+    const env = { CONVERSATION_ROOM: namespace } as unknown as Bindings;
+
+    await getActiveConversationUserIds(env, 'conv-1');
+
+    expect(namespace.idFromName).toHaveBeenCalledWith('conv-1');
+    expect(stub.fetch).toHaveBeenCalledOnce();
+    const fetchCall = stub.fetch.mock.calls[0] as [Request];
+    const request = fetchCall[0];
+    expect(request.method).toBe('GET');
+    expect(new URL(request.url).pathname).toBe('/presence');
+  });
+
+  it('returns an empty set when the DO returns a non-OK status', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { namespace } = createPresenceDONamespace({ status: 500 });
+    const env = { CONVERSATION_ROOM: namespace } as unknown as Bindings;
+
+    const result = await getActiveConversationUserIds(env, 'conv-1');
+
+    expect(result).toEqual(new Set());
+    spy.mockRestore();
+  });
+
+  it('returns an empty set when the DO fetch rejects', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stub: MockStub = {
+      fetch: vi.fn().mockRejectedValue(new Error('DO unavailable')),
+    };
+    const namespace: MockNamespace = {
+      idFromName: vi.fn().mockReturnValue({ toString: () => 'id' }),
+      get: vi.fn().mockReturnValue(stub),
+    };
+    const env = { CONVERSATION_ROOM: namespace } as unknown as Bindings;
+
+    const result = await getActiveConversationUserIds(env, 'conv-1');
+
+    expect(result).toEqual(new Set());
     spy.mockRestore();
   });
 });

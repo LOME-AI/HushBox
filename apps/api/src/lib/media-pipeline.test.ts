@@ -1267,6 +1267,7 @@ describe('executeMediaPipeline', () => {
         writeStageDone: noop,
         writeStageError: noop,
         isConnected: () => true,
+        isDoneWritten: () => false,
       } as Parameters<typeof startVideoProgressTimer>[0];
       return { writer, records };
     }

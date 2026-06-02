@@ -50,3 +50,40 @@ export function broadcastFireAndForget(
     executionCtx
   );
 }
+
+/**
+ * Query a conversation's Durable Object for the set of userIds currently
+ * holding open WebSocket connections. Used at push-dispatch time to suppress
+ * notifications for users who are actively viewing the conversation.
+ *
+ * Returns an empty set on any failure path (missing binding, non-OK response,
+ * fetch rejection). Active-viewer suppression is best-effort optimization, not
+ * a correctness requirement — falling back to "notify everyone" matches the
+ * pre-feature behaviour and is the right failure mode.
+ */
+export async function getActiveConversationUserIds(
+  env: Bindings | undefined,
+  conversationId: string
+): Promise<Set<string>> {
+  if (!env?.CONVERSATION_ROOM) {
+    return new Set();
+  }
+
+  try {
+    const id = env.CONVERSATION_ROOM.idFromName(conversationId);
+    const stub = env.CONVERSATION_ROOM.get(id);
+    const response = await stub.fetch(
+      // eslint-disable-next-line sonarjs/no-clear-text-protocols -- internal DO routing, host is ignored
+      new Request('http://internal/presence', { method: 'GET' })
+    );
+    if (!response.ok) {
+      console.error(`[presence:do-error] ${conversationId}: status ${String(response.status)}`);
+      return new Set();
+    }
+    const body: { userIds: string[] } = await response.json();
+    return new Set(body.userIds);
+  } catch (error) {
+    console.error(`[presence:do-error] ${conversationId}:`, error);
+    return new Set();
+  }
+}

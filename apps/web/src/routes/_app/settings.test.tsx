@@ -182,7 +182,11 @@ function setMockUser(
 describe('SettingsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDisable2FAInit.mockResolvedValue({ success: true, ke3: [4, 5, 6] });
+    mockDisable2FAInit.mockResolvedValue({
+      success: true,
+      ke3: [4, 5, 6],
+      disable2FASessionId: '00000000-0000-4000-8000-deadbeefdead',
+    });
     mockDisable2FAFinish.mockResolvedValue({ success: true });
     setMockUser();
     mockFetch.mockResolvedValue({

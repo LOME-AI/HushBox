@@ -163,4 +163,25 @@ describe('useTrialChatStore', () => {
       expect(messages[0]!.id).toBe('m1');
     });
   });
+
+  describe('removeMessage', () => {
+    it('drops the message with the given id', () => {
+      useTrialChatStore.getState().addMessage(makeTrialMessage('m1', 'user', 'Hello'));
+      useTrialChatStore.getState().addMessage(makeTrialMessage('m2', 'assistant', ''));
+      useTrialChatStore.getState().addMessage(makeTrialMessage('m3', 'user', 'Next'));
+
+      useTrialChatStore.getState().removeMessage('m2');
+
+      const messages = useTrialChatStore.getState().messages;
+      expect(messages.map((m) => m.id)).toEqual(['m1', 'm3']);
+    });
+
+    it('is a no-op when the id is not present', () => {
+      useTrialChatStore.getState().addMessage(makeTrialMessage('m1', 'user', 'Hello'));
+
+      useTrialChatStore.getState().removeMessage('nonexistent');
+
+      expect(useTrialChatStore.getState().messages.map((m) => m.id)).toEqual(['m1']);
+    });
+  });
 });

@@ -91,8 +91,11 @@ describe('startOpaqueStepUp', () => {
 
     expect(result.ke2).toBeInstanceOf(Uint8Array);
     expect(result.ke2.length).toBeGreaterThan(0);
+    expect(typeof result.sessionId).toBe('string');
+    expect(result.sessionId.length).toBeGreaterThan(0);
 
-    const stored = mockRedis.store.get(`opaque:2fa-disable:${TEST_USER_ID}`) as {
+    const redisKey = `opaque:2fa-disable:${result.sessionId}`;
+    const stored = mockRedis.store.get(redisKey) as {
       userId: string;
       expectedSerialized: number[];
     } | null;
@@ -100,9 +103,35 @@ describe('startOpaqueStepUp', () => {
     expect(stored?.userId).toBe(TEST_USER_ID);
     expect(Array.isArray(stored?.expectedSerialized)).toBe(true);
     expect(stored?.expectedSerialized.length).toBeGreaterThan(0);
-    expect(mockRedis.ttls.get(`opaque:2fa-disable:${TEST_USER_ID}`)).toBe(
-      REDIS_REGISTRY.opaquePending2FADisable.ttl
-    );
+    expect(mockRedis.ttls.get(redisKey)).toBe(REDIS_REGISTRY.opaquePending2FADisable.ttl);
+  });
+
+  it('concurrent start calls for the same user write to distinct Redis slots (no clobber)', async () => {
+    const password = 'concurrent-test-password';
+    const { opaqueRegistration } = await buildUserRegistration(password);
+    const masterSecret = textEncoder.encode(TEST_MASTER_SECRET);
+
+    const startOnce = async (): Promise<string> => {
+      const loginClient = createOpaqueClient();
+      const { ke1 } = await startLogin(loginClient, password);
+      const r = await startOpaqueStepUp({
+        ke1: new Uint8Array(ke1),
+        userId: TEST_USER_ID,
+        opaqueRegistration,
+        username: TEST_USER_ID,
+        masterSecret,
+        redis: mockRedis,
+        redisKeyName: 'opaquePending2FADisable',
+      });
+      return r.sessionId;
+    };
+
+    const sessionA = await startOnce();
+    const sessionB = await startOnce();
+
+    expect(sessionA).not.toBe(sessionB);
+    expect(mockRedis.store.has(`opaque:2fa-disable:${sessionA}`)).toBe(true);
+    expect(mockRedis.store.has(`opaque:2fa-disable:${sessionB}`)).toBe(true);
   });
 });
 
@@ -113,10 +142,11 @@ describe('finishOpaqueStepUp', () => {
     mockRedis = createMockRedis();
   });
 
-  it('returns { ok: false, reason: "no-pending" } when no Redis entry exists', async () => {
+  it('returns { ok: false, reason: "no-pending" } when no Redis entry exists for the sessionId', async () => {
     const result = await finishOpaqueStepUp({
       ke3: new Uint8Array([1, 2, 3]),
       userId: TEST_USER_ID,
+      sessionId: '00000000-0000-0000-0000-deadbeefdead',
       redis: mockRedis,
       redisKeyName: 'opaquePending2FADisable',
     });
@@ -133,7 +163,7 @@ describe('finishOpaqueStepUp', () => {
 
     const masterSecret = textEncoder.encode(TEST_MASTER_SECRET);
 
-    const { ke2 } = await startOpaqueStepUp({
+    const { ke2, sessionId } = await startOpaqueStepUp({
       ke1: new Uint8Array(ke1),
       userId: TEST_USER_ID,
       opaqueRegistration,
@@ -149,12 +179,13 @@ describe('finishOpaqueStepUp', () => {
     const tampered = new Uint8Array(validKe3);
     tampered[0] = (tampered[0] ?? 0) ^ 0x01;
 
-    const redisKey = `opaque:2fa-disable:${TEST_USER_ID}`;
+    const redisKey = `opaque:2fa-disable:${sessionId}`;
     expect(mockRedis.store.has(redisKey)).toBe(true);
 
     const result = await finishOpaqueStepUp({
       ke3: tampered,
       userId: TEST_USER_ID,
+      sessionId,
       redis: mockRedis,
       redisKeyName: 'opaquePending2FADisable',
     });
@@ -172,7 +203,7 @@ describe('finishOpaqueStepUp', () => {
 
     const masterSecret = textEncoder.encode(TEST_MASTER_SECRET);
 
-    const { ke2 } = await startOpaqueStepUp({
+    const { ke2, sessionId } = await startOpaqueStepUp({
       ke1: new Uint8Array(ke1),
       userId: TEST_USER_ID,
       opaqueRegistration,
@@ -184,17 +215,53 @@ describe('finishOpaqueStepUp', () => {
 
     const { ke3 } = await finishLogin(loginClient, [...ke2], OPAQUE_SERVER_IDENTIFIER);
 
-    const redisKey = `opaque:change-pw:${TEST_USER_ID}`;
+    const redisKey = `opaque:change-pw:${sessionId}`;
     expect(mockRedis.store.has(redisKey)).toBe(true);
 
     const result = await finishOpaqueStepUp({
       ke3: new Uint8Array(ke3),
       userId: TEST_USER_ID,
+      sessionId,
       redis: mockRedis,
       redisKeyName: 'opaquePendingChangePassword',
     });
 
     expect(result).toEqual({ ok: true });
+    expect(mockRedis.store.has(redisKey)).toBe(false);
+  });
+
+  it('returns { ok: false, reason: "session-mismatch" } and clears the entry when the stored userId differs', async () => {
+    const password = 'test-password-mismatch';
+    const { opaqueRegistration } = await buildUserRegistration(password);
+
+    const loginClient = createOpaqueClient();
+    const { ke1 } = await startLogin(loginClient, password);
+
+    const masterSecret = textEncoder.encode(TEST_MASTER_SECRET);
+
+    const { sessionId } = await startOpaqueStepUp({
+      ke1: new Uint8Array(ke1),
+      userId: TEST_USER_ID,
+      opaqueRegistration,
+      username: TEST_USER_ID,
+      masterSecret,
+      redis: mockRedis,
+      redisKeyName: 'opaquePending2FADisable',
+    });
+
+    const redisKey = `opaque:2fa-disable:${sessionId}`;
+    expect(mockRedis.store.has(redisKey)).toBe(true);
+
+    // Different userId than the one bound to the sessionId.
+    const result = await finishOpaqueStepUp({
+      ke3: new Uint8Array([1, 2, 3]),
+      userId: '00000000-0000-0000-0000-000000000999',
+      sessionId,
+      redis: mockRedis,
+      redisKeyName: 'opaquePending2FADisable',
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'session-mismatch' });
     expect(mockRedis.store.has(redisKey)).toBe(false);
   });
 });

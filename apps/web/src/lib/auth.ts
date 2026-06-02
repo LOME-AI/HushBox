@@ -241,8 +241,9 @@ async function signInEmail(options: {
       return buildLoginError(await initResponse.json());
     }
 
-    const { ke2 } = (await initResponse.json()) as {
+    const { ke2, loginSessionId } = (await initResponse.json()) as {
       ke2: number[];
+      loginSessionId: string;
     };
 
     const loginResult = await finishLogin(client, ke2, OPAQUE_SERVER_IDENTIFIER);
@@ -251,7 +252,7 @@ async function signInEmail(options: {
     const finishResponse = await fetch(`${getApiUrl()}/api/auth/login/finish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, ke3: loginResult.ke3 }),
+      body: JSON.stringify({ identifier, ke3: loginResult.ke3, loginSessionId }),
       credentials: 'include',
     });
 
@@ -337,8 +338,9 @@ async function signUpEmail(options: {
       return { error: { message: parseErrorMessage(body) } };
     }
 
-    const { registrationResponse } = (await initResponse.json()) as {
+    const { registrationResponse, registerSessionId } = (await initResponse.json()) as {
       registrationResponse: number[];
+      registerSessionId: string;
     };
 
     const { record, exportKey } = await finishRegistration(
@@ -359,6 +361,7 @@ async function signUpEmail(options: {
         accountPublicKey: toBase64(accountResult.publicKey),
         passwordWrappedPrivateKey: toBase64(accountResult.passwordWrappedPrivateKey),
         recoveryWrappedPrivateKey: toBase64(accountResult.recoveryWrappedPrivateKey),
+        registerSessionId,
       }),
       credentials: 'include',
     });
@@ -415,10 +418,12 @@ export async function changePassword(
       return await handleErrorResponse(initResponse);
     }
 
-    const { ke2, newRegistrationResponse } = (await initResponse.json()) as {
-      ke2: number[];
-      newRegistrationResponse: number[];
-    };
+    const { ke2, newRegistrationResponse, changePasswordSessionId } =
+      (await initResponse.json()) as {
+        ke2: number[];
+        newRegistrationResponse: number[];
+        changePasswordSessionId: string;
+      };
 
     const loginResult = await finishLogin(loginClient, ke2, OPAQUE_SERVER_IDENTIFIER);
 
@@ -446,6 +451,7 @@ export async function changePassword(
         ke3: loginResult.ke3,
         newRegistrationRecord: newRegResult.record,
         newPasswordWrappedPrivateKey: toBase64(newPasswordWrappedPrivateKey),
+        changePasswordSessionId,
       }),
       credentials: 'include',
     });
@@ -513,8 +519,9 @@ export async function resetPasswordViaRecovery(
       return await handleErrorResponse(initResponse);
     }
 
-    const { newRegistrationResponse } = (await initResponse.json()) as {
+    const { newRegistrationResponse, recoverySessionId } = (await initResponse.json()) as {
       newRegistrationResponse: number[];
+      recoverySessionId: string;
     };
 
     const { record, exportKey } = await finishRegistration(
@@ -537,6 +544,7 @@ export async function resetPasswordViaRecovery(
         identifier,
         newRegistrationRecord: record,
         newPasswordWrappedPrivateKey: toBase64(newPasswordWrappedPrivateKey),
+        recoverySessionId,
       }),
       credentials: 'include',
     });
@@ -559,7 +567,9 @@ export async function resetPasswordViaRecovery(
 
 export async function disable2FAInit(
   password: string
-): Promise<{ success: true; ke3: number[] } | { success: false; error: string }> {
+): Promise<
+  { success: true; ke3: number[]; disable2FASessionId: string } | { success: false; error: string }
+> {
   const passwordBytes = new TextEncoder().encode(password);
   try {
     const client = createOpaqueClient();
@@ -575,10 +585,13 @@ export async function disable2FAInit(
       const body: unknown = await initResponse.json();
       return { success: false, error: parseErrorMessage(body) };
     }
-    const { ke2 } = (await initResponse.json()) as { ke2: number[] };
+    const { ke2, disable2FASessionId } = (await initResponse.json()) as {
+      ke2: number[];
+      disable2FASessionId: string;
+    };
 
     const loginResult = await finishLogin(client, ke2, OPAQUE_SERVER_IDENTIFIER);
-    return { success: true, ke3: loginResult.ke3 };
+    return { success: true, ke3: loginResult.ke3, disable2FASessionId };
   } catch {
     return { success: false, error: friendlyErrorMessage('DISABLE_2FA_INIT_FAILED') };
   } finally {
@@ -588,13 +601,14 @@ export async function disable2FAInit(
 
 export async function disable2FAFinish(
   ke3: number[],
-  code: string
+  code: string,
+  disable2FASessionId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const response = await fetch(`${getApiUrl()}/api/auth/2fa/disable/finish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ke3, code }),
+      body: JSON.stringify({ ke3, code, disable2FASessionId }),
       credentials: 'include',
     });
     if (!response.ok) {

@@ -60,6 +60,7 @@ export function TrialChatPage(): React.JSX.Element {
     clearPendingMessage: clearTrialPendingMessage,
     setRateLimited,
     removeMessagesAfter,
+    removeMessage,
   } = useTrialChatStore();
 
   // Trial chats are linear (no forks), so every read/write keys off
@@ -107,6 +108,7 @@ export function TrialChatPage(): React.JSX.Element {
 
   const executeStream = React.useCallback(
     async (apiMessages: { role: 'user' | 'assistant'; content: string }[]): Promise<void> => {
+      const placeholderIds: string[] = [];
       try {
         await startStream(
           { messages: apiMessages, model: primaryModelId },
@@ -114,6 +116,7 @@ export function TrialChatPage(): React.JSX.Element {
             onStart: ({ models }) => {
               const firstModel = models[0];
               if (!firstModel?.assistantMessageId) return;
+              placeholderIds.push(firstModel.assistantMessageId);
               const assistantMessage = createTrialMessage(
                 'assistant',
                 '',
@@ -138,10 +141,24 @@ export function TrialChatPage(): React.JSX.Element {
       } catch (error) {
         state.stopStreaming();
         useStreamingActivityStore.getState().endStream();
+        // Stream threw after `start` fired: drop the assistant placeholder so
+        // it doesn't render as an invisible empty bubble whose action toolbar
+        // floats above the chat-error tile.
+        for (const id of placeholderIds) {
+          removeMessage(id);
+        }
         handleStreamError(error);
       }
     },
-    [startStream, primaryModelId, addTrialMessage, appendToTrialMessage, state, handleStreamError]
+    [
+      startStream,
+      primaryModelId,
+      addTrialMessage,
+      appendToTrialMessage,
+      state,
+      handleStreamError,
+      removeMessage,
+    ]
   );
 
   const handleTrialFirstMessage = React.useCallback(

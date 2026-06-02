@@ -9,6 +9,13 @@ interface SendPushParams {
   senderUserId: string;
   title: string;
   body: string;
+  /**
+   * User ids currently connected to this conversation's Durable Object via
+   * WebSocket. Members in this set have the conversation open and will see
+   * the message inline; the push notification is suppressed for them so they
+   * don't double-notify. Pass `undefined` (or omit) to skip the filter.
+   */
+  activeUserIds?: Set<string>;
 }
 
 /**
@@ -19,7 +26,7 @@ interface SendPushParams {
  * never propagated to the caller.
  */
 export async function sendPushForNewMessage(params: SendPushParams): Promise<void> {
-  const { db, pushClient, conversationId, senderUserId, title, body } = params;
+  const { db, pushClient, conversationId, senderUserId, title, body, activeUserIds } = params;
 
   try {
     const members = await db
@@ -36,14 +43,14 @@ export async function sendPushForNewMessage(params: SendPushParams): Promise<voi
         )
       );
 
-    const unmutedUserIds: string[] = [];
+    const recipientUserIds: string[] = [];
     for (const m of members) {
-      if (!m.muted && m.userId !== null) {
-        unmutedUserIds.push(m.userId);
-      }
+      if (m.muted || m.userId === null) continue;
+      if (activeUserIds?.has(m.userId)) continue;
+      recipientUserIds.push(m.userId);
     }
 
-    if (unmutedUserIds.length === 0) {
+    if (recipientUserIds.length === 0) {
       return;
     }
 
@@ -52,7 +59,7 @@ export async function sendPushForNewMessage(params: SendPushParams): Promise<voi
         token: deviceTokens.token,
       })
       .from(deviceTokens)
-      .where(inArray(deviceTokens.userId, unmutedUserIds));
+      .where(inArray(deviceTokens.userId, recipientUserIds));
 
     const tokenStrings = tokens.map((t) => t.token);
 

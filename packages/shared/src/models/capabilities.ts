@@ -35,20 +35,24 @@ export interface VideoCapability {
 }
 
 /**
- * Per-Veo-version capability. Veo 3.0 supports `[5, 6, 7, 8]s` at 720p/1080p;
- * Veo 3.1 supports `[4, 6, 8]s` at 720p/1080p/4K. Veo 3.1 reference-image
+ * Per-Veo-version capability. All Veo 3.x models accept `[4, 6, 8]s`; Veo 3.0
+ * is capped at 720p/1080p, Veo 3.1 also accepts 4K. Veo 3.1 reference-image
  * variants are 8s-only but that mode isn't surfaced today.
+ *
+ * Vertex realigned Veo 3.0 / 3.0 Fast onto the `[4, 6, 8]` set the 3.1 family
+ * uses; the old `[5, 6, 7, 8]` advertisement now triggers `Unsupported output
+ * video duration` from the gateway.
  */
 export const VEO_CAPABILITY = {
   'google/veo-3.0-generate-001': {
     aspectRatios: ['16:9', '9:16'],
     resolutions: ['720p', '1080p'],
-    durationsSeconds: [5, 6, 7, 8],
+    durationsSeconds: [4, 6, 8],
   },
   'google/veo-3.0-fast-generate-001': {
     aspectRatios: ['16:9', '9:16'],
     resolutions: ['720p', '1080p'],
-    durationsSeconds: [5, 6, 7, 8],
+    durationsSeconds: [4, 6, 8],
   },
   'google/veo-3.1-generate-001': {
     aspectRatios: ['16:9', '9:16'],

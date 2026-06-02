@@ -250,7 +250,7 @@ export const modelSchema = z
 
     /**
      * Discrete supported video durations in seconds (e.g., `[4, 6, 8]` for
-     * Veo 3.1, `[5, 6, 7, 8]` for Veo 3.0). Non-uniform sets — the UI's
+     * every current Veo 3.x model). Sets may be non-uniform — the UI's
      * snap-to-nearest slider reads this list directly.
      */
     supportedVideoDurationsSeconds: z.array(z.number().int().positive()).optional(),

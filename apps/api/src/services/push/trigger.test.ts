@@ -167,4 +167,73 @@ describe('sendPushForNewMessage', () => {
 
     expect(pushClient.send).toHaveBeenCalledTimes(1);
   });
+
+  it('skips members whose userId is in activeUserIds (actively viewing the conversation)', async () => {
+    const pushClient = createMockPushClient();
+    // The mock DB doesn't honor the WHERE clause; seed tokens with only the
+    // recipient set the real query would return (`inArray(userId, ['user-3'])`).
+    const db = createMockDb(
+      [
+        { userId: 'user-2', muted: false },
+        { userId: 'user-3', muted: false },
+      ],
+      [{ userId: 'user-3', token: 'fcm-token-3', platform: 'ios' }]
+    ) as Database;
+
+    await sendPushForNewMessage({
+      db,
+      pushClient,
+      conversationId: 'conv-1',
+      senderUserId: 'user-1',
+      title: 'New Message',
+      body: 'Hello',
+      activeUserIds: new Set(['user-2']),
+    });
+
+    expect(pushClient.send).toHaveBeenCalledTimes(1);
+    expect(pushClient.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tokens: ['fcm-token-3'],
+      })
+    );
+  });
+
+  it('does not call send when all unmuted members are actively viewing', async () => {
+    const pushClient = createMockPushClient();
+    const db = createMockDb([{ userId: 'user-2', muted: false }], []) as Database;
+
+    await sendPushForNewMessage({
+      db,
+      pushClient,
+      conversationId: 'conv-1',
+      senderUserId: 'user-1',
+      title: 'New Message',
+      body: 'Hello',
+      activeUserIds: new Set(['user-2']),
+    });
+
+    expect(pushClient.send).not.toHaveBeenCalled();
+  });
+
+  it('treats undefined activeUserIds the same as an empty set (no filtering)', async () => {
+    const pushClient = createMockPushClient();
+    const db = createMockDb(
+      [{ userId: 'user-2', muted: false }],
+      [{ userId: 'user-2', token: 'fcm-token-2', platform: 'android' }]
+    ) as Database;
+
+    await sendPushForNewMessage({
+      db,
+      pushClient,
+      conversationId: 'conv-1',
+      senderUserId: 'user-1',
+      title: 'New Message',
+      body: 'Hello',
+    });
+
+    expect(pushClient.send).toHaveBeenCalledTimes(1);
+    expect(pushClient.send).toHaveBeenCalledWith(
+      expect.objectContaining({ tokens: ['fcm-token-2'] })
+    );
+  });
 });

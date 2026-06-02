@@ -149,6 +149,101 @@ describe('ConversationRoom', () => {
 
       expect(response.status).toBe(404);
     });
+
+    it('returns 404 for POST /presence (wrong method)', async () => {
+      const { ctx } = createMockCtx();
+      const room = new ConversationRoom(ctx as never, {} as never);
+      const request = new Request('https://fake-host/presence', {
+        method: 'POST',
+      });
+
+      const response = await room.fetch(request);
+
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe('presence query (GET /presence)', () => {
+    it('returns an empty userIds array when no sockets are connected', async () => {
+      const { ctx } = createMockCtx();
+      const room = new ConversationRoom(ctx as never, {} as never);
+      const request = new Request('https://fake-host/presence', { method: 'GET' });
+
+      const response = await room.fetch(request);
+
+      expect(response.status).toBe(200);
+      const body: { userIds: string[] } = await response.json();
+      expect(body.userIds).toEqual([]);
+    });
+
+    it('returns userIds for each connected socket', async () => {
+      const { ctx, sockets } = createMockCtx();
+      sockets.push(
+        createMockWebSocket({ userId: 'user-1', isGuest: false, connectedAt: 1000 }),
+        createMockWebSocket({ userId: 'user-2', isGuest: false, connectedAt: 2000 })
+      );
+
+      const room = new ConversationRoom(ctx as never, {} as never);
+      const request = new Request('https://fake-host/presence', { method: 'GET' });
+
+      const response = await room.fetch(request);
+
+      const body: { userIds: string[] } = await response.json();
+      expect(body.userIds.toSorted((a, b) => a.localeCompare(b))).toEqual(['user-1', 'user-2']);
+    });
+
+    it('deduplicates userIds when the same user has multiple sockets', async () => {
+      const { ctx, sockets } = createMockCtx();
+      sockets.push(
+        createMockWebSocket({ userId: 'user-1', isGuest: false, connectedAt: 1000 }),
+        createMockWebSocket({ userId: 'user-1', isGuest: false, connectedAt: 2000 }),
+        createMockWebSocket({ userId: 'user-2', isGuest: false, connectedAt: 3000 })
+      );
+
+      const room = new ConversationRoom(ctx as never, {} as never);
+      const request = new Request('https://fake-host/presence', { method: 'GET' });
+
+      const response = await room.fetch(request);
+
+      const body: { userIds: string[] } = await response.json();
+      expect(body.userIds.toSorted((a, b) => a.localeCompare(b))).toEqual(['user-1', 'user-2']);
+    });
+
+    it('omits guest sockets that have no userId', async () => {
+      const { ctx, sockets } = createMockCtx();
+      sockets.push(
+        createMockWebSocket({ userId: 'user-1', isGuest: false, connectedAt: 1000 }),
+        createMockWebSocket({ displayName: 'Guest A', isGuest: true, connectedAt: 2000 })
+      );
+
+      const room = new ConversationRoom(ctx as never, {} as never);
+      const request = new Request('https://fake-host/presence', { method: 'GET' });
+
+      const response = await room.fetch(request);
+
+      const body: { userIds: string[] } = await response.json();
+      expect(body.userIds).toEqual(['user-1']);
+    });
+
+    it('skips sockets with null attachment metadata', async () => {
+      const { ctx, sockets } = createMockCtx();
+      const wsWithMeta = createMockWebSocket({
+        userId: 'user-1',
+        isGuest: false,
+        connectedAt: 1000,
+      });
+      const wsWithoutMeta = createMockWebSocket();
+      wsWithoutMeta._attachment = undefined;
+      sockets.push(wsWithMeta, wsWithoutMeta);
+
+      const room = new ConversationRoom(ctx as never, {} as never);
+      const request = new Request('https://fake-host/presence', { method: 'GET' });
+
+      const response = await room.fetch(request);
+
+      const body: { userIds: string[] } = await response.json();
+      expect(body.userIds).toEqual(['user-1']);
+    });
   });
 
   describe('WebSocket upgrade (/websocket)', () => {

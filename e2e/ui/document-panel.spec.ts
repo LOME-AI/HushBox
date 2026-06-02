@@ -229,11 +229,16 @@ test.describe('Document Panel', () => {
       await chatPage.sendFollowUpMessage(SMALL_CODE_BLOCK);
       await chatPage.waitForAIResponse();
 
-      // The echo of the small code block should NOT contain a document card
-      // (5 lines is below MIN_LINES_FOR_DOCUMENT threshold)
-      // Note: we check the last assistant message instead of total card count
-      // because react-virtuoso removes off-screen messages from the DOM
-      const lastAssistant = chatPage.messageList.locator('[data-role="assistant"]').last();
+      // The echo of the small code block (5 lines, below MIN_LINES_FOR_DOCUMENT)
+      // should NOT contain a document card. Resolve the target row by index
+      // and park it in Virtuoso's mounted window — `.last()` would match the
+      // last currently-mounted assistant, which on a virtualized list may be a
+      // prior (mermaid) row that does have a card.
+      const lastRowIndex = await chatPage.getLastRowIndex();
+      await chatPage.scrollMessageIntoView(lastRowIndex);
+      const lastAssistant = chatPage.messageList.locator(
+        `[data-item-index="${String(lastRowIndex)}"] [data-role="assistant"]`
+      );
       await expect(lastAssistant.locator('[data-testid="document-card"]')).toHaveCount(0);
     });
   });

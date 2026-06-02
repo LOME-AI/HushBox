@@ -414,20 +414,20 @@ describe('VideoDurationControl', () => {
     });
   });
 
-  it('intersects durations across multiple selected models (Veo 3.0 ∩ 3.1 = {6, 8})', () => {
+  it('intersects durations across multiple selected models with disjoint sets', () => {
     mockModels({
       models: [
-        {
-          id: 'google/veo-3.0-generate-001',
-          modality: 'video',
-          pricePerSecondByResolution: { '720p': 0.4 },
-          supportedVideoDurationsSeconds: [5, 6, 7, 8],
-        } as never,
         {
           id: 'google/veo-3.1-generate-001',
           modality: 'video',
           pricePerSecondByResolution: { '720p': 0.4 },
           supportedVideoDurationsSeconds: [4, 6, 8],
+        } as never,
+        {
+          id: 'mock/long-only',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.4 },
+          supportedVideoDurationsSeconds: [6, 8, 10],
         } as never,
       ],
     });
@@ -439,8 +439,8 @@ describe('VideoDurationControl', () => {
         image: [],
         audio: [],
         video: [
-          { id: 'google/veo-3.0-generate-001', name: 'Veo 3.0' },
           { id: 'google/veo-3.1-generate-001', name: 'Veo 3.1' },
+          { id: 'mock/long-only', name: 'Long Only' },
         ],
       },
     });

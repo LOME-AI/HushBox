@@ -34,6 +34,7 @@ function createMockWriter(): SSEEventWriter & {
     writeStageDone: record('writeStageDone'),
     writeStageError: record('writeStageError'),
     isConnected: () => true,
+    isDoneWritten: () => false,
   };
 }
 

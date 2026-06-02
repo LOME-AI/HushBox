@@ -13,10 +13,10 @@ import {
 } from './capabilities.js';
 
 describe('getVideoCapability', () => {
-  it('returns Veo 3.0 capability with [5,6,7,8]s and 720p/1080p (no 4k)', () => {
+  it('returns Veo 3.0 capability with [4,6,8]s and 720p/1080p (no 4k)', () => {
     const cap = getVideoCapability('google/veo-3.0-generate-001');
     expect(cap).toBeDefined();
-    expect(cap?.durationsSeconds).toEqual([5, 6, 7, 8]);
+    expect(cap?.durationsSeconds).toEqual([4, 6, 8]);
     expect(cap?.resolutions).toEqual(['720p', '1080p']);
     expect(cap?.aspectRatios).toEqual(['16:9', '9:16']);
   });
@@ -48,7 +48,7 @@ describe('video capability accessor proxies', () => {
   const veo30 = 'google/veo-3.0-generate-001';
 
   it('getSupportedVideoDurations returns the durations array', () => {
-    expect(getSupportedVideoDurations(veo30)).toEqual([5, 6, 7, 8]);
+    expect(getSupportedVideoDurations(veo30)).toEqual([4, 6, 8]);
   });
 
   it('getSupportedVideoResolutions returns the resolutions array', () => {

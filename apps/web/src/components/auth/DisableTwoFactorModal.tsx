@@ -30,14 +30,15 @@ export function DisableTwoFactorModal({
   const [step, setStep] = useState<'password' | 'code'>('password');
   const [password, setPassword] = useState('');
   const [ke3, setKe3] = useState<number[] | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const passwordAction = useAsyncAction();
 
   const disableVerify = useCallback(
     async (code: string): Promise<{ success: boolean; error?: string }> => {
-      if (!ke3) return { success: false, error: 'Missing authentication data' };
-      return disable2FAFinish(ke3, code);
+      if (!ke3 || !sessionId) return { success: false, error: 'Missing authentication data' };
+      return disable2FAFinish(ke3, code, sessionId);
     },
-    [ke3]
+    [ke3, sessionId]
   );
 
   const {
@@ -60,6 +61,7 @@ export function DisableTwoFactorModal({
       setStep('password');
       setPassword('');
       setKe3(null);
+      setSessionId(null);
       clearError();
       resetOtp();
     }
@@ -77,6 +79,7 @@ export function DisableTwoFactorModal({
       throw new UserMessageError(result.error);
     }
     setKe3(result.ke3);
+    setSessionId(result.disable2FASessionId);
     setStep('code');
   }, [password]);
 

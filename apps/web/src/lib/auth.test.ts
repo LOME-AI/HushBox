@@ -2315,6 +2315,7 @@ describe('auth', () => {
   describe('disable2FAFinish', () => {
     const ke3 = [4, 5, 6];
     const code = '123456';
+    const disable2FASessionId = '00000000-0000-4000-8000-deadbeefdead';
 
     it('should return success when finish endpoint returns 200', async () => {
       vi.mocked(fetch).mockImplementation((url) => {
@@ -2327,7 +2328,7 @@ describe('auth', () => {
         return Promise.reject(new Error('Unexpected fetch'));
       });
 
-      const result = await disable2FAFinish(ke3, code);
+      const result = await disable2FAFinish(ke3, code, disable2FASessionId);
 
       expect(result.success).toBe(true);
       expect(result.error).toBeUndefined();
@@ -2344,7 +2345,7 @@ describe('auth', () => {
         return Promise.reject(new Error('Unexpected fetch'));
       });
 
-      const result = await disable2FAFinish(ke3, code);
+      const result = await disable2FAFinish(ke3, code, disable2FASessionId);
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Invalid verification code. Please try again.');
@@ -2361,7 +2362,7 @@ describe('auth', () => {
         return Promise.reject(new Error('Unexpected fetch'));
       });
 
-      const result = await disable2FAFinish(ke3, code);
+      const result = await disable2FAFinish(ke3, code, disable2FASessionId);
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Too many attempts. Your account has been temporarily locked.');
@@ -2370,13 +2371,13 @@ describe('auth', () => {
     it('should return error on network failure', async () => {
       vi.mocked(fetch).mockRejectedValue(new Error('Network error'));
 
-      const result = await disable2FAFinish(ke3, code);
+      const result = await disable2FAFinish(ke3, code, disable2FASessionId);
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Two-factor verification failed. Please try again.');
     });
 
-    it('should send correct request body with ke3 and code', async () => {
+    it('should send correct request body with ke3, code, and disable2FASessionId', async () => {
       let capturedBody: string | null = null;
 
       vi.mocked(fetch).mockImplementation((url, init) => {
@@ -2391,10 +2392,14 @@ describe('auth', () => {
         return Promise.reject(new Error('Unexpected fetch'));
       });
 
-      await disable2FAFinish(ke3, code);
+      await disable2FAFinish(ke3, code, disable2FASessionId);
 
       const parsed = JSON.parse(defined(capturedBody));
-      expect(parsed).toEqual({ ke3: [4, 5, 6], code: '123456' });
+      expect(parsed).toEqual({
+        ke3: [4, 5, 6],
+        code: '123456',
+        disable2FASessionId,
+      });
     });
   });
 });

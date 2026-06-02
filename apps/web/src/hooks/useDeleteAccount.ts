@@ -7,12 +7,14 @@ interface DeleteAccountInitRequest {
 
 interface DeleteAccountInitResponse {
   ke2: number[];
+  deleteAccountSessionId: string;
 }
 
 interface DeleteAccountFinishRequest {
   ke3: number[];
   totpCode?: string;
   confirmationPhrase: string;
+  deleteAccountSessionId: string;
 }
 
 export function useDeleteAccountInit(): UseMutationResult<
@@ -39,6 +41,7 @@ export function useDeleteAccountFinish(): UseMutationResult<
       const json: DeleteAccountFinishRequest = {
         ke3: body.ke3,
         confirmationPhrase: body.confirmationPhrase,
+        deleteAccountSessionId: body.deleteAccountSessionId,
       };
       if (body.totpCode !== undefined) {
         json.totpCode = body.totpCode;
