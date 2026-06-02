@@ -1360,12 +1360,15 @@ describe('createRealAIClient', () => {
         ),
         { name: 'AI_JSONParseError', text: rawBody }
       );
-      const apiCallError = Object.assign(new Error('Invalid JSON response', { cause: jsonParseError }), {
-        name: 'AI_APICallError',
-        statusCode: 200,
-        url: 'https://ai-gateway.vercel.sh/v3/ai/image-model',
-        responseBody: rawBody,
-      });
+      const apiCallError = Object.assign(
+        new Error('Invalid JSON response', { cause: jsonParseError }),
+        {
+          name: 'AI_APICallError',
+          statusCode: 200,
+          url: 'https://ai-gateway.vercel.sh/v3/ai/image-model',
+          responseBody: rawBody,
+        }
+      );
       return Object.assign(new Error('Gateway request failed', { cause: apiCallError }), {
         name: 'AI_GatewayResponseError',
       });
@@ -1378,10 +1381,14 @@ describe('createRealAIClient', () => {
       let caught: unknown;
       try {
         await collectEvents(
-          client.stream({ modality: 'image', model: 'google/imagen-4.0-generate-001', prompt: 'A cat' })
+          client.stream({
+            modality: 'image',
+            model: 'google/imagen-4.0-generate-001',
+            prompt: 'A cat',
+          })
         );
-      } catch (err) {
-        caught = err;
+      } catch (error) {
+        caught = error;
       }
 
       expect(caught).toBeDefined();
@@ -1403,10 +1410,14 @@ describe('createRealAIClient', () => {
       let caught: unknown;
       try {
         await collectEvents(
-          client.stream({ modality: 'video', model: 'google/veo-3.1-generate-001', prompt: 'A wave' })
+          client.stream({
+            modality: 'video',
+            model: 'google/veo-3.1-generate-001',
+            prompt: 'A wave',
+          })
         );
-      } catch (err) {
-        caught = err;
+      } catch (error) {
+        caught = error;
       }
 
       expect(caught).toBeDefined();
@@ -1422,10 +1433,14 @@ describe('createRealAIClient', () => {
       let caught: unknown;
       try {
         await collectEvents(
-          client.stream({ modality: 'image', model: 'google/imagen-4.0-generate-001', prompt: 'A cat' })
+          client.stream({
+            modality: 'image',
+            model: 'google/imagen-4.0-generate-001',
+            prompt: 'A cat',
+          })
         );
-      } catch (err) {
-        caught = err;
+      } catch (error) {
+        caught = error;
       }
 
       const diagnostics = extractErrorDiagnostics(caught);

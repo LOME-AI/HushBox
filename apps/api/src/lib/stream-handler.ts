@@ -5,8 +5,8 @@
  */
 
 import { ERROR_CODE_STREAM_ERROR } from '@hushbox/shared';
-import type { StageDonePayload, StageErrorPayload, StageStartPayload } from '@hushbox/shared';
 import { extractErrorDiagnostics } from './error-diagnostics.js';
+import type { StageDonePayload, StageErrorPayload, StageStartPayload } from '@hushbox/shared';
 
 export interface SSEStream {
   writeSSE: (event: { event: string; data: string }) => Promise<void>;

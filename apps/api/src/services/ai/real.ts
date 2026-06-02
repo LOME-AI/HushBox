@@ -71,7 +71,9 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-function imageProviderOptions(modelId: string):
+function imageProviderOptions(
+  modelId: string
+):
   | typeof ZDR_PROVIDER_OPTIONS
   | (typeof ZDR_PROVIDER_OPTIONS & { google: { sampleImageSize: ImagenSampleSize } }) {
   const sampleImageSize = getImagenSampleSize(modelId);

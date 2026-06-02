@@ -39,7 +39,17 @@ function stringifyNonError(value: unknown): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
   if (typeof value === 'string') return value;
-  return String(value);
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  try {
+    // JSON.stringify is typed as `string` but returns undefined for symbols /
+    // functions / undefined-valued top-level inputs.
+    const json = JSON.stringify(value) as string | undefined;
+    return json ?? typeof value;
+  } catch {
+    return typeof value;
+  }
 }
 
 function readStringProperty(source: Record<string, unknown>, key: string): string | undefined {
@@ -90,6 +100,17 @@ function buildLayer(
   return layer;
 }
 
+function extractLayerAndCause(
+  current: unknown,
+  maxBodyChars: number
+): { layer: ErrorDiagnosticLayer; cause: unknown } {
+  if (typeof current !== 'object' || current === null) {
+    return { layer: { name: 'Unknown', message: stringifyNonError(current) }, cause: null };
+  }
+  const candidate = current as Record<string, unknown>;
+  return { layer: buildLayer(candidate, maxBodyChars), cause: candidate['cause'] ?? null };
+}
+
 export function extractErrorDiagnostics(
   err: unknown,
   options?: ExtractErrorDiagnosticsOptions
@@ -102,16 +123,9 @@ export function extractErrorDiagnostics(
   let truncated = false;
 
   for (let depth = 0; depth < maxDepth; depth++) {
-    if (typeof current !== 'object' || current === null) {
-      layers.push({ name: 'Unknown', message: stringifyNonError(current) });
-      break;
-    }
-
-    const candidate = current as Record<string, unknown>;
-    layers.push(buildLayer(candidate, maxBodyChars));
-
-    const cause = candidate['cause'];
-    if (cause === undefined || cause === null) break;
+    const { layer, cause } = extractLayerAndCause(current, maxBodyChars);
+    layers.push(layer);
+    if (cause === null) break;
     current = cause;
 
     // Hit the cap with another cause still pending → mark truncated.

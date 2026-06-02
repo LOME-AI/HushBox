@@ -617,7 +617,7 @@ describe('writeStreamErrorFromException', () => {
     const [label, payload] = consoleSpy.mock.calls[0]!;
     expect(label).toBe('sse stream: uncaught exception');
     const parsed = JSON.parse(payload as string) as {
-      layers: Array<{ name: string; message: string }>;
+      layers: { name: string; message: string }[];
     };
     expect(parsed.layers.map((l) => l.message)).toEqual(['outer', 'root']);
   });
