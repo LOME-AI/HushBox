@@ -26,9 +26,7 @@ function SheetSection({
   );
 }
 
-function CostRow({
-  modality,
-}: Readonly<{ modality: 'image' | 'video' }>): React.JSX.Element {
+function CostRow({ modality }: Readonly<{ modality: 'image' | 'video' }>): React.JSX.Element {
   return (
     <div className="flex items-center justify-between">
       <span className="text-muted-foreground text-sm">Cost</span>
