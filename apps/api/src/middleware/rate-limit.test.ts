@@ -59,7 +59,7 @@ describe('rateLimitByCaller middleware', () => {
   function createApp(options: { callerId?: string | null } = {}): Hono<AppEnv> {
     const app = new Hono<AppEnv>();
     app.use('*', async (c, next) => {
-      c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+      c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
       c.set('user', createMockUser());
       const id = options.callerId === undefined ? TEST_USER_ID : options.callerId;
       if (id !== null) c.set('callerId', id);
@@ -136,7 +136,7 @@ describe('rateLimitByIp middleware', () => {
   function createApp(): Hono<AppEnv> {
     const app = new Hono<AppEnv>();
     app.use('*', async (c, next) => {
-      c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+      c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
       c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
       await next();
     });

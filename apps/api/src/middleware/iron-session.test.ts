@@ -40,7 +40,7 @@ describe('iron-session middleware', () => {
     app.use('*', async (c, next) => {
       c.env = {
         IRON_SESSION_SECRET: testSecret,
-        NODE_ENV: 'test',
+        NODE_ENV: 'development',
       };
       await next();
     });
@@ -195,7 +195,7 @@ describe('iron-session middleware', () => {
     app.use('*', async (c, next) => {
       c.env = {
         IRON_SESSION_SECRET: testSecret,
-        NODE_ENV: 'test',
+        NODE_ENV: 'development',
       };
       await next();
     });
@@ -224,7 +224,7 @@ describe('iron-session middleware', () => {
     app.use('*', async (c, next) => {
       // Omit IRON_SESSION_SECRET to test missing secret case
       c.env = {
-        NODE_ENV: 'test',
+        NODE_ENV: 'development',
       };
       await next();
     });

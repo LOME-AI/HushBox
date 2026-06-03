@@ -67,7 +67,14 @@ export function getAIClient(env: AIClientEnv, options: AIClientOptions = {}): AI
   const { isLocalDev, isE2E } = createEnvUtilities(env);
 
   if (isLocalDev || isE2E) {
-    return createMockAIClient(options.mockConfig);
+    // Echo typewriter paints visibly only on a running dev server. E2E and
+    // vitest both land here with isLocalDev=false so they stay instant.
+    const defaultTextDelayMs = isLocalDev && !isE2E ? 60 : 0;
+    const mockConfig: MockAIClientConfig = {
+      ...options.mockConfig,
+      textDelayMs: options.mockConfig?.textDelayMs ?? defaultTextDelayMs,
+    };
+    return createMockAIClient(mockConfig);
   }
 
   return createRealAIClient({

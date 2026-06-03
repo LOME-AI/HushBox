@@ -60,30 +60,6 @@ describe('Overlay router', () => {
     expect(content).toHaveAttribute('data-overlay-variant', 'bottom-sheet');
   });
 
-  it('forceBottomSheet=true renders bottom sheet on non-touch device', () => {
-    createMockMatchMedia(false); // pointer: fine
-    render(
-      <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test" forceBottomSheet={true}>
-        <div>Content</div>
-      </Overlay>
-    );
-
-    const content = screen.getByTestId('overlay-content');
-    expect(content).toHaveClass('bottom-0');
-  });
-
-  it('forceBottomSheet=false renders dialog on touch device', () => {
-    createMockMatchMedia(true); // pointer: coarse
-    render(
-      <Overlay open={true} onOpenChange={vi.fn()} ariaLabel="Test" forceBottomSheet={false}>
-        <div>Content</div>
-      </Overlay>
-    );
-
-    const content = screen.getByTestId('overlay-content');
-    expect(content).toHaveClass('top-[50%]');
-  });
-
   it('context override true renders bottom sheet on non-touch device', () => {
     createMockMatchMedia(false); // pointer: fine
     render(

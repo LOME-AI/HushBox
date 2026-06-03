@@ -7,9 +7,8 @@ describe('getAIClient', () => {
     expect(client.isMock).toBe(true);
   });
 
-  it('returns a mock client in test mode', () => {
-    const client = getAIClient({ NODE_ENV: 'test' });
-    expect(client.isMock).toBe(true);
+  it('throws for NODE_ENV=test (vitest mode no longer treated as dev)', () => {
+    expect(() => getAIClient({ NODE_ENV: 'test' })).toThrow('AI_GATEWAY_API_KEY required');
   });
 
   it('returns a mock client in E2E mode', () => {

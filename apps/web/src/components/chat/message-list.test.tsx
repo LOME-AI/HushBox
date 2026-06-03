@@ -268,47 +268,114 @@ describe('MessageList', () => {
     });
 
     it('exposes data-streams-completed starting at 0 when no stream has run', () => {
-      render(<MessageList messages={messages} streamingMessageIds={new Set()} />);
+      render(<MessageList messages={messages} persistingMessageIds={new Set()} />);
       const container = screen.getByTestId('message-list');
       expect(container).toHaveAttribute('data-streams-completed', '0');
     });
 
-    it('increments data-streams-completed when streamingMessageIds transitions from non-empty to empty', () => {
+    it('increments data-streams-completed when persistingMessageIds transitions from non-empty to empty', () => {
       const { rerender } = render(
-        <MessageList messages={messages} streamingMessageIds={new Set(['2'])} />
+        <MessageList messages={messages} persistingMessageIds={new Set(['2'])} />
       );
       const container = screen.getByTestId('message-list');
       expect(container).toHaveAttribute('data-streams-completed', '0');
 
-      rerender(<MessageList messages={messages} streamingMessageIds={new Set()} />);
+      rerender(<MessageList messages={messages} persistingMessageIds={new Set()} />);
       expect(container).toHaveAttribute('data-streams-completed', '1');
     });
 
-    it('does not increment data-streams-completed when streaming set merely shrinks but stays non-empty', () => {
+    it('does not increment data-streams-completed when persisting set merely shrinks but stays non-empty', () => {
       const { rerender } = render(
-        <MessageList messages={messages} streamingMessageIds={new Set(['2', '3'])} />
+        <MessageList messages={messages} persistingMessageIds={new Set(['2', '3'])} />
       );
       const container = screen.getByTestId('message-list');
       expect(container).toHaveAttribute('data-streams-completed', '0');
 
-      rerender(<MessageList messages={messages} streamingMessageIds={new Set(['2'])} />);
+      rerender(<MessageList messages={messages} persistingMessageIds={new Set(['2'])} />);
       expect(container).toHaveAttribute('data-streams-completed', '0');
     });
 
     it('counts each non-empty→empty transition independently across multiple cycles', () => {
       const { rerender } = render(
-        <MessageList messages={messages} streamingMessageIds={new Set(['2'])} />
+        <MessageList messages={messages} persistingMessageIds={new Set(['2'])} />
       );
       const container = screen.getByTestId('message-list');
 
-      rerender(<MessageList messages={messages} streamingMessageIds={new Set()} />);
+      rerender(<MessageList messages={messages} persistingMessageIds={new Set()} />);
       expect(container).toHaveAttribute('data-streams-completed', '1');
 
-      rerender(<MessageList messages={messages} streamingMessageIds={new Set(['3'])} />);
+      rerender(<MessageList messages={messages} persistingMessageIds={new Set(['3'])} />);
       expect(container).toHaveAttribute('data-streams-completed', '1');
 
-      rerender(<MessageList messages={messages} streamingMessageIds={new Set()} />);
+      rerender(<MessageList messages={messages} persistingMessageIds={new Set()} />);
       expect(container).toHaveAttribute('data-streams-completed', '2');
+    });
+
+    // DOM attributes (test signals) read from persistingMessageIds; per-row
+    // isStreaming (UX signal) reads from streamingMessageIds. The two
+    // diverge during the cost-settlement window: streamingMessageIds clears
+    // on the early flip so the toolbar appears immediately, but
+    // persistingMessageIds stays populated until the server commits.
+    it('data-streaming-count reflects persistingMessageIds, NOT streamingMessageIds', () => {
+      render(
+        <MessageList
+          messages={messages}
+          streamingMessageIds={new Set()}
+          persistingMessageIds={new Set(['2'])}
+        />
+      );
+      const container = screen.getByTestId('message-list');
+      expect(container).toHaveAttribute('data-streaming-count', '1');
+    });
+
+    it('data-streams-completed does NOT increment on streamingMessageIds transitions when persistingMessageIds is unchanged', () => {
+      const { rerender } = render(
+        <MessageList
+          messages={messages}
+          streamingMessageIds={new Set(['2'])}
+          persistingMessageIds={new Set(['2'])}
+        />
+      );
+      const container = screen.getByTestId('message-list');
+      expect(container).toHaveAttribute('data-streams-completed', '0');
+
+      // Early flip: streamingMessageIds clears, persistingMessageIds stays.
+      rerender(
+        <MessageList
+          messages={messages}
+          streamingMessageIds={new Set()}
+          persistingMessageIds={new Set(['2'])}
+        />
+      );
+      expect(container).toHaveAttribute('data-streams-completed', '0');
+      expect(container).toHaveAttribute('data-streaming-count', '1');
+
+      // SSE done arrives: persistingMessageIds clears.
+      rerender(
+        <MessageList
+          messages={messages}
+          streamingMessageIds={new Set()}
+          persistingMessageIds={new Set()}
+        />
+      );
+      expect(container).toHaveAttribute('data-streams-completed', '1');
+      expect(container).toHaveAttribute('data-streaming-count', '0');
+    });
+
+    it('per-row isStreaming still reads from streamingMessageIds, not persistingMessageIds', () => {
+      render(
+        <MessageList
+          messages={messages}
+          streamingMessageIds={new Set()}
+          persistingMessageIds={new Set(['2'])}
+        />
+      );
+      const data = capturedVirtuosoProps['data'] as { key: string; isStreaming: boolean }[];
+      // Message 2 is in persisting (server hasn't committed yet) but NOT in
+      // streaming (token stream ended). Per-row isStreaming should be false
+      // so the toolbar renders immediately.
+      const row2 = data.find((r) => r.key === '2');
+      expect(row2?.isStreaming).toBe(false);
     });
 
     it('clearing streamingMessageIds re-renders items without isStreaming so action buttons appear', () => {

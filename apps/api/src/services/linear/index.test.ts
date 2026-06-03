@@ -15,10 +15,10 @@ describe('getLinearClient', () => {
     expect(data.projects).toBe(MOCK_PROJECTS);
   });
 
-  it('returns the mock client when NODE_ENV=test (treated as dev)', async () => {
-    const client = getLinearClient({ NODE_ENV: 'test' });
-    const data = await client.fetchRoadmap('HUS');
-    expect(data.projects).toBe(MOCK_PROJECTS);
+  it('throws for NODE_ENV=test (vitest mode no longer treated as dev)', () => {
+    expect(() => getLinearClient({ NODE_ENV: 'test' })).toThrow(
+      /LINEAR_API_KEY_READ required outside dev \/ E2E/
+    );
   });
 
   it('throws when production-mode and LINEAR_API_KEY_READ is missing', () => {

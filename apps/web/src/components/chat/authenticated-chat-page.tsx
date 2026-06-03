@@ -344,6 +344,12 @@ export function AuthenticatedChatPage({
   const effectiveStreamingIds =
     chat.state.streamingMessageIds.size > 0 ? chat.state.streamingMessageIds : remoteStreamingIds;
 
+  // Persistence-tracking has no remote-streaming equivalent (group-chat
+  // phantoms originate on another client, where their persistence is the
+  // remote sender's concern). Local data-streaming-count therefore reflects
+  // only this tab's in-flight commits — that's what local tests care about.
+  const effectivePersistingIds = chat.state.persistingMessageIds;
+
   if (chat.renderState.type === 'redirecting' || chat.renderState.type === 'not-found') {
     if (isLinkGuest) {
       return (
@@ -364,6 +370,7 @@ export function AuthenticatedChatPage({
         title={chat.renderState.title}
         messages={[]}
         streamingMessageIds={new Set<string>()}
+        persistingMessageIds={new Set<string>()}
         inputValue=""
         onInputChange={chat.state.setInputValue}
         onSubmit={NOOP}
@@ -386,6 +393,7 @@ export function AuthenticatedChatPage({
         title={chat.displayTitle}
         messages={messagesWithPhantoms}
         streamingMessageIds={effectiveStreamingIds}
+        persistingMessageIds={effectivePersistingIds}
         inputValue={chat.state.inputValue}
         onInputChange={chat.state.setInputValue}
         onSubmit={handleEditSubmit}

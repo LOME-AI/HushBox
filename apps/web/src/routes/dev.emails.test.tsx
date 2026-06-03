@@ -10,6 +10,17 @@ vi.mock('@tanstack/react-router', () => ({
   }),
 }));
 
+vi.mock('@/lib/env', () => ({
+  env: {
+    isDev: true,
+    isLocalDev: true,
+    isProduction: false,
+    isCI: false,
+    isE2E: false,
+    requiresRealServices: false,
+  },
+}));
+
 const mockFetchJson = vi.fn();
 vi.mock('@/lib/api-client', () => ({
   client: {

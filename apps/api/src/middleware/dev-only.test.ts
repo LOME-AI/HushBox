@@ -51,7 +51,7 @@ describe('devOnly middleware', () => {
     app.use('*', devOnly());
     app.get('/', (c) => c.json({ ok: true }));
 
-    const res = await app.request('/', {}, { NODE_ENV: 'test' });
+    const res = await app.request('/', {}, { NODE_ENV: 'development' });
     expect(res.status).toBe(200);
   });
 });

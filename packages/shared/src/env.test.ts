@@ -8,9 +8,9 @@ describe('createEnvUtilities', () => {
       expect(env.isDev).toBe(true);
     });
 
-    it('returns true when NODE_ENV is test', () => {
+    it('returns false when NODE_ENV is test', () => {
       const env = createEnvUtilities({ NODE_ENV: 'test' });
-      expect(env.isDev).toBe(true);
+      expect(env.isDev).toBe(false);
     });
 
     it('returns true when NODE_ENV is undefined (defaults to dev)', () => {
@@ -28,9 +28,9 @@ describe('createEnvUtilities', () => {
       expect(env.isDev).toBe(true);
     });
 
-    it('returns true in CI with test NODE_ENV', () => {
+    it('returns false in CI with test NODE_ENV', () => {
       const env = createEnvUtilities({ NODE_ENV: 'test', CI: 'true' });
-      expect(env.isDev).toBe(true);
+      expect(env.isDev).toBe(false);
     });
   });
 
@@ -40,9 +40,9 @@ describe('createEnvUtilities', () => {
       expect(env.isLocalDev).toBe(true);
     });
 
-    it('returns true when NODE_ENV is test and CI is not set', () => {
+    it('returns false when NODE_ENV is test (vitest mode is not dev server)', () => {
       const env = createEnvUtilities({ NODE_ENV: 'test' });
-      expect(env.isLocalDev).toBe(true);
+      expect(env.isLocalDev).toBe(false);
     });
 
     it('returns true when NODE_ENV is undefined and CI is not set', () => {

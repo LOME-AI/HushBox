@@ -139,13 +139,18 @@ interface ChatPageStateMock {
   streamingMessageIdsRef: { current: Set<string> };
   startStreaming: ReturnType<typeof vi.fn>;
   stopStreaming: ReturnType<typeof vi.fn>;
+  persistingMessageIds: Set<string>;
+  persistingMessageIdsRef: { current: Set<string> };
+  stopPersisting: ReturnType<typeof vi.fn>;
 }
 
 const mockStartStreaming = vi.fn();
 const mockStopStreaming = vi.fn();
+const mockStopPersisting = vi.fn();
 const mockSetInputValue = vi.fn();
 const mockClearInput = vi.fn();
 const streamingMessageIdsRef = { current: new Set<string>() };
+const persistingMessageIdsRef = { current: new Set<string>() };
 
 const mockUseChatPageState = vi.fn<() => ChatPageStateMock>();
 vi.mock('@/hooks/use-chat-page', () => ({
@@ -481,6 +486,9 @@ function setupMocks(overrides: SetupMocksOptions = {}): void {
     streamingMessageIdsRef,
     startStreaming: mockStartStreaming,
     stopStreaming: mockStopStreaming,
+    persistingMessageIds: new Set<string>(),
+    persistingMessageIdsRef,
+    stopPersisting: mockStopPersisting,
   });
 
   mockUseChatStream.mockReturnValue({

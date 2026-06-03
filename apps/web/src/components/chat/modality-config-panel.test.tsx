@@ -92,11 +92,18 @@ describe('ImageAspectRatioControl', () => {
     expect(screen.getByText(/aspect ratio/i)).toBeInTheDocument();
   });
 
-  it('renders all image ratio pills at the half-width size (w-14)', () => {
+  it('renders each ratio as a proportional shape pill with the ratio as label', () => {
     render(<ImageAspectRatioControl />);
-    for (const ratio of ['1:1', '4:3', '3:4', '16:9', '9:16']) {
-      expect(screen.getByRole('button', { name: ratio }).className).toContain('w-14');
-    }
+    const shapes = screen.getAllByTestId('aspect-ratio-shape');
+    expect(shapes).toHaveLength(5);
+    const square = screen
+      .getByRole('button', { name: '1:1' })
+      .querySelector<HTMLElement>('[data-testid="aspect-ratio-shape"]')!;
+    expect(square.style.aspectRatio).toBe('1 / 1');
+    const wide = screen
+      .getByRole('button', { name: '16:9' })
+      .querySelector<HTMLElement>('[data-testid="aspect-ratio-shape"]')!;
+    expect(wide.style.aspectRatio).toBe('16 / 9');
   });
 
   it('narrows ratios to the intersection across selected models', () => {
@@ -167,11 +174,16 @@ describe('VideoAspectRatioControl', () => {
     });
   });
 
-  it('renders all video ratio pills at the same width as image ratio pills (w-14)', () => {
+  it('renders each video ratio as a proportional shape pill', () => {
     render(<VideoAspectRatioControl />);
-    for (const ratio of ['16:9', '9:16']) {
-      expect(screen.getByRole('button', { name: ratio }).className).toContain('w-14');
-    }
+    const wide = screen
+      .getByRole('button', { name: '16:9' })
+      .querySelector<HTMLElement>('[data-testid="aspect-ratio-shape"]')!;
+    expect(wide.style.aspectRatio).toBe('16 / 9');
+    const tall = screen
+      .getByRole('button', { name: '9:16' })
+      .querySelector<HTMLElement>('[data-testid="aspect-ratio-shape"]')!;
+    expect(tall.style.aspectRatio).toBe('9 / 16');
   });
 
   it('narrows ratios to the intersection across selected video models', () => {
@@ -217,7 +229,7 @@ describe('VideoResolutionControl', () => {
     expect(screen.queryByRole('button', { name: /720p/i })).not.toBeInTheDocument();
   });
 
-  it('labels resolution buttons with per-second prices when the primary model is priced', () => {
+  it('renders each supported resolution as a button labeled by its raw value', () => {
     mockModels({
       models: [
         {
@@ -238,8 +250,62 @@ describe('VideoResolutionControl', () => {
       },
     });
     render(<VideoResolutionControl />);
-    expect(screen.getByRole('button', { name: /720p \$0.10\/s/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /1080p \$0.15\/s/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '720p' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1080p' })).toBeInTheDocument();
+  });
+
+  it('renders consumer-friendly labels (HD/FHD) above the raw pixel resolution', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
+        },
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoResolutionControl />);
+    const hdButton = screen.getByRole('button', { name: '720p' });
+    expect(hdButton).toHaveTextContent('HD');
+    expect(hdButton).toHaveTextContent('720p');
+    const fhdButton = screen.getByRole('button', { name: '1080p' });
+    expect(fhdButton).toHaveTextContent('FHD');
+    expect(fhdButton).toHaveTextContent('1080p');
+  });
+
+  it('does not render any per-second price line inside the resolution control', () => {
+    mockModels({
+      models: [
+        {
+          id: 'google/veo-3.1',
+          modality: 'video',
+          pricePerSecondByResolution: { '720p': 0.1, '1080p': 0.15 },
+        },
+      ],
+    });
+    resetModelStoreStub({
+      activeModality: 'video',
+      videoConfig: { aspectRatio: '16:9', durationSeconds: 4, resolution: '720p' },
+      selections: {
+        text: [],
+        image: [],
+        audio: [],
+        video: [{ id: 'google/veo-3.1', name: 'Veo 3.1' }],
+      },
+    });
+    render(<VideoResolutionControl />);
+    expect(screen.queryByTestId('resolution-price')).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$\d+\.\d+\/s/)).not.toBeInTheDocument();
   });
 
   it('omits resolutions not priced by the primary model', () => {
@@ -288,7 +354,7 @@ describe('VideoResolutionControl', () => {
       },
     });
     render(<VideoResolutionControl />);
-    fireEvent.click(screen.getByRole('button', { name: /1080p\s+\$0\.15\/s/ }));
+    fireEvent.click(screen.getByRole('button', { name: '1080p' }));
     expect(modelStoreStubRef.current.setVideoConfig).toHaveBeenCalledWith({
       resolution: '1080p',
     });
@@ -478,7 +544,10 @@ describe('VideoResolutionControl + 4K', () => {
       },
     });
     render(<VideoResolutionControl />);
-    expect(screen.getByRole('button', { name: /4k \$0\.60\/s/i })).toBeInTheDocument();
+    const fourK = screen.getByRole('button', { name: /^4k$/i });
+    expect(fourK).toBeInTheDocument();
+    expect(fourK).toHaveTextContent('4K');
+    expect(fourK).toHaveTextContent('2160p');
   });
 
   it('drops 4K from the intersection when Veo 3.0 (no 4K) is co-selected — primary is Veo 3.1', () => {
@@ -610,6 +679,24 @@ describe('MediaCostLine', () => {
       });
       render(<MediaCostLine modality="image" />);
       expect(screen.getByText(/^≈ \$\d+\.\d+/)).toBeInTheDocument();
+    });
+
+    it('renders an "(estimate)" sublabel below the dollar amount', () => {
+      mockModels({
+        models: [{ id: 'google/imagen-4', modality: 'image', pricePerImage: 0.04 }],
+      });
+      resetModelStoreStub({
+        activeModality: 'image',
+        imageConfig: { aspectRatio: '1:1' },
+        selections: {
+          text: [],
+          image: [{ id: 'google/imagen-4', name: 'Imagen 4' }],
+          audio: [],
+          video: [],
+        },
+      });
+      render(<MediaCostLine modality="image" />);
+      expect(screen.getByText('(estimate)')).toBeInTheDocument();
     });
 
     it('renders null when no image model is selected', () => {

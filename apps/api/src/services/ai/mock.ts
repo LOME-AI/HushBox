@@ -234,7 +234,11 @@ function createFirstCallDelay(delayMs: number): () => Promise<void> {
   };
 }
 
-function createTextStream(request: TextRequest, mint: MintGenerationId): InferenceStream {
+function createTextStream(
+  request: TextRequest,
+  mint: MintGenerationId,
+  textDelayMs: number
+): InferenceStream {
   // Emit a response that exercises both edge cases that broke production:
   // (a) embedded newlines in streamed content (the SSE multi-line data: path)
   // (b) a fenced code block containing `{`/`}` braces (the streamdown
@@ -243,23 +247,46 @@ function createTextStream(request: TextRequest, mint: MintGenerationId): Inferen
   const echoContent =
     `Echo:\n${extractLastUserContent(request.messages)}\n\n` + '```json\n{\n  "ok": true\n}\n```';
 
-  return syncStream(function* (): Generator<InferenceEvent> {
-    for (const char of echoContent) {
-      yield { kind: 'text-delta', content: char };
-    }
+  const events: InferenceEvent[] = [];
+  for (const char of echoContent) {
+    events.push({ kind: 'text-delta', content: char });
+  }
 
-    const promptCharacters = countPromptCharacters(request.messages);
-    const inputTokens = Math.ceil(promptCharacters / CHARS_PER_TOKEN_STANDARD);
-    const outputTokens = Math.ceil(echoContent.length / CHARS_PER_TOKEN_STANDARD);
-
-    yield {
-      kind: 'finish',
-      providerMetadata: {
-        generationId: mint({ modelId: request.model, inputTokens, outputTokens }),
-        usage: { inputTokens, outputTokens },
-      },
-    };
+  const promptCharacters = countPromptCharacters(request.messages);
+  const inputTokens = Math.ceil(promptCharacters / CHARS_PER_TOKEN_STANDARD);
+  const outputTokens = Math.ceil(echoContent.length / CHARS_PER_TOKEN_STANDARD);
+  events.push({
+    kind: 'finish',
+    providerMetadata: {
+      generationId: mint({ modelId: request.model, inputTokens, outputTokens }),
+      usage: { inputTokens, outputTokens },
+    },
   });
+
+  if (textDelayMs <= 0) {
+    return syncStream(function* (): Generator<InferenceEvent> {
+      yield* events;
+    });
+  }
+
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      let index = 0;
+      return {
+        async next(): Promise<IteratorResult<InferenceEvent>> {
+          const event = events[index];
+          if (event === undefined) {
+            return { value: undefined, done: true };
+          }
+          if (index > 0) {
+            await new Promise<void>((resolve) => setTimeout(resolve, textDelayMs));
+          }
+          index++;
+          return { value: event, done: false };
+        },
+      };
+    },
+  };
 }
 
 function createImageStream(): InferenceStream {
@@ -359,6 +386,7 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
   const classifierFailure =
     config.classifierFailure === true ? new Error('Classifier unavailable (test)') : null;
   const classifierDelayMs = Math.max(0, config.classifierDelayMs ?? DEFAULT_CLASSIFIER_DELAY_MS);
+  const textDelayMs = Math.max(0, config.textDelayMs ?? 0);
 
   const publicModelsUrl = config.publicModelsUrl ?? DEFAULT_PUBLIC_MODELS_URL;
 
@@ -429,7 +457,7 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
               mint
             );
           }
-          return createTextStream(request, mint);
+          return createTextStream(request, mint, textDelayMs);
         }
         case 'image': {
           return createImageStream();

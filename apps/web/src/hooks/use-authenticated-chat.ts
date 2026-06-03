@@ -861,6 +861,14 @@ export function useAuthenticatedChat({
       onAllModelsComplete: () => {
         state.stopStreaming();
       },
+      // SSE `done` event — saveChatTurn has committed. Clear the persistence-
+      // tracking set so the next send doesn't race against an in-flight commit
+      // and resolve the wrong parentMessageId. Distinct from stopStreaming
+      // (early-flip, UX) so the toolbar/input stay responsive while tests
+      // gate on data-streaming-count for actual persistence.
+      onAllStreamsSettled: () => {
+        state.stopPersisting();
+      },
     }),
     [
       state,
@@ -905,7 +913,6 @@ export function useAuthenticatedChat({
       if (doneData?.epochNumber !== undefined) {
         attachMediaItemsFromDoneEvent(doneData, doneData.epochNumber, setLocalMessages);
       }
-      state.stopStreaming();
       await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(convId) });
       void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
       useStreamingActivityStore.getState().endStream();
@@ -1057,11 +1064,16 @@ export function useAuthenticatedChat({
         await queryClient.invalidateQueries({ queryKey: chatKeys.conversation(realId) });
         void queryClient.invalidateQueries({ queryKey: billingKeys.balance() });
 
+        // This call site uses hand-written callbacks instead of
+        // createOptimisticStreamCallbacks, so the wrapper has no caller-provided
+        // onAllStreamsSettled to fire. Persistence cleanup is explicit here.
         state.stopStreaming();
+        state.stopPersisting();
         useStreamingActivityStore.getState().endStream();
       } catch (streamError: unknown) {
         console.error('Stream failed:', streamError);
         state.stopStreaming();
+        state.stopPersisting();
         useStreamingActivityStore.getState().endStream();
         // New-chat flow has no fork yet — error belongs on the main slot.
         useChatErrorStore.getState().setError(

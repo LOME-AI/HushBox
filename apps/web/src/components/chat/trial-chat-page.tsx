@@ -133,6 +133,11 @@ export function TrialChatPage(): React.JSX.Element {
                 appendToTrialMessage(msgId, token);
               }
             },
+            // Wrapper's finally fires this on error/abort too — single
+            // cleanup path for persistingMessageIds regardless of outcome.
+            onAllStreamsSettled: () => {
+              state.stopPersisting();
+            },
           }
         );
 
@@ -299,6 +304,7 @@ export function TrialChatPage(): React.JSX.Element {
     <ChatLayout
       messages={displayMessages}
       streamingMessageIds={state.streamingMessageIds}
+      persistingMessageIds={state.persistingMessageIds}
       inputValue={state.inputValue}
       onInputChange={state.setInputValue}
       onSubmit={() => void handleTrialSubmit()}

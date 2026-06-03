@@ -133,7 +133,7 @@ function createListTestApp(options: ListTestAppOptions = {}): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.use('*', async (c, next) => {
-    c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+    c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
     c.set('user', user);
     c.set('session', user ? createMockSession() : null);
     c.set('sessionData', user ? createMockSession() : null);
@@ -238,7 +238,7 @@ function createCreateTestApp(options: CreateTestAppOptions = {}): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.use('*', async (c, next) => {
-    c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+    c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
     c.set('user', user);
     c.set('session', user ? createMockSession() : null);
     c.set('sessionData', user ? createMockSession() : null);
@@ -340,7 +340,7 @@ function createRevokeTestApp(options: RevokeTestAppOptions = {}): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.use('*', async (c, next) => {
-    c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+    c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
     c.set('user', user);
     c.set('session', user ? createMockSession() : null);
     c.set('sessionData', user ? createMockSession() : null);
@@ -1004,7 +1004,7 @@ describe('links route', () => {
       const app = new Hono<AppEnv>();
 
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+        c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
         c.set('user', user);
         c.set('session', user ? createMockSession() : null);
         c.set('sessionData', user ? createMockSession() : null);
@@ -1166,7 +1166,7 @@ describe('links route', () => {
       const app = new Hono<AppEnv>();
 
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+        c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
         c.set('user', user);
         c.set('session', user ? createMockSession() : null);
         c.set('sessionData', user ? createMockSession() : null);

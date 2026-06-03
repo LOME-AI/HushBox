@@ -179,7 +179,7 @@ function createShareTestApp(options: CreateShareTestAppOptions = {}): Hono<AppEn
   const app = new Hono<AppEnv>();
 
   app.use('*', async (c, next) => {
-    c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+    c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
     c.set('user', user);
     c.set('session', user ? createMockSession() : null);
     c.set('sessionData', user ? createMockSession() : null);
@@ -288,7 +288,7 @@ function createGetShareTestApp(options: GetShareTestAppOptions = {}): Hono<AppEn
   const app = new Hono<AppEnv>();
 
   app.use('*', async (c, next) => {
-    c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+    c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
     c.set('user', user);
     c.set('session', user ? createMockSession() : null);
     c.set('sessionData', null);
@@ -438,7 +438,7 @@ describe('message-shares routes', () => {
 
       const app = new Hono<AppEnv>();
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+        c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
         c.set('user', createMockUser());
         c.set('session', createMockSession());
         c.set('sessionData', createMockSession());

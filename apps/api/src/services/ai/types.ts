@@ -191,6 +191,14 @@ export interface MockAIClientConfig {
    */
   classifierDelayMs?: number;
   /**
+   * Sleep this many milliseconds between successive `text-delta` events from
+   * the echo text stream. Defaults to 0 (instant). `getAIClient` raises this
+   * when the host process is an actual local dev server so the echo response
+   * paints visibly like a typewriter; tests, CI, and E2E keep it at 0 so the
+   * suite stays fast.
+   */
+  textDelayMs?: number;
+  /**
    * Public `/v1/models` URL forwarded to `fetchModels` for catalog reads.
    * Tests that stub `globalThis.fetch` ignore the value; defaults to the
    * same production URL the real client uses.

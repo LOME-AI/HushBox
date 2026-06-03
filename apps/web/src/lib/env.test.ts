@@ -27,10 +27,11 @@ describe('env', () => {
   });
 
   it('reflects test environment correctly', () => {
-    // In vitest, MODE is typically 'test' which defaults to development
-    // The actual behavior depends on vitest.config.ts MODE setting
-    // This test documents the expected test environment behavior
-    expect(env.isDev).toBe(true); // test mode defaults to development
+    // Vitest runs with MODE='test'. Only 'development' counts as dev mode,
+    // so isDev is false under vitest; tests that need a dev-true env mock
+    // @/lib/env directly.
+    expect(env.isDev).toBe(false);
+    expect(env.isLocalDev).toBe(false);
     expect(env.isProduction).toBe(false);
   });
 });

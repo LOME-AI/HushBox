@@ -91,6 +91,90 @@ describe('useChatPageState', () => {
     });
   });
 
+  // Dual-state lets the UX-driving streamingMessageIds clear on the early
+  // model:done flip (so the input re-enables instantly) while a parallel
+  // persistingMessageIds set stays populated until the SSE `done` event —
+  // i.e. until the server has actually committed the turn. Tests gate on
+  // persistingMessageIds for correctness; UI gates on streamingMessageIds
+  // for responsiveness.
+  describe('persistence state', () => {
+    it('starts with no persisting messages', () => {
+      const { result } = renderHook(() => useChatPageState());
+
+      expect(result.current.persistingMessageIds.size).toBe(0);
+      expect(result.current.persistingMessageIdsRef.current.size).toBe(0);
+    });
+
+    it('startStreaming populates persistingMessageIds with the same IDs', () => {
+      const { result } = renderHook(() => useChatPageState());
+
+      act(() => {
+        result.current.startStreaming(['msg-1', 'msg-2']);
+      });
+
+      expect(result.current.persistingMessageIds.size).toBe(2);
+      expect(result.current.persistingMessageIds.has('msg-1')).toBe(true);
+      expect(result.current.persistingMessageIds.has('msg-2')).toBe(true);
+      expect(result.current.persistingMessageIdsRef.current.has('msg-1')).toBe(true);
+    });
+
+    it('stopStreaming does NOT clear persistingMessageIds', () => {
+      const { result } = renderHook(() => useChatPageState());
+
+      act(() => {
+        result.current.startStreaming(['msg-1']);
+      });
+      act(() => {
+        result.current.stopStreaming();
+      });
+
+      expect(result.current.streamingMessageIds.size).toBe(0);
+      expect(result.current.persistingMessageIds.size).toBe(1);
+      expect(result.current.persistingMessageIds.has('msg-1')).toBe(true);
+    });
+
+    it('stopPersisting clears only persistingMessageIds', () => {
+      const { result } = renderHook(() => useChatPageState());
+
+      act(() => {
+        result.current.startStreaming(['msg-1']);
+      });
+      act(() => {
+        result.current.stopPersisting();
+      });
+
+      expect(result.current.streamingMessageIds.size).toBe(1);
+      expect(result.current.persistingMessageIds.size).toBe(0);
+      expect(result.current.persistingMessageIdsRef.current.size).toBe(0);
+    });
+
+    it('stopStreaming followed by stopPersisting clears both', () => {
+      const { result } = renderHook(() => useChatPageState());
+
+      act(() => {
+        result.current.startStreaming(['msg-1']);
+      });
+      act(() => {
+        result.current.stopStreaming();
+      });
+      act(() => {
+        result.current.stopPersisting();
+      });
+
+      expect(result.current.streamingMessageIds.size).toBe(0);
+      expect(result.current.persistingMessageIds.size).toBe(0);
+    });
+
+    it('persistingMessageIds ref is updated synchronously with startStreaming', () => {
+      const { result } = renderHook(() => useChatPageState());
+
+      act(() => {
+        result.current.startStreaming(['msg-789']);
+        expect(result.current.persistingMessageIdsRef.current.has('msg-789')).toBe(true);
+      });
+    });
+  });
+
   describe('callback stability', () => {
     it('maintains stable callback references', () => {
       const { result, rerender } = renderHook(() => useChatPageState());
@@ -98,12 +182,14 @@ describe('useChatPageState', () => {
       const initialClearInput = result.current.clearInput;
       const initialStartStreaming = result.current.startStreaming;
       const initialStopStreaming = result.current.stopStreaming;
+      const initialStopPersisting = result.current.stopPersisting;
 
       rerender();
 
       expect(result.current.clearInput).toBe(initialClearInput);
       expect(result.current.startStreaming).toBe(initialStartStreaming);
       expect(result.current.stopStreaming).toBe(initialStopStreaming);
+      expect(result.current.stopPersisting).toBe(initialStopPersisting);
     });
   });
 });

@@ -507,7 +507,7 @@ function createTestApp(
 
   app.use('*', async (c, next) => {
     c.env = {
-      NODE_ENV: 'test',
+      NODE_ENV: 'development',
       AI_GATEWAY_API_KEY: 'test-key',
       PUBLIC_MODELS_URL: 'https://test.example/v1/models',
     } as AppEnv['Bindings'];
@@ -1177,7 +1177,7 @@ describe('billing integration — scenario matrix', () => {
 
       app.use('*', async (c, next) => {
         c.env = {
-          NODE_ENV: 'test',
+          NODE_ENV: 'development',
           AI_GATEWAY_API_KEY: 'test-key',
           PUBLIC_MODELS_URL: 'https://test.example/v1/models',
         } as AppEnv['Bindings'];
@@ -1315,7 +1315,7 @@ describe('billing integration — scenario matrix', () => {
 
       app.use('*', async (c, next) => {
         c.env = {
-          NODE_ENV: 'test',
+          NODE_ENV: 'development',
           AI_GATEWAY_API_KEY: 'test-key',
           PUBLIC_MODELS_URL: 'https://test.example/v1/models',
         } as AppEnv['Bindings'];

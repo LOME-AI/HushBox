@@ -589,7 +589,7 @@ function createTestApp(
 
   app.use('*', async (c, next) => {
     c.env = {
-      NODE_ENV: 'test',
+      NODE_ENV: 'development',
       AI_GATEWAY_API_KEY: 'test-key',
       PUBLIC_MODELS_URL: 'https://test.example/v1/models',
     } as AppEnv['Bindings'];
@@ -618,7 +618,7 @@ function createUnauthenticatedTestApp() {
 
   app.use('*', async (c, next) => {
     c.env = {
-      NODE_ENV: 'test',
+      NODE_ENV: 'development',
       AI_GATEWAY_API_KEY: 'test-key',
       PUBLIC_MODELS_URL: 'https://test.example/v1/models',
     } as AppEnv['Bindings'];
@@ -796,7 +796,7 @@ describe('chat routes', () => {
 
       app.use('*', async (c, next) => {
         c.env = {
-          NODE_ENV: 'test',
+          NODE_ENV: 'development',
           AI_GATEWAY_API_KEY: 'test-key',
           PUBLIC_MODELS_URL: 'https://test.example/v1/models',
         } as AppEnv['Bindings'];
@@ -1124,7 +1124,7 @@ describe('chat routes', () => {
 
         app.use('*', async (c, next) => {
           c.env = {
-            NODE_ENV: 'test',
+            NODE_ENV: 'development',
             AI_GATEWAY_API_KEY: 'test-key',
             PUBLIC_MODELS_URL: 'https://test.example/v1/models',
           } as AppEnv['Bindings'];
@@ -1201,7 +1201,7 @@ describe('chat routes', () => {
 
         app.use('*', async (c, next) => {
           c.env = {
-            NODE_ENV: 'test',
+            NODE_ENV: 'development',
             AI_GATEWAY_API_KEY: 'test-key',
             PUBLIC_MODELS_URL: 'https://test.example/v1/models',
           } as AppEnv['Bindings'];
@@ -1288,7 +1288,7 @@ describe('chat routes', () => {
 
         app.use('*', async (c, next) => {
           c.env = {
-            NODE_ENV: 'test',
+            NODE_ENV: 'development',
             AI_GATEWAY_API_KEY: 'test-key',
             PUBLIC_MODELS_URL: 'https://test.example/v1/models',
           } as AppEnv['Bindings'];
@@ -1564,7 +1564,7 @@ describe('chat routes', () => {
 
         app.use('*', async (c, next) => {
           c.env = {
-            NODE_ENV: 'test',
+            NODE_ENV: 'development',
             AI_GATEWAY_API_KEY: 'test-key',
             PUBLIC_MODELS_URL: 'https://test.example/v1/models',
           } as AppEnv['Bindings'];
@@ -1637,7 +1637,7 @@ describe('chat routes', () => {
 
         app.use('*', async (c, next) => {
           c.env = {
-            NODE_ENV: 'test',
+            NODE_ENV: 'development',
             AI_GATEWAY_API_KEY: 'test-key',
             PUBLIC_MODELS_URL: 'https://test.example/v1/models',
           } as AppEnv['Bindings'];
@@ -1745,7 +1745,7 @@ describe('chat routes', () => {
 
         app.use('*', async (c, next) => {
           c.env = {
-            NODE_ENV: 'test',
+            NODE_ENV: 'development',
             AI_GATEWAY_API_KEY: 'test-key',
             PUBLIC_MODELS_URL: 'https://test.example/v1/models',
             CONVERSATION_ROOM: mockNamespace,
@@ -2027,7 +2027,7 @@ describe('chat routes', () => {
         });
         app.use('*', async (c, next) => {
           c.env = {
-            NODE_ENV: 'test',
+            NODE_ENV: 'development',
             AI_GATEWAY_API_KEY: 'test-key',
             PUBLIC_MODELS_URL: 'https://test.example/v1/models',
             CONVERSATION_ROOM: mockNamespace,
@@ -3713,7 +3713,7 @@ describe('chat routes', () => {
       });
       app.use('*', async (c, next) => {
         c.env = {
-          NODE_ENV: 'test',
+          NODE_ENV: 'development',
           AI_GATEWAY_API_KEY: 'test-key',
           CONVERSATION_ROOM: mockNamespace,
         } as unknown as AppEnv['Bindings'];

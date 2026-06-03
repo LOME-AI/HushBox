@@ -116,7 +116,7 @@ function createTestApp(options: TestAppOptions = {}): Hono<AppEnv> {
 
   app.use('*', async (c, next) => {
     c.env = {
-      NODE_ENV: 'test',
+      NODE_ENV: 'development',
       ...(doNamespace !== undefined && { CONVERSATION_ROOM: doNamespace }),
     } as unknown as AppEnv['Bindings'];
     c.set('user', user);

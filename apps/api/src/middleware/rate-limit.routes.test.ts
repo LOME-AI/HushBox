@@ -89,7 +89,7 @@ describe('rate-limit on cost-amplification routes', () => {
     function createApp(): Hono<AppEnv> {
       const app = new Hono<AppEnv>();
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+        c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
         c.set('user', createMockUser());
         c.set('callerId', createMockUser().id);
         c.set('session', createMockSession());
@@ -133,7 +133,7 @@ describe('rate-limit on cost-amplification routes', () => {
     function createApp(): Hono<AppEnv> {
       const app = new Hono<AppEnv>();
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+        c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
         c.set('user', createMockUser());
         c.set('callerId', createMockUser().id);
         c.set('session', createMockSession());
@@ -177,7 +177,7 @@ describe('rate-limit on cost-amplification routes', () => {
     function createApp(): Hono<AppEnv> {
       const app = new Hono<AppEnv>();
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+        c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
         c.set('user', createMockUser());
         c.set('callerId', createMockUser().id);
         c.set('session', createMockSession());
@@ -221,7 +221,7 @@ describe('rate-limit on cost-amplification routes', () => {
     function createApp(): Hono<AppEnv> {
       const app = new Hono<AppEnv>();
       app.use('*', async (c, next) => {
-        c.env = { NODE_ENV: 'test' } as unknown as AppEnv['Bindings'];
+        c.env = { NODE_ENV: 'development' } as unknown as AppEnv['Bindings'];
         c.set('redis', redis as unknown as AppEnv['Variables']['redis']);
         await next();
       });

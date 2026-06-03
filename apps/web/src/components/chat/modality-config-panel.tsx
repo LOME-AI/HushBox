@@ -13,13 +13,15 @@ import { useModelStore } from '@/stores/model';
 import { useModels } from '@/hooks/models';
 import { useMediaCostEstimate } from '@/hooks/use-media-cost-estimate';
 import { agreedOptions, snapToNearest } from '@/lib/multi-model-agreement';
+import { AspectRatioPill } from './aspect-ratio-pill';
+import { DurationSnapSlider } from './duration-snap-slider';
 import type { Model } from '@hushbox/shared';
 
 interface TogglePillProps {
   label: string;
   isActive: boolean;
   onClick: () => void;
-  /** Tailwind width class; defaults to `w-28` for long labels (e.g., "720p $0.10/s"). */
+  /** Tailwind width class; defaults to `w-28` for long labels. */
   widthClass?: string;
 }
 
@@ -40,6 +42,38 @@ function TogglePill({
     >
       {label}
     </Button>
+  );
+}
+
+interface AspectRatioGroupProps {
+  ratios: readonly string[];
+  activeRatio: string;
+  onSelect: (ratio: string) => void;
+  /** Pill size — `lg` for the mobile bottom sheet, `sm` for the inline desktop row. */
+  pillSize?: 'sm' | 'lg';
+}
+
+function AspectRatioGroup({
+  ratios,
+  activeRatio,
+  onSelect,
+  pillSize = 'sm',
+}: Readonly<AspectRatioGroupProps>): React.JSX.Element {
+  return (
+    <fieldset className="flex flex-wrap items-end gap-1.5 border-0 p-0">
+      <legend className="sr-only">Aspect ratio</legend>
+      {ratios.map((ratio) => (
+        <AspectRatioPill
+          key={ratio}
+          ratio={ratio}
+          isActive={activeRatio === ratio}
+          size={pillSize}
+          onClick={() => {
+            onSelect(ratio);
+          }}
+        />
+      ))}
+    </fieldset>
   );
 }
 
@@ -64,7 +98,14 @@ function aspectRatiosFor(
   return fallback.filter((r) => intersection.includes(r));
 }
 
-export function ImageAspectRatioControl(): React.JSX.Element {
+interface AspectRatioControlProps {
+  /** Pill size — `lg` for the mobile bottom sheet, `sm` for the inline row. */
+  pillSize?: 'sm' | 'lg';
+}
+
+export function ImageAspectRatioControl({
+  pillSize = 'sm',
+}: Readonly<AspectRatioControlProps> = {}): React.JSX.Element {
   const aspectRatio = useModelStore((s) => s.imageConfig.aspectRatio);
   const setImageConfig = useModelStore((s) => s.setImageConfig);
   const selectedModels = useModelStore((s) => s.selections.image);
@@ -72,24 +113,20 @@ export function ImageAspectRatioControl(): React.JSX.Element {
   const supportedRatios = aspectRatiosFor(selectedModels, data?.models, IMAGE_ASPECT_RATIOS);
 
   return (
-    <fieldset className="flex flex-wrap gap-1.5 border-0 p-0">
-      <legend className="sr-only">Aspect ratio</legend>
-      {supportedRatios.map((ratio) => (
-        <TogglePill
-          key={ratio}
-          label={ratio}
-          isActive={aspectRatio === ratio}
-          widthClass="w-14"
-          onClick={() => {
-            setImageConfig({ aspectRatio: ratio as (typeof IMAGE_ASPECT_RATIOS)[number] });
-          }}
-        />
-      ))}
-    </fieldset>
+    <AspectRatioGroup
+      ratios={supportedRatios}
+      activeRatio={aspectRatio}
+      pillSize={pillSize}
+      onSelect={(ratio) => {
+        setImageConfig({ aspectRatio: ratio as (typeof IMAGE_ASPECT_RATIOS)[number] });
+      }}
+    />
   );
 }
 
-export function VideoAspectRatioControl(): React.JSX.Element {
+export function VideoAspectRatioControl({
+  pillSize = 'sm',
+}: Readonly<AspectRatioControlProps> = {}): React.JSX.Element {
   const aspectRatio = useModelStore((s) => s.videoConfig.aspectRatio);
   const setVideoConfig = useModelStore((s) => s.setVideoConfig);
   const selectedModels = useModelStore((s) => s.selections.video);
@@ -97,20 +134,14 @@ export function VideoAspectRatioControl(): React.JSX.Element {
   const supportedRatios = aspectRatiosFor(selectedModels, data?.models, VIDEO_ASPECT_RATIOS);
 
   return (
-    <fieldset className="flex flex-wrap gap-1.5 border-0 p-0">
-      <legend className="sr-only">Aspect ratio</legend>
-      {supportedRatios.map((ratio) => (
-        <TogglePill
-          key={ratio}
-          label={ratio}
-          isActive={aspectRatio === ratio}
-          widthClass="w-14"
-          onClick={() => {
-            setVideoConfig({ aspectRatio: ratio as (typeof VIDEO_ASPECT_RATIOS)[number] });
-          }}
-        />
-      ))}
-    </fieldset>
+    <AspectRatioGroup
+      ratios={supportedRatios}
+      activeRatio={aspectRatio}
+      pillSize={pillSize}
+      onSelect={(ratio) => {
+        setVideoConfig({ aspectRatio: ratio as (typeof VIDEO_ASPECT_RATIOS)[number] });
+      }}
+    />
   );
 }
 
@@ -136,14 +167,54 @@ function videoResolutionsFor(
   return VIDEO_RESOLUTIONS.filter((r) => intersection.includes(r));
 }
 
+/**
+ * Consumer-friendly label paired with the raw resolution. The pixel rows
+ * provide the technical value; the primary label communicates quality tier
+ * for users who recognize "HD/FHD/4K" but not the px-row notation.
+ */
+const RESOLUTION_LABELS: Record<string, { readonly primary: string; readonly secondary: string }> =
+  {
+    '720p': { primary: 'HD', secondary: '720p' },
+    '1080p': { primary: 'FHD', secondary: '1080p' },
+    '4k': { primary: '4K', secondary: '2160p' },
+  };
+
+interface ResolutionPillProps {
+  res: string;
+  isActive: boolean;
+  onClick: () => void;
+}
+
+function ResolutionPill({
+  res,
+  isActive,
+  onClick,
+}: Readonly<ResolutionPillProps>): React.JSX.Element {
+  const labels = RESOLUTION_LABELS[res] ?? { primary: res, secondary: '' };
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant={isActive ? 'default' : 'outline'}
+      aria-pressed={isActive}
+      aria-label={res}
+      onClick={onClick}
+      className="flex h-14 w-16 flex-col items-center justify-center gap-0.5 p-0"
+    >
+      <span className="text-sm leading-none font-semibold">{labels.primary}</span>
+      {labels.secondary ? (
+        <span className="text-xs leading-none opacity-75">{labels.secondary}</span>
+      ) : null}
+    </Button>
+  );
+}
+
 export function VideoResolutionControl(): React.JSX.Element {
   const resolution = useModelStore((s) => s.videoConfig.resolution);
   const setVideoConfig = useModelStore((s) => s.setVideoConfig);
   const selectedModels = useModelStore((s) => s.selections.video);
   const { data } = useModels();
   const supportedResolutions = videoResolutionsFor(selectedModels, data?.models);
-  const primaryModel = data?.models.find((m) => m.id === selectedModels[0]?.id);
-  const priceByRes = primaryModel?.pricePerSecondByResolution ?? {};
 
   React.useEffect(() => {
     const first = supportedResolutions[0];
@@ -164,20 +235,16 @@ export function VideoResolutionControl(): React.JSX.Element {
   return (
     <fieldset className="flex flex-wrap gap-1.5 border-0 p-0">
       <legend className="sr-only">Resolution</legend>
-      {supportedResolutions.map((res) => {
-        const price = priceByRes[res] ?? 0;
-        const label = `${res} $${price.toFixed(2)}/s`;
-        return (
-          <TogglePill
-            key={res}
-            label={label}
-            isActive={resolution === res}
-            onClick={() => {
-              setVideoConfig({ resolution: res });
-            }}
-          />
-        );
-      })}
+      {supportedResolutions.map((res) => (
+        <ResolutionPill
+          key={res}
+          res={res}
+          isActive={resolution === res}
+          onClick={() => {
+            setVideoConfig({ resolution: res });
+          }}
+        />
+      ))}
     </fieldset>
   );
 }
@@ -201,7 +268,18 @@ function videoDurationsFor(
   return intersection.length === 0 ? undefined : intersection;
 }
 
-export function VideoDurationControl(): React.JSX.Element {
+interface VideoDurationControlProps {
+  /**
+   * Hide the inline "Duration" label that sits to the left of the slider.
+   * Set true when the surrounding container already has a "Duration" heading
+   * (e.g. the mobile bottom sheet section), otherwise the word appears twice.
+   */
+  hideInlineLabel?: boolean;
+}
+
+export function VideoDurationControl({
+  hideInlineLabel = false,
+}: Readonly<VideoDurationControlProps> = {}): React.JSX.Element {
   const durationSeconds = useModelStore((s) => s.videoConfig.durationSeconds);
   const setVideoConfig = useModelStore((s) => s.setVideoConfig);
   const selectedModels = useModelStore((s) => s.selections.video);
@@ -223,27 +301,26 @@ export function VideoDurationControl(): React.JSX.Element {
     }
   }, [supportedDurations, durationSeconds, setVideoConfig]);
 
-  const handleChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
-    const raw = Number(event.target.value);
+  const handleChange = (raw: number): void => {
     const value =
       supportedDurations === undefined ? raw : (snapToNearest(supportedDurations, raw) ?? raw);
     setVideoConfig({ durationSeconds: value });
   };
 
   return (
-    <div className="flex flex-1 items-center gap-2">
-      <span className="text-muted-foreground text-xs">Duration</span>
-      <input
-        type="range"
+    <div className="flex w-full min-w-0 items-center gap-2">
+      {hideInlineLabel ? null : (
+        <span className="text-muted-foreground shrink-0 text-xs">Duration</span>
+      )}
+      <DurationSnapSlider
+        value={durationSeconds}
         min={min}
         max={max}
-        value={durationSeconds}
+        {...(supportedDurations !== undefined && { snapPoints: supportedDurations })}
+        ariaLabel="Video duration in seconds"
         onChange={handleChange}
-        aria-label="Video duration in seconds"
-        aria-valuetext={`${String(durationSeconds)} seconds`}
-        className="accent-primary h-1 flex-1"
       />
-      <span className="text-muted-foreground text-xs tabular-nums">{`${String(durationSeconds)}s`}</span>
+      <span className="text-muted-foreground shrink-0 text-xs tabular-nums">{`${String(durationSeconds)}s`}</span>
     </div>
   );
 }
@@ -358,5 +435,10 @@ export function MediaCostLine({
 
   const dollars = selectModalityDollars(modality, imageDollars, videoDollars, audioDollars);
   if (dollars <= 0) return null;
-  return <div className="text-muted-foreground text-xs">{`≈ $${dollars.toFixed(3)}`}</div>;
+  return (
+    <div className="text-muted-foreground flex flex-col items-end leading-tight whitespace-nowrap">
+      <span className="text-xs">{`≈ $${dollars.toFixed(3)}`}</span>
+      <span className="text-[10px] opacity-75">(estimate)</span>
+    </div>
+  );
 }

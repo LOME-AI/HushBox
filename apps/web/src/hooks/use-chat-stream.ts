@@ -135,6 +135,16 @@ interface StreamOptions {
    * full cost-polling window (multiple seconds in production).
    */
   onAllModelsComplete?: () => void;
+  /**
+   * Fires after the server's SSE `done` event — i.e. after `saveChatTurn`
+   * has committed. Distinct from {@link onAllModelsComplete}, which fires
+   * on the earlier `model:done` flip (pre-persistence). Callers use this
+   * to release server-side tracking state (e.g. `persistingMessageIds`)
+   * so a subsequent send doesn't race against the in-flight commit. Also
+   * fires in the `finally` block on any error/abort that prevents the
+   * happy-path firing, so cleanup is symmetric.
+   */
+  onAllStreamsSettled?: () => void;
   signal?: AbortSignal;
 }
 
@@ -463,6 +473,9 @@ async function executeStream(
       for (const m of doneData.models ?? []) {
         streamState.modelCosts.set(m.modelId, m.cost);
       }
+      // Happy-path fire. The wrapper makes this idempotent so the
+      // backup fire from startStream's finally block is a no-op here.
+      options?.onAllStreamsSettled?.();
     },
   });
 
@@ -510,6 +523,16 @@ function wrapForEarlyStreamingFlip(
     }
   };
 
+  // Settled fires twice in normal flow — once from executeStream's onDone
+  // (happy path) and once from startStream's finally (error/abort backup).
+  // The guard ensures the caller's callback only runs once per stream.
+  let settledFired = false;
+  const fireSettled = (): void => {
+    if (settledFired) return;
+    settledFired = true;
+    options?.onAllStreamsSettled?.();
+  };
+
   return {
     ...options,
     onStart: (data: StartEventData): void => {
@@ -528,6 +551,7 @@ function wrapForEarlyStreamingFlip(
       tryFire();
       options?.onModelError?.(data);
     },
+    onAllStreamsSettled: fireSettled,
   };
 }
 
@@ -550,6 +574,12 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
         // (no models started) or where the final `done` arrived before our
         // counter caught up.
         setIsStreaming(false);
+        // Backup fire for the persistence-tracking signal. The wrapper's
+        // settled-once guard makes this a no-op when the happy path already
+        // fired via executeStream's onDone; on error/abort it's the only
+        // chance to run, so the caller's persistingMessageIds set doesn't
+        // leak across requests.
+        wrapped.onAllStreamsSettled?.();
         // Note: endStream() is NOT called here. The caller is responsible for
         // calling useStreamingActivityStore.getState().endStream() after all
         // post-stream work (query invalidations, state updates) completes.
@@ -572,6 +602,7 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
         return await executeStream(config, 'authenticated', wrapped);
       } finally {
         setIsStreaming(false);
+        wrapped.onAllStreamsSettled?.();
       }
     },
     []

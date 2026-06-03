@@ -72,6 +72,9 @@ interface ChatPageStateMock {
   streamingMessageIdsRef: { current: Set<string> };
   startStreaming: ReturnType<typeof vi.fn>;
   stopStreaming: ReturnType<typeof vi.fn>;
+  persistingMessageIds: Set<string>;
+  persistingMessageIdsRef: { current: Set<string> };
+  stopPersisting: ReturnType<typeof vi.fn>;
 }
 
 const mockUseChatPageState = vi.fn<() => ChatPageStateMock>();
@@ -209,16 +212,19 @@ function getSessionData(user: { id: string } | null): { user: { id: string } } |
 interface StreamOptions {
   onToken?: (token: string) => void;
   onStart?: (data: { models: { modelId: string; assistantMessageId: string }[] }) => void;
+  onAllStreamsSettled?: () => void;
 }
 
 describe('TrialChatPage', () => {
   const mockStartStream = vi.fn();
   const mockStartStreaming = vi.fn();
   const mockStopStreaming = vi.fn();
+  const mockStopPersisting = vi.fn();
   const mockSetInputValue = vi.fn();
   const mockClearInput = vi.fn();
 
   const streamingMessageIdsRef = { current: new Set<string>() };
+  const persistingMessageIdsRef = { current: new Set<string>() };
 
   interface MockOverrides {
     isPending?: boolean;
@@ -280,6 +286,9 @@ describe('TrialChatPage', () => {
       streamingMessageIdsRef,
       startStreaming: mockStartStreaming,
       stopStreaming: mockStopStreaming,
+      persistingMessageIds: new Set<string>(),
+      persistingMessageIdsRef,
+      stopPersisting: mockStopPersisting,
     });
   }
 
@@ -470,6 +479,32 @@ describe('TrialChatPage', () => {
       await waitFor(() => {
         expect(mockStopStreaming).toHaveBeenCalled();
       });
+    });
+
+    it('stops persisting via onAllStreamsSettled callback', async () => {
+      // The trial path wires stopPersisting to the wrapper's
+      // onAllStreamsSettled callback (fires on SSE done OR in finally on
+      // error). Verify the callback is wired and triggers stopPersisting
+      // when invoked — the wrapper's own behavior is covered by
+      // use-chat-stream tests.
+      let capturedOnSettled: (() => void) | undefined;
+      mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
+        capturedOnSettled = options?.onAllStreamsSettled;
+        return Promise.resolve({ userMessageId: 'user-1', models: [] });
+      });
+
+      setupMocks({ pendingMessage: 'Hello' });
+      render(<TrialChatPage />);
+
+      await waitFor(() => {
+        expect(capturedOnSettled).toBeDefined();
+      });
+
+      act(() => {
+        capturedOnSettled?.();
+      });
+
+      expect(mockStopPersisting).toHaveBeenCalled();
     });
   });
 

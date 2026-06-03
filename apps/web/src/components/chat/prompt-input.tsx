@@ -13,7 +13,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
-import { cn } from '@hushbox/ui';
+import { cn, useIsMobile } from '@hushbox/ui';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@hushbox/ui';
 import { Textarea } from '@hushbox/ui';
 import { FEATURE_FLAGS } from '@hushbox/shared';
@@ -25,6 +25,8 @@ import { MorphHeight } from '@/components/shared/morph-height';
 import { AnimatedPlaceholder } from './animated-placeholder';
 import { CapacityBar } from './capacity-bar';
 import { BudgetMessages } from './budget-messages';
+import { GenerationSummaryChip } from './generation-summary-chip';
+import { GenerationConfigSheet } from './generation-config-sheet';
 import {
   ImageAspectRatioControl,
   VideoAspectRatioControl,
@@ -470,14 +472,49 @@ function TextBottomRow({
   );
 }
 
-function ImageBottomRow({
+function MobileGenerationRow({
+  modality,
+  toolbar,
+  sendButton,
+}: Readonly<{
+  modality: 'image' | 'video';
+  toolbar: React.ReactNode;
+  sendButton: React.ReactNode;
+}>): React.JSX.Element {
+  const [sheetOpen, setSheetOpen] = React.useState(false);
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <GenerationSummaryChip
+          modality={modality}
+          onClick={() => {
+            setSheetOpen(true);
+          }}
+        />
+      </div>
+      {toolbar}
+      {sendButton}
+      <GenerationConfigSheet modality={modality} open={sheetOpen} onOpenChange={setSheetOpen} />
+    </div>
+  );
+}
+
+export function ImageBottomRow({
   toolbar,
   sendButton,
 }: Readonly<Pick<BottomRowsProps, 'toolbar' | 'sendButton'>>): React.JSX.Element {
+  const isMobile = useIsMobile();
+
+  if (isMobile) {
+    return <MobileGenerationRow modality="image" toolbar={toolbar} sendButton={sendButton} />;
+  }
+
   return (
     <div className="flex items-center gap-2 px-3 py-2">
-      <ImageAspectRatioControl />
-      <div className="mr-2 ml-auto">
+      <div className="flex flex-1 justify-center">
+        <ImageAspectRatioControl />
+      </div>
+      <div className="mr-2">
         <MediaCostLine modality="image" />
       </div>
       <div className="flex items-center gap-2">
@@ -488,10 +525,16 @@ function ImageBottomRow({
   );
 }
 
-function VideoBottomRow({
+export function VideoBottomRow({
   toolbar,
   sendButton,
 }: Readonly<Pick<BottomRowsProps, 'toolbar' | 'sendButton'>>): React.JSX.Element {
+  const isMobile = useIsMobile();
+
+  if (isMobile) {
+    return <MobileGenerationRow modality="video" toolbar={toolbar} sendButton={sendButton} />;
+  }
+
   return (
     <div className="flex flex-col gap-2 px-3 py-2">
       <div className="flex items-center gap-2">
@@ -504,10 +547,14 @@ function VideoBottomRow({
           {sendButton}
         </div>
       </div>
-      <div className="flex items-center justify-center gap-3">
-        <VideoAspectRatioControl />
-        <div className="bg-border h-6 w-px" aria-hidden />
-        <VideoResolutionControl />
+      <div className="flex items-stretch gap-3">
+        <div className="flex flex-1 justify-center">
+          <VideoAspectRatioControl />
+        </div>
+        <div className="bg-border w-px" aria-hidden />
+        <div className="flex flex-1 justify-center">
+          <VideoResolutionControl />
+        </div>
       </div>
     </div>
   );

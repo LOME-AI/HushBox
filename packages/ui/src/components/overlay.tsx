@@ -21,8 +21,6 @@ interface OverlayProps {
   currentStep?: number;
   /** Called when back button is clicked. Required for back button to show. */
   onBack?: () => void;
-  /** Force bottom sheet presentation regardless of device. */
-  forceBottomSheet?: boolean;
   /**
    * When false, blocks every user-initiated dismissal: Escape, backdrop click,
    * mobile swipe-to-dismiss, the close button (which is hidden), and the
@@ -34,14 +32,14 @@ interface OverlayProps {
 }
 
 /**
- * Responsive overlay — renders as a centered dialog on desktop
- * or a bottom sheet with drag-to-dismiss on touch devices.
+ * Responsive overlay — renders as a centered dialog on non-touch devices
+ * or a bottom sheet with drag-to-dismiss on touch devices. To override the
+ * touch detection, wrap a subtree in `<TouchDeviceOverrideContext value={...}>`.
  */
-function Overlay({ forceBottomSheet, ...props }: Readonly<OverlayProps>): React.JSX.Element {
+function Overlay(props: Readonly<OverlayProps>): React.JSX.Element {
   const isTouch = useIsTouchDevice();
-  const useBottomSheet = forceBottomSheet ?? isTouch;
 
-  if (useBottomSheet) {
+  if (isTouch) {
     return <OverlayBottomSheet {...props} />;
   }
   return <OverlayDialog {...props} />;

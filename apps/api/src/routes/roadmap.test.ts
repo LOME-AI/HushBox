@@ -40,7 +40,7 @@ function makeTestApp(
   const app = new Hono<AppEnv>();
   app.use('*', async (c, next) => {
     c.env = {
-      NODE_ENV: 'test',
+      NODE_ENV: 'development',
       ...options.env,
     } as AppEnv['Bindings'];
     c.set('redis', options.redis);
@@ -137,7 +137,7 @@ describe('GET /api/public/roadmap', () => {
   });
 
   it('uses the mock client implicitly (sanity check that the test infra works)', async () => {
-    const client = linearModule.getLinearClient({ NODE_ENV: 'test' });
+    const client = linearModule.getLinearClient({ NODE_ENV: 'development' });
     const mock = createMockLinearClient();
     const fromFactory = await client.fetchRoadmap('HUS');
     const fromMock = await mock.fetchRoadmap('HUS');

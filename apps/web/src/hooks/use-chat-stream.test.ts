@@ -438,6 +438,218 @@ describe('useChatStream', () => {
     });
   });
 
+  // Two server-side milestones, exposed as two separate callbacks:
+  // - onAllModelsComplete fires when every model emits model:done — UX flip,
+  //   pre-persistence. Used to re-enable the input promptly.
+  // - onAllStreamsSettled fires when the SSE `done` event arrives — post-
+  //   saveChatTurn commit. Used by tests and persistence-tracking state to
+  //   know the server has actually committed.
+  // The latter must also fire on error/abort paths so callers can release
+  // persistence-tracking state without leaking.
+  describe('dual completion callbacks', () => {
+    it('fires onAllModelsComplete before onAllStreamsSettled', async () => {
+      const order: string[] = [];
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"m1"}]}',
+        'event: model:done',
+        'data: {"modelId":"gpt-4","assistantMessageId":"m1"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream(
+          {
+            conversationId: 'c',
+            models: ['gpt-4'],
+            userMessage: { id: 'm', content: 'hi' },
+            messagesForInference: [{ role: 'user', content: 'hi' }],
+            fundingSource: 'personal_balance',
+          },
+          {
+            onAllModelsComplete: () => order.push('all-models-complete'),
+            onAllStreamsSettled: () => order.push('all-streams-settled'),
+          }
+        );
+      });
+
+      // Order is what matters: the persistence signal must come after the
+      // UX signal. The wire-level events `model:done` and `done` arrive in
+      // that order, so their derived callbacks do too.
+      expect(order).toEqual(['all-models-complete', 'all-streams-settled']);
+    });
+
+    it('fires onAllStreamsSettled exactly once on happy path', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"m1"}]}',
+        'event: model:done',
+        'data: {"modelId":"gpt-4","assistantMessageId":"m1"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const onAllStreamsSettled = vi.fn();
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream(
+          {
+            conversationId: 'c',
+            models: ['gpt-4'],
+            userMessage: { id: 'm', content: 'hi' },
+            messagesForInference: [{ role: 'user', content: 'hi' }],
+            fundingSource: 'personal_balance',
+          },
+          { onAllStreamsSettled }
+        );
+      });
+
+      expect(onAllStreamsSettled).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires onAllStreamsSettled when stream errors before the done event', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"m1"}]}',
+        'event: error',
+        'data: {"code":"UNKNOWN","message":"boom"}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const onAllStreamsSettled = vi.fn();
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await expect(
+          result.current.startStream(
+            {
+              conversationId: 'c',
+              models: ['gpt-4'],
+              userMessage: { id: 'm', content: 'hi' },
+              messagesForInference: [{ role: 'user', content: 'hi' }],
+              fundingSource: 'personal_balance',
+            },
+            { onAllStreamsSettled }
+          )
+        ).rejects.toThrow('boom');
+      });
+
+      expect(onAllStreamsSettled).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires onAllStreamsSettled when fetch rejects before any event', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('network down'));
+
+      const onAllStreamsSettled = vi.fn();
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await expect(
+          result.current.startStream(
+            {
+              conversationId: 'c',
+              models: ['gpt-4'],
+              userMessage: { id: 'm', content: 'hi' },
+              messagesForInference: [{ role: 'user', content: 'hi' }],
+              fundingSource: 'personal_balance',
+            },
+            { onAllStreamsSettled }
+          )
+        ).rejects.toThrow('network down');
+      });
+
+      expect(onAllStreamsSettled).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires onAllStreamsSettled when stream throws on non-ok response', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () => Promise.resolve({ code: 'INTERNAL' }),
+      });
+
+      const onAllStreamsSettled = vi.fn();
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await expect(
+          result.current.startStream(
+            {
+              conversationId: 'c',
+              models: ['gpt-4'],
+              userMessage: { id: 'm', content: 'hi' },
+              messagesForInference: [{ role: 'user', content: 'hi' }],
+              fundingSource: 'personal_balance',
+            },
+            { onAllStreamsSettled }
+          )
+        ).rejects.toThrow('INTERNAL');
+      });
+
+      expect(onAllStreamsSettled).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires onAllStreamsSettled on startRegenerateStream happy path', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"u","models":[{"modelId":"gpt-4","assistantMessageId":"m1"}]}',
+        'event: model:done',
+        'data: {"modelId":"gpt-4","assistantMessageId":"m1"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const onAllStreamsSettled = vi.fn();
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startRegenerateStream(
+          {
+            conversationId: 'c',
+            targetMessageId: 't',
+            action: 'retry',
+            modality: 'text',
+            models: ['gpt-4'],
+            userMessage: { id: 'm', content: 'hi' },
+            messagesForInference: [{ role: 'user', content: 'hi' }],
+            fundingSource: 'personal_balance',
+          },
+          { onAllStreamsSettled }
+        );
+      });
+
+      expect(onAllStreamsSettled).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('trial mode', () => {
     it('calls POST /api/trial/stream with messages and model', async () => {
       const sseEvents = [

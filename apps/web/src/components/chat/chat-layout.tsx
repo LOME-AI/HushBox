@@ -82,6 +82,8 @@ interface ChatLayoutProps {
   readonly title?: string | undefined;
   readonly messages: Message[];
   readonly streamingMessageIds: Set<string>;
+  /** Server-side persistence-tracking set; see MessageList docs. */
+  readonly persistingMessageIds?: Set<string> | undefined;
   readonly inputValue: string;
   readonly onInputChange: (value: string) => void;
   readonly onSubmit: (fundingSource: FundingSource) => void;
@@ -480,6 +482,7 @@ function buildMessageListGroupProps(
 interface ChatMainContentProps {
   readonly messages: Message[];
   readonly streamingMessageIds: Set<string>;
+  readonly persistingMessageIds: Set<string> | undefined;
   readonly errorMessageId: string | undefined;
   readonly modelName: string;
   readonly onShare: (messageId: string) => void;
@@ -524,6 +527,7 @@ function DecryptingPlaceholder(): React.JSX.Element {
 function ChatMainContent({
   messages,
   streamingMessageIds,
+  persistingMessageIds,
   errorMessageId,
   modelName,
   onShare,
@@ -553,6 +557,7 @@ function ChatMainContent({
           ref={virtuosoRef}
           messages={messages}
           streamingMessageIds={streamingMessageIds}
+          persistingMessageIds={persistingMessageIds}
           errorMessageId={errorMessageId}
           modelName={modelName}
           onShare={onShare}
@@ -803,6 +808,7 @@ export function ChatLayout({
   title,
   messages,
   streamingMessageIds,
+  persistingMessageIds,
   inputValue,
   onInputChange,
   onSubmit,
@@ -985,6 +991,7 @@ export function ChatLayout({
         <ChatMainContent
           messages={messages}
           streamingMessageIds={streamingMessageIds}
+          persistingMessageIds={persistingMessageIds}
           errorMessageId={errorMessageId}
           modelName={getPrimaryModel(selectedModels).id}
           onShare={handleShareMessage}

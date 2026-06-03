@@ -367,6 +367,35 @@ describe('createMockAIClient', () => {
 
       expect(textContent.startsWith('Echo:\nSecond')).toBe(true);
     });
+
+    it('delays between text-delta events by textDelayMs', async () => {
+      const delayMs = 25;
+      const delayed = createMockAIClient({ textDelayMs: delayMs });
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+      const start = Date.now();
+      const events = await collectEvents(delayed.stream(request));
+      const elapsed = Date.now() - start;
+      const deltas = events.filter((e) => e.kind === 'text-delta').length;
+      expect(deltas).toBeGreaterThan(5);
+      expect(elapsed).toBeGreaterThanOrEqual(delayMs * (deltas - 1));
+    });
+
+    it('does not delay when textDelayMs is unset (default 0)', async () => {
+      const fast = createMockAIClient();
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hello, world!' }],
+      };
+      const start = Date.now();
+      await collectEvents(fast.stream(request));
+      const elapsed = Date.now() - start;
+      expect(elapsed).toBeLessThan(50);
+    });
   });
 
   describe('image generation', () => {

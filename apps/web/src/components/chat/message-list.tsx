@@ -62,6 +62,16 @@ interface MemberInfo {
 interface MessageListProps {
   messages: Message[];
   streamingMessageIds?: Set<string> | undefined;
+  /**
+   * Server-side persistence-tracking set. Cleared on the SSE `done` event
+   * (post-saveChatTurn commit), distinct from {@link streamingMessageIds}
+   * which clears on the earlier `model:done` flip (pre-persistence).
+   * Drives `data-streaming-count` and `data-streams-completed` — the DOM
+   * attributes used by E2E tests to know when the server has actually
+   * committed a turn. Per-row `isStreaming` keeps reading
+   * `streamingMessageIds` so the toolbar / input UX stays fast.
+   */
+  persistingMessageIds?: Set<string> | undefined;
   errorMessageId?: string | undefined;
   modelName?: string | undefined;
   onShare?: ((messageId: string) => void) | undefined;
@@ -129,6 +139,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   {
     messages,
     streamingMessageIds,
+    persistingMessageIds,
     errorMessageId,
     modelName,
     onShare,
@@ -173,12 +184,16 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
   const scrollerElRef = useRef<HTMLElement | null>(null);
 
   // Monotonic counter of completed stream cycles. Increments whenever
-  // `streamingMessageIds` transitions from non-empty to empty — i.e. every
-  // time a streaming turn finishes. Exposed as `data-streams-completed` so
-  // E2E tests can capture a baseline before triggering an action and wait
-  // for it to advance, avoiding races where the stream finishes faster than
-  // a polling assertion can observe `data-streaming-count > 0`.
-  const currentStreamingCount = streamingMessageIds?.size ?? 0;
+  // `persistingMessageIds` transitions from non-empty to empty — i.e. every
+  // time a streaming turn finishes AND the server has committed the
+  // resulting messages. Exposed as `data-streams-completed` so E2E tests
+  // can capture a baseline before triggering an action and wait for it to
+  // advance, avoiding races where the stream finishes faster than a
+  // polling assertion can observe `data-streaming-count > 0`. Gating on
+  // persistingMessageIds (not streamingMessageIds) is what makes the
+  // "wait" actually mean "server committed" — see use-chat-page.ts for
+  // why the two sets exist.
+  const currentStreamingCount = persistingMessageIds?.size ?? 0;
   const [streamsCompleted, setStreamsCompleted] = useState(0);
   const [previousStreamingCount, setPreviousStreamingCount] = useState(currentStreamingCount);
   if (previousStreamingCount !== currentStreamingCount) {
@@ -462,7 +477,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       data-testid="message-list"
       data-assistant-count={assistantCount}
       data-cost-count={costCount}
-      data-streaming-count={streamingMessageIds?.size ?? 0}
+      data-streaming-count={persistingMessageIds?.size ?? 0}
       data-streams-completed={streamsCompleted}
       data-message-count={messages.length}
       data-decrypted-count={decryptedCount}

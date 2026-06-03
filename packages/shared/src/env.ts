@@ -29,8 +29,11 @@ export function createEnvUtilities(env: EnvContext): EnvUtilities {
   const nodeEnv = env.NODE_ENV ?? 'development';
   const isCI = Boolean(env.CI);
   const isE2E = Boolean(env.E2E);
-  // 'test' mode is treated as development (uses mocks, not production services)
-  const isDevMode = nodeEnv === 'development' || nodeEnv === 'test';
+  // Vitest sets MODE='test' on the frontend; backend stays on 'development'
+  // via .dev.vars. Treating only 'development' as dev mode keeps `isLocalDev`
+  // honest about whether we're running the dev server (where mock streams
+  // should paint visibly) vs running tests (where they shouldn't).
+  const isDevMode = nodeEnv === 'development';
 
   return {
     isDev: isDevMode,
