@@ -133,10 +133,7 @@ describe('env-types', () => {
         [Mode.Development]: { value: 'value', to: [Destination.Backend, Destination.Scripts] },
         [Mode.E2E]: ref(Mode.Development),
       };
-      expect(getDestinations(config, Mode.E2E)).toEqual([
-        Destination.Backend,
-        Destination.Scripts,
-      ]);
+      expect(getDestinations(config, Mode.E2E)).toEqual([Destination.Backend, Destination.Scripts]);
     });
 
     it('follows a chain of refs through multiple modes', () => {
