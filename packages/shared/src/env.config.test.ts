@@ -19,9 +19,19 @@ describe('envConfig', () => {
       ]);
     });
 
-    it('has ciVitest/e2e value going to Backend only (via ref)', () => {
-      expect(getDestinations(envConfig.DATABASE_URL, Mode.CiVitest)).toEqual([Destination.Backend]);
-      expect(getDestinations(envConfig.DATABASE_URL, Mode.E2E)).toEqual([Destination.Backend]);
+    it('inherits Dev destinations through ref in CiVitest, E2E, and CiE2E', () => {
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.CiVitest)).toEqual([
+        Destination.Backend,
+        Destination.Scripts,
+      ]);
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.E2E)).toEqual([
+        Destination.Backend,
+        Destination.Scripts,
+      ]);
+      expect(getDestinations(envConfig.DATABASE_URL, Mode.CiE2E)).toEqual([
+        Destination.Backend,
+        Destination.Scripts,
+      ]);
     });
 
     it('has production secret going to Backend only', () => {

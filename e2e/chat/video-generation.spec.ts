@@ -67,6 +67,7 @@ test.describe('Video Generation', () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToVideoMode();
+    await chatPage.openGenerationSheetIfNeeded();
 
     // Mock Veo 3.1 supports 720p and 1080p. Each pill renders the quality
     // tier (HD/FHD) above the pixel row (720p/1080p). The accessible name is
