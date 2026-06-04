@@ -769,13 +769,17 @@ export function useAuthenticatedChat({
    * The handlers mutate `localMessages` (not optimistic) because the
    * new-chat flow renders from `localMessages` during create-mode.
    */
-  const handleStreamStageStart = React.useCallback((data: StageStartPayload) => {
-    setLocalMessages((previous) =>
-      previous.map((m) =>
-        m.id === data.assistantMessageId ? { ...m, classifyingStageId: data.stageId } : m
-      )
-    );
-  }, []);
+  const handleStreamStageStart = React.useCallback(
+    (data: StageStartPayload) => {
+      setLocalMessages((previous) =>
+        previous.map((m) =>
+          m.id === data.assistantMessageId ? { ...m, classifyingStageId: data.stageId } : m
+        )
+      );
+      state.startStreaming([data.assistantMessageId]);
+    },
+    [state]
+  );
 
   const handleStreamStageDone = React.useCallback((data: StageDoneEventData) => {
     setLocalMessages((previous) =>
@@ -795,15 +799,19 @@ export function useAuthenticatedChat({
     );
   }, []);
 
-  const handleStreamStageError = React.useCallback((data: StageErrorPayload) => {
-    setLocalMessages((previous) =>
-      previous.map((m) =>
-        m.id === data.assistantMessageId
-          ? { ...m, classifyingStageId: undefined, errorCode: data.errorCode, content: '' }
-          : m
-      )
-    );
-  }, []);
+  const handleStreamStageError = React.useCallback(
+    (data: StageErrorPayload) => {
+      setLocalMessages((previous) =>
+        previous.map((m) =>
+          m.id === data.assistantMessageId
+            ? { ...m, classifyingStageId: undefined, errorCode: data.errorCode, content: '' }
+            : m
+        )
+      );
+      state.stopStreaming();
+    },
+    [state]
+  );
 
   const optimisticModelMapRef = React.useRef(new Map<string, string>());
 
