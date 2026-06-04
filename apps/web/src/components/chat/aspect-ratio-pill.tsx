@@ -16,25 +16,40 @@ interface AspectRatioPillProps {
 
 const SHAPE_PX: Record<'sm' | 'lg', number> = { sm: 22, lg: 40 };
 
+/**
+ * Proportional rectangle whose width OR height is pinned to `sizePx` (longer
+ * side wins) and whose other dimension is computed via `aspect-ratio` CSS.
+ * Standalone so the summary chip can reuse the exact shape without nesting
+ * an interactive button inside another button.
+ */
+export function AspectRatioShape({
+  ratio,
+  sizePx,
+}: Readonly<{ ratio: string; sizePx: number }>): React.JSX.Element {
+  const [widthRaw, heightRaw] = ratio.split(':');
+  const width = Number(widthRaw);
+  const height = Number(heightRaw);
+  const isLandscape = width >= height;
+  const shapeStyle: React.CSSProperties = {
+    aspectRatio: `${String(width)} / ${String(height)}`,
+    ...(isLandscape ? { width: `${String(sizePx)}px` } : { height: `${String(sizePx)}px` }),
+  };
+  return (
+    <span
+      data-testid="aspect-ratio-shape"
+      aria-hidden="true"
+      className="inline-block shrink-0 border border-current"
+      style={shapeStyle}
+    />
+  );
+}
+
 export function AspectRatioPill({
   ratio,
   isActive,
   onClick,
   size = 'sm',
 }: Readonly<AspectRatioPillProps>): React.JSX.Element {
-  const [widthRaw, heightRaw] = ratio.split(':');
-  const width = Number(widthRaw);
-  const height = Number(heightRaw);
-  const isLandscape = width >= height;
-  const dimension = SHAPE_PX[size];
-  // Pin the longer side at `dimension` and let aspect-ratio compute the other.
-  // The outer Button has fixed square footprint so every pill aligns into the
-  // same row regardless of whether its shape is landscape, portrait, or square.
-  const shapeStyle: React.CSSProperties = {
-    aspectRatio: `${String(width)} / ${String(height)}`,
-    ...(isLandscape ? { width: `${String(dimension)}px` } : { height: `${String(dimension)}px` }),
-  };
-
   return (
     <Button
       type="button"
@@ -47,12 +62,7 @@ export function AspectRatioPill({
         size === 'sm' ? 'h-14 w-14' : 'h-[72px] w-[72px]'
       )}
     >
-      <span
-        data-testid="aspect-ratio-shape"
-        aria-hidden="true"
-        className="block border border-current"
-        style={shapeStyle}
-      />
+      <AspectRatioShape ratio={ratio} sizePx={SHAPE_PX[size]} />
       <span className="text-xs leading-none">{ratio}</span>
     </Button>
   );

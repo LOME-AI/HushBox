@@ -188,4 +188,61 @@ describe('DocumentCard', () => {
       expect(screen.getByRole('button', { name: /dataprocessor/i })).toBeInTheDocument();
     });
   });
+
+  describe('streaming re-anchor', () => {
+    // `generateDocumentId` hashes source content, so a card opened during
+    // streaming carries an id derived from partial content. When more tokens
+    // arrive the id mutates — without the re-anchor effect the panel would
+    // freeze on the partial title captured at click time.
+    it('re-anchors active document when id mutates after click', async () => {
+      const user = userEvent.setup();
+      const partial = createDocument({
+        id: 'doc-partial',
+        title: 'Mermaid Diagram',
+        content: 'g',
+      });
+      const complete = createDocument({
+        id: 'doc-complete',
+        title: 'Graph Diagram',
+        content: 'graph TD',
+      });
+
+      const { rerender } = render(<DocumentCard document={partial} />);
+
+      await user.click(screen.getByTestId('document-card'));
+      expect(useDocumentStore.getState().activeDocumentId).toBe('doc-partial');
+      expect(useDocumentStore.getState().activeDocument?.title).toBe('Mermaid Diagram');
+
+      rerender(<DocumentCard document={complete} />);
+
+      expect(useDocumentStore.getState().activeDocumentId).toBe('doc-complete');
+      expect(useDocumentStore.getState().activeDocument?.title).toBe('Graph Diagram');
+    });
+
+    it('does not claim active when a different document is active', () => {
+      const otherDocument = createDocument({ id: 'doc-other', title: 'Other' });
+      useDocumentStore.setState({
+        activeDocumentId: 'doc-other',
+        activeDocument: otherDocument,
+        isPanelOpen: true,
+      });
+
+      const partial = createDocument({ id: 'doc-a-partial', title: 'A1' });
+      const evolved = createDocument({ id: 'doc-a-complete', title: 'A2' });
+
+      const { rerender } = render(<DocumentCard document={partial} />);
+      rerender(<DocumentCard document={evolved} />);
+
+      expect(useDocumentStore.getState().activeDocumentId).toBe('doc-other');
+      expect(useDocumentStore.getState().activeDocument?.title).toBe('Other');
+    });
+
+    it('does not touch the store on the initial render', () => {
+      const document_ = createDocument({ id: 'doc-initial', title: 'Initial' });
+      render(<DocumentCard document={document_} />);
+
+      expect(useDocumentStore.getState().activeDocumentId).toBeNull();
+      expect(useDocumentStore.getState().activeDocument).toBeNull();
+    });
+  });
 });

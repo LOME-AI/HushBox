@@ -126,6 +126,40 @@ describe('env-types', () => {
       };
       expect(getDestinations(config, Mode.Production)).toEqual([]);
     });
+
+    it('follows a ref to the target mode destinations', () => {
+      const config: VariableConfig = {
+        to: [Destination.Backend],
+        [Mode.Development]: { value: 'value', to: [Destination.Backend, Destination.Scripts] },
+        [Mode.E2E]: ref(Mode.Development),
+      };
+      expect(getDestinations(config, Mode.E2E)).toEqual([
+        Destination.Backend,
+        Destination.Scripts,
+      ]);
+    });
+
+    it('follows a chain of refs through multiple modes', () => {
+      const config: VariableConfig = {
+        to: [Destination.Backend],
+        [Mode.Development]: { value: 'value', to: [Destination.Backend, Destination.Scripts] },
+        [Mode.E2E]: ref(Mode.Development),
+        [Mode.CiE2E]: ref(Mode.E2E),
+      };
+      expect(getDestinations(config, Mode.CiE2E)).toEqual([
+        Destination.Backend,
+        Destination.Scripts,
+      ]);
+    });
+
+    it('refs without an override on the target fall back to default destinations', () => {
+      const config: VariableConfig = {
+        to: [Destination.Backend],
+        [Mode.Development]: 'value',
+        [Mode.E2E]: ref(Mode.Development),
+      };
+      expect(getDestinations(config, Mode.E2E)).toEqual([Destination.Backend]);
+    });
   });
 
   describe('getModeValue', () => {

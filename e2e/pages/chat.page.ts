@@ -475,8 +475,10 @@ export class ChatPage {
     const imageIcon = this.page.getByRole('button', { name: /switch to image/i });
     await expect(imageIcon).toBeVisible();
     await imageIcon.click();
-    // Confirmation: the aspect ratio toggle pill is rendered (1:1 default).
-    await expect(this.page.getByRole('button', { name: '1:1' })).toBeVisible();
+    // Confirmation: either the inline aspect-ratio pill (desktop) or the
+    // GenerationSummaryChip (mobile) — both carry "1:1" in their accessible
+    // name when 1:1 is the default. Substring match accepts either layout.
+    await expect(this.page.getByRole('button', { name: /1:1/i })).toBeVisible();
   }
 
   /** Switch the prompt input to video generation modality. Click the video icon button. */
@@ -485,23 +487,87 @@ export class ChatPage {
     const videoIcon = this.page.getByRole('button', { name: /switch to video/i });
     await expect(videoIcon).toBeVisible();
     await videoIcon.click();
-    // Confirmation: video resolution buttons render (720p default for mock Veo 3.1).
+    // Confirmation: either the inline 720p resolution pill (desktop) or the
+    // GenerationSummaryChip (mobile, name embeds the default "720p"). Either
+    // layout satisfies the substring match.
     await expect(this.page.getByRole('button', { name: /720p/i })).toBeVisible();
+  }
+
+  /**
+   * Locator for the open `GenerationConfigSheet`. The Overlay component renders
+   * as a Radix Dialog (desktop) or vaul Drawer (mobile); both expose `role=dialog`
+   * with the sr-only Title text as the accessible name. Anchoring on the
+   * "* generation settings" suffix keeps this distinct from other dialogs
+   * (model selector, invite link, etc.) that may also live in the tree.
+   */
+  private generationSheet(): Locator {
+    return this.page.getByRole('dialog', { name: /generation settings$/i });
+  }
+
+  /**
+   * Opens the mobile `GenerationConfigSheet` bottom sheet if it isn't open.
+   * No-op on desktop (the chip doesn't exist) and when the sheet is already
+   * open. Tests that interact with aspect-ratio / resolution / duration
+   * controls call this so the underlying `*Control` components are
+   * actually rendered — on mobile they live inside the sheet, not inline.
+   *
+   * Uses `waitFor` so a still-mounting DOM (e.g. caller invoked the helper
+   * before the modality-switch render had committed) doesn't race a one-shot
+   * `count()` and short-circuit into the wrong branch. `getByRole` excludes
+   * `aria-hidden` elements, so the "sheet already open" case naturally times
+   * out into the no-op branch — the chip is in the inert subtree and won't
+   * attach by role.
+   */
+  async openGenerationSheetIfNeeded(): Promise<void> {
+    const chip = this.page.getByRole('button', { name: /^(Image|Video) settings:/i });
+    const present = await chip
+      .first()
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!present) return;
+    await chip.first().click();
+    await expect(this.generationSheet()).toBeVisible();
+  }
+
+  /**
+   * Closes the mobile `GenerationConfigSheet` if it's open. No-op otherwise.
+   * Tests call this between configuring generation settings and sending the
+   * prompt, so the sheet doesn't block the composer interaction.
+   *
+   * 500ms `waitFor` is long enough for an open/close transition to settle
+   * but short enough to keep desktop tests snappy (the sheet was never
+   * mounted, so the wait always times out into the no-op branch).
+   */
+  async closeGenerationSheetIfOpen(): Promise<void> {
+    const sheet = this.generationSheet();
+    const open = await sheet
+      .waitFor({ state: 'visible', timeout: 500 })
+      .then(() => true)
+      .catch(() => false);
+    if (!open) return;
+    await this.page.keyboard.press('Escape');
+    await expect(sheet).not.toBeVisible();
   }
 
   /** Click an aspect-ratio toggle pill ('1:1' | '16:9' | '9:16' | '4:5' etc). */
   async selectAspectRatio(ratio: string): Promise<void> {
-    const pill = this.page.getByRole('button', { name: ratio });
+    await this.openGenerationSheetIfNeeded();
+    const pill = this.page.getByRole('button', { name: ratio, exact: true });
     await expect(pill).toBeVisible();
     await pill.click();
     await expect(pill).toHaveAttribute('aria-pressed', 'true');
   }
 
-  /** Click a video resolution toggle pill (label starts with the resolution followed by inline price). */
+  /**
+   * Click a video resolution toggle pill ('720p' | '1080p' | '4k'). The pill's
+   * accessible name is the bare resolution string — the visible "HD"/"FHD"
+   * label and price live elsewhere in the row. Exact match avoids colliding
+   * with the mobile `GenerationSummaryChip`, whose name embeds the resolution.
+   */
   async selectResolution(resolution: '720p' | '1080p' | '4k'): Promise<void> {
-    const pill = this.page.getByRole('button', {
-      name: new RegExp(String.raw`^${resolution}\s+\$`, 'i'),
-    });
+    await this.openGenerationSheetIfNeeded();
+    const pill = this.page.getByRole('button', { name: resolution, exact: true });
     await expect(pill).toBeVisible();
     await pill.click();
     await expect(pill).toHaveAttribute('aria-pressed', 'true');
@@ -509,6 +575,7 @@ export class ChatPage {
 
   /** Drag the video duration slider to N seconds (uses keyboard for determinism). */
   async setVideoDuration(seconds: number): Promise<void> {
+    await this.openGenerationSheetIfNeeded();
     const slider = this.page.getByRole('slider', { name: /video duration in seconds/i });
     await expect(slider).toBeVisible();
     await slider.focus();

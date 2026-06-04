@@ -1,6 +1,7 @@
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { ChatPage } from '../pages';
 import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
+import { captureChatRoutePayload } from '../helpers/route-payload.js';
 
 /**
  * Image generation flow end-to-end.
@@ -21,7 +22,14 @@ test.describe('Image Generation', () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToImageMode();
-    await expect(authenticatedPage.getByRole('button', { name: '16:9' })).toBeVisible();
+    // Aspect-ratio pills live inline on desktop and inside the bottom sheet
+    // on mobile. Open the sheet (no-op on desktop) so the pill is reachable
+    // regardless of layout, then close it so it doesn't block the composer.
+    await chatPage.openGenerationSheetIfNeeded();
+    await expect(
+      authenticatedPage.getByRole('button', { name: '16:9', exact: true })
+    ).toBeVisible();
+    await chatPage.closeGenerationSheetIfOpen();
 
     const prompt = `A photo of a sunset over mountains ${String(Date.now())}`;
     await chatPage.sendNewChatMessage(prompt);
@@ -53,10 +61,14 @@ test.describe('Image Generation', () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToImageMode();
+    // Pills live in the bottom sheet on mobile; openGenerationSheetIfNeeded
+    // no-ops on desktop. Exact match avoids matching the GenerationSummaryChip,
+    // whose accessible name embeds "1:1" / "16:9" as substrings.
+    await chatPage.openGenerationSheetIfNeeded();
 
     // 1:1 is default
-    const oneToOne = authenticatedPage.getByRole('button', { name: '1:1' });
-    const sixteenNine = authenticatedPage.getByRole('button', { name: '16:9' });
+    const oneToOne = authenticatedPage.getByRole('button', { name: '1:1', exact: true });
+    const sixteenNine = authenticatedPage.getByRole('button', { name: '16:9', exact: true });
     await expect(oneToOne).toHaveAttribute('aria-pressed', 'true');
     await expect(sixteenNine).toHaveAttribute('aria-pressed', 'false');
 
@@ -232,23 +244,18 @@ test.describe('Image Generation', () => {
 
     await chatPage.switchToImageMode();
     await chatPage.selectAspectRatio('16:9');
+    // `selectAspectRatio` opens the bottom sheet on mobile to reach the pill;
+    // close it before sending so the composer is reachable.
+    await chatPage.closeGenerationSheetIfOpen();
 
-    let chatPayload: unknown;
-    await authenticatedPage.route('**/api/chat/**', async (route) => {
-      const request = route.request();
-      const postData = request.postData();
-      if (postData) {
-        chatPayload = JSON.parse(postData) as unknown;
-      }
-      await route.continue();
-    });
+    const captured = await captureChatRoutePayload(authenticatedPage);
 
     const prompt = `Aspect-ratio payload check ${String(Date.now())}`;
     await chatPage.sendNewChatMessage(prompt);
     await chatPage.waitForConversation();
 
-    await expect.poll(() => chatPayload, { timeout: 10_000 }).toBeDefined();
-    expect(JSON.stringify(chatPayload)).toContain('16:9');
+    await expect.poll(captured.get, { timeout: 10_000 }).toBeDefined();
+    expect(JSON.stringify(captured.get())).toContain('16:9');
   });
 
   /**

@@ -53,6 +53,23 @@ export function DocumentCard({
   const { activeDocumentId, setActiveDocument } = useDocumentStore();
   const isActive = activeDocumentId === document.id;
 
+  // Streaming re-anchor: `generateDocumentId` hashes the source code, so the
+  // id mutates each time a token arrives. If this card was the active one on
+  // the previous render and its id has now shifted, re-claim the active slot
+  // with the fresh Document. Without this, opening a still-streaming card
+  // would freeze the panel on the title/content captured at click time —
+  // e.g., showing "Mermaid Diagram" forever for a `graph TD` block whose
+  // first line wasn't yet streamed when the user clicked.
+  const previousIdRef = React.useRef<string>(document.id);
+  React.useEffect(() => {
+    const previousId = previousIdRef.current;
+    previousIdRef.current = document.id;
+    if (previousId === document.id) return;
+    if (activeDocumentId === previousId) {
+      setActiveDocument(document);
+    }
+  }, [document, activeDocumentId, setActiveDocument]);
+
   const handleClick = (): void => {
     setActiveDocument(document);
   };

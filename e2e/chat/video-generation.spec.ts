@@ -1,6 +1,7 @@
 import { test, expect, unsettledExpect } from '../fixtures.js';
 import { ChatPage } from '../pages';
 import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
+import { captureChatRoutePayload } from '../helpers/route-payload.js';
 import { expectVideoDecoded } from '../helpers/webkit-media-decode.js';
 
 /**
@@ -24,13 +25,24 @@ test.describe('Video Generation', () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToVideoMode();
+    // Aspect-ratio pills, resolution pills, and the duration slider live
+    // inline on desktop and inside the bottom sheet on mobile. Open the
+    // sheet to make them reachable on both layouts, then close it so the
+    // composer isn't obscured.
+    await chatPage.openGenerationSheetIfNeeded();
 
-    await expect(authenticatedPage.getByRole('button', { name: '16:9' })).toBeVisible();
-    await expect(authenticatedPage.getByRole('button', { name: '9:16' })).toBeVisible();
+    await expect(
+      authenticatedPage.getByRole('button', { name: '16:9', exact: true })
+    ).toBeVisible();
+    await expect(
+      authenticatedPage.getByRole('button', { name: '9:16', exact: true })
+    ).toBeVisible();
     const durationSlider = authenticatedPage.getByRole('slider', {
       name: /video duration in seconds/i,
     });
     await expect(durationSlider).toBeVisible();
+
+    await chatPage.closeGenerationSheetIfOpen();
 
     const prompt = `Generate a clip of a cat surfing ${String(Date.now())}`;
     await chatPage.sendNewChatMessage(prompt);
@@ -47,16 +59,27 @@ test.describe('Video Generation', () => {
     await expectVideoDecoded(videoElement, browserName, { timeout: 10_000 });
   });
 
-  test('resolution button labels include per-second price', async ({ authenticatedPage }) => {
+  test('resolution buttons render with quality-tier label and pixel row', async ({
+    authenticatedPage,
+  }) => {
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.goto();
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToVideoMode();
 
-    // Mock Veo 3.1 prices 720p/1080p — labels should render as "720p $0.10/s" etc.
-    const resButton = authenticatedPage.getByRole('button', { name: /720p\s+\$\d+\.\d+\/s/i });
-    await expect(resButton).toBeVisible();
+    // Mock Veo 3.1 supports 720p and 1080p. Each pill renders the quality
+    // tier (HD/FHD) above the pixel row (720p/1080p). The accessible name is
+    // the pixel row alone — price lives on `MediaCostLine`, not the button.
+    const hdPill = authenticatedPage.getByRole('button', { name: '720p', exact: true });
+    await expect(hdPill).toBeVisible();
+    await expect(hdPill).toContainText('HD');
+    await expect(hdPill).toContainText('720p');
+
+    const fhdPill = authenticatedPage.getByRole('button', { name: '1080p', exact: true });
+    await expect(fhdPill).toBeVisible();
+    await expect(fhdPill).toContainText('FHD');
+    await expect(fhdPill).toContainText('1080p');
   });
 
   /** C1+C2: cost AND nametag visible on the generated video message. */
@@ -214,22 +237,18 @@ test.describe('Video Generation', () => {
 
     await chatPage.switchToVideoMode();
     await chatPage.selectResolution('1080p');
+    // `selectResolution` opens the bottom sheet on mobile; close it before
+    // sending so the composer is interactive.
+    await chatPage.closeGenerationSheetIfOpen();
 
-    let chatPayload: unknown;
-    await authenticatedPage.route('**/api/chat/**', async (route) => {
-      const postData = route.request().postData();
-      if (postData) {
-        chatPayload = JSON.parse(postData) as unknown;
-      }
-      await route.continue();
-    });
+    const captured = await captureChatRoutePayload(authenticatedPage);
 
     const prompt = `Resolution payload check ${String(Date.now())}`;
     await chatPage.sendNewChatMessage(prompt);
     await chatPage.waitForConversation();
 
-    await expect.poll(() => chatPayload, { timeout: 10_000 }).toBeDefined();
-    expect(JSON.stringify(chatPayload)).toContain('1080p');
+    await expect.poll(captured.get, { timeout: 10_000 }).toBeDefined();
+    expect(JSON.stringify(captured.get())).toContain('1080p');
   });
 
   /**
@@ -243,6 +262,11 @@ test.describe('Video Generation', () => {
     await chatPage.expectNewChatPageVisible();
 
     await chatPage.switchToVideoMode();
+    // Both the slider and the cost preview live in the bottom sheet on mobile.
+    // Open it once for the whole test; no need to close — the test never
+    // sends a prompt.
+    await chatPage.openGenerationSheetIfNeeded();
+
     const slider = authenticatedPage.getByRole('slider', { name: /video duration in seconds/i });
     const initialValue = await slider.inputValue();
     expect(Number(initialValue)).toBeGreaterThanOrEqual(1);
@@ -271,22 +295,18 @@ test.describe('Video Generation', () => {
 
     await chatPage.switchToVideoMode();
     await chatPage.selectAspectRatio('9:16');
+    // `selectAspectRatio` opens the bottom sheet on mobile; close it before
+    // sending so the composer is reachable.
+    await chatPage.closeGenerationSheetIfOpen();
 
-    let chatPayload: unknown;
-    await authenticatedPage.route('**/api/chat/**', async (route) => {
-      const postData = route.request().postData();
-      if (postData) {
-        chatPayload = JSON.parse(postData) as unknown;
-      }
-      await route.continue();
-    });
+    const captured = await captureChatRoutePayload(authenticatedPage);
 
     const prompt = `Portrait video ${String(Date.now())}`;
     await chatPage.sendNewChatMessage(prompt);
     await chatPage.waitForConversation();
 
-    await expect.poll(() => chatPayload, { timeout: 10_000 }).toBeDefined();
-    expect(JSON.stringify(chatPayload)).toContain('9:16');
+    await expect.poll(captured.get, { timeout: 10_000 }).toBeDefined();
+    expect(JSON.stringify(captured.get())).toContain('9:16');
   });
 
   /**
@@ -356,6 +376,9 @@ test.describe('Video Generation', () => {
 
     await chatPage.switchToVideoMode();
     await chatPage.selectSingleModel('google/veo-3.1-fast-generate-001');
+    // Open the sheet once; setVideoDuration / selectResolution rely on the
+    // controls being mounted and the cost line lives in the sheet on mobile.
+    await chatPage.openGenerationSheetIfNeeded();
     await chatPage.setVideoDuration(6);
 
     const costLine = authenticatedPage.locator(String.raw`text=/^≈\s+\$\d+\.\d{3}$/`).first();
@@ -413,11 +436,18 @@ test.describe('Video Generation', () => {
     const videoIcon = lowBalancePage.getByRole('button', { name: /switch to video/i });
     await expect(videoIcon).toBeVisible();
     await videoIcon.click();
+    // VideoResolutionControl (and its empty-state hint) lives in the bottom
+    // sheet on mobile. Open it so the assertions below can find it on either
+    // layout. Close before opening the model selector so the two overlays
+    // don't stack.
+    await chatPage.openGenerationSheetIfNeeded();
 
     await expect(
       lowBalancePage.getByText(/Select a video model to see resolution options/i)
     ).toBeVisible({ timeout: 10_000 });
-    await expect(lowBalancePage.getByRole('button', { name: /720p/i })).toHaveCount(0);
+    await expect(lowBalancePage.getByRole('button', { name: '720p', exact: true })).toHaveCount(0);
+
+    await chatPage.closeGenerationSheetIfOpen();
 
     await test.step('all video models in the modal show the premium lock icon', async () => {
       await chatPage.openModelSelector();

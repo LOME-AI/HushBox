@@ -59,11 +59,12 @@ export const isSecret = (v: unknown): v is Secret =>
 export const isModeOverride = (v: unknown): v is { value: EnvValue; to: Destination[] } =>
   typeof v === 'object' && v !== null && 'value' in v && 'to' in v;
 
-/** Get destinations for a specific mode (uses override or default) */
+/** Get destinations for a specific mode (uses override or default). */
 export function getDestinations(config: VariableConfig, mode: EnvMode): Destination[] {
   const modeValue = config[mode];
   if (modeValue === undefined) return [];
   if (isModeOverride(modeValue)) return modeValue.to;
+  if (isRef(modeValue)) return getDestinations(config, modeValue.env);
   return config.to;
 }
 
