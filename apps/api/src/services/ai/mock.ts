@@ -259,14 +259,17 @@ function createTextStream(
   // Chunked rather than one delta per character: chunks still split the fenced
   // code block mid-token and span embedded newlines, preserving the streamdown
   // incomplete-markdown and SSE multi-line `data:` paths the per-character
-  // version targeted, at ~1/STREAM_CHUNK_CHARS the frame count. Spread by code
-  // point (not UTF-16 unit) so a multi-byte character is never split mid-token.
-  const codePoints = [...echoContent];
+  // version targeted, at ~1/STREAM_CHUNK_CHARS the frame count. Segment by
+  // grapheme so a multi-byte character or emoji cluster is never split mid-token.
+  const graphemes = Array.from(
+    new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(echoContent),
+    (segment) => segment.segment
+  );
   const events: InferenceEvent[] = [];
-  for (let index = 0; index < codePoints.length; index += STREAM_CHUNK_CHARS) {
+  for (let index = 0; index < graphemes.length; index += STREAM_CHUNK_CHARS) {
     events.push({
       kind: 'text-delta',
-      content: codePoints.slice(index, index + STREAM_CHUNK_CHARS).join(''),
+      content: graphemes.slice(index, index + STREAM_CHUNK_CHARS).join(''),
     });
   }
 
