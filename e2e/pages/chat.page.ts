@@ -422,8 +422,10 @@ export class ChatPage {
     // After the cycle counter increments, streaming-count is by definition 0;
     // a short deadline catches any incoherent state.
     await expect(this.messageList).toHaveAttribute('data-streaming-count', '0', { timeout: 1000 });
+    // Toolbar is in the DOM once isStreaming clears; assert attachment, not
+    // viewport visibility — see waitForStreamComplete for the full rationale.
     const lastToolbar = this.messageList.locator('[data-testid="message-actions"]').last();
-    await expect(lastToolbar).toBeVisible({ timeout: 500 });
+    await expect(lastToolbar).toBeAttached({ timeout: 5000 });
   }
 
   /**
@@ -462,11 +464,17 @@ export class ChatPage {
     await unsettledExpect(this.messageList).toHaveAttribute('data-streaming-count', '0', {
       timeout,
     });
-    // Once streaming has drained, the assistant message's action toolbar
-    // should be visible — gating it on cost settlement (the Bug 6
-    // anti-pattern) makes the UI feel frozen.
+    // Once streaming has drained (data-streaming-count === 0) the assistant's
+    // toolbar is already in the DOM — isStreaming cleared earlier, at the
+    // model:done flip. Assert attachment, not viewport visibility: the toolbar
+    // is `translate-y-full` and `.last()` can sit below the scroll fold (short
+    // mobile viewports, or after a deliberate scroll-up), and scrolling it into
+    // view here would corrupt the caller's scroll-position assertions. This
+    // still catches the "frozen UI / toolbar never renders" regression (the
+    // Bug 6 cost-settlement anti-pattern); tests that click the toolbar gate
+    // its visibility explicitly via prepareMessage() + a polled scroll-into-view.
     const lastToolbar = this.messageList.locator('[data-testid="message-actions"]').last();
-    await expect(lastToolbar).toBeVisible({ timeout: 500 });
+    await expect(lastToolbar).toBeAttached({ timeout: 5000 });
   }
 
   /** Switch the prompt input to image generation modality. Click the image icon button. */

@@ -292,7 +292,7 @@ describe('createMockAIClient', () => {
       expect(textContent.startsWith('Echo:\nHello, world!')).toBe(true);
     });
 
-    it('yields individual characters as text-delta events', async () => {
+    it('streams the echo as multiple coalesced text-delta chunks', async () => {
       const request: TextRequest = {
         modality: 'text',
         model: 'anthropic/claude-sonnet-4.6',
@@ -304,11 +304,12 @@ describe('createMockAIClient', () => {
         (e): e is Extract<InferenceEvent, { kind: 'text-delta' }> => e.kind === 'text-delta'
       );
 
-      // Each character is a separate event
-      expect(deltas.length).toBeGreaterThanOrEqual('Echo:\nHi'.length);
-      for (const delta of deltas) {
-        expect(delta.content.length).toBe(1);
-      }
+      const joined = deltas.map((d) => d.content).join('');
+      // Streamed in pieces (exercises the client's incremental-render path)…
+      expect(deltas.length).toBeGreaterThan(1);
+      // …but coalesced, not one delta per character (keeps SSE frame count low).
+      expect(deltas.length).toBeLessThan(joined.length);
+      expect(joined.startsWith('Echo:\nHi')).toBe(true);
     });
 
     it('ends with a finish event containing a generationId (no inline cost)', async () => {
@@ -374,13 +375,15 @@ describe('createMockAIClient', () => {
       const request: TextRequest = {
         modality: 'text',
         model: 'anthropic/claude-sonnet-4.6',
-        messages: [{ role: 'user', content: 'Hi' }],
+        // Long enough that the chunked echo spans several deltas, so the
+        // inter-delta delay is exercised across multiple gaps.
+        messages: [{ role: 'user', content: 'x'.repeat(120) }],
       };
       const start = Date.now();
       const events = await collectEvents(delayed.stream(request));
       const elapsed = Date.now() - start;
       const deltas = events.filter((e) => e.kind === 'text-delta').length;
-      expect(deltas).toBeGreaterThan(5);
+      expect(deltas).toBeGreaterThan(3);
       expect(elapsed).toBeGreaterThanOrEqual(delayMs * (deltas - 1));
     });
 

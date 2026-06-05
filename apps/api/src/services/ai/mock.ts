@@ -234,6 +234,15 @@ function createFirstCallDelay(delayMs: number): () => Promise<void> {
   };
 }
 
+/**
+ * Characters per streamed `text-delta`. Coarse enough to keep the SSE frame and
+ * client re-render count low under load — the per-character version emitted
+ * ~one frame + one React render per character (~500 for a long echo), which
+ * under CI saturation starves the Worker event loop and stalls turn
+ * finalization — yet fine enough that the echo still streams in multiple pieces.
+ */
+const STREAM_CHUNK_CHARS = 24;
+
 function createTextStream(
   request: TextRequest,
   mint: MintGenerationId,
@@ -247,9 +256,18 @@ function createTextStream(
   const echoContent =
     `Echo:\n${extractLastUserContent(request.messages)}\n\n` + '```json\n{\n  "ok": true\n}\n```';
 
+  // Chunked rather than one delta per character: chunks still split the fenced
+  // code block mid-token and span embedded newlines, preserving the streamdown
+  // incomplete-markdown and SSE multi-line `data:` paths the per-character
+  // version targeted, at ~1/STREAM_CHUNK_CHARS the frame count. Spread by code
+  // point (not UTF-16 unit) so a multi-byte character is never split mid-token.
+  const codePoints = [...echoContent];
   const events: InferenceEvent[] = [];
-  for (const char of echoContent) {
-    events.push({ kind: 'text-delta', content: char });
+  for (let index = 0; index < codePoints.length; index += STREAM_CHUNK_CHARS) {
+    events.push({
+      kind: 'text-delta',
+      content: codePoints.slice(index, index + STREAM_CHUNK_CHARS).join(''),
+    });
   }
 
   const promptCharacters = countPromptCharacters(request.messages);
