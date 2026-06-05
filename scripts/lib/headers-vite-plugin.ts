@@ -30,14 +30,11 @@ export interface HeadersPluginOptions {
 export interface HeaderRule {
   readonly pattern: string;
   readonly regex: RegExp;
-  readonly specificity: number;
   readonly headers: Record<string, string>;
   /**
-   * Header names this rule strips when applied. Mirrors Cloudflare Pages'
-   * `! HeaderName` syntax — a more-specific rule can remove a value that
-   * a less-specific rule (typically `/*`) would otherwise carry into the
-   * response. Used by marketing blocks to drop the SPA fallback CSP that
-   * CF Pages would otherwise comma-join with the hashed marketing CSP.
+   * Header names this rule strips (`! HeaderName`). Deletes a value an earlier
+   * rule set; can't reach a later rule — so a marketing block drops the SPA
+   * `/*` CSP only when `/*` precedes it.
    */
   readonly unsets: readonly string[];
 }
@@ -74,7 +71,6 @@ function finalizeRule(current: CurrentRule): HeaderRule {
   return {
     pattern: current.pattern,
     regex: patternToRegex(current.pattern),
-    specificity: computeSpecificity(current.pattern),
     headers: current.headers,
     unsets: current.unsets,
   };
@@ -154,37 +150,70 @@ function patternToRegex(pattern: string): RegExp {
   return new RegExp(`^${escaped}$`);
 }
 
-function computeSpecificity(pattern: string): number {
-  return pattern.length - (pattern.match(/\*/g)?.length ?? 0);
+/**
+ * First writer of a name sets it; later writers append (Cloudflare's rule).
+ * Current presence stands in for its "ever set" flag, since appending onto an
+ * unset-emptied header is observably a fresh single value. Non-empty tuple so
+ * callers read `[0]` as `string`.
+ */
+function setOrAppendHeader(
+  values: Map<string, [string, ...string[]]>,
+  name: string,
+  value: string
+): void {
+  const existing = values.get(name);
+  values.set(name, existing ? [...existing, value] : [value]);
 }
 
-export function matchHeaders(rules: readonly HeaderRule[], url: string): Record<string, string> {
-  const pathname = (url.split('?')[0] ?? '').split('#')[0] ?? '';
-  const matched = rules
-    .filter((rule) => rule.regex.test(pathname))
-    .toSorted((a, b) => a.specificity - b.specificity);
+/** Collapse single-value headers to a string; keep multi-value ones as arrays. */
+function collapseValues(
+  values: Map<string, [string, ...string[]]>
+): Record<string, string | string[]> {
+  const result: Record<string, string | string[]> = {};
+  for (const [name, list] of values) {
+    result[name] = list.length === 1 ? list[0] : list;
+  }
+  return result;
+}
 
-  // Map (not plain Record) for the working set so `.delete(name)` is allowed
-  // by `@typescript-eslint/no-dynamic-delete` without an escape hatch. The
-  // serialized return value still matches the public Record<string, string>
-  // contract via Object.fromEntries.
-  const merged = new Map<string, string>();
-  for (const rule of matched) {
-    // Unsets fire before setters in the same rule: they strip values
-    // inherited from less-specific rules processed earlier in this loop.
-    // The rule's own setters then write fresh values on top.
+/**
+ * Apply matching `_headers` rules to `url`, mirroring Cloudflare Pages'
+ * `attachCustomHeaders` so preview matches production:
+ *   - matched rules apply in file order (no specificity sort);
+ *   - `! Name` deletes before that rule's setters, hitting only earlier-set
+ *     values — never a later rule;
+ *   - a repeated name appends, it does not override.
+ * Returns a string for one value, string[] for several. Surfacing the array
+ * (not collapsing) is what lets preview reproduce the two-CSP intersection bug
+ * a name-keyed, last-wins map would hide. Names are keyed verbatim; the
+ * generator only emits canonical casing.
+ */
+export function matchHeaders(
+  rules: readonly HeaderRule[],
+  url: string
+): Record<string, string | string[]> {
+  const pathname = (url.split('?')[0] ?? '').split('#')[0] ?? '';
+  // Map so `.delete()` satisfies @typescript-eslint/no-dynamic-delete.
+  const values = new Map<string, [string, ...string[]]>();
+  for (const rule of rules) {
+    if (!rule.regex.test(pathname)) continue;
     for (const name of rule.unsets) {
-      merged.delete(name);
+      values.delete(name);
     }
     for (const [name, value] of Object.entries(rule.headers)) {
-      merged.set(name, value);
+      setOrAppendHeader(values, name, value);
     }
   }
-  return Object.fromEntries(merged);
+  return collapseValues(values);
 }
 
-export function applyHeaders(res: ServerResponse, headers: Record<string, string>): void {
+export function applyHeaders(
+  res: ServerResponse,
+  headers: Record<string, string | string[]>
+): void {
   for (const [name, value] of Object.entries(headers)) {
+    // Array value → one header line per element: the duplicate-header parity
+    // that reproduces Cloudflare's CSP intersection in preview.
     res.setHeader(name, value);
   }
 }

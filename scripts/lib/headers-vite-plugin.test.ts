@@ -174,10 +174,28 @@ describe('matchHeaders', () => {
     expect(matchHeaders(allRules, '/chat/123')).toEqual({ 'X-Catch-All': 'true' });
   });
 
-  it('lets more specific rules override the same header from less specific ones', () => {
-    const rules = [rule('/*', { 'X-CSP': 'spa' }), rule('/welcome', { 'X-CSP': 'marketing' })];
-    expect(matchHeaders(rules, '/welcome')['X-CSP']).toBe('marketing');
+  it('appends a repeated header from multiple matching rules (file order, no override)', () => {
+    // Cloudflare appends a repeated header in file order rather than
+    // overriding — the preview must reproduce that, not collapse to one value
+    // (the collapse is what hid the production CSP bug).
+    const rules = parseHeadersFile('/welcome\n  X-CSP: marketing\n\n/*\n  X-CSP: spa');
+    expect(matchHeaders(rules, '/welcome')['X-CSP']).toEqual(['marketing', 'spa']);
+    // A path matched only by `/*` carries the single value.
     expect(matchHeaders(rules, '/chat')['X-CSP']).toBe('spa');
+  });
+
+  it('a `! Name` unset cannot strip a header a LATER rule sets (the shipped CSP bug)', () => {
+    // The shipped bug: marketing block first (unset + hashed CSP), `/*` last.
+    // The unset deletes nothing (no `/*` value yet), then `/*` appends — two
+    // CSP policies reach the browser and the intersection blocks the scripts.
+    const rules = parseHeadersFile(
+      '/welcome/\n  ! Content-Security-Policy\n  Content-Security-Policy: marketing\n\n' +
+        '/*\n  Content-Security-Policy: spa'
+    );
+    expect(matchHeaders(rules, '/welcome/')['Content-Security-Policy']).toEqual([
+      'marketing',
+      'spa',
+    ]);
   });
 
   it('returns an empty object when nothing matches', () => {
@@ -185,11 +203,10 @@ describe('matchHeaders', () => {
     expect(matchHeaders(rules, '/something-else')).toEqual({});
   });
 
-  it('removes a header set by a less-specific rule when a more-specific rule unsets it', () => {
-    // Mirrors Cloudflare Pages `! HeaderName` semantics. The SPA `/*` block
-    // sets a permissive CSP; the marketing block unsets that inheritance
-    // and supplies its own hashed CSP. Result: only the marketing CSP
-    // ends up in the response, with other SPA headers preserved.
+  it('a `! Name` unset strips a header an EARLIER rule set, leaving one value (the fix: /* first)', () => {
+    // The fix: `/*` first, so the per-path unset deletes the inherited CSP
+    // before re-setting its own — net one CSP. Untouched headers
+    // (X-Frame-Options) inherit from `/*`.
     const rules = parseHeadersFile(
       '/*\n  Content-Security-Policy: spa\n  X-Frame-Options: DENY\n\n' +
         '/welcome/\n  ! Content-Security-Policy\n  Content-Security-Policy: marketing'
@@ -217,6 +234,12 @@ describe('applyHeaders', () => {
     expect(res.getHeader('Content-Security-Policy')).toBe("default-src 'self'");
     expect(res.getHeader('X-Frame-Options')).toBe('DENY');
     expect(res.getHeader('Referrer-Policy')).toBe('no-referrer');
+  });
+
+  it('emits an array value as multiple header lines (duplicate-header parity)', () => {
+    const res = makeResponse();
+    applyHeaders(res, { 'Content-Security-Policy': ['policy-a', 'policy-b'] });
+    expect(res.getHeader('Content-Security-Policy')).toEqual(['policy-a', 'policy-b']);
   });
 
   it('is a no-op when given an empty headers object', () => {

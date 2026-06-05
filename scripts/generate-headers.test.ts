@@ -10,6 +10,7 @@ import {
   deriveApiOrigin,
   deriveLocalR2Origin,
 } from './generate-headers.js';
+import { parseHeadersFile, matchHeaders } from './lib/headers-vite-plugin.js';
 
 let repoRoot: string;
 
@@ -176,14 +177,26 @@ describe('generateHeaders', () => {
     expect(postSlash).not.toContain(sha256Token('alpha'));
   });
 
-  it('prepends `! Content-Security-Policy` in each marketing block to unset SPA inheritance', async () => {
-    // Cloudflare Pages comma-joins same-name headers from every matching
-    // rule. Without the `! HeaderName` unset, browsers receive both the
-    // marketing CSP (with hashes) and the SPA `/*` block's CSP (no hashes)
-    // and AND them together — the hashes become useless because the second
-    // policy denies all inline scripts. The `! HeaderName` syntax in a
-    // more-specific rule removes the inherited value before the rule sets
-    // its own. SPA block stays untouched (no unset there).
+  it('emits the SPA `/*` block first, before any marketing block', async () => {
+    // A per-path `! Content-Security-Policy` only strips the `/*` CSP when `/*`
+    // precedes it (Cloudflare applies rules top-to-bottom). `/*` last — the
+    // shipped bug — leaves its hashless CSP appended: two policies the browser
+    // intersects.
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
+    const content = await fs.readFile(result.outputPath, 'utf8');
+
+    const firstPathBlock = content
+      .split('\n\n')
+      .map((b) => blockHead(b))
+      .find((h) => h.startsWith('/'));
+    expect(firstPathBlock).toBe('/*');
+  });
+
+  it('unsets every header it re-sets in each marketing block, before re-setting it', async () => {
+    // Every header a marketing block re-sets is already set by `/*`, and
+    // Cloudflare appends rather than replaces — so each must be unset first or
+    // it carries two values. The `/*` block itself has no unsets.
     await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
     const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
     const content = await fs.readFile(result.outputPath, 'utf8');
@@ -194,17 +207,26 @@ describe('generateHeaders', () => {
         const block = blocks.find((b) => blockHead(b) === variant);
         expect(block, `block for ${variant} not found`).toBeDefined();
         const lines = (block ?? '').split('\n').map((l) => l.trim());
-        const unsetIndex = lines.indexOf('! Content-Security-Policy');
-        const setterIndex = lines.findIndex((l) => l.startsWith('Content-Security-Policy:'));
-        expect(unsetIndex, `${variant} missing ! Content-Security-Policy`).toBeGreaterThan(-1);
-        expect(setterIndex).toBeGreaterThan(-1);
-        expect(unsetIndex).toBeLessThan(setterIndex);
+        // Setters are `Name: value` lines (path and `! Name` lines have no
+        // colon); split on the first colon so `https://` in CSP values is safe.
+        const setterNames = lines
+          .filter((l) => l.includes(':') && !l.startsWith('!'))
+          .map((l) => l.slice(0, l.indexOf(':')).trim());
+        expect(setterNames, `${variant} sets no CSP`).toContain('Content-Security-Policy');
+        for (const name of setterNames) {
+          const unsetIndex = lines.indexOf(`! ${name}`);
+          const setterIndex = lines.findIndex((l) => l.startsWith(`${name}:`));
+          expect(unsetIndex, `${variant} missing ! ${name}`).toBeGreaterThan(-1);
+          expect(unsetIndex, `${variant} unset of ${name} must precede its setter`).toBeLessThan(
+            setterIndex
+          );
+        }
       }
     }
 
     const spaBlock = blocks.find((b) => blockHead(b) === '/*');
     expect(spaBlock).toBeDefined();
-    expect(spaBlock).not.toContain('! Content-Security-Policy');
+    expect(spaBlock).not.toContain('! ');
   });
 
   it('inlines per-page script hashes into the marketing CSP script-src', async () => {
@@ -228,6 +250,46 @@ describe('generateHeaders', () => {
     expect(welcomeBlock).toBeDefined();
     expect(welcomeBlock).toContain(sha256Token('alpha'));
     expect(welcomeBlock).toContain(sha256Token('beta'));
+  });
+
+  it('serves exactly one CSP per marketing path under Cloudflare rule semantics', async () => {
+    // The real guard against the shipped bug: `matchHeaders` reproduces
+    // Cloudflare's per-path + `/*` append, so each marketing path must resolve
+    // to ONE Content-Security-Policy (the hashed one), never two. A pure SPA
+    // path keeps the single hashless catch-all.
+    const distribution = path.join(repoRoot, 'apps/web/dist');
+    await writeHtml(
+      path.join(distribution, 'welcome/index.html'),
+      htmlWithInlineScripts('w1', 'w2')
+    );
+    for (const route of MARKETING_ROUTES.filter((r) => r !== '/welcome')) {
+      const prefix = route.replace(/^\//, '');
+      await writeHtml(
+        path.join(distribution, prefix, 'index.html'),
+        htmlWithInlineScripts(`x-${prefix}`)
+      );
+    }
+    const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
+    const rules = parseHeadersFile(await fs.readFile(result.outputPath, 'utf8'));
+
+    // Trailing-slash form is what Cloudflare serves the marketing HTML at.
+    const welcomeCsp = matchHeaders(rules, '/welcome/')['Content-Security-Policy'];
+    expect(Array.isArray(welcomeCsp), '/welcome/ must not carry two CSP headers').toBe(false);
+    expect(welcomeCsp).toContain(sha256Token('w1'));
+    expect(welcomeCsp).toContain(sha256Token('w2'));
+
+    // Both path forms of every marketing route must resolve to one CSP.
+    for (const route of MARKETING_ROUTES) {
+      for (const variant of [route, `${route}/`]) {
+        const csp = matchHeaders(rules, variant)['Content-Security-Policy'];
+        expect(Array.isArray(csp), `${variant} must resolve to one CSP header`).toBe(false);
+      }
+    }
+
+    // A pure SPA route inherits the hashless catch-all, also single-valued.
+    const spaCsp = matchHeaders(rules, '/chat')['Content-Security-Policy'];
+    expect(Array.isArray(spaCsp)).toBe(false);
+    expect(spaCsp).not.toContain('sha256-');
   });
 
   it("isolates hashes per-path so no page gets another page's hashes", async () => {
@@ -287,9 +349,8 @@ describe('generateHeaders', () => {
     const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
     const content = await fs.readFile(result.outputPath, 'utf8');
 
-    const spaBlockStart = content.lastIndexOf('/*\n');
-    expect(spaBlockStart).toBeGreaterThan(0);
-    const spaBlock = content.slice(spaBlockStart);
+    const spaBlock = content.split('\n\n').find((b) => blockHead(b) === '/*');
+    expect(spaBlock).toBeDefined();
     expect(spaBlock).toContain(
       "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://secure.myhelcim.com;"
     );

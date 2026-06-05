@@ -5,8 +5,9 @@
  * For each prefix in `MARKETING_ROUTES`, walks `apps/web/dist/<prefix>/` for
  * built `index.html` files, computes the SHA-256 of every inline `<script>`
  * body, and emits a per-path `_headers` block whose `script-src` carries
- * those hashes inline. The SPA `/*` block is appended at the end,
- * byte-equivalent to the policy this repo shipped before this fix.
+ * those hashes inline. The SPA `/*` block is emitted FIRST; each per-path
+ * block then unsets and re-sets every header so Cloudflare serves exactly one
+ * (hashed) CSP per marketing path instead of appending a second policy.
  *
  * Why hash from HTML directly (not from Astro's meta tag): Astro's
  * `experimental.csp` only hashes scripts Astro itself emits and skips
@@ -210,10 +211,12 @@ const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do no
 # Source of truth for SPA policy: scripts/generate-headers.ts → SPA_HEADERS
 #
 # Marketing routes get a per-path block whose script-src lists the SHA-256 of every inline
-# <script> body in the built HTML for that path. The SPA /* block at the end stays strict
-# without any hashes. Hashing happens at the HTML level (not via Astro's experimental.csp)
-# so that <script is:inline> blocks authored in .astro files are covered alongside
-# Astro-emitted runtime scripts.
+# <script> body in the built HTML for that path. Cloudflare applies rules top-to-bottom and
+# appends repeated headers, so the strict (hashless) /* block comes FIRST and each marketing
+# block unsets every header before re-setting it — its hashed CSP replaces /*, not stacks on
+# it. Hashing happens at the HTML level (not
+# via Astro's experimental.csp) so that <script is:inline> blocks authored in .astro files
+# are covered alongside Astro-emitted runtime scripts.
 #
 # Directive notes
 #  - default-src 'self': fall-through deny for anything not enumerated below.
@@ -269,7 +272,11 @@ export async function generateHeaders(
     );
   }
 
-  const blocks: string[] = [];
+  // `/*` first: Cloudflare applies rules top-to-bottom, and a per-path
+  // `! Content-Security-Policy` only deletes a CSP an earlier rule set. With
+  // `/*` last, its hashless CSP would append after the per-path block and the
+  // browser's intersection of the two policies blocks every inline script.
+  const blocks: string[] = [formatSpaBlock(spaHeaders)];
   for (const page of pages) {
     const html = await fs.readFile(page.htmlFile, 'utf8');
     const csp = computePageCsp(html);
@@ -284,8 +291,6 @@ export async function generateHeaders(
       formatMarketingBlock(`${page.urlPath}/`, csp, spaHeaders)
     );
   }
-
-  blocks.push(formatSpaBlock(spaHeaders));
 
   const fileContent = `${FILE_BANNER}\n${blocks.join('\n')}`;
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
@@ -385,13 +390,13 @@ function formatMarketingBlock(
   csp: PageCsp,
   spaHeaders: readonly { name: string; value: string }[]
 ): string {
-  // `! Content-Security-Policy` removes the value inherited from the SPA
-  // `/*` block before this rule sets the hashed CSP. Cloudflare Pages
-  // comma-joins same-name headers from every matching rule; without this
-  // unset, the response carries both the marketing CSP (with hashes) and
-  // the SPA fallback CSP (without hashes), browsers intersect them, and
-  // the hashes are defeated — every inline Astro hydration script blocked.
-  const lines: string[] = [urlPath, '  ! Content-Security-Policy'];
+  // `/*` (emitted first) already set these headers, and Cloudflare appends a
+  // repeat rather than replacing — so unset each before re-setting, or the
+  // response carries two values (for CSP, two policies the browser intersects).
+  const lines: string[] = [urlPath];
+  for (const header of spaHeaders) {
+    lines.push(`  ! ${header.name}`);
+  }
   for (const header of spaHeaders) {
     const value =
       header.name === 'Content-Security-Policy'
