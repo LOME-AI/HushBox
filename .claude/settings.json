@@ -3,7 +3,28 @@
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "permissions": {
-    "allow": ["mcp__linear-server"],
+    "allow": [
+      "mcp__linear-server",
+      "Bash(pnpm test)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm ensure-stack)",
+      "Bash(pnpm ensure-stack:*)",
+      "Bash(pnpm e2e)",
+      "Bash(pnpm e2e:*)",
+      "Bash(turbo:*)",
+      "Bash(jscpd:*)",
+      "Bash(tsgo:*)",
+      "Bash(eslint:*)",
+      "Bash(vitest:*)",
+      "Bash(git diff:*)",
+      "Bash(git status)",
+      "Bash(git status:*)",
+      "Bash(git log:*)"
+    ],
     "deny": [
       "Bash(git stash:*)",
       "Bash(git checkout -- :*)",
