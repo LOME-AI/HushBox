@@ -21,10 +21,19 @@ import { parseOrExit } from '../lib/run-cli.js';
  * Production allowed origins. Aligns with the marketing site (`hushbox.ai`)
  * and Cloudflare Pages preview deployments. Add new origins here when new
  * frontends ship.
+ *
+ * The `localhost` entries are the Capacitor WebView origins (Android serves
+ * from `http://localhost` per `androidScheme`, iOS from `capacitor://localhost`).
+ * The native app fetches presigned R2 download URLs from these origins and is
+ * CORS-checked like a browser (CapacitorHttp is disabled, so `fetch` is not
+ * proxied natively). Keep in sync with `CAPACITOR_ORIGINS` in the API CORS
+ * middleware (`apps/api/src/middleware/cors.ts`).
  */
 export const PRODUCTION_ALLOWED_ORIGINS: readonly string[] = [
   'https://hushbox.ai',
   'https://*.hushbox.pages.dev',
+  'capacitor://localhost',
+  'http://localhost',
 ];
 
 const DEFAULT_METHODS: readonly string[] = ['GET'];
