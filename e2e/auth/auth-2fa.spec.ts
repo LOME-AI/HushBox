@@ -14,7 +14,7 @@ import {
   logoutViaUI,
   navigateToSettings,
   clearAuthRateLimits,
-  waitForNextTOTPCode,
+  getAcceptableTOTPCode,
 } from '../helpers/auth.js';
 import { DEV_PASSWORD } from '../../packages/shared/src/constants.js';
 import { TEST_2FA_TOTP_SECRET } from '../../scripts/seed.js';
@@ -109,7 +109,7 @@ test.describe('Two-Factor Authentication', () => {
         await tfaModal.waitForModal();
 
         // Wait for a fresh TOTP code to avoid replay protection
-        const loginCode = await waitForNextTOTPCode(totpSecret, setupCode);
+        const loginCode = await getAcceptableTOTPCode(request, email, totpSecret);
         await tfaModal.enterCode(loginCode);
         await tfaModal.verify();
 
@@ -125,7 +125,6 @@ test.describe('Two-Factor Authentication', () => {
       const username = uniqueUsername('dis');
       const password = 'TestPassword123!';
       let totpSecret = '';
-      let lastUsedCode = '';
 
       await test.step('enable 2FA', async () => {
         await signUpAndVerify(unauthenticatedPage, request, { username, email, password });
@@ -139,8 +138,8 @@ test.describe('Two-Factor Authentication', () => {
         totpSecret = await setupModal.waitForSecret();
         await setupModal.continueToVerify();
 
-        lastUsedCode = generateTOTPCode(totpSecret);
-        await setupModal.enterCode(lastUsedCode);
+        const enableCode = generateTOTPCode(totpSecret);
+        await setupModal.enterCode(enableCode);
         await setupModal.verify();
         await setupModal.expectSuccess();
         await setupModal.done();
@@ -156,8 +155,7 @@ test.describe('Two-Factor Authentication', () => {
         await disableModal.fillPasswordAndContinue(password);
 
         // Wait for a fresh TOTP code to avoid replay protection
-        const disableCode = await waitForNextTOTPCode(totpSecret, lastUsedCode);
-        lastUsedCode = disableCode;
+        const disableCode = await getAcceptableTOTPCode(request, email, totpSecret);
         await disableModal.enterCodeAndDisable(disableCode);
 
         await expect(disableModal.modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });

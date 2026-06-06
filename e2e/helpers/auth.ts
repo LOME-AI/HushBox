@@ -1,4 +1,3 @@
-import { setTimeout as delay } from 'node:timers/promises';
 import { generateTotpCodeSync } from '@hushbox/crypto';
 import { isMobileWidth, TEST_IDS } from '@hushbox/shared';
 import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
@@ -137,19 +136,18 @@ export async function clearUsageRateLimits(request: APIRequestContext): Promise<
 }
 
 /**
- * Waits for the TOTP code to rotate to a new value.
- * TOTP codes change every 30 seconds. This polls every 2s until a fresh code appears.
- * Use this between steps that verify different TOTP codes for the same user
- * to avoid the 90-second replay protection window.
+ * Returns a TOTP code the server will accept now, even when a code was already
+ * consumed earlier in the same 30-second window. Clears the user's replay
+ * markers via the dev endpoint so the current code is no longer replay-blocked;
+ * the server's replay check and crypto verification still run against it.
  */
-export async function waitForNextTOTPCode(secret: string, currentCode: string): Promise<string> {
-  const start = Date.now();
-  while (Date.now() - start < 35_000) {
-    const code = generateTOTPCode(secret);
-    if (code !== currentCode) return code;
-    await delay(2000);
-  }
-  throw new Error('Timed out waiting for next TOTP code');
+export async function getAcceptableTOTPCode(
+  request: APIRequestContext,
+  email: string,
+  secret: string
+): Promise<string> {
+  await request.delete(`${API_BASE}/api/dev/totp-replay`, { data: { email } });
+  return generateTOTPCode(secret);
 }
 
 /**

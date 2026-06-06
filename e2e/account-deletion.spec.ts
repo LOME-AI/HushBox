@@ -7,7 +7,7 @@ import {
   uniqueUsername,
   navigateToSettings,
   clearAuthRateLimits,
-  waitForNextTOTPCode,
+  getAcceptableTOTPCode,
 } from './helpers/auth.js';
 import { requireEnv } from './helpers/env.js';
 import { ROUTES, TEST_IDS } from '@hushbox/shared';
@@ -182,7 +182,7 @@ test.describe('Account deletion', () => {
       await advanceThroughIntroAndWallet(unauthenticatedPage);
       await submitPasswordStep(unauthenticatedPage, user.password);
 
-      const totpCode = await waitForNextTOTPCode(secret, generateTOTPCode(secret));
+      const totpCode = await getAcceptableTOTPCode(request, user.email, secret);
       const otpInput = unauthenticatedPage.getByTestId(TEST_IDS.otpInput);
       await expect(otpInput).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await otpInput.pressSequentially(totpCode);

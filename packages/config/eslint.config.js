@@ -587,6 +587,11 @@ export const playwrightConfig = [
                 'Import explicit quiescence helpers instead of the auto-settling expect; use waitForSettled where opt-in settling is needed.',
             },
             {
+              group: ['node:timers', 'node:timers/promises', 'timers', 'timers/promises'],
+              message:
+                'No timer primitives in e2e — wall-clock waits are banned (an aliased setTimeout evades the syntax rule). Gate on app-emitted readiness signals or a dev endpoint instead of sleeping.',
+            },
+            {
               group: ['@hushbox/db', '@hushbox/db/*'],
               message: 'Specs must not touch the DB directly — set up state via API/dev endpoints.',
             },

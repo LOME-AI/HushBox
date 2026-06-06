@@ -22,6 +22,7 @@ import {
   assignSequenceNumbers,
   fetchEpochPublicKey,
 } from '../chat/message-helpers.js';
+import { REDIS_REGISTRY } from '../../lib/redis-registry.js';
 import type { Redis } from '@upstash/redis';
 
 export interface ResetTrialUsageResult {
@@ -586,4 +587,33 @@ export async function setWalletBalance(
     .returning({ id: ledgerEntries.id });
 
   return { newBalance: updated.balance };
+}
+
+export interface ClearTotpReplayResult {
+  deleted: number;
+}
+
+/**
+ * Delete a user's TOTP replay markers (`totp:used:{userId}:{code}`) so a
+ * previously-accepted code can be presented again without waiting for the next
+ * 30-second window. The markers enforce one-time use; clearing them lets a flow
+ * reuse the current code while the real replay check and crypto verification
+ * still run against it. Dev/test only.
+ */
+export async function clearTotpReplay(
+  db: Database,
+  redis: Redis,
+  email: string
+): Promise<ClearTotpReplayResult> {
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, email.toLowerCase()));
+
+  if (!user) {
+    throw new Error(`User not found: ${email}`);
+  }
+
+  const markerPrefix = `${REDIS_REGISTRY.totpUsedCode.buildKey(user.id, '')}*`;
+  return deleteRedisKeysByPrefixes(redis, [markerPrefix]);
 }

@@ -12,9 +12,9 @@
  * Inputs (env): `OPS_SCRIPT` (selected name), `GITHUB_OUTPUT` (Actions output
  * file). Hard-fails (exit 1) on an unknown name or a missing required secret.
  */
-import { appendFileSync } from 'node:fs';
 import { loadManifest, type OpsManifest } from './generate-labels.js';
 import { resolveLabels, LABEL_PREFIX } from './resolve-pr-scripts.js';
+import { requireEnv, writeGithubOutput } from './run-cli.js';
 
 export type ResolveDispatchOutput = { ok: true; file: string } | { ok: false; error: string };
 
@@ -51,15 +51,6 @@ export function resolveDispatchScriptFile(input: ResolveDispatchInput): ResolveD
 }
 
 /* v8 ignore start -- CLI entry: real env reads, writes to $GITHUB_OUTPUT, exits process */
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === '') {
-    console.error(`Missing required env var: ${name}`);
-    process.exit(1);
-  }
-  return value;
-}
-
 function main(): void {
   const scriptName = requireEnv('OPS_SCRIPT');
   const githubOutput = requireEnv('GITHUB_OUTPUT');
@@ -76,7 +67,7 @@ function main(): void {
   }
 
   console.log(`Resolved ops script "${scriptName}" -> ${result.file}`);
-  appendFileSync(githubOutput, `file=${result.file}\n`);
+  writeGithubOutput(githubOutput, 'file', result.file);
 }
 
 if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
