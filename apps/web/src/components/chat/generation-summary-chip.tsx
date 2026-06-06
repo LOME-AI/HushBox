@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { ChevronDownIcon } from 'lucide-react';
+import { TEST_IDS } from '@hushbox/shared';
 import { useModelStore } from '@/stores/model';
 import { AspectRatioShape } from './aspect-ratio-pill';
 
@@ -49,7 +50,7 @@ export function GenerationSummaryChip({
       )} seconds, ${videoConfig.resolution}. Tap to edit.`}
     >
       <AspectRatioShape ratio={videoConfig.aspectRatio} sizePx={CHIP_SHAPE_PX} />
-      <span data-testid="video-summary-text" className="min-w-0 flex-1 truncate text-left">
+      <span data-testid={TEST_IDS.videoSummaryText} className="min-w-0 flex-1 truncate text-left">
         {`${videoConfig.aspectRatio} · ${String(videoConfig.durationSeconds)}s · ${videoConfig.resolution}`}
       </span>
       <ChevronDownIcon className="text-muted-foreground size-4 shrink-0" aria-hidden="true" />

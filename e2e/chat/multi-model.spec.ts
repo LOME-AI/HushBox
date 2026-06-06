@@ -1,4 +1,5 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
 import {
@@ -6,6 +7,7 @@ import {
   DISPLAY_COST_TOLERANCE_MICROS,
 } from '../helpers/cost-display.js';
 import { assertPartialFailurePersistence } from '../helpers/partial-failure.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Multi-Model Chat', () => {
   test.describe('Model Selection', () => {
@@ -19,7 +21,7 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('verify header shows "3 models"', async () => {
-        const button = authenticatedPage.getByTestId('model-selector-button');
+        const button = authenticatedPage.getByTestId(TEST_IDS.modelSelectorButton);
         await expect(button).toContainText('3 models');
       });
 
@@ -41,7 +43,7 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('remove one model via X — bar shows 2', async () => {
-        const bar = authenticatedPage.getByTestId('selected-models-bar');
+        const bar = authenticatedPage.getByTestId(TEST_IDS.selectedModelsBar);
         const firstRemoveButton = bar.locator('button[aria-label^="Remove "]').first();
         await firstRemoveButton.click();
 
@@ -50,12 +52,12 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('remove another — bar disappears, single model in header', async () => {
-        const bar = authenticatedPage.getByTestId('selected-models-bar');
+        const bar = authenticatedPage.getByTestId(TEST_IDS.selectedModelsBar);
         const removeButton = bar.locator('button[aria-label^="Remove "]').first();
         await removeButton.click();
 
         await chatPage.expectComparisonBarHidden();
-        const button = authenticatedPage.getByTestId('model-selector-button');
+        const button = authenticatedPage.getByTestId(TEST_IDS.modelSelectorButton);
         // Header shows "N models" only when ≥2 selected; with 1, it shows the model name.
         await expect(button).not.toContainText(/\d+ models/);
       });
@@ -75,11 +77,11 @@ test.describe('Multi-Model Chat', () => {
 
       await test.step('verify unselected models are dimmed in modal', async () => {
         await chatPage.openModelSelector();
-        const modal = authenticatedPage.getByTestId('model-selector-modal');
+        const modal = authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
 
         // Find an unselected model (not disabled by premium lock)
         const unselectedModels = modal.locator(
-          '[data-testid^="model-item-"][data-selected="false"]:not(:has([data-testid="lock-icon"]))'
+          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="false"]:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
         );
         const unselectedCount = await unselectedModels.count();
 
@@ -89,13 +91,15 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('deselect one model — dimming lifts', async () => {
-        const modal = authenticatedPage.getByTestId('model-selector-modal');
-        const selectedItems = modal.locator('[data-testid^="model-item-"][data-selected="true"]');
+        const modal = authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
+        const selectedItems = modal.locator(
+          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="true"]`
+        );
         // Click the row body to toggle (no separate checkbox zone in the new design).
         await selectedItems.last().locator('button').first().click();
 
         const unselected = modal.locator(
-          '[data-testid^="model-item-"][data-selected="false"]:not(:has([data-testid="lock-icon"]))'
+          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="false"]:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
         );
         const count = await unselected.count();
         if (count > 0) {
@@ -135,13 +139,13 @@ test.describe('Multi-Model Chat', () => {
 
       await test.step('reopen modal, clear, select 1 model, confirm', async () => {
         await chatPage.openModelSelector();
-        const modal = authenticatedPage.getByTestId('model-selector-modal');
+        const modal = authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
         // Picker remembers per-modality mode; tests selecting 3 left it in multi.
-        await authenticatedPage.getByTestId('clear-selection-button').first().click();
+        await authenticatedPage.getByTestId(TEST_IDS.clearSelectionButton).first().click();
         await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
         // Click row body to add the first non-premium back in.
         const firstNonPremium = modal.locator(
-          '[data-testid^="model-item-"]:not(:has([data-testid="lock-icon"]))'
+          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
         );
         await firstNonPremium.first().locator('button').first().click();
         await chatPage.confirmModelSelection();
@@ -149,8 +153,8 @@ test.describe('Multi-Model Chat', () => {
 
       await test.step('verify single model in header, no comparison bar', async () => {
         await chatPage.expectComparisonBarHidden();
-        const button = authenticatedPage.getByTestId('model-selector-button');
-        // Header now shows "N models" instead of the old "Multiple Models" label.
+        const button = authenticatedPage.getByTestId(TEST_IDS.modelSelectorButton);
+        // Header shows "N models" in multi mode; single mode must not.
         await expect(button).not.toContainText(/\d+ models/);
       });
     });
@@ -189,8 +193,8 @@ test.describe('Multi-Model Chat', () => {
         await chatPage.switchPickerMode('multi');
         // Close via Cancel — mode persists even when no selection committed.
         await authenticatedPage
-          .getByTestId('model-selector-modal')
-          .getByTestId('cancel-button')
+          .getByTestId(TEST_IDS.modelSelectorModal)
+          .getByTestId(TEST_IDS.cancelButton)
           .click();
       });
 
@@ -198,7 +202,7 @@ test.describe('Multi-Model Chat', () => {
         await authenticatedPage.reload();
         await chatPage.waitForAppStable();
         await chatPage.openModelSelector();
-        await expect(authenticatedPage.getByTestId('model-selector-modal')).toHaveAttribute(
+        await expect(authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal)).toHaveAttribute(
           'data-picker-mode',
           'multi'
         );
@@ -215,24 +219,23 @@ test.describe('Multi-Model Chat', () => {
       await chatPage.openModelSelector();
       await chatPage.switchPickerMode('single');
 
-      const modal = authenticatedPage.getByTestId('model-selector-modal');
+      const modal = authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
       const firstNonPremium = modal
         .locator(
-          '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
+          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:not([data-testid="${TEST_ID_BUILDERS.modelItem('smart-model')}"]):not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
         )
         .first();
       const targetId = (await firstNonPremium.getAttribute('data-testid')) ?? '';
 
       await firstNonPremium.locator('button').first().click();
 
-      // Modal closed without needing a Use button click. Use unsettledExpect
-      // because the close is a Radix CSS animation — no in-flight queries,
-      // so the settled-aware expect short-circuits on slow webkit before the
-      // animation finishes painting the closed state.
-      await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
+      // Modal closed without needing a Use button click. The close is a Radix
+      // CSS animation with no in-flight queries, so allow a generous timeout
+      // for slow WebKit to finish painting the closed state.
+      await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
 
       // Header reflects the new pick — should NOT show "N models" since this is single mode
-      const button = authenticatedPage.getByTestId('model-selector-button');
+      const button = authenticatedPage.getByTestId(TEST_IDS.modelSelectorButton);
       await expect(button).not.toContainText(/\d+ models/);
       // The picked model id was the one whose row we clicked
       expect(targetId).toContain('model-item-');
@@ -251,19 +254,18 @@ test.describe('Multi-Model Chat', () => {
       // Open picker, switch to multi, add another model, then Cancel
       await chatPage.openModelSelector();
       await chatPage.switchPickerMode('multi');
-      const modal = authenticatedPage.getByTestId('model-selector-modal');
+      const modal = authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
       const firstNonPremium = modal
         .locator(
-          '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
+          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:not([data-testid="${TEST_ID_BUILDERS.modelItem('smart-model')}"]):not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
         )
         .first();
       await firstNonPremium.locator('button').first().click();
 
-      await modal.getByTestId('cancel-button').click();
-      // Close is a Radix CSS animation with no in-flight queries — settled-aware
-      // expect short-circuits on slow webkit before the close animation paints.
-      // Matches the pattern used in the sibling test above (line 232).
-      await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
+      await modal.getByTestId(TEST_IDS.cancelButton).click();
+      // Close is a Radix CSS animation with no in-flight queries, so allow a
+      // generous timeout for slow WebKit to finish painting the closed state.
+      await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
 
       // Comparison bar should NOT appear because we discarded the second model
       await chatPage.expectComparisonBarHidden();
@@ -310,9 +312,10 @@ test.describe('Multi-Model Chat', () => {
         // For index-based access use DOM count — the 2 multi-model responses
         // are always rendered because they're the newest messages.
         const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
-        const nametag1 = await assistantMessages.nth(0).getByTestId('model-nametag').textContent();
-        const nametag2 = await assistantMessages.nth(1).getByTestId('model-nametag').textContent();
-        expect(nametag1).not.toBe(nametag2);
+        const nametag1 = assistantMessages.nth(0).getByTestId(TEST_IDS.modelNametag);
+        const nametag2 =
+          (await assistantMessages.nth(1).getByTestId(TEST_IDS.modelNametag).textContent()) ?? '';
+        await expect(nametag1).not.toHaveText(nametag2);
       });
     });
 
@@ -322,7 +325,7 @@ test.describe('Multi-Model Chat', () => {
     }) => {
       const chatPage = new ChatPage(authenticatedPage);
 
-      const costElements = chatPage.messageList.locator('[data-testid="message-cost"]');
+      const costElements = chatPage.messageList.locator(`[data-testid="${TEST_IDS.messageCost}"]`);
       const count = await costElements.count();
       expect(count).toBeGreaterThanOrEqual(2);
     });
@@ -342,10 +345,10 @@ test.describe('Multi-Model Chat', () => {
 
       await test.step('wait for 2 more AI responses (4 total)', async () => {
         // Wait for streaming to complete — cost badge signals billing + persistence done
-        await chatPage.waitForStreamComplete(20_000);
+        await chatPage.waitForStreamComplete(TIMEOUTS.ROUTE);
         // Verify via data attribute (client state) — Virtuoso may not render all items on mobile
-        await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '4', {
-          timeout: 20_000,
+        await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '4', {
+          timeout: TIMEOUTS.ROUTE,
         });
       });
     });
@@ -370,9 +373,9 @@ test.describe('Multi-Model Chat', () => {
       const msg = `Wallet debit ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(msg);
       await chatPage.waitForConversation();
-      await chatPage.waitForStreamComplete(20_000);
-      await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-        timeout: 20_000,
+      await chatPage.waitForStreamComplete(TIMEOUTS.ROUTE);
+      await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+        timeout: TIMEOUTS.ROUTE,
       });
 
       const afterData = await budgetHelper.getBalance();
@@ -416,9 +419,9 @@ test.describe('Multi-Model Chat', () => {
       const msg = `Search debit ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(msg);
       await chatPage.waitForConversation();
-      await chatPage.waitForStreamComplete(30_000);
-      await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-        timeout: 20_000,
+      await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
+      await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+        timeout: TIMEOUTS.ROUTE,
       });
 
       const afterData = await budgetHelper.getBalance();
@@ -465,11 +468,11 @@ test.describe('Multi-Model Chat', () => {
       await test.step('verify both AI responses visible after stream completes', async () => {
         // Verify via data attributes (client state) — Virtuoso may not render all items on mobile.
         // Cost count confirms: done SSE → saveChatTurn committed → invalidateQueries refetched.
-        await unsettledExpect(chatPage.messageList).toHaveAttribute('data-cost-count', '3', {
-          timeout: 20_000,
+        await expect(chatPage.messageList).toHaveAttribute('data-cost-count', '3', {
+          timeout: TIMEOUTS.ROUTE,
         });
-        await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '3', {
-          timeout: 15_000,
+        await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '3', {
+          timeout: TIMEOUTS.STREAM,
         });
       });
 
@@ -481,15 +484,13 @@ test.describe('Multi-Model Chat', () => {
         // content.
         const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
         const domCount = await assistantMessages.count();
-        const nametag1 = await assistantMessages
-          .nth(domCount - 2)
-          .getByTestId('model-nametag')
-          .textContent();
-        const nametag2 = await assistantMessages
-          .nth(domCount - 1)
-          .getByTestId('model-nametag')
-          .textContent();
-        expect(nametag1).not.toBe(nametag2);
+        const nametag1 = assistantMessages.nth(domCount - 2).getByTestId(TEST_IDS.modelNametag);
+        const nametag2 =
+          (await assistantMessages
+            .nth(domCount - 1)
+            .getByTestId(TEST_IDS.modelNametag)
+            .textContent()) ?? '';
+        await expect(nametag1).not.toHaveText(nametag2);
       });
 
       await test.step('page reload preserves all responses on fork', async () => {
@@ -498,8 +499,8 @@ test.describe('Multi-Model Chat', () => {
 
         await chatPage.expectActiveForkTab('Fork 1');
 
-        await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '3', {
-          timeout: 15_000,
+        await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '3', {
+          timeout: TIMEOUTS.STREAM,
         });
       });
     });
@@ -546,13 +547,13 @@ test.describe('Multi-Model Chat', () => {
         const successResponse = authenticatedPage
           .locator('[data-role="assistant"]')
           .filter({ hasText: 'Echo:' });
-        await expect(successResponse.first()).toBeVisible({ timeout: 15_000 });
+        await expect(successResponse.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
         // Error renders on an optimistic message after stream ends — opt out of settled
         // to wait for the React re-render without premature failure
-        const errorMessage = authenticatedPage.getByTestId('model-error-message');
-        await unsettledExpect(errorMessage).toBeVisible({ timeout: 10_000 });
-        await unsettledExpect(errorMessage).toContainText(/something went wrong/i);
+        const errorMessage = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
+        await expect(errorMessage).toBeVisible({ timeout: TIMEOUTS.ASSERT });
+        await expect(errorMessage).toContainText(/something went wrong/i);
 
         await assertPartialFailurePersistence(authenticatedPage, {
           succeededModelId: successModelId,
@@ -586,10 +587,10 @@ test.describe('Multi-Model Chat', () => {
         const balanceBefore = Number.parseFloat(beforeData.balance);
         await chatPage.sendNewChatMessage(`Refund test ${String(Date.now())}`);
         await chatPage.waitForConversation();
-        await chatPage.waitForStreamComplete(30_000);
+        await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
-        const errorTile = authenticatedPage.getByTestId('model-error-message');
-        await unsettledExpect(errorTile).toBeVisible({ timeout: 10_000 });
+        const errorTile = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
+        await expect(errorTile).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
         const afterData = await budgetHelper.getBalance();
         const balanceAfter = Number.parseFloat(afterData.balance);

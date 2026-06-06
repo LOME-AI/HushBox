@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { env } from '@/lib/env';
 import { client, fetchJson } from '@/lib/api-client';
 
@@ -73,7 +73,7 @@ export function EmailsPage(): React.JSX.Element {
             <div key={template.name}>
               <h2 className="text-foreground mb-3 text-lg font-semibold">{template.label}</h2>
               <iframe
-                data-testid={`email-iframe-${template.name}`}
+                data-testid={TEST_ID_BUILDERS.emailIframe(template.name)}
                 title={`${template.label} email template preview`}
                 srcDoc={template.html}
                 sandbox=""

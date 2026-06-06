@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { Sidebar } from '@/components/sidebar/sidebar';
 import { useModelValidation } from '@/hooks/use-model-validation';
 
@@ -10,7 +11,7 @@ export function AppShell({ children }: Readonly<AppShellProps>): React.JSX.Eleme
   useModelValidation();
 
   return (
-    <div data-testid="app-shell" className="bg-background flex h-dvh">
+    <div data-testid={TEST_IDS.appShell} className="bg-background flex h-dvh">
       <Sidebar />
 
       {/* Main content area — min-h-0 prevents flex items from inheriting their

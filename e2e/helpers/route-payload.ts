@@ -24,7 +24,7 @@ export interface CapturedRoutePayload {
  * const captured = await captureChatRoutePayload(page);
  * await chatPage.sendNewChatMessage(prompt);
  * await chatPage.waitForConversation();
- * await expect.poll(captured.get, { timeout: 10_000 }).toBeDefined();
+ * await expect.poll(captured.get, { timeout: TIMEOUTS.ASSERT }).toBeDefined();
  * expect(JSON.stringify(captured.get())).toContain('1080p');
  * ```
  *

@@ -1,9 +1,10 @@
+import { TEST_IDS } from '@hushbox/shared';
 import { test, expect } from '../fixtures.js';
-import { unsettledExpect } from '../helpers/settled-expect.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { searchAndSelectMember } from '../helpers/add-member.js';
 import { expectAccessRevoked } from '../helpers/member-actions.js';
 import { personaUsername } from '../helpers/personas.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Auth Member Access', () => {
   test('read member lifecycle: history access, removal, no-history re-add, privilege elevation', async ({
@@ -26,15 +27,15 @@ test.describe('Auth Member Access', () => {
 
       await searchAndSelectMember(authenticatedPage, sidebar, personaUsername('test-dave'));
 
-      await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('read');
+      await authenticatedPage.getByTestId(TEST_IDS.addMemberPrivilegeSelect).selectOption('read');
 
       await authenticatedPage
-        .getByTestId('add-member-history-checkbox')
+        .getByTestId(TEST_IDS.addMemberHistoryCheckbox)
         .getByRole('checkbox')
         .check();
 
-      await authenticatedPage.getByTestId('add-member-submit-button').click();
-      await expect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
+      await authenticatedPage.getByTestId(TEST_IDS.addMemberSubmitButton).click();
+      await expect(authenticatedPage.getByTestId(TEST_IDS.addMemberModal)).not.toBeVisible();
     });
 
     await test.step('Dave sees all messages and cannot send', async () => {
@@ -63,10 +64,10 @@ test.describe('Auth Member Access', () => {
       await sidebar.openMemberActions(daveMemberId);
       await sidebar.clickRemoveMember(daveMemberId);
 
-      const modal = authenticatedPage.getByTestId('remove-member-modal');
+      const modal = authenticatedPage.getByTestId(TEST_IDS.removeMemberModal);
       await expect(modal).toBeVisible();
-      await authenticatedPage.getByTestId('remove-member-confirm').click();
-      await unsettledExpect(modal).not.toBeVisible();
+      await authenticatedPage.getByTestId(TEST_IDS.removeMemberConfirm).click();
+      await expect(modal).not.toBeVisible();
 
       await expect(sidebar.memberRow(daveMemberId)).not.toBeVisible();
     });
@@ -82,19 +83,19 @@ test.describe('Auth Member Access', () => {
 
       await searchAndSelectMember(authenticatedPage, sidebar, personaUsername('test-dave'));
 
-      await authenticatedPage.getByTestId('add-member-privilege-select').selectOption('read');
+      await authenticatedPage.getByTestId(TEST_IDS.addMemberPrivilegeSelect).selectOption('read');
 
       // Explicitly uncheck history (may retain state from previous modal use)
       await authenticatedPage
-        .getByTestId('add-member-history-checkbox')
+        .getByTestId(TEST_IDS.addMemberHistoryCheckbox)
         .getByRole('checkbox')
         .uncheck();
 
-      await authenticatedPage.getByTestId('add-member-submit-button').click();
-      await expect(authenticatedPage.getByTestId('add-member-modal')).not.toBeVisible();
+      await authenticatedPage.getByTestId(TEST_IDS.addMemberSubmitButton).click();
+      await expect(authenticatedPage.getByTestId(TEST_IDS.addMemberModal)).not.toBeVisible();
 
       const daveRow = sidebar.findMemberByUsername(personaUsername('test-dave'));
-      await unsettledExpect(daveRow).toBeVisible({ timeout: 10_000 });
+      await expect(daveRow).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
       await sidebar.closeMobileSidebarIfOpen();
     });

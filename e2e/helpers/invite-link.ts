@@ -1,4 +1,6 @@
-import { expect, unsettledExpect } from './settled-expect.js';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { expect } from './expect.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 import { closeOverlay, expectCorrectOverlayVariant } from './overlay.js';
 import type { Page } from '@playwright/test';
 import type { MemberSidebarPage } from '../pages/member-sidebar.page.js';
@@ -42,11 +44,13 @@ async function closeModal(page: Page, method: 'escape' | 'overlay-close'): Promi
 }
 
 async function extractLinkIdFromSidebar(sidebar: MemberSidebarPage): Promise<string> {
-  const linkRow = sidebar.content.locator('[data-testid^="link-item-"]').last();
-  await expect(linkRow).toBeVisible({ timeout: 10_000 });
+  const linkRow = sidebar.content
+    .locator(`[data-testid^="${TEST_ID_BUILDERS.linkItem('')}"]`)
+    .last();
+  await expect(linkRow).toBeVisible({ timeout: TIMEOUTS.ASSERT });
   const testId = await linkRow.getAttribute('data-testid');
   if (!testId) throw new Error('Expected link row to have data-testid attribute');
-  return testId.replace('link-item-', '');
+  return testId.replace(TEST_ID_BUILDERS.linkItem(''), '');
 }
 
 async function fillInviteLinkModal(
@@ -56,12 +60,14 @@ async function fillInviteLinkModal(
   displayName?: string
 ): Promise<void> {
   if (privilege !== 'read') {
-    await page.getByTestId('invite-link-privilege-select').selectOption(privilege);
+    await page.getByTestId(TEST_IDS.inviteLinkPrivilegeSelect).selectOption(privilege);
   }
   if (displayName) {
-    await page.getByTestId('invite-link-name-input').fill(displayName);
+    await page.getByTestId(TEST_IDS.inviteLinkNameInput).fill(displayName);
   }
-  const historyCheckbox = page.getByTestId('invite-link-history-checkbox').getByRole('checkbox');
+  const historyCheckbox = page
+    .getByTestId(TEST_IDS.inviteLinkHistoryCheckbox)
+    .getByRole('checkbox');
   if (withHistory) {
     await historyCheckbox.check();
   } else {
@@ -87,16 +93,16 @@ export async function createInviteLink(
   } = options;
 
   await sidebar.clickInviteLink();
-  const modal = page.getByTestId('invite-link-modal');
+  const modal = page.getByTestId(TEST_IDS.inviteLinkModal);
   await expect(modal).toBeVisible();
   await expectCorrectOverlayVariant(page);
 
   await fillInviteLinkModal(page, privilege, withHistory, displayName);
 
-  await page.getByTestId('invite-link-generate-button').click();
+  await page.getByTestId(TEST_IDS.inviteLinkGenerateButton).click();
 
-  const urlEl = page.getByTestId('invite-link-url');
-  await unsettledExpect(urlEl).toBeVisible({ timeout: 10_000 });
+  const urlEl = page.getByTestId(TEST_IDS.inviteLinkUrl);
+  await expect(urlEl).toBeVisible({ timeout: TIMEOUTS.ASSERT });
   const url = (await urlEl.textContent()) ?? '';
 
   await closeModal(page, closeMethod);

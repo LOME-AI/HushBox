@@ -707,6 +707,68 @@ describe('devRoute', () => {
     });
   });
 
+  describe('DELETE /totp-replay', () => {
+    function createTotpReplayApp(options: { user?: { id: string }; keys: string[] }): {
+      app: Hono<AppEnv>;
+      mockRedis: { scan: ReturnType<typeof vi.fn>; del: ReturnType<typeof vi.fn> };
+    } {
+      const mockRedis = {
+        scan: vi.fn().mockResolvedValue(['0', options.keys]),
+        del: vi.fn().mockResolvedValue(options.keys.length),
+      };
+      const mockDb = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue(options.user ? [options.user] : []),
+          }),
+        }),
+      };
+      const app = new Hono<AppEnv>();
+      app.use('*', async (c, next) => {
+        c.set('redis', mockRedis as unknown as AppEnv['Variables']['redis']);
+        c.set('db', mockDb as unknown as AppEnv['Variables']['db']);
+        await next();
+      });
+      app.route('/dev', devRoute);
+      return { app, mockRedis };
+    }
+
+    it("clears the resolved user's replay markers and returns the deleted count", async () => {
+      const { app, mockRedis } = createTotpReplayApp({
+        user: { id: 'user-123' },
+        keys: ['totp:used:user-123:111111', 'totp:used:user-123:222222'],
+      });
+
+      const res = await app.request('/dev/totp-replay', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'test-2fa@test.hushbox.ai' }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ success: boolean; deleted: number }>(res);
+      expect(body.success).toBe(true);
+      expect(body.deleted).toBe(2);
+      // Scopes the scan to the resolved user, not the global totp:used:* space.
+      expect(mockRedis.scan).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ match: 'totp:used:user-123:*' })
+      );
+    });
+
+    it('returns 404 when no user matches the email', async () => {
+      const { app } = createTotpReplayApp({ keys: [] });
+
+      const res = await app.request('/dev/totp-replay', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'nobody@test.hushbox.ai' }),
+      });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe('GET /message-payers/:conversationId', () => {
     function createMessagePayersApp(
       rows: { messageId: string; payerId: string | null; sequenceNumber: number }[]

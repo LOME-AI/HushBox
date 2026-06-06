@@ -2,6 +2,7 @@ import { test as setup, expect } from '@playwright/test';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TEST_IDS } from '@hushbox/shared';
 import {
   BASE_TEST_PERSONAS,
   TEST_2FA_TOTP_SECRET,
@@ -11,6 +12,7 @@ import {
 } from '../scripts/seed.js';
 import { DEV_PASSWORD } from '../packages/shared/src/constants.js';
 import { clearAuthRateLimits, generateTOTPCode } from './helpers/auth.js';
+import { TIMEOUTS } from './config/timeouts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const authDir = path.join(__dirname, '.auth');
@@ -58,7 +60,7 @@ async function finishSetup({
   basePersonaName,
   personaName,
 }: FinishSetupArgs): Promise<void> {
-  await page.waitForURL('/chat', { timeout: 30_000 });
+  await page.waitForURL('/chat', { timeout: TIMEOUTS.ROUTE });
 
   const verifyResponse = await page.request.get('/api/conversations');
   if (verifyResponse.status() === 401) {
@@ -107,11 +109,11 @@ for (const basePersona of twoFactorPersonas) {
     await page.getByLabel('Keep me signed in').check();
     await page.getByRole('button', { name: 'Log in' }).click();
 
-    const otpModal = page.getByTestId('two-factor-input-modal');
-    await expect(otpModal).toBeVisible({ timeout: 30_000 });
+    const otpModal = page.getByTestId(TEST_IDS.twoFactorInputModal);
+    await expect(otpModal).toBeVisible({ timeout: TIMEOUTS.ROUTE });
 
     const code = generateTOTPCode(TEST_2FA_TOTP_SECRET);
-    await otpModal.getByTestId('otp-input').pressSequentially(code);
+    await otpModal.getByTestId(TEST_IDS.otpInput).pressSequentially(code);
 
     await finishSetup({ context, page, project, basePersonaName: basePersona.name, personaName });
   });

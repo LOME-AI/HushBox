@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { RenameConversationDialog } from './rename-conversation-dialog';
 
 describe('RenameConversationDialog', () => {
@@ -30,7 +31,7 @@ describe('RenameConversationDialog', () => {
     const user = userEvent.setup();
     render(<RenameConversationDialog {...defaultProps} onOpenChange={onOpenChange} />);
 
-    await user.click(screen.getByTestId('cancel-rename-button'));
+    await user.click(screen.getByTestId(TEST_IDS.cancelRenameButton));
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -40,7 +41,7 @@ describe('RenameConversationDialog', () => {
     const user = userEvent.setup();
     render(<RenameConversationDialog {...defaultProps} onConfirm={onConfirm} />);
 
-    await user.click(screen.getByTestId('save-rename-button'));
+    await user.click(screen.getByTestId(TEST_IDS.saveRenameButton));
 
     expect(onConfirm).toHaveBeenCalled();
   });
@@ -48,13 +49,13 @@ describe('RenameConversationDialog', () => {
   it('save button is disabled when value is empty', () => {
     render(<RenameConversationDialog {...defaultProps} value="" />);
 
-    expect(screen.getByTestId('save-rename-button')).toBeDisabled();
+    expect(screen.getByTestId(TEST_IDS.saveRenameButton)).toBeDisabled();
   });
 
   it('save button is disabled when value is only whitespace', () => {
     render(<RenameConversationDialog {...defaultProps} value="   " />);
 
-    expect(screen.getByTestId('save-rename-button')).toBeDisabled();
+    expect(screen.getByTestId(TEST_IDS.saveRenameButton)).toBeDisabled();
   });
 
   it('does not render when open is false', () => {

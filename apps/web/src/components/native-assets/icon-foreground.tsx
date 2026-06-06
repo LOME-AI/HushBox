@@ -1,10 +1,11 @@
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import logoUrl from '@hushbox/ui/assets/HushBoxLogo.png';
 
 export function IconForeground(): React.JSX.Element {
   return (
     <div
-      data-testid="icon-foreground"
+      data-testid={TEST_IDS.iconForeground}
       style={{
         width: '100vw',
         height: '100vh',

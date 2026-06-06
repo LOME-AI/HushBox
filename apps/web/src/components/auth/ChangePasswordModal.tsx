@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { UserMessageError, useAsyncAction } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
@@ -91,11 +92,11 @@ export function ChangePasswordModal({
         loadingLabel: 'Changing…',
         onSubmit: handleSubmit,
         disabled: !isValid,
-        testId: 'change-password-submit',
+        testId: TEST_IDS.changePasswordSubmit,
         type: 'submit',
         form: 'change-password-form',
       }}
-      testId="change-password-modal"
+      testId={TEST_IDS.changePasswordModal}
       onOpenAutoFocus={handleOpenAutoFocus}
     >
       <p className="text-muted-foreground text-sm">

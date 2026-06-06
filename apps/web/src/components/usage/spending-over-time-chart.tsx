@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { ChartTooltipContent, ChartLegendContent } from '@hushbox/ui';
+import { TEST_IDS, type SpendingOverTimeResponse } from '@hushbox/shared';
 import {
   CHART_COLORS,
   UsageChartCard,
@@ -10,7 +11,6 @@ import {
   formatDollarTooltip,
 } from './chart-utilities';
 import type { ChartConfig } from '@hushbox/ui';
-import type { SpendingOverTimeResponse } from '@hushbox/shared';
 
 interface SpendingOverTimeChartProps {
   data: SpendingOverTimeResponse | undefined;
@@ -72,7 +72,7 @@ export function SpendingOverTimeChart({
   return (
     <UsageChartCard
       title="Spending Over Time"
-      testId="spending-over-time-chart"
+      testId={TEST_IDS.spendingOverTimeChart}
       isLoading={isLoading}
       isEmpty={chartData.length === 0}
       chartConfig={chartConfig}

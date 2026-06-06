@@ -24,10 +24,10 @@
  *   - unknown `run-script:<name>` label (name not in ops/manifest.yml)
  *   - script whose `requires_secrets` is missing or empty in env
  */
-import { appendFileSync } from 'node:fs';
 import { loadManifest, type OpsManifest, type OpsScript } from './generate-labels.js';
+import { requireEnv, writeGithubOutput } from './run-cli.js';
 
-const LABEL_PREFIX = 'run-script:';
+export const LABEL_PREFIX = 'run-script:';
 
 export interface ResolveInput {
   labels: readonly string[];
@@ -161,19 +161,6 @@ async function fetchPullRequestLabels(
   return (prs[0]?.labels ?? []).map((l) => l.name);
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === '') {
-    console.error(`Missing required env var: ${name}`);
-    process.exit(1);
-  }
-  return value;
-}
-
-function writeOutput(githubOutputPath: string, key: string, value: string): void {
-  appendFileSync(githubOutputPath, `${key}=${value}\n`);
-}
-
 async function main(): Promise<void> {
   const token = requireEnv('GITHUB_TOKEN');
   const repository = requireEnv('GITHUB_REPOSITORY');
@@ -183,8 +170,8 @@ async function main(): Promise<void> {
   const labels = await fetchPullRequestLabels(token, repository, sha);
   if (labels.length === 0) {
     console.log('No PR associated with this commit; no ops scripts to run.');
-    writeOutput(githubOutput, 'pre', '[]');
-    writeOutput(githubOutput, 'post', '[]');
+    writeGithubOutput(githubOutput, 'pre', '[]');
+    writeGithubOutput(githubOutput, 'post', '[]');
     return;
   }
 
@@ -205,8 +192,8 @@ async function main(): Promise<void> {
   console.log(`Pre-deploy ops scripts: ${preNames}`);
   console.log(`Post-deploy ops scripts: ${postNames}`);
 
-  writeOutput(githubOutput, 'pre', JSON.stringify(result.pre));
-  writeOutput(githubOutput, 'post', JSON.stringify(result.post));
+  writeGithubOutput(githubOutput, 'pre', JSON.stringify(result.pre));
+  writeGithubOutput(githubOutput, 'post', JSON.stringify(result.post));
 }
 
 if (import.meta.url === `file://${process.argv[1] ?? ''}`) {

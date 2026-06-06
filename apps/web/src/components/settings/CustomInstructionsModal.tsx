@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState, useCallback } from 'react';
 import { Textarea, UserMessageError, useAsyncAction } from '@hushbox/ui';
-import { toBase64 } from '@hushbox/shared';
+import { toBase64, TEST_IDS } from '@hushbox/shared';
 import { encryptTextForEpoch, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { useAuthStore } from '@/lib/auth';
 import { client, fetchJson } from '@/lib/api-client';
@@ -74,7 +74,7 @@ export function CustomInstructionsModal({
         loadingLabel: 'Saving...',
         onSubmit: handleSave,
       }}
-      testId="custom-instructions-modal"
+      testId={TEST_IDS.customInstructionsModal}
       size="md"
     >
       <p className="text-muted-foreground text-sm">

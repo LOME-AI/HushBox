@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
 import { mockLogoImport } from '@/test-utils/mocks.js';
 import { AppIcon } from './app-icon';
 
@@ -8,18 +9,18 @@ mockLogoImport();
 describe('AppIcon', () => {
   it('renders a container with data-testid', () => {
     render(<AppIcon />);
-    expect(screen.getByTestId('app-icon')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.appIcon)).toBeInTheDocument();
   });
 
   it('fills the viewport', () => {
     render(<AppIcon />);
-    const container = screen.getByTestId('app-icon');
+    const container = screen.getByTestId(TEST_IDS.appIcon);
     expect(container).toHaveStyle({ width: '100vw', height: '100vh' });
   });
 
   it('has solid dark background', () => {
     render(<AppIcon />);
-    const container = screen.getByTestId('app-icon');
+    const container = screen.getByTestId(TEST_IDS.appIcon);
     expect(container).toHaveStyle({ backgroundColor: '#0a0a0a' });
   });
 
@@ -31,7 +32,7 @@ describe('AppIcon', () => {
 
   it('centers the logo image', () => {
     render(<AppIcon />);
-    const container = screen.getByTestId('app-icon');
+    const container = screen.getByTestId(TEST_IDS.appIcon);
     expect(container).toHaveStyle({
       display: 'flex',
       alignItems: 'center',

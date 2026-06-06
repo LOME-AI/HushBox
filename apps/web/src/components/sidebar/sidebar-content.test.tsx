@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render as rtlRender, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { SidebarContent } from './sidebar-content';
 
@@ -133,7 +134,7 @@ describe('SidebarContent', () => {
 
   it('renders in correct order: NewChat, Search, ChatList, Projects', () => {
     render(<SidebarContent conversations={mockConversations} />);
-    const content = screen.getByTestId('sidebar-nav');
+    const content = screen.getByTestId(TEST_IDS.sidebarNav);
     expect(content).toBeInTheDocument();
   });
 
@@ -145,7 +146,7 @@ describe('SidebarContent', () => {
 
   it('shows scrollbar on chat list container when sidebar is open', () => {
     render(<SidebarContent conversations={mockConversations} />);
-    const container = screen.getByTestId('chat-list-scroll-container');
+    const container = screen.getByTestId(TEST_IDS.chatListScrollContainer);
     expect(container).not.toHaveClass('scrollbar-hide');
   });
 
@@ -163,7 +164,7 @@ describe('SidebarContent', () => {
 
     it('hides scrollbar on chat list container when collapsed', () => {
       render(<SidebarContent conversations={mockConversations} />);
-      const container = screen.getByTestId('chat-list-scroll-container');
+      const container = screen.getByTestId(TEST_IDS.chatListScrollContainer);
       expect(container).toHaveClass('scrollbar-hide');
     });
   });
@@ -240,14 +241,14 @@ describe('SidebarContent', () => {
 
       await userEvent.click(screen.getByRole('button', { name: /invites/i }));
 
-      expect(screen.getByTestId('inbox-content')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.inboxContent)).toBeInTheDocument();
       expect(screen.getByText('Team Standup')).toBeInTheDocument();
     });
 
     it('keeps chat list in DOM during slide (both panels render)', () => {
       render(<SidebarContent conversations={mixedConvs} />);
       expect(screen.getByText('Design Chat')).toBeInTheDocument();
-      expect(screen.getByTestId('inbox-content')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.inboxContent)).toBeInTheDocument();
     });
 
     it('shows plain heading when no conversations have accepted field', () => {
@@ -321,13 +322,13 @@ describe('SidebarContent', () => {
 
       render(<SidebarContent conversations={conversations} />);
 
-      expect(screen.getByTestId('pinned-separator')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.pinnedSeparator)).toBeInTheDocument();
     });
 
     it('does not render separator when no conversations are pinned', () => {
       render(<SidebarContent conversations={mockConversations} />);
 
-      expect(screen.queryByTestId('pinned-separator')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.pinnedSeparator)).not.toBeInTheDocument();
     });
 
     it('does not render separator when all conversations are pinned', () => {
@@ -354,7 +355,7 @@ describe('SidebarContent', () => {
 
       render(<SidebarContent conversations={conversations} />);
 
-      expect(screen.queryByTestId('pinned-separator')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.pinnedSeparator)).not.toBeInTheDocument();
     });
   });
 });

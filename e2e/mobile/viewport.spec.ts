@@ -1,5 +1,7 @@
 import { test, expect } from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Mobile viewport height', () => {
   test.use({
@@ -13,7 +15,7 @@ test.describe('Mobile viewport height', () => {
     await expect(chatPage.promptInput).toBeVisible();
     await expect(chatPage.promptInput).toBeInViewport();
 
-    const chatWelcome = authenticatedPage.getByTestId('chat-welcome');
+    const chatWelcome = authenticatedPage.getByTestId(TEST_IDS.chatWelcome);
     const initialHeight = await chatWelcome.evaluate((el) => (el as HTMLElement).style.height);
     expect(initialHeight).toBe('844px');
 
@@ -23,11 +25,12 @@ test.describe('Mobile viewport height', () => {
     await expect(chatPage.promptInput).toBeInViewport();
 
     await authenticatedPage.waitForFunction(
-      () => {
-        const el = document.querySelector<HTMLElement>('[data-testid="chat-welcome"]');
-        return el?.style.height === '450px';
+      ({ selector, expectedHeight }: { selector: string; expectedHeight: string }) => {
+        const el = document.querySelector<HTMLElement>(selector);
+        return el?.style.height === expectedHeight;
       },
-      { timeout: 5000 }
+      { selector: `[data-testid="${TEST_IDS.chatWelcome}"]`, expectedHeight: '450px' },
+      { timeout: TIMEOUTS.SCROLL_STABLE }
     );
 
     const shrunkHeight = await chatWelcome.evaluate((el) => (el as HTMLElement).style.height);

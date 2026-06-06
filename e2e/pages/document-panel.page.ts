@@ -1,5 +1,7 @@
 import { type Page, type Locator } from '@playwright/test';
-import { expect, unsettledExpect } from '../helpers/settled-expect.js';
+import { TEST_IDS } from '@hushbox/shared';
+import { expect } from '../helpers/expect.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 import type { ChatPage } from './chat.page.js';
 
 export class DocumentPanelPage {
@@ -14,18 +16,21 @@ export class DocumentPanelPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.panel = page.getByTestId('document-panel');
-    this.scrollArea = page.getByTestId('document-panel-scroll');
-    this.resizeHandle = page.getByTestId('resize-handle');
-    this.highlightedCode = page.getByTestId('highlighted-code');
+    this.panel = page.getByTestId(TEST_IDS.documentPanel);
+    this.scrollArea = page.getByTestId(TEST_IDS.documentPanelScroll);
+    this.resizeHandle = page.getByTestId(TEST_IDS.resizeHandle);
+    this.highlightedCode = page.getByTestId(TEST_IDS.highlightedCode);
     this.closeButton = page.getByRole('button', { name: 'Close panel' });
     this.downloadButton = this.panel.getByRole('button', { name: 'Download file' });
-    this.mermaidDiagram = page.getByTestId('mermaid-diagram');
+    this.mermaidDiagram = page.getByTestId(TEST_IDS.mermaidDiagram);
   }
 
   /** The currently active (selected) document card */
   activeCard(): Locator {
-    return this.page.locator('[data-testid="document-card"][data-active="true"]');
+    // `data-active` is the card's own selection-state attribute, not an app signal.
+    return this.page
+      .getByTestId(TEST_IDS.documentCard)
+      .and(this.page.locator('[data-active="true"]'));
   }
 
   /** Copy button (changes aria-label to "Copied" after click) */
@@ -73,7 +78,7 @@ export class DocumentPanelPage {
    * is expected to know which message holds the card it wants.
    */
   cardInMessage(chatPage: ChatPage, messageIndex: number): Locator {
-    return chatPage.getMessage(messageIndex).getByTestId('document-card').first();
+    return chatPage.getMessage(messageIndex).getByTestId(TEST_IDS.documentCard).first();
   }
 
   /**
@@ -83,11 +88,11 @@ export class DocumentPanelPage {
   async scrollToCardInMessage(
     chatPage: ChatPage,
     messageIndex: number,
-    timeout = 15_000
+    timeout: number = TIMEOUTS.ASSERT
   ): Promise<Locator> {
     await chatPage.scrollMessageIntoView(messageIndex);
     const card = this.cardInMessage(chatPage, messageIndex);
-    await unsettledExpect(card).toBeVisible({ timeout });
+    await expect(card).toBeVisible({ timeout });
     return card;
   }
 
@@ -100,11 +105,11 @@ export class DocumentPanelPage {
     await card.click();
   }
 
-  async waitForPanelOpen(timeout = 5000): Promise<void> {
+  async waitForPanelOpen(timeout: number = TIMEOUTS.MODAL): Promise<void> {
     await this.panel.waitFor({ state: 'visible', timeout });
   }
 
-  async waitForMermaidRendered(timeout = 15_000): Promise<void> {
+  async waitForMermaidRendered(timeout: number = TIMEOUTS.ASSERT): Promise<void> {
     await this.mermaidDiagram.waitFor({ state: 'visible', timeout });
   }
 

@@ -1,6 +1,8 @@
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { BudgetHelper, setWalletBalance } from '../helpers/budget.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 import type { APIRequestContext } from '@playwright/test';
 import { personaEmail } from '../helpers/personas.js';
 
@@ -61,7 +63,9 @@ test.describe('Group Chat Billing', () => {
       await chatPage.expectMessageCostVisible();
 
       // No free_tier_notice (owner is paying)
-      await expect(testBobPage.getByTestId('budget-message-free_tier_notice')).not.toBeVisible();
+      await expect(
+        testBobPage.getByTestId(TEST_ID_BUILDERS.budgetMessage('free_tier_notice'))
+      ).not.toBeVisible();
 
       // Alice's balance decreased (owner charged)
       const finalBalance = await helper.getBalance();
@@ -77,7 +81,10 @@ test.describe('Group Chat Billing', () => {
             const budgets = await helper.getBudgets(groupConversation.id);
             return Number.parseFloat(budgets.totalSpent);
           },
-          { timeout: 5000, message: 'totalSpent should be > 0 after owner-funded message' }
+          {
+            timeout: TIMEOUTS.ASSERT,
+            message: 'totalSpent should be > 0 after owner-funded message',
+          }
         )
         .toBeGreaterThan(0);
 
@@ -88,7 +95,7 @@ test.describe('Group Chat Billing', () => {
             const bob = budgets.memberBudgets.find((mb) => mb.userId === bobUser.userId);
             return Number.parseFloat(bob?.spent ?? '0');
           },
-          { timeout: 5000, message: 'bob spent should be > 0' }
+          { timeout: TIMEOUTS.ASSERT, message: 'bob spent should be > 0' }
         )
         .toBeGreaterThan(0);
     });
@@ -99,6 +106,7 @@ test.describe('Group Chat Billing', () => {
   // Serial mode prevents concurrent reservations from exceeding Bob's 5¢ allowance.
   // beforeEach resets Bob's wallet to ensure each test starts with a clean 5¢ balance.
   test.describe('personal free-allowance fallthrough', () => {
+    // eslint-disable-next-line no-restricted-syntax -- serial: both tests reserve against the same Redis key (chatReservedBalance:{bobUserId}) and share Bob's 5¢ allowance; parallel runs would exceed it
     test.describe.configure({ mode: 'serial' });
 
     test.beforeEach(async ({ authenticatedRequest }) => {
@@ -129,8 +137,10 @@ test.describe('Group Chat Billing', () => {
         await chatPage.waitForConversationLoaded();
 
         // memberRemaining = 0 → effectiveCents = 0 → personal → free_allowance
-        await expect(testBobPage.getByTestId('budget-message-free_tier_notice')).toBeVisible({
-          timeout: 10_000,
+        await expect(
+          testBobPage.getByTestId(TEST_ID_BUILDERS.budgetMessage('free_tier_notice'))
+        ).toBeVisible({
+          timeout: TIMEOUTS.ASSERT,
         });
       });
 
@@ -146,7 +156,7 @@ test.describe('Group Chat Billing', () => {
         )!;
         await expect
           .poll(() => getLastAiPayerId(authenticatedRequest, groupConversation.id), {
-            timeout: 10_000,
+            timeout: TIMEOUTS.ASSERT,
             message: 'last AI message payerId should be Bob (personal billing)',
           })
           .toBe(bobUser.userId);
@@ -178,8 +188,10 @@ test.describe('Group Chat Billing', () => {
         await chatPage.waitForConversationLoaded();
 
         // conversationRemaining = 0 → effectiveCents = 0 → personal → free_allowance
-        await expect(testBobPage.getByTestId('budget-message-free_tier_notice')).toBeVisible({
-          timeout: 10_000,
+        await expect(
+          testBobPage.getByTestId(TEST_ID_BUILDERS.budgetMessage('free_tier_notice'))
+        ).toBeVisible({
+          timeout: TIMEOUTS.ASSERT,
         });
       });
 
@@ -192,7 +204,7 @@ test.describe('Group Chat Billing', () => {
         // immune to parallel test pollution (unlike Alice's global balance)
         await expect
           .poll(() => getLastAiPayerId(authenticatedRequest, groupConversation.id), {
-            timeout: 10_000,
+            timeout: TIMEOUTS.ASSERT,
             message: 'last AI message payerId should be Bob (personal billing)',
           })
           .toBe(bobUser.userId);
@@ -253,7 +265,7 @@ test.describe('Group Chat Billing', () => {
       // ownerRemaining = 0 (Bob has $0) → effectiveCents = 0 → personal
       // Alice is paid tier → personal_balance → no free_tier_notice
       await expect(
-        authenticatedPage.getByTestId('budget-message-free_tier_notice')
+        authenticatedPage.getByTestId(TEST_ID_BUILDERS.budgetMessage('free_tier_notice'))
       ).not.toBeVisible();
     });
 
@@ -307,7 +319,9 @@ test.describe('Group Chat Billing', () => {
     });
 
     await test.step('no free_tier_notice when owner-funded', async () => {
-      await expect(testBobPage.getByTestId('budget-message-free_tier_notice')).not.toBeVisible();
+      await expect(
+        testBobPage.getByTestId(TEST_ID_BUILDERS.budgetMessage('free_tier_notice'))
+      ).not.toBeVisible();
     });
 
     await test.step('Bob sends message and costs appear', async () => {
@@ -324,17 +338,17 @@ test.describe('Group Chat Billing', () => {
       await sidebar.waitForLoaded();
       await sidebar.clickBudgetSettings();
 
-      const modal = testBobPage.getByTestId('budget-settings-modal');
+      const modal = testBobPage.getByTestId(TEST_IDS.budgetSettingsModal);
       await expect(modal).toBeVisible();
 
       // Values are text (read-only for non-owner)
-      await expect(testBobPage.getByTestId('budget-conversation-value')).toBeVisible();
+      await expect(testBobPage.getByTestId(TEST_IDS.budgetConversationValue)).toBeVisible();
 
       // Total spent should be > $0.00
-      const totalSpent = testBobPage.getByTestId('budget-total-spent');
+      const totalSpent = testBobPage.getByTestId(TEST_IDS.budgetTotalSpent);
       await expect(totalSpent).toBeVisible();
 
-      await testBobPage.getByTestId('budget-cancel-button').click();
+      await testBobPage.getByTestId(TEST_IDS.budgetCancelButton).click();
     });
 
     await test.step('Alice budget modal also shows updated spending', async () => {
@@ -347,13 +361,13 @@ test.describe('Group Chat Billing', () => {
       await aliceSidebar.waitForLoaded();
       await aliceSidebar.clickBudgetSettings();
 
-      const modal = authenticatedPage.getByTestId('budget-settings-modal');
+      const modal = authenticatedPage.getByTestId(TEST_IDS.budgetSettingsModal);
       await expect(modal).toBeVisible();
 
       // Owner sees editable inputs
-      await expect(authenticatedPage.getByTestId('budget-conversation-input')).toBeVisible();
+      await expect(authenticatedPage.getByTestId(TEST_IDS.budgetConversationInput)).toBeVisible();
 
-      const totalSpent = authenticatedPage.getByTestId('budget-total-spent');
+      const totalSpent = authenticatedPage.getByTestId(TEST_IDS.budgetTotalSpent);
       await expect(totalSpent).toBeVisible();
 
       await authenticatedPage.keyboard.press('Escape');

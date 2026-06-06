@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
 import { Logo, resolveImageSrc as resolveImageSource } from './logo';
 
 describe('Logo', () => {
@@ -18,13 +19,13 @@ describe('Logo', () => {
 
   it('applies custom className', () => {
     render(<Logo className="custom-class" />);
-    const container = screen.getByTestId('logo');
+    const container = screen.getByTestId(TEST_IDS.logo);
     expect(container).toHaveClass('custom-class');
   });
 
   it('preserves default flex layout classes', () => {
     render(<Logo />);
-    const container = screen.getByTestId('logo');
+    const container = screen.getByTestId(TEST_IDS.logo);
     expect(container).toHaveClass('flex', 'items-center', 'gap-2');
   });
 
@@ -54,7 +55,7 @@ describe('Logo', () => {
 
   it('marks the root with data-no-invert so accessibility invert mode skips it', () => {
     render(<Logo />);
-    const container = screen.getByTestId('logo');
+    const container = screen.getByTestId(TEST_IDS.logo);
     expect(container).toHaveAttribute('data-no-invert', '');
   });
 });

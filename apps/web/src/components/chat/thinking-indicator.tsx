@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { shortenModelName } from '@hushbox/shared';
+import { shortenModelName, TEST_IDS } from '@hushbox/shared';
 import { useModelStore } from '@/stores/model';
 import { getGeneratingLabel } from '@/lib/modality-strings';
 import { DotPulseIndicator } from './dot-pulse-indicator';
@@ -33,7 +33,7 @@ export function ThinkingIndicator({
     <div
       role="status"
       aria-label={label}
-      data-testid="thinking-indicator"
+      data-testid={TEST_IDS.thinkingIndicator}
       className="text-muted-foreground flex items-center gap-1 text-sm"
     >
       <span>{label}</span>

@@ -15,12 +15,10 @@ import {
   navigateToSettings,
   clearAuthRateLimits,
 } from '../helpers/auth.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Recovery Phrase & Forgot Password', () => {
-  test.beforeEach(async ({ request }, testInfo) => {
-    if (testInfo.project.name !== 'chromium') {
-      test.skip(true, 'Auth tests run only on chromium');
-    }
+  test.beforeEach(async ({ request }) => {
     await clearAuthRateLimits(request);
   });
 
@@ -28,7 +26,7 @@ test.describe('Recovery Phrase & Forgot Password', () => {
     unauthenticatedPage,
     request,
   }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(TIMEOUTS.XLONG);
     const email = uniqueEmail('e2e-rec');
     // Display-cased input is the point of this test (exercises
     // normalizeUsername path). Inline random hex for collision resistance —
@@ -56,7 +54,7 @@ test.describe('Recovery Phrase & Forgot Password', () => {
       await settingsPage.openRecoveryPhrase();
 
       const modal = new RecoveryPhraseModal(unauthenticatedPage);
-      await expect(modal.wordGrid).toBeVisible({ timeout: 15_000 });
+      await expect(modal.wordGrid).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
       capturedWords = await modal.getWords();
       expect(capturedWords).toHaveLength(12);
@@ -114,7 +112,7 @@ test.describe('Recovery Phrase & Forgot Password', () => {
       await confirmModal.confirm();
 
       const modal = new RecoveryPhraseModal(unauthenticatedPage);
-      await expect(modal.wordGrid).toBeVisible({ timeout: 15_000 });
+      await expect(modal.wordGrid).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
       const newWords = await modal.getWords();
       expect(newWords).toHaveLength(12);

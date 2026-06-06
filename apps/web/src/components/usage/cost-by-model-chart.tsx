@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { ChartTooltipContent } from '@hushbox/ui';
+import { TEST_IDS, type CostByModelResponse } from '@hushbox/shared';
 import {
   UsageChartCard,
   DEFAULT_CHART_MARGIN,
@@ -9,7 +10,6 @@ import {
   formatDollarTooltip,
 } from './chart-utilities';
 import type { ChartConfig } from '@hushbox/ui';
-import type { CostByModelResponse } from '@hushbox/shared';
 
 interface CostByModelChartProps {
   data: CostByModelResponse | undefined;
@@ -39,7 +39,7 @@ export function CostByModelChart({
   return (
     <UsageChartCard
       title="Cost by Model"
-      testId="cost-by-model-chart"
+      testId={TEST_IDS.costByModelChart}
       isLoading={isLoading}
       isEmpty={chartData.length === 0}
       chartConfig={chartConfig}

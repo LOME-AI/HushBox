@@ -1,4 +1,4 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
 import { LoginPage, SettingsPage, ChangePasswordModal } from '../pages';
 import {
   signUpAndVerify,
@@ -8,17 +8,15 @@ import {
   navigateToSettings,
   clearAuthRateLimits,
 } from '../helpers/auth.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Password Change', () => {
-  test.beforeEach(async ({ request }, testInfo) => {
-    if (testInfo.project.name !== 'chromium') {
-      test.skip(true, 'Auth tests run only on chromium');
-    }
+  test.beforeEach(async ({ request }) => {
     await clearAuthRateLimits(request);
   });
 
   test('change password → old fails → new succeeds', async ({ unauthenticatedPage, request }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(TIMEOUTS.XLONG);
     const email = uniqueEmail('e2e-pwd');
     const username = uniqueUsername('pwd');
     const originalPassword = 'TestPassword123!';
@@ -38,7 +36,7 @@ test.describe('Password Change', () => {
       const modal = new ChangePasswordModal(unauthenticatedPage);
       await modal.fillAndSubmit(originalPassword, newPassword);
 
-      await expect(modal.modal).not.toBeVisible({ timeout: 15_000 });
+      await expect(modal.modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
     });
 
     await test.step('old password fails after change', async () => {
@@ -53,7 +51,7 @@ test.describe('Password Change', () => {
       const loginPage = new LoginPage(unauthenticatedPage);
       await loginPage.goto();
       await loginPage.loginAndWaitForChat(email, newPassword);
-      await unsettledExpect(unauthenticatedPage).toHaveURL('/chat', { timeout: 30_000 });
+      await expect(unauthenticatedPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
     });
   });
 });

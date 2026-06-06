@@ -24,6 +24,7 @@ import {
   formatLockoutMessage,
   friendlyErrorMessage,
   ROUTES,
+  TEST_IDS,
   type UserFacingMessage,
 } from '@hushbox/shared';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
@@ -106,7 +107,7 @@ function IntroStep({
         <p className="font-medium">This action cannot be undone.</p>
       </div>
       <ModalActions
-        cancel={{ label: 'Cancel', onClick: onCancel, testId: 'delete-account-cancel' }}
+        cancel={{ label: 'Cancel', onClick: onCancel, testId: TEST_IDS.deleteAccountCancel }}
         primary={{
           label: 'Continue',
           onClick: onContinue,
@@ -115,7 +116,7 @@ function IntroStep({
           disabled: balanceLoading,
           loading: balanceLoading,
           loadingLabel: 'Loading...',
-          testId: 'delete-account-intro-continue',
+          testId: TEST_IDS.deleteAccountIntroContinue,
         }}
       />
     </>
@@ -150,7 +151,7 @@ function WalletStep({
               onAcknowledgedChange(checked === true);
             }}
             aria-label={`I understand I will forfeit ${balanceDisplay} and it cannot be refunded.`}
-            data-testid="delete-account-forfeit-checkbox"
+            data-testid={TEST_IDS.deleteAccountForfeitCheckbox}
           />
           <span>I understand I will forfeit {balanceDisplay} and it cannot be refunded.</span>
         </Label>
@@ -161,7 +162,7 @@ function WalletStep({
           label: 'Continue',
           onClick: onContinue,
           disabled: !acknowledged,
-          testId: 'delete-account-wallet-continue',
+          testId: TEST_IDS.deleteAccountWalletContinue,
         }}
       />
     </>
@@ -218,7 +219,7 @@ function PasswordStep({
           disabled: password.length === 0,
           loading: isSubmitting,
           loadingLabel: 'Verifying...',
-          testId: 'delete-account-password-continue',
+          testId: TEST_IDS.deleteAccountPasswordContinue,
         }}
       />
     </>
@@ -251,7 +252,7 @@ function TotpStep({
           label: 'Continue',
           onClick: onContinue,
           disabled: otpValue.length !== 6,
-          testId: 'delete-account-totp-continue',
+          testId: TEST_IDS.deleteAccountTotpContinue,
         }}
       />
     </>
@@ -288,7 +289,7 @@ function FinalStep({
     disabled: !phraseMatches || isSubmitting,
     loading: isSubmitting,
     loadingLabel: 'Deleting...',
-    testId: 'delete-account-final-submit',
+    testId: TEST_IDS.deleteAccountFinalSubmit,
   };
 
   return (
@@ -315,7 +316,7 @@ function FinalStep({
           aria-label="Confirmation"
           aria-invalid={hasError}
           aria-describedby={hasError ? CONFIRMATION_ERROR_ID : undefined}
-          data-testid="delete-account-confirmation-input"
+          data-testid={TEST_IDS.deleteAccountConfirmationInput}
           autoComplete="off"
         />
       </div>
@@ -325,7 +326,7 @@ function FinalStep({
           cancel={{
             label: 'Start over',
             onClick: onStartOver,
-            testId: 'delete-account-start-over',
+            testId: TEST_IDS.deleteAccountStartOver,
           }}
           primary={primary}
         />
@@ -533,7 +534,7 @@ export function DeleteAccountModal({
       dismissible={!isBusy}
       {...(step !== 'intro' && { onBack: handleBack })}
     >
-      <OverlayContent data-testid="delete-account-modal" className="w-[75vw]">
+      <OverlayContent data-testid={TEST_IDS.deleteAccountModal} className="w-[75vw]">
         {stepBody}
       </OverlayContent>
     </Overlay>

@@ -3,6 +3,7 @@ import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { createInviteLink } from '../helpers/invite-link.js';
 import { requireEnv } from '../helpers/env.js';
 import { expectSharedConversationLoaded } from '../helpers/link-assertions.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
 
@@ -96,7 +97,7 @@ test.describe('Trial / Link-Guest Media Blocked', () => {
 
     // Wait until the guest page has fired at least one API request that
     // carried the link-public-key header.
-    await expect.poll(() => linkPublicKey, { timeout: 15_000 }).not.toBeNull();
+    await expect.poll(() => linkPublicKey, { timeout: TIMEOUTS.CONVERSATION_LOAD }).not.toBeNull();
     expect(linkPublicKey, 'guest page should have set the link public key').toBeTruthy();
 
     const response = await guest.request.post(`${apiUrl}/api/chat/${groupConversation.id}/stream`, {

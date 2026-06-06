@@ -1,5 +1,7 @@
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage, SidebarPage } from '../pages';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Chat Functionality', () => {
   test.describe('New Chat', () => {
@@ -25,7 +27,7 @@ test.describe('Chat Functionality', () => {
       await chatPage.expectAssistantMessageContains('Echo:');
 
       await expect
-        .poll(() => sidebar.countConversationsWithText(uniqueId), { timeout: 5000 })
+        .poll(() => sidebar.countConversationsWithText(uniqueId), { timeout: TIMEOUTS.MODAL })
         .toBe(1);
     });
   });
@@ -70,6 +72,7 @@ test.describe('Chat Functionality', () => {
   });
 
   test.describe('Sidebar Actions', () => {
+    // eslint-disable-next-line no-restricted-syntax -- serial: rename/delete/cancel-delete mutate the same shared Alice sidebar conversation list; concurrent runs cross-talk on the shared authenticated page.
     test.describe.configure({ mode: 'serial' });
 
     test('shows conversation in sidebar', async ({ authenticatedPage, testConversation }) => {
@@ -144,7 +147,9 @@ test.describe('Chat Functionality', () => {
     }) => {
       const chatPage = new ChatPage(authenticatedPage);
 
-      const firstMessage = chatPage.messageList.locator('[data-testid="message-item"]').first();
+      const firstMessage = chatPage.messageList
+        .locator(`[data-testid="${TEST_IDS.messageItem}"]`)
+        .first();
       const initialBoundingBox = await firstMessage.boundingBox();
       expect(initialBoundingBox).not.toBeNull();
 
@@ -185,7 +190,9 @@ test.describe('Chat Functionality', () => {
         `Found ${String(overflowingElements.length)} overflowing elements:\n${overflowingElements.join('\n')}`
       ).toBe(0);
 
-      const messageItem = chatPage.messageList.locator('[data-testid="message-item"]').last();
+      const messageItem = chatPage.messageList
+        .locator(`[data-testid="${TEST_IDS.messageItem}"]`)
+        .last();
       await expect(messageItem).toBeVisible();
       const [messageBox, viewportWidth] = await Promise.all([
         messageItem.boundingBox(),

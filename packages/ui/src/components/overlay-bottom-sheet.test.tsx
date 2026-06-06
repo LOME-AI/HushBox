@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { OverlayBottomSheet } from './overlay-bottom-sheet';
 
 describe('OverlayBottomSheet', () => {
@@ -27,7 +28,7 @@ describe('OverlayBottomSheet', () => {
         <div>Sheet content</div>
       </OverlayBottomSheet>
     );
-    const content = screen.getByTestId('overlay-content');
+    const content = screen.getByTestId(TEST_IDS.overlayContent);
     const handle = content.querySelector('.rounded-full');
     expect(handle).toBeInTheDocument();
   });
@@ -94,7 +95,7 @@ describe('OverlayBottomSheet', () => {
       );
       // Drag handle is the small pill above the content. When swipe-to-dismiss
       // is disabled the handle becomes a lie — hide it.
-      const content = screen.getByTestId('overlay-content');
+      const content = screen.getByTestId(TEST_IDS.overlayContent);
       expect(content.querySelector('.rounded-full')).not.toBeInTheDocument();
     });
   });
@@ -177,8 +178,14 @@ describe('OverlayBottomSheet', () => {
       </OverlayBottomSheet>
     );
 
-    expect(screen.getByTestId('overlay-backdrop')).toHaveAttribute('data-slot', 'overlay-backdrop');
-    expect(screen.getByTestId('overlay-content')).toHaveAttribute('data-slot', 'overlay-content');
+    expect(screen.getByTestId(TEST_IDS.overlayBackdrop)).toHaveAttribute(
+      'data-slot',
+      'overlay-backdrop'
+    );
+    expect(screen.getByTestId(TEST_IDS.overlayContent)).toHaveAttribute(
+      'data-slot',
+      'overlay-content'
+    );
   });
 
   it('close button has data-slot="overlay-close" for E2E selector parity', () => {
@@ -199,7 +206,7 @@ describe('OverlayBottomSheet', () => {
       </OverlayBottomSheet>
     );
 
-    expect(screen.getByTestId('overlay-content')).toHaveAttribute(
+    expect(screen.getByTestId(TEST_IDS.overlayContent)).toHaveAttribute(
       'data-overlay-variant',
       'bottom-sheet'
     );
@@ -212,7 +219,7 @@ describe('OverlayBottomSheet', () => {
       </OverlayBottomSheet>
     );
 
-    const overlay = screen.getByTestId('overlay-backdrop');
+    const overlay = screen.getByTestId(TEST_IDS.overlayBackdrop);
     expect(overlay).toHaveClass('backdrop-blur-sm');
   });
 
@@ -238,7 +245,7 @@ describe('OverlayBottomSheet', () => {
       </OverlayBottomSheet>
     );
 
-    const content = screen.getByTestId('overlay-content');
+    const content = screen.getByTestId(TEST_IDS.overlayContent);
     expect(content).toHaveClass('bottom-0');
     expect(content).toHaveClass('rounded-t-xl');
   });

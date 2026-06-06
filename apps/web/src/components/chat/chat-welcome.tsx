@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
 import { cn, useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { getGreeting } from '@/lib/greetings';
 import { useModelStore, type SelectedModelEntry } from '@/stores/model';
 import { useSearchStore } from '@/stores/search';
@@ -157,7 +158,7 @@ export function ChatWelcome({
 
   return (
     <div
-      data-testid="chat-welcome"
+      data-testid={TEST_IDS.chatWelcome}
       data-loading={String(isLoading)}
       className={cn('flex flex-col overflow-hidden', className)}
       style={{ height: `${String(viewportHeight)}px` }}
@@ -212,7 +213,10 @@ export function ChatWelcome({
             <SuggestionChips onSelect={handleSuggestionSelect} showSurpriseMe />
           </div>
 
-          <p data-testid="privacy-tagline" className="text-muted-foreground/60 text-center text-xs">
+          <p
+            data-testid={TEST_IDS.privacyTagline}
+            className="text-muted-foreground/60 text-center text-xs"
+          >
             {isAuthenticated
               ? 'Encrypted storage \u00B7 AI providers retain nothing'
               : 'AI providers retain nothing \u00B7 Sign up for encrypted storage'}

@@ -48,6 +48,16 @@ describe('buildCorsXml', () => {
   });
 });
 
+describe('PRODUCTION_ALLOWED_ORIGINS', () => {
+  it('includes the Capacitor WebView origins so native apps can fetch media', () => {
+    // Must mirror CAPACITOR_ORIGINS in apps/api/src/middleware/cors.ts: the
+    // mobile WebView fetches presigned R2 URLs from these origins and is
+    // CORS-checked (CapacitorHttp is disabled, so fetch is not proxied natively).
+    expect(PRODUCTION_ALLOWED_ORIGINS).toContain('capacitor://localhost');
+    expect(PRODUCTION_ALLOWED_ORIGINS).toContain('http://localhost');
+  });
+});
+
 describe('configureR2Cors', () => {
   const baseEnv = {
     R2_S3_ENDPOINT: 'https://abc.r2.cloudflarestorage.com',

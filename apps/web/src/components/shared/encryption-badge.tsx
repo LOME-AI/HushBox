@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { ShieldCheck } from 'lucide-react';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@hushbox/ui';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_IDS } from '@hushbox/shared';
 
 interface EncryptionBadgeProps {
   isAuthenticated: boolean;
@@ -38,9 +38,9 @@ export function EncryptionBadge({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span data-testid="encryption-badge" className="inline-flex items-center">
+        <span data-testid={TEST_IDS.encryptionBadge} className="inline-flex items-center">
           <ShieldCheck
-            data-testid="encryption-badge-icon"
+            data-testid={TEST_IDS.encryptionBadgeIcon}
             className="h-5 w-5 text-green-500"
             aria-hidden="true"
           />

@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { TwoFactorSetup } from './TwoFactorSetup';
 
 const mockFetch = vi.fn();
@@ -216,7 +217,7 @@ describe('TwoFactorSetup', () => {
 
       const user = await goToVerifyStep();
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -238,7 +239,7 @@ describe('TwoFactorSetup', () => {
 
       const user = await goToVerifyStep();
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -260,7 +261,7 @@ describe('TwoFactorSetup', () => {
 
       const user = await goToVerifyStep();
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -282,7 +283,7 @@ describe('TwoFactorSetup', () => {
 
       const user = await goToVerifyStep();
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -310,7 +311,7 @@ describe('TwoFactorSetup', () => {
 
       const user = await goToVerifyStep();
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -343,7 +344,7 @@ describe('TwoFactorSetup', () => {
 
       await user.click(screen.getByRole('button', { name: /continue/i }));
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -390,7 +391,7 @@ describe('TwoFactorSetup', () => {
 
       await user.click(screen.getByRole('button', { name: /continue/i }));
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -439,7 +440,7 @@ describe('TwoFactorSetup', () => {
 
       await user.click(screen.getByRole('button', { name: /continue/i }));
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 

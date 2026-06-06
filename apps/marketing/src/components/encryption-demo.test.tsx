@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 
 vi.mock('@hushbox/crypto', () => {
   const encoder = new TextEncoder();
@@ -68,7 +69,7 @@ describe('EncryptionDemo', () => {
     expect(screen.getByText(/this is all our servers see/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /show readable/i })).toBeInTheDocument();
 
-    const cipherElement = screen.getByTestId('cipher-output');
+    const cipherElement = screen.getByTestId(TEST_IDS.cipherOutput);
     expect(cipherElement.textContent).toMatch(/^[0-9a-f]+$/);
   });
 
@@ -78,7 +79,7 @@ describe('EncryptionDemo', () => {
 
     await user.click(screen.getByRole('button', { name: /show what's stored/i }));
 
-    const cipherElement = screen.getByTestId('cipher-output');
+    const cipherElement = screen.getByTestId(TEST_IDS.cipherOutput);
     expect(cipherElement.textContent).not.toBe('This is private.');
     expect(cipherElement.textContent.length).toBeGreaterThan(0);
   });
@@ -88,7 +89,7 @@ describe('EncryptionDemo', () => {
     render(<EncryptionDemo />);
 
     await user.click(screen.getByRole('button', { name: /show what's stored/i }));
-    const initialCipher = screen.getByTestId('cipher-output').textContent;
+    const initialCipher = screen.getByTestId(TEST_IDS.cipherOutput).textContent;
 
     await user.click(screen.getByRole('button', { name: /show readable/i }));
 
@@ -98,7 +99,7 @@ describe('EncryptionDemo', () => {
 
     await user.click(screen.getByRole('button', { name: /show what's stored/i }));
 
-    const updatedCipher = screen.getByTestId('cipher-output').textContent;
+    const updatedCipher = screen.getByTestId(TEST_IDS.cipherOutput).textContent;
     expect(updatedCipher).not.toBe(initialCipher);
   });
 

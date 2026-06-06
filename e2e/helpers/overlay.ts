@@ -1,5 +1,5 @@
-import { TOUCH_QUERY } from '@hushbox/shared';
-import { expect } from './settled-expect.js';
+import { TOUCH_QUERY, TEST_IDS } from '@hushbox/shared';
+import { expect } from './expect.js';
 import type { Page } from '@playwright/test';
 
 /**
@@ -28,6 +28,6 @@ export async function closeOverlay(page: Page): Promise<void> {
  */
 export async function expectCorrectOverlayVariant(page: Page): Promise<void> {
   const variant = await expectedOverlayVariant(page);
-  const content = page.locator('[data-testid="overlay-content"]');
+  const content = page.getByTestId(TEST_IDS.overlayContent);
   await expect(content).toHaveAttribute('data-overlay-variant', variant);
 }

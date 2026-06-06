@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { cn, DropdownMenuItem } from '@hushbox/ui';
 import { encryptTextForEpoch, getPublicKeyFromPrivate } from '@hushbox/crypto';
-import { toBase64, ROUTES, type ConversationListItem } from '@hushbox/shared';
+import { toBase64, ROUTES, TEST_IDS, type ConversationListItem } from '@hushbox/shared';
 import { ItemRow } from '@/components/shared/item-row';
 import { useUIStore } from '@/stores/ui';
 import { useDeleteConversation, useUpdateConversation, DECRYPTING_TITLE } from '@/hooks/chat';
@@ -51,7 +51,7 @@ function ChatItemTitle({ title }: Readonly<{ title: string }>): React.JSX.Elemen
     return (
       <span
         className="text-muted-foreground flex items-center gap-1.5 truncate text-xs"
-        data-testid="decrypting-title"
+        data-testid={TEST_IDS.decryptingTitle}
       >
         <Lock className="h-3 w-3 shrink-0" />
         Decrypting...
@@ -236,7 +236,7 @@ export function ChatItem({
         showMenu={sidebarOpen}
         menuProps={{
           className: 'absolute right-1',
-          'data-testid': 'chat-item-more-button',
+          'data-testid': TEST_IDS.chatItemMoreButton,
           onClick: (e) => {
             e.preventDefault();
           },
@@ -254,7 +254,7 @@ export function ChatItem({
           to={ROUTES.CHAT_ID}
           params={{ id: conversation.id }}
           search={{ fork: undefined }}
-          data-testid="chat-link"
+          data-testid={TEST_IDS.chatLink}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm',
             !sidebarOpen && 'justify-center px-0',
@@ -265,7 +265,7 @@ export function ChatItem({
             <ChatItemTitle title={conversation.title} />
           ) : (
             <MessageSquare
-              data-testid="message-icon"
+              data-testid={TEST_IDS.messageIcon}
               className="h-4 w-4 shrink-0"
               aria-hidden="true"
             />

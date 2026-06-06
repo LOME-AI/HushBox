@@ -4,6 +4,8 @@ import {
   FEE_BUCKET_BY_ID,
   FEE_CATEGORIES,
   roundPreservingSum,
+  TEST_IDS,
+  TEST_ID_BUILDERS,
   type FeeBucketId,
 } from '@hushbox/shared';
 
@@ -34,8 +36,8 @@ function buildFeeItems(bucket: FeeBucketId): FeeItem[] {
   return FEE_CATEGORIES.filter((c) => FEE_BUCKET_BY_ID[c.id] === bucket).map((c) => ({
     label: c.label,
     percentage: c.rate * 100,
-    testId: `item-fee-${c.id}`,
-    pctTestId: `item-fee-${c.id}-pct`,
+    testId: TEST_ID_BUILDERS.feeItem(c.id),
+    pctTestId: TEST_ID_BUILDERS.feeItemPct(c.id),
   }));
 }
 
@@ -67,22 +69,22 @@ export function FeeBreakdown({
   const categories: FeeCategoryGroup[] = [
     {
       name: 'Service Value',
-      testId: 'category-service-value',
-      pctTestId: 'category-service-value-pct',
+      testId: TEST_IDS.categoryServiceValue,
+      pctTestId: TEST_IDS.categoryServiceValuePct,
       approximateLabel: `~${String(serviceValueRounded)}%`,
       colorClass: 'text-blue-500',
       items: [
         {
           label: 'Model usage',
           percentage: modelUsagePct,
-          testId: 'item-model-usage',
-          pctTestId: 'item-model-usage-pct',
+          testId: TEST_IDS.itemModelUsage,
+          pctTestId: TEST_IDS.itemModelUsagePct,
         },
         {
           label: 'Storage',
           percentage: storagePct,
-          testId: 'item-storage',
-          pctTestId: 'item-storage-pct',
+          testId: TEST_IDS.itemStorage,
+          pctTestId: TEST_IDS.itemStoragePct,
         },
       ],
     },
@@ -91,8 +93,8 @@ export function FeeBreakdown({
   if (transactionCostsItems.length > 0) {
     categories.push({
       name: 'Transaction Costs',
-      testId: 'category-transaction-costs',
-      pctTestId: 'category-transaction-costs-pct',
+      testId: TEST_IDS.categoryTransactionCosts,
+      pctTestId: TEST_IDS.categoryTransactionCostsPct,
       approximateLabel: `~${String(transactionCostsRounded)}%`,
       colorClass: 'text-amber-500',
       items: transactionCostsItems,
@@ -102,8 +104,8 @@ export function FeeBreakdown({
   if (platformFeeItems.length > 0) {
     categories.push({
       name: 'Platform Fee',
-      testId: 'category-platform-fee',
-      pctTestId: 'category-platform-fee-pct',
+      testId: TEST_IDS.categoryPlatformFee,
+      pctTestId: TEST_IDS.categoryPlatformFeePct,
       approximateLabel: `~${String(platformFeeRounded)}%`,
       colorClass: 'text-[#ec4755]',
       items: platformFeeItems,
@@ -111,7 +113,7 @@ export function FeeBreakdown({
   }
 
   return (
-    <div data-testid="fee-breakdown" className="space-y-4">
+    <div data-testid={TEST_IDS.feeBreakdown} className="space-y-4">
       <h3 className="text-lg font-semibold">Where does my money go?</h3>
       <div className="space-y-4">
         {categories.map((category) => (

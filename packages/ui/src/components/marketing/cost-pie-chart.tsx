@@ -3,6 +3,7 @@ import {
   STORAGE_COST_PER_CHARACTER,
   FEE_BUCKET_BY_ID,
   FEE_CATEGORIES,
+  TEST_IDS,
   type FeeBucketId,
 } from '@hushbox/shared';
 
@@ -96,7 +97,7 @@ export function CostPieChart({
       label: 'Service Value',
       value: serviceValue,
       color: COLORS.SERVICE_VALUE,
-      testId: 'slice-service-value',
+      testId: TEST_IDS.sliceServiceValue,
     },
   ];
   if (transactionCosts > 0) {
@@ -104,7 +105,7 @@ export function CostPieChart({
       label: 'Transaction Costs',
       value: transactionCosts,
       color: COLORS.TRANSACTION_COSTS,
-      testId: 'slice-transaction-costs',
+      testId: TEST_IDS.sliceTransactionCosts,
     });
   }
   if (platformFee > 0) {
@@ -112,7 +113,7 @@ export function CostPieChart({
       label: 'Platform Fee',
       value: platformFee,
       color: COLORS.PLATFORM_FEE,
-      testId: 'slice-platform-fee',
+      testId: TEST_IDS.slicePlatformFee,
     });
   }
 
@@ -124,7 +125,7 @@ export function CostPieChart({
   let currentAngle = 0;
 
   return (
-    <div data-testid="cost-pie-chart" className="flex items-center justify-center">
+    <div data-testid={TEST_IDS.costPieChart} className="flex items-center justify-center">
       <svg width="240" height="240" viewBox="0 0 200 200" className="flex-shrink-0">
         {slices.map((slice) => {
           const sliceAngle = (slice.value / total) * 360;

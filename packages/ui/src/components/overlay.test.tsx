@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { Overlay } from './overlay';
 
 describe('Overlay', () => {
@@ -32,7 +33,7 @@ describe('Overlay', () => {
     );
 
     // Click the overlay (outside the content)
-    const overlay = screen.getByTestId('overlay-backdrop');
+    const overlay = screen.getByTestId(TEST_IDS.overlayBackdrop);
     await user.click(overlay);
 
     await waitFor(() => {
@@ -63,7 +64,7 @@ describe('Overlay', () => {
       </Overlay>
     );
 
-    const overlay = screen.getByTestId('overlay-backdrop');
+    const overlay = screen.getByTestId(TEST_IDS.overlayBackdrop);
     expect(overlay).toHaveClass('backdrop-blur-sm');
   });
 
@@ -74,7 +75,7 @@ describe('Overlay', () => {
       </Overlay>
     );
 
-    const content = screen.getByTestId('overlay-content');
+    const content = screen.getByTestId(TEST_IDS.overlayContent);
     expect(content).toHaveClass('custom-class');
   });
 
@@ -85,7 +86,7 @@ describe('Overlay', () => {
       </Overlay>
     );
 
-    const content = screen.getByTestId('overlay-content');
+    const content = screen.getByTestId(TEST_IDS.overlayContent);
     expect(content).toHaveClass('fixed');
     expect(content).toHaveClass('top-[50%]');
     expect(content).toHaveClass('left-[50%]');
@@ -98,7 +99,7 @@ describe('Overlay', () => {
       </Overlay>
     );
 
-    const content = screen.getByTestId('overlay-content');
+    const content = screen.getByTestId(TEST_IDS.overlayContent);
     expect(content).toHaveClass('pt-2');
   });
 
@@ -109,8 +110,14 @@ describe('Overlay', () => {
       </Overlay>
     );
 
-    expect(screen.getByTestId('overlay-backdrop')).toHaveAttribute('data-slot', 'overlay-backdrop');
-    expect(screen.getByTestId('overlay-content')).toHaveAttribute('data-slot', 'overlay-content');
+    expect(screen.getByTestId(TEST_IDS.overlayBackdrop)).toHaveAttribute(
+      'data-slot',
+      'overlay-backdrop'
+    );
+    expect(screen.getByTestId(TEST_IDS.overlayContent)).toHaveAttribute(
+      'data-slot',
+      'overlay-content'
+    );
   });
 
   it('has data-overlay-variant="dialog" on content', () => {
@@ -120,7 +127,10 @@ describe('Overlay', () => {
       </Overlay>
     );
 
-    expect(screen.getByTestId('overlay-content')).toHaveAttribute('data-overlay-variant', 'dialog');
+    expect(screen.getByTestId(TEST_IDS.overlayContent)).toHaveAttribute(
+      'data-overlay-variant',
+      'dialog'
+    );
   });
 
   it('renders visually hidden accessible title', () => {
@@ -263,7 +273,7 @@ describe('Overlay', () => {
         </Overlay>
       );
 
-      const overlay = screen.getByTestId('overlay-backdrop');
+      const overlay = screen.getByTestId(TEST_IDS.overlayBackdrop);
       await user.click(overlay);
 
       await new Promise((resolve) => setTimeout(resolve, 50));

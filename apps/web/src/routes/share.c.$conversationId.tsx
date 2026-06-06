@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
 import { deriveKeysFromLinkSecret } from '@hushbox/crypto';
-import { fromBase64, toBase64 } from '@hushbox/shared';
+import { fromBase64, toBase64, TEST_IDS } from '@hushbox/shared';
 import { AppShell } from '../components/shared/app-shell.js';
 import { AuthenticatedChatPage } from '../components/chat/authenticated-chat-page.js';
 import { setLinkGuestAuth, clearLinkGuestAuth } from '../lib/link-guest-auth.js';
@@ -65,7 +65,7 @@ function SharedConversationPageInner(): React.JSX.Element {
       <AppShell>
         <div
           className="flex h-full items-center justify-center"
-          data-testid="shared-conversation-error"
+          data-testid={TEST_IDS.sharedConversationError}
         >
           <p className="text-muted-foreground">This shared link is no longer available.</p>
         </div>
@@ -78,7 +78,7 @@ function SharedConversationPageInner(): React.JSX.Element {
       <AppShell>
         <div
           className="flex h-full items-center justify-center"
-          data-testid="shared-conversation-loading"
+          data-testid={TEST_IDS.sharedConversationLoading}
         >
           <div className="flex flex-col items-center gap-3">
             <Lock className="text-muted-foreground h-8 w-8" />

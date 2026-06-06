@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useState, useEffect } from 'react';
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { Logo } from '@hushbox/ui';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { authClient } from '@/lib/auth';
 import { BillingContent } from '@/components/billing/billing-content';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
@@ -54,7 +54,7 @@ function BillingPortalPage(): React.JSX.Element {
   if (state === 'error') {
     return (
       <div className="flex h-dvh items-center justify-center">
-        <div className="text-center" data-testid="billing-portal-error">
+        <div className="text-center" data-testid={TEST_IDS.billingPortalError}>
           <h1 className="text-foreground mb-2 text-2xl font-bold">Link expired</h1>
           <p className="text-muted-foreground mb-4">{errorMessage}</p>
           <p className="text-muted-foreground text-sm">Return to the app to generate a new link.</p>
@@ -64,7 +64,7 @@ function BillingPortalPage(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-dvh flex-col" data-testid="billing-portal">
+    <div className="flex h-dvh flex-col" data-testid={TEST_IDS.billingPortal}>
       <header data-chrome="" className="flex items-center justify-between border-b px-4 py-3">
         <Link to={ROUTES.CHAT} aria-label="HushBox - Go to chat">
           <Logo />

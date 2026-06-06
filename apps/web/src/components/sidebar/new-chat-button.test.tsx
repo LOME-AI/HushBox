@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { NewChatButton } from './new-chat-button';
 
@@ -34,7 +35,7 @@ describe('NewChatButton', () => {
 
     it('renders plus icon', () => {
       render(<NewChatButton />);
-      expect(screen.getByTestId('plus-icon')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.plusIcon)).toBeInTheDocument();
     });
 
     it('navigates to /chat on click', async () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 
 describe('ThemeToggle', () => {
   beforeEach(() => {
@@ -76,14 +77,14 @@ describe('ThemeToggle', () => {
   it('renders the SVG morph icon', async () => {
     const { ThemeToggle } = await import('./theme-toggle');
     render(<ThemeToggle />);
-    expect(screen.getByTestId('theme-morph-icon')).toBeInTheDocument();
-    expect(screen.getByTestId('theme-morph-icon').tagName.toLowerCase()).toBe('svg');
+    expect(screen.getByTestId(TEST_IDS.themeMorphIcon)).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.themeMorphIcon).tagName.toLowerCase()).toBe('svg');
   });
 
   it('shows sun rays in light mode with scale(1)', async () => {
     const { ThemeToggle } = await import('./theme-toggle');
     render(<ThemeToggle />);
-    const rays = screen.getByTestId('sun-rays');
+    const rays = screen.getByTestId(TEST_IDS.sunRays);
     expect(rays).toBeInTheDocument();
     expect(rays).toHaveStyle({ transform: 'rotate(0deg) scale(1)' });
   });
@@ -91,8 +92,8 @@ describe('ThemeToggle', () => {
   it('shows sun body with r=5 in light mode', async () => {
     const { ThemeToggle } = await import('./theme-toggle');
     render(<ThemeToggle />);
-    const svg = screen.getByTestId('theme-morph-icon');
-    const bodyCircle = svg.querySelector('circle[data-testid="sun-body"]');
+    const svg = screen.getByTestId(TEST_IDS.themeMorphIcon);
+    const bodyCircle = svg.querySelector(`circle[data-testid="${TEST_IDS.sunBody}"]`);
     expect(bodyCircle).toBeInTheDocument();
     expect(bodyCircle).toHaveAttribute('r', '5');
   });
@@ -100,8 +101,8 @@ describe('ThemeToggle', () => {
   it('positions mask circle off-screen in light mode (cx=28)', async () => {
     const { ThemeToggle } = await import('./theme-toggle');
     render(<ThemeToggle />);
-    const svg = screen.getByTestId('theme-morph-icon');
-    const maskCircle = svg.querySelector('circle[data-testid="mask-circle"]');
+    const svg = screen.getByTestId(TEST_IDS.themeMorphIcon);
+    const maskCircle = svg.querySelector(`circle[data-testid="${TEST_IDS.maskCircle}"]`);
     expect(maskCircle).toBeInTheDocument();
     expect(maskCircle).toHaveAttribute('cx', '28');
   });
@@ -111,8 +112,8 @@ describe('ThemeToggle', () => {
     const { ThemeToggle } = await import('./theme-toggle');
     render(<ThemeToggle />);
     await waitFor(() => {
-      const svg = screen.getByTestId('theme-morph-icon');
-      const bodyCircle = svg.querySelector('circle[data-testid="sun-body"]');
+      const svg = screen.getByTestId(TEST_IDS.themeMorphIcon);
+      const bodyCircle = svg.querySelector(`circle[data-testid="${TEST_IDS.sunBody}"]`);
       expect(bodyCircle).toHaveAttribute('r', '8');
     });
   });
@@ -122,8 +123,8 @@ describe('ThemeToggle', () => {
     const { ThemeToggle } = await import('./theme-toggle');
     render(<ThemeToggle />);
     await waitFor(() => {
-      const svg = screen.getByTestId('theme-morph-icon');
-      const maskCircle = svg.querySelector('circle[data-testid="mask-circle"]');
+      const svg = screen.getByTestId(TEST_IDS.themeMorphIcon);
+      const maskCircle = svg.querySelector(`circle[data-testid="${TEST_IDS.maskCircle}"]`);
       expect(maskCircle).toHaveAttribute('cx', '17');
       expect(maskCircle).toHaveAttribute('cy', '7');
     });
@@ -134,7 +135,7 @@ describe('ThemeToggle', () => {
     const { ThemeToggle } = await import('./theme-toggle');
     render(<ThemeToggle />);
     await waitFor(() => {
-      const rays = screen.getByTestId('sun-rays');
+      const rays = screen.getByTestId(TEST_IDS.sunRays);
       expect(rays).toHaveStyle({ transform: 'rotate(45deg) scale(0)' });
     });
   });

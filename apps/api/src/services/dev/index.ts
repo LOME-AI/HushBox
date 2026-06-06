@@ -7,6 +7,7 @@ export {
   createDevConversation,
   createDevGroupChat,
   setWalletBalance,
+  clearTotpReplay,
 } from './dev.js';
 export type {
   CleanupResult,
@@ -19,4 +20,5 @@ export type {
   CreateDevGroupChatResult,
   SetWalletBalanceParams,
   SetWalletBalanceResult,
+  ClearTotpReplayResult,
 } from './dev.js';

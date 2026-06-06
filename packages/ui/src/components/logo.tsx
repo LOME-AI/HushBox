@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { cn } from '../lib/utilities';
 import logoUrl from '../assets/HushBoxLogo.png';
 
@@ -20,7 +21,11 @@ function Logo({ className }: Readonly<LogoProps>): React.JSX.Element {
   const imageSource = resolveImageSource(logoUrl);
 
   return (
-    <div data-testid="logo" data-no-invert="" className={cn('flex items-center gap-2', className)}>
+    <div
+      data-testid={TEST_IDS.logo}
+      data-no-invert=""
+      className={cn('flex items-center gap-2', className)}
+    >
       {/* eslint-disable-next-line no-restricted-syntax -- Logo IS the brand image primitive; must render the raw <img> for the official mark */}
       <img src={imageSource} alt="HushBox Logo" className="h-6 w-6 shrink-0 object-contain" />
       <span className="text-lg leading-none font-bold">

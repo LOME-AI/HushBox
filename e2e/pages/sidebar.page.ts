@@ -1,6 +1,6 @@
 import { type Page, type Locator } from '@playwright/test';
-import { isMobileWidth } from '@hushbox/shared';
-import { expect } from '../helpers/settled-expect.js';
+import { isMobileWidth, TEST_IDS } from '@hushbox/shared';
+import { expect } from '../helpers/expect.js';
 import { expectCorrectOverlayVariant } from '../helpers/overlay.js';
 
 export class SidebarPage {
@@ -10,8 +10,8 @@ export class SidebarPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.hamburgerButton = page.getByTestId('hamburger-button');
-    this.sidebar = page.getByTestId('sidebar');
+    this.hamburgerButton = page.getByTestId(TEST_IDS.hamburgerButton);
+    this.sidebar = page.getByTestId(TEST_IDS.sidebar);
   }
 
   private isMobileViewport(): boolean {
@@ -55,7 +55,7 @@ export class SidebarPage {
     await this.ensureSidebarExpanded();
     const container = this.getChatItemContainer(conversationId).first();
     await container.hover();
-    await container.getByTestId('chat-item-more-button').click();
+    await container.getByTestId(TEST_IDS.chatItemMoreButton).click();
   }
 
   async renameConversation(conversationId: string, newName: string): Promise<void> {
@@ -67,7 +67,7 @@ export class SidebarPage {
     const input = this.page.locator('input[placeholder="Conversation title"]');
     await input.clear();
     await input.fill(newName);
-    await this.page.getByTestId('save-rename-button').click();
+    await this.page.getByTestId(TEST_IDS.saveRenameButton).click();
 
     await expect(this.page.getByText('Rename conversation', { exact: true })).not.toBeVisible();
   }
@@ -77,14 +77,14 @@ export class SidebarPage {
     await this.page.getByRole('menuitem', { name: 'Delete' }).click();
     await expect(this.page.getByText('Delete conversation?')).toBeVisible();
     await expectCorrectOverlayVariant(this.page);
-    await this.page.getByTestId('confirm-delete-button').click();
+    await this.page.getByTestId(TEST_IDS.confirmDeleteButton).click();
   }
 
   async cancelDelete(conversationId: string): Promise<void> {
     await this.openMoreMenu(conversationId);
     await this.page.getByRole('menuitem', { name: 'Delete' }).click();
     await expect(this.page.getByText('Delete conversation?')).toBeVisible();
-    await this.page.getByTestId('cancel-delete-button').click();
+    await this.page.getByTestId(TEST_IDS.cancelDeleteButton).click();
     await expect(this.page.getByText('Delete conversation?')).not.toBeVisible();
   }
 

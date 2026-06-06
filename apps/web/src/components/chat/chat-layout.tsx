@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
 import { useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { createEvent } from '@hushbox/realtime/events';
 import { ChatHeader } from '@/components/chat/chat-header';
 import { ComparisonBar } from '@/components/chat/comparison-bar';
@@ -514,7 +515,7 @@ function DecryptingPlaceholder(): React.JSX.Element {
   return (
     <div
       className="flex flex-1 items-center justify-center"
-      data-testid="shared-conversation-loading"
+      data-testid={TEST_IDS.sharedConversationLoading}
     >
       <div className="flex flex-col items-center gap-3">
         <Lock className="text-muted-foreground h-8 w-8" />

@@ -3,7 +3,7 @@ import { Link, useLocation } from '@tanstack/react-router';
 import { Lock } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Logo, SidebarPanel, useIsMobile } from '@hushbox/ui';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { useDecryptedConversations, chatKeys } from '@/hooks/chat';
 import { useSession } from '@/lib/auth';
@@ -14,15 +14,18 @@ function SidebarLoadingIndicator({
   collapsed,
 }: Readonly<{ collapsed: boolean }>): React.JSX.Element {
   return (
-    <div className="flex flex-1 items-center justify-center" data-testid="decrypting-indicator">
+    <div
+      className="flex flex-1 items-center justify-center"
+      data-testid={TEST_IDS.decryptingIndicator}
+    >
       {collapsed ? (
         <Lock
           className="text-muted-foreground h-5 w-5 animate-pulse"
-          data-testid="decrypting-lock-icon"
+          data-testid={TEST_IDS.decryptingLockIcon}
         />
       ) : (
         <span className="text-muted-foreground flex items-center gap-1.5 text-sm">
-          <Lock className="h-4 w-4 shrink-0" data-testid="decrypting-lock-icon" />
+          <Lock className="h-4 w-4 shrink-0" data-testid={TEST_IDS.decryptingLockIcon} />
           Decrypting...
         </span>
       )}
@@ -133,7 +136,7 @@ export function Sidebar(): React.JSX.Element {
           : toggleSidebar
       }
       footer={<SidebarFooter />}
-      testId="sidebar"
+      testId={TEST_IDS.sidebar}
     >
       {renderSidebarBody()}
     </SidebarPanel>

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { RefreshCw, Loader2 } from 'lucide-react';
+import { TEST_IDS } from '@hushbox/shared';
 import { Button, Overlay, OverlayContent } from '@hushbox/ui';
 import { useAppVersionStore } from '@/stores/app-version';
 import { isNative } from '@/capacitor/platform';
@@ -43,24 +44,24 @@ export function UpgradeRequiredModal(): React.JSX.Element | null {
       showCloseButton={false}
     >
       <OverlayContent
-        data-testid="upgrade-required-modal"
+        data-testid={TEST_IDS.upgradeRequiredModal}
         size="sm"
         className="items-center text-center"
       >
         <RefreshCw className="text-muted-foreground h-10 w-10" />
         <div>
-          <h2 data-testid="upgrade-required-title" className="text-lg font-semibold">
+          <h2 data-testid={TEST_IDS.upgradeRequiredTitle} className="text-lg font-semibold">
             Update Required
           </h2>
           <p
-            data-testid="upgrade-required-description"
+            data-testid={TEST_IDS.upgradeRequiredDescription}
             className="text-muted-foreground mt-1 text-sm"
           >
             A new version is available. Please refresh to continue.
           </p>
         </div>
         <Button
-          data-testid="upgrade-required-refresh"
+          data-testid={TEST_IDS.upgradeRequiredRefresh}
           onClick={handleRefresh}
           disabled={isUpdating}
           className="w-full"

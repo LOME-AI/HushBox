@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { SignupModal } from './signup-modal';
 
 const mockNavigate = vi.fn();
@@ -16,19 +17,19 @@ describe('SignupModal', () => {
   it('renders modal content when open', () => {
     render(<SignupModal open={true} onOpenChange={vi.fn()} />);
 
-    expect(screen.getByTestId('signup-modal')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.signupModal)).toBeInTheDocument();
   });
 
   it('does not render when closed', () => {
     render(<SignupModal open={false} onOpenChange={vi.fn()} />);
 
-    expect(screen.queryByTestId('signup-modal')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(TEST_IDS.signupModal)).not.toBeInTheDocument();
   });
 
   it('displays heading about premium models', () => {
     render(<SignupModal open={true} onOpenChange={vi.fn()} />);
 
-    const modal = screen.getByTestId('signup-modal');
+    const modal = screen.getByTestId(TEST_IDS.signupModal);
     expect(within(modal).getByRole('heading')).toHaveTextContent(/premium/i);
   });
 

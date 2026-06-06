@@ -1,7 +1,10 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Solo Regeneration', () => {
+  // eslint-disable-next-line no-restricted-syntax -- serial: stream-heavy retry/regenerate flows mutate the shared Alice authenticated page in sequence; concurrent runs race the same account's message state.
   test.describe.configure({ mode: 'serial' });
 
   test('retry user message deletes AI response and streams new one', async ({
@@ -12,7 +15,9 @@ test.describe('Solo Regeneration', () => {
     const chatPage = new ChatPage(authenticatedPage);
 
     await test.step('verify initial 2 messages', async () => {
-      await expect(chatPage.messageList.locator('[data-testid="message-item"]')).toHaveCount(2);
+      await expect(
+        chatPage.messageList.locator(`[data-testid="${TEST_IDS.messageItem}"]`)
+      ).toHaveCount(2);
     });
 
     await test.step('hover user message and verify action buttons', async () => {
@@ -45,7 +50,7 @@ test.describe('Solo Regeneration', () => {
     const chatPage = new ChatPage(authenticatedPage);
 
     const userMessage = chatPage.getMessage(0);
-    const userText = await userMessage.textContent();
+    const userText = (await userMessage.textContent()) ?? '';
 
     await test.step('hover AI message and verify regenerate button', async () => {
       await chatPage.prepareMessage(1);
@@ -58,8 +63,7 @@ test.describe('Solo Regeneration', () => {
     });
 
     await test.step('verify user message unchanged', async () => {
-      const currentUserText = await chatPage.getMessage(0).textContent();
-      expect(currentUserText).toBe(userText);
+      await expect(chatPage.getMessage(0)).toHaveText(userText);
     });
 
     await test.step('verify message count still 2', async () => {
@@ -87,7 +91,7 @@ test.describe('Solo Regeneration', () => {
       const editedMessage = `Edited message ${String(Date.now())}`;
       await chatPage.messageInput.clear();
       await chatPage.messageInput.fill(editedMessage);
-      await expect(chatPage.sendButton).toBeEnabled({ timeout: 15_000 });
+      await expect(chatPage.sendButton).toBeEnabled({ timeout: TIMEOUTS.STREAM });
       await chatPage.sendButton.click();
 
       await chatPage.waitForAIResponse(editedMessage);
@@ -192,10 +196,10 @@ test.describe('Solo Regeneration', () => {
     try {
       await chatPage.sendNewChatMessage(`Multi-model retry ${String(Date.now())}`);
       await chatPage.waitForConversation();
-      await chatPage.waitForStreamComplete(30_000);
+      await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
-      const errorTile = authenticatedPage.getByTestId('model-error-message');
-      await unsettledExpect(errorTile).toBeVisible({ timeout: 10_000 });
+      const errorTile = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
+      await expect(errorTile).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
       // Clear the failing-models header so the retry attempt can succeed —
       // we want to confirm the regenerate hits the FAILED model id.
@@ -204,7 +208,7 @@ test.describe('Solo Regeneration', () => {
       // Capture the regenerate request body to assert the model field.
       const regeneratePromise = authenticatedPage.waitForRequest(
         (req) => req.url().includes('/regenerate') && req.method() === 'POST',
-        { timeout: 15_000 }
+        { timeout: TIMEOUTS.STREAM }
       );
 
       // Scope Regenerate to the errored tile's own toolbar by climbing from
@@ -214,10 +218,10 @@ test.describe('Solo Regeneration', () => {
       // exposes "Retry" (not "Regenerate"), so a role-name selector at this
       // scope is unambiguous.
       const retryButton = errorTile
-        .locator('xpath=ancestor::*[@data-testid="message-item"][1]')
-        .getByTestId('message-actions')
+        .locator(`xpath=ancestor::*[@data-testid="${TEST_IDS.messageItem}"][1]`)
+        .getByTestId(TEST_IDS.messageActions)
         .getByRole('button', { name: 'Regenerate' });
-      await unsettledExpect(retryButton).toBeVisible({ timeout: 10_000 });
+      await expect(retryButton).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await retryButton.click();
 
       const regenerateRequest = await regeneratePromise;
@@ -303,7 +307,7 @@ test.describe('Group Chat Regeneration', () => {
     await test.step('find and hover Bob message', async () => {
       // Bob's message "Hi from Bob" — Alice cannot retry/edit it
       const bobMessage = chatPage.messageList
-        .locator('[data-testid="message-item"]')
+        .locator(`[data-testid="${TEST_IDS.messageItem}"]`)
         .filter({ hasText: 'Hi from Bob' });
       await bobMessage.hover();
 

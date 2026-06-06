@@ -7,17 +7,18 @@ import {
   uniqueUsername,
   navigateToSettings,
   clearAuthRateLimits,
-  waitForNextTOTPCode,
+  getAcceptableTOTPCode,
 } from './helpers/auth.js';
 import { requireEnv } from './helpers/env.js';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_IDS } from '@hushbox/shared';
+import { TIMEOUTS } from './config/timeouts.js';
 import type { Page, APIRequestContext, Locator } from '@playwright/test';
 
 const apiUrl = requireEnv('VITE_API_URL');
 const FRESH_PASSWORD = 'TestPassword123!';
 
-// Post-delete redirect to ROUTES.MARKETING. waitForURL is independent of the
-// settled-aware indicator, which can flip true mid-navigation.
+// Post-delete redirect to ROUTES.MARKETING. Gate on waitForURL, not the
+// settled indicator, which can read true mid-navigation.
 //
 // TanStack Query's pending refetch of `/api/billing/balance` can land after
 // the iron-session cookie has been cleared and 401 with NOT_AUTHENTICATED
@@ -29,7 +30,7 @@ async function expectRedirectedToMarketing(page: Page): Promise<void> {
     /"code":"NOT_AUTHENTICATED"/,
   ]);
   expectConsoleErrors(page, [/Failed to load resource: the server responded with a status of 401/]);
-  await page.waitForURL(new RegExp(ROUTES.MARKETING), { timeout: 15_000 });
+  await page.waitForURL(new RegExp(ROUTES.MARKETING), { timeout: TIMEOUTS.ROUTE });
 }
 
 interface FreshUser {
@@ -82,32 +83,39 @@ async function enableTwoFactorViaUI(page: Page): Promise<string> {
 }
 
 function modalLocator(page: Page): Locator {
-  return page.getByTestId('delete-account-modal');
+  return page.getByTestId(TEST_IDS.deleteAccountModal);
 }
 
 async function openDeleteAccountModal(page: Page): Promise<Locator> {
   await navigateToSettings(page);
-  await page.getByTestId('delete-account-trigger').click();
+  await page.getByTestId(TEST_IDS.deleteAccountTrigger).click();
   const modal = modalLocator(page);
   await expect(modal).toBeVisible();
   return modal;
 }
 
 async function continueFromIntro(page: Page): Promise<void> {
-  await page.getByTestId('delete-account-intro-continue').click();
+  await page.getByTestId(TEST_IDS.deleteAccountIntroContinue).click();
 }
 
 async function continueFromWallet(page: Page): Promise<void> {
-  await page.getByTestId('delete-account-forfeit-checkbox').click();
-  await page.getByTestId('delete-account-wallet-continue').click();
+  await page.getByTestId(TEST_IDS.deleteAccountForfeitCheckbox).click();
+  await page.getByTestId(TEST_IDS.deleteAccountWalletContinue).click();
 }
 
 async function advanceThroughIntroAndWallet(page: Page): Promise<void> {
   await continueFromIntro(page);
-  const forfeit = page.getByTestId('delete-account-forfeit-checkbox');
-  if (await forfeit.isVisible().catch(() => false)) {
+  // The wallet/forfeit step renders only for a user with a non-zero balance;
+  // otherwise intro advances straight to the password step. Both are
+  // deterministic end-states, so wait for whichever lands before branching —
+  // reading forfeit visibility point-in-time would race the React transition
+  // and silently skip the required forfeit step for a user with credits.
+  const forfeit = page.getByTestId(TEST_IDS.deleteAccountForfeitCheckbox);
+  const passwordField = page.locator('#delete-account-password');
+  await expect(forfeit.or(passwordField)).toBeVisible();
+  if (await forfeit.isVisible()) {
     await forfeit.click();
-    await page.getByTestId('delete-account-wallet-continue').click();
+    await page.getByTestId(TEST_IDS.deleteAccountWalletContinue).click();
   }
 }
 
@@ -118,18 +126,18 @@ async function submitPasswordStep(page: Page, password: string): Promise<void> {
       response.url().includes('/api/auth/delete-account/init') &&
       response.request().method() === 'POST'
   );
-  await page.getByTestId('delete-account-password-continue').click();
+  await page.getByTestId(TEST_IDS.deleteAccountPasswordContinue).click();
   await initWait;
 }
 
 async function typeConfirmationAndDelete(page: Page): Promise<void> {
-  await page.getByTestId('delete-account-confirmation-input').fill('delete my account');
+  await page.getByTestId(TEST_IDS.deleteAccountConfirmationInput).fill('delete my account');
   const finishWait = page.waitForResponse(
     (response) =>
       response.url().includes('/api/auth/delete-account/finish') &&
       response.request().method() === 'POST'
   );
-  await page.getByTestId('delete-account-final-submit').click();
+  await page.getByTestId(TEST_IDS.deleteAccountFinalSubmit).click();
   const finishResponse = await finishWait;
   expect(finishResponse.status()).toBe(204);
 }
@@ -144,7 +152,7 @@ test.describe('Account deletion', () => {
       unauthenticatedPage,
       request,
     }) => {
-      test.setTimeout(120_000);
+      test.setTimeout(TIMEOUTS.XLONG);
       const user = await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-no2fa');
 
       await openDeleteAccountModal(unauthenticatedPage);
@@ -166,7 +174,7 @@ test.describe('Account deletion', () => {
       unauthenticatedPage,
       request,
     }) => {
-      test.setTimeout(180_000);
+      test.setTimeout(TIMEOUTS.XXLONG);
       const user = await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-2fa');
       const secret = await enableTwoFactorViaUI(unauthenticatedPage);
 
@@ -174,11 +182,11 @@ test.describe('Account deletion', () => {
       await advanceThroughIntroAndWallet(unauthenticatedPage);
       await submitPasswordStep(unauthenticatedPage, user.password);
 
-      const totpCode = await waitForNextTOTPCode(secret, generateTOTPCode(secret));
-      const otpInput = unauthenticatedPage.getByTestId('otp-input');
-      await expect(otpInput).toBeVisible({ timeout: 10_000 });
+      const totpCode = await getAcceptableTOTPCode(request, user.email, secret);
+      const otpInput = unauthenticatedPage.getByTestId(TEST_IDS.otpInput);
+      await expect(otpInput).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await otpInput.pressSequentially(totpCode);
-      await unauthenticatedPage.getByTestId('delete-account-totp-continue').click();
+      await unauthenticatedPage.getByTestId(TEST_IDS.deleteAccountTotpContinue).click();
 
       await typeConfirmationAndDelete(unauthenticatedPage);
       await expectRedirectedToMarketing(unauthenticatedPage);
@@ -195,7 +203,7 @@ test.describe('Account deletion', () => {
       unauthenticatedPage,
       request,
     }) => {
-      test.setTimeout(120_000);
+      test.setTimeout(TIMEOUTS.XLONG);
       const user = await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-wallet');
       await seedWalletBalance(request, user.email, '5.00');
       await unauthenticatedPage.reload({ waitUntil: 'domcontentloaded' });
@@ -203,8 +211,8 @@ test.describe('Account deletion', () => {
       await openDeleteAccountModal(unauthenticatedPage);
       await continueFromIntro(unauthenticatedPage);
 
-      const forfeit = unauthenticatedPage.getByTestId('delete-account-forfeit-checkbox');
-      const continueButton = unauthenticatedPage.getByTestId('delete-account-wallet-continue');
+      const forfeit = unauthenticatedPage.getByTestId(TEST_IDS.deleteAccountForfeitCheckbox);
+      const continueButton = unauthenticatedPage.getByTestId(TEST_IDS.deleteAccountWalletContinue);
 
       await expect(forfeit).toBeVisible();
       await expect(unauthenticatedPage.getByText('$5.00').first()).toBeVisible();
@@ -223,7 +231,7 @@ test.describe('Account deletion', () => {
       unauthenticatedPage,
       request,
     }) => {
-      test.setTimeout(120_000);
+      test.setTimeout(TIMEOUTS.XLONG);
       const user = await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-back');
       await seedWalletBalance(request, user.email, '3.00');
       await unauthenticatedPage.reload({ waitUntil: 'domcontentloaded' });
@@ -262,7 +270,7 @@ test.describe('Account deletion', () => {
       createPage,
       request,
     }) => {
-      test.setTimeout(180_000);
+      test.setTimeout(TIMEOUTS.XXLONG);
       const user = await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-share');
 
       const convResponse = await request.post(`${apiUrl}/api/dev/conversation`, {
@@ -285,11 +293,11 @@ test.describe('Account deletion', () => {
       await aiMessage.hover();
       await aiMessage.getByRole('button', { name: 'Share' }).click();
 
-      const shareModal = unauthenticatedPage.getByTestId('share-message-modal');
+      const shareModal = unauthenticatedPage.getByTestId(TEST_IDS.shareMessageModal);
       await expect(shareModal).toBeVisible();
-      await unauthenticatedPage.getByTestId('share-message-create-button').click();
+      await unauthenticatedPage.getByTestId(TEST_IDS.shareMessageCreateButton).click();
 
-      const urlEl = unauthenticatedPage.getByTestId('share-message-url');
+      const urlEl = unauthenticatedPage.getByTestId(TEST_IDS.shareMessageUrl);
       await expect(urlEl).toBeVisible();
       const shareUrl = (await urlEl.textContent()) ?? '';
       expect(shareUrl).toContain('/share/m/');
@@ -297,10 +305,10 @@ test.describe('Account deletion', () => {
 
       const guestBeforeDelete = await createPage();
       await guestBeforeDelete.goto(shareUrl, { waitUntil: 'domcontentloaded' });
-      await expect(guestBeforeDelete.getByTestId('shared-message-loading')).not.toBeVisible({
-        timeout: 15_000,
+      await expect(guestBeforeDelete.getByTestId(TEST_IDS.sharedMessageLoading)).not.toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
-      await expect(guestBeforeDelete.getByTestId('shared-message-error')).not.toBeVisible();
+      await expect(guestBeforeDelete.getByTestId(TEST_IDS.sharedMessageError)).not.toBeVisible();
 
       await openDeleteAccountModal(unauthenticatedPage);
       await advanceThroughIntroAndWallet(unauthenticatedPage);
@@ -320,8 +328,8 @@ test.describe('Account deletion', () => {
         /Failed to load resource: the server responded with a status of 404/,
       ]);
       await guestAfterDelete.goto(shareUrl, { waitUntil: 'domcontentloaded' });
-      await expect(guestAfterDelete.getByTestId('shared-message-error')).toBeVisible({
-        timeout: 15_000,
+      await expect(guestAfterDelete.getByTestId(TEST_IDS.sharedMessageError)).toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
     });
   });
@@ -331,14 +339,14 @@ test.describe('Account deletion', () => {
       unauthenticatedPage,
       request,
     }) => {
-      test.setTimeout(180_000);
+      test.setTimeout(TIMEOUTS.XXLONG);
       const user = await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-cancel');
       await seedWalletBalance(request, user.email, '2.50');
       await unauthenticatedPage.reload({ waitUntil: 'domcontentloaded' });
       const modal = modalLocator(unauthenticatedPage);
 
       await openDeleteAccountModal(unauthenticatedPage);
-      await unauthenticatedPage.getByTestId('delete-account-cancel').click();
+      await unauthenticatedPage.getByTestId(TEST_IDS.deleteAccountCancel).click();
       await expect(modal).not.toBeVisible();
 
       await openDeleteAccountModal(unauthenticatedPage);
@@ -368,7 +376,7 @@ test.describe('Account deletion', () => {
       unauthenticatedPage,
       request,
     }) => {
-      test.setTimeout(120_000);
+      test.setTimeout(TIMEOUTS.XLONG);
       await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-wrongpw');
 
       const modal = await openDeleteAccountModal(unauthenticatedPage);
@@ -382,12 +390,12 @@ test.describe('Account deletion', () => {
           response.url().includes('/api/auth/delete-account/init') &&
           response.request().method() === 'POST'
       );
-      await unauthenticatedPage.getByTestId('delete-account-password-continue').click();
+      await unauthenticatedPage.getByTestId(TEST_IDS.deleteAccountPasswordContinue).click();
       const initResponse = await initWait;
       expect(initResponse.status()).toBe(200);
 
       await expect(modal.getByRole('alert')).toContainText(/incorrect password/i);
-      await expect(modal.getByTestId('delete-account-password-continue')).toBeVisible();
+      await expect(modal.getByTestId(TEST_IDS.deleteAccountPasswordContinue)).toBeVisible();
     });
   });
 
@@ -396,7 +404,7 @@ test.describe('Account deletion', () => {
       unauthenticatedPage,
       request,
     }) => {
-      test.setTimeout(180_000);
+      test.setTimeout(TIMEOUTS.XXLONG);
       // Deliberate: this test submits `000000` and asserts the 400 response.
       expectApiErrors(unauthenticatedPage, [
         /400 Bad Request POST .*\/api\/auth\/delete-account\/finish/,
@@ -415,26 +423,26 @@ test.describe('Account deletion', () => {
       // Enter a wrong TOTP code and advance past the TOTP step — the server
       // doesn't see the code until /finish, so we have to reach the final step
       // and submit the phrase to exercise the wrong-TOTP path.
-      const otpInput = unauthenticatedPage.getByTestId('otp-input');
-      await expect(otpInput).toBeVisible({ timeout: 10_000 });
+      const otpInput = unauthenticatedPage.getByTestId(TEST_IDS.otpInput);
+      await expect(otpInput).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await otpInput.pressSequentially('000000');
-      await unauthenticatedPage.getByTestId('delete-account-totp-continue').click();
+      await unauthenticatedPage.getByTestId(TEST_IDS.deleteAccountTotpContinue).click();
 
       // Final step — type phrase and submit
       await unauthenticatedPage
-        .getByTestId('delete-account-confirmation-input')
+        .getByTestId(TEST_IDS.deleteAccountConfirmationInput)
         .fill('delete my account');
       const finishWait = unauthenticatedPage.waitForResponse(
         (response) =>
           response.url().includes('/api/auth/delete-account/finish') &&
           response.request().method() === 'POST'
       );
-      await unauthenticatedPage.getByTestId('delete-account-final-submit').click();
+      await unauthenticatedPage.getByTestId(TEST_IDS.deleteAccountFinalSubmit).click();
       const finishResponse = await finishWait;
       expect(finishResponse.status()).toBe(400);
 
       // After my fix: modal auto-navigates back to TOTP step with the error visible there.
-      await expect(modal.getByTestId('otp-input')).toBeVisible();
+      await expect(modal.getByTestId(TEST_IDS.otpInput)).toBeVisible();
       await expect(modal.getByText(/invalid verification code/i)).toBeVisible();
     });
   });
@@ -444,15 +452,15 @@ test.describe('Account deletion', () => {
       unauthenticatedPage,
       request,
     }) => {
-      test.setTimeout(120_000);
+      test.setTimeout(TIMEOUTS.XLONG);
       const user = await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-phrase');
 
       await openDeleteAccountModal(unauthenticatedPage);
       await advanceThroughIntroAndWallet(unauthenticatedPage);
       await submitPasswordStep(unauthenticatedPage, user.password);
 
-      const input = unauthenticatedPage.getByTestId('delete-account-confirmation-input');
-      const submit = unauthenticatedPage.getByTestId('delete-account-final-submit');
+      const input = unauthenticatedPage.getByTestId(TEST_IDS.deleteAccountConfirmationInput);
+      const submit = unauthenticatedPage.getByTestId(TEST_IDS.deleteAccountFinalSubmit);
 
       await input.fill('delete account');
       await expect(submit).toBeDisabled();
@@ -471,9 +479,8 @@ test.describe('Account deletion', () => {
     // lockout behavior is covered exhaustively in
     // apps/api/src/routes/delete-account.test.ts (lockout headers,
     // retryAfterSeconds, 24h TTL, etc.).
-    test.fixme('fourth failed attempt surfaces lockout error', () => {
-      // Intentionally empty — see rationale above.
-    });
+    // eslint-disable-next-line playwright/expect-expect -- unimplemented stub: no assertions until this case is built
+    test.fixme('fourth failed attempt surfaces lockout error', () => {});
   });
 
   test.describe('Front-end idempotency', () => {
@@ -481,24 +488,32 @@ test.describe('Account deletion', () => {
       unauthenticatedPage,
       request,
     }) => {
-      test.setTimeout(120_000);
+      test.setTimeout(TIMEOUTS.XLONG);
       const user = await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-idem');
 
       await openDeleteAccountModal(unauthenticatedPage);
       await advanceThroughIntroAndWallet(unauthenticatedPage);
       await submitPasswordStep(unauthenticatedPage, user.password);
 
+      // Hold `/finish` in-flight on a deterministic signal (not a wall-clock
+      // sleep) so the assertion below observes the pending-disabled state. The
+      // route is released only after the button is confirmed disabled, which is
+      // the exact condition under test (gate on state, not time).
       let finishCount = 0;
+      let releaseFinish!: () => void;
+      const finishHeld = new Promise<void>((resolve) => {
+        releaseFinish = resolve;
+      });
       await unauthenticatedPage.route('**/api/auth/delete-account/finish', async (route) => {
         finishCount++;
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await finishHeld;
         await route.continue();
       });
 
       await unauthenticatedPage
-        .getByTestId('delete-account-confirmation-input')
+        .getByTestId(TEST_IDS.deleteAccountConfirmationInput)
         .fill('delete my account');
-      const submit = unauthenticatedPage.getByTestId('delete-account-final-submit');
+      const submit = unauthenticatedPage.getByTestId(TEST_IDS.deleteAccountFinalSubmit);
 
       await submit.click();
       // The real guard: the button becomes disabled immediately after the
@@ -506,6 +521,7 @@ test.describe('Account deletion', () => {
       // onClick events in any browser, so a user double-clicking can't issue
       // a second request.
       await expect(submit).toBeDisabled();
+      releaseFinish();
 
       await expectRedirectedToMarketing(unauthenticatedPage);
       expect(finishCount).toBe(1);

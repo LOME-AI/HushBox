@@ -32,3 +32,5 @@ export * from './smart-model/index.js';
 export * from './pre-inference/index.js';
 export * from './features.js';
 export * from './comparison.js';
+export * from './test-ids.js';
+export * from './test-signals.js';

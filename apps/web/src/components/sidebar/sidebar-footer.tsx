@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { SiGithub } from '@icons-pack/react-simple-icons';
 import { DropdownMenuItem, DropdownMenuSeparator } from '@hushbox/ui';
-import { FEATURE_FLAGS, displayUsername, ROUTES } from '@hushbox/shared';
+import { FEATURE_FLAGS, displayUsername, ROUTES, TEST_IDS } from '@hushbox/shared';
 import { ExternalPageLink } from '@/components/shared/external-page-link';
 
 import { useUIStore } from '@/stores/ui';
@@ -33,7 +33,7 @@ import { SidebarFooterBase } from '@/components/shared/sidebar-footer-base';
 
 function GitHubMenuItem(): React.JSX.Element {
   return (
-    <DropdownMenuItem asChild data-testid="menu-github">
+    <DropdownMenuItem asChild data-testid={TEST_IDS.menuGithub}>
       <a href="https://github.com/lome-ai/hushbox" target="_blank" rel="noopener noreferrer">
         <SiGithub className="mr-2 h-4 w-4" />
         GitHub
@@ -44,7 +44,7 @@ function GitHubMenuItem(): React.JSX.Element {
 
 function MarketingMenuItem(): React.JSX.Element {
   return (
-    <DropdownMenuItem asChild data-testid="menu-marketing">
+    <DropdownMenuItem asChild data-testid={TEST_IDS.menuMarketing}>
       <ExternalPageLink path={ROUTES.MARKETING}>
         <ExternalLinkIcon className="mr-2 h-4 w-4" />
         About HushBox
@@ -72,7 +72,7 @@ function DevMenuItems({
           closeMobileSidebar();
           void navigate({ to: ROUTES.DEV_PERSONAS, search: { type: undefined } });
         }}
-        data-testid="menu-personas"
+        data-testid={TEST_IDS.menuPersonas}
       >
         <Users className="mr-2 h-4 w-4" />
         Personas
@@ -82,7 +82,7 @@ function DevMenuItems({
           closeMobileSidebar();
           void navigate({ to: ROUTES.DEV_EMAILS });
         }}
-        data-testid="menu-emails"
+        data-testid={TEST_IDS.menuEmails}
       >
         <Mail className="mr-2 h-4 w-4" />
         Emails
@@ -92,13 +92,13 @@ function DevMenuItems({
           closeMobileSidebar();
           void navigate({ to: ROUTES.DEV_ASSETS });
         }}
-        data-testid="menu-assets"
+        data-testid={TEST_IDS.menuAssets}
       >
         <Image className="mr-2 h-4 w-4" />
         Assets
       </DropdownMenuItem>
       {localStudioUrl && (
-        <DropdownMenuItem asChild data-testid="menu-db-studio">
+        <DropdownMenuItem asChild data-testid={TEST_IDS.menuDbStudio}>
           <a href={buildDrizzleStudioUrl(localStudioUrl)} target="_blank" rel="noopener noreferrer">
             <Database className="mr-2 h-4 w-4" />
             Database Studio
@@ -110,7 +110,7 @@ function DevMenuItems({
           e.preventDefault();
           toggleTouch();
         }}
-        data-testid="menu-touch-mode"
+        data-testid={TEST_IDS.menuTouchMode}
       >
         <Smartphone className="mr-2 h-4 w-4" />
         Touch Mode
@@ -135,7 +135,7 @@ function AccessibilityMenuItem({
         closeMobileSidebar();
         void navigate({ to: ROUTES.ACCESSIBILITY });
       }}
-      data-testid="menu-accessibility"
+      data-testid={TEST_IDS.menuAccessibility}
     >
       <Accessibility className="mr-2 h-4 w-4" />
       Accessibility
@@ -160,7 +160,7 @@ function AuthenticatedMenuItems({
             closeMobileSidebar();
             void navigate({ to: ROUTES.SETTINGS });
           }}
-          data-testid="menu-settings"
+          data-testid={TEST_IDS.menuSettings}
         >
           <Settings className="mr-2 h-4 w-4" />
           Settings
@@ -172,7 +172,7 @@ function AuthenticatedMenuItems({
           closeMobileSidebar();
           void navigate({ to: ROUTES.USAGE });
         }}
-        data-testid="menu-usage"
+        data-testid={TEST_IDS.menuUsage}
       >
         <BarChart3 className="mr-2 h-4 w-4" />
         Usage
@@ -182,7 +182,7 @@ function AuthenticatedMenuItems({
           closeMobileSidebar();
           void navigate({ to: ROUTES.BILLING });
         }}
-        data-testid="menu-add-credits"
+        data-testid={TEST_IDS.menuAddCredits}
       >
         <CreditCard className="mr-2 h-4 w-4" />
         Add Credits
@@ -196,7 +196,7 @@ function AuthenticatedMenuItems({
           closeMobileSidebar();
           void handleLogout();
         }}
-        data-testid="menu-logout"
+        data-testid={TEST_IDS.menuLogout}
       >
         <LogOut className="mr-2 h-4 w-4" />
         Log Out
@@ -222,7 +222,7 @@ function TrialMenuItems({
           closeMobileSidebar();
           void navigate({ to: ROUTES.LOGIN });
         }}
-        data-testid="menu-login"
+        data-testid={TEST_IDS.menuLogin}
       >
         <LogIn className="mr-2 h-4 w-4" />
         Log In
@@ -232,7 +232,7 @@ function TrialMenuItems({
           closeMobileSidebar();
           void navigate({ to: ROUTES.SIGNUP });
         }}
-        data-testid="menu-signup"
+        data-testid={TEST_IDS.menuSignup}
       >
         <UserPlus className="mr-2 h-4 w-4" />
         Sign Up
@@ -262,11 +262,11 @@ export function SidebarFooter(): React.JSX.Element {
 
   return (
     <SidebarFooterBase
-      icon={<User className="h-4 w-4" data-testid="user-avatar-icon" />}
+      icon={<User className="h-4 w-4" data-testid={TEST_IDS.userAvatarIcon} />}
       label={displayName}
       sublabel={sublabel}
       collapsed={!sidebarOpen}
-      testId="sidebar"
+      testId={TEST_IDS.sidebar}
       dropdownContent={
         isAuthenticated ? (
           <AuthenticatedMenuItems navigate={navigate} closeMobileSidebar={closeMobileSidebar} />

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { ROUTES, type FundingSource } from '@hushbox/shared';
+import { ROUTES, TEST_IDS, type FundingSource } from '@hushbox/shared';
 import { ChatWelcome } from '@/components/chat/chat-welcome';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
@@ -76,7 +76,7 @@ export function ChatIndex(): React.JSX.Element {
 
   return (
     <div
-      data-testid="new-chat-page"
+      data-testid={TEST_IDS.newChatPage}
       data-app-stable={String(isAppStable)}
       className="flex h-full flex-col"
     >

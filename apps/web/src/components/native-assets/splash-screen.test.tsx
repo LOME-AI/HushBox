@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { mockLogoImport } from '@/test-utils/mocks.js';
 import { SplashScreen } from './splash-screen';
 
@@ -25,38 +26,38 @@ describe('SplashScreen', () => {
     'renders container with data-testid for %s variant',
     (variant) => {
       render(<SplashScreen variant={variant} />);
-      expect(screen.getByTestId(`splash-${variant}`)).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_ID_BUILDERS.splash(variant))).toBeInTheDocument();
     }
   );
 
   it.each(['dark', 'light'] as const)('fills the viewport for %s variant', (variant) => {
     render(<SplashScreen variant={variant} />);
-    const container = screen.getByTestId(`splash-${variant}`);
+    const container = screen.getByTestId(TEST_ID_BUILDERS.splash(variant));
     expect(container).toHaveStyle({ width: '100vw', height: '100vh' });
   });
 
   it.each(['dark', 'light'] as const)('uses correct background color for %s variant', (variant) => {
     render(<SplashScreen variant={variant} />);
-    const container = screen.getByTestId(`splash-${variant}`);
+    const container = screen.getByTestId(TEST_ID_BUILDERS.splash(variant));
     expect(container).toHaveStyle({ backgroundColor: VARIANT_CONFIG[variant].background });
   });
 
   it.each(['dark', 'light'] as const)('uses relative positioning for %s variant', (variant) => {
     render(<SplashScreen variant={variant} />);
-    const container = screen.getByTestId(`splash-${variant}`);
+    const container = screen.getByTestId(TEST_ID_BUILDERS.splash(variant));
     expect(container).toHaveStyle({ position: 'relative' });
   });
 
   it.each(['dark', 'light'] as const)('renders a CipherWall canvas for %s variant', (variant) => {
     render(<SplashScreen variant={variant} />);
-    expect(screen.getByTestId('cipher-wall')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.cipherWall)).toBeInTheDocument();
   });
 
   it.each(['dark', 'light'] as const)(
     'wraps CipherWall with scale but no opacity for %s variant',
     (variant) => {
       render(<SplashScreen variant={variant} />);
-      const canvas = screen.getByTestId('cipher-wall');
+      const canvas = screen.getByTestId(TEST_IDS.cipherWall);
       const wrapper = canvas.parentElement!;
       expect(wrapper).toHaveStyle({ transform: 'scale(1.5)' });
       expect(wrapper.style.opacity).toBe('');
@@ -93,7 +94,7 @@ describe('SplashScreen', () => {
 
   it('passes frozen + the 4 splash messages to CipherWall', () => {
     render(<SplashScreen variant="dark" />);
-    const canvas = screen.getByTestId('cipher-wall');
+    const canvas = screen.getByTestId(TEST_IDS.cipherWall);
     const props = JSON.parse(canvas.dataset['props']!);
     expect(props).toMatchObject({
       frozen: true,

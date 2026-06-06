@@ -14,10 +14,9 @@ export function personaEmail(baseName: string, projectName?: string): string {
 /**
  * Project-aware persona SQL username — single source of truth is the seeded
  * `TEST_PERSONAS` array in `scripts/seed.ts`. `test-alice` + project `chromium`
- * → `test_alice_cr`. Tests that previously hardcoded display strings like
- * `'test dave'` predate the persona×project cross-product (those resolved to
- * a single un-suffixed `test_dave` row that no longer exists); route them
- * through this helper so search/login lookups match exactly one user.
+ * → `test_alice_cr`. Route display-string lookups through this helper so
+ * search/login matches exactly one user; an un-suffixed name like `test_dave`
+ * matches no seeded row.
  */
 export function personaUsername(baseName: string, projectName?: string): string {
   const project = (projectName ?? test.info().project.name) as E2EProjectName;

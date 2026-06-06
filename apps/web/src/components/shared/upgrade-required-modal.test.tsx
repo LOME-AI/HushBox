@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { useAppVersionStore } from '@/stores/app-version';
 import { UpgradeRequiredModal } from './upgrade-required-modal';
 
@@ -32,7 +33,7 @@ describe('UpgradeRequiredModal', () => {
   it('does not render when upgradeRequired is false', () => {
     render(<UpgradeRequiredModal />);
 
-    expect(screen.queryByTestId('upgrade-required-modal')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(TEST_IDS.upgradeRequiredModal)).not.toBeInTheDocument();
   });
 
   it('renders when upgradeRequired is true', () => {
@@ -40,7 +41,7 @@ describe('UpgradeRequiredModal', () => {
 
     render(<UpgradeRequiredModal />);
 
-    expect(screen.getByTestId('upgrade-required-modal')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.upgradeRequiredModal)).toBeInTheDocument();
   });
 
   it('stays hidden while an OTA update is in progress, even if upgradeRequired', () => {
@@ -48,7 +49,7 @@ describe('UpgradeRequiredModal', () => {
 
     render(<UpgradeRequiredModal />);
 
-    expect(screen.queryByTestId('upgrade-required-modal')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(TEST_IDS.upgradeRequiredModal)).not.toBeInTheDocument();
   });
 
   it('displays update required title', () => {
@@ -56,7 +57,7 @@ describe('UpgradeRequiredModal', () => {
 
     render(<UpgradeRequiredModal />);
 
-    expect(screen.getByTestId('upgrade-required-title')).toHaveTextContent('Update Required');
+    expect(screen.getByTestId(TEST_IDS.upgradeRequiredTitle)).toHaveTextContent('Update Required');
   });
 
   it('displays description about new version', () => {
@@ -64,7 +65,7 @@ describe('UpgradeRequiredModal', () => {
 
     render(<UpgradeRequiredModal />);
 
-    expect(screen.getByTestId('upgrade-required-description')).toHaveTextContent(
+    expect(screen.getByTestId(TEST_IDS.upgradeRequiredDescription)).toHaveTextContent(
       'A new version is available'
     );
   });
@@ -74,8 +75,8 @@ describe('UpgradeRequiredModal', () => {
 
     render(<UpgradeRequiredModal />);
 
-    expect(screen.getByTestId('upgrade-required-refresh')).toBeInTheDocument();
-    expect(screen.getByTestId('upgrade-required-refresh')).toHaveTextContent('Refresh');
+    expect(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh)).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh)).toHaveTextContent('Refresh');
   });
 
   it('calls window.location.reload on web when refresh is clicked', async () => {
@@ -89,7 +90,7 @@ describe('UpgradeRequiredModal', () => {
     const user = userEvent.setup();
 
     render(<UpgradeRequiredModal />);
-    await user.click(screen.getByTestId('upgrade-required-refresh'));
+    await user.click(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh));
 
     expect(reloadMock).toHaveBeenCalledOnce();
     expect(mockCheckForUpdate).not.toHaveBeenCalled();
@@ -107,7 +108,7 @@ describe('UpgradeRequiredModal', () => {
     const user = userEvent.setup();
 
     render(<UpgradeRequiredModal />);
-    await user.click(screen.getByTestId('upgrade-required-refresh'));
+    await user.click(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh));
 
     await vi.waitFor(() => {
       expect(mockCheckForUpdate).toHaveBeenCalledOnce();
@@ -122,7 +123,7 @@ describe('UpgradeRequiredModal', () => {
     const user = userEvent.setup();
 
     render(<UpgradeRequiredModal />);
-    await user.click(screen.getByTestId('upgrade-required-refresh'));
+    await user.click(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh));
 
     await vi.waitFor(() => {
       expect(mockCheckForUpdate).toHaveBeenCalledOnce();
@@ -136,7 +137,7 @@ describe('UpgradeRequiredModal', () => {
     const user = userEvent.setup();
 
     render(<UpgradeRequiredModal />);
-    await user.click(screen.getByTestId('upgrade-required-refresh'));
+    await user.click(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh));
 
     await vi.waitFor(() => {
       expect(mockApplyUpdate).toHaveBeenCalledWith('v2');
@@ -150,7 +151,7 @@ describe('UpgradeRequiredModal', () => {
     const user = userEvent.setup();
 
     render(<UpgradeRequiredModal />);
-    await user.click(screen.getByTestId('upgrade-required-refresh'));
+    await user.click(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh));
 
     await vi.waitFor(() => {
       expect(mockCheckForUpdate).toHaveBeenCalledOnce();
@@ -166,10 +167,10 @@ describe('UpgradeRequiredModal', () => {
     const user = userEvent.setup();
 
     render(<UpgradeRequiredModal />);
-    await user.click(screen.getByTestId('upgrade-required-refresh'));
+    await user.click(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh));
 
     await vi.waitFor(() => {
-      expect(screen.getByTestId('upgrade-required-refresh')).toBeDisabled();
+      expect(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh)).toBeDisabled();
     });
   });
 
@@ -180,10 +181,10 @@ describe('UpgradeRequiredModal', () => {
     const user = userEvent.setup();
 
     render(<UpgradeRequiredModal />);
-    await user.click(screen.getByTestId('upgrade-required-refresh'));
+    await user.click(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh));
 
     await vi.waitFor(() => {
-      expect(screen.getByTestId('upgrade-required-refresh')).toHaveTextContent('Updating...');
+      expect(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh)).toHaveTextContent('Updating...');
     });
   });
 
@@ -197,10 +198,10 @@ describe('UpgradeRequiredModal', () => {
     const user = userEvent.setup();
 
     render(<UpgradeRequiredModal />);
-    await user.click(screen.getByTestId('upgrade-required-refresh'));
+    await user.click(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh));
 
     await vi.waitFor(() => {
-      expect(screen.getByTestId('upgrade-required-refresh')).not.toBeDisabled();
+      expect(screen.getByTestId(TEST_IDS.upgradeRequiredRefresh)).not.toBeDisabled();
     });
   });
 

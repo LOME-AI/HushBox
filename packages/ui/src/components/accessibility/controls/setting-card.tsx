@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 
 import { cn } from '../../../lib/utilities';
 
@@ -143,7 +144,7 @@ export function SettingCard<T extends string>({
       <span className="-mt-1 flex items-center justify-center gap-2">
         <span
           data-slot="setting-card-prev"
-          data-testid="setting-card-prev"
+          data-testid={TEST_IDS.settingCardPrev}
           aria-hidden="true"
           role="presentation"
           onClick={handleArrowClick(-1)}
@@ -172,7 +173,7 @@ export function SettingCard<T extends string>({
         </span>
         <span
           data-slot="setting-card-next"
-          data-testid="setting-card-next"
+          data-testid={TEST_IDS.settingCardNext}
           aria-hidden="true"
           role="presentation"
           onClick={handleArrowClick(1)}

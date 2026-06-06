@@ -1,7 +1,9 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
 import { ChatPage } from '../pages/index.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Fork and Regeneration Interaction', () => {
+  // eslint-disable-next-line no-restricted-syntax -- serial: each test mutates fork/regenerate state on the shared Alice authenticated page; running these stream-heavy flows concurrently on one account cross-contaminates fork chains.
   test.describe.configure({ mode: 'serial' });
 
   test('regenerate on fork only affects that fork', async ({
@@ -53,8 +55,8 @@ test.describe('Fork and Regeneration Interaction', () => {
       // Same gating reason as the Main switch above — wait for Fork 1's
       // unique message before counting rows.
       await chatPage.expectMessageVisible(forkMsg);
-      await unsettledExpect
-        .poll(() => chatPage.countMessages(), { timeout: 5000 })
+      await expect
+        .poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.MODAL })
         .toBe(fork1Count);
     });
   });
@@ -102,7 +104,7 @@ test.describe('Fork and Regeneration Interaction', () => {
       await chatPage.withStreamCycle(() => chatPage.clickRetry(0));
       // After retry + refetch, Main's fork chain should have only 2 messages.
       // Use poll — the fork filter updates asynchronously after query refetch.
-      await unsettledExpect.poll(() => chatPage.countMessages(), { timeout: 10_000 }).toBe(2);
+      await expect.poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.ASSERT }).toBe(2);
     });
 
     await test.step('Fork 1 still intact with its messages', async () => {
@@ -111,7 +113,7 @@ test.describe('Fork and Regeneration Interaction', () => {
       await chatPage.expectMessageVisible(forkMsg);
       // Fork 1 chain walk from its tip should include the shared early messages
       await expect
-        .poll(() => chatPage.countMessages(), { timeout: 10_000 })
+        .poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.ASSERT })
         .toBeGreaterThanOrEqual(4);
     });
   });
@@ -220,7 +222,7 @@ test.describe('Fork and Regeneration Interaction', () => {
     await test.step('verify Main messages intact', async () => {
       await chatPage.expectMessageVisible(msg);
       await expect
-        .poll(() => chatPage.countMessages(), { timeout: 5000 })
+        .poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.MODAL })
         .toBeGreaterThanOrEqual(2);
     });
 

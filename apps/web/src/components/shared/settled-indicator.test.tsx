@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
 
 vi.mock('@/hooks/use-is-settled', () => ({
   useIsSettled: vi.fn(),
@@ -16,7 +17,7 @@ describe('SettledIndicator', () => {
 
     render(<SettledIndicator />);
 
-    const el = screen.getByTestId('settled-indicator');
+    const el = screen.getByTestId(TEST_IDS.settledIndicator);
     expect(el).toHaveAttribute('data-settled', 'false');
   });
 
@@ -25,7 +26,7 @@ describe('SettledIndicator', () => {
 
     render(<SettledIndicator />);
 
-    const el = screen.getByTestId('settled-indicator');
+    const el = screen.getByTestId(TEST_IDS.settledIndicator);
     expect(el).toHaveAttribute('data-settled', 'true');
   });
 
@@ -34,7 +35,7 @@ describe('SettledIndicator', () => {
 
     render(<SettledIndicator />);
 
-    const el = screen.getByTestId('settled-indicator');
+    const el = screen.getByTestId(TEST_IDS.settledIndicator);
     expect(el).not.toBeVisible();
   });
 });

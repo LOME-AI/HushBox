@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
 
 import { PageBody } from './page-body';
 
@@ -48,8 +49,8 @@ describe('PageBody', () => {
   });
 
   it('uses a caller-provided testId on the outer container when passed', () => {
-    render(<PageBody testId="usage-content">content</PageBody>);
-    const outer = screen.getByTestId('usage-content');
+    render(<PageBody testId={TEST_IDS.usageContent}>content</PageBody>);
+    const outer = screen.getByTestId(TEST_IDS.usageContent);
     expect(outer.className).toContain('overflow-y-auto');
     // Default 'page-body' testid is replaced, not coexistent.
     expect(screen.queryByTestId('page-body')).toBeNull();

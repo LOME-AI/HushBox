@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { buildDrizzleStudioUrl } from '@/lib/routes';
 import { SidebarFooter } from './sidebar-footer';
@@ -104,7 +104,7 @@ describe('SidebarFooter', () => {
   describe('expanded state', () => {
     it('renders user avatar icon', () => {
       render(<SidebarFooter />);
-      expect(screen.getByTestId('user-avatar-icon')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.userAvatarIcon)).toBeInTheDocument();
     });
 
     it('renders user username when expanded', () => {
@@ -139,7 +139,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
       expect(screen.getByRole('menu')).toBeInTheDocument();
     });
 
@@ -148,24 +148,24 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-settings')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuSettings)).toBeInTheDocument();
     });
 
     it('shows Accessibility option in dropdown', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-accessibility')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuAccessibility)).toBeInTheDocument();
     });
 
     it('navigates to /accessibility when Accessibility is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-accessibility'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuAccessibility));
 
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/accessibility' });
     });
@@ -174,16 +174,16 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-add-credits')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuAddCredits)).toBeInTheDocument();
     });
 
     it('navigates to /billing when Add Credits is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-add-credits'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuAddCredits));
 
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/billing' });
     });
@@ -192,8 +192,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      const githubLink = screen.getByTestId('menu-github');
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      const githubLink = screen.getByTestId(TEST_IDS.menuGithub);
       expect(githubLink).toBeInTheDocument();
       expect(githubLink).toHaveAttribute('href', 'https://github.com/lome-ai/hushbox');
       expect(githubLink).toHaveAttribute('target', '_blank');
@@ -203,8 +203,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      const link = screen.getByTestId('menu-marketing');
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      const link = screen.getByTestId(TEST_IDS.menuMarketing);
       expect(link).toBeInTheDocument();
       expect(link).toHaveAttribute('href', ROUTES.MARKETING);
     });
@@ -213,16 +213,16 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-logout')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuLogout)).toBeInTheDocument();
     });
 
     it('calls signOutAndClearCache and navigates when Log Out is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-logout'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuLogout));
 
       expect(mockSignOutAndClearCache).toHaveBeenCalled();
     });
@@ -230,7 +230,7 @@ describe('SidebarFooter', () => {
     it('renders chevron up indicator', () => {
       render(<SidebarFooter />);
 
-      const trigger = screen.getByTestId('sidebar-trigger');
+      const trigger = screen.getByTestId(TEST_IDS.sidebarTrigger);
       const svgs = trigger.querySelectorAll('svg');
       expect(svgs.length).toBeGreaterThanOrEqual(2);
     });
@@ -243,7 +243,7 @@ describe('SidebarFooter', () => {
 
     it('renders avatar icon when collapsed', () => {
       render(<SidebarFooter />);
-      expect(screen.getByTestId('user-avatar-icon')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.userAvatarIcon)).toBeInTheDocument();
     });
 
     it('does not render username when collapsed', () => {
@@ -258,7 +258,7 @@ describe('SidebarFooter', () => {
 
     it('has justify-center layout when collapsed', () => {
       render(<SidebarFooter />);
-      const footer = screen.getByTestId('sidebar-footer');
+      const footer = screen.getByTestId(TEST_IDS.sidebarFooter);
       expect(footer).toHaveClass('justify-center');
     });
 
@@ -266,7 +266,7 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
       expect(screen.getByRole('menu')).toBeInTheDocument();
     });
   });
@@ -274,13 +274,13 @@ describe('SidebarFooter', () => {
   describe('common styles', () => {
     it('has border at top', () => {
       render(<SidebarFooter />);
-      const footer = screen.getByTestId('sidebar-footer');
+      const footer = screen.getByTestId(TEST_IDS.sidebarFooter);
       expect(footer).toHaveClass('border-t');
     });
 
     it('uses sidebar border color', () => {
       render(<SidebarFooter />);
-      const footer = screen.getByTestId('sidebar-footer');
+      const footer = screen.getByTestId(TEST_IDS.sidebarFooter);
       expect(footer).toHaveClass('border-sidebar-border');
     });
   });
@@ -290,8 +290,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-personas')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuPersonas)).toBeInTheDocument();
     });
 
     it('shows Personas option in dev mode when unauthenticated', async () => {
@@ -299,16 +299,16 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-personas')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuPersonas)).toBeInTheDocument();
     });
 
     it('navigates to /dev/personas when Personas is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-personas'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuPersonas));
 
       expect(mockNavigate).toHaveBeenCalledWith({
         to: '/dev/personas',
@@ -321,8 +321,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-db-studio')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuDbStudio)).toBeInTheDocument();
       vi.unstubAllEnvs();
     });
 
@@ -332,8 +332,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-db-studio')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuDbStudio)).toBeInTheDocument();
       vi.unstubAllEnvs();
     });
 
@@ -342,8 +342,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      const studioLink = screen.getByTestId('menu-db-studio');
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      const studioLink = screen.getByTestId(TEST_IDS.menuDbStudio);
       expect(studioLink).toHaveAttribute('href', buildDrizzleStudioUrl('http://localhost:4983'));
       expect(studioLink.getAttribute('href')).toMatch(/^https:\/\/local\.drizzle\.studio/);
       expect(studioLink).toHaveAttribute('target', '_blank');
@@ -355,8 +355,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.queryByTestId('menu-db-studio')).not.toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.queryByTestId(TEST_IDS.menuDbStudio)).not.toBeInTheDocument();
       vi.unstubAllEnvs();
     });
 
@@ -373,8 +373,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-emails')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuEmails)).toBeInTheDocument();
     });
 
     it('shows Emails option in dev mode when unauthenticated', async () => {
@@ -382,16 +382,16 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-emails')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuEmails)).toBeInTheDocument();
     });
 
     it('navigates to /dev/emails when Emails is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-emails'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuEmails));
 
       expect(mockNavigate).toHaveBeenCalledWith({
         to: '/dev/emails',
@@ -404,8 +404,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-assets')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuAssets)).toBeInTheDocument();
     });
 
     it('shows Assets option in dev mode when unauthenticated', async () => {
@@ -413,16 +413,16 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-assets')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuAssets)).toBeInTheDocument();
     });
 
     it('navigates to /dev/assets when Assets is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-assets'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuAssets));
 
       expect(mockNavigate).toHaveBeenCalledWith({
         to: '/dev/assets',
@@ -444,25 +444,25 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-login')).toBeInTheDocument();
-      expect(screen.queryByTestId('menu-logout')).not.toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuLogin)).toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.menuLogout)).not.toBeInTheDocument();
     });
 
     it('shows Sign Up option', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-signup')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuSignup)).toBeInTheDocument();
     });
 
     it('navigates to /login when Log In is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-login'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuLogin));
 
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/login' });
     });
@@ -471,8 +471,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-signup'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuSignup));
 
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/signup' });
     });
@@ -481,32 +481,32 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.queryByTestId('menu-settings')).not.toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.queryByTestId(TEST_IDS.menuSettings)).not.toBeInTheDocument();
     });
 
     it('does not show Add Credits option', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.queryByTestId('menu-add-credits')).not.toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.queryByTestId(TEST_IDS.menuAddCredits)).not.toBeInTheDocument();
     });
 
     it('still shows GitHub option', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-github')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuGithub)).toBeInTheDocument();
     });
 
     it('shows About HushBox link', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      const link = screen.getByTestId('menu-marketing');
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      const link = screen.getByTestId(TEST_IDS.menuMarketing);
       expect(link).toBeInTheDocument();
       expect(link).toHaveAttribute('href', ROUTES.MARKETING);
     });
@@ -527,40 +527,40 @@ describe('SidebarFooter', () => {
       mockFeatureFlags.SETTINGS_ENABLED = true;
       const user = userEvent.setup();
       render(<SidebarFooter />);
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-settings'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuSettings));
       expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
     });
 
     it('closes mobile sidebar when Accessibility is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-accessibility'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuAccessibility));
       expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
     });
 
     it('closes mobile sidebar when Usage is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-usage'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuUsage));
       expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
     });
 
     it('closes mobile sidebar when Add Credits is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-add-credits'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuAddCredits));
       expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
     });
 
     it('closes mobile sidebar when Log Out is clicked', async () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-logout'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuLogout));
       expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
     });
 
@@ -568,8 +568,8 @@ describe('SidebarFooter', () => {
       mockUseSession.mockReturnValue({ data: null });
       const user = userEvent.setup();
       render(<SidebarFooter />);
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-login'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuLogin));
       expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
     });
 
@@ -577,8 +577,8 @@ describe('SidebarFooter', () => {
       mockUseSession.mockReturnValue({ data: null });
       const user = userEvent.setup();
       render(<SidebarFooter />);
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      await user.click(screen.getByTestId('menu-signup'));
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      await user.click(screen.getByTestId(TEST_IDS.menuSignup));
       expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
     });
   });
@@ -598,8 +598,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.queryByTestId('menu-settings')).not.toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.queryByTestId(TEST_IDS.menuSettings)).not.toBeInTheDocument();
     });
 
     it('shows Settings when SETTINGS_ENABLED is true', async () => {
@@ -607,8 +607,8 @@ describe('SidebarFooter', () => {
       const user = userEvent.setup();
       render(<SidebarFooter />);
 
-      await user.click(screen.getByTestId('sidebar-trigger'));
-      expect(screen.getByTestId('menu-settings')).toBeInTheDocument();
+      await user.click(screen.getByTestId(TEST_IDS.sidebarTrigger));
+      expect(screen.getByTestId(TEST_IDS.menuSettings)).toBeInTheDocument();
     });
   });
 });

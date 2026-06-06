@@ -50,10 +50,19 @@ const DEPLOY_SECRET_OVERRIDES: Record<string, string> = {
   APP_VERSION: '${{ needs.version.outputs.version }}',
 };
 
+/**
+ * Keys excluded from the manual ops runner's env block. APP_VERSION is computed
+ * by the deploy pipeline's `version` job, which the standalone dispatch workflow
+ * (`run-ops-script.yml`) has no access to — emitting its `needs.version`
+ * reference there would be a dangling expression.
+ */
+const OPS_DISPATCH_OMIT_KEYS: ReadonlySet<string> = new Set(['APP_VERSION']);
+
 const WORKFLOW_FILES = [
   '.github/workflows/ci.yml',
   '.github/workflows/release.yml',
   '.github/workflows/build-android.yml',
+  '.github/workflows/run-ops-script.yml',
 ];
 
 /**
@@ -297,10 +306,11 @@ function generateSecretsEnv(mode: EnvMode): string {
  * version job) resolves to the workflow output rather than a missing
  * GitHub secret.
  */
-function generateOpsEnv(): string {
+function generateOpsEnv(omitKeys: ReadonlySet<string> = new Set()): string {
   const lines: string[] = ['env:'];
 
-  for (const [key, config] of Object.entries(envConfig)) {
+  const entries = Object.entries(envConfig).filter(([key]) => !omitKeys.has(key));
+  for (const [key, config] of entries) {
     const destinations = getDestinations(config as VariableConfig, Mode.Production);
     if (!destinations.includes(Destination.Backend)) continue;
 
@@ -414,6 +424,7 @@ export function updateWorkflows(rootDir: string): void {
     'vitest-env': generateSecretsEnv(Mode.CiVitest),
     'e2e-env': generateSecretsEnv(Mode.CiE2E),
     'ops-env': generateOpsEnv(),
+    'ops-dispatch-env': generateOpsEnv(OPS_DISPATCH_OMIT_KEYS),
     'deploy-secrets': generateDeploySecrets(),
     'verify-secrets': generateVerifySecrets(),
     'decode-google-services': generateGoogleServicesDecode(),

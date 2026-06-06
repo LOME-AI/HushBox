@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { renderHook } from '@testing-library/react';
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { CipherWall, useRadialMask, computeExclusionZone } from './cipher-wall';
 import { EXCLUSION_STRIDE, CELL_WIDTH, CELL_HEIGHT } from './cipher-wall-engine';
 
@@ -68,7 +69,7 @@ afterEach(() => {
 describe('CipherWall', () => {
   it('renders a canvas element', () => {
     render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} />);
-    expect(screen.getByTestId('cipher-wall')).toBeInstanceOf(HTMLCanvasElement);
+    expect(screen.getByTestId(TEST_IDS.cipherWall)).toBeInstanceOf(HTMLCanvasElement);
   });
 
   it('has role="img" for accessibility', () => {
@@ -85,38 +86,38 @@ describe('CipherWall', () => {
 
   it('has CSS mask-image fading the left edge by default', () => {
     render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} />);
-    const canvas = screen.getByTestId('cipher-wall');
+    const canvas = screen.getByTestId(TEST_IDS.cipherWall);
     expect(canvas.style.maskImage).toContain('transparent');
     expect(canvas.style.maskImage).toContain('black');
   });
 
   it('does not apply mask-image when frozen is true', () => {
     render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} frozen />);
-    const canvas = screen.getByTestId('cipher-wall');
+    const canvas = screen.getByTestId(TEST_IDS.cipherWall);
     expect(canvas.style.maskImage).toBe('');
   });
 
   it('has full-size classes by default', () => {
     render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} />);
-    const canvas = screen.getByTestId('cipher-wall');
+    const canvas = screen.getByTestId(TEST_IDS.cipherWall);
     expect(canvas).toHaveClass('h-full', 'w-full');
   });
 
   it('applies custom className when provided', () => {
     render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} className="custom-class" />);
-    const canvas = screen.getByTestId('cipher-wall');
+    const canvas = screen.getByTestId(TEST_IDS.cipherWall);
     expect(canvas).toHaveClass('custom-class');
   });
 
   it('applies custom style when provided', () => {
     render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} frozen style={{ opacity: 0.5 }} />);
-    const canvas = screen.getByTestId('cipher-wall');
+    const canvas = screen.getByTestId(TEST_IDS.cipherWall);
     expect(canvas.style.opacity).toBe('0.5');
   });
 
   it('accepts cipherOpacity prop without error', () => {
     render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} frozen cipherOpacity={0.5} />);
-    expect(screen.getByTestId('cipher-wall')).toBeInstanceOf(HTMLCanvasElement);
+    expect(screen.getByTestId(TEST_IDS.cipherWall)).toBeInstanceOf(HTMLCanvasElement);
   });
 
   it('throws when fadeMask is radial but fadeMaskTarget is missing', () => {
@@ -143,7 +144,7 @@ describe('CipherWall', () => {
         fadeMaskTarget="[data-target]"
       />
     );
-    const canvas = screen.getByTestId('cipher-wall');
+    const canvas = screen.getByTestId(TEST_IDS.cipherWall);
 
     expect(canvas.style.maskImage).toContain('300px');
     expect(canvas.style.maskImage).toContain('224px');
@@ -171,7 +172,7 @@ describe('CipherWall', () => {
 
   it('applies no mask when fadeMask is none', () => {
     render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} fadeMask="none" />);
-    const canvas = screen.getByTestId('cipher-wall');
+    const canvas = screen.getByTestId(TEST_IDS.cipherWall);
     expect(canvas.style.maskImage).toBe('');
   });
 
@@ -184,7 +185,7 @@ describe('CipherWall', () => {
         fadeMaskTarget="[data-target]"
       />
     );
-    const canvas = screen.getByTestId('cipher-wall');
+    const canvas = screen.getByTestId(TEST_IDS.cipherWall);
     expect(canvas.style.maskImage).toBe('');
   });
 });
@@ -373,7 +374,7 @@ describe('CipherWall exclusionZone wiring', () => {
 
   it('passes a canvasRef as second argument to useCipherWall', () => {
     render(<CipherWall messages={TEST_MESSAGES_FOR_RENDER} />);
-    const canvas = screen.getByTestId('cipher-wall');
+    const canvas = screen.getByTestId(TEST_IDS.cipherWall);
     expect(canvas).toBeInstanceOf(HTMLCanvasElement);
   });
 });

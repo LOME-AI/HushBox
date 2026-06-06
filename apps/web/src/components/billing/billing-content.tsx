@@ -10,6 +10,7 @@ import {
   FeeBreakdown,
   CostPieChart,
 } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { useStableBalance } from '@/hooks/use-stable-balance';
 import { useTransactions } from '@/hooks/billing';
 import { formatBalance } from '@/lib/format';
@@ -55,26 +56,26 @@ function TransactionContent({
         {Array.from({ length: TRANSACTIONS_PER_PAGE }).map((_, index) => (
           <div
             key={index}
-            data-testid="transaction-skeleton-row"
+            data-testid={TEST_IDS.transactionSkeletonRow}
             className="flex h-16 items-center justify-between"
           >
             <div className="space-y-2">
               <div
-                data-testid="skeleton-block"
+                data-testid={TEST_IDS.skeletonBlock}
                 className="bg-muted h-5 w-40 animate-pulse rounded"
               />
               <div
-                data-testid="skeleton-block"
+                data-testid={TEST_IDS.skeletonBlock}
                 className="bg-muted h-4 w-32 animate-pulse rounded"
               />
             </div>
             <div className="space-y-2 text-right">
               <div
-                data-testid="skeleton-block"
+                data-testid={TEST_IDS.skeletonBlock}
                 className="bg-muted ml-auto h-5 w-16 animate-pulse rounded"
               />
               <div
-                data-testid="skeleton-block"
+                data-testid={TEST_IDS.skeletonBlock}
                 className="bg-muted ml-auto h-4 w-28 animate-pulse rounded"
               />
             </div>
@@ -95,7 +96,7 @@ function TransactionContent({
       {deposits.map((tx) => (
         <div
           key={tx.id}
-          data-testid="transaction-row"
+          data-testid={TEST_IDS.transactionRow}
           className="flex h-16 items-center justify-between border-b last:border-0"
         >
           <div>
@@ -145,7 +146,7 @@ function BalanceCard({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             {isStable ? (
-              <p data-testid="balance-display" className="text-4xl font-bold">
+              <p data-testid={TEST_IDS.balanceDisplay} className="text-4xl font-bold">
                 {formatBalance(displayBalance)}
               </p>
             ) : (
@@ -190,7 +191,7 @@ export function BillingContent({ billingOnly }: { billingOnly?: boolean } = {}):
 
   return (
     <>
-      <PageBody testId="billing-content" className="space-y-6">
+      <PageBody testId={TEST_IDS.billingContent} className="space-y-6">
         <BalanceCard
           displayBalance={displayBalance}
           isStable={isBalanceStable}
@@ -206,7 +207,7 @@ export function BillingContent({ billingOnly }: { billingOnly?: boolean } = {}):
             <CardDescription>Your credit purchases</CardDescription>
           </CardHeader>
           <CardContent>
-            <div data-testid="transaction-list-container" className="h-[320px]">
+            <div data-testid={TEST_IDS.transactionListContainer} className="h-[320px]">
               <TransactionContent isLoading={transactionsLoading} deposits={deposits} page={page} />
             </div>
             {(deposits.length > 0 || page > 0) && (

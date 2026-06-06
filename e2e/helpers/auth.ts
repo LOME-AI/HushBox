@@ -1,7 +1,7 @@
-import { setTimeout as delay } from 'node:timers/promises';
 import { generateTotpCodeSync } from '@hushbox/crypto';
-import { isMobileWidth } from '@hushbox/shared';
+import { isMobileWidth, TEST_IDS } from '@hushbox/shared';
 import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 import { requireEnv } from './env.js';
 import type { Page, APIRequestContext } from '@playwright/test';
 
@@ -21,7 +21,7 @@ export async function signUpViaUI(
   await page.getByLabel('Password', { exact: true }).fill(options.password);
   await page.getByLabel('Confirm password').fill(options.password);
   await page.getByRole('button', { name: 'Create account' }).click();
-  await page.getByText('Check your email').waitFor({ timeout: 30_000 });
+  await page.getByText('Check your email').waitFor({ timeout: TIMEOUTS.ROUTE });
 }
 
 /**
@@ -41,7 +41,7 @@ export async function verifyEmailViaAPI(
   }
   const { token } = (await response.json()) as { token: string };
   await page.goto(`/verify?token=${token}`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'Email verified' }).waitFor({ timeout: 15_000 });
+  await page.getByRole('heading', { name: 'Email verified' }).waitFor({ timeout: TIMEOUTS.ROUTE });
   return token;
 }
 
@@ -62,7 +62,7 @@ export async function loginViaUI(
   }
 
   await page.getByRole('button', { name: 'Log in' }).click();
-  await page.waitForURL('/chat', { timeout: 30_000 });
+  await page.waitForURL('/chat', { timeout: TIMEOUTS.ROUTE });
 }
 
 /**
@@ -136,19 +136,18 @@ export async function clearUsageRateLimits(request: APIRequestContext): Promise<
 }
 
 /**
- * Waits for the TOTP code to rotate to a new value.
- * TOTP codes change every 30 seconds. This polls every 2s until a fresh code appears.
- * Use this between steps that verify different TOTP codes for the same user
- * to avoid the 90-second replay protection window.
+ * Returns a TOTP code the server will accept now, even when a code was already
+ * consumed earlier in the same 30-second window. Clears the user's replay
+ * markers via the dev endpoint so the current code is no longer replay-blocked;
+ * the server's replay check and crypto verification still run against it.
  */
-export async function waitForNextTOTPCode(secret: string, currentCode: string): Promise<string> {
-  const start = Date.now();
-  while (Date.now() - start < 35_000) {
-    const code = generateTOTPCode(secret);
-    if (code !== currentCode) return code;
-    await delay(2000);
-  }
-  throw new Error('Timed out waiting for next TOTP code');
+export async function getAcceptableTOTPCode(
+  request: APIRequestContext,
+  email: string,
+  secret: string
+): Promise<string> {
+  await request.delete(`${API_BASE}/api/dev/totp-replay`, { data: { email } });
+  return generateTOTPCode(secret);
 }
 
 /**
@@ -159,10 +158,10 @@ async function openMobileSidebarIfNeeded(page: Page): Promise<void> {
   const viewport = page.viewportSize();
   if (viewport === null || !isMobileWidth(viewport.width)) return;
 
-  const sidebar = page.getByTestId('sidebar');
+  const sidebar = page.getByTestId(TEST_IDS.sidebar);
   if (await sidebar.isVisible()) return;
 
-  await page.getByTestId('hamburger-button').click();
+  await page.getByTestId(TEST_IDS.hamburgerButton).click();
   await sidebar.waitFor({ state: 'visible' });
 }
 
@@ -172,9 +171,9 @@ async function openMobileSidebarIfNeeded(page: Page): Promise<void> {
  */
 export async function logoutViaUI(page: Page): Promise<void> {
   await openMobileSidebarIfNeeded(page);
-  await page.getByTestId('sidebar-trigger').click();
-  await page.getByTestId('menu-logout').click();
-  await page.waitForURL('/login', { timeout: 15_000 });
+  await page.getByTestId(TEST_IDS.sidebarTrigger).click();
+  await page.getByTestId(TEST_IDS.menuLogout).click();
+  await page.waitForURL('/login', { timeout: TIMEOUTS.ROUTE });
 }
 
 /**
@@ -183,9 +182,9 @@ export async function logoutViaUI(page: Page): Promise<void> {
  */
 export async function navigateToSettings(page: Page): Promise<void> {
   await openMobileSidebarIfNeeded(page);
-  await page.getByTestId('sidebar-trigger').click();
-  await page.getByTestId('menu-settings').click();
-  await page.waitForURL('/settings', { timeout: 15_000 });
+  await page.getByTestId(TEST_IDS.sidebarTrigger).click();
+  await page.getByTestId(TEST_IDS.menuSettings).click();
+  await page.waitForURL('/settings', { timeout: TIMEOUTS.ROUTE });
 }
 
 /**
@@ -194,7 +193,7 @@ export async function navigateToSettings(page: Page): Promise<void> {
  */
 export async function navigateToUsage(page: Page): Promise<void> {
   await openMobileSidebarIfNeeded(page);
-  await page.getByTestId('sidebar-trigger').click();
-  await page.getByTestId('menu-usage').click();
-  await page.waitForURL('/usage', { timeout: 15_000 });
+  await page.getByTestId(TEST_IDS.sidebarTrigger).click();
+  await page.getByTestId(TEST_IDS.menuUsage).click();
+  await page.waitForURL('/usage', { timeout: TIMEOUTS.ROUTE });
 }

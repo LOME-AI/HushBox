@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Check, X } from 'lucide-react';
 import { IconButton } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { useAcceptMembership, useDeclineInvitation } from '@/hooks/use-conversation-members';
 import { LeaveConfirmationModal } from '@/components/chat/leave-confirmation-modal';
 
@@ -24,7 +25,7 @@ export function InboxContent({ conversations }: Readonly<InboxContentProps>): Re
   if (conversations.length === 0) {
     return (
       <div
-        data-testid="inbox-content"
+        data-testid={TEST_IDS.inboxContent}
         className="text-sidebar-foreground/50 px-2 py-8 text-center text-sm"
       >
         No pending invites
@@ -33,7 +34,7 @@ export function InboxContent({ conversations }: Readonly<InboxContentProps>): Re
   }
 
   return (
-    <div data-testid="inbox-content" className="flex flex-col gap-2">
+    <div data-testid={TEST_IDS.inboxContent} className="flex flex-col gap-2">
       {conversations.map((conv) => (
         <div key={conv.id} className="bg-sidebar-accent/30 rounded-lg px-3 py-2">
           <div className="flex items-center justify-between gap-2">

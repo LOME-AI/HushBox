@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { ChartTooltipContent } from '@hushbox/ui';
+import { TEST_IDS, type BalanceHistoryResponse } from '@hushbox/shared';
 import {
   UsageChartCard,
   DEFAULT_CHART_MARGIN,
@@ -9,7 +10,6 @@ import {
   formatDollarTooltip,
 } from './chart-utilities';
 import type { ChartConfig } from '@hushbox/ui';
-import type { BalanceHistoryResponse } from '@hushbox/shared';
 
 interface BalanceHistoryChartProps {
   data: BalanceHistoryResponse | undefined;
@@ -41,7 +41,7 @@ export function BalanceHistoryChart({
   return (
     <UsageChartCard
       title="Balance History"
-      testId="balance-history-chart"
+      testId={TEST_IDS.balanceHistoryChart}
       isLoading={isLoading}
       isEmpty={chartData.length === 0}
       emptyMessage="No balance history"

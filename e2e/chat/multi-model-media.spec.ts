@@ -1,6 +1,8 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
 import { assertPartialFailurePersistence } from '../helpers/partial-failure.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 const IMAGE_MODELS = [
   'google/imagen-4.0-generate-001',
@@ -34,31 +36,33 @@ test.describe('Multi-Model Media', () => {
     await chatPage.waitForConversation();
 
     // Wait for both assistant messages to land (cost-count = 2 + user = expected total).
-    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-      timeout: 30_000,
+    await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+      timeout: TIMEOUTS.MEDIA_DECODE,
     });
-    await chatPage.waitForStreamComplete(30_000);
+    await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
     // Conversation is [user, ai1, ai2]. Address by Virtuoso row index so the
     // assertions don't depend on which messages are currently rendered.
-    await chatPage.expectMediaVisibleAt(1, 'img', 30_000);
-    const tag1 = await chatPage.getMessage(1).getByTestId('model-nametag').textContent();
-    const source1 = await chatPage.getMessage(1).locator('img').first().getAttribute('src');
+    await chatPage.expectMediaVisibleAt(1, 'img', TIMEOUTS.MEDIA_DECODE);
+    const tag1 = chatPage.getMessage(1).getByTestId(TEST_IDS.modelNametag);
+    const image1 = chatPage.getMessage(1).locator('img').first();
+    const source1 = await image1.getAttribute('src');
 
-    await chatPage.expectMediaVisibleAt(2, 'img', 30_000);
-    const tag2 = await chatPage.getMessage(2).getByTestId('model-nametag').textContent();
+    await chatPage.expectMediaVisibleAt(2, 'img', TIMEOUTS.MEDIA_DECODE);
+    const tag2 =
+      (await chatPage.getMessage(2).getByTestId(TEST_IDS.modelNametag).textContent()) ?? '';
     const source2 = await chatPage.getMessage(2).locator('img').first().getAttribute('src');
 
-    expect(tag1).not.toBe(tag2);
+    await expect(tag1).not.toHaveText(tag2);
     // Distinct decrypted blob URLs — each <img> must have its own object URL,
     // not share a single source.
     expect(source1).toMatch(/^blob:/);
     expect(source2).toMatch(/^blob:/);
-    expect(source1).not.toBe(source2);
+    await expect(image1).not.toHaveAttribute('src', source2 ?? '');
 
     // Cost row count must mirror the assistant count (one cost per response).
-    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-cost-count', '2', {
-      timeout: 15_000,
+    await expect(chatPage.messageList).toHaveAttribute('data-cost-count', '2', {
+      timeout: TIMEOUTS.STREAM,
     });
   });
 
@@ -87,18 +91,18 @@ test.describe('Multi-Model Media', () => {
     try {
       await chatPage.sendNewChatMessage(`Image partial failure ${String(Date.now())}`);
       await chatPage.waitForConversation();
-      await chatPage.waitForStreamComplete(30_000);
+      await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
       const successImage = chatPage.messageList.locator('[data-role="assistant"] img');
-      await expect(successImage.first()).toBeVisible({ timeout: 15_000 });
+      await expect(successImage.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
-      const errorTile = authenticatedPage.getByTestId('model-error-message');
+      const errorTile = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
       // Scroll into view before asserting. Virtuoso's overscan keeps the row
       // mounted (see message-list.tsx `increaseViewportBy`), but post-stream
       // layout shift (media bytes resolving) can land it just outside the
       // visible area. The scroll is a no-op when the row is already visible.
-      await errorTile.scrollIntoViewIfNeeded({ timeout: 15_000 });
-      await unsettledExpect(errorTile).toBeVisible({ timeout: 15_000 });
+      await errorTile.scrollIntoViewIfNeeded({ timeout: TIMEOUTS.STREAM });
+      await expect(errorTile).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
       // Lane 9 #6: server-side persistence parity with text partial-failure.
       // Only the successful model's response has a persisted content item with
@@ -131,10 +135,10 @@ test.describe('Multi-Model Media', () => {
 
     await chatPage.sendNewChatMessage(`Fork-multi-image ${String(Date.now())}`);
     await chatPage.waitForConversation();
-    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-      timeout: 30_000,
+    await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+      timeout: TIMEOUTS.MEDIA_DECODE,
     });
-    await chatPage.waitForStreamComplete(30_000);
+    await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
     // Fork on the first assistant message (row index 1: [user, ai1, ai2]).
     await chatPage.clickFork(1);
@@ -142,11 +146,11 @@ test.describe('Multi-Model Media', () => {
     await chatPage.expectActiveForkTab('Fork 1');
 
     await chatPage.clickForkTab('Main');
-    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-      timeout: 15_000,
+    await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+      timeout: TIMEOUTS.STREAM,
     });
-    await chatPage.expectMediaVisibleAt(1, 'img', 15_000);
-    await chatPage.expectMediaVisibleAt(2, 'img', 15_000);
+    await chatPage.expectMediaVisibleAt(1, 'img', TIMEOUTS.STREAM);
+    await chatPage.expectMediaVisibleAt(2, 'img', TIMEOUTS.STREAM);
   });
 
   /**
@@ -166,20 +170,21 @@ test.describe('Multi-Model Media', () => {
     await chatPage.sendNewChatMessage(`Multi-video ${String(Date.now())}`);
     await chatPage.waitForConversation();
 
-    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-      timeout: 30_000,
+    await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+      timeout: TIMEOUTS.MEDIA_DECODE,
     });
-    await chatPage.waitForStreamComplete(30_000);
+    await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
-    await chatPage.expectMediaVisibleAt(1, 'video', 30_000);
-    const tag1 = await chatPage.getMessage(1).getByTestId('model-nametag').textContent();
-    await chatPage.expectMediaVisibleAt(2, 'video', 30_000);
-    const tag2 = await chatPage.getMessage(2).getByTestId('model-nametag').textContent();
-    expect(tag1).not.toBe(tag2);
+    await chatPage.expectMediaVisibleAt(1, 'video', TIMEOUTS.MEDIA_DECODE);
+    const tag1 = chatPage.getMessage(1).getByTestId(TEST_IDS.modelNametag);
+    await chatPage.expectMediaVisibleAt(2, 'video', TIMEOUTS.MEDIA_DECODE);
+    const tag2 =
+      (await chatPage.getMessage(2).getByTestId(TEST_IDS.modelNametag).textContent()) ?? '';
+    await expect(tag1).not.toHaveText(tag2);
 
     // Cost row count must mirror the assistant count (one cost per response).
-    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-cost-count', '2', {
-      timeout: 15_000,
+    await expect(chatPage.messageList).toHaveAttribute('data-cost-count', '2', {
+      timeout: TIMEOUTS.STREAM,
     });
   });
 
@@ -208,18 +213,18 @@ test.describe('Multi-Model Media', () => {
     try {
       await chatPage.sendNewChatMessage(`Video partial failure ${String(Date.now())}`);
       await chatPage.waitForConversation();
-      await chatPage.waitForStreamComplete(30_000);
+      await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
       const successVideo = chatPage.messageList.locator('[data-role="assistant"] video');
-      await expect(successVideo.first()).toBeVisible({ timeout: 15_000 });
+      await expect(successVideo.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
-      const errorTile = authenticatedPage.getByTestId('model-error-message');
+      const errorTile = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
       // Scroll into view before asserting. Virtuoso's overscan keeps the row
       // mounted (see message-list.tsx `increaseViewportBy`), but post-stream
       // layout shift (media bytes resolving) can land it just outside the
       // visible area. The scroll is a no-op when the row is already visible.
-      await errorTile.scrollIntoViewIfNeeded({ timeout: 15_000 });
-      await unsettledExpect(errorTile).toBeVisible({ timeout: 15_000 });
+      await errorTile.scrollIntoViewIfNeeded({ timeout: TIMEOUTS.STREAM });
+      await expect(errorTile).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
       // Lane 9 #6 (video): same server-side persistence parity check.
       await assertPartialFailurePersistence(authenticatedPage, {
@@ -252,23 +257,23 @@ test.describe('Multi-Model Media', () => {
     await chatPage.waitForConversation();
 
     // Both responses fully streamed and persisted.
-    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-      timeout: 30_000,
+    await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+      timeout: TIMEOUTS.MEDIA_DECODE,
     });
-    await chatPage.waitForStreamComplete(30_000);
+    await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
-    await chatPage.expectMediaVisibleAt(1, 'img', 30_000);
-    await chatPage.expectMediaVisibleAt(2, 'img', 30_000);
+    await chatPage.expectMediaVisibleAt(1, 'img', TIMEOUTS.MEDIA_DECODE);
+    await chatPage.expectMediaVisibleAt(2, 'img', TIMEOUTS.MEDIA_DECODE);
 
     // Reload the page and assert both images survive — each requires a fresh
     // download URL mint and decryption round-trip.
     await authenticatedPage.reload();
     await chatPage.waitForConversationLoaded();
 
-    await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-      timeout: 15_000,
+    await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+      timeout: TIMEOUTS.STREAM,
     });
-    await chatPage.expectMediaVisibleAt(1, 'img', 30_000);
-    await chatPage.expectMediaVisibleAt(2, 'img', 30_000);
+    await chatPage.expectMediaVisibleAt(1, 'img', TIMEOUTS.MEDIA_DECODE);
+    await chatPage.expectMediaVisibleAt(2, 'img', TIMEOUTS.MEDIA_DECODE);
   });
 });

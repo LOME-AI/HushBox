@@ -10,6 +10,7 @@ import {
   type OverlayContentProps,
   type UseAsyncActionReturn,
 } from '@hushbox/ui';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { DevOnly } from './dev-only';
 import type { ErrorCode } from '@hushbox/shared';
 
@@ -92,7 +93,7 @@ function DevSimulateButtons({
   if (codes.length === 0) return null;
   return (
     <DevOnly>
-      <div className="flex flex-col gap-2" data-testid="dev-simulate-failures">
+      <div className="flex flex-col gap-2" data-testid={TEST_IDS.devSimulateFailures}>
         {codes.map((code) => (
           <Button
             key={code}
@@ -101,7 +102,7 @@ function DevSimulateButtons({
             onClick={() => {
               onSimulate(code);
             }}
-            data-testid={`dev-simulate-${String(code)}`}
+            data-testid={TEST_ID_BUILDERS.devSimulate(String(code))}
             className="w-full"
           >
             Simulate {String(code)}

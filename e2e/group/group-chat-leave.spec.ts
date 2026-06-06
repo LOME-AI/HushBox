@@ -1,12 +1,8 @@
-import {
-  test,
-  expect,
-  unsettledExpect,
-  expectApiErrors,
-  expectConsoleErrors,
-} from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
+import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { setupConversationWithSidebar } from '../helpers/group-test-setup.js';
 import { ChatPage, MemberSidebarPage, SidebarPage } from '../pages/index.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Group Chat Leave', () => {
   // Each test is destructive (leaving a conversation), so each gets its own groupConversation fixture
@@ -37,21 +33,21 @@ test.describe('Group Chat Leave', () => {
       await sidebar.openMemberActions(bobMemberId);
       await sidebar.clickLeave();
 
-      const modal = testBobPage.getByTestId('leave-confirmation-modal');
+      const modal = testBobPage.getByTestId(TEST_IDS.leaveConfirmationModal);
       await expect(modal).toBeVisible();
-      await expect(testBobPage.getByTestId('leave-confirmation-warning')).toBeVisible();
+      await expect(testBobPage.getByTestId(TEST_IDS.leaveConfirmationWarning)).toBeVisible();
     });
 
     await test.step('confirm leave navigates away', async () => {
-      await testBobPage.getByTestId('leave-confirmation-confirm').click();
-      await expect(testBobPage).toHaveURL('/chat', { timeout: 10_000 });
+      await testBobPage.getByTestId(TEST_IDS.leaveConfirmationConfirm).click();
+      await expect(testBobPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
     });
 
     await test.step('navigating back to conversation redirects', async () => {
       await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'domcontentloaded' });
       // Should redirect away since Bob is no longer a member
       await expect(testBobPage).not.toHaveURL(new RegExp(groupConversation.id), {
-        timeout: 10_000,
+        timeout: TIMEOUTS.ROUTE,
       });
     });
   });
@@ -78,17 +74,17 @@ test.describe('Group Chat Leave', () => {
       await sidebar.openMemberActions(aliceMemberId);
       await sidebar.clickLeave();
 
-      const modal = authenticatedPage.getByTestId('leave-confirmation-modal');
+      const modal = authenticatedPage.getByTestId(TEST_IDS.leaveConfirmationModal);
       await expect(modal).toBeVisible();
 
       // Owner gets a stronger warning about deleting the conversation
-      const warning = authenticatedPage.getByTestId('leave-confirmation-warning');
+      const warning = authenticatedPage.getByTestId(TEST_IDS.leaveConfirmationWarning);
       await expect(warning).toBeVisible();
     });
 
     await test.step('confirm leave navigates away', async () => {
-      await authenticatedPage.getByTestId('leave-confirmation-confirm').click();
-      await expect(authenticatedPage).toHaveURL('/chat', { timeout: 10_000 });
+      await authenticatedPage.getByTestId(TEST_IDS.leaveConfirmationConfirm).click();
+      await expect(authenticatedPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
     });
 
     await test.step('conversation no longer accessible', async () => {
@@ -96,7 +92,7 @@ test.describe('Group Chat Leave', () => {
         waitUntil: 'domcontentloaded',
       });
       await expect(authenticatedPage).not.toHaveURL(new RegExp(groupConversation.id), {
-        timeout: 10_000,
+        timeout: TIMEOUTS.ROUTE,
       });
     });
   });
@@ -129,18 +125,18 @@ test.describe('Group Chat Leave', () => {
     await sidebar.openMoreMenu(groupConversation.id);
     await testBobPage.getByRole('menuitem', { name: 'Leave' }).click();
 
-    const modal = testBobPage.getByTestId('leave-confirmation-modal');
+    const modal = testBobPage.getByTestId(TEST_IDS.leaveConfirmationModal);
     await expect(modal).toBeVisible();
 
-    await testBobPage.getByTestId('leave-confirmation-confirm').click();
+    await testBobPage.getByTestId(TEST_IDS.leaveConfirmationConfirm).click();
 
     // Leaving the active conversation redirects to /chat.
-    await expect(testBobPage).toHaveURL('/chat', { timeout: 10_000 });
+    await expect(testBobPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
 
     // The leaving user can no longer open the conversation.
     await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'domcontentloaded' });
     await expect(testBobPage).not.toHaveURL(new RegExp(groupConversation.id), {
-      timeout: 10_000,
+      timeout: TIMEOUTS.ROUTE,
     });
   });
 
@@ -158,17 +154,19 @@ test.describe('Group Chat Leave', () => {
     await sidebar.openMoreMenu(groupConversation.id);
     await testBobPage.getByRole('menuitem', { name: 'Leave' }).click();
 
-    const modal = testBobPage.getByTestId('leave-confirmation-modal');
+    const modal = testBobPage.getByTestId(TEST_IDS.leaveConfirmationModal);
     await expect(modal).toBeVisible();
 
-    await testBobPage.getByTestId('leave-confirmation-confirm').click();
-    await expect(modal).not.toBeVisible({ timeout: 10_000 });
+    await testBobPage.getByTestId(TEST_IDS.leaveConfirmationConfirm).click();
+    await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
 
     // URL stays at /chat (the listing dashboard) — no forced redirect.
     await expect(testBobPage).toHaveURL('/chat');
 
     // And the conversation is gone from Bob's sidebar.
-    await expect(sidebar.getChatLink(groupConversation.id)).not.toBeVisible({ timeout: 10_000 });
+    await expect(sidebar.getChatLink(groupConversation.id)).not.toBeVisible({
+      timeout: TIMEOUTS.ASSERT,
+    });
   });
 
   test('cancel leave keeps user in conversation', async ({ testBobPage, groupConversation }) => {
@@ -187,13 +185,13 @@ test.describe('Group Chat Leave', () => {
     await sidebar.openMemberActions(bobMemberId);
     await sidebar.clickLeave();
 
-    const modal = testBobPage.getByTestId('leave-confirmation-modal');
+    const modal = testBobPage.getByTestId(TEST_IDS.leaveConfirmationModal);
     await expect(modal).toBeVisible();
 
-    await testBobPage.getByTestId('leave-confirmation-cancel').click();
-    // Radix Dialog close is CSS-animation only; the settled-aware `expect`
-    // can short-circuit on slow webkit before the animation completes.
-    await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
+    await testBobPage.getByTestId(TEST_IDS.leaveConfirmationCancel).click();
+    // Radix Dialog close is CSS-animation only; give it the modal budget to
+    // finish unmounting on slow webkit.
+    await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
 
     // Close sidebar so message list is accessible on mobile
     await sidebar.closeSidebar();

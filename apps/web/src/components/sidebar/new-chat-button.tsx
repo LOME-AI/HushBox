@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate, useLocation } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { useIsMobile } from '@hushbox/ui';
 import { useUIStore } from '@/stores/ui';
 import { SidebarActionButton } from '@/components/shared/sidebar-action-button';
@@ -23,7 +23,7 @@ export function NewChatButton(): React.JSX.Element {
 
   return (
     <SidebarActionButton
-      icon={<Plus data-testid="plus-icon" className="h-4 w-4" aria-hidden="true" />}
+      icon={<Plus data-testid={TEST_IDS.plusIcon} className="h-4 w-4" aria-hidden="true" />}
       label="New Chat"
       onClick={handleClick}
       collapsed={!sidebarOpen}

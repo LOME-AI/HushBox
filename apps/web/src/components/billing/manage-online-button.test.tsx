@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MARKETING_BASE_URL, ROUTES } from '@hushbox/shared';
+import { MARKETING_BASE_URL, ROUTES, TEST_IDS } from '@hushbox/shared';
 
 const { mockFetchJson, mockOpenExternalUrl } = vi.hoisted(() => ({
   mockFetchJson: vi.fn(),
@@ -35,7 +35,9 @@ describe('ManageOnlineButton', () => {
   it('renders with "Manage Balance Online" text', () => {
     render(<ManageOnlineButton />);
 
-    expect(screen.getByTestId('manage-online-button')).toHaveTextContent('Manage Balance Online');
+    expect(screen.getByTestId(TEST_IDS.manageOnlineButton)).toHaveTextContent(
+      'Manage Balance Online'
+    );
   });
 
   it('calls login-link API and opens external URL on click', async () => {
@@ -44,7 +46,7 @@ describe('ManageOnlineButton', () => {
 
     render(<ManageOnlineButton />);
 
-    await user.click(screen.getByTestId('manage-online-button'));
+    await user.click(screen.getByTestId(TEST_IDS.manageOnlineButton));
 
     await waitFor(() => {
       expect(mockFetchJson).toHaveBeenCalled();
@@ -65,14 +67,14 @@ describe('ManageOnlineButton', () => {
 
     render(<ManageOnlineButton />);
 
-    await user.click(screen.getByTestId('manage-online-button'));
+    await user.click(screen.getByTestId(TEST_IDS.manageOnlineButton));
 
-    expect(screen.getByTestId('manage-online-button')).toBeDisabled();
+    expect(screen.getByTestId(TEST_IDS.manageOnlineButton)).toBeDisabled();
 
     resolveToken({ token: 'tok' });
 
     await waitFor(() => {
-      expect(screen.getByTestId('manage-online-button')).not.toBeDisabled();
+      expect(screen.getByTestId(TEST_IDS.manageOnlineButton)).not.toBeDisabled();
     });
   });
 
@@ -82,10 +84,10 @@ describe('ManageOnlineButton', () => {
 
     render(<ManageOnlineButton />);
 
-    await user.click(screen.getByTestId('manage-online-button'));
+    await user.click(screen.getByTestId(TEST_IDS.manageOnlineButton));
 
     await waitFor(() => {
-      expect(screen.getByTestId('manage-online-button')).not.toBeDisabled();
+      expect(screen.getByTestId(TEST_IDS.manageOnlineButton)).not.toBeDisabled();
     });
     expect(mockOpenExternalUrl).not.toHaveBeenCalled();
   });
@@ -96,10 +98,10 @@ describe('ManageOnlineButton', () => {
 
     render(<ManageOnlineButton />);
 
-    await user.click(screen.getByTestId('manage-online-button'));
+    await user.click(screen.getByTestId(TEST_IDS.manageOnlineButton));
 
     await waitFor(() => {
-      expect(screen.getByTestId('manage-online-button')).not.toBeDisabled();
+      expect(screen.getByTestId(TEST_IDS.manageOnlineButton)).not.toBeDisabled();
     });
     expect(mockOpenExternalUrl).not.toHaveBeenCalled();
   });

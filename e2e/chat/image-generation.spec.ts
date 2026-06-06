@@ -1,7 +1,9 @@
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { ChatPage } from '../pages';
 import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
 import { captureChatRoutePayload } from '../helpers/route-payload.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 /**
  * Image generation flow end-to-end.
@@ -45,12 +47,12 @@ test.describe('Image Generation', () => {
     const imgElement = chatPage.messageList.locator('img').first();
     await expect
       .poll(async () => imgElement.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
-        timeout: 10_000,
+        timeout: TIMEOUTS.ASSERT,
       })
       .toBe(400);
     await expect
       .poll(async () => imgElement.evaluate((el) => (el as HTMLImageElement).naturalHeight), {
-        timeout: 10_000,
+        timeout: TIMEOUTS.ASSERT,
       })
       .toBe(300);
   });
@@ -159,7 +161,7 @@ test.describe('Image Generation', () => {
     const editedMessage = `Edit-image edited ${String(Date.now())}`;
     await chatPage.messageInput.clear();
     await chatPage.messageInput.fill(editedMessage);
-    await expect(chatPage.sendButton).toBeEnabled({ timeout: 15_000 });
+    await expect(chatPage.sendButton).toBeEnabled({ timeout: TIMEOUTS.STREAM });
     await chatPage.sendButton.click();
 
     await chatPage.expectMessageVisible(editedMessage);
@@ -168,7 +170,7 @@ test.describe('Image Generation', () => {
 
     await expect
       .poll(async () => chatPage.messageList.locator('img').first().getAttribute('src'), {
-        timeout: 10_000,
+        timeout: TIMEOUTS.ASSERT,
       })
       .not.toBe(originalSource);
   });
@@ -202,7 +204,7 @@ test.describe('Image Generation', () => {
     await chatPage.expectMessageVisible(prompt);
     await expect
       .poll(async () => chatPage.messageList.locator('img').first().getAttribute('src'), {
-        timeout: 10_000,
+        timeout: TIMEOUTS.ASSERT,
       })
       .not.toBe(originalSource);
   });
@@ -254,7 +256,7 @@ test.describe('Image Generation', () => {
     await chatPage.sendNewChatMessage(prompt);
     await chatPage.waitForConversation();
 
-    await expect.poll(captured.get, { timeout: 10_000 }).toBeDefined();
+    await expect.poll(captured.get, { timeout: TIMEOUTS.ASSERT }).toBeDefined();
     expect(JSON.stringify(captured.get())).toContain('16:9');
   });
 
@@ -378,12 +380,14 @@ test.describe('Image Generation', () => {
 
     await test.step('all image models in the modal show the premium lock icon', async () => {
       await chatPage.openModelSelector();
-      const modal = lowBalancePage.getByTestId('model-selector-modal');
+      const modal = lowBalancePage.getByTestId(TEST_IDS.modelSelectorModal);
       await expect(modal).toBeVisible();
-      const items = modal.locator('[data-testid^="model-item-"]');
+      const items = modal.locator(`[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]`);
       const total = await items.count();
       expect(total).toBeGreaterThan(0);
-      const locked = modal.locator('[data-testid^="model-item-"]:has([data-testid="lock-icon"])');
+      const locked = modal.locator(
+        `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:has([data-testid="${TEST_IDS.lockIcon}"])`
+      );
       await expect(locked).toHaveCount(total);
       await lowBalancePage.keyboard.press('Escape');
       await expect(modal).not.toBeVisible();
@@ -443,7 +447,7 @@ test.describe('Image Generation', () => {
     const errorPlaceholder = chatPage.messageList.getByRole('status', {
       name: /couldn['’]t load this media.+refresh the page/i,
     });
-    await expect(errorPlaceholder.first()).toBeVisible({ timeout: 15_000 });
+    await expect(errorPlaceholder.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
     const imgs = chatPage.messageList.locator('img');
     await expect(imgs).toHaveCount(0);

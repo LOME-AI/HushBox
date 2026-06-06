@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Drawer } from 'vaul';
 import { XIcon } from 'lucide-react';
+import { TEST_IDS } from '@hushbox/shared';
 
 import { cn } from '../lib/utilities';
 import { useVisualViewportHeight } from '../hooks/use-visual-viewport-height';
@@ -79,7 +80,7 @@ function OverlayBottomSheet({
       <Drawer.Portal>
         <Drawer.Overlay
           data-slot="overlay-backdrop"
-          data-testid="overlay-backdrop"
+          data-testid={TEST_IDS.overlayBackdrop}
           className={cn(
             'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm',
             'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
@@ -87,7 +88,7 @@ function OverlayBottomSheet({
         />
         <Drawer.Content
           data-slot="overlay-content"
-          data-testid="overlay-content"
+          data-testid={TEST_IDS.overlayContent}
           data-overlay-variant="bottom-sheet"
           className={cn(
             'bg-background fixed inset-x-0 bottom-0 z-50 flex max-h-[90dvh] flex-col rounded-t-xl outline-none',

@@ -53,6 +53,7 @@
     "db:seed": "tsx scripts/with-env.ts tsx scripts/seed.ts",
     "seed:cache": "tsx scripts/with-env.ts tsx scripts/seed-cache.ts",
     "generate:env": "tsx scripts/generate-env.ts",
+    "generate:ops-dispatch": "tsx ops/lib/generate-dispatch-options.ts",
     "generate:headers": "tsx scripts/with-env.ts tsx scripts/merge-marketing-into-web.ts && tsx scripts/with-env.ts tsx scripts/generate-headers.ts",
     "verify:env": "tsx scripts/verify-env.ts",
     "verify:typecheck-coverage": "tsx scripts/verify-typecheck-coverage.ts",

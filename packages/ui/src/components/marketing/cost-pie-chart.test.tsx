@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { ALL_FEE_CATEGORIES, FEE_BUCKET_BY_ID, FEE_CATEGORIES } from '@hushbox/shared';
+import { ALL_FEE_CATEGORIES, FEE_BUCKET_BY_ID, FEE_CATEGORIES, TEST_IDS } from '@hushbox/shared';
 import { CostPieChart } from './cost-pie-chart';
 
 function expectedSliceCount(): number {
@@ -20,12 +20,12 @@ describe('CostPieChart', () => {
   describe('rendering', () => {
     it('renders with data-testid cost-pie-chart', () => {
       render(<CostPieChart depositAmount={100} />);
-      expect(screen.getByTestId('cost-pie-chart')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.costPieChart)).toBeInTheDocument();
     });
 
     it('renders an SVG element', () => {
       render(<CostPieChart depositAmount={100} />);
-      const container = screen.getByTestId('cost-pie-chart');
+      const container = screen.getByTestId(TEST_IDS.costPieChart);
       expect(container.querySelector('svg')).toBeInTheDocument();
     });
 
@@ -40,7 +40,7 @@ describe('CostPieChart', () => {
 
     it('does NOT render center text with dollar amount', () => {
       render(<CostPieChart depositAmount={100} />);
-      const container = screen.getByTestId('cost-pie-chart');
+      const container = screen.getByTestId(TEST_IDS.costPieChart);
       const svg = container.querySelector('svg');
       expect(svg?.querySelector('text')).not.toBeInTheDocument();
     });
@@ -49,23 +49,23 @@ describe('CostPieChart', () => {
   describe('pie slices', () => {
     it('renders one path per non-empty category group', () => {
       render(<CostPieChart depositAmount={100} />);
-      const container = screen.getByTestId('cost-pie-chart');
+      const container = screen.getByTestId(TEST_IDS.costPieChart);
       const paths = container.querySelectorAll('path');
       expect(paths.length).toBe(expectedSliceCount());
     });
 
     it('renders the Service Value slice (blue) at all rate values', () => {
       render(<CostPieChart depositAmount={100} />);
-      const container = screen.getByTestId('cost-pie-chart');
-      const slice = container.querySelector('[data-testid="slice-service-value"]');
+      const container = screen.getByTestId(TEST_IDS.costPieChart);
+      const slice = container.querySelector(`[data-testid="${TEST_IDS.sliceServiceValue}"]`);
       expect(slice).toBeInTheDocument();
       expect(slice).toHaveAttribute('fill', '#3b82f6');
     });
 
     it('renders the Transaction Costs slice (amber) iff at least one transaction fee has rate > 0', () => {
       render(<CostPieChart depositAmount={100} />);
-      const container = screen.getByTestId('cost-pie-chart');
-      const slice = container.querySelector('[data-testid="slice-transaction-costs"]');
+      const container = screen.getByTestId(TEST_IDS.costPieChart);
+      const slice = container.querySelector(`[data-testid="${TEST_IDS.sliceTransactionCosts}"]`);
       const hasTransactionCosts = FEE_CATEGORIES.some(
         (c) => FEE_BUCKET_BY_ID[c.id] === 'transaction-costs'
       );
@@ -79,8 +79,8 @@ describe('CostPieChart', () => {
 
     it('renders the Platform Fee slice (brand red) iff the hushbox fee has rate > 0', () => {
       render(<CostPieChart depositAmount={100} />);
-      const container = screen.getByTestId('cost-pie-chart');
-      const slice = container.querySelector('[data-testid="slice-platform-fee"]');
+      const container = screen.getByTestId(TEST_IDS.costPieChart);
+      const slice = container.querySelector(`[data-testid="${TEST_IDS.slicePlatformFee}"]`);
       const hasPlatformFee = FEE_CATEGORIES.some((c) => FEE_BUCKET_BY_ID[c.id] === 'platform-fee');
       if (hasPlatformFee) {
         expect(slice).toBeInTheDocument();
@@ -92,7 +92,7 @@ describe('CostPieChart', () => {
 
     it('does not render a slice for any zero-rate fee category bucket', () => {
       render(<CostPieChart depositAmount={100} />);
-      const container = screen.getByTestId('cost-pie-chart');
+      const container = screen.getByTestId(TEST_IDS.costPieChart);
       const allTransactionRatesZero = ALL_FEE_CATEGORIES.filter(
         (c) => FEE_BUCKET_BY_ID[c.id] === 'transaction-costs'
       ).every((c) => c.rate === 0);
@@ -101,12 +101,12 @@ describe('CostPieChart', () => {
       ).every((c) => c.rate === 0);
       if (allTransactionRatesZero) {
         expect(
-          container.querySelector('[data-testid="slice-transaction-costs"]')
+          container.querySelector(`[data-testid="${TEST_IDS.sliceTransactionCosts}"]`)
         ).not.toBeInTheDocument();
       }
       if (allPlatformRatesZero) {
         expect(
-          container.querySelector('[data-testid="slice-platform-fee"]')
+          container.querySelector(`[data-testid="${TEST_IDS.slicePlatformFee}"]`)
         ).not.toBeInTheDocument();
       }
     });
@@ -115,7 +115,7 @@ describe('CostPieChart', () => {
   describe('donut style', () => {
     it('renders center hole for donut effect', () => {
       render(<CostPieChart depositAmount={100} />);
-      const container = screen.getByTestId('cost-pie-chart');
+      const container = screen.getByTestId(TEST_IDS.costPieChart);
       const centerHole = container.querySelector('circle');
       expect(centerHole).toBeInTheDocument();
     });

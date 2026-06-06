@@ -15,6 +15,7 @@ import {
   createDevConversation,
   createDevGroupChat,
   setWalletBalance,
+  clearTotpReplay,
 } from '../services/dev/index.js';
 import {
   verificationEmail,
@@ -113,6 +114,21 @@ export const devRoute = new Hono<AppEnv>()
     const redis = c.get('redis');
     const result = await resetUsageRateLimits(redis);
     return c.json({ success: true, deleted: result.deleted });
+  })
+  .delete('/totp-replay', zValidator('json', z.object({ email: z.email() })), async (c) => {
+    const db = c.get('db');
+    const redis = c.get('redis');
+    const { email } = c.req.valid('json');
+    try {
+      const result = await clearTotpReplay(db, redis, email);
+      return c.json({ success: true, deleted: result.deleted });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found')) {
+        return c.json(createErrorResponse(ERROR_CODE_NOT_FOUND), 404);
+      }
+      throw error;
+    }
   })
   .post(
     '/conversation',

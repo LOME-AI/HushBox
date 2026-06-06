@@ -1,5 +1,7 @@
 import { type Locator, type Page } from '@playwright/test';
-import { expect, unsettledExpect } from '../helpers/settled-expect.js';
+import { TEST_IDS } from '@hushbox/shared';
+import { expect } from '../helpers/expect.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 interface DiagnosticData {
   apiResponses: { url: string; status: number; body: string }[];
@@ -35,10 +37,10 @@ export class BillingPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.balanceDisplay = page.getByTestId('balance-display');
+    this.balanceDisplay = page.getByTestId(TEST_IDS.balanceDisplay);
     this.addCreditsButton = page.getByRole('button', { name: 'Add Credits' });
-    this.transactionList = page.getByTestId('transaction-list-container');
-    this.paymentModal = page.getByTestId('payment-modal');
+    this.transactionList = page.getByTestId(TEST_IDS.transactionListContainer);
+    this.paymentModal = page.getByTestId(TEST_IDS.paymentModal);
     this.amountInput = page.locator('#amount-input');
     this.cardNumberInput = page.locator('#cardNumber');
     this.expiryInput = page.locator('#cardExpiryDate');
@@ -47,8 +49,8 @@ export class BillingPage {
     this.billingAddressInput = page.locator('#cardHolderAddress');
     this.zipInput = page.locator('#cardHolderPostalCode');
     this.purchaseButton = page.getByRole('button', { name: 'Purchase' });
-    this.simulateSuccessButton = page.getByTestId('simulate-success-btn');
-    this.simulateFailureButton = page.getByTestId('simulate-failure-btn');
+    this.simulateSuccessButton = page.getByTestId(TEST_IDS.simulateSuccessBtn);
+    this.simulateFailureButton = page.getByTestId(TEST_IDS.simulateFailureBtn);
     this.paymentSuccessCard = page.getByText('Payment Successful');
     this.paymentErrorCard = page.getByText('Payment Failed');
     this.closeButton = this.paymentModal.getByRole('button', { name: 'Close' });
@@ -71,15 +73,15 @@ export class BillingPage {
   }
 
   async waitForBalanceLoaded(): Promise<number> {
-    await this.balanceDisplay.waitFor({ state: 'visible', timeout: 5000 });
+    await this.balanceDisplay.waitFor({ state: 'visible', timeout: TIMEOUTS.ASSERT });
     await this.page.waitForFunction(
       (testId: string) => {
         const el = document.querySelector(`[data-testid="${testId}"]`);
         const text = el?.textContent ?? '';
         return /\$\d+\.\d+/.test(text);
       },
-      'balance-display',
-      { timeout: 5000 }
+      TEST_IDS.balanceDisplay,
+      { timeout: TIMEOUTS.ASSERT }
     );
     return this.getBalance();
   }
@@ -104,7 +106,7 @@ export class BillingPage {
     await this.openPaymentModal();
     await this.enterAmount(amount);
     await this.simulateFailureButton.click();
-    await expect(this.paymentErrorCard).toBeVisible({ timeout: 15_000 });
+    await expect(this.paymentErrorCard).toBeVisible({ timeout: TIMEOUTS.WEBHOOK });
   }
 
   async fillCardDetails(details: {
@@ -127,23 +129,21 @@ export class BillingPage {
     await this.purchaseButton.click();
   }
 
-  async expectPaymentSuccess(timeout = 30_000): Promise<void> {
-    // Wait for "Payment Successful" text (CardTitle renders as div, not heading)
-    // Real Helcim + Hookdeck webhook flow needs longer than default 15s.
-    // Opt out of settled quick-fail: the app settles after the payment mutation
-    // completes, but the webhook may take 10-30s to arrive.
-    await unsettledExpect(this.paymentSuccessCard).toBeVisible({ timeout });
+  async expectPaymentSuccess(timeout: number = TIMEOUTS.WEBHOOK): Promise<void> {
+    // Wait for "Payment Successful" text (CardTitle renders as div, not heading).
+    // The real Helcim + Hookdeck webhook can take tens of seconds to arrive.
+    await expect(this.paymentSuccessCard).toBeVisible({ timeout });
   }
 
   async expectPaymentError(): Promise<void> {
     // Wait for "Payment Failed" text (CardTitle renders as div, not heading).
-    // Opt out: Helcim processing response may arrive after app settles.
-    await unsettledExpect(this.paymentErrorCard).toBeVisible({ timeout: 15_000 });
+    // Helcim's processing response can arrive well after the mutation resolves.
+    await expect(this.paymentErrorCard).toBeVisible({ timeout: TIMEOUTS.WEBHOOK });
   }
 
   async closeSuccessAndReset(): Promise<void> {
     await this.closeButton.click();
-    await expect(this.paymentModal).not.toBeVisible({ timeout: 3000 });
+    await expect(this.paymentModal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
   }
 
   async closeErrorAndRetry(): Promise<void> {
@@ -155,45 +155,42 @@ export class BillingPage {
    * Wait for payment to be confirmed via webhook.
    * Polls the balance until it increases by the expected amount.
    * Used for real Helcim payments where webhook confirmation is async.
+   *
+   * Each poll reloads the page and re-reads the balance; `expect.poll`
+   * retries on a falling assertion but propagates a thrown callback error
+   * immediately, so the session-loss redirect fast-fails instead of burning
+   * the full timeout budget.
    */
   async waitForWebhookConfirmation(
     initialBalance: number,
     expectedIncrease: number,
-    timeout = 30_000
+    timeout: number = TIMEOUTS.WEBHOOK
   ): Promise<void> {
-    const startTime = Date.now();
-    const pollInterval = 2000;
+    await expect
+      .poll(
+        async () => {
+          await this.page.reload({ waitUntil: 'domcontentloaded' });
 
-    while (Date.now() - startTime < timeout) {
-      await this.page.reload({ waitUntil: 'domcontentloaded' });
-      // Settled fires after reload before the billing query paints.
-      await unsettledExpect(this.balanceDisplay).toBeVisible({ timeout: 10_000 });
+          // Detect session loss — fail fast instead of polling to timeout
+          if (this.page.url().includes('/login')) {
+            throw new Error(
+              'Session lost — redirected to login during webhook confirmation polling'
+            );
+          }
 
-      // Detect session loss — fail fast instead of waiting for timeout
-      if (this.page.url().includes('/login')) {
-        throw new Error('Session lost — redirected to login during webhook confirmation polling');
-      }
-
-      await this.page
-        .locator('.animate-pulse')
-        .first()
-        .waitFor({ state: 'hidden', timeout: 10_000 })
-        .catch(() => {
-          // Ignore — skeleton may not appear
-        });
-      await this.balanceDisplay.waitFor({ state: 'visible', timeout: 10_000 });
-      const currentBalance = await this.getBalance();
-
-      if (currentBalance >= initialBalance + expectedIncrease) {
-        return;
-      }
-
-      await this.page.waitForTimeout(pollInterval);
-    }
-
-    throw new Error(
-      `Payment not confirmed within ${String(timeout)}ms. Expected balance increase of $${String(expectedIncrease)}`
-    );
+          await this.page
+            .locator('.animate-pulse')
+            .first()
+            .waitFor({ state: 'hidden', timeout: TIMEOUTS.ASSERT })
+            .catch(() => {
+              // Ignore — skeleton may not appear
+            });
+          await this.balanceDisplay.waitFor({ state: 'visible', timeout: TIMEOUTS.ASSERT });
+          return this.getBalance();
+        },
+        { timeout }
+      )
+      .toBeGreaterThanOrEqual(initialBalance + expectedIncrease);
   }
 
   /**
@@ -249,7 +246,7 @@ export class BillingPage {
         this.paymentErrorCard.isVisible().catch(() => false),
         this.cardNumberInput.isVisible().catch(() => false),
         this.page
-          .getByTestId('helcim-loading')
+          .getByTestId(TEST_IDS.helcimLoading)
           .isVisible()
           .catch(() => false),
       ]);

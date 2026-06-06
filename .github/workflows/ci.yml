@@ -403,11 +403,17 @@ jobs:
         env:
           HOOKDECK_API_KEY: ${{ secrets.HOOKDECK_API_KEY }}
 
+      # Tag-based gating via Playwright --grep-invert, which composes (AND) with
+      # the project-level grepInvert in playwright.config.ts. CI always drops
+      # @local-only (dev-mode-only tests); every project except chromium also
+      # drops @webhook, so the full-payment flow runs on the chromium runner
+      # alone (Hookdeck + Helcim sandbox are wired there only).
       - name: Run E2E tests (${{ matrix.project }})
-        run: pnpm e2e --project=${{ matrix.project }}
+        run: pnpm e2e --project=${{ matrix.project }} --grep-invert "$E2E_GREP_INVERT"
         env:
           CI: true
           SKIP_WEBHOOK_TESTS: ${{ matrix.project != 'chromium' && 'true' || '' }}
+          E2E_GREP_INVERT: ${{ matrix.project == 'chromium' && '@local-only' || '@local-only|@webhook' }}
 
       - name: Verify Hookdeck was called
         if: matrix.project == 'chromium'

@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { useAsyncAction } from '@hushbox/ui';
 import { ActionModal } from './action-modal';
 
@@ -188,20 +189,22 @@ describe('ActionModal', () => {
   describe('devSimulateCodes', () => {
     it('renders no dev row when devSimulateCodes is omitted', () => {
       render(<ActionModalHarness />);
-      expect(screen.queryByTestId('dev-simulate-failures')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.devSimulateFailures)).not.toBeInTheDocument();
     });
 
     it('renders one Simulate button per error code', () => {
       render(<ActionModalHarness devSimulateCodes={['STALE_EPOCH', 'WRAP_SET_MISMATCH']} />);
-      expect(screen.getByTestId('dev-simulate-failures')).toBeInTheDocument();
-      expect(screen.getByTestId('dev-simulate-STALE_EPOCH')).toBeInTheDocument();
-      expect(screen.getByTestId('dev-simulate-WRAP_SET_MISMATCH')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.devSimulateFailures)).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_ID_BUILDERS.devSimulate('STALE_EPOCH'))).toBeInTheDocument();
+      expect(
+        screen.getByTestId(TEST_ID_BUILDERS.devSimulate('WRAP_SET_MISMATCH'))
+      ).toBeInTheDocument();
     });
 
     it('fires the corresponding friendly error when a simulate button is clicked', async () => {
       const user = userEvent.setup();
       render(<ActionModalHarness devSimulateCodes={['STALE_EPOCH']} />);
-      await user.click(screen.getByTestId('dev-simulate-STALE_EPOCH'));
+      await user.click(screen.getByTestId(TEST_ID_BUILDERS.devSimulate('STALE_EPOCH')));
 
       expect(screen.getByRole('alert')).toHaveTextContent(
         'Someone else just changed this conversation. Please try again.'
@@ -212,7 +215,7 @@ describe('ActionModal', () => {
       const user = userEvent.setup();
       const onSubmit = vi.fn(async () => {});
       render(<ActionModalHarness onSubmit={onSubmit} devSimulateCodes={['STALE_EPOCH']} />);
-      await user.click(screen.getByTestId('dev-simulate-STALE_EPOCH'));
+      await user.click(screen.getByTestId(TEST_ID_BUILDERS.devSimulate('STALE_EPOCH')));
       expect(onSubmit).not.toHaveBeenCalled();
     });
   });

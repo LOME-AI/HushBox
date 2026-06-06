@@ -57,6 +57,7 @@ vi.mock('@tanstack/react-router', () => ({
   },
 }));
 
+import { TEST_IDS } from '@hushbox/shared';
 import { useSharedMessage } from '../hooks/use-shared-message.js';
 import { SharedMessagePage } from './share.m.$shareId.js';
 import type { ContentKey } from '@hushbox/crypto';
@@ -92,7 +93,7 @@ describe('SharedMessagePage', () => {
 
     render(<SharedMessagePage />);
 
-    expect(screen.getByTestId('shared-message-loading')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.sharedMessageLoading)).toBeInTheDocument();
   });
 
   it('announces loading state via role="status" and aria-live="polite"', () => {
@@ -104,7 +105,7 @@ describe('SharedMessagePage', () => {
 
     render(<SharedMessagePage />);
 
-    const loading = screen.getByTestId('shared-message-loading');
+    const loading = screen.getByTestId(TEST_IDS.sharedMessageLoading);
     expect(loading).toHaveAttribute('role', 'status');
     expect(loading).toHaveAttribute('aria-live', 'polite');
   });
@@ -118,8 +119,8 @@ describe('SharedMessagePage', () => {
 
     render(<SharedMessagePage />);
 
-    expect(screen.getByTestId('app-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('shared-message-error')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.appShell)).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.sharedMessageError)).toBeInTheDocument();
   });
 
   it('announces error state via role="alert"', () => {
@@ -131,7 +132,7 @@ describe('SharedMessagePage', () => {
 
     render(<SharedMessagePage />);
 
-    expect(screen.getByTestId('shared-message-error')).toHaveAttribute('role', 'alert');
+    expect(screen.getByTestId(TEST_IDS.sharedMessageError)).toHaveAttribute('role', 'alert');
   });
 
   it('shows AlertTriangle icon in error state', () => {
@@ -143,7 +144,7 @@ describe('SharedMessagePage', () => {
 
     render(<SharedMessagePage />);
 
-    const errorContainer = screen.getByTestId('shared-message-error');
+    const errorContainer = screen.getByTestId(TEST_IDS.sharedMessageError);
     const icon = errorContainer.querySelector('svg');
     expect(icon).toBeInTheDocument();
   });
@@ -170,8 +171,8 @@ describe('SharedMessagePage', () => {
 
     render(<SharedMessagePage />);
 
-    expect(screen.getByTestId('app-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('shared-message-content')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.appShell)).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.sharedMessageContent)).toBeInTheDocument();
   });
 
   it('renders text content items via MarkdownRenderer', () => {
@@ -188,7 +189,7 @@ describe('SharedMessagePage', () => {
 
     render(<SharedMessagePage />);
 
-    const renderers = screen.getAllByTestId('markdown-renderer');
+    const renderers = screen.getAllByTestId(TEST_IDS.markdownRenderer);
     expect(renderers).toHaveLength(2);
     expect(renderers[0]).toHaveTextContent('First paragraph');
     expect(renderers[1]).toHaveTextContent('Second paragraph');
@@ -266,16 +267,16 @@ describe('SharedMessagePage', () => {
 
     render(<SharedMessagePage />);
 
-    const container = screen.getByTestId('shared-message-content');
+    const container = screen.getByTestId(TEST_IDS.sharedMessageContent);
     const children = [...container.children];
     expect(children).toHaveLength(3);
-    expect(children[0]!.querySelector('[data-testid="markdown-renderer"]')?.textContent).toBe(
-      'before'
-    );
+    expect(
+      children[0]!.querySelector(`[data-testid="${TEST_IDS.markdownRenderer}"]`)?.textContent
+    ).toBe('before');
     expect(children[1]!.querySelector('[data-testid="shared-media-img-mid"]')).not.toBeNull();
-    expect(children[2]!.querySelector('[data-testid="markdown-renderer"]')?.textContent).toBe(
-      'after'
-    );
+    expect(
+      children[2]!.querySelector(`[data-testid="${TEST_IDS.markdownRenderer}"]`)?.textContent
+    ).toBe('after');
   });
 
   it('passes hash fragment as keyBase64 to hook', () => {

@@ -1,8 +1,10 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { ChatPage } from '../pages';
 import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
 import { captureChatRoutePayload } from '../helpers/route-payload.js';
 import { expectVideoDecoded } from '../helpers/webkit-media-decode.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 /**
  * Video generation flow end-to-end.
@@ -56,7 +58,7 @@ test.describe('Video Generation', () => {
     // atom / EBML header read). expectVideoDecoded degrades to a "src bound"
     // check on engines that can't decode — see helper for the why.
     const videoElement = chatPage.messageList.locator('video').first();
-    await expectVideoDecoded(videoElement, browserName, { timeout: 10_000 });
+    await expectVideoDecoded(videoElement, browserName, { timeout: TIMEOUTS.ASSERT });
   });
 
   test('resolution buttons render with quality-tier label and pixel row', async ({
@@ -157,18 +159,18 @@ test.describe('Video Generation', () => {
     const editedMessage = `Edit-video edited ${String(Date.now())}`;
     await chatPage.messageInput.clear();
     await chatPage.messageInput.fill(editedMessage);
-    await expect(chatPage.sendButton).toBeEnabled({ timeout: 15_000 });
+    await expect(chatPage.sendButton).toBeEnabled({ timeout: TIMEOUTS.STREAM });
     await chatPage.sendButton.click();
 
     // Optimistic prune: the pre-edit user message and its AI reply both
     // disappear in the same React commit as the new edited message lands,
     // matching the state of a fresh send at the end of the conversation.
     await expect(chatPage.messageList.getByText(prompt, { exact: true })).toHaveCount(0, {
-      timeout: 2000,
+      timeout: TIMEOUTS.MODAL,
     });
     await expect(chatPage.messageList.locator(`video[src="${originalSource ?? ''}"]`)).toHaveCount(
       0,
-      { timeout: 2000 }
+      { timeout: TIMEOUTS.MODAL }
     );
 
     await chatPage.expectMessageVisible(editedMessage);
@@ -177,7 +179,7 @@ test.describe('Video Generation', () => {
 
     await expect
       .poll(async () => chatPage.messageList.locator('video').first().getAttribute('src'), {
-        timeout: 10_000,
+        timeout: TIMEOUTS.ASSERT,
       })
       .not.toBe(originalSource);
   });
@@ -208,7 +210,7 @@ test.describe('Video Generation', () => {
     await chatPage.expectMessageVisible(prompt);
     await expect
       .poll(async () => chatPage.messageList.locator('video').first().getAttribute('src'), {
-        timeout: 10_000,
+        timeout: TIMEOUTS.ASSERT,
       })
       .not.toBe(originalSource);
   });
@@ -248,7 +250,7 @@ test.describe('Video Generation', () => {
     await chatPage.sendNewChatMessage(prompt);
     await chatPage.waitForConversation();
 
-    await expect.poll(captured.get, { timeout: 10_000 }).toBeDefined();
+    await expect.poll(captured.get, { timeout: TIMEOUTS.ASSERT }).toBeDefined();
     expect(JSON.stringify(captured.get())).toContain('1080p');
   });
 
@@ -273,16 +275,13 @@ test.describe('Video Generation', () => {
     expect(Number(initialValue)).toBeGreaterThanOrEqual(1);
 
     const costLine = authenticatedPage.locator(String.raw`text=/^≈\s+\$\d+\.\d{3}$/`).first();
-    await expect(costLine).toBeVisible({ timeout: 10_000 });
+    await expect(costLine).toBeVisible({ timeout: TIMEOUTS.ASSERT });
     const initialCost = await costLine.textContent();
 
     // Bump duration up to its max (8 seconds for video on the mock).
     await chatPage.setVideoDuration(8);
 
-    await expect(async () => {
-      const updatedCost = await costLine.textContent();
-      expect(updatedCost).not.toBe(initialCost);
-    }).toPass({ timeout: 5000 });
+    await expect(costLine).not.toHaveText(initialCost ?? '', { timeout: TIMEOUTS.MODAL });
   });
 
   /** C15: 9:16 aspect ratio choice flows through to the /api/chat request. */
@@ -306,7 +305,7 @@ test.describe('Video Generation', () => {
     await chatPage.sendNewChatMessage(prompt);
     await chatPage.waitForConversation();
 
-    await expect.poll(captured.get, { timeout: 10_000 }).toBeDefined();
+    await expect.poll(captured.get, { timeout: TIMEOUTS.ASSERT }).toBeDefined();
     expect(JSON.stringify(captured.get())).toContain('9:16');
   });
 
@@ -383,7 +382,7 @@ test.describe('Video Generation', () => {
     await chatPage.setVideoDuration(6);
 
     const costLine = authenticatedPage.locator(String.raw`text=/^≈\s+\$\d+\.\d{3}$/`).first();
-    await expect(costLine).toBeVisible({ timeout: 10_000 });
+    await expect(costLine).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
     await chatPage.selectResolution('1080p');
     await expect(costLine).toBeVisible();
@@ -391,13 +390,11 @@ test.describe('Video Generation', () => {
 
     await chatPage.selectResolution('4k');
     // Re-fetch text — the same locator targets the updated DOM.
-    await expect(async () => {
-      const higher = await costLine.textContent();
-      expect(higher).not.toBe(lower);
-      const lowerCents = Number((lower ?? '').replaceAll(/[^0-9.]/g, ''));
-      const higherCents = Number((higher ?? '').replaceAll(/[^0-9.]/g, ''));
-      expect(higherCents).toBeGreaterThan(lowerCents);
-    }).toPass({ timeout: 5000 });
+    await expect(costLine).not.toHaveText(lower ?? '', { timeout: TIMEOUTS.MODAL });
+    const higher = await costLine.textContent();
+    const lowerCents = Number((lower ?? '').replaceAll(/[^0-9.]/g, ''));
+    const higherCents = Number((higher ?? '').replaceAll(/[^0-9.]/g, ''));
+    expect(higherCents).toBeGreaterThan(lowerCents);
   });
 
   /**
@@ -445,23 +442,24 @@ test.describe('Video Generation', () => {
 
     await expect(
       lowBalancePage.getByText(/Select a video model to see resolution options/i)
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: TIMEOUTS.ASSERT });
     await expect(lowBalancePage.getByRole('button', { name: '720p', exact: true })).toHaveCount(0);
 
     await chatPage.closeGenerationSheetIfOpen();
 
     await test.step('all video models in the modal show the premium lock icon', async () => {
       await chatPage.openModelSelector();
-      const modal = lowBalancePage.getByTestId('model-selector-modal');
+      const modal = lowBalancePage.getByTestId(TEST_IDS.modelSelectorModal);
       await expect(modal).toBeVisible();
-      const items = modal.locator('[data-testid^="model-item-"]');
+      const items = modal.locator(`[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]`);
       const total = await items.count();
       expect(total).toBeGreaterThan(0);
-      const locked = modal.locator('[data-testid^="model-item-"]:has([data-testid="lock-icon"])');
+      const locked = modal.locator(
+        `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:has([data-testid="${TEST_IDS.lockIcon}"])`
+      );
       await expect(locked).toHaveCount(total);
       await lowBalancePage.keyboard.press('Escape');
-      // Modal exit animation races the settled-aware indicator.
-      await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
+      await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
     });
 
     await expect(lowBalancePage).toHaveURL(/\/chat$/);

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, Copy, GitBranch, Pencil, RefreshCw, Share2 } from 'lucide-react';
-import { shortenModelName, friendlyErrorMessage, stageLabel } from '@hushbox/shared';
+import { shortenModelName, friendlyErrorMessage, stageLabel, TEST_IDS } from '@hushbox/shared';
 import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@hushbox/ui';
 import { useModels } from '@/hooks/models';
 import { getModelColor } from '@/lib/model-color';
@@ -221,7 +221,7 @@ function UserMessageActions({
 
   return (
     <div
-      data-testid="message-actions"
+      data-testid={TEST_IDS.messageActions}
       className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-center justify-end px-1"
     >
       <div className="ml-auto flex items-center gap-0.5">
@@ -257,7 +257,7 @@ function MessageActions({
 
   return (
     <div
-      data-testid="message-actions"
+      data-testid={TEST_IDS.messageActions}
       className="absolute right-0 -bottom-1 left-0 flex translate-y-full items-end gap-2 px-1"
     >
       <div className="flex items-center gap-0.5">
@@ -495,7 +495,7 @@ function AIMessageContent({
 
   if (primaryMessage.errorCode) {
     return (
-      <p className="text-destructive text-sm" data-testid="model-error-message">
+      <p className="text-destructive text-sm" data-testid={TEST_IDS.modelErrorMessage}>
         {friendlyErrorMessage(primaryMessage.errorCode)}
       </p>
     );
@@ -585,9 +585,12 @@ function AIMessageNametag({
   const color = getModelColor(primaryMessage.modelName ?? modelName ?? 'AI');
 
   return (
-    <span data-testid="model-nametag-container" className="mb-0.5 inline-flex items-center gap-1">
+    <span
+      data-testid={TEST_IDS.modelNametagContainer}
+      className="mb-0.5 inline-flex items-center gap-1"
+    >
       <span
-        data-testid="model-nametag"
+        data-testid={TEST_IDS.modelNametag}
         className="inline-block rounded bg-[var(--nametag-bg)] px-1.5 py-0.5 text-xs text-[var(--nametag-fg)] dark:bg-[var(--nametag-bg-dark)] dark:text-[var(--nametag-fg-dark)]"
         style={
           {
@@ -602,7 +605,7 @@ function AIMessageNametag({
       </span>
       {primaryMessage.isSmartModel && (
         <span
-          data-testid="smart-model-chip"
+          data-testid={TEST_IDS.smartModelChip}
           className="border-border text-muted-foreground inline-block rounded border px-1.5 py-0.5 text-[10px] tracking-wide uppercase"
           title="This response was routed by Smart Model"
         >
@@ -702,7 +705,7 @@ export function MessageItem({
     <div className="mx-auto w-full max-w-3xl">
       {senderLabel && (
         <p
-          data-testid="sender-label"
+          data-testid={TEST_IDS.senderLabel}
           className={cn(
             'text-foreground mt-1 px-1 text-xs',
             ownMessage ? 'mr-4 text-right' : 'ml-4'
@@ -712,7 +715,7 @@ export function MessageItem({
         </p>
       )}
       <div
-        data-testid="message-item"
+        data-testid={TEST_IDS.messageItem}
         data-role={effectiveRole}
         data-message-id={primaryMessage.id}
         {...(isError ? { 'data-error': 'true' } : {})}
@@ -736,7 +739,7 @@ export function MessageItem({
                   <AIMessageNametag primaryMessage={primaryMessage} modelName={modelName} />
                 )}
                 <div
-                  data-testid="ai-message-live-region"
+                  data-testid={TEST_IDS.aiMessageLiveRegion}
                   aria-live={isStreaming === true ? 'polite' : 'off'}
                   aria-atomic="false"
                   className="w-full overflow-hidden text-base leading-relaxed break-words"

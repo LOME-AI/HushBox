@@ -1,6 +1,8 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
 import { requireEnv } from '../helpers/env.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
 
@@ -44,11 +46,11 @@ test.describe('Smart Model', () => {
 
     // F2: nametag visible alongside the Smart chip on the assistant message.
     const assistantMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
-    await expect(assistantMessage.getByTestId('model-nametag')).toBeVisible();
-    await expect(assistantMessage.getByTestId('smart-model-chip')).toBeVisible();
-    await expect(assistantMessage.getByTestId('smart-model-chip')).toContainText(/smart/i);
+    await expect(assistantMessage.getByTestId(TEST_IDS.modelNametag)).toBeVisible();
+    await expect(assistantMessage.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
+    await expect(assistantMessage.getByTestId(TEST_IDS.smartModelChip)).toContainText(/smart/i);
 
-    const costBadge = assistantMessage.locator('[data-testid="message-cost"]').first();
+    const costBadge = assistantMessage.locator(`[data-testid="${TEST_IDS.messageCost}"]`).first();
     await expect(costBadge).toBeVisible();
     await expect(costBadge).toContainText(/\$/);
   });
@@ -83,8 +85,10 @@ test.describe('Smart Model', () => {
     await chatPage.waitForStreamComplete();
 
     const initialAssistant = chatPage.messageList.locator('[data-role="assistant"]').first();
-    await expect(initialAssistant.getByTestId('smart-model-chip')).toBeVisible();
-    await expect(initialAssistant.getByTestId('model-nametag')).toContainText(SONNET_MODEL_NAME);
+    await expect(initialAssistant.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
+    await expect(initialAssistant.getByTestId(TEST_IDS.modelNametag)).toContainText(
+      SONNET_MODEL_NAME
+    );
 
     await authenticatedPage.setExtraHTTPHeaders({
       'x-mock-classifier-resolution': OPUS_MODEL_ID,
@@ -94,9 +98,13 @@ test.describe('Smart Model', () => {
     await chatPage.waitForStreamComplete();
 
     const refreshedAssistant = chatPage.messageList.locator('[data-role="assistant"]').last();
-    await expect(refreshedAssistant.getByTestId('smart-model-chip')).toBeVisible();
-    await expect(refreshedAssistant.locator('[data-testid="message-cost"]').first()).toBeVisible();
-    await expect(refreshedAssistant.getByTestId('model-nametag')).toContainText(OPUS_MODEL_NAME);
+    await expect(refreshedAssistant.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
+    await expect(
+      refreshedAssistant.locator(`[data-testid="${TEST_IDS.messageCost}"]`).first()
+    ).toBeVisible();
+    await expect(refreshedAssistant.getByTestId(TEST_IDS.modelNametag)).toContainText(
+      OPUS_MODEL_NAME
+    );
   });
 
   /**
@@ -124,8 +132,10 @@ test.describe('Smart Model', () => {
     await chatPage.waitForStreamComplete();
 
     const assistantMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
-    await expect(assistantMessage.getByTestId('smart-model-chip')).toBeVisible();
-    await expect(assistantMessage.getByTestId('model-nametag')).toContainText(OPUS_MODEL_NAME);
+    await expect(assistantMessage.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
+    await expect(assistantMessage.getByTestId(TEST_IDS.modelNametag)).toContainText(
+      OPUS_MODEL_NAME
+    );
   });
 
   /**
@@ -151,8 +161,10 @@ test.describe('Smart Model', () => {
     await chatPage.waitForStreamComplete();
 
     const assistantMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
-    await expect(assistantMessage.getByTestId('smart-model-chip')).toBeVisible();
-    await expect(assistantMessage.getByTestId('model-nametag')).toContainText(SONNET_MODEL_NAME);
+    await expect(assistantMessage.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
+    await expect(assistantMessage.getByTestId(TEST_IDS.modelNametag)).toContainText(
+      SONNET_MODEL_NAME
+    );
   });
 
   /**
@@ -185,9 +197,9 @@ test.describe('Smart Model', () => {
     // in `runSmartModelStage`), so the specific nametag depends on the mock
     // catalog's pricing — assert only that it's a non-empty real model name.
     const assistantMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
-    await expect(assistantMessage.getByTestId('smart-model-chip')).toBeVisible();
-    const nametag = await assistantMessage.getByTestId('model-nametag').textContent();
-    expect(nametag, 'fallback nametag must be non-empty').toBeTruthy();
+    await expect(assistantMessage.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
+    const nametag = assistantMessage.getByTestId(TEST_IDS.modelNametag);
+    await expect(nametag, 'fallback nametag must be non-empty').not.toHaveText('');
   });
 
   /**
@@ -227,7 +239,7 @@ test.describe('Smart Model', () => {
           const body = (await response.json()) as { count: number };
           return body.count;
         },
-        { timeout: 15_000 }
+        { timeout: TIMEOUTS.STREAM }
       )
       .toBe(2);
   });
@@ -254,8 +266,8 @@ test.describe('Smart Model', () => {
 
     // budget-messages renders the friendly insufficient-allowance string from
     // generateNotifications. The send button must be disabled.
-    await unsettledExpect(lowBalancePage.getByTestId('budget-messages')).toBeVisible({
-      timeout: 10_000,
+    await expect(lowBalancePage.getByTestId(TEST_IDS.budgetMessages)).toBeVisible({
+      timeout: TIMEOUTS.ASSERT,
     });
     await expect(
       lowBalancePage.getByText(/Your free daily usage can't cover this message/i)
@@ -292,15 +304,15 @@ test.describe('Smart Model', () => {
     // window (the classifier round-trip starts as soon as the first token
     // arrives). It is rendered by the ThinkingIndicator with stageLabel.
     const loadingIndicator = authenticatedPage.getByText('Choosing the best model…');
-    await expect(loadingIndicator).toBeVisible({ timeout: 10_000 });
+    await expect(loadingIndicator).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
     // The indicator must clear once the classifier resolves and the inference
     // response starts streaming.
-    await expect(loadingIndicator).not.toBeVisible({ timeout: 15_000 });
+    await expect(loadingIndicator).not.toBeVisible({ timeout: TIMEOUTS.STREAM });
 
     // Sanity: the assistant message arrived with a real response.
     await chatPage.waitForStreamComplete();
     const assistant = chatPage.messageList.locator('[data-role="assistant"]').last();
-    await expect(assistant.getByTestId('smart-model-chip')).toBeVisible();
+    await expect(assistant.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
   });
 });

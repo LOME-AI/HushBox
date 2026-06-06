@@ -1,6 +1,7 @@
 import * as React from 'react';
 import mermaid from 'mermaid';
 import { cn } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 
 interface MermaidDiagramProps {
   chart: string;
@@ -62,7 +63,7 @@ export function MermaidDiagram({
   if (loading) {
     return (
       <div
-        data-testid="mermaid-loading"
+        data-testid={TEST_IDS.mermaidLoading}
         className={cn('bg-muted flex items-center justify-center rounded-lg p-4', className)}
       >
         <span className="text-muted-foreground text-sm">Loading diagram...</span>
@@ -73,7 +74,7 @@ export function MermaidDiagram({
   if (error) {
     return (
       <div
-        data-testid="mermaid-diagram"
+        data-testid={TEST_IDS.mermaidDiagram}
         className={cn('bg-destructive/10 rounded-lg p-4', className)}
       >
         <span className="text-destructive text-sm">
@@ -85,7 +86,7 @@ export function MermaidDiagram({
 
   return (
     <div
-      data-testid="mermaid-diagram"
+      data-testid={TEST_IDS.mermaidDiagram}
       className={cn('bg-muted mx-auto max-w-full rounded-lg p-4', className)}
       dangerouslySetInnerHTML={{ __html: svg ?? '' }}
     />

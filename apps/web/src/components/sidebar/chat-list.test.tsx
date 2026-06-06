@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render as rtlRender, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { ChatList } from './chat-list';
 
@@ -134,13 +135,13 @@ describe('ChatList', () => {
 
   it('renders conversations as links', () => {
     render(<ChatList conversations={mockConversations} />);
-    const links = screen.getAllByTestId('chat-link');
+    const links = screen.getAllByTestId(TEST_IDS.chatLink);
     expect(links).toHaveLength(3);
   });
 
   it('highlights active conversation', () => {
     render(<ChatList conversations={mockConversations} activeId="conv-2" />);
-    const links = screen.getAllByTestId('chat-link');
+    const links = screen.getAllByTestId(TEST_IDS.chatLink);
 
     const activeLink = links[1]!;
     expect(activeLink.parentElement).toHaveClass('bg-sidebar-border');
@@ -154,7 +155,7 @@ describe('ChatList', () => {
     it('shows icons only when collapsed', () => {
       render(<ChatList conversations={mockConversations} />);
       expect(screen.queryByText('First Conversation')).not.toBeInTheDocument();
-      expect(screen.getAllByTestId('message-icon')).toHaveLength(3);
+      expect(screen.getAllByTestId(TEST_IDS.messageIcon)).toHaveLength(3);
     });
 
     it('renders empty placeholder (no signup link) for trial users when collapsed', () => {

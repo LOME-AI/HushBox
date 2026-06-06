@@ -2,6 +2,7 @@ import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TEST_IDS } from '@hushbox/shared';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
 const { mockUseStableBalance, mockUseTransactions, mockUseStability, mockIsPaymentDisabled } =
@@ -88,7 +89,7 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      expect(screen.getByTestId('balance-display')).toHaveTextContent('$25.1235');
+      expect(screen.getByTestId(TEST_IDS.balanceDisplay)).toHaveTextContent('$25.1235');
     });
   });
 
@@ -106,14 +107,14 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      const skeletonRows = screen.getAllByTestId('transaction-skeleton-row');
+      const skeletonRows = screen.getAllByTestId(TEST_IDS.transactionSkeletonRow);
       expect(skeletonRows).toHaveLength(5);
 
       // Each skeleton row should have two-column structure
       // Left side: two skeleton blocks (description + date)
       // Right side: two skeleton blocks (amount + balance)
       for (const row of skeletonRows) {
-        const skeletonBlocks = within(row).getAllByTestId('skeleton-block');
+        const skeletonBlocks = within(row).getAllByTestId(TEST_IDS.skeletonBlock);
         expect(skeletonBlocks.length).toBe(4); // 2 left + 2 right
       }
     });
@@ -131,7 +132,7 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      const skeletonRows = screen.getAllByTestId('transaction-skeleton-row');
+      const skeletonRows = screen.getAllByTestId(TEST_IDS.transactionSkeletonRow);
 
       for (const row of skeletonRows) {
         expect(row.className).toContain('h-16');
@@ -183,7 +184,7 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      const container = screen.getByTestId('transaction-list-container');
+      const container = screen.getByTestId(TEST_IDS.transactionListContainer);
       expect(container.className).toMatch(/h-\[/); // Should have fixed height class
     });
 
@@ -212,7 +213,7 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      const container = screen.getByTestId('transaction-list-container');
+      const container = screen.getByTestId(TEST_IDS.transactionListContainer);
       expect(container.className).toMatch(/h-\[/); // Should have fixed height class
     });
   });
@@ -292,7 +293,7 @@ describe('BillingPage', () => {
       render(<BillingPage />, { wrapper: createWrapper() });
 
       expect(screen.getByRole('button', { name: /add credits/i })).toBeInTheDocument();
-      expect(screen.queryByTestId('manage-online-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.manageOnlineButton)).not.toBeInTheDocument();
     });
 
     it('shows Manage Balance Online button when payments are disabled', () => {
@@ -300,7 +301,7 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      expect(screen.getByTestId('manage-online-button')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.manageOnlineButton)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /add credits/i })).not.toBeInTheDocument();
     });
 
@@ -309,7 +310,7 @@ describe('BillingPage', () => {
 
       render(<BillingPage />, { wrapper: createWrapper() });
 
-      expect(screen.queryByTestId('payment-modal')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.paymentModal)).not.toBeInTheDocument();
     });
   });
 });

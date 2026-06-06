@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TEST_ID_BUILDERS } from '@hushbox/shared';
 import { RecoveryPhraseModal } from './RecoveryPhraseModal';
 import { urlFromFetchInput } from '@/test-utils/fetch-mock';
 
@@ -289,7 +290,7 @@ describe('RecoveryPhraseModal', () => {
       if (!firstInput) throw new Error('Expected first input');
       await user.type(firstInput, expectedWord ?? '');
 
-      expect(screen.getByTestId('word-check-0')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_ID_BUILDERS.wordCheck(0))).toBeInTheDocument();
     });
 
     it('enables verify button when all 3 words are correct', async () => {

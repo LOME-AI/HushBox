@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { TwoFactorInput } from './TwoFactorInput';
 
 vi.mock('@hushbox/ui', async (importOriginal) => {
@@ -50,7 +51,7 @@ describe('TwoFactorInput', () => {
     it('shows OTP input for 6 digits', () => {
       render(<TwoFactorInput {...defaultProps} />);
 
-      expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
     });
 
     it('shows verify button', () => {
@@ -71,7 +72,7 @@ describe('TwoFactorInput', () => {
       const user = userEvent.setup();
       render(<TwoFactorInput {...defaultProps} />);
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -83,7 +84,7 @@ describe('TwoFactorInput', () => {
       const onVerify = vi.fn().mockResolvedValue({ success: true });
       render(<TwoFactorInput {...defaultProps} onVerify={onVerify} />);
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -98,7 +99,7 @@ describe('TwoFactorInput', () => {
       const onVerify = vi.fn().mockResolvedValue({ success: true });
       render(<TwoFactorInput {...defaultProps} onVerify={onVerify} onSuccess={onSuccess} />);
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -112,7 +113,7 @@ describe('TwoFactorInput', () => {
       const onVerify = vi.fn().mockResolvedValue({ success: false, error: 'Invalid code' });
       render(<TwoFactorInput {...defaultProps} onVerify={onVerify} />);
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -132,7 +133,7 @@ describe('TwoFactorInput', () => {
       );
       render(<TwoFactorInput {...defaultProps} onVerify={onVerify} />);
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -156,7 +157,7 @@ describe('TwoFactorInput', () => {
       const onSuccess = vi.fn();
       render(<TwoFactorInput {...defaultProps} onVerify={onVerify} onSuccess={onSuccess} />);
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -173,7 +174,7 @@ describe('TwoFactorInput', () => {
       const onVerify = vi.fn().mockResolvedValue({ success: false, error: 'INVALID_TOTP_CODE' });
       render(<TwoFactorInput {...defaultProps} onVerify={onVerify} />);
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -193,7 +194,7 @@ describe('TwoFactorInput', () => {
       );
       render(<TwoFactorInput {...defaultProps} onVerify={onVerify} />);
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 

@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
+import { TEST_IDS } from '@hushbox/shared';
 import { groupConsecutiveMessages, type MessageGroup } from '@/lib/chat-sender';
 import { getMultiModelMessageIds, canRegenerateMessage } from '@/lib/chat-regeneration';
 import {
@@ -402,7 +403,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
       <div
         role="log"
         aria-label="Chat messages"
-        data-testid="message-list-empty"
+        data-testid={TEST_IDS.messageListEmpty}
         data-message-count={0}
         data-decrypted-count={0}
         data-streaming-count={0}
@@ -474,7 +475,7 @@ export const MessageList = forwardRef<MessageListHandle, MessageListProps>(funct
     <div
       role="log"
       aria-label="Chat messages"
-      data-testid="message-list"
+      data-testid={TEST_IDS.messageList}
       data-assistant-count={assistantCount}
       data-cost-count={costCount}
       data-streaming-count={persistingMessageIds?.size ?? 0}

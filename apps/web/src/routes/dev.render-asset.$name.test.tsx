@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { mockLogoImport } from '@/test-utils/mocks.js';
 import { RenderAssetPage } from './dev.render-asset.$name';
 
@@ -14,7 +15,7 @@ mockLogoImport();
 vi.mock('@hushbox/ui', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
   CipherWall: (props: Record<string, unknown>) => (
-    <canvas data-testid="cipher-wall" data-props={JSON.stringify(props)} />
+    <canvas data-testid={TEST_IDS.cipherWall} data-props={JSON.stringify(props)} />
   ),
 }));
 
@@ -29,31 +30,31 @@ describe('RenderAssetPage', () => {
   it('renders app-icon component when name is "icon-only"', () => {
     mockedUseParams.mockReturnValue({ name: 'icon-only' });
     render(<RenderAssetPage />);
-    expect(screen.getByTestId('app-icon')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.appIcon)).toBeInTheDocument();
   });
 
   it('renders icon-background component when name is "icon-background"', () => {
     mockedUseParams.mockReturnValue({ name: 'icon-background' });
     render(<RenderAssetPage />);
-    expect(screen.getByTestId('icon-background')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.iconBackground)).toBeInTheDocument();
   });
 
   it('renders icon-foreground component when name is "icon-foreground"', () => {
     mockedUseParams.mockReturnValue({ name: 'icon-foreground' });
     render(<RenderAssetPage />);
-    expect(screen.getByTestId('icon-foreground')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.iconForeground)).toBeInTheDocument();
   });
 
   it('renders splash-dark component when name is "splash-dark"', () => {
     mockedUseParams.mockReturnValue({ name: 'splash-dark' });
     render(<RenderAssetPage />);
-    expect(screen.getByTestId('splash-dark')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_ID_BUILDERS.splash('dark'))).toBeInTheDocument();
   });
 
   it('renders splash-light component when name is "splash"', () => {
     mockedUseParams.mockReturnValue({ name: 'splash' });
     render(<RenderAssetPage />);
-    expect(screen.getByTestId('splash-light')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_ID_BUILDERS.splash('light'))).toBeInTheDocument();
   });
 
   it('renders error message for unknown asset name', () => {
@@ -65,14 +66,14 @@ describe('RenderAssetPage', () => {
   it('renders with no margin or padding on the wrapper', () => {
     mockedUseParams.mockReturnValue({ name: 'icon-only' });
     render(<RenderAssetPage />);
-    const wrapper = screen.getByTestId('render-asset-wrapper');
+    const wrapper = screen.getByTestId(TEST_IDS.renderAssetWrapper);
     expect(wrapper).toHaveClass('m-0', 'p-0');
   });
 
   it('hides overflow on wrapper so Playwright captures exact dimensions', () => {
     mockedUseParams.mockReturnValue({ name: 'splash-dark' });
     render(<RenderAssetPage />);
-    const wrapper = screen.getByTestId('render-asset-wrapper');
+    const wrapper = screen.getByTestId(TEST_IDS.renderAssetWrapper);
     expect(wrapper).toHaveClass('overflow-hidden');
   });
 });

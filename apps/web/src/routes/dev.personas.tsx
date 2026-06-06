@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useState } from 'react';
 import { createFileRoute, useNavigate, redirect, useSearch } from '@tanstack/react-router';
-import { DEV_PASSWORD, displayUsername, ROUTES } from '@hushbox/shared';
+import { DEV_PASSWORD, displayUsername, ROUTES, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { toast } from '@hushbox/ui';
 import { signIn, signOutAndClearCache } from '@/lib/auth';
 import { env } from '@/lib/env';
@@ -152,7 +152,7 @@ export function PersonasPage(): React.JSX.Element {
           <button
             key={persona.id}
             type="button"
-            data-testid={`persona-card-${persona.email.split('@')[0] ?? ''}`}
+            data-testid={TEST_ID_BUILDERS.personaCard(persona.email.split('@')[0] ?? '')}
             data-persona={persona.id}
             aria-busy={loadingPersonaId === persona.id}
             aria-disabled={isAuthenticating}

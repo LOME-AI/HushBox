@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import type { PickerMode } from '@/stores/model';
 
 interface PickerModeToggleProps {
@@ -108,7 +109,7 @@ export function PickerModeToggle({
     <div
       role="radiogroup"
       aria-orientation={orientation}
-      data-testid="picker-mode-toggle"
+      data-testid={TEST_IDS.pickerModeToggle}
       className={cn(
         'bg-muted/50 flex gap-1 rounded-lg p-1',
         isHorizontal ? 'flex-row' : 'flex-col',
@@ -118,7 +119,7 @@ export function PickerModeToggle({
       <PickerModeOption
         value="single"
         active={mode === 'single'}
-        testId="picker-mode-single"
+        testId={TEST_IDS.pickerModeSingle}
         onSelect={onChange}
         onArrowToOther={handleSelectFromSingle}
         arrowKeyToOther={singleArrowKey}
@@ -128,7 +129,7 @@ export function PickerModeToggle({
       <PickerModeOption
         value="multi"
         active={mode === 'multi'}
-        testId="picker-mode-multi"
+        testId={TEST_IDS.pickerModeMulti}
         onSelect={onChange}
         onArrowToOther={handleSelectFromMulti}
         arrowKeyToOther={multiArrowKey}

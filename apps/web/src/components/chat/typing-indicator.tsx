@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { displayUsername } from '@hushbox/shared';
+import { displayUsername, TEST_IDS } from '@hushbox/shared';
 import { useModelStore } from '@/stores/model';
 import { getTypingActivityLabel } from '@/lib/modality-strings';
 import { DotPulseIndicator } from './dot-pulse-indicator';
@@ -61,7 +61,7 @@ export function TypingIndicator({
     <div
       role="status"
       aria-label={label}
-      data-testid="typing-indicator"
+      data-testid={TEST_IDS.typingIndicator}
       className="text-foreground mb-2 flex items-center justify-center gap-1 text-sm"
     >
       <span>{label}</span>

@@ -7,6 +7,7 @@ import { fetchModels, getSupportedVideoDurations } from '@hushbox/shared/models'
 
 import { rawModelToModelInfo } from './model-mapping.js';
 import { buildModelViewsForModality, type ModelViewFor } from './model-view.js';
+import { E2E_MODEL_CATALOG } from './e2e-catalog.fixture.js';
 import {
   TEST_IMAGE_BYTES,
   TEST_AUDIO_BYTES,
@@ -400,7 +401,25 @@ function createAudioStream(): InferenceStream {
   });
 }
 
-export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClient {
+/**
+ * Environment-derived mock options, kept separate from {@link MockAIClientConfig}
+ * (which carries per-request `x-mock-*` header overrides). `getAIClient`
+ * computes these from `createEnvUtilities(env)`, never from request input.
+ */
+export interface MockAIClientOptions {
+  /**
+   * Serve the pinned {@link E2E_MODEL_CATALOG} from `listRawModels` instead of
+   * fetching the live public `/v1/models` endpoint. Set in E2E so the catalog
+   * is deterministic and the run hits no third-party network. Left false in
+   * plain local dev, where a live catalog fetch is acceptable.
+   */
+  useFixtureCatalog?: boolean;
+}
+
+export function createMockAIClient(
+  config: MockAIClientConfig = {},
+  options: MockAIClientOptions = {}
+): MockAIClient {
   const history: RecordedInferenceRequest[] = [];
   const failingModels = new Set(config.failingModels);
   const classifierResolution = config.classifierResolution ?? DEFAULT_CLASSIFIER_RESOLUTION;
@@ -418,6 +437,12 @@ export function createMockAIClient(config: MockAIClientConfig = {}): MockAIClien
     isMock: true,
 
     async listRawModels(): Promise<RawModel[]> {
+      // E2E serves a pinned snapshot so the catalog is deterministic and the
+      // run never reaches the live `/v1/models` endpoint. structuredClone
+      // isolates the shared module-level fixture from caller mutation.
+      if (options.useFixtureCatalog) {
+        return E2E_MODEL_CATALOG.map((m) => structuredClone(m));
+      }
       const models = await fetchModels({ publicModelsUrl });
       return models.map((m) => structuredClone(m));
     },

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { cn } from '@hushbox/ui';
-import { CAPACITY_RED_THRESHOLD, CAPACITY_YELLOW_THRESHOLD } from '@hushbox/shared';
+import { CAPACITY_RED_THRESHOLD, CAPACITY_YELLOW_THRESHOLD, TEST_IDS } from '@hushbox/shared';
 
 interface CapacityBarProps {
   /** Current usage in tokens (input + min output buffer) */
@@ -41,10 +41,13 @@ export function CapacityBar({
   const fillColor = getFillColor(percentage);
 
   return (
-    <div data-testid="capacity-bar" className={cn('flex items-center gap-2', className)}>
-      <div data-testid="capacity-bar-track" className="bg-muted h-2 flex-1 overflow-hidden rounded">
+    <div data-testid={TEST_IDS.capacityBar} className={cn('flex items-center gap-2', className)}>
+      <div
+        data-testid={TEST_IDS.capacityBarTrack}
+        className="bg-muted h-2 flex-1 overflow-hidden rounded"
+      >
         <div
-          data-testid="capacity-bar-fill"
+          data-testid={TEST_IDS.capacityBarFill}
           className={cn('h-full rounded transition-transform duration-300', fillColor)}
           style={{ transformOrigin: 'left', transform: `scaleX(${String(targetWidth / 100)})` }}
         />

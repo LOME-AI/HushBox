@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 
 interface PasswordStrengthProps {
   password: string;
@@ -60,7 +61,7 @@ export function PasswordStrength({ password }: Readonly<PasswordStrengthProps>):
 
   return (
     <div
-      data-testid="strength-indicator"
+      data-testid={TEST_IDS.strengthIndicator}
       className={cn(
         'mt-1 overflow-hidden transition-[height] duration-150 ease-out',
         hasPassword ? 'h-6' : 'h-0'
@@ -76,7 +77,7 @@ export function PasswordStrength({ password }: Readonly<PasswordStrengthProps>):
           {[1, 2, 3].map((segment) => (
             <div
               key={segment}
-              data-testid="strength-segment"
+              data-testid={TEST_IDS.strengthSegment}
               className={cn(
                 'h-1 flex-1 rounded-full transition-colors',
                 segment <= strength ? getStrengthColor(strength) : 'bg-border'

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useId, useState } from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { Input, cn, type InputProps } from '@hushbox/ui';
 
 interface FormInputProps extends Omit<InputProps, 'placeholder'> {
@@ -41,7 +42,7 @@ function FormInputFeedback({
   return (
     <div
       id={feedbackId}
-      data-testid="form-input-feedback"
+      data-testid={TEST_IDS.formInputFeedback}
       className={cn(
         'mt-1 overflow-hidden transition-[height] duration-150 ease-out',
         showFeedback ? 'h-5' : 'h-0'

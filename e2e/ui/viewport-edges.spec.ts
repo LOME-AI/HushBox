@@ -1,5 +1,5 @@
 import { type Locator, type Page } from '@playwright/test';
-import { isMobileWidth } from '@hushbox/shared';
+import { isMobileWidth, TEST_IDS } from '@hushbox/shared';
 
 import { test, expect } from '../fixtures.js';
 
@@ -77,20 +77,20 @@ test.describe('Viewport edge visibility', () => {
     const page = authenticatedPage;
     await page.goto('/chat', { waitUntil: 'domcontentloaded' });
 
-    await expect(page.getByTestId('app-shell')).toBeVisible();
+    await expect(page.getByTestId(TEST_IDS.appShell)).toBeVisible();
 
     const viewportSize = page.viewportSize();
     if (!viewportSize) throw new Error('Viewport size not available');
 
     const isDesktop = !isMobileWidth(viewportSize.width);
-    const sidebarHeader = page.getByTestId('sidebar-header');
-    const sidebarFooter = page.getByTestId('sidebar-footer');
+    const sidebarHeader = page.getByTestId(TEST_IDS.sidebarHeader);
+    const sidebarFooter = page.getByTestId(TEST_IDS.sidebarFooter);
 
     if (isDesktop) {
       await verifySidebarConstraints(sidebarHeader, sidebarFooter, viewportSize);
     }
 
-    const modelSelector = page.getByTestId('model-selector-button');
+    const modelSelector = page.getByTestId(TEST_IDS.modelSelectorButton);
     await expectVisibleInViewport(modelSelector);
     const modelBox = await getBoundingBox(modelSelector, 'model selector');
     expect(modelBox.y).toBeGreaterThanOrEqual(0);
@@ -101,7 +101,7 @@ test.describe('Viewport edge visibility', () => {
     const inputBox = await getBoundingBox(promptInput, 'prompt input');
     expect(inputBox.y + inputBox.height).toBeLessThanOrEqual(viewportSize.height);
 
-    const appShell = page.getByTestId('app-shell');
+    const appShell = page.getByTestId(TEST_IDS.appShell);
     const shellBox = await getBoundingBox(appShell, 'app shell');
     expectBoxAtOrigin(shellBox);
     expectBoxWithinViewport(shellBox, viewportSize);

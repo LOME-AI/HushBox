@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TEST_ID_BUILDERS } from '@hushbox/shared';
 import { CipherWall } from '@hushbox/ui';
 import logoUrl from '@hushbox/ui/assets/HushBoxLogo.png';
 import type { ThemeColors } from '@hushbox/ui';
@@ -55,7 +56,7 @@ export function SplashScreen({ variant }: Readonly<SplashScreenProps>): React.JS
 
   return (
     <div
-      data-testid={`splash-${variant}`}
+      data-testid={TEST_ID_BUILDERS.splash(variant)}
       style={{
         width: '100vw',
         height: '100vh',

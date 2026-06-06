@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
 import { PageHeader } from './page-header';
 
 vi.mock('@/components/sidebar/hamburger-button', () => ({
@@ -44,7 +45,7 @@ describe('PageHeader', () => {
   describe('left slot', () => {
     it('renders hamburger button', () => {
       render(<PageHeader />);
-      expect(screen.getByTestId('hamburger-button')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.hamburgerButton)).toBeInTheDocument();
     });
 
     it('renders title in brand color when provided', () => {

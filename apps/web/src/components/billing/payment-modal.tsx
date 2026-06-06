@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Overlay, useIsMobile } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { PaymentForm } from './payment-form';
 
 interface PaymentModalProps {
@@ -42,7 +43,7 @@ export function PaymentModal({
       ariaLabel="Add credits"
       onOpenAutoFocus={handleOpenAutoFocus}
     >
-      <div data-testid="payment-modal">
+      <div data-testid={TEST_IDS.paymentModal}>
         <PaymentForm onSuccess={handleSuccess} onCancel={handleCancel} />
       </div>
     </Overlay>

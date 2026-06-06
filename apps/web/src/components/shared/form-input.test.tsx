@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { FormInput } from './form-input';
 
 describe('FormInput', () => {
@@ -125,7 +126,7 @@ describe('FormInput', () => {
   describe('feedback visibility', () => {
     it('hides feedback when unfocused and no message', () => {
       render(<FormInput label="Email" />);
-      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      const feedbackContainer = screen.getByTestId(TEST_IDS.formInputFeedback);
       expect(feedbackContainer).toHaveClass('h-0');
     });
 
@@ -136,13 +137,13 @@ describe('FormInput', () => {
       const input = screen.getByRole('textbox');
       await user.click(input);
 
-      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      const feedbackContainer = screen.getByTestId(TEST_IDS.formInputFeedback);
       expect(feedbackContainer).toHaveClass('h-0');
     });
 
     it('shows error when unfocused', () => {
       render(<FormInput label="Email" error="Invalid email" />);
-      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      const feedbackContainer = screen.getByTestId(TEST_IDS.formInputFeedback);
       expect(feedbackContainer).toHaveClass('h-5');
       expect(screen.getByText('Invalid email')).toBeInTheDocument();
     });
@@ -154,7 +155,7 @@ describe('FormInput', () => {
       const input = screen.getByRole('textbox');
       await user.click(input);
 
-      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      const feedbackContainer = screen.getByTestId(TEST_IDS.formInputFeedback);
       expect(feedbackContainer).toHaveClass('h-5');
     });
 
@@ -165,7 +166,7 @@ describe('FormInput', () => {
       const input = screen.getByRole('textbox');
       await user.click(input);
 
-      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      const feedbackContainer = screen.getByTestId(TEST_IDS.formInputFeedback);
       expect(feedbackContainer).toHaveClass('h-5');
       expect(screen.getByText('Valid email')).toBeInTheDocument();
     });
@@ -177,7 +178,7 @@ describe('FormInput', () => {
       const input = screen.getByRole('textbox');
       await user.click(input);
 
-      const feedbackContainer = screen.getByTestId('form-input-feedback');
+      const feedbackContainer = screen.getByTestId(TEST_IDS.formInputFeedback);
       expect(feedbackContainer).toHaveClass('h-5');
 
       await user.tab();

@@ -7,6 +7,7 @@ vi.mock('@/lib/api', () => ({
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TEST_IDS } from '@hushbox/shared';
 import { PaymentModal } from './payment-modal';
 
 const queryClient = new QueryClient({
@@ -24,14 +25,14 @@ describe('PaymentModal', () => {
   describe('when closed', () => {
     it('does not render modal content when closed', () => {
       render(<PaymentModal open={false} onOpenChange={vi.fn()} onSuccess={vi.fn()} />, { wrapper });
-      expect(screen.queryByTestId('payment-modal')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.paymentModal)).not.toBeInTheDocument();
     });
   });
 
   describe('when open', () => {
     it('renders modal content when open', () => {
       render(<PaymentModal open={true} onOpenChange={vi.fn()} onSuccess={vi.fn()} />, { wrapper });
-      expect(screen.getByTestId('payment-modal')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.paymentModal)).toBeInTheDocument();
     });
 
     it('renders payment form inside modal', () => {
@@ -41,7 +42,7 @@ describe('PaymentModal', () => {
 
     it('renders modal backdrop', () => {
       render(<PaymentModal open={true} onOpenChange={vi.fn()} onSuccess={vi.fn()} />, { wrapper });
-      expect(screen.getByTestId('overlay-backdrop')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.overlayBackdrop)).toBeInTheDocument();
     });
   });
 
@@ -53,7 +54,7 @@ describe('PaymentModal', () => {
         wrapper,
       });
 
-      await user.click(screen.getByTestId('overlay-backdrop'));
+      await user.click(screen.getByTestId(TEST_IDS.overlayBackdrop));
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
 

@@ -1,7 +1,8 @@
-import { isMobileWidth } from '@hushbox/shared';
+import { isMobileWidth, TEST_IDS } from '@hushbox/shared';
 
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
 import { ChatPage, DocumentPanelPage } from '../pages/index.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 /** 15-line Python function — exactly meets MIN_LINES_FOR_DOCUMENT threshold */
 const PYTHON_CODE_BLOCK = [
@@ -45,6 +46,7 @@ const SMALL_CODE_BLOCK = [
 ].join('\n');
 
 test.describe('Document Panel', () => {
+  // eslint-disable-next-line no-restricted-syntax -- serial: both tests send messages as the shared per-project test-alice account; the auto rate-limit reset and message sends mutate that account's usage state, so concurrent runs race the same daily allowance.
   test.describe.configure({ mode: 'serial' });
 
   test('code document: extraction, panel, copy, download, and close', async ({
@@ -64,13 +66,17 @@ test.describe('Document Panel', () => {
         (await chatPage.messageList.getAttribute('data-assistant-count')) ?? '0'
       );
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
-      await unsettledExpect(chatPage.messageList).toHaveAttribute(
+      await expect(chatPage.messageList).toHaveAttribute(
         'data-assistant-count',
         String(beforeAssistantCount + 1),
-        { timeout: 10_000 }
+        { timeout: TIMEOUTS.ASSERT }
       );
       pythonMessageIndex = await chatPage.getLastRowIndex();
-      const card = await documentPanel.scrollToCardInMessage(chatPage, pythonMessageIndex, 45_000);
+      const card = await documentPanel.scrollToCardInMessage(
+        chatPage,
+        pythonMessageIndex,
+        TIMEOUTS.LONG
+      );
       await expect(card).toContainText('fibonacci');
       await expect(card).toContainText('python');
       await expect(card).toContainText('15 lines');
@@ -87,10 +93,10 @@ test.describe('Document Panel', () => {
     await test.step('copy button shows feedback', async () => {
       // Copy feedback is a UI timer transition, not an async query — opt out of settled
       await documentPanel.copyButton().click();
-      await unsettledExpect(documentPanel.copiedButton()).toBeVisible();
+      await expect(documentPanel.copiedButton()).toBeVisible();
 
       // Wait for feedback to revert (2000ms timer + buffer)
-      await unsettledExpect(documentPanel.copyButton()).toBeVisible({ timeout: 3000 });
+      await expect(documentPanel.copyButton()).toBeVisible({ timeout: TIMEOUTS.MODAL });
     });
 
     await test.step('download button triggers file download', async () => {
@@ -123,13 +129,17 @@ test.describe('Document Panel', () => {
         (await chatPage.messageList.getAttribute('data-assistant-count')) ?? '0'
       );
       await chatPage.sendFollowUpMessage(PYTHON_CODE_BLOCK);
-      await unsettledExpect(chatPage.messageList).toHaveAttribute(
+      await expect(chatPage.messageList).toHaveAttribute(
         'data-assistant-count',
         String(beforeAssistantCount + 1),
-        { timeout: 10_000 }
+        { timeout: TIMEOUTS.ASSERT }
       );
       pythonMessageIndex = await chatPage.getLastRowIndex();
-      const card = await documentPanel.scrollToCardInMessage(chatPage, pythonMessageIndex, 45_000);
+      const card = await documentPanel.scrollToCardInMessage(
+        chatPage,
+        pythonMessageIndex,
+        TIMEOUTS.LONG
+      );
       await expect(card).toBeVisible();
     });
 
@@ -138,10 +148,10 @@ test.describe('Document Panel', () => {
         (await chatPage.messageList.getAttribute('data-assistant-count')) ?? '0'
       );
       await chatPage.sendFollowUpMessage(MERMAID_BLOCK);
-      await unsettledExpect(chatPage.messageList).toHaveAttribute(
+      await expect(chatPage.messageList).toHaveAttribute(
         'data-assistant-count',
         String(beforeAssistantCount + 1),
-        { timeout: 10_000 }
+        { timeout: TIMEOUTS.ASSERT }
       );
       mermaidMessageIndex = await chatPage.getLastRowIndex();
       await documentPanel.clickCardInMessage(chatPage, mermaidMessageIndex);
@@ -193,7 +203,7 @@ test.describe('Document Panel', () => {
       // Should show rendered diagram (toggle resets on doc switch)
       // After close+reopen, mermaid remounts from scratch (async import + SVG render).
       // Under CI load on iPad Pro WebKit this can exceed the default 15s timeout.
-      await documentPanel.waitForMermaidRendered(30_000);
+      await documentPanel.waitForMermaidRendered(TIMEOUTS.MEDIA_DECODE);
       await expect(documentPanel.showRawButton()).toBeVisible();
     });
 
@@ -208,14 +218,14 @@ test.describe('Document Panel', () => {
       await expect(async () => {
         const w = await documentPanel.getPanelWidth();
         expect(w).toBeGreaterThan(initialWidth);
-      }).toPass({ timeout: 2000 });
+      }).toPass({ timeout: TIMEOUTS.MODAL });
       await expect(documentPanel.exitFullscreenButton()).toBeVisible();
 
       await documentPanel.exitFullscreenButton().click();
       await expect(async () => {
         const w = await documentPanel.getPanelWidth();
         expect(Math.abs(w - initialWidth)).toBeLessThan(10);
-      }).toPass({ timeout: 2000 });
+      }).toPass({ timeout: TIMEOUTS.MODAL });
       await expect(documentPanel.fullscreenButton()).toBeVisible();
     });
 
@@ -239,7 +249,9 @@ test.describe('Document Panel', () => {
       const lastAssistant = chatPage.messageList.locator(
         `[data-item-index="${String(lastRowIndex)}"] [data-role="assistant"]`
       );
-      await expect(lastAssistant.locator('[data-testid="document-card"]')).toHaveCount(0);
+      await expect(lastAssistant.locator(`[data-testid="${TEST_IDS.documentCard}"]`)).toHaveCount(
+        0
+      );
     });
   });
 });

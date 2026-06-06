@@ -9,7 +9,7 @@ import {
   InlineFormError,
   useAsyncAction,
 } from '@hushbox/ui';
-import { displayUsername } from '@hushbox/shared';
+import { displayUsername, TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import {
   useConversationBudgets,
   useUpdateMemberBudget,
@@ -324,7 +324,7 @@ export function BudgetSettingsModal({
       ariaLabel="Budget Settings"
       dismissible={!asyncAction.isPending}
     >
-      <OverlayContent data-testid="budget-settings-modal" size="lg">
+      <OverlayContent data-testid={TEST_IDS.budgetSettingsModal} size="lg">
         <OverlayHeader
           title="Budget Settings"
           description="The owner can fund AI usage for members. When exhausted, members use their own balance."
@@ -332,7 +332,7 @@ export function BudgetSettingsModal({
 
         {isLoading || !budgetData ? (
           <div
-            data-testid="budget-loading"
+            data-testid={TEST_IDS.budgetLoading}
             className="text-muted-foreground py-8 text-center text-sm"
           >
             Loading budgets...
@@ -348,7 +348,7 @@ export function BudgetSettingsModal({
               })}
             >
               <div
-                data-testid="budget-conversation-section"
+                data-testid={TEST_IDS.budgetConversationSection}
                 className="overflow-y-auto pr-2 [scrollbar-gutter:stable]"
               >
                 <span className="text-muted-foreground mb-2 block text-xs font-medium tracking-wide uppercase">
@@ -362,8 +362,10 @@ export function BudgetSettingsModal({
                   onChange={(value) => {
                     setEditedConvBudget(value);
                   }}
-                  inputTestId={isOwner ? 'budget-conversation-input' : 'budget-conversation-value'}
-                  spentTestId="budget-total-spent"
+                  inputTestId={
+                    isOwner ? TEST_IDS.budgetConversationInput : TEST_IDS.budgetConversationValue
+                  }
+                  spentTestId={TEST_IDS.budgetTotalSpent}
                 />
               </div>
 
@@ -374,7 +376,7 @@ export function BudgetSettingsModal({
                       Members
                     </span>
                     <div
-                      data-testid="budget-members-list"
+                      data-testid={TEST_IDS.budgetMembersList}
                       className="max-h-60 space-y-1 overflow-y-auto pr-2 [scrollbar-gutter:stable]"
                     >
                       {budgetData.memberBudgets.map((mb) => (
@@ -388,10 +390,12 @@ export function BudgetSettingsModal({
                             handleInputChange(mb.memberId, value);
                           }}
                           inputTestId={
-                            isOwner ? `budget-input-${mb.memberId}` : `budget-value-${mb.memberId}`
+                            isOwner
+                              ? TEST_ID_BUILDERS.budgetInput(mb.memberId)
+                              : TEST_ID_BUILDERS.budgetValue(mb.memberId)
                           }
-                          spentTestId="budget-spent"
-                          rowTestId={`budget-member-${mb.memberId}`}
+                          spentTestId={TEST_IDS.budgetSpent}
+                          rowTestId={TEST_ID_BUILDERS.budgetMember(mb.memberId)}
                         />
                       ))}
                     </div>
@@ -403,7 +407,7 @@ export function BudgetSettingsModal({
                       budgetValue={(allocatedCents / 100).toFixed(2)}
                       spentValue={formatDollars(budgetData.totalSpent)}
                       isSummary
-                      rowTestId="budget-total-allocated"
+                      rowTestId={TEST_IDS.budgetTotalAllocated}
                     />
                   </div>
                 </>
@@ -417,7 +421,7 @@ export function BudgetSettingsModal({
                 cancel={{
                   label: 'Cancel',
                   onClick: handleCancel,
-                  testId: 'budget-cancel-button',
+                  testId: TEST_IDS.budgetCancelButton,
                 }}
                 primary={{
                   label: 'Save Changes',
@@ -428,7 +432,7 @@ export function BudgetSettingsModal({
                   },
                   disabled: !hasChanges || isPending || convBudgetIsPending,
                   loading: asyncAction.isPending,
-                  testId: 'budget-save-button',
+                  testId: TEST_IDS.budgetSaveButton,
                 }}
               />
             ) : (
@@ -437,7 +441,7 @@ export function BudgetSettingsModal({
                   label: 'Close',
                   variant: 'outline',
                   onClick: handleCancel,
-                  testId: 'budget-cancel-button',
+                  testId: TEST_IDS.budgetCancelButton,
                 }}
               />
             )}

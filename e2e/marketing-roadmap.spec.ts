@@ -1,5 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
+import { expect } from './helpers/expect.js';
 import { openMobileLandingMenuIfNeeded } from './helpers/marketing-nav.js';
+import { TIMEOUTS } from './config/timeouts.js';
 
 /**
  * End-to-end coverage of the public /roadmap page. The page is built by
@@ -21,7 +23,9 @@ test.describe('Public roadmap', () => {
     await expect(page).toHaveURL(/\/roadmap/);
 
     await expect(page.getByRole('heading', { name: 'Roadmap', level: 1 })).toBeVisible();
-    await page.locator('[data-roadmap-ready]').waitFor({ state: 'visible', timeout: 10_000 });
+    await page
+      .locator('[data-roadmap-ready]')
+      .waitFor({ state: 'visible', timeout: TIMEOUTS.ASSERT });
     await expect(page.locator('section[data-status]').first()).toHaveAttribute(
       'data-status',
       'in_progress'

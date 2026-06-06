@@ -1,3 +1,4 @@
+import { TEST_IDS } from '@hushbox/shared';
 import type { Locator, Page } from '@playwright/test';
 
 /**
@@ -11,7 +12,7 @@ import type { Locator, Page } from '@playwright/test';
  * trial messages). Unparseable badges contribute `0`.
  */
 export async function sumDisplayedMessageCostMicros(scope: Locator | Page): Promise<number> {
-  const costElements = scope.locator('[data-testid="message-cost"]');
+  const costElements = scope.getByTestId(TEST_IDS.messageCost);
   const count = await costElements.count();
   let totalMicros = 0;
   for (let index = 0; index < count; index++) {

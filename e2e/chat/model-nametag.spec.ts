@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
 
 test.describe('Model Nametag', () => {
@@ -21,7 +22,8 @@ test.describe('Model Nametag', () => {
     });
 
     const assistantMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
-    const nametagBefore = await assistantMessage.getByTestId('model-nametag').textContent();
+    const nametagBefore =
+      (await assistantMessage.getByTestId(TEST_IDS.modelNametag).textContent()) ?? '';
 
     await test.step('reload page', async () => {
       await authenticatedPage.goto(`/chat/${testConversation.id}`, {
@@ -32,8 +34,8 @@ test.describe('Model Nametag', () => {
 
     await test.step('verify nametag still shows same model name', async () => {
       await chatPage.expectAllAIMessagesHaveNametag();
-      const nametagAfter = await assistantMessage.getByTestId('model-nametag').textContent();
-      expect(nametagAfter).toBe(nametagBefore);
+      const nametagAfter = assistantMessage.getByTestId(TEST_IDS.modelNametag);
+      await expect(nametagAfter).toHaveText(nametagBefore);
     });
   });
 
@@ -58,7 +60,10 @@ test.describe('Model Nametag', () => {
       const domCount = await assistantMessages.count();
       const names = new Set<string>();
       for (let index = 0; index < domCount; index++) {
-        const text = await assistantMessages.nth(index).getByTestId('model-nametag').textContent();
+        const text = await assistantMessages
+          .nth(index)
+          .getByTestId(TEST_IDS.modelNametag)
+          .textContent();
         if (text) names.add(text);
       }
       expect(names.size).toBe(domCount);

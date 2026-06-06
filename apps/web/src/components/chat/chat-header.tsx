@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { EncryptionBadge } from '@/components/shared/encryption-badge';
 import { PageHeader } from '@/components/shared/page-header';
@@ -47,8 +48,8 @@ export function ChatHeader({
 
   return (
     <PageHeader
-      testId="chat-header"
-      titleTestId="chat-title"
+      testId={TEST_IDS.chatHeader}
+      titleTestId={TEST_IDS.chatTitle}
       title={title}
       brandTitle={true}
       center={

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Overlay, OverlayContent, OverlayHeader, ModalActions } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { useOtpVerification } from '@/hooks/use-otp-verification';
 import { OtpInput } from '@/components/auth/otp-input';
@@ -40,7 +41,7 @@ export function TwoFactorInput({
       ariaLabel="Two-factor authentication"
       onOpenAutoFocus={handleOpenAutoFocus}
     >
-      <OverlayContent data-testid="two-factor-input-modal" className="w-full">
+      <OverlayContent data-testid={TEST_IDS.twoFactorInputModal} className="w-full">
         <OverlayHeader
           title="Two-Factor Authentication"
           description="Enter the 6-digit code from your authenticator app."

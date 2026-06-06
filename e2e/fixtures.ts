@@ -9,10 +9,13 @@ import {
   type Page,
   type Request,
   type Response,
+  type Route,
   type APIRequestContext,
   type TestInfo,
 } from '@playwright/test';
+import { TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
 import { ChatPage } from './pages';
+import { TIMEOUTS } from './config/timeouts.js';
 import { requireEnv } from './helpers/env.js';
 import { clearUsageRateLimits } from './helpers/auth.js';
 import {
@@ -84,6 +87,191 @@ function attachApiErrors(page: Page): { errors: string[]; cleanup: () => void } 
       page.off('response', onResponse);
       page.off('requestfailed', onRequestFailed);
     },
+  };
+}
+
+/**
+ * Network allowlist. The browser may only reach the
+ * services the suite legitimately uses; any request to a non-allowlisted host
+ * is a live third-party leaking into the hot path.
+ *
+ * Allowlisted hosts are `localhost`/`127.0.0.1` on the ports the dev stack
+ * exposes — the app (preview + vite), the API (which also serves the WebSocket
+ * on the same host:port), and MinIO (the R2/S3 emulator the browser hits
+ * directly via presigned media URLs). Ports are read from the same `HB_*_PORT`
+ * env the Playwright config and dev scripts use, so worktree-offset ports stay
+ * correct without hardcoding `:4173`/`:8787`/`:9000`.
+ *
+ * `data:`/`blob:` schemes are always allowed — they are in-document media
+ * (canvas blobs, decoded images) with no network egress.
+ *
+ * With the model catalog pinned, the AI gateway
+ * (`ai-gateway.vercel.sh`) is never reached, so it is deliberately NOT
+ * allowlisted: a request to it must fail the test.
+ */
+const ALLOWED_HOSTNAMES: ReadonlySet<string> = new Set(['localhost', '127.0.0.1']);
+const ALWAYS_ALLOWED_PROTOCOLS: ReadonlySet<string> = new Set(['data:', 'blob:']);
+
+/**
+ * Ports of the local services the browser legitimately reaches. Read once at
+ * module load. `requireEnv` fail-fasts if the stack env wasn't generated —
+ * matching the rest of the suite, which assumes `ensure-stack` ran first.
+ *
+ * - preview/vite: the app origin (`vite preview` serves E2E; vite dev exists
+ *   for parity and worktree port-mapping).
+ * - api: REST endpoints AND the conversation WebSocket (same host:port,
+ *   `ws://` scheme — host-matching covers both).
+ * - minio: the R2/S3 emulator; presigned GET URLs are fetched by the browser.
+ */
+function allowedLocalPorts(): ReadonlySet<string> {
+  return new Set([
+    requireEnv('HB_PREVIEW_PORT'),
+    requireEnv('HB_VITE_PORT'),
+    requireEnv('HB_API_PORT'),
+    requireEnv('HB_MINIO_API_PORT'),
+  ]);
+}
+
+const LOCAL_PORTS = allowedLocalPorts();
+
+/**
+ * Whether `hostname` falls under one of the opt-in domains: an exact match or
+ * a subdomain. Matched on a leading-dot boundary (`host === domain` or
+ * `host.endsWith('.' + domain)`) rather than a naive substring/`includes`, so
+ * a look-alike like `evil-myhelcim.com.attacker.com` can never pass.
+ */
+function hostUnderExtraDomains(hostname: string, extraHosts: ReadonlySet<string>): boolean {
+  for (const domain of extraHosts) {
+    if (hostname === domain || hostname.endsWith(`.${domain}`)) return true;
+  }
+  return false;
+}
+
+/**
+ * Decide whether a single request URL is allowed. Pure so the allow/deny
+ * decision is testable without a browser. `extraHosts` carries the per-test
+ * opt-in extension (real-payment billing tests — see `allowExternalHosts`);
+ * an entry there is a domain family matched by suffix (the domain or any
+ * subdomain of it), on any port. The default local allowlist below stays
+ * exact-host: localhost/127.0.0.1 only, and only on the dev-stack ports.
+ */
+export function isRequestAllowed(url: string, extraHosts: ReadonlySet<string>): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    // A URL Playwright can't parse can't be a legitimate egress we recognize.
+    return false;
+  }
+  if (ALWAYS_ALLOWED_PROTOCOLS.has(parsed.protocol)) return true;
+  if (hostUnderExtraDomains(parsed.hostname, extraHosts)) return true;
+  return ALLOWED_HOSTNAMES.has(parsed.hostname) && LOCAL_PORTS.has(parsed.port);
+}
+
+/**
+ * Domain families the real-payment ("Payment Flow (Full)" / token-portal)
+ * billing tests legitimately reach — the ONLY sanctioned external egress.
+ * Each entry is matched by suffix (the domain itself or any
+ * subdomain — see `hostUnderExtraDomains`), so the whole `*.myhelcim.com` /
+ * `*.helcim.com` family is covered: Helcim.js tokenizes the card in-browser
+ * (e.g. `secure.myhelcim.com`) and in CI may call other Helcim gateway
+ * sub-hosts during tokenization, none of which can be enumerated up front.
+ * The Hookdeck webhook relay is server-side (CLI tunnel → localhost:API), but
+ * its family is included so a browser-side Hookdeck call (should the flow ever
+ * make one) is not a false positive. Listed as family roots only; subdomains
+ * are implied by the suffix match. Locally these tests use a mock Helcim, so
+ * this opt-in is a no-op there and the suite stays strict.
+ */
+const BILLING_EXTERNAL_HOSTS: readonly string[] = ['myhelcim.com', 'helcim.com', 'hookdeck.com'];
+
+const pageExtraHosts = new WeakMap<Page, Set<string>>();
+
+function getExtraHosts(page: Page): Set<string> {
+  let hosts = pageExtraHosts.get(page);
+  if (hosts === undefined) {
+    hosts = new Set();
+    pageExtraHosts.set(page, hosts);
+  }
+  return hosts;
+}
+
+/**
+ * Opt a page into reaching external hosts that the test legitimately needs.
+ * Defaults to the sanctioned billing payment hosts (Helcim + Hookdeck) when
+ * called with no list. Call BEFORE any navigation that could trigger the
+ * external request (e.g. at the top of the test, before `goto`), because the
+ * allowlist route consults this set at request time.
+ *
+ * This is a sanctioned exception, not an escape hatch: only the
+ * real-payment billing tests should call it. Everything else stays strict so
+ * a stray live third-party in the hot path fails the test.
+ *
+ * The real-payment billing tests are also opted in automatically by their
+ * `@webhook` tag (see `installNetworkAllowlist`), so they need no explicit
+ * call; this export exists for any future test with a different external edge.
+ */
+export function allowExternalHosts(
+  page: Page,
+  hosts: readonly string[] = BILLING_EXTERNAL_HOSTS
+): void {
+  const set = getExtraHosts(page);
+  for (const host of hosts) set.add(host);
+}
+
+/**
+ * Tag that marks the real-payment billing tests (`Payment Flow (Full)` and the
+ * token-login portal). They drive the real Helcim → Hookdeck path in CI, so
+ * pages created under them are auto-opted into the billing external hosts.
+ * Locally these tests use a mock Helcim and reach no external host, so the
+ * extension is a harmless no-op there.
+ */
+const WEBHOOK_TAG = '@webhook';
+
+interface NetworkViolation {
+  host: string;
+  url: string;
+}
+
+/**
+ * Install the allowlist on a browser context. Every request is matched against
+ * the allowlist; allowed requests continue untouched, blocked requests are
+ * recorded and aborted. Returns the violations array (asserted empty at
+ * teardown) and a cleanup that removes the route.
+ *
+ * Violations are collected explicitly here rather than read off the
+ * `requestfailed` channel: aborting produces a `net::ERR_FAILED`/`ABORTED`
+ * that is indistinguishable from the navigation-cancel noise already allowed
+ * in `DEFAULT_API_ALLOW`. Collecting the host+URL at the decision point makes
+ * the teardown failure precise and unambiguous.
+ */
+function installNetworkAllowlist(
+  context: BrowserContext,
+  page: Page,
+  testInfo: TestInfo
+): { violations: NetworkViolation[]; cleanup: () => Promise<void> } {
+  if (testInfo.tags.includes(WEBHOOK_TAG)) {
+    allowExternalHosts(page);
+  }
+  const violations: NetworkViolation[] = [];
+  const handler = async (route: Route): Promise<void> => {
+    const url = route.request().url();
+    if (isRequestAllowed(url, getExtraHosts(page))) {
+      await route.continue();
+      return;
+    }
+    let host = url;
+    try {
+      host = new URL(url).host;
+    } catch {
+      // keep the raw url as the host label when it can't be parsed
+    }
+    violations.push({ host, url });
+    await route.abort();
+  };
+  void context.route('**/*', handler);
+  return {
+    violations,
+    cleanup: () => context.unroute('**/*', handler),
   };
 }
 
@@ -293,10 +481,26 @@ function createPageFixture(
     const page = await context.newPage();
     const { errors, cleanup } = attachConsoleErrors(page);
     const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
+    const { violations, cleanup: cleanupNetwork } = installNetworkAllowlist(
+      context,
+      page,
+      testInfo
+    );
     await use(page);
     const failed = testInfo.status !== testInfo.expectedStatus;
     await teardownPage(
-      { page, context, label, errors, apiErrors, cleanup, cleanupApi, harPath },
+      {
+        page,
+        context,
+        label,
+        errors,
+        apiErrors,
+        violations,
+        cleanup,
+        cleanupApi,
+        cleanupNetwork,
+        harPath,
+      },
       failed,
       testInfo
     );
@@ -397,6 +601,27 @@ function formatUnexpectedErrors(
   );
 }
 
+/**
+ * Format the network-allowlist violation message. Distinct from the
+ * console/API teardown failure so a live-third-party-in-the-hot-path breach
+ * reads unambiguously and points at the opt-in escape hatch for the
+ * legitimate-external case.
+ */
+function formatNetworkViolations(
+  title: string,
+  label: string,
+  violations: NetworkViolation[]
+): string {
+  const lines = violations.map((v) => `  ${v.host} — ${v.url}`);
+  return (
+    `Blocked non-allowlisted network request(s) during test "${title}" (page "${label}").\n` +
+    `The E2E suite may only reach the local app/api/ws/minio origins:\n` +
+    `${lines.join('\n')}\n\n` +
+    `If a host is legitimate, add it to the allowlist in fixtures.ts; if it is the ` +
+    `sanctioned billing payment edge, opt in with allowExternalHosts(page).`
+  );
+}
+
 async function attachFailureArtifacts(
   testInfo: TestInfo,
   entry: { page: Page; label: string; errors: string[]; apiErrors: string[]; harPath: string }
@@ -421,17 +646,21 @@ async function attachFailureArtifacts(
   }
 }
 
+interface PageTeardownEntry {
+  page: Page;
+  context: BrowserContext;
+  label: string;
+  errors: string[];
+  apiErrors: string[];
+  violations: NetworkViolation[];
+  cleanup: () => void;
+  cleanupApi: () => void;
+  cleanupNetwork: () => Promise<void>;
+  harPath: string;
+}
+
 async function teardownPage(
-  entry: {
-    page: Page;
-    context: BrowserContext;
-    label: string;
-    errors: string[];
-    apiErrors: string[];
-    cleanup: () => void;
-    cleanupApi: () => void;
-    harPath: string;
-  },
+  entry: PageTeardownEntry,
   failed: boolean,
   testInfo: TestInfo
 ): Promise<void> {
@@ -443,16 +672,21 @@ async function teardownPage(
     ...allowList.console,
   ]);
   const unexpectedApi = filterUnexpected(entry.apiErrors, [...DEFAULT_API_ALLOW, ...allowList.api]);
-  const hasUnexpected = unexpectedConsole.length > 0 || unexpectedApi.length > 0;
+  const hasViolations = entry.violations.length > 0;
+  const hasUnexpected = unexpectedConsole.length > 0 || unexpectedApi.length > 0 || hasViolations;
 
   if (failed || hasUnexpected) {
     await attachFailureArtifacts(testInfo, entry);
   }
+  await entry.cleanupNetwork();
   entry.cleanup();
   entry.cleanupApi();
   await entry.context.close();
 
-  if (!failed && hasUnexpected) {
+  if (!failed && hasViolations) {
+    throw new Error(formatNetworkViolations(testInfo.title, entry.label, entry.violations));
+  }
+  if (!failed && (unexpectedConsole.length > 0 || unexpectedApi.length > 0)) {
     throw new Error(
       formatUnexpectedErrors(testInfo.title, entry.label, unexpectedConsole, unexpectedApi)
     );
@@ -479,16 +713,7 @@ export const test = base.extend<CustomFixtures>({
   ),
 
   createPage: async ({ browser }, use, testInfo) => {
-    const pages: {
-      page: Page;
-      context: BrowserContext;
-      label: string;
-      errors: string[];
-      apiErrors: string[];
-      cleanup: () => void;
-      cleanupApi: () => void;
-      harPath: string;
-    }[] = [];
+    const pages: PageTeardownEntry[] = [];
     let counter = 0;
 
     const DEFAULT_STORAGE_STATE: StorageState = { cookies: [], origins: [] };
@@ -505,7 +730,23 @@ export const test = base.extend<CustomFixtures>({
       const page = await context.newPage();
       const { errors, cleanup } = attachConsoleErrors(page);
       const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
-      pages.push({ page, context, label, errors, apiErrors, cleanup, cleanupApi, harPath });
+      const { violations, cleanup: cleanupNetwork } = installNetworkAllowlist(
+        context,
+        page,
+        testInfo
+      );
+      pages.push({
+        page,
+        context,
+        label,
+        errors,
+        apiErrors,
+        violations,
+        cleanup,
+        cleanupApi,
+        cleanupNetwork,
+        harPath,
+      });
       return page;
     };
 
@@ -615,7 +856,7 @@ export const test = base.extend<CustomFixtures>({
 
       await use({ id, url: authenticatedPage.url() });
     },
-    { timeout: 60_000 },
+    { timeout: TIMEOUTS.LONG },
   ],
 
   imageConversation: [
@@ -636,14 +877,14 @@ export const test = base.extend<CustomFixtures>({
 
       const assistantMessageId =
         (await authenticatedPage
-          .locator('[data-role="assistant"]')
+          .locator(`[${TEST_SIGNALS.role}="assistant"]`)
           .first()
-          .getAttribute('data-message-id')) ?? '';
+          .getAttribute(TEST_SIGNALS.messageId)) ?? '';
       rawExpect(assistantMessageId, 'imageConversation: missing assistant message id').not.toBe('');
 
       await use({ conversationId, assistantMessageId, page: authenticatedPage });
     },
-    { timeout: 60_000 },
+    { timeout: TIMEOUTS.LONG },
   ],
 
   videoConversation: [
@@ -664,14 +905,14 @@ export const test = base.extend<CustomFixtures>({
 
       const assistantMessageId =
         (await authenticatedPage
-          .locator('[data-role="assistant"]')
+          .locator(`[${TEST_SIGNALS.role}="assistant"]`)
           .first()
-          .getAttribute('data-message-id')) ?? '';
+          .getAttribute(TEST_SIGNALS.messageId)) ?? '';
       rawExpect(assistantMessageId, 'videoConversation: missing assistant message id').not.toBe('');
 
       await use({ conversationId, assistantMessageId, page: authenticatedPage });
     },
-    { timeout: 60_000 },
+    { timeout: TIMEOUTS.LONG },
   ],
 
   // Low-balance page: authenticated as test-billing-validation (zero starting balance);
@@ -702,6 +943,11 @@ export const test = base.extend<CustomFixtures>({
     const page = await context.newPage();
     const { errors, cleanup } = attachConsoleErrors(page);
     const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
+    const { violations, cleanup: cleanupNetwork } = installNetworkAllowlist(
+      context,
+      page,
+      testInfo
+    );
     await use(page);
     const failed = testInfo.status !== testInfo.expectedStatus;
     await teardownPage(
@@ -711,8 +957,10 @@ export const test = base.extend<CustomFixtures>({
         label: 'lowBalancePage',
         errors,
         apiErrors,
+        violations,
         cleanup,
         cleanupApi,
+        cleanupNetwork,
         harPath,
       },
       failed,
@@ -752,10 +1000,13 @@ export const test = base.extend<CustomFixtures>({
     await authenticatedPage.goto(`/chat/${id}`, { waitUntil: 'domcontentloaded' });
     const chatPage = new ChatPage(authenticatedPage);
     await chatPage.waitForConversationLoaded();
-    await rawExpect(chatPage.messageList.locator('[data-testid="message-item"]')).toHaveCount(2);
+    await rawExpect(chatPage.messageList.getByTestId(TEST_IDS.messageItem)).toHaveCount(2);
 
     await use({ id, url: `/chat/${id}` });
   },
 });
 
-export { expect, unsettledExpect } from './helpers/settled-expect.js';
+// Both `expect` and `unsettledExpect` resolve to plain Playwright `expect`;
+// `unsettledExpect` is a retained alias so spec files importing either name
+// keep resolving.
+export { expect, expect as unsettledExpect } from './helpers/expect.js';

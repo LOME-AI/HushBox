@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Plus, X } from 'lucide-react';
 import { Button, Tooltip, TooltipTrigger, TooltipContent } from '@hushbox/ui';
-import { shortenModelName } from '@hushbox/shared';
+import { shortenModelName, TEST_IDS } from '@hushbox/shared';
 import { getModelColor } from '../../lib/model-color';
 import { ModelInfoPanel } from './model-info-panel';
 import type { Model } from '@hushbox/shared';
@@ -79,7 +79,7 @@ export function ComparisonBar({
 
   return (
     <div
-      data-testid="selected-models-bar"
+      data-testid={TEST_IDS.selectedModelsBar}
       data-chrome=""
       className="border-border-strong flex items-center gap-2 overflow-x-auto border-b px-4 py-2"
     >
@@ -96,7 +96,7 @@ export function ComparisonBar({
       {onAddClick && (
         <button
           type="button"
-          data-testid="comparison-bar-add-button"
+          data-testid={TEST_IDS.comparisonBarAddButton}
           onClick={onAddClick}
           aria-label="Add another model"
           className="border-border-strong text-muted-foreground hover:bg-muted/50 hover:text-foreground flex shrink-0 items-center gap-1 rounded-full border border-dashed px-3 py-1 text-sm transition-colors"

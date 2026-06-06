@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { FileCode, GitBranch, Globe, Atom, ArrowUpRight } from 'lucide-react';
 import { cn } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { useDocumentStore } from '../../stores/document';
 import type { Document } from '../../lib/document-parser';
 
@@ -12,16 +13,18 @@ interface DocumentCardProps {
 function getDocumentIcon(type: Document['type']): React.JSX.Element {
   switch (type) {
     case 'code': {
-      return <FileCode className="h-4 w-4" data-testid="code-icon" aria-hidden="true" />;
+      return <FileCode className="h-4 w-4" data-testid={TEST_IDS.codeIcon} aria-hidden="true" />;
     }
     case 'mermaid': {
-      return <GitBranch className="h-4 w-4" data-testid="diagram-icon" aria-hidden="true" />;
+      return (
+        <GitBranch className="h-4 w-4" data-testid={TEST_IDS.diagramIcon} aria-hidden="true" />
+      );
     }
     case 'html': {
-      return <Globe className="h-4 w-4" data-testid="html-icon" aria-hidden="true" />;
+      return <Globe className="h-4 w-4" data-testid={TEST_IDS.htmlIcon} aria-hidden="true" />;
     }
     case 'react': {
-      return <Atom className="h-4 w-4" data-testid="react-icon" aria-hidden="true" />;
+      return <Atom className="h-4 w-4" data-testid={TEST_IDS.reactIcon} aria-hidden="true" />;
     }
   }
 }
@@ -77,7 +80,7 @@ export function DocumentCard({
   return (
     <button
       type="button"
-      data-testid="document-card"
+      data-testid={TEST_IDS.documentCard}
       data-active={isActive}
       onClick={handleClick}
       aria-label={`Open ${document.title}`}
@@ -99,7 +102,7 @@ export function DocumentCard({
 
       <ArrowUpRight
         className="text-muted-foreground group-hover:text-foreground h-4 w-4 flex-shrink-0 transition-colors"
-        data-testid="open-icon"
+        data-testid={TEST_IDS.openIcon}
         aria-hidden="true"
       />
     </button>

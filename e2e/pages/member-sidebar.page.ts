@@ -1,6 +1,14 @@
 import { type Page, type Locator } from '@playwright/test';
-import { normalizeUsername, displayUsername, isMobileWidth } from '@hushbox/shared';
-import { expect, unsettledExpect } from '../helpers/settled-expect.js';
+import {
+  normalizeUsername,
+  displayUsername,
+  isMobileWidth,
+  TEST_IDS,
+  TEST_ID_BUILDERS,
+  type MemberPrivilege,
+} from '@hushbox/shared';
+import { expect } from '../helpers/expect.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 export class MemberSidebarPage {
   readonly page: Page;
@@ -14,13 +22,13 @@ export class MemberSidebarPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.facepile = page.getByTestId('member-facepile');
-    this.sidebar = page.getByTestId('member-sidebar');
-    this.content = page.getByTestId('member-sidebar-content');
-    this.searchInput = page.getByTestId('member-search-input');
-    this.newMemberButton = page.getByTestId('new-member-button');
-    this.inviteLinkButton = page.getByTestId('invite-link-button');
-    this.budgetFooter = page.getByTestId('member-budget-trigger');
+    this.facepile = page.getByTestId(TEST_IDS.memberFacepile);
+    this.sidebar = page.getByTestId(TEST_IDS.memberSidebar);
+    this.content = page.getByTestId(TEST_IDS.memberSidebarContent);
+    this.searchInput = page.getByTestId(TEST_IDS.memberSearchInput);
+    this.newMemberButton = page.getByTestId(TEST_IDS.newMemberButton);
+    this.inviteLinkButton = page.getByTestId(TEST_IDS.inviteLinkButton);
+    this.budgetFooter = page.getByTestId(TEST_IDS.memberBudgetTrigger);
   }
 
   async openViaFacepile(): Promise<void> {
@@ -39,57 +47,56 @@ export class MemberSidebarPage {
     }
   }
 
-  async waitForLoaded(timeout = 10_000): Promise<void> {
+  async waitForLoaded(timeout: number = TIMEOUTS.ASSERT): Promise<void> {
     await this.content.waitFor({ state: 'visible', timeout });
   }
 
   async expectMemberCount(n: number): Promise<void> {
     // Count text updates after the members query refetches in response to a
-    // broadcast-driven invalidation; the React render can lag past settled+grace
-    // on mobile viewports. Same reasoning as expectMemberInSection below.
-    await unsettledExpect(this.sidebar.getByText(`MEMBERS (${String(n)})`)).toBeVisible({
-      timeout: 10_000,
+    // broadcast-driven invalidation; the React render can lag on mobile
+    // viewports. Same reasoning as expectMemberInSection below.
+    await expect(this.sidebar.getByText(`MEMBERS (${String(n)})`)).toBeVisible({
+      timeout: TIMEOUTS.ASSERT,
     });
   }
 
-  section(privilege: string): Locator {
-    return this.page.getByTestId(`member-section-${privilege}`);
+  section(privilege: MemberPrivilege): Locator {
+    return this.page.getByTestId(TEST_ID_BUILDERS.memberSection(privilege));
   }
 
-  async expectSectionVisible(privilege: string): Promise<void> {
+  async expectSectionVisible(privilege: MemberPrivilege): Promise<void> {
     await expect(this.section(privilege)).toBeVisible();
   }
 
-  async expectSectionNotVisible(privilege: string): Promise<void> {
+  async expectSectionNotVisible(privilege: MemberPrivilege): Promise<void> {
     await expect(this.section(privilege)).not.toBeVisible();
   }
 
   memberRow(memberId: string): Locator {
-    return this.page.getByTestId(`member-item-${memberId}`);
+    return this.page.getByTestId(TEST_ID_BUILDERS.memberItem(memberId));
   }
 
-  async expectMemberInSection(memberId: string, privilege: string): Promise<void> {
+  async expectMemberInSection(memberId: string, privilege: MemberPrivilege): Promise<void> {
     const sectionLocator = this.section(privilege);
-    await unsettledExpect(sectionLocator.getByTestId(`member-item-${memberId}`)).toBeVisible({
-      timeout: 10_000,
+    await expect(sectionLocator.getByTestId(TEST_ID_BUILDERS.memberItem(memberId))).toBeVisible({
+      timeout: TIMEOUTS.ASSERT,
     });
   }
 
   async expectYouBadge(memberId: string): Promise<void> {
-    await expect(this.memberRow(memberId).getByTestId('member-you-badge')).toBeVisible();
+    await expect(this.memberRow(memberId).getByTestId(TEST_IDS.memberYouBadge)).toBeVisible();
   }
 
   async expectOnlineIndicator(entityId: string): Promise<void> {
-    // WebSocket presence is an external event from the Durable Object — not tracked
-    // by the settled indicator. Use unsettledExpect to wait the full timeout.
-    // 20s budget covers slower mobile-emulation WS connect + presence broadcast.
-    await unsettledExpect(this.page.getByTestId(`member-online-${entityId}`)).toBeVisible({
-      timeout: 20_000,
+    // WebSocket presence is an external event from the Durable Object. The
+    // budget covers slower mobile-emulation WS connect + presence broadcast.
+    await expect(this.page.getByTestId(TEST_ID_BUILDERS.memberOnline(entityId))).toBeVisible({
+      timeout: TIMEOUTS.ROUTE,
     });
   }
 
   linkRow(linkId: string): Locator {
-    return this.page.getByTestId(`link-item-${linkId}`);
+    return this.page.getByTestId(TEST_ID_BUILDERS.linkItem(linkId));
   }
 
   async expectLinkVisible(linkId: string): Promise<void> {
@@ -101,49 +108,49 @@ export class MemberSidebarPage {
   }
 
   async openMemberActions(memberId: string): Promise<void> {
-    await this.page.getByTestId(`member-actions-${memberId}`).click();
+    await this.page.getByTestId(TEST_ID_BUILDERS.memberActions(memberId)).click();
   }
 
   async clickRemoveMember(memberId: string): Promise<void> {
-    await this.page.getByTestId(`member-remove-action-${memberId}`).click();
+    await this.page.getByTestId(TEST_ID_BUILDERS.memberRemoveAction(memberId)).click();
   }
 
-  async clickChangePrivilege(memberId: string, newPriv: string): Promise<void> {
+  async clickChangePrivilege(memberId: string, newPriv: MemberPrivilege): Promise<void> {
     // Two-step Radix DropdownMenuSub: trigger expands a submenu, then we
     // click an item inside it. Without an explicit visibility wait the
     // second click can fire during the submenu's open animation and miss
     // the onSelect handler (silent failure — no API call).
-    await this.page.getByTestId(`member-change-privilege-${memberId}`).click();
-    const option = this.page.getByTestId(`privilege-option-${memberId}-${newPriv}`);
+    await this.page.getByTestId(TEST_ID_BUILDERS.memberChangePrivilege(memberId)).click();
+    const option = this.page.getByTestId(TEST_ID_BUILDERS.privilegeOption(memberId, newPriv));
     await expect(option).toBeVisible();
     await option.click();
   }
 
   async clickLeave(): Promise<void> {
-    await this.page.getByTestId('member-leave-action').click();
+    await this.page.getByTestId(TEST_IDS.memberLeaveAction).click();
   }
 
   async openLinkActions(linkId: string): Promise<void> {
-    await this.page.getByTestId(`link-actions-${linkId}`).click();
+    await this.page.getByTestId(TEST_ID_BUILDERS.linkActions(linkId)).click();
   }
 
   async clickRevokeLinkAction(linkId: string): Promise<void> {
-    await this.page.getByTestId(`link-revoke-action-${linkId}`).click();
+    await this.page.getByTestId(TEST_ID_BUILDERS.linkRevokeAction(linkId)).click();
   }
 
   async clickChangeLinkName(linkId: string): Promise<void> {
-    await this.page.getByTestId(`link-change-name-${linkId}`).click();
+    await this.page.getByTestId(TEST_ID_BUILDERS.linkChangeName(linkId)).click();
   }
 
   async editLinkNameInline(linkId: string, name: string): Promise<void> {
-    const input = this.page.getByTestId(`link-name-input-${linkId}`);
+    const input = this.page.getByTestId(TEST_ID_BUILDERS.linkNameInput(linkId));
     await input.fill(name);
     await input.press('Enter');
   }
 
-  async clickChangeLinkPrivilege(linkId: string, priv: string): Promise<void> {
-    await this.page.getByTestId(`link-change-privilege-${linkId}`).click();
-    const option = this.page.getByTestId(`link-privilege-option-${linkId}-${priv}`);
+  async clickChangeLinkPrivilege(linkId: string, priv: MemberPrivilege): Promise<void> {
+    await this.page.getByTestId(TEST_ID_BUILDERS.linkChangePrivilege(linkId)).click();
+    const option = this.page.getByTestId(TEST_ID_BUILDERS.linkPrivilegeOption(linkId, priv));
     await expect(option).toBeVisible();
     await option.click();
   }
@@ -181,11 +188,11 @@ export class MemberSidebarPage {
     // Wait for any overlapping modal to fully close before dismissing the sheet
     await this.page
       .locator('[data-slot="overlay-content"]')
-      .waitFor({ state: 'hidden', timeout: 3000 })
+      .waitFor({ state: 'hidden', timeout: TIMEOUTS.MODAL })
       // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional swallow
       .catch(() => {});
     await this.page.keyboard.press('Escape');
-    await this.content.waitFor({ state: 'hidden', timeout: 5000 });
+    await this.content.waitFor({ state: 'hidden', timeout: TIMEOUTS.MODAL });
   }
 
   async clickBudgetSettings(): Promise<void> {
@@ -193,7 +200,7 @@ export class MemberSidebarPage {
   }
 
   async getBudgetText(): Promise<string> {
-    return (await this.page.getByTestId('member-budget-footer').textContent()) ?? '';
+    return (await this.page.getByTestId(TEST_IDS.memberBudgetFooter).textContent()) ?? '';
   }
 
   /**
@@ -202,7 +209,9 @@ export class MemberSidebarPage {
    */
   findMemberByUsername(username: string): Locator {
     const displayName = displayUsername(normalizeUsername(username));
-    return this.content.locator('[data-testid^="member-item-"]').filter({ hasText: displayName });
+    return this.content
+      .locator(`[data-testid^="${TEST_ID_BUILDERS.memberItem('')}"]`)
+      .filter({ hasText: displayName });
   }
 
   /**
@@ -211,7 +220,7 @@ export class MemberSidebarPage {
   async getMemberIdByUsername(username: string): Promise<string> {
     const testId = await this.findMemberByUsername(username).getAttribute('data-testid');
     if (!testId) throw new Error(`Member row for "${username}" not found`);
-    return testId.replace('member-item-', '');
+    return testId.replace(TEST_ID_BUILDERS.memberItem(''), '');
   }
 
   /**
@@ -220,11 +229,11 @@ export class MemberSidebarPage {
    */
   async getLinkIdByDisplayName(displayName: string): Promise<string> {
     const linkRow = this.content
-      .locator('[data-testid^="link-item-"]')
+      .locator(`[data-testid^="${TEST_ID_BUILDERS.linkItem('')}"]`)
       .filter({ hasText: displayName });
-    await expect(linkRow).toBeVisible({ timeout: 10_000 });
+    await expect(linkRow).toBeVisible({ timeout: TIMEOUTS.ASSERT });
     const testId = await linkRow.getAttribute('data-testid');
     if (!testId) throw new Error(`Link row for "${displayName}" has no data-testid`);
-    return testId.replace('link-item-', '');
+    return testId.replace(TEST_ID_BUILDERS.linkItem(''), '');
   }
 }

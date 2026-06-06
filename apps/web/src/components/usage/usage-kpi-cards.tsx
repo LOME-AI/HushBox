@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { DollarSign, MessageSquare, Zap, TrendingDown } from 'lucide-react';
 import { Card, CardContent } from '@hushbox/ui';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { formatTokenCount } from './chart-utilities';
 import type { UsageSummaryResponse } from '@hushbox/shared';
 
@@ -19,8 +20,14 @@ function formatCost(value: string): string {
 function KpiSkeleton(): React.JSX.Element {
   return (
     <div className="space-y-2">
-      <div className="bg-muted h-4 w-20 animate-pulse rounded" data-testid="skeleton-block" />
-      <div className="bg-muted h-7 w-24 animate-pulse rounded" data-testid="skeleton-block" />
+      <div
+        className="bg-muted h-4 w-20 animate-pulse rounded"
+        data-testid={TEST_IDS.skeletonBlock}
+      />
+      <div
+        className="bg-muted h-7 w-24 animate-pulse rounded"
+        data-testid={TEST_IDS.skeletonBlock}
+      />
     </div>
   );
 }
@@ -52,7 +59,7 @@ function KpiCard({
               <p className="text-foreground-muted text-xs">{label}</p>
               <p
                 className="text-foreground text-xl font-semibold tabular-nums"
-                data-testid={`${testId}-value`}
+                data-testid={TEST_ID_BUILDERS.kpiValue(testId)}
               >
                 {value}
               </p>
@@ -77,34 +84,37 @@ export function UsageKpiCards({
       : '0';
 
   return (
-    <div className="grid grid-cols-2 gap-3 px-0 sm:grid-cols-4" data-testid="usage-kpi-cards">
+    <div
+      className="grid grid-cols-2 gap-3 px-0 sm:grid-cols-4"
+      data-testid={TEST_IDS.usageKpiCards}
+    >
       <KpiCard
         icon={<DollarSign className="h-4 w-4" />}
         label="Total Spent"
         value={formatCost(data?.totalSpent ?? '0')}
         isLoading={isLoading}
-        testId="kpi-total-spent"
+        testId={TEST_IDS.kpiTotalSpent}
       />
       <KpiCard
         icon={<MessageSquare className="h-4 w-4" />}
         label="Messages"
         value={String(data?.messageCount ?? 0)}
         isLoading={isLoading}
-        testId="kpi-messages"
+        testId={TEST_IDS.kpiMessages}
       />
       <KpiCard
         icon={<Zap className="h-4 w-4" />}
         label="Tokens Used"
         value={formatTokenCount(totalTokens)}
         isLoading={isLoading}
-        testId="kpi-tokens"
+        testId={TEST_IDS.kpiTokens}
       />
       <KpiCard
         icon={<TrendingDown className="h-4 w-4" />}
         label="Avg Cost/Msg"
         value={formatCost(avgCost)}
         isLoading={isLoading}
-        testId="kpi-avg-cost"
+        testId={TEST_IDS.kpiAvgCost}
       />
     </div>
   );

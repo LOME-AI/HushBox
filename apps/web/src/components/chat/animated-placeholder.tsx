@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { TypingAnimation } from './typing-animation';
 
 interface AnimatedPlaceholderProps {
@@ -24,7 +25,7 @@ export function AnimatedPlaceholder({
 }: Readonly<AnimatedPlaceholderProps>): React.JSX.Element {
   return (
     <span
-      data-testid="animated-placeholder"
+      data-testid={TEST_IDS.animatedPlaceholder}
       aria-hidden="true"
       className={cn(
         'text-muted-foreground pointer-events-none absolute top-2 left-3 text-base whitespace-nowrap select-none md:text-sm',

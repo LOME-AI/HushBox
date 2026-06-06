@@ -1,5 +1,7 @@
 import { test } from '@playwright/test';
-import { expect } from '../helpers/settled-expect.js';
+import { TEST_ID_BUILDERS } from '@hushbox/shared';
+
+import { expect } from '../helpers/expect.js';
 
 test.describe('Persona Login', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
@@ -8,8 +10,8 @@ test.describe('Persona Login', () => {
     await page.goto('/dev/personas', { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: /developer personas/i })).toBeVisible();
 
-    await expect(page.getByTestId('persona-card-alice')).toBeVisible();
-    await expect(page.getByTestId('persona-card-bob')).toBeVisible();
-    await expect(page.getByTestId('persona-card-charlie')).toBeVisible();
+    await expect(page.getByTestId(TEST_ID_BUILDERS.personaCard('alice'))).toBeVisible();
+    await expect(page.getByTestId(TEST_ID_BUILDERS.personaCard('bob'))).toBeVisible();
+    await expect(page.getByTestId(TEST_ID_BUILDERS.personaCard('charlie'))).toBeVisible();
   });
 });

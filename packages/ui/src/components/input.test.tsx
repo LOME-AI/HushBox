@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { Input } from './input';
 
 describe('Input', () => {
@@ -101,26 +102,26 @@ describe('Input', () => {
   describe('enhanced input with label and suffix', () => {
     it('renders suffix element', () => {
       render(<Input suffix={<span>icon</span>} />);
-      expect(screen.getByTestId('input-suffix')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.inputSuffix)).toBeInTheDocument();
     });
 
     it('positions suffix at vertical center without label', () => {
       render(<Input suffix={<span>icon</span>} />);
-      const suffix = screen.getByTestId('input-suffix');
+      const suffix = screen.getByTestId(TEST_IDS.inputSuffix);
       expect(suffix).toHaveClass('top-1/2');
       expect(suffix).not.toHaveClass('top-[calc(50%+4px)]');
     });
 
     it('positions suffix with downward offset when label is present', () => {
       render(<Input label="Password" suffix={<span>icon</span>} value="" onChange={vi.fn()} />);
-      const suffix = screen.getByTestId('input-suffix');
+      const suffix = screen.getByTestId(TEST_IDS.inputSuffix);
       expect(suffix).toHaveClass('top-[calc(50%+4px)]');
       expect(suffix).not.toHaveClass('top-1/2');
     });
 
     it('renders icon element', () => {
       render(<Input icon={<span>search</span>} />);
-      expect(screen.getByTestId('input-icon')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.inputIcon)).toBeInTheDocument();
     });
 
     it('renders label element', () => {

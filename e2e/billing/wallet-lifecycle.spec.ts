@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages';
 import { BudgetHelper, setWalletBalance } from '../helpers/budget.js';
 import {
@@ -7,12 +8,13 @@ import {
   uniqueUsername,
   clearAuthRateLimits,
 } from '../helpers/auth.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
-test.describe('Wallet Lifecycle', () => {
-  test.beforeEach(async ({ request }, testInfo) => {
-    if (testInfo.project.name !== 'chromium') {
-      test.skip(true, 'Auth tests run only on chromium');
-    }
+// Signup/auth flows share the localhost IP whose rate limits these tests clear; @chromium-only
+// gates them to the chromium project (config grepInvert excludes the tag from every other
+// project), replacing the former in-body project-name skip in beforeEach.
+test.describe('Wallet Lifecycle', { tag: '@chromium-only' }, () => {
+  test.beforeEach(async ({ request }) => {
     await clearAuthRateLimits(request);
   });
 
@@ -20,7 +22,7 @@ test.describe('Wallet Lifecycle', () => {
     unauthenticatedPage,
     request,
   }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(TIMEOUTS.XLONG);
 
     const page = unauthenticatedPage;
     const email = uniqueEmail('e2e-wallet');
@@ -65,8 +67,8 @@ test.describe('Wallet Lifecycle', () => {
         chatPage.messageList
           .locator('[data-role="assistant"]')
           .last()
-          .locator('[data-testid="message-cost"]')
-      ).toBeVisible({ timeout: 15_000 });
+          .locator(`[data-testid="${TEST_IDS.messageCost}"]`)
+      ).toBeVisible({ timeout: TIMEOUTS.STREAM });
     });
 
     let freeTierAfterFirstMessage = 0;
@@ -99,8 +101,8 @@ test.describe('Wallet Lifecycle', () => {
         chatPage.messageList
           .locator('[data-role="assistant"]')
           .last()
-          .locator('[data-testid="message-cost"]')
-      ).toBeVisible({ timeout: 15_000 });
+          .locator(`[data-testid="${TEST_IDS.messageCost}"]`)
+      ).toBeVisible({ timeout: TIMEOUTS.STREAM });
     });
 
     await test.step('verify purchased decreased, free tier unchanged', async () => {

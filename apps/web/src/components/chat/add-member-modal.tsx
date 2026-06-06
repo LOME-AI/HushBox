@@ -2,7 +2,13 @@ import * as React from 'react';
 import { useState } from 'react';
 import { AlertTriangle, Search } from 'lucide-react';
 import { Alert, Input, useAsyncAction } from '@hushbox/ui';
-import { MAX_CONVERSATION_MEMBERS, displayUsername, type ErrorCode } from '@hushbox/shared';
+import {
+  MAX_CONVERSATION_MEMBERS,
+  displayUsername,
+  TEST_IDS,
+  TEST_ID_BUILDERS,
+  type ErrorCode,
+} from '@hushbox/shared';
 import { ActionModal } from '../shared/action-modal.js';
 import { CheckboxField } from '../shared/checkbox-field.js';
 import { useUserSearch } from '../../hooks/use-user-search.js';
@@ -92,13 +98,13 @@ export function AddMemberModal({
         loadingLabel: 'Adding…',
         onSubmit: handleSubmit,
         disabled: !selectedUser || atCapacity,
-        testId: 'add-member-submit-button',
+        testId: TEST_IDS.addMemberSubmitButton,
       }}
       cancel={{
         label: 'Cancel',
-        testId: 'add-member-cancel-button',
+        testId: TEST_IDS.addMemberCancelButton,
       }}
-      testId="add-member-modal"
+      testId={TEST_IDS.addMemberModal}
       devSimulateCodes={ADD_MEMBER_ERROR_CODES}
     >
       <div className="flex flex-col gap-4">
@@ -115,7 +121,7 @@ export function AddMemberModal({
           <div className="relative">
             <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
             <Input
-              data-testid="add-member-search-input"
+              data-testid={TEST_IDS.addMemberSearchInput}
               type="text"
               placeholder="Search by username..."
               value={searchQuery}
@@ -130,7 +136,7 @@ export function AddMemberModal({
                   <button
                     key={user.id}
                     type="button"
-                    data-testid={`add-member-result-${user.id}`}
+                    data-testid={TEST_ID_BUILDERS.addMemberResult(user.id)}
                     onClick={() => {
                       handleSelectUser(user);
                     }}
@@ -150,7 +156,7 @@ export function AddMemberModal({
 
           {selectedUser && (
             <div
-              data-testid="add-member-selected"
+              data-testid={TEST_IDS.addMemberSelected}
               className="border-border rounded-md border px-3 py-2 text-sm"
             >
               Selected:{' '}
@@ -168,7 +174,7 @@ export function AddMemberModal({
           </label>
           <select
             id="privilege-select"
-            data-testid="add-member-privilege-select"
+            data-testid={TEST_IDS.addMemberPrivilegeSelect}
             value={privilege}
             onChange={(e) => {
               setPrivilege(e.target.value);
@@ -188,7 +194,7 @@ export function AddMemberModal({
             onCheckedChange={setGiveFullHistory}
             label="Give access to all history"
             description="Leaving this unchecked will only show messages from now on"
-            testId="add-member-history-checkbox"
+            testId={TEST_IDS.addMemberHistoryCheckbox}
           />
         </div>
       </div>

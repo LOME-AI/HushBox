@@ -16,7 +16,7 @@ import {
 import { cn, useIsMobile } from '@hushbox/ui';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@hushbox/ui';
 import { Textarea } from '@hushbox/ui';
-import { FEATURE_FLAGS } from '@hushbox/shared';
+import { FEATURE_FLAGS, TEST_IDS } from '@hushbox/shared';
 import { usePromptBudget } from '@/hooks/use-prompt-budget';
 import { useStability } from '@/providers/stability-provider';
 import { StableContent } from '@/components/shared/stable-content';
@@ -462,7 +462,7 @@ function TextBottomRow({
         // narrow viewports. Without this, the bar's auto min-width pins the
         // left side and pushes the send button past the parent.
         className="min-w-0 flex-1"
-        data-testid="capacity-bar"
+        data-testid={TEST_IDS.capacityBar}
       />
       <div className="flex items-center gap-2">
         {toolbar}
@@ -723,7 +723,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
         onClick={handleSubmit}
         disabled={!canSubmit}
         aria-label={BUTTON_ARIA_LABELS[String(canSubmit) as 'true' | 'false']}
-        data-testid="send-button"
+        data-testid={TEST_IDS.sendButton}
       >
         <SubmitButtonIcon isProcessing={isProcessing} />
       </Button>
@@ -756,7 +756,7 @@ export const PromptInput = React.forwardRef<PromptInputRef, PromptInputProps>(
             <Textarea
               ref={textareaRef}
               id="prompt-input"
-              data-testid="prompt-input"
+              data-testid={TEST_IDS.promptInput}
               value={value}
               onChange={handleChange}
               onKeyDown={handleKeyDown}

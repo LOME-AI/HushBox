@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
 
 import { SettingCard } from './setting-card';
 
@@ -126,8 +127,8 @@ describe('SettingCard', () => {
 
   it('marks both arrows as decorative (aria-hidden)', () => {
     render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={() => {}} />);
-    const previous = screen.getByTestId('setting-card-prev');
-    const next = screen.getByTestId('setting-card-next');
+    const previous = screen.getByTestId(TEST_IDS.settingCardPrev);
+    const next = screen.getByTestId(TEST_IDS.settingCardNext);
     expect(previous.getAttribute('aria-hidden')).toBe('true');
     expect(next.getAttribute('aria-hidden')).toBe('true');
   });
@@ -135,21 +136,21 @@ describe('SettingCard', () => {
   it('clicking the previous arrow cycles backward', () => {
     const onChange = vi.fn();
     render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={onChange} />);
-    fireEvent.click(screen.getByTestId('setting-card-prev'));
+    fireEvent.click(screen.getByTestId(TEST_IDS.settingCardPrev));
     expect(onChange).toHaveBeenCalledWith('off');
   });
 
   it('clicking the next arrow cycles forward', () => {
     const onChange = vi.fn();
     render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={onChange} />);
-    fireEvent.click(screen.getByTestId('setting-card-next'));
+    fireEvent.click(screen.getByTestId(TEST_IDS.settingCardNext));
     expect(onChange).toHaveBeenCalledWith('on');
   });
 
   it('clicking the previous arrow does not also trigger the card click handler', () => {
     const onChange = vi.fn();
     render(<SettingCard title="X" options={OPTIONS} value="mid" onChange={onChange} />);
-    fireEvent.click(screen.getByTestId('setting-card-prev'));
+    fireEvent.click(screen.getByTestId(TEST_IDS.settingCardPrev));
     // Forward cycle would call with 'on'; backward with 'off'. We must NOT see both.
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith('off');
