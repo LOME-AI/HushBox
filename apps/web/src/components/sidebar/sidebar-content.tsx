@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Search } from 'lucide-react';
 import { cn, Input, Separator } from '@hushbox/ui';
-import { FEATURE_FLAGS, type ConversationListItem } from '@hushbox/shared';
+import { FEATURE_FLAGS, TEST_IDS, type ConversationListItem } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { NewChatButton } from './new-chat-button';
 import { ChatList } from './chat-list';
@@ -83,7 +83,7 @@ function SidebarPanels({
         }`}
       >
         <div
-          data-testid="chat-list-scroll-container"
+          data-testid={TEST_IDS.chatListScrollContainer}
           className={cn(
             'h-full w-full flex-shrink-0 overflow-y-auto',
             !sidebarOpen && 'scrollbar-hide'
@@ -98,7 +98,7 @@ function SidebarPanels({
                 label="Pinned conversations"
               />
               <div className="px-2 py-1">
-                <Separator className="bg-sidebar-border" data-testid="pinned-separator" />
+                <Separator className="bg-sidebar-border" data-testid={TEST_IDS.pinnedSeparator} />
               </div>
               <ChatList
                 conversations={filteredAccepted.slice(pinnedCount)}
@@ -229,7 +229,7 @@ export function SidebarContent({
 
   return (
     <nav
-      data-testid="sidebar-nav"
+      data-testid={TEST_IDS.sidebarNav}
       aria-label="Chat navigation"
       className="flex min-h-0 flex-1 flex-col gap-2"
     >

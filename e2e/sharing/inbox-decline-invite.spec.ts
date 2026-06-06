@@ -1,5 +1,7 @@
+import { TEST_IDS } from '@hushbox/shared';
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { SidebarPage } from '../pages/sidebar.page.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Inbox decline invite', () => {
   // Each test creates its own pending invite — the decline mutation is
@@ -47,7 +49,7 @@ test.describe('Inbox decline invite', () => {
     await test.step('Bob opens the Invites tab and sees the pending conversation', async () => {
       const sidebar = new SidebarPage(testBobPage);
       await sidebar.openInvitesTab();
-      const inbox = testBobPage.getByTestId('inbox-content');
+      const inbox = testBobPage.getByTestId(TEST_IDS.inboxContent);
       await expect(inbox).toBeVisible();
       // The invite card is labelled by the conversation title — empty for a
       // freshly-seeded chat, so we match the Decline button by aria-label
@@ -58,22 +60,24 @@ test.describe('Inbox decline invite', () => {
     await test.step('Bob declines and confirms', async () => {
       await testBobPage.getByRole('button', { name: /^Decline/ }).click();
 
-      const modal = testBobPage.getByTestId('leave-confirmation-modal');
+      const modal = testBobPage.getByTestId(TEST_IDS.leaveConfirmationModal);
       await expect(modal).toBeVisible();
 
-      await testBobPage.getByTestId('leave-confirmation-confirm').click();
-      await expect(modal).not.toBeVisible({ timeout: 10_000 });
+      await testBobPage.getByTestId(TEST_IDS.leaveConfirmationConfirm).click();
+      await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
     });
 
     await test.step('the declined invite is removed from the inbox', async () => {
       await expect(testBobPage.getByRole('button', { name: /^Decline/ })).not.toBeVisible({
-        timeout: 10_000,
+        timeout: TIMEOUTS.ASSERT,
       });
     });
 
     await test.step('navigating to the declined conversation redirects away', async () => {
       await testBobPage.goto(`/chat/${conversationId}`, { waitUntil: 'domcontentloaded' });
-      await expect(testBobPage).not.toHaveURL(new RegExp(conversationId), { timeout: 10_000 });
+      await expect(testBobPage).not.toHaveURL(new RegExp(conversationId), {
+        timeout: TIMEOUTS.ROUTE,
+      });
     });
   });
 });

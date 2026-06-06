@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi, afterEach } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { DocumentPanel } from './document-panel';
 import { useDocumentStore } from '../../stores/document';
 import type { Document } from '../../lib/document-parser';
@@ -61,7 +62,7 @@ describe('DocumentPanel', () => {
     it('does not render when panel is closed', () => {
       render(<DocumentPanel />);
 
-      expect(screen.queryByTestId('document-panel')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.documentPanel)).not.toBeInTheDocument();
     });
 
     it('renders when panel is open', () => {
@@ -72,7 +73,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      expect(screen.getByTestId('document-panel')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.documentPanel)).toBeInTheDocument();
     });
 
     it('does not render when no active document', () => {
@@ -83,7 +84,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      expect(screen.queryByTestId('document-panel')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.documentPanel)).not.toBeInTheDocument();
     });
   });
 
@@ -267,7 +268,7 @@ describe('DocumentPanel', () => {
       render(<DocumentPanel />);
 
       // MermaidDiagram shows loading state initially
-      expect(screen.getByTestId('mermaid-loading')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.mermaidLoading)).toBeInTheDocument();
     });
 
     it('shows raw toggle button for mermaid documents', () => {
@@ -293,21 +294,23 @@ describe('DocumentPanel', () => {
       render(<DocumentPanel />);
 
       expect(
-        screen.queryByTestId('mermaid-loading') ?? screen.queryByTestId('mermaid-diagram')
+        screen.queryByTestId(TEST_IDS.mermaidLoading) ??
+          screen.queryByTestId(TEST_IDS.mermaidDiagram)
       ).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: /show raw/i }));
 
-      expect(screen.getByTestId('highlighted-code')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.highlightedCode)).toBeInTheDocument();
       expect(screen.getByText(/flowchart TD/)).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: /show rendered/i }));
 
       // Back to mermaid diagram (either loading or rendered)
       expect(
-        screen.queryByTestId('mermaid-loading') ?? screen.queryByTestId('mermaid-diagram')
+        screen.queryByTestId(TEST_IDS.mermaidLoading) ??
+          screen.queryByTestId(TEST_IDS.mermaidDiagram)
       ).toBeInTheDocument();
-      expect(screen.queryByTestId('highlighted-code')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.highlightedCode)).not.toBeInTheDocument();
     });
 
     it('does not show raw toggle for code documents', () => {
@@ -336,7 +339,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      expect(screen.getByTestId('highlighted-code')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.highlightedCode)).toBeInTheDocument();
     });
 
     it('wraps code content in document-panel-code class', () => {
@@ -348,7 +351,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const codeContainer = screen.getByTestId('highlighted-code');
+      const codeContainer = screen.getByTestId(TEST_IDS.highlightedCode);
       expect(codeContainer).toHaveClass('document-panel-code');
     });
 
@@ -365,7 +368,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      expect(screen.getByTestId('highlighted-code')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.highlightedCode)).toBeInTheDocument();
     });
   });
 
@@ -379,7 +382,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const panel = screen.getByTestId('document-panel');
+      const panel = screen.getByTestId(TEST_IDS.documentPanel);
       expect(panel).toHaveStyle({ width: '500px' });
     });
   });
@@ -393,7 +396,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      expect(screen.getByTestId('document-panel-scroll')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.documentPanelScroll)).toBeInTheDocument();
     });
   });
 
@@ -408,7 +411,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const panel = screen.getByTestId('document-panel');
+      const panel = screen.getByTestId(TEST_IDS.documentPanel);
       expect(panel).toBeInTheDocument();
       expect(panel).toHaveStyle({ width: '500px' });
     });
@@ -422,7 +425,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const panel = screen.getByTestId('document-panel');
+      const panel = screen.getByTestId(TEST_IDS.documentPanel);
       expect(panel).toBeInTheDocument();
       expect(panel).toHaveStyle({ width: '100%' });
     });
@@ -436,7 +439,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      expect(screen.queryByTestId('resize-handle')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.resizeHandle)).not.toBeInTheDocument();
     });
 
     it('shows resize handle on desktop', () => {
@@ -448,7 +451,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      expect(screen.getByTestId('resize-handle')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.resizeHandle)).toBeInTheDocument();
     });
 
     it('shows document title on mobile', () => {
@@ -527,7 +530,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const panel = screen.getByTestId('document-panel');
+      const panel = screen.getByTestId(TEST_IDS.documentPanel);
       expect(panel.className).toContain('transition-');
     });
 
@@ -542,7 +545,7 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const panel = screen.getByTestId('document-panel');
+      const panel = screen.getByTestId(TEST_IDS.documentPanel);
       expect(panel).toHaveStyle({ width: '100%' });
     });
 
@@ -559,7 +562,7 @@ describe('DocumentPanel', () => {
 
       expect(useDocumentStore.getState().isFullscreen).toBe(true);
 
-      const handle = screen.getByTestId('resize-handle');
+      const handle = screen.getByTestId(TEST_IDS.resizeHandle);
       await user.pointer({ keys: '[MouseLeft>]', target: handle });
 
       expect(useDocumentStore.getState().isFullscreen).toBe(false);
@@ -575,9 +578,9 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const handle = screen.getByTestId('resize-handle');
+      const handle = screen.getByTestId(TEST_IDS.resizeHandle);
       expect(handle).toBeInTheDocument();
-      expect(screen.getByTestId('resize-indicator')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.resizeIndicator)).toBeInTheDocument();
     });
 
     it('starts resizing on mouse down', async () => {
@@ -589,10 +592,10 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const handle = screen.getByTestId('resize-handle');
+      const handle = screen.getByTestId(TEST_IDS.resizeHandle);
       await user.pointer({ keys: '[MouseLeft>]', target: handle });
 
-      const panel = screen.getByTestId('document-panel');
+      const panel = screen.getByTestId(TEST_IDS.documentPanel);
       expect(panel).toHaveClass('select-none');
     });
 
@@ -605,13 +608,13 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const handle = screen.getByTestId('resize-handle');
+      const handle = screen.getByTestId(TEST_IDS.resizeHandle);
 
       await user.pointer({ keys: '[MouseLeft>]', target: handle });
 
       await user.pointer({ keys: '[/MouseLeft]' });
 
-      const panel = screen.getByTestId('document-panel');
+      const panel = screen.getByTestId(TEST_IDS.documentPanel);
       expect(panel).not.toHaveClass('select-none');
     });
 
@@ -625,13 +628,13 @@ describe('DocumentPanel', () => {
       });
       render(<DocumentPanel />);
 
-      const handle = screen.getByTestId('resize-handle');
+      const handle = screen.getByTestId(TEST_IDS.resizeHandle);
 
       await user.pointer({ keys: '[MouseLeft>]', target: handle });
 
       await user.pointer({ coords: { x: 100, y: 100 } });
 
-      expect(screen.getByTestId('document-panel')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.documentPanel)).toBeInTheDocument();
 
       await user.pointer({ keys: '[/MouseLeft]' });
     });

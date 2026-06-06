@@ -1,15 +1,11 @@
-import {
-  test,
-  expect,
-  unsettledExpect,
-  expectApiErrors,
-  expectConsoleErrors,
-} from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
+import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { createInviteLink } from '../helpers/invite-link.js';
 import { createMessageShareUrl } from '../helpers/share-message.js';
 import { requireEnv } from '../helpers/env.js';
 import { expectVideoDecoded } from '../helpers/webkit-media-decode.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
 
@@ -57,24 +53,28 @@ test.describe('Shared Content', () => {
 
       await unauthenticatedPage.goto(inviteUrl, { waitUntil: 'domcontentloaded' });
 
-      await expect(unauthenticatedPage.getByTestId('shared-conversation-loading')).not.toBeVisible({
-        timeout: 15_000,
+      await expect(
+        unauthenticatedPage.getByTestId(TEST_IDS.sharedConversationLoading)
+      ).not.toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
 
       const guestChatPage = new ChatPage(unauthenticatedPage);
-      await guestChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
+      await guestChatPage.assertMessageVisible('Hello from Alice', { timeout: TIMEOUTS.ASSERT });
       await guestChatPage.assertMessageVisible('Hi from Bob');
 
-      await expect(unauthenticatedPage.getByTestId('shared-conversation-error')).not.toBeVisible();
+      await expect(
+        unauthenticatedPage.getByTestId(TEST_IDS.sharedConversationError)
+      ).not.toBeVisible();
     });
 
     await test.step('revoke the invite link', async () => {
       await sidebar.openLinkActions(linkId);
       await sidebar.clickRevokeLinkAction(linkId);
 
-      const modal = authenticatedPage.getByTestId('revoke-link-modal');
+      const modal = authenticatedPage.getByTestId(TEST_IDS.revokeLinkModal);
       await expect(modal).toBeVisible();
-      await authenticatedPage.getByTestId('revoke-link-confirm').click();
+      await authenticatedPage.getByTestId(TEST_IDS.revokeLinkConfirm).click();
 
       await sidebar.expectLinkNotVisible(linkId);
     });
@@ -94,8 +94,8 @@ test.describe('Shared Content', () => {
       ]);
       await freshPage.goto(inviteUrl, { waitUntil: 'domcontentloaded' });
 
-      await expect(freshPage.getByTestId('shared-conversation-error')).toBeVisible({
-        timeout: 15_000,
+      await expect(freshPage.getByTestId(TEST_IDS.sharedConversationError)).toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
     });
   });
@@ -118,15 +118,15 @@ test.describe('Shared Content', () => {
     await test.step('unauthenticated user sees decrypted message', async () => {
       await unauthenticatedPage.goto(shareUrl, { waitUntil: 'domcontentloaded' });
 
-      await expect(unauthenticatedPage.getByTestId('shared-message-loading')).not.toBeVisible({
-        timeout: 15_000,
+      await expect(unauthenticatedPage.getByTestId(TEST_IDS.sharedMessageLoading)).not.toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
 
       await expect(unauthenticatedPage.getByText('Echo:').first()).toBeVisible({
-        timeout: 10_000,
+        timeout: TIMEOUTS.ASSERT,
       });
 
-      await expect(unauthenticatedPage.getByTestId('shared-message-error')).not.toBeVisible();
+      await expect(unauthenticatedPage.getByTestId(TEST_IDS.sharedMessageError)).not.toBeVisible();
     });
   });
 
@@ -146,8 +146,8 @@ test.describe('Shared Content', () => {
         waitUntil: 'domcontentloaded',
       });
 
-      await expect(unauthenticatedPage.getByTestId('shared-conversation-error')).toBeVisible({
-        timeout: 15_000,
+      await expect(unauthenticatedPage.getByTestId(TEST_IDS.sharedConversationError)).toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
     });
 
@@ -156,8 +156,8 @@ test.describe('Shared Content', () => {
         waitUntil: 'domcontentloaded',
       });
 
-      await expect(unauthenticatedPage.getByTestId('shared-message-error')).toBeVisible({
-        timeout: 15_000,
+      await expect(unauthenticatedPage.getByTestId(TEST_IDS.sharedMessageError)).toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
     });
   });
@@ -208,16 +208,18 @@ test.describe('Shared Content', () => {
 
       await recipient.goto(shareUrl, { waitUntil: 'domcontentloaded' });
 
-      await expect(recipient.getByTestId('shared-message-loading')).not.toBeVisible({
-        timeout: 15_000,
+      await expect(recipient.getByTestId(TEST_IDS.sharedMessageLoading)).not.toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
 
       // Image renders for the guest. The shared media renderer uses the same
       // MediaPreview component, so an `<img>` element appears once decryption
       // completes against the URL-fragment shareSecret.
-      await expect(recipient.locator('img').first()).toBeVisible({ timeout: 15_000 });
+      await expect(recipient.locator('img').first()).toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
+      });
 
-      await expect(recipient.getByTestId('shared-message-error')).not.toBeVisible();
+      await expect(recipient.getByTestId(TEST_IDS.sharedMessageError)).not.toBeVisible();
 
       // Sensitive metadata must not appear in the share response payload.
       expect(capturedShareBody, 'share response not captured').toBeTruthy();
@@ -271,14 +273,14 @@ test.describe('Shared Content', () => {
 
       await recipient.goto(shareUrl, { waitUntil: 'domcontentloaded' });
 
-      await expect(recipient.getByTestId('shared-message-loading')).not.toBeVisible({
-        timeout: 15_000,
+      await expect(recipient.getByTestId(TEST_IDS.sharedMessageLoading)).not.toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
 
       const videoElement = recipient.locator('video').first();
-      await expect(videoElement).toBeVisible({ timeout: 15_000 });
+      await expect(videoElement).toBeVisible({ timeout: TIMEOUTS.CONVERSATION_LOAD });
 
-      await expect(recipient.getByTestId('shared-message-error')).not.toBeVisible();
+      await expect(recipient.getByTestId(TEST_IDS.sharedMessageError)).not.toBeVisible();
 
       // Sensitive metadata must not appear in the public share payload.
       expect(capturedShareBody, 'share response not captured').toBeTruthy();
@@ -321,10 +323,10 @@ test.describe('Shared Content', () => {
     await aiMessage.hover();
     await aiMessage.getByRole('button', { name: 'Share' }).click();
 
-    const modal = authenticatedPage.getByTestId('share-message-modal');
+    const modal = authenticatedPage.getByTestId(TEST_IDS.shareMessageModal);
     await expect(modal).toBeVisible();
-    await authenticatedPage.getByTestId('share-message-create-button').click();
-    await expect(authenticatedPage.getByTestId('share-message-url')).toBeVisible();
+    await authenticatedPage.getByTestId(TEST_IDS.shareMessageCreateButton).click();
+    await expect(authenticatedPage.getByTestId(TEST_IDS.shareMessageUrl)).toBeVisible();
 
     expect(capturedBody, 'POST body for share-create not captured').toBeTruthy();
     const body = capturedBody!;
@@ -371,11 +373,11 @@ test.describe('Shared Content', () => {
     const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
     await aiMessage.hover();
     await aiMessage.getByRole('button', { name: 'Share' }).click();
-    const modal = authenticatedPage.getByTestId('share-message-modal');
+    const modal = authenticatedPage.getByTestId(TEST_IDS.shareMessageModal);
     await expect(modal).toBeVisible();
-    await authenticatedPage.getByTestId('share-message-create-button').click();
+    await authenticatedPage.getByTestId(TEST_IDS.shareMessageCreateButton).click();
 
-    const urlEl = authenticatedPage.getByTestId('share-message-url');
+    const urlEl = authenticatedPage.getByTestId(TEST_IDS.shareMessageUrl);
     await expect(urlEl).toBeVisible();
     shareUrl = (await urlEl.textContent()) ?? '';
     expect(createResponseBody, 'share-create response body not captured').toBeTruthy();
@@ -403,8 +405,8 @@ test.describe('Shared Content', () => {
     expect(fetchAfterRevoke.status()).toBe(404);
 
     await recipient.goto(shareUrl, { waitUntil: 'domcontentloaded' });
-    await expect(recipient.getByTestId('shared-message-error')).toBeVisible({
-      timeout: 15_000,
+    await expect(recipient.getByTestId(TEST_IDS.sharedMessageError)).toBeVisible({
+      timeout: TIMEOUTS.CONVERSATION_LOAD,
     });
     await expect(recipient.locator('img')).toHaveCount(0);
   });
@@ -435,8 +437,8 @@ test.describe('Shared Content', () => {
       await expect(authenticatedPage.getByRole('button', { name: '1:1' })).toBeVisible();
 
       await chatPage.sendFollowUpMessage(`Group image ${String(Date.now())}`);
-      await chatPage.expectImageVisible(30_000);
-      await chatPage.waitForStreamComplete(30_000);
+      await chatPage.expectImageVisible(TIMEOUTS.MEDIA_DECODE);
+      await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
     });
 
     await test.step('owner generates a video inside the same group conversation', async () => {
@@ -446,8 +448,8 @@ test.describe('Shared Content', () => {
       await expect(authenticatedPage.getByRole('button', { name: /720p/i })).toBeVisible();
 
       await chatPage.sendFollowUpMessage(`Group video ${String(Date.now())}`);
-      await chatPage.expectVideoVisible(30_000);
-      await chatPage.waitForStreamComplete(30_000);
+      await chatPage.expectVideoVisible(TIMEOUTS.MEDIA_DECODE);
+      await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
     });
 
     let inviteUrl = '';
@@ -471,28 +473,28 @@ test.describe('Shared Content', () => {
       const guest = await createPage();
       await guest.goto(inviteUrl, { waitUntil: 'domcontentloaded' });
 
-      await expect(guest.getByTestId('shared-conversation-loading')).not.toBeVisible({
-        timeout: 15_000,
+      await expect(guest.getByTestId(TEST_IDS.sharedConversationLoading)).not.toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
-      await expect(guest.getByTestId('shared-conversation-error')).not.toBeVisible();
+      await expect(guest.getByTestId(TEST_IDS.sharedConversationError)).not.toBeVisible();
 
       // expectImageVisible / expectVideoVisible park the relevant row in view
       // first, so iPhone-15 virtualization doesn't drop the tile from the DOM
       // before the assertion runs.
       const guestChatPage = new ChatPage(guest);
-      await guestChatPage.expectImageVisible(15_000);
+      await guestChatPage.expectImageVisible(TIMEOUTS.CONVERSATION_LOAD);
       const imageElement = guestChatPage.messageList.locator('img').first();
-      await unsettledExpect
+      await expect
         .poll(async () => imageElement.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
-          timeout: 10_000,
+          timeout: TIMEOUTS.ASSERT,
         })
         .toBeGreaterThan(0);
 
-      await guestChatPage.expectVideoVisible(15_000);
+      await guestChatPage.expectVideoVisible(TIMEOUTS.CONVERSATION_LOAD);
       const videoElement = guestChatPage.messageList.locator('video').first();
       // Wait until the video reports a parseable duration (metadata loaded);
       // degrades to a "src bound" check on engines that can't decode.
-      await expectVideoDecoded(videoElement, browserName, { timeout: 15_000 });
+      await expectVideoDecoded(videoElement, browserName, { timeout: TIMEOUTS.CONVERSATION_LOAD });
     });
   });
 });

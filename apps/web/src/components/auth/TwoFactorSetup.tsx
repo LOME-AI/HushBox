@@ -13,7 +13,7 @@ import {
   type UseAsyncActionReturn,
 } from '@hushbox/ui';
 import logoUrl from '@hushbox/ui/assets/HushBoxLogo.png';
-import { errorResponseSchema } from '@hushbox/shared';
+import { errorResponseSchema, TEST_IDS } from '@hushbox/shared';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { useOtpVerification } from '@/hooks/use-otp-verification';
 import { OtpInput } from '@/components/auth/otp-input';
@@ -259,7 +259,7 @@ export function TwoFactorSetup({
       dismissible={!isBusy}
       {...(showBackButton && { onBack: handleBack })}
     >
-      <OverlayContent data-testid="two-factor-setup-modal" className="w-[75vw]">
+      <OverlayContent data-testid={TEST_IDS.twoFactorSetupModal} className="w-[75vw]">
         <StepContent
           step={step}
           totpData={totpData}

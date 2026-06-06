@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { DollarSign, CreditCard, Lock, MapPin, User, Home } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button, ModalActions, OverlayContent, OverlayHeader } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { FormInput } from '@/components/shared/form-input';
 import { DevOnly } from '@/components/shared/dev-only';
 import { env } from '@/lib/env';
@@ -300,7 +301,7 @@ function CardFormSection({
   }
 
   return (
-    <div className="py-8 text-center" data-testid="helcim-loading">
+    <div className="py-8 text-center" data-testid={TEST_IDS.helcimLoading}>
       <p className="text-muted-foreground">Loading payment form...</p>
     </div>
   );
@@ -689,19 +690,19 @@ export function PaymentForm({
         isPaymentPending={createPayment.isPending}
       />
 
-      <div data-testid="helcim-security-badge" className="flex justify-center">
+      <div data-testid={TEST_IDS.helcimSecurityBadge} className="flex justify-center">
         <HelcimLogo />
       </div>
 
       <DevOnly>
-        <div className="flex gap-2" data-testid="dev-simulation-buttons">
+        <div className="flex gap-2" data-testid={TEST_IDS.devSimulationButtons}>
           <Button
             type="button"
             variant="outline"
             onClick={handleSimulateSuccess}
             disabled={paymentState === 'processing'}
             className="flex-1"
-            data-testid="simulate-success-btn"
+            data-testid={TEST_IDS.simulateSuccessBtn}
           >
             Simulate Success
           </Button>
@@ -711,7 +712,7 @@ export function PaymentForm({
             onClick={handleSimulateFailure}
             disabled={paymentState === 'processing'}
             className="flex-1"
-            data-testid="simulate-failure-btn"
+            data-testid={TEST_IDS.simulateFailureBtn}
           >
             Simulate Failure
           </Button>

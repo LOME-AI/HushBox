@@ -1,9 +1,24 @@
 import { type Page, type Locator } from '@playwright/test';
-import { expect, unsettledExpect } from '../helpers/settled-expect.js';
+import { TEST_IDS, TEST_ID_BUILDERS, TEST_SIGNALS } from '@hushbox/shared';
+import { expect } from '../helpers/expect.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 import { requireEnv } from '../helpers/env.js';
 import { getBrowserName, lacksMediaDecode } from '../helpers/webkit-media-decode.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
+
+const MESSAGE_ID_SELECTOR = `[${TEST_SIGNALS.messageId}]`;
+const ROLE_ATTR = TEST_SIGNALS.role;
+
+/**
+ * Selects every selectable non-premium model row in the picker: any
+ * `model-item-*` that isn't the Smart Model and doesn't carry a lock icon.
+ * Derived entirely from the registry so a renamed id/builder breaks here too.
+ */
+const NON_PREMIUM_MODEL_ITEMS =
+  `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]` +
+  `:not([data-testid="${TEST_ID_BUILDERS.modelItem('smart-model')}"])` +
+  `:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`;
 
 export class ChatPage {
   readonly page: Page;
@@ -20,11 +35,11 @@ export class ChatPage {
     // Locate the prompt textarea by stable testid — the placeholder/aria-label
     // changes per modality (e.g. "Describe the image you want..." for image),
     // so name-based locators silently break after switchToImageMode/Video/Audio.
-    this.promptInput = page.getByTestId('prompt-input');
-    this.messageInput = page.locator('main').getByTestId('prompt-input');
-    this.sendButton = page.getByTestId('send-button');
+    this.promptInput = page.getByTestId(TEST_IDS.promptInput);
+    this.messageInput = page.locator('main').getByTestId(TEST_IDS.promptInput);
+    this.sendButton = page.getByTestId(TEST_IDS.sendButton);
     this.messageList = page.getByRole('log', { name: 'Chat messages' });
-    this.newChatPage = page.getByTestId('new-chat-page');
+    this.newChatPage = page.getByTestId(TEST_IDS.newChatPage);
     this.suggestionChips = page.getByText('Need inspiration? Try these:');
     this.viewport = page.locator('[data-slot="scroll-area-viewport"]');
   }
@@ -33,24 +48,44 @@ export class ChatPage {
     await this.page.goto('/chat', { waitUntil: 'domcontentloaded' });
   }
 
-  async waitForAppStable(timeout = 15_000): Promise<void> {
-    await this.page.locator('[data-app-stable="true"]').waitFor({ state: 'visible', timeout });
+  async waitForAppStable(timeout: number = TIMEOUTS.APP_STABLE): Promise<void> {
+    await this.page
+      .locator(`[${TEST_SIGNALS.appStable}="true"]`)
+      .waitFor({ state: 'visible', timeout });
+  }
+
+  /**
+   * Wait for the app to report explicit quiescence — all TanStack Query
+   * fetches, mutations, and SSE streams have completed (the `data-settled`
+   * signal). Use only where a flow genuinely needs to wait for the app to go
+   * idle; prefer a specific readiness signal otherwise.
+   */
+  async waitForSettled(timeout: number = TIMEOUTS.APP_STABLE): Promise<void> {
+    await expect(this.page.getByTestId(TEST_IDS.settledIndicator)).toHaveAttribute(
+      TEST_SIGNALS.settled,
+      'true',
+      { timeout }
+    );
   }
 
   /** Wait for the group chat WebSocket to be connected. Use before actions that send events via WebSocket. */
-  async waitForWebSocketConnected(timeout = 15_000): Promise<void> {
-    await expect(this.page.locator('[data-ws-connected="true"]')).toBeVisible({ timeout });
+  async waitForWebSocketConnected(timeout: number = TIMEOUTS.WS_HANDSHAKE): Promise<void> {
+    await expect(this.page.locator(`[${TEST_SIGNALS.wsConnected}="true"]`)).toBeVisible({
+      timeout,
+    });
   }
 
   /** Wait for the WebSocket server-side registration to complete (DO ready for fan-out). */
-  async waitForWebSocketReady(timeout = 10_000): Promise<void> {
-    await this.page.locator('[data-ws-ready="true"]').waitFor({ state: 'attached', timeout });
+  async waitForWebSocketReady(timeout: number = TIMEOUTS.WS_HANDSHAKE): Promise<void> {
+    await this.page
+      .locator(`[${TEST_SIGNALS.wsReady}="true"]`)
+      .waitFor({ state: 'attached', timeout });
   }
 
   /** Wait for the message list to finish scrolling (layout stable). Use after programmatic scroll operations. */
-  async waitForScrollStable(timeout = 5000): Promise<void> {
+  async waitForScrollStable(timeout: number = TIMEOUTS.SCROLL_STABLE): Promise<void> {
     await this.page
-      .locator('[data-virtuoso-scrolling="false"]')
+      .locator(`[${TEST_SIGNALS.virtuosoScrolling}="false"]`)
       .waitFor({ state: 'attached', timeout });
   }
 
@@ -61,10 +96,10 @@ export class ChatPage {
    * finish decrypting (so a follow-up assertion can scroll to any message
    * without racing the decrypt result).
    */
-  async waitForConversationLoaded(timeout = 15_000): Promise<void> {
+  async waitForConversationLoaded(timeout: number = TIMEOUTS.CONVERSATION_LOAD): Promise<void> {
     await this.messageList.waitFor({ state: 'visible', timeout });
     await this.messageList
-      .locator('[data-testid="message-item"]')
+      .getByTestId(TEST_IDS.messageItem)
       .first()
       .or(this.messageList.getByText('No messages yet'))
       .waitFor({ state: 'visible', timeout });
@@ -76,19 +111,22 @@ export class ChatPage {
    * the `data-decrypted-count` attribute exposed by `MessageList`. Resolves
    * immediately when the conversation is empty.
    */
-  async waitForDecryptionComplete(timeout = 15_000): Promise<void> {
+  async waitForDecryptionComplete(timeout: number = TIMEOUTS.CONVERSATION_LOAD): Promise<void> {
     await this.page.waitForFunction(
-      () => {
-        const list = document.querySelector<HTMLElement>(
-          '[data-testid="message-list"], [data-testid="message-list-empty"]'
-        );
+      (selectors: { list: string; empty: string; count: string; decrypted: string }) => {
+        const list = document.querySelector<HTMLElement>(`${selectors.list}, ${selectors.empty}`);
         if (!list) return false;
-        const messageCount = Number(list.dataset['messageCount']);
-        const decryptedCount = Number(list.dataset['decryptedCount']);
+        const messageCount = Number(list.getAttribute(selectors.count));
+        const decryptedCount = Number(list.getAttribute(selectors.decrypted));
         if (Number.isNaN(messageCount) || Number.isNaN(decryptedCount)) return false;
         return decryptedCount >= messageCount;
       },
-      undefined,
+      {
+        list: `[data-testid="${TEST_IDS.messageList}"]`,
+        empty: `[data-testid="${TEST_IDS.messageListEmpty}"]`,
+        count: TEST_SIGNALS.messageCount,
+        decrypted: TEST_SIGNALS.decryptedCount,
+      },
       { timeout }
     );
   }
@@ -112,25 +150,25 @@ export class ChatPage {
   async sendNewChatMessage(message: string): Promise<void> {
     await this.waitForAppStable();
     await this.promptInput.fill(message);
-    await expect(this.sendButton).toBeEnabled({ timeout: 15_000 });
+    await expect(this.sendButton).toBeEnabled({ timeout: TIMEOUTS.STREAM });
     await this.sendButton.click();
   }
 
   async sendFollowUpMessage(message: string): Promise<void> {
     await this.messageInput.fill(message);
     // Wait for streaming to complete (button enabled means canSubmit = true)
-    await expect(this.sendButton).toBeEnabled({ timeout: 15_000 });
+    await expect(this.sendButton).toBeEnabled({ timeout: TIMEOUTS.STREAM });
     await this.messageInput.press('Enter');
     await expect(this.messageInput).toHaveValue('');
   }
 
-  async waitForConversation(timeout = 20_000): Promise<string> {
+  async waitForConversation(timeout: number = TIMEOUTS.ROUTE): Promise<string> {
     await expect(this.page).toHaveURL(/\/chat\/[a-f0-9-]+(\?.*)?$/, { timeout });
     const url = new URL(this.page.url());
     return url.pathname.split('/').pop() ?? '';
   }
 
-  async expectMessageVisible(message: string, timeout = 10_000): Promise<void> {
+  async expectMessageVisible(message: string, timeout: number = TIMEOUTS.ASSERT): Promise<void> {
     // Thin alias so existing call sites keep working. Prefer assertMessageVisible
     // for new code — it is virtualization-agnostic and auto-scrolls if needed.
     await this.assertMessageVisible(message, { exact: true, timeout });
@@ -139,9 +177,9 @@ export class ChatPage {
   /**
    * Count messages in the conversation. Gates on the app-emitted
    * `data-messages-ready="true"` signal first so we never read
-   * `data-message-count` mid-decryption (where it sits at 0 momentarily on
-   * fork-tab switch / fresh navigation and the old "stable count" polling
-   * would mistake that for "stable empty").
+   * `data-message-count` mid-decryption, where it sits at 0 momentarily on
+   * fork-tab switch / fresh navigation and would be mistaken for an empty
+   * conversation.
    *
    * Happy path: returns `stateCount` when it matches the DOM count of
    * `[data-message-id]` (every message currently mounted). Otherwise scrolls
@@ -154,10 +192,10 @@ export class ChatPage {
    */
   async countMessages(role?: 'user' | 'assistant'): Promise<number> {
     await this.messageList
-      .and(this.page.locator('[data-messages-ready="true"]'))
-      .waitFor({ timeout: 10_000 });
+      .and(this.page.locator(`[${TEST_SIGNALS.messagesReady}="true"]`))
+      .waitFor({ timeout: TIMEOUTS.ASSERT });
 
-    const stateCount = Number(await this.messageList.getAttribute('data-message-count'));
+    const stateCount = Number(await this.messageList.getAttribute(TEST_SIGNALS.messageCount));
 
     // A fork-switch (or fresh navigation) remounts the virtualized list; Virtuoso
     // mounts its rows asynchronously, so the DOM `[data-message-id]` count briefly
@@ -167,19 +205,19 @@ export class ChatPage {
     // fork-switch "0/0/1 instead of 3" flake). A long virtualized list never fully
     // mounts, so this times out and falls through to scroll-collect as before.
     if (stateCount > 0) {
-      await unsettledExpect(this.messageList.locator('[data-message-id]'))
-        .toHaveCount(stateCount, { timeout: 3000 })
+      await expect(this.messageList.locator(MESSAGE_ID_SELECTOR))
+        .toHaveCount(stateCount, { timeout: TIMEOUTS.SCROLL_STABLE })
         .catch(() => {
           // Long virtualized list never mounts all rows — fall through to scroll-collect.
         });
     }
 
-    const domCount = await this.messageList.locator('[data-message-id]').count();
+    const domCount = await this.messageList.locator(MESSAGE_ID_SELECTOR).count();
 
     // Happy path: every message is already rendered, no scrolling needed.
     if (stateCount === domCount) {
       if (role === undefined) return stateCount;
-      return await this.messageList.locator(`[data-role="${role}"]`).count();
+      return await this.messageList.locator(`[${ROLE_ATTR}="${role}"]`).count();
     }
 
     // Slow path: scroll through and collect unique ids.
@@ -200,7 +238,7 @@ export class ChatPage {
     options?: { exact?: boolean; timeout?: number }
   ): Promise<void> {
     const exact = options?.exact ?? false;
-    const timeout = options?.timeout ?? 10_000;
+    const timeout = options?.timeout ?? TIMEOUTS.ASSERT;
     const locator = this.messageList.getByText(text, { exact }).first();
 
     // Happy path: already visible, or appears within a short wait window.
@@ -208,7 +246,7 @@ export class ChatPage {
     // needing to scroll. If the message is genuinely off-screen due to
     // virtualization, this wait returns fast (locator stays not-visible)
     // and we fall through to the scroll path.
-    const happyWait = Math.min(10_000, timeout);
+    const happyWait = Math.min(TIMEOUTS.ASSERT, timeout);
     const appeared = await locator
       .waitFor({ state: 'visible', timeout: happyWait })
       .then(() => true)
@@ -216,7 +254,7 @@ export class ChatPage {
     if (appeared) return;
 
     // Slow path: scroll to find it with the remaining time budget.
-    const remaining = Math.max(1000, timeout - happyWait);
+    const remaining = Math.max(TIMEOUTS.QUICK, timeout - happyWait);
     await this.scrollUntilLocatorVisible(locator, text, remaining);
   }
 
@@ -235,11 +273,11 @@ export class ChatPage {
     // app has finished its decryption pass, or the negative check could
     // succeed against a transient "messages.length=0" render.
     await this.messageList
-      .and(this.page.locator('[data-messages-ready="true"]'))
-      .waitFor({ timeout: 10_000 });
+      .and(this.page.locator(`[${TEST_SIGNALS.messagesReady}="true"]`))
+      .waitFor({ timeout: TIMEOUTS.ASSERT });
 
-    const stateCount = Number(await this.messageList.getAttribute('data-message-count'));
-    const domCount = await this.messageList.locator('[data-message-id]').count();
+    const stateCount = Number(await this.messageList.getAttribute(TEST_SIGNALS.messageCount));
+    const domCount = await this.messageList.locator(MESSAGE_ID_SELECTOR).count();
 
     // Happy path: all messages are rendered — one negative check is definitive.
     if (stateCount === domCount) {
@@ -279,13 +317,16 @@ export class ChatPage {
     await this.waitForScrollStable();
 
     const selector =
-      role === undefined ? '[data-message-id]' : `[data-role="${role}"][data-message-id]`;
+      role === undefined ? MESSAGE_ID_SELECTOR : `[${ROLE_ATTR}="${role}"]${MESSAGE_ID_SELECTOR}`;
 
     let done = false;
     while (!done) {
       const ids = await this.messageList
         .locator(selector)
-        .evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset['messageId'] ?? null));
+        .evaluateAll(
+          (els, attribute: string) => els.map((el) => el.getAttribute(attribute)),
+          TEST_SIGNALS.messageId
+        );
       for (const id of ids) {
         if (id !== null) seen.add(id);
       }
@@ -369,14 +410,17 @@ export class ChatPage {
     await expect(this.suggestionChips).toBeVisible();
   }
 
-  async waitForAIResponse(expectedContent?: string, timeout = 10_000): Promise<void> {
-    const assistantMessages = this.messageList.locator('[data-role="assistant"]');
+  async waitForAIResponse(
+    expectedContent?: string,
+    timeout: number = TIMEOUTS.STREAM
+  ): Promise<void> {
+    const assistantMessages = this.messageList.locator(`[${ROLE_ATTR}="assistant"]`);
 
     const target = expectedContent
       ? assistantMessages.getByText(expectedContent, { exact: false }).first()
       : assistantMessages.getByText(/^Echo:/).first();
 
-    await unsettledExpect(target).toBeVisible({ timeout });
+    await expect(target).toBeVisible({ timeout });
     await this.waitForStreamComplete();
   }
 
@@ -385,7 +429,7 @@ export class ChatPage {
   }
 
   async expectMessageCostVisible(): Promise<void> {
-    await expect(this.messageList.locator('[data-testid="message-cost"]').first()).toBeVisible();
+    await expect(this.messageList.getByTestId(TEST_IDS.messageCost).first()).toBeVisible();
   }
 
   /**
@@ -401,7 +445,7 @@ export class ChatPage {
    * can observe `data-streaming-count > 0`.
    */
   async captureStreamBaseline(): Promise<number> {
-    return Number((await this.messageList.getAttribute('data-streams-completed')) ?? '0');
+    return Number((await this.messageList.getAttribute(TEST_SIGNALS.streamsCompleted)) ?? '0');
   }
 
   /**
@@ -412,20 +456,23 @@ export class ChatPage {
    * cycle counter (a fact: "a cycle finished") rather than over a transient
    * state (`streaming-count > 0`) that can transition too quickly to observe.
    */
-  async waitForStreamCycle(baseline: number, timeout = 15_000): Promise<void> {
+  async waitForStreamCycle(baseline: number, timeout: number = TIMEOUTS.STREAM): Promise<void> {
     await expect
       .poll(
-        async () => Number((await this.messageList.getAttribute('data-streams-completed')) ?? '0'),
+        async () =>
+          Number((await this.messageList.getAttribute(TEST_SIGNALS.streamsCompleted)) ?? '0'),
         { timeout }
       )
       .toBeGreaterThan(baseline);
     // After the cycle counter increments, streaming-count is by definition 0;
     // a short deadline catches any incoherent state.
-    await expect(this.messageList).toHaveAttribute('data-streaming-count', '0', { timeout: 1000 });
+    await expect(this.messageList).toHaveAttribute(TEST_SIGNALS.streamingCount, '0', {
+      timeout: TIMEOUTS.QUICK,
+    });
     // Toolbar is in the DOM once isStreaming clears; assert attachment, not
     // viewport visibility — see waitForStreamComplete for the full rationale.
-    const lastToolbar = this.messageList.locator('[data-testid="message-actions"]').last();
-    await expect(lastToolbar).toBeAttached({ timeout: 5000 });
+    const lastToolbar = this.messageList.getByTestId(TEST_IDS.messageActions).last();
+    await expect(lastToolbar).toBeAttached({ timeout: TIMEOUTS.ASSERT });
   }
 
   /**
@@ -433,7 +480,10 @@ export class ChatPage {
    * stream cycle to complete. Prefer this for tests that submit a turn and
    * then assert on the post-turn state.
    */
-  async withStreamCycle<T>(action: () => Promise<T>, timeout = 15_000): Promise<T> {
+  async withStreamCycle<T>(
+    action: () => Promise<T>,
+    timeout: number = TIMEOUTS.STREAM
+  ): Promise<T> {
     const baseline = await this.captureStreamBaseline();
     const result = await action();
     await this.waitForStreamCycle(baseline, timeout);
@@ -460,8 +510,8 @@ export class ChatPage {
    * removed; callers that need start-or-skip-equivalence should adopt the
    * cycle-counter helpers above.
    */
-  async waitForStreamComplete(timeout = 15_000): Promise<void> {
-    await unsettledExpect(this.messageList).toHaveAttribute('data-streaming-count', '0', {
+  async waitForStreamComplete(timeout: number = TIMEOUTS.STREAM): Promise<void> {
+    await expect(this.messageList).toHaveAttribute(TEST_SIGNALS.streamingCount, '0', {
       timeout,
     });
     // Once streaming has drained (data-streaming-count === 0) the assistant's
@@ -473,8 +523,8 @@ export class ChatPage {
     // still catches the "frozen UI / toolbar never renders" regression (the
     // Bug 6 cost-settlement anti-pattern); tests that click the toolbar gate
     // its visibility explicitly via prepareMessage() + a polled scroll-into-view.
-    const lastToolbar = this.messageList.locator('[data-testid="message-actions"]').last();
-    await expect(lastToolbar).toBeAttached({ timeout: 5000 });
+    const lastToolbar = this.messageList.getByTestId(TEST_IDS.messageActions).last();
+    await expect(lastToolbar).toBeAttached({ timeout: TIMEOUTS.ASSERT });
   }
 
   /** Switch the prompt input to image generation modality. Click the image icon button. */
@@ -530,7 +580,7 @@ export class ChatPage {
     const chip = this.page.getByRole('button', { name: /^(Image|Video) settings:/i });
     const present = await chip
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 })
+      .waitFor({ state: 'visible', timeout: TIMEOUTS.MODAL })
       .then(() => true)
       .catch(() => false);
     if (!present) return;
@@ -543,14 +593,14 @@ export class ChatPage {
    * Tests call this between configuring generation settings and sending the
    * prompt, so the sheet doesn't block the composer interaction.
    *
-   * 500ms `waitFor` is long enough for an open/close transition to settle
-   * but short enough to keep desktop tests snappy (the sheet was never
-   * mounted, so the wait always times out into the no-op branch).
+   * The presence probe is short by design: on desktop the sheet is never
+   * mounted, so the wait always times out into the no-op branch and shouldn't
+   * stall the suite.
    */
   async closeGenerationSheetIfOpen(): Promise<void> {
     const sheet = this.generationSheet();
     const open = await sheet
-      .waitFor({ state: 'visible', timeout: 500 })
+      .waitFor({ state: 'visible', timeout: TIMEOUTS.QUICK })
       .then(() => true)
       .catch(() => false);
     if (!open) return;
@@ -622,9 +672,12 @@ export class ChatPage {
    * "non-empty src" check so the rest of the test still runs end-to-end.
    * Production Safari decodes the same bytes natively.
    */
-  private async expectMediaLoaded(media: Locator, timeout = 15_000): Promise<void> {
+  private async expectMediaLoaded(
+    media: Locator,
+    timeout: number = TIMEOUTS.MEDIA_DECODE
+  ): Promise<void> {
     const skipVideoDecode = lacksMediaDecode(getBrowserName(this.page));
-    await unsettledExpect
+    await expect
       .poll(
         async () =>
           media.evaluate((el, skipDecode: boolean) => {
@@ -653,14 +706,17 @@ export class ChatPage {
    * to avoid passing on a `MediaPlaceholder` or a still-decrypting `<img>`
    * with a 0×0 bounding box.
    */
-  async expectMediaVisible(kind: 'img' | 'video', timeout = 30_000): Promise<void> {
+  async expectMediaVisible(
+    kind: 'img' | 'video',
+    timeout: number = TIMEOUTS.MEDIA_DECODE
+  ): Promise<void> {
     const media = this.messageList.locator(kind).first();
     const skipVideoDecode = lacksMediaDecode(getBrowserName(this.page));
     try {
       await expect
         .poll(
           async () => {
-            const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
+            const rowsCount = Number(await this.messageList.getAttribute(TEST_SIGNALS.rowsCount));
             if (!Number.isFinite(rowsCount) || rowsCount <= 0) return false;
             for (let index = rowsCount - 1; index >= 0; index--) {
               try {
@@ -702,8 +758,11 @@ export class ChatPage {
         .toBe(true);
     } catch {
       // Surface Playwright's rich locator error (attached/visible state) on
-      // failure instead of `expect.poll`'s opaque boolean mismatch.
-      await unsettledExpect(media).toBeVisible({ timeout: 0 });
+      // failure instead of `expect.poll`'s opaque boolean mismatch. The poll
+      // above already consumed the real budget, so this re-assertion only needs
+      // a short window to render the rich error against the still-failing
+      // locator.
+      await expect(media).toBeVisible({ timeout: TIMEOUTS.QUICK });
     }
     await this.expectMediaLoaded(media);
   }
@@ -721,7 +780,7 @@ export class ChatPage {
   async expectMediaVisibleAt(
     index: number,
     kind: 'img' | 'video',
-    timeout = 30_000
+    timeout: number = TIMEOUTS.MEDIA_DECODE
   ): Promise<void> {
     const media = this.getMessage(index).locator(kind).first();
     try {
@@ -740,17 +799,20 @@ export class ChatPage {
         .toBe(true);
     } catch {
       // Surface Playwright's rich locator error (attached/visible state) on
-      // failure instead of `expect.poll`'s opaque boolean mismatch.
-      await unsettledExpect(media).toBeVisible({ timeout: 0 });
+      // failure instead of `expect.poll`'s opaque boolean mismatch. The poll
+      // above already consumed the real budget, so this re-assertion only needs
+      // a short window to render the rich error against the still-failing
+      // locator.
+      await expect(media).toBeVisible({ timeout: TIMEOUTS.QUICK });
     }
     await this.expectMediaLoaded(media);
   }
 
-  async expectImageVisible(timeout = 30_000): Promise<void> {
+  async expectImageVisible(timeout: number = TIMEOUTS.MEDIA_DECODE): Promise<void> {
     await this.expectMediaVisible('img', timeout);
   }
 
-  async expectVideoVisible(timeout = 30_000): Promise<void> {
+  async expectVideoVisible(timeout: number = TIMEOUTS.MEDIA_DECODE): Promise<void> {
     await this.expectMediaVisible('video', timeout);
   }
 
@@ -767,7 +829,7 @@ export class ChatPage {
   }
 
   getSenderLabels(): Locator {
-    return this.messageList.locator('[data-testid="sender-label"]');
+    return this.messageList.getByTestId(TEST_IDS.senderLabel);
   }
 
   getAiToggleButton(): Locator {
@@ -775,11 +837,11 @@ export class ChatPage {
   }
 
   getTypingIndicator(): Locator {
-    return this.page.getByTestId('typing-indicator');
+    return this.page.getByTestId(TEST_IDS.typingIndicator);
   }
 
   getMessageGroups(): Locator {
-    return this.messageList.locator('[data-testid="message-item"]');
+    return this.messageList.getByTestId(TEST_IDS.messageItem);
   }
 
   async getScrollPosition(): Promise<{
@@ -871,19 +933,20 @@ export class ChatPage {
    * virtualized out of the DOM.
    */
   getMessage(index: number): Locator {
-    return this.messageList.locator(
-      `[data-item-index="${String(index)}"] [data-testid="message-item"]`
-    );
+    // `data-item-index` is Virtuoso's own per-row attribute, not an app signal.
+    return this.messageList
+      .locator(`[data-item-index="${String(index)}"]`)
+      .getByTestId(TEST_IDS.messageItem);
   }
 
   /** Get the last message item. */
   getLastMessage(): Locator {
-    return this.messageList.locator('[data-testid="message-item"]').last();
+    return this.messageList.getByTestId(TEST_IDS.messageItem).last();
   }
 
   /** Get message count in the visible list. */
   async getMessageCount(): Promise<number> {
-    return this.messageList.locator('[data-testid="message-item"]').count();
+    return this.messageList.getByTestId(TEST_IDS.messageItem).count();
   }
 
   /**
@@ -893,7 +956,7 @@ export class ChatPage {
    * silently propagate a sentinel.
    */
   async getLastRowIndex(): Promise<number> {
-    const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
+    const rowsCount = Number(await this.messageList.getAttribute(TEST_SIGNALS.rowsCount));
     if (!Number.isFinite(rowsCount) || rowsCount <= 0) {
       throw new Error(
         `getLastRowIndex: data-rows-count is ${String(rowsCount)}; expected at least one row`
@@ -916,7 +979,7 @@ export class ChatPage {
    * MessageList component) to bound the index.
    */
   async scrollMessageIntoView(index: number): Promise<void> {
-    const rowsCount = Number(await this.messageList.getAttribute('data-rows-count'));
+    const rowsCount = Number(await this.messageList.getAttribute(TEST_SIGNALS.rowsCount));
     if (Number.isNaN(rowsCount) || index < 0 || index >= rowsCount) {
       throw new Error(
         `scrollMessageIntoView: index ${String(index)} out of range [0, ${String(rowsCount)})`
@@ -934,7 +997,7 @@ export class ChatPage {
       await function_(index_);
     }, index);
     // Short deadline so the outer poll can retry on re-virtualize.
-    await expect(this.getMessage(index)).toBeAttached({ timeout: 500 });
+    await expect(this.getMessage(index)).toBeAttached({ timeout: TIMEOUTS.QUICK });
   }
 
   /**
@@ -952,7 +1015,7 @@ export class ChatPage {
           await this.scrollMessageIntoView(index);
           return true;
         },
-        { timeout: 3000, intervals: [100, 250, 500, 500, 500, 500] }
+        { timeout: TIMEOUTS.SCROLL_STABLE, intervals: [100, 250, 500, 500, 500, 500] }
       )
       .toBe(true);
   }
@@ -968,7 +1031,7 @@ export class ChatPage {
           await this.scrollMessageIntoView(await this.getLastRowIndex());
           return true;
         },
-        { timeout: 3000, intervals: [100, 250, 500, 500, 500, 500] }
+        { timeout: TIMEOUTS.SCROLL_STABLE, intervals: [100, 250, 500, 500, 500, 500] }
       )
       .toBe(true);
   }
@@ -1050,9 +1113,10 @@ export class ChatPage {
 
   /** Open the three-dot menu on a fork tab by name, then click an action. */
   async clickForkTabMenuAction(tabName: string, action: 'Rename' | 'Delete'): Promise<void> {
-    const tabWrapper = this.getForkTabList().locator(`[data-testid^="fork-tab-"]`, {
-      has: this.page.getByRole('tab', { name: tabName }),
-    });
+    const tabWrapper = this.getForkTabList().locator(
+      `[data-testid^="${TEST_ID_BUILDERS.forkTab('')}"]`,
+      { has: this.page.getByRole('tab', { name: tabName }) }
+    );
     await tabWrapper.getByRole('button', { name: 'More options' }).click();
     await this.page.getByRole('menuitem', { name: action }).click();
   }
@@ -1081,20 +1145,20 @@ export class ChatPage {
     const input = this.page.locator('input[placeholder="Conversation title"]');
     await input.clear();
     await input.fill(newName);
-    await this.page.getByTestId('save-rename-button').click();
+    await this.page.getByTestId(TEST_IDS.saveRenameButton).click();
     await expect(this.page.getByText('Rename conversation', { exact: true })).not.toBeVisible();
   }
 
   async confirmDelete(): Promise<void> {
     await expect(this.page.getByText('Delete conversation?')).toBeVisible();
-    await this.page.getByTestId('confirm-delete-button').click();
+    await this.page.getByTestId(TEST_IDS.confirmDeleteButton).click();
     await expect(this.page.getByText('Delete conversation?')).not.toBeVisible();
   }
 
   /** Open the model selector modal by clicking the header button. */
   async openModelSelector(): Promise<void> {
-    await this.page.getByTestId('model-selector-button').click();
-    await expect(this.page.getByTestId('model-selector-modal')).toBeVisible();
+    await this.page.getByTestId(TEST_IDS.modelSelectorButton).click();
+    await expect(this.page.getByTestId(TEST_IDS.modelSelectorModal)).toBeVisible();
   }
 
   /**
@@ -1103,8 +1167,8 @@ export class ChatPage {
    * twice (once per responsive layout); click the first visible option.
    */
   async switchPickerMode(mode: 'single' | 'multi'): Promise<void> {
-    const modal = this.page.getByTestId('model-selector-modal');
-    const targetTestId = mode === 'single' ? 'picker-mode-single' : 'picker-mode-multi';
+    const modal = this.page.getByTestId(TEST_IDS.modelSelectorModal);
+    const targetTestId = mode === 'single' ? TEST_IDS.pickerModeSingle : TEST_IDS.pickerModeMulti;
     await modal.getByTestId(targetTestId).first().click();
     await expect(modal).toHaveAttribute('data-picker-mode', mode);
   }
@@ -1115,7 +1179,7 @@ export class ChatPage {
    * way, the row body is the click target now (no more checkbox-only zone).
    */
   async toggleModelInModal(modelId: string): Promise<void> {
-    const item = this.page.getByTestId(`model-item-${modelId}`);
+    const item = this.page.getByTestId(TEST_ID_BUILDERS.modelItem(modelId));
     // Click the row's main button (the part that holds the model name + checkbox).
     await item.locator('button').first().click();
   }
@@ -1127,8 +1191,8 @@ export class ChatPage {
    * open with no Use button.
    */
   async confirmModelSelection(): Promise<void> {
-    const modal = this.page.getByTestId('model-selector-modal');
-    const useButton = modal.getByTestId('use-models-button');
+    const modal = this.page.getByTestId(TEST_IDS.modelSelectorModal);
+    const useButton = modal.getByTestId(TEST_IDS.useModelsButton);
     const isUseVisible = await useButton.isVisible().catch(() => false);
     if (isUseVisible) {
       await useButton.click();
@@ -1140,7 +1204,7 @@ export class ChatPage {
         await closeButton.click();
       }
     }
-    await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
+    await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
   }
 
   /**
@@ -1150,10 +1214,10 @@ export class ChatPage {
   async selectSingleModel(modelId: string): Promise<void> {
     await this.openModelSelector();
     await this.switchPickerMode('single');
-    const item = this.page.getByTestId(`model-item-${modelId}`);
+    const item = this.page.getByTestId(TEST_ID_BUILDERS.modelItem(modelId));
     await item.locator('button').first().click();
-    const modal = this.page.getByTestId('model-selector-modal');
-    await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
+    const modal = this.page.getByTestId(TEST_IDS.modelSelectorModal);
+    await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
   }
 
   /**
@@ -1164,14 +1228,12 @@ export class ChatPage {
   async selectModels(count: number): Promise<void> {
     await this.openModelSelector();
     await this.switchPickerMode('multi');
-    const modal = this.page.getByTestId('model-selector-modal');
+    const modal = this.page.getByTestId(TEST_IDS.modelSelectorModal);
 
-    const nonPremiumItems = modal.locator(
-      '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
-    );
+    const nonPremiumItems = modal.locator(NON_PREMIUM_MODEL_ITEMS);
 
     // Clear all pending selections to start from a known state.
-    const clearButton = modal.getByTestId('clear-selection-button').first();
+    const clearButton = modal.getByTestId(TEST_IDS.clearSelectionButton).first();
     if (await clearButton.isVisible().catch(() => false)) {
       await clearButton.click();
       await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
@@ -1200,16 +1262,16 @@ export class ChatPage {
   async selectModelsByIds(ids: readonly string[]): Promise<void> {
     await this.openModelSelector();
     await this.switchPickerMode('multi');
-    const modal = this.page.getByTestId('model-selector-modal');
+    const modal = this.page.getByTestId(TEST_IDS.modelSelectorModal);
 
-    const clearButton = modal.getByTestId('clear-selection-button').first();
+    const clearButton = modal.getByTestId(TEST_IDS.clearSelectionButton).first();
     if (await clearButton.isVisible().catch(() => false)) {
       await clearButton.click();
       await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
     }
 
     for (const id of ids) {
-      const item = modal.getByTestId(`model-item-${id}`);
+      const item = modal.getByTestId(TEST_ID_BUILDERS.modelItem(id));
       await expect(item).toBeVisible();
       await item.locator('button').first().click();
       await expect(item).toHaveAttribute('data-selected', 'true');
@@ -1228,31 +1290,30 @@ export class ChatPage {
   async selectModelsWithFailTarget(): Promise<{ successModelId: string; failModelId: string }> {
     await this.openModelSelector();
     await this.switchPickerMode('multi');
-    const modal = this.page.getByTestId('model-selector-modal');
-    const nonPremiumItems = modal.locator(
-      '[data-testid^="model-item-"]:not([data-testid="model-item-smart-model"]):not(:has([data-testid="lock-icon"]))'
-    );
+    const modal = this.page.getByTestId(TEST_IDS.modelSelectorModal);
+    const nonPremiumItems = modal.locator(NON_PREMIUM_MODEL_ITEMS);
 
-    const clearButton = modal.getByTestId('clear-selection-button').first();
+    const clearButton = modal.getByTestId(TEST_IDS.clearSelectionButton).first();
     if (await clearButton.isVisible().catch(() => false)) {
       await clearButton.click();
       await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
     }
 
+    const modelItemPrefix = TEST_ID_BUILDERS.modelItem('');
     const available = await nonPremiumItems.count();
 
     const firstItem = nonPremiumItems.nth(0);
     await firstItem.locator('button').first().click();
     await expect(firstItem).toHaveAttribute('data-selected', 'true');
     const firstTestId = await firstItem.getAttribute('data-testid');
-    const successModelId = (firstTestId ?? '').replace('model-item-', '');
+    const successModelId = (firstTestId ?? '').replace(modelItemPrefix, '');
 
     // Select LAST model (fail target) — never picked by selectModels(N)
     const lastItem = nonPremiumItems.nth(available - 1);
     await lastItem.locator('button').first().click();
     await expect(lastItem).toHaveAttribute('data-selected', 'true');
     const lastTestId = await lastItem.getAttribute('data-testid');
-    const failModelId = (lastTestId ?? '').replace('model-item-', '');
+    const failModelId = (lastTestId ?? '').replace(modelItemPrefix, '');
 
     await this.confirmModelSelection();
     return { successModelId, failModelId };
@@ -1260,30 +1321,32 @@ export class ChatPage {
 
   /** Count selected (checked) models in the open modal. */
   async getSelectedModelCount(): Promise<number> {
-    const modal = this.page.getByTestId('model-selector-modal');
-    return modal.locator('[data-testid^="model-item-"][data-selected="true"]').count();
+    const modal = this.page.getByTestId(TEST_IDS.modelSelectorModal);
+    return modal
+      .locator(`[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="true"]`)
+      .count();
   }
 
   /** Assert the comparison bar (multi-model pill bar) is visible. */
   async expectComparisonBarVisible(): Promise<void> {
-    await expect(this.page.getByTestId('selected-models-bar')).toBeVisible();
+    await expect(this.page.getByTestId(TEST_IDS.selectedModelsBar)).toBeVisible();
   }
 
   /** Assert the comparison bar is not visible (single model or none). */
   async expectComparisonBarHidden(): Promise<void> {
-    await expect(this.page.getByTestId('selected-models-bar')).not.toBeVisible();
+    await expect(this.page.getByTestId(TEST_IDS.selectedModelsBar)).not.toBeVisible();
   }
 
   /** Count model pills in the comparison bar. */
   async getComparisonBarModelCount(): Promise<number> {
-    const bar = this.page.getByTestId('selected-models-bar');
+    const bar = this.page.getByTestId(TEST_IDS.selectedModelsBar);
     return bar.locator('button[aria-label^="Remove "]').count();
   }
 
   /** Remove a model from the comparison bar by clicking its X button. */
   async removeModelFromBar(modelName: string): Promise<void> {
     await this.page
-      .getByTestId('selected-models-bar')
+      .getByTestId(TEST_IDS.selectedModelsBar)
       .getByRole('button', { name: `Remove ${modelName}` })
       .click();
   }
@@ -1291,7 +1354,7 @@ export class ChatPage {
   /** Assert the nametag text on the nth message item (0-indexed). */
   async expectModelNametag(messageIndex: number, expectedName: string): Promise<void> {
     const message = this.getMessage(messageIndex);
-    await expect(message.getByTestId('model-nametag')).toContainText(expectedName);
+    await expect(message.getByTestId(TEST_IDS.modelNametag)).toContainText(expectedName);
   }
 
   /**
@@ -1306,12 +1369,12 @@ export class ChatPage {
    */
   async expectAllAIMessagesHaveNametag(): Promise<void> {
     const assistantsWithoutNametag = this.messageList.locator(
-      '[data-role="assistant"]:not(:has([data-testid="model-nametag"]))'
+      `[${ROLE_ATTR}="assistant"]:not(:has([data-testid="${TEST_IDS.modelNametag}"]))`
     );
     // Atomic: Playwright re-queries the locator each poll.
-    await expect(assistantsWithoutNametag).toHaveCount(0, { timeout: 5000 });
+    await expect(assistantsWithoutNametag).toHaveCount(0, { timeout: TIMEOUTS.ASSERT });
 
-    const renderedAssistants = await this.messageList.locator('[data-role="assistant"]').count();
+    const renderedAssistants = await this.messageList.locator(`[${ROLE_ATTR}="assistant"]`).count();
     if (renderedAssistants === 0) {
       throw new Error('expectAllAIMessagesHaveNametag: no assistant messages rendered');
     }
@@ -1321,8 +1384,11 @@ export class ChatPage {
    * Wait for N AI response messages to appear after sending.
    * Waits for all N to have visible content (not just thinking indicators).
    */
-  async waitForMultiModelResponses(count: number, timeout = 15_000): Promise<void> {
-    const assistantMessages = this.messageList.locator('[data-role="assistant"]');
+  async waitForMultiModelResponses(
+    count: number,
+    timeout: number = TIMEOUTS.STREAM
+  ): Promise<void> {
+    const assistantMessages = this.messageList.locator(`[${ROLE_ATTR}="assistant"]`);
     await expect(assistantMessages).toHaveCount(count, { timeout });
     for (let index = 0; index < count; index++) {
       await expect(
@@ -1338,10 +1404,10 @@ export class ChatPage {
 
   /** Get the message content text for an AI response identified by its nametag model name. */
   async getAIResponseByModel(modelName: string): Promise<string> {
-    const assistantMessages = this.messageList.locator('[data-role="assistant"]');
+    const assistantMessages = this.messageList.locator(`[${ROLE_ATTR}="assistant"]`);
     const count = await assistantMessages.count();
     for (let index = 0; index < count; index++) {
-      const nametag = assistantMessages.nth(index).getByTestId('model-nametag');
+      const nametag = assistantMessages.nth(index).getByTestId(TEST_IDS.modelNametag);
       const nametagText = await nametag.textContent();
       if (nametagText?.includes(modelName)) {
         const messageText = await assistantMessages.nth(index).textContent();

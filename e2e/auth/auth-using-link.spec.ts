@@ -1,4 +1,4 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
 import { setupGroupConversationWithSidebar } from '../helpers/group-test-setup.js';
 import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-link.js';
 import { ChatPage } from '../pages/index.js';
@@ -8,8 +8,10 @@ import {
   expectSendInputDisabled,
   sendMessageAsGuest,
 } from '../helpers/link-assertions.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Auth User Using Link', () => {
+  // eslint-disable-next-line no-restricted-syntax -- serial: both tests drive the same shared `test-alice`/`test-bob` personas through link-creation + budget flows; serializing avoids cross-test contention on those shared accounts under fullyParallel.
   test.describe.configure({ mode: 'serial' });
 
   test('logged-in member using history link sees decrypted messages', async ({
@@ -45,7 +47,7 @@ test.describe('Auth User Using Link', () => {
       // Chat mounts at the latest message; older rows may be virtualized out
       // of the viewport, so use the scroll-aware helper to assert visibility.
       const bobChatPage = new ChatPage(testBobPage);
-      await bobChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
+      await bobChatPage.assertMessageVisible('Hello from Alice', { timeout: TIMEOUTS.ASSERT });
       await bobChatPage.assertMessageVisible('Hi from Bob');
 
       await expectNoDecryptionErrors(testBobPage);
@@ -71,7 +73,7 @@ test.describe('Auth User Using Link', () => {
       await expectSharedConversationLoaded(testBobPage);
 
       const bobChatPage = new ChatPage(testBobPage);
-      await bobChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
+      await bobChatPage.assertMessageVisible('Hello from Alice', { timeout: TIMEOUTS.ASSERT });
 
       await expectNoDecryptionErrors(testBobPage);
 
@@ -119,8 +121,8 @@ test.describe('Auth User Using Link', () => {
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
       // Decryption can paint after settled fires.
-      await unsettledExpect(testBobPage.getByText('Post no-history link').first()).toBeVisible({
-        timeout: 10_000,
+      await expect(testBobPage.getByText('Post no-history link').first()).toBeVisible({
+        timeout: TIMEOUTS.ASSERT,
       });
 
       await expectNoDecryptionErrors(testBobPage);
@@ -155,8 +157,8 @@ test.describe('Auth User Using Link', () => {
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
       // Decryption can paint after settled fires.
-      await unsettledExpect(testBobPage.getByText('Latest for write link').first()).toBeVisible({
-        timeout: 10_000,
+      await expect(testBobPage.getByText('Latest for write link').first()).toBeVisible({
+        timeout: TIMEOUTS.ASSERT,
       });
 
       await expectNoDecryptionErrors(testBobPage);

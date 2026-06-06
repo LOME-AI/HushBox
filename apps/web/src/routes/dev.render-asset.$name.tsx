@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createFileRoute, redirect, useParams } from '@tanstack/react-router';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { env } from '@/lib/env';
 import {
   AppIcon,
@@ -42,7 +42,7 @@ export function RenderAssetPage(): React.JSX.Element {
   }
 
   return (
-    <div data-testid="render-asset-wrapper" className="m-0 overflow-hidden p-0">
+    <div data-testid={TEST_IDS.renderAssetWrapper} className="m-0 overflow-hidden p-0">
       <AssetComponent />
     </div>
   );

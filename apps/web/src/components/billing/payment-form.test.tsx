@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TEST_IDS } from '@hushbox/shared';
 import * as envModule from '@/lib/env';
 import { PaymentForm } from './payment-form';
 import * as helcimLoader from '../../lib/helcim-loader';
@@ -603,7 +604,7 @@ describe('PaymentForm', () => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
       });
 
-      expect(screen.getByTestId('helcim-security-badge')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.helcimSecurityBadge)).toBeInTheDocument();
     });
   });
 
@@ -641,9 +642,9 @@ describe('PaymentForm', () => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
       });
 
-      expect(screen.queryByTestId('dev-simulation-buttons')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('simulate-success-btn')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('simulate-failure-btn')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.devSimulationButtons)).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.simulateSuccessBtn)).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.simulateFailureBtn)).not.toBeInTheDocument();
     });
 
     it('shows simulation buttons in local dev mode', async () => {
@@ -662,9 +663,9 @@ describe('PaymentForm', () => {
         expect(screen.getByLabelText(/card number/i)).toBeInTheDocument();
       });
 
-      expect(screen.getByTestId('dev-simulation-buttons')).toBeInTheDocument();
-      expect(screen.getByTestId('simulate-success-btn')).toBeInTheDocument();
-      expect(screen.getByTestId('simulate-failure-btn')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.devSimulationButtons)).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.simulateSuccessBtn)).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.simulateFailureBtn)).toBeInTheDocument();
     });
 
     it('pre-fills form fields when pre-fill success clicked', async () => {
@@ -682,7 +683,7 @@ describe('PaymentForm', () => {
       renderWithProviders(<PaymentForm />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('simulate-success-btn')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.simulateSuccessBtn)).toBeInTheDocument();
       });
 
       // Mock requestSubmit to prevent auto-submit
@@ -692,7 +693,7 @@ describe('PaymentForm', () => {
         formEl.requestSubmit = mockSubmit;
       }
 
-      await user.click(screen.getByTestId('simulate-success-btn'));
+      await user.click(screen.getByTestId(TEST_IDS.simulateSuccessBtn));
 
       await waitFor(() => {
         const cardNumberInput = screen.getByLabelText<HTMLInputElement>(/card number/i);
@@ -721,7 +722,7 @@ describe('PaymentForm', () => {
       renderWithProviders(<PaymentForm />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('simulate-failure-btn')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.simulateFailureBtn)).toBeInTheDocument();
       });
 
       // Mock requestSubmit to prevent auto-submit
@@ -731,7 +732,7 @@ describe('PaymentForm', () => {
         formEl.requestSubmit = mockSubmit;
       }
 
-      await user.click(screen.getByTestId('simulate-failure-btn'));
+      await user.click(screen.getByTestId(TEST_IDS.simulateFailureBtn));
 
       await waitFor(() => {
         const cardNumberInput = screen.getByLabelText<HTMLInputElement>(/card number/i);
@@ -1440,11 +1441,11 @@ describe('PaymentForm', () => {
       const { unmount } = renderWithProviders(<PaymentForm />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('simulate-success-btn')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.simulateSuccessBtn)).toBeInTheDocument();
       });
 
       // Click but unmount before the 100ms timer fires.
-      await user.click(screen.getByTestId('simulate-success-btn'));
+      await user.click(screen.getByTestId(TEST_IDS.simulateSuccessBtn));
       unmount();
     });
 
@@ -1462,7 +1463,7 @@ describe('PaymentForm', () => {
       renderWithProviders(<PaymentForm />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('simulate-success-btn')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.simulateSuccessBtn)).toBeInTheDocument();
       });
 
       const requestSubmitSpy = vi.fn();
@@ -1471,7 +1472,7 @@ describe('PaymentForm', () => {
         formEl.requestSubmit = requestSubmitSpy;
       }
 
-      await user.click(screen.getByTestId('simulate-success-btn'));
+      await user.click(screen.getByTestId(TEST_IDS.simulateSuccessBtn));
 
       await waitFor(() => {
         expect(requestSubmitSpy).toHaveBeenCalled();
@@ -1492,7 +1493,7 @@ describe('PaymentForm', () => {
       renderWithProviders(<PaymentForm />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('simulate-failure-btn')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.simulateFailureBtn)).toBeInTheDocument();
       });
 
       const requestSubmitSpy = vi.fn();
@@ -1501,7 +1502,7 @@ describe('PaymentForm', () => {
         formEl.requestSubmit = requestSubmitSpy;
       }
 
-      await user.click(screen.getByTestId('simulate-failure-btn'));
+      await user.click(screen.getByTestId(TEST_IDS.simulateFailureBtn));
 
       await waitFor(() => {
         expect(requestSubmitSpy).toHaveBeenCalled();
@@ -1766,7 +1767,7 @@ describe('PaymentForm', () => {
       renderWithProviders(<PaymentForm />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('simulate-success-btn')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.simulateSuccessBtn)).toBeInTheDocument();
       });
 
       // Type an amount before clicking simulate so populateTestCard's
@@ -1777,7 +1778,7 @@ describe('PaymentForm', () => {
       const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
       if (formEl) formEl.requestSubmit = requestSubmitSpy;
 
-      await user.click(screen.getByTestId('simulate-success-btn'));
+      await user.click(screen.getByTestId(TEST_IDS.simulateSuccessBtn));
 
       expect(screen.getByLabelText<HTMLInputElement>(/amount/i).value).toBe('25');
     });

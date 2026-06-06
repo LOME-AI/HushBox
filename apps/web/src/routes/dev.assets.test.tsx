@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_ID_BUILDERS } from '@hushbox/shared';
 import {
   AssetsPage,
   ASSET_DEFINITIONS,
@@ -31,7 +32,7 @@ describe('AssetsPage', () => {
   it('renders a card for each asset definition', () => {
     render(<AssetsPage />);
     for (const asset of ASSET_DEFINITIONS) {
-      expect(screen.getByTestId(`asset-card-${asset.name}`)).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_ID_BUILDERS.assetCard(asset.name))).toBeInTheDocument();
     }
   });
 
@@ -45,7 +46,7 @@ describe('AssetsPage', () => {
   it('shows asset dimensions inside each card', () => {
     render(<AssetsPage />);
     for (const asset of ASSET_DEFINITIONS) {
-      const card = screen.getByTestId(`asset-card-${asset.name}`);
+      const card = screen.getByTestId(TEST_ID_BUILDERS.assetCard(asset.name));
       expect(card).toHaveTextContent(`${String(asset.width)} × ${String(asset.height)}`);
     }
   });
@@ -53,7 +54,7 @@ describe('AssetsPage', () => {
   it('renders preview images from generated PNGs', () => {
     render(<AssetsPage />);
     for (const asset of ASSET_DEFINITIONS) {
-      const img = screen.getByTestId(`asset-preview-${asset.name}`);
+      const img = screen.getByTestId(TEST_ID_BUILDERS.assetPreview(asset.name));
       expect(img.tagName).toBe('IMG');
       expect(img).toHaveAttribute('src', `/dev-assets/${asset.name}.png`);
     }
@@ -62,7 +63,7 @@ describe('AssetsPage', () => {
   it('renders "Open component" links to render routes for each asset', () => {
     render(<AssetsPage />);
     for (const asset of ASSET_DEFINITIONS) {
-      const link = screen.getByTestId(`asset-link-${asset.name}`);
+      const link = screen.getByTestId(TEST_ID_BUILDERS.assetLink(asset.name));
       expect(link).toHaveAttribute('href', `/dev/render-asset/${asset.name}`);
       expect(link).toHaveTextContent('Open component');
     }
@@ -71,8 +72,10 @@ describe('AssetsPage', () => {
   it('renders "Open image" buttons for each asset', () => {
     render(<AssetsPage />);
     for (const asset of ASSET_DEFINITIONS) {
-      const card = screen.getByTestId(`asset-card-${asset.name}`);
-      const button = card.querySelector('[data-testid="asset-open-image-' + asset.name + '"]');
+      const card = screen.getByTestId(TEST_ID_BUILDERS.assetCard(asset.name));
+      const button = card.querySelector(
+        `[data-testid="${TEST_ID_BUILDERS.assetOpenImage(asset.name)}"]`
+      );
       expect(button).not.toBeNull();
       expect(button).toHaveTextContent('Open image');
     }
@@ -123,7 +126,7 @@ describe('AssetsPage', () => {
     for (const resolution of RESOLUTION_DEFINITIONS) {
       for (const screenshot of SCREENSHOT_DEFINITIONS) {
         expect(
-          screen.getByTestId(`screenshot-card-${resolution.name}-${screenshot.name}`)
+          screen.getByTestId(TEST_ID_BUILDERS.screenshotCard(resolution.name, screenshot.name))
         ).toBeInTheDocument();
       }
     }
@@ -133,7 +136,9 @@ describe('AssetsPage', () => {
     render(<AssetsPage />);
     for (const resolution of RESOLUTION_DEFINITIONS) {
       for (const screenshot of SCREENSHOT_DEFINITIONS) {
-        const card = screen.getByTestId(`screenshot-card-${resolution.name}-${screenshot.name}`);
+        const card = screen.getByTestId(
+          TEST_ID_BUILDERS.screenshotCard(resolution.name, screenshot.name)
+        );
         const img = card.querySelector('img');
         expect(img).not.toBeNull();
         expect(img).toHaveAttribute(
@@ -147,7 +152,7 @@ describe('AssetsPage', () => {
   it('shows resolution dimensions in each group', () => {
     render(<AssetsPage />);
     for (const resolution of RESOLUTION_DEFINITIONS) {
-      const group = screen.getByTestId(`resolution-group-${resolution.name}`);
+      const group = screen.getByTestId(TEST_ID_BUILDERS.resolutionGroup(resolution.name));
       expect(group).toHaveTextContent(`${String(resolution.width)} × ${String(resolution.height)}`);
     }
   });
@@ -156,9 +161,11 @@ describe('AssetsPage', () => {
     render(<AssetsPage />);
     for (const resolution of RESOLUTION_DEFINITIONS) {
       for (const screenshot of SCREENSHOT_DEFINITIONS) {
-        const card = screen.getByTestId(`screenshot-card-${resolution.name}-${screenshot.name}`);
+        const card = screen.getByTestId(
+          TEST_ID_BUILDERS.screenshotCard(resolution.name, screenshot.name)
+        );
         const button = card.querySelector(
-          `[data-testid="screenshot-open-image-${resolution.name}-${screenshot.name}"]`
+          `[data-testid="${TEST_ID_BUILDERS.screenshotOpenImage(resolution.name, screenshot.name)}"]`
         );
         expect(button).not.toBeNull();
         expect(button).toHaveTextContent('Open image');
@@ -170,7 +177,7 @@ describe('AssetsPage', () => {
     const user = userEvent.setup();
     render(<AssetsPage />);
     const firstAsset = ASSET_DEFINITIONS[0]!;
-    const button = screen.getByTestId(`asset-open-image-${firstAsset.name}`);
+    const button = screen.getByTestId(TEST_ID_BUILDERS.assetOpenImage(firstAsset.name));
     await user.click(button);
     const dialog = screen.getByRole('dialog');
     expect(dialog).toBeInTheDocument();
@@ -185,7 +192,7 @@ describe('AssetsPage', () => {
     const firstResolution = RESOLUTION_DEFINITIONS[0]!;
     const firstScreenshot = SCREENSHOT_DEFINITIONS[0]!;
     const button = screen.getByTestId(
-      `screenshot-open-image-${firstResolution.name}-${firstScreenshot.name}`
+      TEST_ID_BUILDERS.screenshotOpenImage(firstResolution.name, firstScreenshot.name)
     );
     await user.click(button);
     const dialog = screen.getByRole('dialog');
@@ -202,7 +209,7 @@ describe('AssetsPage', () => {
     const user = userEvent.setup();
     render(<AssetsPage />);
     const firstAsset = ASSET_DEFINITIONS[0]!;
-    const button = screen.getByTestId(`asset-open-image-${firstAsset.name}`);
+    const button = screen.getByTestId(TEST_ID_BUILDERS.assetOpenImage(firstAsset.name));
     await user.click(button);
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent(firstAsset.label);

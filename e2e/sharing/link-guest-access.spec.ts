@@ -1,5 +1,5 @@
+import { TEST_IDS } from '@hushbox/shared';
 import { test, expect } from '../fixtures.js';
-import { unsettledExpect } from '../helpers/settled-expect.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import {
   setupConversationWithSidebar,
@@ -12,8 +12,10 @@ import {
   expectReadOnlyNotice,
   expectDelegatedBudgetNotice,
 } from '../helpers/link-assertions.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Link Guest Access', () => {
+  // eslint-disable-next-line no-restricted-syntax -- serial: the write-guest tests send owner-funded messages that reserve against the shared per-owner balance key (chatReservedBalance:{aliceUserId}); parallel runs would race that reservation
   test.describe.configure({ mode: 'serial' });
 
   test('with-history link guests can view and interact', async ({
@@ -52,7 +54,7 @@ test.describe('Link Guest Access', () => {
       // virtualization (chat now mounts at the latest message) doesn't hide
       // first-seed rows from the assertion.
       const guestChatPage = new ChatPage(unauthenticatedPage);
-      await guestChatPage.assertMessageVisible('Hello from Alice', { timeout: 10_000 });
+      await guestChatPage.assertMessageVisible('Hello from Alice', { timeout: TIMEOUTS.ASSERT });
       await guestChatPage.assertMessageVisible('Hi from Bob');
 
       await expectSendInputDisabled(unauthenticatedPage);
@@ -77,7 +79,9 @@ test.describe('Link Guest Access', () => {
       await expectSharedConversationLoaded(freshPage);
 
       const freshChatPage = new ChatPage(freshPage);
-      await freshChatPage.assertMessageVisible('Hello from Alice', { timeout: 15_000 });
+      await freshChatPage.assertMessageVisible('Hello from Alice', {
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
+      });
 
       await expectDelegatedBudgetNotice(freshPage);
 
@@ -85,20 +89,22 @@ test.describe('Link Guest Access', () => {
       await expect(freshPage.getByText('/ $0.00 budget')).not.toBeVisible();
 
       const guestInput = freshPage.getByRole('textbox', { name: /message/i });
-      await expect(guestInput).toBeVisible({ timeout: 5000 });
+      await expect(guestInput).toBeVisible({ timeout: TIMEOUTS.MODAL });
 
       const guestMessage = `Write guest says hello ${String(Date.now())}`;
       await guestInput.fill(guestMessage);
 
-      const sendButton = freshPage.getByTestId('send-button');
-      await expect(sendButton).toBeEnabled({ timeout: 5000 });
+      const sendButton = freshPage.getByTestId(TEST_IDS.sendButton);
+      await expect(sendButton).toBeEnabled({ timeout: TIMEOUTS.MODAL });
       await sendButton.click();
 
-      await expect(freshPage.getByText(guestMessage).first()).toBeVisible({ timeout: 10_000 });
+      await expect(freshPage.getByText(guestMessage).first()).toBeVisible({
+        timeout: TIMEOUTS.ASSERT,
+      });
 
       await expect(
         freshPage.getByRole('log', { name: 'Chat messages' }).getByText('Echo:').first()
-      ).toBeVisible({ timeout: 15_000 });
+      ).toBeVisible({ timeout: TIMEOUTS.STREAM });
     });
   });
 
@@ -145,10 +151,8 @@ test.describe('Link Guest Access', () => {
       ).not.toBeVisible();
 
       // Should see post-rotation message (decryption may lag behind fetch settlement)
-      await unsettledExpect(
-        unauthenticatedPage.getByText('Post-rotation message').first()
-      ).toBeVisible({
-        timeout: 10_000,
+      await expect(unauthenticatedPage.getByText('Post-rotation message').first()).toBeVisible({
+        timeout: TIMEOUTS.ASSERT,
       });
 
       await expectSendInputDisabled(unauthenticatedPage);
@@ -183,23 +187,25 @@ test.describe('Link Guest Access', () => {
       await expect(freshPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
       // Decryption can paint after settled fires.
-      await unsettledExpect(freshPage.getByText('Latest epoch message').first()).toBeVisible({
-        timeout: 15_000,
+      await expect(freshPage.getByText('Latest epoch message').first()).toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
 
       await expectDelegatedBudgetNotice(freshPage);
 
       const guestInput = freshPage.getByRole('textbox', { name: /message/i });
-      await expect(guestInput).toBeVisible({ timeout: 5000 });
+      await expect(guestInput).toBeVisible({ timeout: TIMEOUTS.MODAL });
 
       const guestMessage = `No-history write guest ${String(Date.now())}`;
       await guestInput.fill(guestMessage);
 
-      const sendButton = freshPage.getByTestId('send-button');
-      await expect(sendButton).toBeEnabled({ timeout: 5000 });
+      const sendButton = freshPage.getByTestId(TEST_IDS.sendButton);
+      await expect(sendButton).toBeEnabled({ timeout: TIMEOUTS.MODAL });
       await sendButton.click();
 
-      await expect(freshPage.getByText(guestMessage).first()).toBeVisible({ timeout: 10_000 });
+      await expect(freshPage.getByText(guestMessage).first()).toBeVisible({
+        timeout: TIMEOUTS.ASSERT,
+      });
     });
   });
 
@@ -263,10 +269,10 @@ test.describe('Link Guest Access', () => {
       await guestSidebar.openViaFacepile();
       await guestSidebar.waitForLoaded();
 
-      const youBadge = unauthenticatedPage.getByTestId('link-you-badge');
-      await expect(youBadge).toBeVisible({ timeout: 5000 });
+      const youBadge = unauthenticatedPage.getByTestId(TEST_IDS.linkYouBadge);
+      await expect(youBadge).toBeVisible({ timeout: TIMEOUTS.MODAL });
 
-      const memberLeaveAction = unauthenticatedPage.getByTestId('member-leave-action');
+      const memberLeaveAction = unauthenticatedPage.getByTestId(TEST_IDS.memberLeaveAction);
       await expect(memberLeaveAction).not.toBeVisible();
     });
   });

@@ -12,7 +12,13 @@ import {
   useIsMobile,
   useIsTouchDevice,
 } from '@hushbox/ui';
-import { ROUTES, MAX_SELECTED_MODELS, shortenModelName } from '@hushbox/shared';
+import {
+  ROUTES,
+  MAX_SELECTED_MODELS,
+  shortenModelName,
+  TEST_IDS,
+  TEST_ID_BUILDERS,
+} from '@hushbox/shared';
 import { useModelStore, type PickerMode } from '@/stores/model';
 import { formatContextLength } from '../../lib/format';
 import { getAccessibleModelIds } from '../../hooks/models';
@@ -244,7 +250,10 @@ function ModelItemContent({
       <div className="relative flex items-center justify-between gap-2">
         <span className="truncate font-medium">{shortenModelName(model.name)}</span>
         {showOverlay && (
-          <Lock data-testid="lock-icon" className="text-muted-foreground h-4 w-4 shrink-0" />
+          <Lock
+            data-testid={TEST_IDS.lockIcon}
+            className="text-muted-foreground h-4 w-4 shrink-0"
+          />
         )}
       </div>
       <ModelItemDetails
@@ -298,7 +307,7 @@ function ModelCheckboxIcon({
   const delay = (cascadeIndex * CHECKBOX_CASCADE_STAGGER_MS) / 1000;
   return (
     <motion.span
-      data-testid="model-checkbox"
+      data-testid={TEST_IDS.modelCheckbox}
       data-cascade-index={cascadeIndex}
       className="relative flex shrink-0 items-center justify-center overflow-hidden"
       aria-hidden
@@ -389,7 +398,7 @@ function RowInfoIconButton({
   if (!isTouchDevice) return null;
   return (
     <button
-      data-testid="row-info-icon"
+      data-testid={TEST_IDS.rowInfoIcon}
       type="button"
       aria-label={`Show details for ${modelName}`}
       className="text-muted-foreground hover:bg-muted/50 hover:text-foreground relative flex w-12 shrink-0 cursor-pointer items-center justify-center self-stretch rounded transition-colors"
@@ -420,7 +429,7 @@ function RowChevronButton({
     : `Show details for ${modelName}`;
   return (
     <button
-      data-testid="row-expand-chevron"
+      data-testid={TEST_IDS.rowExpandChevron}
       type="button"
       aria-label={ariaLabel}
       aria-expanded={isExpanded}
@@ -459,7 +468,10 @@ function RowExpandedInfo({
   onActivate,
 }: Readonly<RowExpandedInfoProps>): React.JSX.Element {
   return (
-    <div data-testid="row-expanded-info" className="border-border-strong border-t px-4 pt-3 pb-4">
+    <div
+      data-testid={TEST_IDS.rowExpandedInfo}
+      className="border-border-strong border-t px-4 pt-3 pb-4"
+    >
       <ModelInfoPanel model={model} compact />
       <Button
         type="button"
@@ -470,7 +482,7 @@ function RowExpandedInfo({
           e.stopPropagation();
           onActivate();
         }}
-        data-testid="row-expanded-use-button"
+        data-testid={TEST_IDS.rowExpandedUseButton}
       >
         {expandedRowButtonLabel(pickerMode, isSelected, model.name)}
       </Button>
@@ -545,7 +557,7 @@ function ModelListItem({
 
   return (
     <div
-      data-testid={`model-item-${model.id}`}
+      data-testid={TEST_ID_BUILDERS.modelItem(model.id)}
       data-selected={isSelected}
       data-expanded={isExpanded}
       data-pulsing={isPulsing ? 'true' : undefined}
@@ -555,7 +567,7 @@ function ModelListItem({
     >
       {showOverlay && (
         <div
-          data-testid="premium-overlay"
+          data-testid={TEST_IDS.premiumOverlay}
           className="bg-background/60 pointer-events-none absolute inset-0 rounded-md"
         />
       )}
@@ -652,7 +664,7 @@ function SearchAndSortSection({
           />
         )}
       </div>
-      <div data-testid="search-and-sort-row" className="flex items-center gap-2">
+      <div data-testid={TEST_IDS.searchAndSortRow} className="flex items-center gap-2">
         <div className="relative min-w-0 flex-1">
           <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
           <Input
@@ -806,7 +818,7 @@ function ModelSelectorFooter({
   const useLabel = selectedCount === 1 ? 'Use 1 model' : `Use ${String(selectedCount)} models`;
   return (
     <motion.div
-      data-testid="model-selector-footer-motion"
+      data-testid={TEST_IDS.modelSelectorFooterMotion}
       initial={{ y: 24, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: 24, opacity: 0 }}
@@ -817,12 +829,12 @@ function ModelSelectorFooter({
         cancel={{
           label: 'Cancel',
           onClick: onCancel,
-          testId: 'cancel-button',
+          testId: TEST_IDS.cancelButton,
         }}
         primary={{
           label: useLabel,
           onClick: onConfirm,
-          testId: 'use-models-button',
+          testId: TEST_IDS.useModelsButton,
         }}
       />
     </motion.div>
@@ -840,7 +852,7 @@ function MultiCountChip({
 }: Readonly<MultiCountChipProps>): React.JSX.Element {
   return (
     <motion.span
-      data-testid="picker-mode-counter"
+      data-testid={TEST_IDS.pickerModeCounter}
       layout
       initial={{ opacity: 0, width: 0 }}
       animate={{ opacity: 1, width: 'auto' }}
@@ -854,7 +866,7 @@ function MultiCountChip({
           <span aria-hidden>·</span>
           <button
             type="button"
-            data-testid="clear-selection-button"
+            data-testid={TEST_IDS.clearSelectionButton}
             onClick={onClear}
             className="text-primary cursor-pointer underline-offset-2 hover:underline"
           >
@@ -980,7 +992,7 @@ function MobileTopSection({
     <div className="flex flex-shrink-0 flex-col">
       <div className="border-border-strong border-b py-2">
         <div
-          data-testid="picker-mode-toggle-wrapper"
+          data-testid={TEST_IDS.pickerModeToggleWrapper}
           className="mx-auto w-full max-w-[calc(100%-3rem)] px-4"
         >
           <PickerModeToggle
@@ -1086,7 +1098,7 @@ function DesktopTopQuadrant({
 }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
   return (
     <div
-      data-testid="desktop-top-quadrant"
+      data-testid={TEST_IDS.desktopTopQuadrant}
       className={cn(
         'border-border-strong flex flex-shrink-0 items-center overflow-hidden border-b',
         DESKTOP_TOP_QUADRANT_HEIGHT_CLASS
@@ -1115,7 +1127,7 @@ function DesktopRightColumn({
       <DesktopTopQuadrant>
         <div className="py-2">
           <div
-            data-testid="picker-mode-toggle-wrapper"
+            data-testid={TEST_IDS.pickerModeToggleWrapper}
             className="mx-auto w-full max-w-[calc(100%-3rem)] px-4"
           >
             <PickerModeToggle
@@ -1128,7 +1140,7 @@ function DesktopRightColumn({
           </div>
         </div>
       </DesktopTopQuadrant>
-      <ScrollArea data-testid="model-details-panel" className="min-h-0 flex-1">
+      <ScrollArea data-testid={TEST_IDS.modelDetailsPanel} className="min-h-0 flex-1">
         <div className="p-6">{focusedModel ? <ModelInfoPanel model={focusedModel} /> : null}</div>
       </ScrollArea>
     </div>
@@ -1162,7 +1174,7 @@ function ModelSelectorModalLayout({
         'bg-background flex w-[90vw] max-w-4xl flex-col overflow-hidden rounded-lg border shadow-lg',
         isMobile ? 'h-[92dvh]' : 'h-[85dvh]'
       )}
-      data-testid="model-selector-modal"
+      data-testid={TEST_IDS.modelSelectorModal}
       data-picker-mode={pickerMode}
     >
       <div className="flex min-h-0 flex-1 flex-col">
@@ -1177,7 +1189,7 @@ function ModelSelectorModalLayout({
 
         <div className={cn('flex min-h-0 min-w-0 flex-1', isMobile ? 'flex-col' : 'flex-row')}>
           <div
-            data-testid="model-list-panel"
+            data-testid={TEST_IDS.modelListPanel}
             className={cn(
               'border-border-strong flex min-h-0 min-w-0 flex-col overflow-x-hidden',
               isMobile ? 'flex-[9] border-b' : 'flex-1 border-r'
@@ -1189,7 +1201,7 @@ function ModelSelectorModalLayout({
               </DesktopTopQuadrant>
             )}
 
-            <ScrollArea data-testid="model-list-scroll" className="min-h-0 flex-1">
+            <ScrollArea data-testid={TEST_IDS.modelListScroll} className="min-h-0 flex-1">
               <ModelListBody {...modelListBodyProps} />
             </ScrollArea>
           </div>

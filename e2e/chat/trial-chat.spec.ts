@@ -1,6 +1,8 @@
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { ChatPage } from '../pages';
 import { requireEnv } from '../helpers/env.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 import type { Page } from '@playwright/test';
 
 const apiUrl = requireEnv('VITE_API_URL');
@@ -22,17 +24,11 @@ function allowTrialRateLimitErrors(page: Page): void {
   expectConsoleErrors(page, [/Failed to load resource: .*status of 429/]);
 }
 
-// All trial chat tests share localhost IP for rate limiting - run only on chromium, serially
-test.describe('Trial Chat', () => {
-  test.beforeEach(({ page: _page }, testInfo) => {
-    if (testInfo.project.name !== 'chromium') {
-      test.skip(
-        true,
-        'Trial chat tests run only on chromium to avoid IP-based rate limit interference'
-      );
-    }
-  });
-
+// All trial chat tests share localhost IP for rate limiting - run only on chromium, serially.
+// @chromium-only gates these to the chromium project (config grepInvert excludes the tag
+// from every other project), replacing the former in-body project-name skip.
+test.describe('Trial Chat', { tag: '@chromium-only' }, () => {
+  // eslint-disable-next-line no-restricted-syntax -- serial: every trial test shares the same localhost IP whose per-day trial cap is the behavior under test; concurrent runs would consume each other's allowance.
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async ({ request }) => {
@@ -48,8 +44,8 @@ test.describe('Trial Chat', () => {
       await chatPage.expectPromptInputVisible();
       await chatPage.expectSuggestionChipsVisible();
 
-      await expect(chatPage.promptInput).toBeEnabled({ timeout: 3000 });
-      await expect(chatPage.promptInput).toBeFocused({ timeout: 1000 });
+      await expect(chatPage.promptInput).toBeEnabled({ timeout: TIMEOUTS.MODAL });
+      await expect(chatPage.promptInput).toBeFocused({ timeout: TIMEOUTS.QUICK });
     });
   });
 
@@ -63,7 +59,7 @@ test.describe('Trial Chat', () => {
       await chatPage.sendNewChatMessage(testMessage);
 
       await expect(unauthenticatedPage).toHaveURL('/chat/trial');
-      await expect(chatPage.messageList).toBeVisible({ timeout: 5000 });
+      await expect(chatPage.messageList).toBeVisible({ timeout: TIMEOUTS.MODAL });
       await chatPage.expectMessageVisible(testMessage);
       await chatPage.waitForAIResponse();
       await chatPage.expectAssistantMessageContains('Echo:');
@@ -79,7 +75,7 @@ test.describe('Trial Chat', () => {
 
       const firstMessage = `Trial first ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(firstMessage);
-      await expect(chatPage.messageList).toBeVisible({ timeout: 5000 });
+      await expect(chatPage.messageList).toBeVisible({ timeout: TIMEOUTS.MODAL });
       await chatPage.waitForAIResponse();
 
       const secondMessage = `Trial second ${String(Date.now())}`;
@@ -105,11 +101,11 @@ test.describe('Trial Chat', () => {
         const message = `Rate limit test ${String(index)} ${String(Date.now())}`;
         if (index === 1) {
           await chatPage.sendNewChatMessage(message);
-          await expect(chatPage.messageList).toBeVisible({ timeout: 5000 });
+          await expect(chatPage.messageList).toBeVisible({ timeout: TIMEOUTS.MODAL });
         } else {
           await chatPage.sendFollowUpMessage(message);
         }
-        await chatPage.waitForAIResponse(message, 30_000);
+        await chatPage.waitForAIResponse(message, TIMEOUTS.MEDIA_DECODE);
       }
 
       // Don't use sendFollowUpMessage - rate limiting prevents input from clearing
@@ -119,7 +115,7 @@ test.describe('Trial Chat', () => {
 
       // Rate limit shows inline message instead of modal
       await expect(unauthenticatedPage.getByText(/5 free messages/i)).toBeVisible({
-        timeout: 10_000,
+        timeout: TIMEOUTS.ASSERT,
       });
       await expect(unauthenticatedPage.getByText(/continue chatting/i)).toBeVisible();
     });
@@ -135,11 +131,11 @@ test.describe('Trial Chat', () => {
         const message = `Disable test ${String(index)} ${String(Date.now())}`;
         if (index === 1) {
           await chatPage.sendNewChatMessage(message);
-          await expect(chatPage.messageList).toBeVisible({ timeout: 5000 });
+          await expect(chatPage.messageList).toBeVisible({ timeout: TIMEOUTS.MODAL });
         } else {
           await chatPage.sendFollowUpMessage(message);
         }
-        await chatPage.waitForAIResponse(message, 30_000);
+        await chatPage.waitForAIResponse(message, TIMEOUTS.MEDIA_DECODE);
       }
 
       // Don't use sendFollowUpMessage - rate limiting prevents input from clearing
@@ -148,7 +144,7 @@ test.describe('Trial Chat', () => {
       await chatPage.messageInput.press('Enter');
 
       await expect(unauthenticatedPage.getByText(/You've used all 5 free messages/i)).toBeVisible({
-        timeout: 10_000,
+        timeout: TIMEOUTS.ASSERT,
       });
       await expect(chatPage.messageInput).toBeDisabled();
     });
@@ -159,26 +155,28 @@ test.describe('Trial Chat', () => {
       unauthenticatedPage,
     }) => {
       const chatPage = new ChatPage(unauthenticatedPage);
-      const signupModal = unauthenticatedPage.getByTestId('signup-modal');
+      const signupModal = unauthenticatedPage.getByTestId(TEST_IDS.signupModal);
 
       await chatPage.goto();
 
-      const modelSelector = unauthenticatedPage.getByTestId('model-selector-button');
-      await expect(modelSelector).toBeVisible({ timeout: 10_000 });
+      const modelSelector = unauthenticatedPage.getByTestId(TEST_IDS.modelSelectorButton);
+      await expect(modelSelector).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await modelSelector.click();
 
-      const modal = unauthenticatedPage.getByTestId('model-selector-modal');
-      await expect(modal).toBeVisible({ timeout: 5000 });
+      const modal = unauthenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
+      await expect(modal).toBeVisible({ timeout: TIMEOUTS.MODAL });
 
       const premiumModel = modal
-        .locator('[data-testid^="model-item-"]:has([data-testid="lock-icon"])')
+        .locator(
+          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:has([data-testid="${TEST_IDS.lockIcon}"])`
+        )
         .first();
-      await expect(premiumModel).toBeVisible({ timeout: 10_000 });
+      await expect(premiumModel).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       // Single click on a premium row triggers onPremiumClick now that the
       // dual-zone (focus vs commit) pattern was removed in the picker rewrite.
       await premiumModel.locator('button').first().click();
 
-      await expect(signupModal).toBeVisible({ timeout: 3000 });
+      await expect(signupModal).toBeVisible({ timeout: TIMEOUTS.MODAL });
       const heading = signupModal.getByRole('heading');
       await expect(heading).toContainText(/premium/i);
     });

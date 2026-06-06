@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as React from 'react';
+import { TEST_ID_BUILDERS } from '@hushbox/shared';
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: vi.fn(() => vi.fn()),
@@ -156,7 +157,7 @@ describe('EmailsPage', () => {
 
       await waitFor(() => {
         for (const template of mockTemplates) {
-          const iframe = screen.getByTestId(`email-iframe-${template.name}`);
+          const iframe = screen.getByTestId(TEST_ID_BUILDERS.emailIframe(template.name));
           expect(iframe).toHaveAttribute('srcDoc', template.html);
         }
       });

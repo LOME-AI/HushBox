@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useState } from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 
 import { cn } from '../lib/utilities';
 
@@ -106,7 +107,7 @@ function Input({
 
       {hasIcon && (
         <div
-          data-testid="input-icon"
+          data-testid={TEST_IDS.inputIcon}
           className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2"
         >
           {icon}
@@ -126,7 +127,7 @@ function Input({
 
       {hasSuffix && (
         <div
-          data-testid="input-suffix"
+          data-testid={TEST_IDS.inputSuffix}
           className={cn(
             'absolute right-3 -translate-y-1/2',
             hasLabel ? 'top-[calc(50%+4px)]' : 'top-1/2'

@@ -679,6 +679,35 @@ after`);
     });
   });
 
+  describe('ops-dispatch-env section', () => {
+    it('exposes the same backend secrets and literals as ops-env', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-dispatch-env
+old content
+# END GENERATED: ops-dispatch-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).toContain('DATABASE_URL: ${{ secrets.DATABASE_URL }}');
+      expect(content).toContain('R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}');
+      expect(content).toContain('R2_BUCKET_MEDIA: hushbox-media');
+    });
+
+    it('omits the deploy-only APP_VERSION (no version job exists in the manual runner)', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-dispatch-env
+old content
+# END GENERATED: ops-dispatch-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      expect(content).not.toContain('APP_VERSION');
+      expect(content).not.toContain('needs.version.outputs.version');
+    });
+  });
+
   describe('multiple sections', () => {
     it('updates all sections in a single call', () => {
       createCiYml(`name: CI

@@ -9,6 +9,7 @@ import {
   UserMessageError,
   useAsyncAction,
 } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { useOtpVerification } from '@/hooks/use-otp-verification';
@@ -111,7 +112,7 @@ export function DisableTwoFactorModal({
       dismissible={!isBusy}
       {...(step === 'code' && { onBack: handleBack })}
     >
-      <OverlayContent data-testid="disable-two-factor-modal" className="w-[75vw]">
+      <OverlayContent data-testid={TEST_IDS.disableTwoFactorModal} className="w-[75vw]">
         {step === 'password' ? (
           <>
             <OverlayHeader

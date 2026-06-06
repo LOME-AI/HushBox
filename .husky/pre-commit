@@ -11,7 +11,10 @@ pnpm generate:env
 git add apps/api/wrangler.toml \
   .github/workflows/ci.yml \
   .github/workflows/release.yml \
-  .github/workflows/build-android.yml
+  .github/workflows/build-android.yml \
+  .github/workflows/run-ops-script.yml
+pnpm generate:ops-dispatch
+git add .github/workflows/run-ops-script.yml
 pnpm --filter @hushbox/db db:generate
 git add packages/db/drizzle
 pnpm seed:cache

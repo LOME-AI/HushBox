@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Dices, type LucideIcon } from 'lucide-react';
 import { Button, cn } from '@hushbox/ui';
-import { getSecureRandomIndex } from '@hushbox/shared';
+import { getSecureRandomIndex, TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { getSuggestionsForModality } from '@/lib/prompt-suggestions';
 import { useModelStore } from '@/stores/model';
 import { IconMorph } from '@/components/shared/icon-morph';
@@ -34,11 +34,11 @@ function ChipSlot({ index, slot }: Readonly<ChipSlotProps>): React.JSX.Element {
       size="sm"
       onClick={slot.onClick}
       className="gap-2 rounded-full"
-      data-testid={`suggestion-slot-${String(index)}`}
+      data-testid={TEST_ID_BUILDERS.suggestionSlot(index)}
       aria-label={slot.label}
     >
-      <IconMorph icon={slot.icon} iconKey={slot.iconKey} data-testid="icon-morph" />
-      <MorphWidth duration={0.7} data-testid="morph-width">
+      <IconMorph icon={slot.icon} iconKey={slot.iconKey} data-testid={TEST_IDS.iconMorph} />
+      <MorphWidth duration={0.7} data-testid={TEST_IDS.morphWidth}>
         <TypingAnimation text={slot.label} loop={false} skipInitialTyping />
       </MorphWidth>
     </Button>
@@ -107,11 +107,11 @@ export function SuggestionChips({
 
   return (
     <div
-      data-testid="suggestion-chips"
+      data-testid={TEST_IDS.suggestionChips}
       className={cn('flex flex-col items-center gap-2', className)}
     >
       <div
-        data-testid="suggestion-chips-row"
+        data-testid={TEST_IDS.suggestionChipsRow}
         className="flex flex-wrap items-center justify-center gap-2"
       >
         {firstRowSlots.map((slot, index) => (
@@ -123,7 +123,7 @@ export function SuggestionChips({
       </div>
       {secondRowSlots.length > 0 && (
         <div
-          data-testid="suggestion-chips-row"
+          data-testid={TEST_IDS.suggestionChipsRow}
           className="flex flex-wrap items-center justify-center gap-2"
         >
           {secondRowSlots.map((slot, offset) => {

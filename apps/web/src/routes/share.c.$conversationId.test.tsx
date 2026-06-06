@@ -9,10 +9,14 @@ vi.mock('@hushbox/crypto', () => ({
   deriveKeysFromLinkSecret: (...args: unknown[]) => mockDeriveKeysFromLinkSecret(...args),
 }));
 
-vi.mock('@hushbox/shared', () => ({
-  fromBase64: (b64: string) => mockFromBase64(b64),
-  toBase64: (bytes: Uint8Array) => mockToBase64(bytes),
-}));
+vi.mock('@hushbox/shared', async () => {
+  const actual = await vi.importActual<typeof import('@hushbox/shared')>('@hushbox/shared');
+  return {
+    ...actual,
+    fromBase64: (b64: string) => mockFromBase64(b64),
+    toBase64: (bytes: Uint8Array) => mockToBase64(bytes),
+  };
+});
 
 const mockSetLinkGuestAuth = vi.fn();
 const mockClearLinkGuestAuth = vi.fn();
@@ -69,6 +73,7 @@ vi.mock('@tanstack/react-router', () => ({
   },
 }));
 
+import { TEST_IDS } from '@hushbox/shared';
 import { SharedConversationPage } from './share.c.$conversationId.js';
 
 const FAKE_PUBLIC_KEY = new Uint8Array(32).fill(42);
@@ -96,7 +101,7 @@ describe('SharedConversationPage', () => {
   it('renders AppShell wrapping AuthenticatedChatPage', () => {
     render(<SharedConversationPage />);
 
-    expect(screen.getByTestId('app-shell')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.appShell)).toBeInTheDocument();
     expect(screen.getByTestId('authenticated-chat-page')).toBeInTheDocument();
   });
 
@@ -162,7 +167,7 @@ describe('SharedConversationPage', () => {
 
     render(<SharedConversationPage />);
 
-    expect(screen.getByTestId('shared-conversation-error')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.sharedConversationError)).toBeInTheDocument();
     expect(screen.queryByTestId('authenticated-chat-page')).not.toBeInTheDocument();
   });
 });

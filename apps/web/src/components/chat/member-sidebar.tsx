@@ -35,6 +35,8 @@ import {
   effectiveBudgetCents,
   normalizeUsername,
   displayUsername,
+  TEST_IDS,
+  TEST_ID_BUILDERS,
 } from '@hushbox/shared';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useConversationBudgets } from '@/hooks/use-conversation-budgets';
@@ -101,14 +103,14 @@ function AdminActionButtons({
         label="New Member"
         onClick={() => onAddMember?.()}
         {...(collapsed && { collapsed: true })}
-        testId="new-member-button"
+        testId={TEST_IDS.newMemberButton}
       />
       <SidebarActionButton
         icon={<LinkIcon className="h-4 w-4" />}
         label="Invite via Link"
         onClick={() => onInviteLink?.()}
         {...(collapsed && { collapsed: true })}
-        testId="invite-link-button"
+        testId={TEST_IDS.inviteLinkButton}
       />
     </>
   );
@@ -139,7 +141,7 @@ function MemberAvatar({
       </div>
       {isOnline && (
         <div
-          data-testid={`${testIdPrefix}-online-${entityId}`}
+          data-testid={TEST_ID_BUILDERS.onlineFor(testIdPrefix, entityId)}
           className="ring-background absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-green-500 ring-2"
         />
       )}
@@ -255,13 +257,13 @@ function MemberSidebarLoadingContent({
     return (
       <Lock
         className="text-muted-foreground h-5 w-5 animate-pulse"
-        data-testid="decrypting-lock-icon"
+        data-testid={TEST_IDS.decryptingLockIcon}
       />
     );
   }
   return (
     <span className="text-muted-foreground flex items-center gap-1.5 text-sm">
-      <Lock className="h-4 w-4 shrink-0" data-testid="decrypting-lock-icon" />
+      <Lock className="h-4 w-4 shrink-0" data-testid={TEST_IDS.decryptingLockIcon} />
       Decrypting...
     </span>
   );
@@ -300,7 +302,7 @@ export function MemberSidebar(props: Readonly<MemberSidebarProps>): React.JSX.El
       onOpenChange={panelConfig.onOpenChange}
       collapsed={collapsed}
       ariaLabel="Members"
-      headerIcon={<Users className="h-5 w-5" data-testid="member-sidebar-header-icon" />}
+      headerIcon={<Users className="h-5 w-5" data-testid={TEST_IDS.memberSidebarHeaderIcon} />}
       headerTitle={panelConfig.headerTitle}
       onClose={panelConfig.onClose}
       footer={
@@ -314,10 +316,13 @@ export function MemberSidebar(props: Readonly<MemberSidebarProps>): React.JSX.El
           />
         )
       }
-      testId="member-sidebar"
+      testId={TEST_IDS.memberSidebar}
     >
       {isLoading ? (
-        <div className="flex flex-1 items-center justify-center" data-testid="decrypting-indicator">
+        <div
+          className="flex flex-1 items-center justify-center"
+          data-testid={TEST_IDS.decryptingIndicator}
+        >
           <MemberSidebarLoadingContent collapsed={collapsed} />
         </div>
       ) : (
@@ -474,7 +479,7 @@ function MemberSidebarBody({
   if (collapsed) {
     return (
       <div
-        data-testid="member-sidebar-content"
+        data-testid={TEST_IDS.memberSidebarContent}
         className="scrollbar-hide flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto"
       >
         {isAdmin && (
@@ -482,7 +487,7 @@ function MemberSidebarBody({
         )}
         <Separator className="bg-sidebar-border w-full" />
         {members.slice(0, 8).map((member) => (
-          <div key={member.id} data-testid={`member-avatar-${member.id}`}>
+          <div key={member.id} data-testid={TEST_ID_BUILDERS.memberAvatar(member.id)}>
             <MemberAvatar
               initial={displayUsername(member.username).charAt(0)}
               isOnline={onlineMemberIds.has(member.userId)}
@@ -493,7 +498,10 @@ function MemberSidebarBody({
           </div>
         ))}
         {members.length > 8 && (
-          <span data-testid="member-overflow-count" className="text-muted-foreground text-xs">
+          <span
+            data-testid={TEST_IDS.memberOverflowCount}
+            className="text-muted-foreground text-xs"
+          >
             +{members.length - 8}
           </span>
         )}
@@ -503,7 +511,7 @@ function MemberSidebarBody({
 
   return (
     <div
-      data-testid="member-sidebar-content"
+      data-testid={TEST_IDS.memberSidebarContent}
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
       {isAdmin && (
@@ -519,7 +527,7 @@ function MemberSidebarBody({
       <div className="mb-3">
         <Input
           icon={<Search className="h-4 w-4" />}
-          data-testid="member-search-input"
+          data-testid={TEST_IDS.memberSearchInput}
           label="Search members"
           value={searchQuery}
           onChange={(e) => {
@@ -537,7 +545,11 @@ function MemberSidebarBody({
           if (!memberGroup && !linkGroup) return null;
 
           return (
-            <div key={privilege} data-testid={`member-section-${privilege}`} className="mb-4">
+            <div
+              key={privilege}
+              data-testid={TEST_ID_BUILDERS.memberSection(privilege)}
+              className="mb-4"
+            >
               <h3 className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
                 {privilege}
               </h3>
@@ -705,7 +717,7 @@ function MemberSidebarFooter({
       sublabel={sublabel}
       onClick={onBudgetSettingsClick}
       collapsed={collapsed}
-      testId="member-budget"
+      testId={TEST_IDS.memberBudget}
     />
   );
 }
@@ -738,7 +750,7 @@ function MemberRow({
 
   return (
     <div
-      data-testid={`member-item-${member.id}`}
+      data-testid={TEST_ID_BUILDERS.memberItem(member.id)}
       className="flex items-center justify-between py-2"
     >
       <div className="flex items-center gap-2">
@@ -752,7 +764,7 @@ function MemberRow({
         <span className="text-sm">
           {displayUsername(member.username)}
           {isCurrentUser && (
-            <span data-testid="member-you-badge" className="text-muted-foreground ml-1">
+            <span data-testid={TEST_IDS.memberYouBadge} className="text-muted-foreground ml-1">
               (you)
             </span>
           )}
@@ -761,14 +773,17 @@ function MemberRow({
       {showActions && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <IconButton aria-label="More options" data-testid={`member-actions-${member.id}`}>
+            <IconButton
+              aria-label="More options"
+              data-testid={TEST_ID_BUILDERS.memberActions(member.id)}
+            >
               <MoreVertical className="size-4" />
             </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {isCurrentUser ? (
               <DropdownMenuItem
-                data-testid="member-leave-action"
+                data-testid={TEST_IDS.memberLeaveAction}
                 className="text-destructive"
                 onSelect={() => {
                   void onLeaveClick?.();
@@ -780,7 +795,7 @@ function MemberRow({
             ) : (
               <>
                 <DropdownMenuLabel
-                  data-testid={`member-change-privilege-${member.id}`}
+                  data-testid={TEST_ID_BUILDERS.memberChangePrivilege(member.id)}
                   className="flex items-center gap-2 text-xs font-normal"
                 >
                   <Shield className="h-4 w-4" />
@@ -805,7 +820,7 @@ function MemberRow({
                     <DropdownMenuRadioItem
                       key={priv}
                       value={priv}
-                      data-testid={`privilege-option-${member.id}-${priv}`}
+                      data-testid={TEST_ID_BUILDERS.privilegeOption(member.id, priv)}
                     >
                       {priv}
                     </DropdownMenuRadioItem>
@@ -813,7 +828,7 @@ function MemberRow({
                 </DropdownMenuRadioGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  data-testid={`member-remove-action-${member.id}`}
+                  data-testid={TEST_ID_BUILDERS.memberRemoveAction(member.id)}
                   className="text-destructive"
                   onSelect={() => onRemoveMember?.(member.id)}
                 >
@@ -887,15 +902,21 @@ function LinkRow({
   };
 
   return (
-    <div data-testid={`link-item-${link.id}`} className="flex items-center justify-between py-2">
+    <div
+      data-testid={TEST_ID_BUILDERS.linkItem(link.id)}
+      className="flex items-center justify-between py-2"
+    >
       <div className="flex min-w-0 items-center gap-2">
-        <div data-testid="link-icon-container" className="flex size-8 items-center justify-center">
+        <div
+          data-testid={TEST_IDS.linkIconContainer}
+          className="flex size-8 items-center justify-center"
+        >
           <LinkIcon className="text-muted-foreground size-4" />
         </div>
         {isEditing ? (
           <input
             ref={inputRef}
-            data-testid={`link-name-input-${link.id}`}
+            data-testid={TEST_ID_BUILDERS.linkNameInput(link.id)}
             className="bg-background border-input min-w-0 flex-1 rounded border px-1 py-0.5 text-sm"
             value={editValue}
             onChange={(e) => {
@@ -908,7 +929,7 @@ function LinkRow({
           <span className="text-sm">
             {displayName}
             {isCurrentLink && (
-              <span data-testid="link-you-badge" className="text-muted-foreground ml-1">
+              <span data-testid={TEST_IDS.linkYouBadge} className="text-muted-foreground ml-1">
                 (you)
               </span>
             )}
@@ -918,13 +939,16 @@ function LinkRow({
       {isAdmin && !isEditing && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <IconButton aria-label="More options" data-testid={`link-actions-${link.id}`}>
+            <IconButton
+              aria-label="More options"
+              data-testid={TEST_ID_BUILDERS.linkActions(link.id)}
+            >
               <MoreVertical className="size-4" />
             </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuLabel
-              data-testid={`link-change-privilege-${link.id}`}
+              data-testid={TEST_ID_BUILDERS.linkChangePrivilege(link.id)}
               className="flex items-center gap-2 text-xs font-normal"
             >
               <Shield className="h-4 w-4" />
@@ -938,7 +962,7 @@ function LinkRow({
                 <DropdownMenuRadioItem
                   key={priv}
                   value={priv}
-                  data-testid={`link-privilege-option-${link.id}-${priv}`}
+                  data-testid={TEST_ID_BUILDERS.linkPrivilegeOption(link.id, priv)}
                 >
                   {priv}
                 </DropdownMenuRadioItem>
@@ -946,14 +970,14 @@ function LinkRow({
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              data-testid={`link-change-name-${link.id}`}
+              data-testid={TEST_ID_BUILDERS.linkChangeName(link.id)}
               onSelect={handleStartEdit}
             >
               <Pencil className="mr-2 h-4 w-4" />
               Change Name
             </DropdownMenuItem>
             <DropdownMenuItem
-              data-testid={`link-revoke-action-${link.id}`}
+              data-testid={TEST_ID_BUILDERS.linkRevokeAction(link.id)}
               className="text-destructive"
               onSelect={() => onRequestRevoke?.(link.id, displayName)}
             >

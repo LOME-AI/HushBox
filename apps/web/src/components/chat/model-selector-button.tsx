@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Button } from '@hushbox/ui';
-import { shortenModelName } from '@hushbox/shared';
+import { shortenModelName, TEST_IDS } from '@hushbox/shared';
 import { DEFAULT_MODEL_NAME } from '@/stores/model';
 import { ModelSelectorModal } from './model-selector-modal';
 import type { Model, Modality } from '@hushbox/shared';
@@ -91,7 +91,7 @@ export function ModelSelectorButton({
         aria-label={`Select model (current: ${displayText})`}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
-        data-testid="model-selector-button"
+        data-testid={TEST_IDS.modelSelectorButton}
         className="bg-secondary hover:bg-secondary/80 mx-2 justify-center px-6"
       >
         <span>{displayText}</span>

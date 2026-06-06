@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { ProjectsLink } from './projects-link';
 
@@ -33,13 +34,13 @@ describe('ProjectsLink', () => {
 
     it('links to /projects page', () => {
       render(<ProjectsLink />);
-      const link = screen.getByTestId('projects-link');
+      const link = screen.getByTestId(TEST_IDS.projectsLink);
       expect(link).toHaveAttribute('href', '/projects');
     });
 
     it('renders folder icon', () => {
       render(<ProjectsLink />);
-      expect(screen.getByTestId('folder-icon')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.folderIcon)).toBeInTheDocument();
     });
   });
 
@@ -50,7 +51,7 @@ describe('ProjectsLink', () => {
 
     it('shows only icon when collapsed', () => {
       render(<ProjectsLink />);
-      expect(screen.getByTestId('folder-icon')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.folderIcon)).toBeInTheDocument();
       expect(screen.queryByText('Projects')).not.toBeInTheDocument();
     });
   });

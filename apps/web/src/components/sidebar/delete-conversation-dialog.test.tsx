@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { DeleteConversationDialog } from './delete-conversation-dialog';
 
 describe('DeleteConversationDialog', () => {
@@ -23,7 +24,7 @@ describe('DeleteConversationDialog', () => {
     const user = userEvent.setup();
     render(<DeleteConversationDialog {...defaultProps} onOpenChange={onOpenChange} />);
 
-    await user.click(screen.getByTestId('cancel-delete-button'));
+    await user.click(screen.getByTestId(TEST_IDS.cancelDeleteButton));
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -33,7 +34,7 @@ describe('DeleteConversationDialog', () => {
     const user = userEvent.setup();
     render(<DeleteConversationDialog {...defaultProps} onConfirm={onConfirm} />);
 
-    await user.click(screen.getByTestId('confirm-delete-button'));
+    await user.click(screen.getByTestId(TEST_IDS.confirmDeleteButton));
 
     expect(onConfirm).toHaveBeenCalled();
   });
@@ -41,7 +42,7 @@ describe('DeleteConversationDialog', () => {
   it('delete button has destructive variant', () => {
     render(<DeleteConversationDialog {...defaultProps} />);
 
-    const deleteButton = screen.getByTestId('confirm-delete-button');
+    const deleteButton = screen.getByTestId(TEST_IDS.confirmDeleteButton);
     expect(deleteButton).toHaveAttribute('data-variant', 'destructive');
   });
 

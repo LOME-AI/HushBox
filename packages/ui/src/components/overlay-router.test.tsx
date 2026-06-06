@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { Overlay } from './overlay';
 import { TouchDeviceOverrideContext } from '../hooks/touch-device-override-context';
 
@@ -38,7 +39,7 @@ describe('Overlay router', () => {
       </Overlay>
     );
 
-    const content = screen.getByTestId('overlay-content');
+    const content = screen.getByTestId(TEST_IDS.overlayContent);
     // Dialog uses centered positioning
     expect(content).toHaveClass('top-[50%]');
     expect(content).toHaveClass('left-[50%]');
@@ -53,7 +54,7 @@ describe('Overlay router', () => {
       </Overlay>
     );
 
-    const content = screen.getByTestId('overlay-content');
+    const content = screen.getByTestId(TEST_IDS.overlayContent);
     // Bottom sheet uses bottom positioning
     expect(content).toHaveClass('bottom-0');
     expect(content).toHaveClass('rounded-t-xl');
@@ -70,7 +71,7 @@ describe('Overlay router', () => {
       </TouchDeviceOverrideContext>
     );
 
-    const content = screen.getByTestId('overlay-content');
+    const content = screen.getByTestId(TEST_IDS.overlayContent);
     expect(content).toHaveClass('bottom-0');
   });
 
@@ -84,7 +85,7 @@ describe('Overlay router', () => {
       </TouchDeviceOverrideContext>
     );
 
-    const content = screen.getByTestId('overlay-content');
+    const content = screen.getByTestId(TEST_IDS.overlayContent);
     expect(content).toHaveClass('top-[50%]');
   });
 });

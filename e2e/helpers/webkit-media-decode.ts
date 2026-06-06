@@ -1,4 +1,6 @@
-import { expect, type Locator, type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
+import { expect } from './expect.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 /**
  * Playwright's bundled WebKit on Linux cannot decode video bytes.
@@ -76,7 +78,7 @@ export async function expectVideoDecoded(
   browserName: string,
   options: { timeout?: number } = {}
 ): Promise<void> {
-  const timeout = options.timeout ?? 10_000;
+  const timeout = options.timeout ?? TIMEOUTS.MEDIA_DECODE;
   if (lacksMediaDecode(browserName)) {
     await expect(videoLocator).toHaveAttribute('src', /\S/, { timeout });
     return;

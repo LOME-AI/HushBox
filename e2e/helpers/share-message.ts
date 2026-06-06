@@ -1,4 +1,5 @@
-import { expect } from '@playwright/test';
+import { TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
+import { expect } from './expect.js';
 import type { ChatPage } from '../pages/index.js';
 
 /**
@@ -9,18 +10,18 @@ import type { ChatPage } from '../pages/index.js';
  */
 export async function createMessageShareUrl(chatPage: ChatPage): Promise<string> {
   const { page } = chatPage;
-  const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+  const aiMessage = chatPage.messageList.locator(`[${TEST_SIGNALS.role}="assistant"]`).first();
   await aiMessage.hover();
 
   const shareButton = aiMessage.getByRole('button', { name: 'Share' });
   await expect(shareButton).toBeVisible();
   await shareButton.click();
 
-  const modal = page.getByTestId('share-message-modal');
+  const modal = page.getByTestId(TEST_IDS.shareMessageModal);
   await expect(modal).toBeVisible();
-  await page.getByTestId('share-message-create-button').click();
+  await page.getByTestId(TEST_IDS.shareMessageCreateButton).click();
 
-  const urlEl = page.getByTestId('share-message-url');
+  const urlEl = page.getByTestId(TEST_IDS.shareMessageUrl);
   await expect(urlEl).toBeVisible();
   const shareUrl = (await urlEl.textContent()) ?? '';
   expect(shareUrl).toContain('/share/m/');

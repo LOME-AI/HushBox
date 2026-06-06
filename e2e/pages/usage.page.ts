@@ -1,5 +1,6 @@
 import { type Locator, type Page } from '@playwright/test';
-import { expect, unsettledExpect } from '../helpers/settled-expect.js';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { expect } from '../helpers/expect.js';
 
 export class UsagePage {
   readonly page: Page;
@@ -22,22 +23,22 @@ export class UsagePage {
 
   constructor(page: Page) {
     this.page = page;
-    this.usageContent = page.getByTestId('usage-content');
-    this.filters = page.getByTestId('usage-filters');
-    this.dateRangeButtons = page.getByTestId('date-range-buttons');
-    this.modelFilter = page.getByTestId('model-filter');
-    this.kpiCards = page.getByTestId('usage-kpi-cards');
-    this.kpiTotalSpent = page.getByTestId('kpi-total-spent');
-    this.kpiTotalSpentValue = page.getByTestId('kpi-total-spent-value');
-    this.kpiMessages = page.getByTestId('kpi-messages');
-    this.kpiMessagesValue = page.getByTestId('kpi-messages-value');
-    this.kpiTokens = page.getByTestId('kpi-tokens');
-    this.kpiAvgCost = page.getByTestId('kpi-avg-cost');
-    this.spendingChart = page.getByTestId('spending-over-time-chart');
-    this.costByModelChart = page.getByTestId('cost-by-model-chart');
-    this.tokenUsageChart = page.getByTestId('token-usage-chart');
-    this.conversationChart = page.getByTestId('spending-by-conversation-chart');
-    this.balanceHistoryChart = page.getByTestId('balance-history-chart');
+    this.usageContent = page.getByTestId(TEST_IDS.usageContent);
+    this.filters = page.getByTestId(TEST_IDS.usageFilters);
+    this.dateRangeButtons = page.getByTestId(TEST_IDS.dateRangeButtons);
+    this.modelFilter = page.getByTestId(TEST_IDS.modelFilter);
+    this.kpiCards = page.getByTestId(TEST_IDS.usageKpiCards);
+    this.kpiTotalSpent = page.getByTestId(TEST_IDS.kpiTotalSpent);
+    this.kpiTotalSpentValue = page.getByTestId(TEST_ID_BUILDERS.kpiValue(TEST_IDS.kpiTotalSpent));
+    this.kpiMessages = page.getByTestId(TEST_IDS.kpiMessages);
+    this.kpiMessagesValue = page.getByTestId(TEST_ID_BUILDERS.kpiValue(TEST_IDS.kpiMessages));
+    this.kpiTokens = page.getByTestId(TEST_IDS.kpiTokens);
+    this.kpiAvgCost = page.getByTestId(TEST_IDS.kpiAvgCost);
+    this.spendingChart = page.getByTestId(TEST_IDS.spendingOverTimeChart);
+    this.costByModelChart = page.getByTestId(TEST_IDS.costByModelChart);
+    this.tokenUsageChart = page.getByTestId(TEST_IDS.tokenUsageChart);
+    this.conversationChart = page.getByTestId(TEST_IDS.spendingByConversationChart);
+    this.balanceHistoryChart = page.getByTestId(TEST_IDS.balanceHistoryChart);
   }
 
   async goto(): Promise<void> {
@@ -46,7 +47,7 @@ export class UsagePage {
   }
 
   async selectDateRange(range: '7d' | '30d' | '90d' | 'all'): Promise<void> {
-    await this.page.getByTestId(`range-${range}`).click();
+    await this.page.getByTestId(TEST_ID_BUILDERS.range(range)).click();
   }
 
   async selectModel(model: string): Promise<void> {
@@ -70,7 +71,7 @@ export class UsagePage {
 
   async expectChartHasData(chart: Locator): Promise<void> {
     // Recharts renders SVG with class "recharts-surface" when data is present
-    await unsettledExpect(chart.locator('.recharts-surface')).toBeVisible();
+    await expect(chart.locator('.recharts-surface')).toBeVisible();
   }
 
   async getKpiTotalSpentText(): Promise<string> {

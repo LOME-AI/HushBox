@@ -1,5 +1,5 @@
-import { isMobileWidth } from '@hushbox/shared';
-import { expect } from './settled-expect.js';
+import { isMobileWidth, TEST_IDS } from '@hushbox/shared';
+import { expect } from './expect.js';
 import type { Page } from '@playwright/test';
 
 /**
@@ -16,6 +16,6 @@ export async function openMobileLandingMenuIfNeeded(page: Page): Promise<void> {
   const viewport = page.viewportSize();
   if (viewport === null || !isMobileWidth(viewport.width)) return;
 
-  await page.getByTestId('landing-menu-toggle').click();
-  await expect(page.getByTestId('landing-mobile-menu')).toBeVisible();
+  await page.getByTestId(TEST_IDS.landingMenuToggle).click();
+  await expect(page.getByTestId(TEST_IDS.landingMobileMenu)).toBeVisible();
 }

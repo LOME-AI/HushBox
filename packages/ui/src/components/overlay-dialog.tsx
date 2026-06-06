@@ -3,6 +3,7 @@
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { XIcon } from 'lucide-react';
+import { TEST_IDS } from '@hushbox/shared';
 
 import { cn } from '../lib/utilities';
 import { OverlayNavButtons, CLOSE_BUTTON_CLASS } from './overlay-nav-buttons';
@@ -45,7 +46,7 @@ function OverlayDialog({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay
           data-slot="overlay-backdrop"
-          data-testid="overlay-backdrop"
+          data-testid={TEST_IDS.overlayBackdrop}
           className={cn(
             'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
             'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm'
@@ -53,7 +54,7 @@ function OverlayDialog({
         />
         <DialogPrimitive.Content
           data-slot="overlay-content"
-          data-testid="overlay-content"
+          data-testid={TEST_IDS.overlayContent}
           data-overlay-variant="dialog"
           className={cn(
             'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',

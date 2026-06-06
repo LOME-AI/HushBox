@@ -1,3 +1,4 @@
+import { TEST_IDS } from '@hushbox/shared';
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { LoginPage, SignupPage } from '../pages';
 import {
@@ -8,17 +9,15 @@ import {
   uniqueUsername,
   clearAuthRateLimits,
 } from '../helpers/auth.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Registration & Verification', () => {
-  test.beforeEach(async ({ request }, testInfo) => {
-    if (testInfo.project.name !== 'chromium') {
-      test.skip(true, 'Auth tests run only on chromium');
-    }
+  test.beforeEach(async ({ request }) => {
     await clearAuthRateLimits(request);
   });
 
   test('signup → verify → login succeeds', async ({ unauthenticatedPage, request }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(TIMEOUTS.XLONG);
     const email = uniqueEmail('e2e-reg');
     const username = uniqueUsername('reg');
     const password = 'TestPassword123!';
@@ -30,7 +29,7 @@ test.describe('Registration & Verification', () => {
 
     await test.step('verify email via dev API succeeds', async () => {
       await verifyEmailViaAPI(request, unauthenticatedPage, email);
-      await expect(unauthenticatedPage).toHaveURL(/\/verify\?token=/, { timeout: 10_000 });
+      await expect(unauthenticatedPage).toHaveURL(/\/verify\?token=/, { timeout: TIMEOUTS.ROUTE });
       await expect(
         unauthenticatedPage.getByRole('heading', { name: /email verified/i })
       ).toBeVisible();
@@ -38,7 +37,7 @@ test.describe('Registration & Verification', () => {
 
     await test.step('login with new credentials navigates to /chat', async () => {
       await loginViaUI(unauthenticatedPage, { email, password });
-      await expect(unauthenticatedPage).toHaveURL('/chat', { timeout: 30_000 });
+      await expect(unauthenticatedPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
     });
   });
 
@@ -72,23 +71,23 @@ test.describe('Registration & Verification', () => {
 
   test.describe('Email verification resend', () => {
     test('resend from signup success page', async ({ unauthenticatedPage, request }) => {
-      test.setTimeout(120_000);
+      test.setTimeout(TIMEOUTS.XLONG);
       const email = uniqueEmail('e2e-resend');
       const username = uniqueUsername('resend');
       const password = 'TestPassword123!';
 
       await test.step('sign up shows check-your-email with resend button', async () => {
         await signUpViaUI(unauthenticatedPage, { username, email, password });
-        await expect(unauthenticatedPage.getByTestId('check-your-email')).toBeVisible();
+        await expect(unauthenticatedPage.getByTestId(TEST_IDS.checkYourEmail)).toBeVisible();
         await expect(unauthenticatedPage.getByText(email)).toBeVisible();
       });
 
       await test.step('click resend shows success feedback and cooldown', async () => {
-        const resendButton = unauthenticatedPage.getByTestId('resend-button');
+        const resendButton = unauthenticatedPage.getByTestId(TEST_IDS.resendButton);
         await expect(resendButton).toBeEnabled();
         await resendButton.click();
 
-        const feedback = unauthenticatedPage.getByTestId('resend-feedback');
+        const feedback = unauthenticatedPage.getByTestId(TEST_IDS.resendFeedback);
         await expect(feedback).toBeVisible();
         await expect(feedback).toContainText('Verification email sent.');
 
@@ -99,7 +98,7 @@ test.describe('Registration & Verification', () => {
       await test.step('verify with latest token and login', async () => {
         await verifyEmailViaAPI(request, unauthenticatedPage, email);
         await loginViaUI(unauthenticatedPage, { email, password });
-        await expect(unauthenticatedPage).toHaveURL('/chat', { timeout: 30_000 });
+        await expect(unauthenticatedPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
       });
     });
 
@@ -107,7 +106,7 @@ test.describe('Registration & Verification', () => {
       unauthenticatedPage,
       request,
     }) => {
-      test.setTimeout(120_000);
+      test.setTimeout(TIMEOUTS.XLONG);
       // Deliberate: logging in with an unverified email returns 401
       // EMAIL_NOT_VERIFIED, which the UI translates to a redirect to
       // /check-your-email plus an auto-resend.
@@ -124,7 +123,7 @@ test.describe('Registration & Verification', () => {
 
       await test.step('sign up but do not verify', async () => {
         await signUpViaUI(unauthenticatedPage, { username, email, password });
-        await expect(unauthenticatedPage.getByTestId('check-your-email')).toBeVisible();
+        await expect(unauthenticatedPage.getByTestId(TEST_IDS.checkYourEmail)).toBeVisible();
       });
 
       await test.step('login with unverified email shows check-your-email with auto-resend', async () => {
@@ -132,23 +131,23 @@ test.describe('Registration & Verification', () => {
         await loginPage.goto();
         await loginPage.login(email, password);
 
-        await expect(unauthenticatedPage.getByTestId('check-your-email')).toBeVisible({
-          timeout: 15_000,
+        await expect(unauthenticatedPage.getByTestId(TEST_IDS.checkYourEmail)).toBeVisible({
+          timeout: TIMEOUTS.ROUTE,
         });
         await expect(unauthenticatedPage.getByText(email)).toBeVisible();
 
-        const feedback = unauthenticatedPage.getByTestId('resend-feedback');
-        await expect(feedback).toBeVisible({ timeout: 10_000 });
+        const feedback = unauthenticatedPage.getByTestId(TEST_IDS.resendFeedback);
+        await expect(feedback).toBeVisible({ timeout: TIMEOUTS.ASSERT });
         await expect(feedback).toContainText('Verification email sent.');
 
-        const resendButton = unauthenticatedPage.getByTestId('resend-button');
+        const resendButton = unauthenticatedPage.getByTestId(TEST_IDS.resendButton);
         await expect(resendButton).toBeDisabled();
       });
 
       await test.step('verify with latest token and login', async () => {
         await verifyEmailViaAPI(request, unauthenticatedPage, email);
         await loginViaUI(unauthenticatedPage, { email, password });
-        await expect(unauthenticatedPage).toHaveURL('/chat', { timeout: 30_000 });
+        await expect(unauthenticatedPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
       });
     });
   });

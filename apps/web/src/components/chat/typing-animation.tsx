@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
 import { cn, useReducedMotion } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 
 export type TypingState = 'idle' | 'typing' | 'deleting';
 
@@ -136,16 +137,16 @@ export function TypingAnimation({
   const showCursor = loop || displayText.length < text.length || state === 'deleting';
 
   return (
-    <span data-testid="typing-animation" className={cn('relative inline-block', className)}>
+    <span data-testid={TEST_IDS.typingAnimation} className={cn('relative inline-block', className)}>
       {/* Full text reserves layout space *and* is the accessible name — screen
           readers announce the complete string immediately rather than the
           partial typed letters as they appear. */}
       <span className="invisible select-none">{text}</span>
-      <span data-testid="typed-text" aria-hidden="true" className="absolute top-0 left-0">
+      <span data-testid={TEST_IDS.typedText} aria-hidden="true" className="absolute top-0 left-0">
         {displayText}
         {showCursor && (
           <motion.span
-            data-testid="typing-cursor"
+            data-testid={TEST_IDS.typingCursor}
             animate={{ opacity: [1, 0] }}
             transition={{ duration: 0.5, repeat: Infinity, repeatType: 'reverse' }}
             className="ml-0.5 inline-block h-[1em] w-0.5 bg-current align-middle"

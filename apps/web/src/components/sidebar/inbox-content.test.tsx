@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { InboxContent } from './inbox-content';
 
 const mockAcceptMutate = vi.fn();
@@ -104,7 +105,7 @@ describe('InboxContent', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /decline design team chat/i }));
 
-    const leaveButton = screen.getByTestId('leave-confirmation-confirm');
+    const leaveButton = screen.getByTestId(TEST_IDS.leaveConfirmationConfirm);
     await userEvent.click(leaveButton);
 
     expect(mockDeclineMutateAsync).toHaveBeenCalledWith({ conversationId: 'conv-1' });
@@ -119,6 +120,6 @@ describe('InboxContent', () => {
   it('renders invite list with correct test id', () => {
     render(<InboxContent conversations={mockInvites} />);
 
-    expect(screen.getByTestId('inbox-content')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.inboxContent)).toBeInTheDocument();
   });
 });

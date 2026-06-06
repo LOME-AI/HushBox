@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Alert, useAsyncAction } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { ActionModal } from '../shared/action-modal.js';
 import type { ErrorCode } from '@hushbox/shared';
 
@@ -43,17 +44,17 @@ export function LeaveConfirmationModal({
         onSubmit: async () => {
           await onConfirm();
         },
-        testId: 'leave-confirmation-confirm',
+        testId: TEST_IDS.leaveConfirmationConfirm,
       }}
       cancel={{
         label: 'Cancel',
-        testId: 'leave-confirmation-cancel',
+        testId: TEST_IDS.leaveConfirmationCancel,
       }}
-      testId="leave-confirmation-modal"
-      titleTestId="leave-confirmation-title"
+      testId={TEST_IDS.leaveConfirmationModal}
+      titleTestId={TEST_IDS.leaveConfirmationTitle}
       devSimulateCodes={LEAVE_ERROR_CODES}
     >
-      <Alert data-testid="leave-confirmation-warning">
+      <Alert data-testid={TEST_IDS.leaveConfirmationWarning}>
         <AlertTriangle />
         <span>
           {isOwner

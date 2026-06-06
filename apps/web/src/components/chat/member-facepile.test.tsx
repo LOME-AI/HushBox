@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_ID_BUILDERS } from '@hushbox/shared';
 import { MemberFacepile } from './member-facepile';
 
 describe('MemberFacepile', () => {
@@ -153,7 +154,7 @@ describe('MemberFacepile', () => {
           onFacepileClick={vi.fn()}
         />
       );
-      expect(screen.getByTestId('online-indicator-user-1')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_ID_BUILDERS.onlineIndicator('user-1'))).toBeInTheDocument();
     });
 
     it('does not show green dot for offline members', () => {
@@ -164,7 +165,9 @@ describe('MemberFacepile', () => {
           onFacepileClick={vi.fn()}
         />
       );
-      expect(screen.queryByTestId('online-indicator-user-2')).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId(TEST_ID_BUILDERS.onlineIndicator('user-2'))
+      ).not.toBeInTheDocument();
     });
 
     it('online dot has green background and white border', () => {
@@ -175,7 +178,7 @@ describe('MemberFacepile', () => {
           onFacepileClick={vi.fn()}
         />
       );
-      const dot = screen.getByTestId('online-indicator-user-1');
+      const dot = screen.getByTestId(TEST_ID_BUILDERS.onlineIndicator('user-1'));
       expect(dot).toHaveClass('bg-green-500');
       expect(dot).toHaveClass('border-white');
     });
@@ -188,7 +191,7 @@ describe('MemberFacepile', () => {
           onFacepileClick={vi.fn()}
         />
       );
-      const dot = screen.getByTestId('online-indicator-user-1');
+      const dot = screen.getByTestId(TEST_ID_BUILDERS.onlineIndicator('user-1'));
       expect(dot).toHaveClass('absolute');
       expect(dot).toHaveClass('bottom-0');
       expect(dot).toHaveClass('right-0');

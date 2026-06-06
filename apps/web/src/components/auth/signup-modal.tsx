@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Overlay, OverlayContent, OverlayHeader, ModalActions } from '@hushbox/ui';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_IDS } from '@hushbox/shared';
 
 type SignupModalVariant = 'premium' | 'multi-model';
 
@@ -18,12 +18,12 @@ const VARIANT_CONFIG: Record<
 > = {
   premium: {
     ariaLabel: 'Unlock premium models',
-    testId: 'signup-modal',
+    testId: TEST_IDS.signupModal,
     title: 'Unlock Premium Models',
   },
   'multi-model': {
     ariaLabel: 'Compare multiple models',
-    testId: 'multi-model-signup-modal',
+    testId: TEST_IDS.multiModelSignupModal,
     title: 'Compare Multiple Models',
   },
 };

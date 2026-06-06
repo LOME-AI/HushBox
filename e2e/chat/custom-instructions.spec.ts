@@ -1,6 +1,8 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { SettingsPage } from '../pages';
 import { navigateToSettings } from '../helpers/auth.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Custom Instructions', () => {
   test('settings page renders all sections, custom instructions lifecycle', async ({
@@ -11,7 +13,7 @@ test.describe('Custom Instructions', () => {
       await navigateToSettings(authenticatedPage);
       const settingsPage = new SettingsPage(authenticatedPage);
 
-      await unsettledExpect(settingsPage.changePasswordButton).toBeVisible();
+      await expect(settingsPage.changePasswordButton).toBeVisible();
       await expect(settingsPage.twoFactorButton).toBeVisible();
       await expect(settingsPage.recoveryPhraseButton).toBeVisible();
       await expect(settingsPage.customInstructionsButton).toBeVisible();
@@ -22,7 +24,7 @@ test.describe('Custom Instructions', () => {
       const settingsPage = new SettingsPage(authenticatedPage);
       await settingsPage.openCustomInstructions();
 
-      const modal = authenticatedPage.getByTestId('custom-instructions-modal');
+      const modal = authenticatedPage.getByTestId(TEST_IDS.customInstructionsModal);
       await expect(modal).toBeVisible();
 
       const textarea = modal.locator('textarea');
@@ -34,14 +36,14 @@ test.describe('Custom Instructions', () => {
     });
 
     await test.step('save custom instructions', async () => {
-      const modal = authenticatedPage.getByTestId('custom-instructions-modal');
+      const modal = authenticatedPage.getByTestId(TEST_IDS.customInstructionsModal);
       const textarea = modal.locator('textarea');
 
       await textarea.fill('Always respond in bullet points. Never use emojis.');
       await expect(modal.getByText(/50 \/ 5,000/)).toBeVisible();
 
       await modal.getByRole('button', { name: 'Save' }).click();
-      await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
+      await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
 
       const settingsPage = new SettingsPage(authenticatedPage);
       await settingsPage.expectCustomInstructionsBadge('Active');
@@ -51,7 +53,7 @@ test.describe('Custom Instructions', () => {
       const settingsPage = new SettingsPage(authenticatedPage);
       await settingsPage.openCustomInstructions();
 
-      const modal = authenticatedPage.getByTestId('custom-instructions-modal');
+      const modal = authenticatedPage.getByTestId(TEST_IDS.customInstructionsModal);
       await expect(modal).toBeVisible();
 
       const textarea = modal.locator('textarea');
@@ -59,14 +61,14 @@ test.describe('Custom Instructions', () => {
     });
 
     await test.step('clear custom instructions', async () => {
-      const modal = authenticatedPage.getByTestId('custom-instructions-modal');
+      const modal = authenticatedPage.getByTestId(TEST_IDS.customInstructionsModal);
       const textarea = modal.locator('textarea');
 
       await textarea.clear();
       await expect(modal.getByText(/0 \/ 5,000/)).toBeVisible();
 
       await modal.getByRole('button', { name: 'Save' }).click();
-      await unsettledExpect(modal).not.toBeVisible({ timeout: 5000 });
+      await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
 
       const settingsPage = new SettingsPage(authenticatedPage);
       await settingsPage.expectCustomInstructionsBadge('Not set');

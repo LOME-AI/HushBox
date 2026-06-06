@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_ID_BUILDERS } from '@hushbox/shared';
 import { MemberSidebar } from './member-sidebar';
 
 const {
@@ -264,10 +265,14 @@ describe('MemberSidebar', () => {
     it('shows online indicator for online members', () => {
       render(<MemberSidebar {...defaultProps} />);
 
-      expect(screen.getByTestId('member-online-m1')).toBeInTheDocument();
-      expect(screen.getByTestId('member-online-m2')).toBeInTheDocument();
-      expect(screen.queryByTestId('member-online-m3')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('member-online-m4')).not.toBeInTheDocument();
+      expect(screen.getByTestId(TEST_ID_BUILDERS.onlineFor('member', 'm1'))).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_ID_BUILDERS.onlineFor('member', 'm2'))).toBeInTheDocument();
+      expect(
+        screen.queryByTestId(TEST_ID_BUILDERS.onlineFor('member', 'm3'))
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId(TEST_ID_BUILDERS.onlineFor('member', 'm4'))
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -1095,9 +1100,15 @@ describe('MemberSidebar', () => {
     it('shows online indicator on collapsed avatars', () => {
       render(<MemberSidebar {...defaultProps} />);
 
-      expect(screen.getByTestId('member-avatar-online-m1')).toBeInTheDocument();
-      expect(screen.getByTestId('member-avatar-online-m2')).toBeInTheDocument();
-      expect(screen.queryByTestId('member-avatar-online-m3')).not.toBeInTheDocument();
+      expect(
+        screen.getByTestId(TEST_ID_BUILDERS.onlineFor('member-avatar', 'm1'))
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId(TEST_ID_BUILDERS.onlineFor('member-avatar', 'm2'))
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId(TEST_ID_BUILDERS.onlineFor('member-avatar', 'm3'))
+      ).not.toBeInTheDocument();
     });
   });
 

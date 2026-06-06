@@ -13,7 +13,7 @@ import {
   type UseAsyncActionReturn,
 } from '@hushbox/ui';
 import { regenerateRecoveryPhrase } from '@hushbox/crypto';
-import { toBase64 } from '@hushbox/shared';
+import { toBase64, TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
 import { useMobileAutoFocus } from '@/hooks/use-mobile-auto-focus';
 import { ModalSuccessStep } from '@/components/shared/modal-success-step';
@@ -215,7 +215,7 @@ export function RecoveryPhraseModal({
       dismissible={!verifyAction.isPending}
       {...(showBackButton && { onBack: handleBack })}
     >
-      <OverlayContent data-testid="recovery-phrase-modal" size="xl" className="w-[75vw]">
+      <OverlayContent data-testid={TEST_IDS.recoveryPhraseModal} size="xl" className="w-[75vw]">
         <ErrorBanner error={initError} phrase={phrase} />
 
         {step === 'display' && phrase && (
@@ -282,7 +282,7 @@ function DisplayStep({
 
       <div
         className={`grid gap-2 ${isMobile ? 'grid-cols-2' : 'grid-cols-4'}`}
-        data-testid="word-grid"
+        data-testid={TEST_IDS.wordGrid}
       >
         {words.map((word, index) => (
           <div
@@ -371,7 +371,7 @@ function VerifyStep({
                 />
                 {verificationResults[inputIndex] && (
                   <div
-                    data-testid={`word-check-${String(inputIndex)}`}
+                    data-testid={TEST_ID_BUILDERS.wordCheck(inputIndex)}
                     className="absolute top-1/2 right-3 -translate-y-1/2 text-green-500"
                   >
                     <Check className="h-4 w-4" />

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { triggerViewTransition } from '../lib/trigger-view-transition';
 
 interface ThemeToggleProps {
@@ -56,11 +57,11 @@ function ThemeToggle({ onToggle }: Readonly<ThemeToggleProps>): React.JSX.Elemen
     <button
       onClick={handleClick}
       aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-      data-testid="theme-toggle"
+      data-testid={TEST_IDS.themeToggle}
       className="text-foreground hover:bg-accent hover:text-accent-foreground inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border-none bg-transparent p-0 transition-colors outline-none"
     >
       <svg
-        data-testid="theme-morph-icon"
+        data-testid={TEST_IDS.themeMorphIcon}
         viewBox="0 0 24 24"
         fill="currentColor"
         xmlns="http://www.w3.org/2000/svg"
@@ -70,7 +71,7 @@ function ThemeToggle({ onToggle }: Readonly<ThemeToggleProps>): React.JSX.Elemen
           <mask id={maskId}>
             <rect width="24" height="24" fill="white" />
             <circle
-              data-testid="mask-circle"
+              data-testid={TEST_IDS.maskCircle}
               cx={isDark ? '17' : '28'}
               cy={isDark ? '7' : '0'}
               r="9"
@@ -84,7 +85,7 @@ function ThemeToggle({ onToggle }: Readonly<ThemeToggleProps>): React.JSX.Elemen
 
         {/* Sun body / Moon body */}
         <circle
-          data-testid="sun-body"
+          data-testid={TEST_IDS.sunBody}
           cx="12"
           cy="12"
           r={isDark ? '8' : '5'}
@@ -95,7 +96,7 @@ function ThemeToggle({ onToggle }: Readonly<ThemeToggleProps>): React.JSX.Elemen
 
         {/* Sun rays — retract and rotate in dark mode */}
         <g
-          data-testid="sun-rays"
+          data-testid={TEST_IDS.sunRays}
           style={{
             transform: isDark ? 'rotate(45deg) scale(0)' : 'rotate(0deg) scale(1)',
             transformOrigin: '12px 12px',

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { HamburgerButton } from './hamburger-button';
 
@@ -11,7 +12,7 @@ describe('HamburgerButton', () => {
 
   it('renders hamburger button', () => {
     render(<HamburgerButton />);
-    expect(screen.getByTestId('hamburger-button')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.hamburgerButton)).toBeInTheDocument();
   });
 
   it('has accessible label', () => {
@@ -23,13 +24,13 @@ describe('HamburgerButton', () => {
     const user = userEvent.setup();
     render(<HamburgerButton />);
 
-    await user.click(screen.getByTestId('hamburger-button'));
+    await user.click(screen.getByTestId(TEST_IDS.hamburgerButton));
 
     expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
   });
 
   it('has md:hidden class for mobile-only visibility', () => {
     render(<HamburgerButton />);
-    expect(screen.getByTestId('hamburger-button')).toHaveClass('md:hidden');
+    expect(screen.getByTestId(TEST_IDS.hamburgerButton)).toHaveClass('md:hidden');
   });
 });

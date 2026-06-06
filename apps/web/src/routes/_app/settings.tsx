@@ -4,7 +4,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Shield, Key, FileText, Scale, ChevronRight, MessageSquare } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } from '@hushbox/ui';
 import { PRIVACY_POLICY_META } from '@hushbox/shared/legal';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { requireAuth, useAuthStore } from '@/lib/auth';
 import { useChangePassword } from '@/hooks/auth-mutations';
 import { openExternalPage } from '@/capacitor';
@@ -313,7 +313,7 @@ export function SettingsPage(): React.JSX.Element {
               onClick={() => {
                 setShowDeleteAccount(true);
               }}
-              data-testid="delete-account-trigger"
+              data-testid={TEST_IDS.deleteAccountTrigger}
             >
               Delete Account
             </Button>

@@ -3,6 +3,7 @@ import { Streamdown } from 'streamdown';
 import { mermaid } from '@streamdown/mermaid';
 import { math } from '@streamdown/math';
 import { cn } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { safeCode } from './code-plugin';
 import { ErrorBoundary } from '../shared/error-boundary';
 import { DocumentCard } from './document-card';
@@ -75,7 +76,7 @@ function extractCodeBlockMeta(node: HastElement | undefined): CodeBlockMeta | un
 
 function MarkdownRenderFallback({ content }: Readonly<{ content: string }>): React.JSX.Element {
   return (
-    <div data-testid="markdown-render-fallback">
+    <div data-testid={TEST_IDS.markdownRenderFallback}>
       <p className="text-base leading-relaxed break-words whitespace-pre-wrap">{content}</p>
       <p className="text-muted-foreground mt-2 text-xs">Message formatting unavailable.</p>
     </div>
@@ -143,7 +144,7 @@ export function MarkdownRenderer({
 
   return (
     <div
-      data-testid="markdown-renderer"
+      data-testid={TEST_IDS.markdownRenderer}
       className={cn(
         'prose prose-sm dark:prose-invert max-w-none wrap-anywhere',
         'prose-headings:mb-2 prose-headings:mt-4',

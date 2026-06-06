@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { cn, buttonVariants } from '@hushbox/ui';
 import { generateKeyPair, encryptTextForEpoch } from '@hushbox/crypto';
 
@@ -66,7 +67,7 @@ function EncryptionDemo({ className, ...props }: Readonly<EncryptionDemoProps>):
       >
         {showEncrypted ? (
           <code
-            data-testid="cipher-output"
+            data-testid={TEST_IDS.cipherOutput}
             className="text-muted-foreground font-mono text-sm break-all"
           >
             {cipherHex}

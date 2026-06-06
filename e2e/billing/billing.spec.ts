@@ -1,12 +1,10 @@
 import { test, expect } from '../fixtures.js';
-import { unsettledExpect } from '../helpers/settled-expect.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { BillingPage } from '../pages';
 import { requireEnv } from '../helpers/env.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
-
-// Branch on CI env var (always set by GitHub Actions), not on credentials
-const isCI = Boolean(process.env['CI']);
 
 test.describe('Billing & Payments', () => {
   test.describe('Billing Page', () => {
@@ -22,11 +20,11 @@ test.describe('Billing & Payments', () => {
     });
   });
 
-  test.describe('Payment Flow (Dev Mode)', () => {
-    // Dev Mode tests use simulate buttons which are only visible in local dev (isLocalDev)
-    // In CI, VITE_CI=true makes isLocalDev=false, so simulate buttons are hidden
-    test.skip(isCI, 'Dev mode tests only run locally (simulate buttons hidden in CI)');
-
+  // Dev Mode tests use simulate buttons that render only in local dev (isLocalDev).
+  // In CI, VITE_CI=true makes isLocalDev=false, so the buttons are hidden. @local-only
+  // gates this describe out of CI (the CI matrix passes --grep-invert @local-only) while
+  // keeping it in local runs, replacing the former in-body `test.skip(isCI, …)`.
+  test.describe('Payment Flow (Dev Mode)', { tag: '@local-only' }, () => {
     test('simulates successful payment and updates balance', async ({ billingDevModePage }) => {
       const billingPage = new BillingPage(billingDevModePage);
       await billingPage.goto();
@@ -44,7 +42,7 @@ test.describe('Billing & Payments', () => {
 
       // Wait for balance to update (cache invalidation and refetch)
       await expect
-        .poll(() => billingPage.getBalance(), { timeout: 5000 })
+        .poll(() => billingPage.getBalance(), { timeout: TIMEOUTS.MODAL })
         .toBe(initialBalance + 25);
     });
 
@@ -75,18 +73,14 @@ test.describe('Billing & Payments', () => {
     });
   });
 
-  test.describe('Payment Flow (Full)', () => {
-    // Full payment flow tests run both locally (with mocks) and in CI (with real Helcim sandbox)
-    // Locally: Mock Helcim.js tokenizes, mock API processes, mock webhook delivers (1 sec)
-    // CI: Real Helcim.js tokenizes, real API processes, real webhook via Hookdeck
-    // Only run on chromium in CI - webhooks only delivered to one Hookdeck listener
-    test.skip(
-      () => !!process.env['SKIP_WEBHOOK_TESTS'],
-      'Webhook tests only run on chromium runner'
-    );
-
+  // Full payment flow tests run both locally (with mocks) and in CI (with real Helcim
+  // sandbox). Locally: mock Helcim.js tokenizes, mock API processes, mock webhook delivers.
+  // CI: real Helcim.js tokenizes, real API processes, real webhook via Hookdeck — only one
+  // Hookdeck listener, so these run on the chromium runner only. @webhook gates them to that
+  // runner in CI, replacing the former `SKIP_WEBHOOK_TESTS` in-body skip.
+  test.describe('Payment Flow (Full)', { tag: '@webhook' }, () => {
     // Increase timeout for real payment tests (webhook may take time)
-    test.setTimeout(60_000);
+    test.setTimeout(TIMEOUTS.LONG);
 
     test('completes full payment flow: card → API → webhook → balance', async ({
       billingSuccessPage,
@@ -125,7 +119,7 @@ test.describe('Billing & Payments', () => {
       // Wait for payment to complete (either immediate mock or webhook-based real)
       // Real Helcim + Hookdeck webhook can take 10-30s (tokenize + API + webhook delivery + poll)
       try {
-        await billingPage.expectPaymentSuccess(45_000);
+        await billingPage.expectPaymentSuccess(TIMEOUTS.WEBHOOK);
       } catch (error) {
         await testInfo.attach('diagnostic-report-full-payment', {
           body: JSON.stringify(
@@ -145,16 +139,16 @@ test.describe('Billing & Payments', () => {
       await billingPage.goto();
 
       // Poll for balance update (webhook may take a few seconds)
-      await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30_000);
+      await billingPage.waitForWebhookConfirmation(initialBalance, 5, TIMEOUTS.WEBHOOK);
 
       const newBalance = await billingPage.getBalance();
       expect(newBalance).toBe(initialBalance + 5);
 
       await test.step('transaction history shows the payment', async () => {
-        const txList = billingSuccessPage.getByTestId('transaction-list-container');
+        const txList = billingSuccessPage.getByTestId(TEST_IDS.transactionListContainer);
         await expect(txList).toBeVisible();
 
-        const txRows = txList.getByTestId('transaction-row');
+        const txRows = txList.getByTestId(TEST_IDS.transactionRow);
         await expect(txRows.first()).toBeVisible();
 
         const firstRow = txRows.first();
@@ -227,7 +221,7 @@ test.describe('Billing & Payments', () => {
       await billingPage.submitPayment();
 
       try {
-        await billingPage.expectPaymentSuccess(45_000);
+        await billingPage.expectPaymentSuccess(TIMEOUTS.WEBHOOK);
       } catch (error) {
         await testInfo.attach('diagnostic-report-webhook-signature', {
           body: JSON.stringify(
@@ -248,7 +242,7 @@ test.describe('Billing & Payments', () => {
 
       // If webhook signature verification failed, this would timeout
       // because the webhook credit processing would never be called
-      await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30_000);
+      await billingPage.waitForWebhookConfirmation(initialBalance, 5, TIMEOUTS.WEBHOOK);
 
       // Balance updated = webhook was received AND signature was valid
       const newBalance = await billingPage.getBalance();
@@ -256,13 +250,10 @@ test.describe('Billing & Payments', () => {
     });
   });
 
-  test.describe('Token-Login Billing Portal', () => {
-    test.skip(
-      () => !!process.env['SKIP_WEBHOOK_TESTS'],
-      'Webhook tests only run on chromium runner'
-    );
-
-    test.setTimeout(60_000);
+  // Token-login payment also drives the real Helcim → Hookdeck webhook path; @webhook gates
+  // it to the chromium runner in CI, replacing the former `SKIP_WEBHOOK_TESTS` in-body skip.
+  test.describe('Token-Login Billing Portal', { tag: '@webhook' }, () => {
+    test.setTimeout(TIMEOUTS.LONG);
 
     test('unauthenticated user completes payment via billing token', async ({
       billingTokenRequest,
@@ -283,21 +274,22 @@ test.describe('Billing & Payments', () => {
           waitUntil: 'domcontentloaded',
         });
 
-        // Token exchange + /api/auth/me hydration are async — opt out of settled
-        await unsettledExpect(unauthenticatedPage.getByTestId('billing-portal')).toBeVisible({
-          timeout: 15_000,
+        // Token exchange + /api/auth/me hydration are async — the web-first
+        // retrying assertion below waits them out.
+        await expect(unauthenticatedPage.getByTestId(TEST_IDS.billingPortal)).toBeVisible({
+          timeout: TIMEOUTS.APP_STABLE,
         });
       });
 
       await test.step('billing page renders without app shell', async () => {
-        await unsettledExpect(unauthenticatedPage.getByTestId('balance-display')).toBeVisible({
-          timeout: 10_000,
+        await expect(unauthenticatedPage.getByTestId(TEST_IDS.balanceDisplay)).toBeVisible({
+          timeout: TIMEOUTS.ASSERT,
         });
         await expect(
           unauthenticatedPage.getByRole('button', { name: 'Add Credits' })
         ).toBeVisible();
 
-        await expect(unauthenticatedPage.getByTestId('sidebar-trigger')).not.toBeVisible();
+        await expect(unauthenticatedPage.getByTestId(TEST_IDS.sidebarTrigger)).not.toBeVisible();
       });
 
       const billingPage = new BillingPage(unauthenticatedPage);
@@ -318,7 +310,7 @@ test.describe('Billing & Payments', () => {
         });
 
         await billingPage.submitPayment();
-        await billingPage.expectPaymentSuccess(45_000);
+        await billingPage.expectPaymentSuccess(TIMEOUTS.WEBHOOK);
       });
 
       await test.step('balance updated after payment', async () => {
@@ -330,7 +322,7 @@ test.describe('Billing & Payments', () => {
         await unauthenticatedPage.goto(`/billing-portal?token=${freshToken}`, {
           waitUntil: 'domcontentloaded',
         });
-        await billingPage.waitForWebhookConfirmation(initialBalance, 5, 30_000);
+        await billingPage.waitForWebhookConfirmation(initialBalance, 5, TIMEOUTS.WEBHOOK);
 
         const newBalance = await billingPage.getBalance();
         expect(newBalance).toBe(initialBalance + 5);
@@ -339,7 +331,7 @@ test.describe('Billing & Payments', () => {
       await test.step('billing-only session cannot access chat', async () => {
         await unauthenticatedPage.goto('/chat', { waitUntil: 'domcontentloaded' });
         await expect(unauthenticatedPage.getByText('Free preview')).toBeVisible({
-          timeout: 15_000,
+          timeout: TIMEOUTS.APP_STABLE,
         });
       });
     });

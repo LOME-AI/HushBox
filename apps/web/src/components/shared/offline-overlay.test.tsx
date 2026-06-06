@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
 import { useNetworkStore } from '@/stores/network';
 import { OfflineOverlay } from './offline-overlay';
 
@@ -11,7 +12,7 @@ describe('OfflineOverlay', () => {
   it('does not render when online', () => {
     render(<OfflineOverlay />);
 
-    expect(screen.queryByTestId('offline-overlay')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(TEST_IDS.offlineOverlay)).not.toBeInTheDocument();
   });
 
   it('renders when offline', () => {
@@ -19,7 +20,7 @@ describe('OfflineOverlay', () => {
 
     render(<OfflineOverlay />);
 
-    expect(screen.getByTestId('offline-overlay')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.offlineOverlay)).toBeInTheDocument();
   });
 
   it('displays offline title', () => {
@@ -27,7 +28,7 @@ describe('OfflineOverlay', () => {
 
     render(<OfflineOverlay />);
 
-    expect(screen.getByTestId('offline-overlay-title')).toHaveTextContent("You're Offline");
+    expect(screen.getByTestId(TEST_IDS.offlineOverlayTitle)).toHaveTextContent("You're Offline");
   });
 
   it('displays reconnection message', () => {
@@ -35,7 +36,7 @@ describe('OfflineOverlay', () => {
 
     render(<OfflineOverlay />);
 
-    expect(screen.getByTestId('offline-overlay-description')).toHaveTextContent(
+    expect(screen.getByTestId(TEST_IDS.offlineOverlayDescription)).toHaveTextContent(
       'reconnect automatically'
     );
   });
@@ -44,13 +45,13 @@ describe('OfflineOverlay', () => {
     useNetworkStore.setState({ isOffline: true });
 
     const { rerender } = render(<OfflineOverlay />);
-    expect(screen.getByTestId('offline-overlay')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.offlineOverlay)).toBeInTheDocument();
 
     act(() => {
       useNetworkStore.setState({ isOffline: false });
     });
     rerender(<OfflineOverlay />);
 
-    expect(screen.queryByTestId('offline-overlay')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(TEST_IDS.offlineOverlay)).not.toBeInTheDocument();
   });
 });

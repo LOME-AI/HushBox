@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { SpendingOverTimeChart } from './spending-over-time-chart';
 import type { SpendingOverTimeResponse } from '@hushbox/shared';
 
@@ -32,7 +33,7 @@ describe('SpendingOverTimeChart', () => {
   describe('loading state', () => {
     it('renders skeleton when loading', () => {
       render(<SpendingOverTimeChart data={undefined} isLoading={true} />);
-      expect(screen.getByTestId('skeleton-block')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.skeletonBlock)).toBeInTheDocument();
     });
 
     it('does not render empty message when loading', () => {
@@ -54,14 +55,14 @@ describe('SpendingOverTimeChart', () => {
 
     it('does not render skeleton when not loading', () => {
       render(<SpendingOverTimeChart data={undefined} isLoading={false} />);
-      expect(screen.queryByTestId('skeleton-block')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.skeletonBlock)).not.toBeInTheDocument();
     });
   });
 
   describe('chart rendering', () => {
     it('renders chart card with correct testid', () => {
       render(<SpendingOverTimeChart data={SAMPLE_DATA} isLoading={false} />);
-      expect(screen.getByTestId('spending-over-time-chart')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.spendingOverTimeChart)).toBeInTheDocument();
     });
 
     it('renders title', () => {
@@ -76,7 +77,7 @@ describe('SpendingOverTimeChart', () => {
 
     it('does not render skeleton when data is loaded', () => {
       render(<SpendingOverTimeChart data={SAMPLE_DATA} isLoading={false} />);
-      expect(screen.queryByTestId('skeleton-block')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.skeletonBlock)).not.toBeInTheDocument();
     });
   });
 
@@ -95,7 +96,7 @@ describe('SpendingOverTimeChart', () => {
         { period: '2025-01-01', model: 'GPT-4', totalCost: '1.50', count: 10 },
       ]);
       render(<SpendingOverTimeChart data={single} isLoading={false} />);
-      expect(screen.getByTestId('spending-over-time-chart')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.spendingOverTimeChart)).toBeInTheDocument();
     });
 
     it('handles multiple models across periods', () => {
@@ -105,7 +106,7 @@ describe('SpendingOverTimeChart', () => {
         { period: '2025-01-01', model: 'Gemini', totalCost: '3.00', count: 3 },
       ]);
       render(<SpendingOverTimeChart data={multi} isLoading={false} />);
-      expect(screen.getByTestId('spending-over-time-chart')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.spendingOverTimeChart)).toBeInTheDocument();
     });
   });
 });

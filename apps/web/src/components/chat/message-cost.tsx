@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { formatCost } from '@hushbox/shared';
+import { formatCost, TEST_IDS } from '@hushbox/shared';
 
 interface MessageCostProps {
   /** Cost in USD as a string (e.g., "0.00136000") */
@@ -15,7 +15,7 @@ export function MessageCost({ cost }: Readonly<MessageCostProps>): React.JSX.Ele
   return (
     <span
       className="text-muted-foreground cursor-default text-xs opacity-60 transition-opacity hover:opacity-100"
-      data-testid="message-cost"
+      data-testid={TEST_IDS.messageCost}
     >
       {formattedCost}
     </span>

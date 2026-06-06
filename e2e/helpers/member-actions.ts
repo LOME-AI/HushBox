@@ -1,4 +1,6 @@
-import { expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
+import { expectApiErrors, expectConsoleErrors } from '../fixtures.js';
+import { expect } from './expect.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 import { ChatPage } from '../pages/index.js';
 import type { Page } from '@playwright/test';
 
@@ -23,6 +25,6 @@ export async function expectAccessRevoked(page: Page, conversationId: string): P
 
   // Member should be redirected away or see an error
   await expect(page).not.toHaveURL(new RegExp(conversationId), {
-    timeout: 10_000,
+    timeout: TIMEOUTS.ROUTE,
   });
 }

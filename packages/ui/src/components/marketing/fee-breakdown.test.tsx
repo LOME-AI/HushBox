@@ -7,6 +7,8 @@ import {
   FEE_BUCKET_BY_ID,
   FEE_CATEGORIES,
   roundPreservingSum,
+  TEST_IDS,
+  TEST_ID_BUILDERS,
 } from '@hushbox/shared';
 import { FeeBreakdown } from './fee-breakdown';
 
@@ -14,7 +16,7 @@ describe('FeeBreakdown', () => {
   describe('rendering', () => {
     it('renders with data-testid fee-breakdown', () => {
       render(<FeeBreakdown depositAmount={100} />);
-      expect(screen.getByTestId('fee-breakdown')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.feeBreakdown)).toBeInTheDocument();
     });
 
     it('renders section title', () => {
@@ -63,9 +65,9 @@ describe('FeeBreakdown', () => {
 
     it('renders Service Value category with a dynamically computed approximate label', () => {
       render(<FeeBreakdown depositAmount={100} />);
-      expect(screen.getByTestId('category-service-value')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.categoryServiceValue)).toBeInTheDocument();
       const labels = expectedApproximateLabels(100);
-      expect(screen.getByTestId('category-service-value-pct')).toHaveTextContent(
+      expect(screen.getByTestId(TEST_IDS.categoryServiceValuePct)).toHaveTextContent(
         labels.serviceValue
       );
     });
@@ -76,13 +78,13 @@ describe('FeeBreakdown', () => {
       );
       render(<FeeBreakdown depositAmount={100} />);
       if (hasTransactionCosts) {
-        expect(screen.getByTestId('category-transaction-costs')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.categoryTransactionCosts)).toBeInTheDocument();
         const labels = expectedApproximateLabels(100);
-        expect(screen.getByTestId('category-transaction-costs-pct')).toHaveTextContent(
+        expect(screen.getByTestId(TEST_IDS.categoryTransactionCostsPct)).toHaveTextContent(
           labels.transactionCosts
         );
       } else {
-        expect(screen.queryByTestId('category-transaction-costs')).not.toBeInTheDocument();
+        expect(screen.queryByTestId(TEST_IDS.categoryTransactionCosts)).not.toBeInTheDocument();
       }
     });
 
@@ -90,13 +92,13 @@ describe('FeeBreakdown', () => {
       const hasPlatformFee = FEE_CATEGORIES.some((c) => FEE_BUCKET_BY_ID[c.id] === 'platform-fee');
       render(<FeeBreakdown depositAmount={100} />);
       if (hasPlatformFee) {
-        expect(screen.getByTestId('category-platform-fee')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.categoryPlatformFee)).toBeInTheDocument();
         const labels = expectedApproximateLabels(100);
-        expect(screen.getByTestId('category-platform-fee-pct')).toHaveTextContent(
+        expect(screen.getByTestId(TEST_IDS.categoryPlatformFeePct)).toHaveTextContent(
           labels.platformFee
         );
       } else {
-        expect(screen.queryByTestId('category-platform-fee')).not.toBeInTheDocument();
+        expect(screen.queryByTestId(TEST_IDS.categoryPlatformFee)).not.toBeInTheDocument();
       }
     });
 
@@ -114,13 +116,13 @@ describe('FeeBreakdown', () => {
   describe('Service Value items', () => {
     it('shows Model usage item', () => {
       render(<FeeBreakdown depositAmount={100} />);
-      expect(screen.getByTestId('item-model-usage')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.itemModelUsage)).toBeInTheDocument();
       expect(screen.getByText('Model usage')).toBeInTheDocument();
     });
 
     it('shows Storage item without "est. 1M chars"', () => {
       render(<FeeBreakdown depositAmount={100} />);
-      expect(screen.getByTestId('item-storage')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.itemStorage)).toBeInTheDocument();
       expect(screen.getByText('Storage')).toBeInTheDocument();
       expect(screen.queryByText(/est\. 1M chars/)).not.toBeInTheDocument();
     });
@@ -130,10 +132,10 @@ describe('FeeBreakdown', () => {
     it('renders one row per non-zero fee category with its label and percent', () => {
       render(<FeeBreakdown depositAmount={100} />);
       for (const category of FEE_CATEGORIES) {
-        const item = screen.getByTestId(`item-fee-${category.id}`);
+        const item = screen.getByTestId(TEST_ID_BUILDERS.feeItem(category.id));
         expect(item).toBeInTheDocument();
         const expectedPct = (category.rate * 100).toFixed(1);
-        expect(screen.getByTestId(`item-fee-${category.id}-pct`)).toHaveTextContent(
+        expect(screen.getByTestId(TEST_ID_BUILDERS.feeItemPct(category.id))).toHaveTextContent(
           `${expectedPct}%`
         );
         expect(item).toHaveTextContent(category.label);
@@ -144,7 +146,9 @@ describe('FeeBreakdown', () => {
       render(<FeeBreakdown depositAmount={100} />);
       for (const category of ALL_FEE_CATEGORIES) {
         if (category.rate === 0) {
-          expect(screen.queryByTestId(`item-fee-${category.id}`)).not.toBeInTheDocument();
+          expect(
+            screen.queryByTestId(TEST_ID_BUILDERS.feeItem(category.id))
+          ).not.toBeInTheDocument();
           // The label must not appear anywhere in the rendered output
           expect(screen.queryByText(category.label)).not.toBeInTheDocument();
         }

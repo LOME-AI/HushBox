@@ -2,6 +2,7 @@ import * as React from 'react';
 import { X, Code, Eye, Copy, Check, Download, Maximize2, Minimize2 } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import { code } from '@streamdown/code';
+import { TEST_IDS } from '@hushbox/shared';
 import { Button, cn, useIsMobile } from '@hushbox/ui';
 import { useDocumentStore } from '../../stores/document';
 import { MermaidDiagram } from '../chat/mermaid-diagram';
@@ -24,7 +25,7 @@ function ResizeHandle({
   return (
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- mouse-only resize handle: keyboard users have alternative panel sizing controls
     <div
-      data-testid="resize-handle"
+      data-testid={TEST_IDS.resizeHandle}
       role="separator"
       aria-orientation="vertical"
       onMouseDown={onResizeStart}
@@ -35,7 +36,7 @@ function ResizeHandle({
       )}
     >
       <div
-        data-testid="resize-indicator"
+        data-testid={TEST_IDS.resizeIndicator}
         className={cn(
           'bg-border group-hover:bg-primary/50 h-8 w-0.5 rounded-full transition-colors',
           isResizing && 'bg-primary/50'
@@ -167,7 +168,7 @@ function DocumentContent({ document, showRaw }: Readonly<DocumentContentProps>):
   if (document.type === 'mermaid') {
     if (showRaw) {
       return (
-        <div data-testid="highlighted-code" className="document-panel-code">
+        <div data-testid={TEST_IDS.highlightedCode} className="document-panel-code">
           <Streamdown plugins={{ code }} controls={{ code: false }} animated={false}>
             {buildFencedCodeBlock(document.content, 'mermaid')}
           </Streamdown>
@@ -178,7 +179,7 @@ function DocumentContent({ document, showRaw }: Readonly<DocumentContentProps>):
   }
 
   return (
-    <div data-testid="highlighted-code" className="document-panel-code">
+    <div data-testid={TEST_IDS.highlightedCode} className="document-panel-code">
       <Streamdown plugins={{ code }} controls={{ code: false }} animated={false}>
         {buildFencedCodeBlock(document.content, document.language)}
       </Streamdown>
@@ -279,7 +280,7 @@ export function DocumentPanel({
   return (
     <div
       ref={panelRef}
-      data-testid="document-panel"
+      data-testid={TEST_IDS.documentPanel}
       data-chrome=""
       className={cn(
         'bg-background border-border relative flex h-full flex-col border-l',
@@ -307,7 +308,7 @@ export function DocumentPanel({
         onClose={closePanel}
       />
 
-      <div data-testid="document-panel-scroll" className="flex-1 overflow-auto">
+      <div data-testid={TEST_IDS.documentPanelScroll} className="flex-1 overflow-auto">
         <div>
           <DocumentContent document={activeDocument} showRaw={showRaw} />
         </div>

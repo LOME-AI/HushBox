@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChangePasswordModal } from './ChangePasswordModal';
 
 vi.mock('@hushbox/ui', async (importOriginal) => {
@@ -74,7 +75,7 @@ describe('ChangePasswordModal', () => {
 
       await user.type(screen.getByLabelText(/^new password$/i), 'testpass');
 
-      expect(screen.getByTestId('strength-indicator')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.strengthIndicator)).toBeInTheDocument();
     });
   });
 

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Button } from '@hushbox/ui';
-import { MARKETING_BASE_URL, ROUTES } from '@hushbox/shared';
+import { MARKETING_BASE_URL, ROUTES, TEST_IDS } from '@hushbox/shared';
 import { client, fetchJson } from '@/lib/api-client';
 import { openExternalUrl } from '@/capacitor/browser';
 
@@ -25,7 +25,7 @@ export function ManageOnlineButton(): React.JSX.Element {
 
   return (
     <Button
-      data-testid="manage-online-button"
+      data-testid={TEST_IDS.manageOnlineButton}
       size="lg"
       disabled={isLoading}
       onClick={() => {

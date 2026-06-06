@@ -1,9 +1,10 @@
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 
 export function IconBackground(): React.JSX.Element {
   return (
     <div
-      data-testid="icon-background"
+      data-testid={TEST_IDS.iconBackground}
       style={{
         width: '100vw',
         height: '100vh',

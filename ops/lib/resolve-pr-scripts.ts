@@ -27,7 +27,7 @@
 import { appendFileSync } from 'node:fs';
 import { loadManifest, type OpsManifest, type OpsScript } from './generate-labels.js';
 
-const LABEL_PREFIX = 'run-script:';
+export const LABEL_PREFIX = 'run-script:';
 
 export interface ResolveInput {
   labels: readonly string[];

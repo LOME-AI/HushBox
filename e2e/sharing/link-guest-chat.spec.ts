@@ -1,9 +1,10 @@
+import { TEST_IDS } from '@hushbox/shared';
 import { test, expect } from '../fixtures.js';
-import { unsettledExpect } from '../helpers/settled-expect.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
 import { createWriteLinkWithBudget } from '../helpers/invite-link.js';
 import { expectSharedConversationLoaded } from '../helpers/link-assertions.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Link Guest Chat', () => {
   test('write-privileged guest can send messages and get AI responses', async ({
@@ -57,14 +58,14 @@ test.describe('Link Guest Chat', () => {
     await test.step('guest sends message and receives AI response', async () => {
       const guestChatPage = new ChatPage(unauthenticatedPage);
       const guestInput = unauthenticatedPage.getByRole('textbox', { name: /message/i });
-      await expect(guestInput).toBeVisible({ timeout: 5000 });
+      await expect(guestInput).toBeVisible({ timeout: TIMEOUTS.MODAL });
 
       // Fill message first — send button requires text content to become enabled
       const guestMessage = `Guest says hello ${String(Date.now())}`;
       await guestInput.fill(guestMessage);
 
-      const sendButton = unauthenticatedPage.getByTestId('send-button');
-      await expect(sendButton).toBeEnabled({ timeout: 15_000 });
+      const sendButton = unauthenticatedPage.getByTestId(TEST_IDS.sendButton);
+      await expect(sendButton).toBeEnabled({ timeout: TIMEOUTS.CONVERSATION_LOAD });
       await sendButton.click();
 
       await guestChatPage.assertMessageVisible(guestMessage);
@@ -79,19 +80,17 @@ test.describe('Link Guest Chat', () => {
       const guestInput = unauthenticatedPage.getByRole('textbox', { name: /message/i });
       await guestInput.fill(modelMessage);
 
-      const sendButton = unauthenticatedPage.getByTestId('send-button');
-      await expect(sendButton).toBeEnabled({ timeout: 5000 });
+      const sendButton = unauthenticatedPage.getByTestId(TEST_IDS.sendButton);
+      await expect(sendButton).toBeEnabled({ timeout: TIMEOUTS.MODAL });
       await sendButton.click();
 
       await guestChatPage.assertMessageVisible(modelMessage);
 
       await guestChatPage.waitForAIResponse();
       // Sanity: React state knows about all 4 assistant messages
-      await unsettledExpect(guestChatPage.messageList).toHaveAttribute(
-        'data-assistant-count',
-        '4',
-        { timeout: 10_000 }
-      );
+      await expect(guestChatPage.messageList).toHaveAttribute('data-assistant-count', '4', {
+        timeout: TIMEOUTS.ASSERT,
+      });
       // New nametag helper scrolls through every assistant message, so this
       // works even when Virtuoso virtualises earlier seeded messages.
       await guestChatPage.expectAllAIMessagesHaveNametag();
@@ -104,7 +103,7 @@ test.describe('Link Guest Chat', () => {
             const finalBalance = await helper.getBalance();
             return Number.parseFloat(finalBalance.balance);
           },
-          { timeout: 10_000, intervals: [500, 1000, 2000] }
+          { timeout: TIMEOUTS.ASSERT, intervals: [500, 1000, 2000] }
         )
         .toBeLessThan(Number.parseFloat(initialBalance.balance));
     });

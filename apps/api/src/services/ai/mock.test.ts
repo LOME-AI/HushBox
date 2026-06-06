@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
 import { clearModelCache } from '@hushbox/shared/models';
 import { createMockAIClient, CANNED_IMAGE, CANNED_VIDEO } from './mock.js';
+import { E2E_MODEL_CATALOG } from './e2e-catalog.fixture.js';
 import type {
   MockAIClient,
   ModelInfo,
@@ -995,5 +996,51 @@ describe('createMockAIClient', () => {
 
       expect(() => client.stream(badRequest)).toThrow(/exhaustiveness/i);
     });
+  });
+});
+
+/**
+ * E2E catalog source. When `useFixtureCatalog` is set (E2E mode wires this from
+ * `getAIClient`), the mock must serve the pinned `E2E_MODEL_CATALOG` and never
+ * touch the network — the live `/v1/models` endpoint is the only non-hermetic
+ * dependency E2E would otherwise hit.
+ */
+describe('createMockAIClient with useFixtureCatalog', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    clearModelCache();
+    // A fetch that fails loudly: if the fixture path ever falls through to the
+    // network the test catches it, instead of silently hitting live /v1/models.
+    fetchSpy = vi.fn(() => Promise.reject(new Error('fetch must not be called on the E2E path')));
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('listRawModels returns the pinned fixture catalog without calling fetch', async () => {
+    const client = createMockAIClient({}, { useFixtureCatalog: true });
+    const raw = await client.listRawModels();
+    expect(raw).toEqual(E2E_MODEL_CATALOG);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('listModels maps the fixture catalog without calling fetch', async () => {
+    const client = createMockAIClient({}, { useFixtureCatalog: true });
+    const models = await client.listModels();
+    const fixtureIds = E2E_MODEL_CATALOG.map((m) => m.id).toSorted((a, b) => a.localeCompare(b));
+    const modelIds = models.map((m) => m.id).toSorted((a, b) => a.localeCompare(b));
+    expect(modelIds).toEqual(fixtureIds);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns a defensive copy — mutating the result does not affect the fixture', async () => {
+    const client = createMockAIClient({}, { useFixtureCatalog: true });
+    const first = await client.listRawModels();
+    first.length = 0;
+    const second = await client.listRawModels();
+    expect(second).toEqual(E2E_MODEL_CATALOG);
   });
 });

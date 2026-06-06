@@ -1,5 +1,7 @@
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { expectApiErrors, expectConsoleErrors } from '../fixtures.js';
-import { expect, unsettledExpect } from './settled-expect.js';
+import { expect } from './expect.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 import type { Page } from '@playwright/test';
 
 /**
@@ -19,11 +21,11 @@ export async function expectSharedConversationLoaded(page: Page): Promise<void> 
   ]);
   expectConsoleErrors(page, [/Failed to load resource: the server responded with a status of 401/]);
 
-  const loading = page.getByTestId('shared-conversation-loading');
+  const loading = page.getByTestId(TEST_IDS.sharedConversationLoading);
   await loading
-    .waitFor({ state: 'visible', timeout: 10_000 })
+    .waitFor({ state: 'visible', timeout: TIMEOUTS.ASSERT })
     .catch(Function.prototype as () => void);
-  await unsettledExpect(loading).not.toBeVisible({ timeout: 15_000 });
+  await expect(loading).not.toBeVisible({ timeout: TIMEOUTS.CONVERSATION_LOAD });
 }
 
 /** Assert no decryption failure text is visible on the page. */
@@ -44,25 +46,26 @@ export async function expectSendInputDisabled(
 /** Assert the read-only notice is visible and no trial/guest errors are shown. */
 export async function expectReadOnlyNotice(page: Page): Promise<void> {
   // Budget query paints independently of conversation query.
-  await unsettledExpect(page.getByTestId('budget-message-read_only_notice')).toBeVisible({
-    timeout: 15_000,
+  await expect(page.getByTestId(TEST_ID_BUILDERS.budgetMessage('read_only_notice'))).toBeVisible({
+    timeout: TIMEOUTS.ASSERT,
   });
-  await unsettledExpect(page.getByTestId('budget-message-trial_notice')).not.toBeVisible();
-  await unsettledExpect(
-    page.getByTestId('budget-message-guest_budget_exhausted')
+  await expect(page.getByTestId(TEST_ID_BUILDERS.budgetMessage('trial_notice'))).not.toBeVisible();
+  await expect(
+    page.getByTestId(TEST_ID_BUILDERS.budgetMessage('guest_budget_exhausted'))
   ).not.toBeVisible();
 }
 
 /** Assert the delegated budget notice is visible and no trial/guest errors are shown. */
 export async function expectDelegatedBudgetNotice(page: Page): Promise<void> {
   // Budget notice depends on billing query that loads independently from messages.
-  // Opt out of settled to avoid premature failure when messages settle first.
-  await unsettledExpect(page.getByTestId('budget-message-delegated_budget_notice')).toBeVisible({
-    timeout: 15_000,
+  await expect(
+    page.getByTestId(TEST_ID_BUILDERS.budgetMessage('delegated_budget_notice'))
+  ).toBeVisible({
+    timeout: TIMEOUTS.ASSERT,
   });
-  await unsettledExpect(page.getByTestId('budget-message-trial_notice')).not.toBeVisible();
-  await unsettledExpect(
-    page.getByTestId('budget-message-guest_budget_exhausted')
+  await expect(page.getByTestId(TEST_ID_BUILDERS.budgetMessage('trial_notice'))).not.toBeVisible();
+  await expect(
+    page.getByTestId(TEST_ID_BUILDERS.budgetMessage('guest_budget_exhausted'))
   ).not.toBeVisible();
 }
 
@@ -73,14 +76,13 @@ export async function sendMessageAsGuest(
   inputName: string | RegExp = 'Ask me anything...'
 ): Promise<void> {
   const input = page.getByRole('textbox', { name: inputName });
-  await expect(input).toBeVisible({ timeout: 5000 });
+  await expect(input).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
   await input.fill(message);
 
-  const sendButton = page.getByTestId('send-button');
-  await expect(sendButton).toBeEnabled({ timeout: 5000 });
+  const sendButton = page.getByTestId(TEST_IDS.sendButton);
+  await expect(sendButton).toBeEnabled({ timeout: TIMEOUTS.ASSERT });
   await sendButton.click();
 
-  // Encrypt → POST → SSE → decrypt may complete after settled fires.
-  await unsettledExpect(page.getByText(message).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(message).first()).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 }

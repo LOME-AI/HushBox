@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_ID_BUILDERS } from '@hushbox/shared';
 import { mockLogoImport } from '@/test-utils/mocks.js';
 import { SplashDark } from './splash-dark';
 
@@ -16,6 +17,6 @@ vi.mock('@hushbox/ui', async (importOriginal) => {
 describe('SplashDark', () => {
   it('renders the dark splash variant', () => {
     render(<SplashDark />);
-    expect(screen.getByTestId('splash-dark')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_ID_BUILDERS.splash('dark'))).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Navigate } from '@tanstack/react-router';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { ChatLayout } from '@/components/chat/chat-layout';
 import { useAuthenticatedChat } from '@/hooks/use-authenticated-chat';
 import { useGroupChat } from '@/hooks/use-group-chat';
@@ -355,7 +355,7 @@ export function AuthenticatedChatPage({
       return (
         <div
           className="flex h-full items-center justify-center"
-          data-testid="shared-conversation-error"
+          data-testid={TEST_IDS.sharedConversationError}
         >
           <p className="text-muted-foreground">This shared link is no longer available.</p>
         </div>

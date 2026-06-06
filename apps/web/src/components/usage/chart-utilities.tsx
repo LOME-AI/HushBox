@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { ResponsiveContainer } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, ChartContainer } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import type { ChartConfig } from '@hushbox/ui';
 
 export const CHART_COLORS = [
@@ -14,7 +15,10 @@ export const CHART_COLORS = [
 export function ChartSkeleton(): React.JSX.Element {
   return (
     <div className="flex h-[300px] items-center justify-center">
-      <div className="bg-muted h-full w-full animate-pulse rounded" data-testid="skeleton-block" />
+      <div
+        className="bg-muted h-full w-full animate-pulse rounded"
+        data-testid={TEST_IDS.skeletonBlock}
+      />
     </div>
   );
 }

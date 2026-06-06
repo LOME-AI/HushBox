@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { SettingsPage } from './settings';
 
 // vi.hoisted values are available inside vi.mock factories (hoisted above imports)
@@ -367,7 +368,7 @@ describe('SettingsPage', () => {
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*extra/i }));
 
       await waitFor(() => {
-        expect(screen.getByTestId('two-factor-setup-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.twoFactorSetupModal)).toBeInTheDocument();
       });
     });
 
@@ -402,7 +403,7 @@ describe('SettingsPage', () => {
       await user.click(screen.getByRole('button', { name: /continue/i }));
 
       // Enter code (auto-submits on complete)
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -427,7 +428,7 @@ describe('SettingsPage', () => {
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*manage/i }));
 
       await waitFor(() => {
-        expect(screen.getByTestId('disable-two-factor-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.disableTwoFactorModal)).toBeInTheDocument();
       });
     });
 
@@ -439,7 +440,7 @@ describe('SettingsPage', () => {
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*manage/i }));
 
       await waitFor(() => {
-        expect(screen.getByTestId('disable-two-factor-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.disableTwoFactorModal)).toBeInTheDocument();
       });
 
       await user.type(screen.getByLabelText(/current password/i), 'mypassword');
@@ -450,7 +451,7 @@ describe('SettingsPage', () => {
       });
 
       // Enter OTP (auto-submits on 6 digits)
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -512,7 +513,7 @@ describe('SettingsPage', () => {
       await user.click(screen.getByRole('button', { name: /custom instructions.*tell the ai/i }));
 
       await waitFor(() => {
-        expect(screen.getByTestId('custom-instructions-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.customInstructionsModal)).toBeInTheDocument();
       });
     });
   });
@@ -528,8 +529,10 @@ describe('SettingsPage', () => {
 
     it('renders a Delete account button under the Danger zone card', () => {
       render(<SettingsPage />);
-      expect(screen.getByTestId('delete-account-trigger')).toBeInTheDocument();
-      expect(screen.getByTestId('delete-account-trigger')).toHaveTextContent(/^Delete Account$/);
+      expect(screen.getByTestId(TEST_IDS.deleteAccountTrigger)).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.deleteAccountTrigger)).toHaveTextContent(
+        /^Delete Account$/
+      );
     });
 
     it('opens the DeleteAccountModal when the Delete account button is clicked', async () => {
@@ -537,7 +540,7 @@ describe('SettingsPage', () => {
       render(<SettingsPage />);
       expect(screen.queryByTestId('delete-account-modal-stub')).not.toBeInTheDocument();
 
-      await user.click(screen.getByTestId('delete-account-trigger'));
+      await user.click(screen.getByTestId(TEST_IDS.deleteAccountTrigger));
 
       await waitFor(() => {
         expect(screen.getByTestId('delete-account-modal-stub')).toBeInTheDocument();
@@ -554,7 +557,7 @@ describe('SettingsPage', () => {
       await user.click(screen.getByRole('button', { name: /recovery phrase.*protect/i }));
 
       await waitFor(() => {
-        expect(screen.getByTestId('recovery-phrase-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.recoveryPhraseModal)).toBeInTheDocument();
       });
     });
 
@@ -617,7 +620,7 @@ describe('SettingsPage', () => {
       await user.click(screen.getByRole('button', { name: /recovery phrase.*protect/i }));
 
       await waitFor(() => {
-        expect(screen.getByTestId('word-grid')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.wordGrid)).toBeInTheDocument();
       });
 
       await user.click(screen.getByRole('button', { name: /i've saved it/i }));
@@ -661,7 +664,7 @@ describe('SettingsPage', () => {
       await user.click(screen.getByRole('button', { name: /generate new/i }));
 
       await waitFor(() => {
-        expect(screen.getByTestId('recovery-phrase-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.recoveryPhraseModal)).toBeInTheDocument();
       });
     });
   });

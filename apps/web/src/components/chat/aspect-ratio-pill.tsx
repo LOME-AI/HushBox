@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Button, cn } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 
 interface AspectRatioPillProps {
   /** Ratio string like "16:9" or "1:1". */
@@ -36,7 +37,7 @@ export function AspectRatioShape({
   };
   return (
     <span
-      data-testid="aspect-ratio-shape"
+      data-testid={TEST_IDS.aspectRatioShape}
       aria-hidden="true"
       className="inline-block shrink-0 border border-current"
       style={shapeStyle}

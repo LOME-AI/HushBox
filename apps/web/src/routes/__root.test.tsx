@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 
 vi.mock('@tanstack/react-router', () => ({
   Outlet: () => <div data-testid="outlet" />,
@@ -77,7 +78,7 @@ describe('root route', () => {
     const Component = route.component;
     render(<Component />);
 
-    expect(screen.getByTestId('offline-overlay')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.offlineOverlay)).toBeInTheDocument();
   });
 
   it('renders UpgradeRequiredModal', async () => {
@@ -86,6 +87,6 @@ describe('root route', () => {
     const Component = route.component;
     render(<Component />);
 
-    expect(screen.getByTestId('upgrade-required-modal')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.upgradeRequiredModal)).toBeInTheDocument();
   });
 });

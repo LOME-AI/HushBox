@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { useCipherWall } from './use-cipher-wall';
 import { CELL_WIDTH, CELL_HEIGHT, EXCLUSION_STRIDE } from './cipher-wall-engine';
 import type { ThemeColors } from './cipher-wall-engine';
@@ -153,7 +154,7 @@ export function CipherWall(props: Readonly<CipherWallProps>): React.JSX.Element 
   return (
     <canvas
       ref={canvasRef}
-      data-testid="cipher-wall"
+      data-testid={TEST_IDS.cipherWall}
       role="img"
       aria-label="Animated cipher wall showing messages being encrypted and decrypted"
       className={className ?? 'h-full w-full'}

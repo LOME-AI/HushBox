@@ -1,5 +1,7 @@
 import { type Page, type Locator } from '@playwright/test';
-import { expect, unsettledExpect } from '../helpers/settled-expect.js';
+import { TEST_IDS } from '@hushbox/shared';
+import { expect } from '../helpers/expect.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 /** Click a button if it's still actionable within the timeout; swallow timeout errors (e.g. OTP auto-submit). */
 async function clickIfActionable(button: Locator, timeout: number): Promise<void> {
@@ -43,7 +45,7 @@ export class LoginPage {
 
   async loginAndWaitForChat(email: string, password: string): Promise<void> {
     await this.login(email, password);
-    await this.page.waitForURL('/chat', { timeout: 30_000 });
+    await this.page.waitForURL('/chat', { timeout: TIMEOUTS.ROUTE });
   }
 
   async clickForgotPassword(): Promise<void> {
@@ -51,8 +53,7 @@ export class LoginPage {
   }
 
   async expectError(text: string | RegExp): Promise<void> {
-    // Error alert mounts after the mutation settles; settled-aware would bail.
-    await unsettledExpect(this.errorMessage).toContainText(text);
+    await expect(this.errorMessage).toContainText(text);
   }
 }
 
@@ -98,12 +99,11 @@ export class SignupPage {
   }
 
   async expectCheckYourEmail(): Promise<void> {
-    await expect(this.page.getByText('Check your email')).toBeVisible({ timeout: 30_000 });
+    await expect(this.page.getByText('Check your email')).toBeVisible({ timeout: TIMEOUTS.ROUTE });
   }
 
   async expectError(text: string | RegExp): Promise<void> {
-    // Error alert mounts after the mutation settles; settled-aware would bail.
-    await unsettledExpect(this.errorMessage).toContainText(text);
+    await expect(this.errorMessage).toContainText(text);
   }
 }
 
@@ -171,11 +171,11 @@ export class TwoFactorSetupModal {
 
   constructor(page: Page) {
     this.page = page;
-    this.modal = page.getByTestId('two-factor-setup-modal');
+    this.modal = page.getByTestId(TEST_IDS.twoFactorSetupModal);
     this.getStartedButton = this.modal.getByRole('button', { name: 'Get Started →' });
     this.secretCode = this.modal.locator('code');
     this.continueButton = this.modal.getByRole('button', { name: 'Continue →' });
-    this.otpInput = this.modal.getByTestId('otp-input');
+    this.otpInput = this.modal.getByTestId(TEST_IDS.otpInput);
     this.verifyButton = this.modal.getByRole('button', { name: /Verify/ });
     this.doneButton = this.modal.getByRole('button', { name: 'Done' });
     this.errorMessage = this.modal.locator('.text-destructive');
@@ -187,7 +187,7 @@ export class TwoFactorSetupModal {
 
   async waitForSecret(): Promise<string> {
     await expect(this.secretCode).toBeVisible({
-      timeout: 10_000,
+      timeout: TIMEOUTS.ASSERT,
     });
     const secret = await this.secretCode.textContent();
     if (!secret) throw new Error('Could not extract TOTP secret');
@@ -203,12 +203,12 @@ export class TwoFactorSetupModal {
   }
 
   async verify(): Promise<void> {
-    await clickIfActionable(this.verifyButton, 3000);
+    await clickIfActionable(this.verifyButton, TIMEOUTS.MODAL);
   }
 
   async expectSuccess(): Promise<void> {
     await expect(this.modal.getByText('Two-Factor Authentication Enabled')).toBeVisible({
-      timeout: 10_000,
+      timeout: TIMEOUTS.ASSERT,
     });
   }
 
@@ -226,15 +226,14 @@ export class TwoFactorInputModal {
 
   constructor(page: Page) {
     this.page = page;
-    this.modal = page.getByTestId('two-factor-input-modal');
-    this.otpInput = this.modal.getByTestId('otp-input');
+    this.modal = page.getByTestId(TEST_IDS.twoFactorInputModal);
+    this.otpInput = this.modal.getByTestId(TEST_IDS.otpInput);
     this.verifyButton = this.modal.getByRole('button', { name: 'Verify' });
     this.errorMessage = this.modal.locator('.text-destructive');
   }
 
   async waitForModal(): Promise<void> {
-    // Login uses raw fetch + OPAQUE crypto; settled-aware would bail before modal mounts.
-    await unsettledExpect(this.modal).toBeVisible({ timeout: 10_000 });
+    await expect(this.modal).toBeVisible({ timeout: TIMEOUTS.ASSERT });
   }
 
   async enterCode(code: string): Promise<void> {
@@ -242,12 +241,11 @@ export class TwoFactorInputModal {
   }
 
   async verify(): Promise<void> {
-    await clickIfActionable(this.verifyButton, 3000);
+    await clickIfActionable(this.verifyButton, TIMEOUTS.MODAL);
   }
 
   async expectError(text: string | RegExp): Promise<void> {
-    // Error alert mounts after the mutation settles; settled-aware would bail.
-    await unsettledExpect(this.errorMessage).toContainText(text);
+    await expect(this.errorMessage).toContainText(text);
   }
 }
 
@@ -262,7 +260,7 @@ export class ChangePasswordModal {
 
   constructor(page: Page) {
     this.page = page;
-    this.modal = page.getByTestId('change-password-modal');
+    this.modal = page.getByTestId(TEST_IDS.changePasswordModal);
     this.currentPasswordInput = this.modal.getByLabel('Current Password');
     this.newPasswordInput = this.modal.getByLabel('New Password', { exact: true });
     this.confirmPasswordInput = this.modal.getByLabel('Confirm New Password');
@@ -278,8 +276,7 @@ export class ChangePasswordModal {
   }
 
   async expectError(text: string | RegExp): Promise<void> {
-    // Error alert mounts after the mutation settles; settled-aware would bail.
-    await unsettledExpect(this.errorMessage).toContainText(text);
+    await expect(this.errorMessage).toContainText(text);
   }
 }
 
@@ -293,8 +290,8 @@ export class RecoveryPhraseModal {
 
   constructor(page: Page) {
     this.page = page;
-    this.modal = page.getByTestId('recovery-phrase-modal');
-    this.wordGrid = this.modal.getByTestId('word-grid');
+    this.modal = page.getByTestId(TEST_IDS.recoveryPhraseModal);
+    this.wordGrid = this.modal.getByTestId(TEST_IDS.wordGrid);
     this.copyButton = this.modal.getByRole('button', { name: /Copy/ });
     this.savedButton = this.modal.getByRole('button', { name: "I've saved it →" });
     this.doneButton = this.modal.getByRole('button', { name: /Done|Continue to Payment/ });
@@ -342,7 +339,9 @@ export class RecoveryPhraseModal {
   }
 
   async expectSuccess(): Promise<void> {
-    await expect(this.modal.getByText('Recovery Phrase Saved')).toBeVisible({ timeout: 15_000 });
+    await expect(this.modal.getByText('Recovery Phrase Saved')).toBeVisible({
+      timeout: TIMEOUTS.ASSERT,
+    });
   }
 }
 
@@ -357,10 +356,10 @@ export class DisableTwoFactorModal {
 
   constructor(page: Page) {
     this.page = page;
-    this.modal = page.getByTestId('disable-two-factor-modal');
+    this.modal = page.getByTestId(TEST_IDS.disableTwoFactorModal);
     this.passwordInput = this.modal.getByLabel('Current Password');
     this.continueButton = this.modal.getByRole('button', { name: 'Continue' });
-    this.otpInput = this.modal.getByTestId('otp-input');
+    this.otpInput = this.modal.getByTestId(TEST_IDS.otpInput);
     this.disableButton = this.modal.getByRole('button', { name: 'Disable 2FA' });
     this.errorMessage = this.modal.locator('.text-destructive');
   }
@@ -372,12 +371,11 @@ export class DisableTwoFactorModal {
 
   async enterCodeAndDisable(code: string): Promise<void> {
     await this.otpInput.pressSequentially(code);
-    await clickIfActionable(this.disableButton, 3000);
+    await clickIfActionable(this.disableButton, TIMEOUTS.MODAL);
   }
 
   async expectError(text: string | RegExp): Promise<void> {
-    // Error alert mounts after the mutation settles; settled-aware would bail.
-    await unsettledExpect(this.errorMessage).toContainText(text);
+    await expect(this.errorMessage).toContainText(text);
   }
 }
 
@@ -440,9 +438,8 @@ export class RecoverySuccessView {
   }
 
   async expectVisible(): Promise<void> {
-    // Recovery uses raw fetch + OPAQUE crypto; settled-aware would bail before success renders.
-    await unsettledExpect(this.page.getByText('Password Reset Successful')).toBeVisible({
-      timeout: 30_000,
+    await expect(this.page.getByText('Password Reset Successful')).toBeVisible({
+      timeout: TIMEOUTS.ROUTE,
     });
   }
 

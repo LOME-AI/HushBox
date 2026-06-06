@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import {
   useUsageSummary,
   useSpendingOverTime,
@@ -58,7 +59,7 @@ export function UsageContent(): React.JSX.Element {
   const balanceHistory = useBalanceHistory(dateRange);
 
   return (
-    <PageBody testId="usage-content" className="space-y-6">
+    <PageBody testId={TEST_IDS.usageContent} className="space-y-6">
       <UsageFilters
         range={range}
         onRangeChange={setRange}

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { ROUTES } from '@hushbox/shared';
+import { ROUTES, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@hushbox/ui';
 import { env } from '@/lib/env';
 
@@ -76,13 +76,13 @@ export function AssetsPage(): React.JSX.Element {
           {ASSET_DEFINITIONS.map((asset) => (
             <div
               key={asset.name}
-              data-testid={`asset-card-${asset.name}`}
+              data-testid={TEST_ID_BUILDERS.assetCard(asset.name)}
               className="border-border bg-card overflow-hidden rounded-lg border"
             >
               <div className="bg-muted flex aspect-square items-center justify-center">
                 {/* eslint-disable-next-line no-restricted-syntax -- dev-only asset preview page; intentionally renders raw <img> to show source assets */}
                 <img
-                  data-testid={`asset-preview-${asset.name}`}
+                  data-testid={TEST_ID_BUILDERS.assetPreview(asset.name)}
                   src={`/dev-assets/${asset.name}.png`}
                   alt={asset.label}
                   className="h-full w-full object-contain"
@@ -96,7 +96,7 @@ export function AssetsPage(): React.JSX.Element {
                 <div className="mt-2 flex gap-3">
                   <a
                     href={`/dev/render-asset/${asset.name}`}
-                    data-testid={`asset-link-${asset.name}`}
+                    data-testid={TEST_ID_BUILDERS.assetLink(asset.name)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary text-xs hover:underline"
@@ -105,7 +105,7 @@ export function AssetsPage(): React.JSX.Element {
                   </a>
                   <button
                     type="button"
-                    data-testid={`asset-open-image-${asset.name}`}
+                    data-testid={TEST_ID_BUILDERS.assetOpenImage(asset.name)}
                     className="text-primary text-xs hover:underline"
                     onClick={() => {
                       setPreviewImage({
@@ -128,7 +128,7 @@ export function AssetsPage(): React.JSX.Element {
           {RESOLUTION_DEFINITIONS.map((resolution) => (
             <div
               key={resolution.name}
-              data-testid={`resolution-group-${resolution.name}`}
+              data-testid={TEST_ID_BUILDERS.resolutionGroup(resolution.name)}
               className="mb-10"
             >
               <h3 className="text-foreground mb-1 text-lg font-semibold">{resolution.label}</h3>
@@ -140,7 +140,7 @@ export function AssetsPage(): React.JSX.Element {
                 {SCREENSHOT_DEFINITIONS.map((screenshot) => (
                   <div
                     key={screenshot.name}
-                    data-testid={`screenshot-card-${resolution.name}-${screenshot.name}`}
+                    data-testid={TEST_ID_BUILDERS.screenshotCard(resolution.name, screenshot.name)}
                     className="border-border bg-card overflow-hidden rounded-lg border"
                   >
                     <div className="bg-muted aspect-[9/16]">
@@ -155,7 +155,10 @@ export function AssetsPage(): React.JSX.Element {
                       <p className="text-foreground text-xs font-medium">{screenshot.label}</p>
                       <button
                         type="button"
-                        data-testid={`screenshot-open-image-${resolution.name}-${screenshot.name}`}
+                        data-testid={TEST_ID_BUILDERS.screenshotOpenImage(
+                          resolution.name,
+                          screenshot.name
+                        )}
                         className="text-primary mt-1 text-xs hover:underline"
                         onClick={() => {
                           setPreviewImage({

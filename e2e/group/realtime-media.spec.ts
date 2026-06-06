@@ -1,5 +1,6 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
 import { setupRealtimePair } from '../helpers/realtime.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 /**
  * Lane 9 #4: real-time fan-out of generated media. After Alice generates an
@@ -36,21 +37,21 @@ test.describe('Real-time media broadcast', () => {
 
     const prompt = `Realtime image ${String(Date.now())}`;
     await aliceChatPage.sendFollowUpMessage(prompt);
-    await aliceChatPage.expectImageVisible(30_000);
-    await aliceChatPage.waitForStreamComplete(30_000);
+    await aliceChatPage.expectImageVisible(TIMEOUTS.MEDIA_DECODE);
+    await aliceChatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
     // Bob's React state knows about a new assistant message via WebSocket fan-out.
-    await unsettledExpect(bobChatPage.messageList).toHaveAttribute(
+    await expect(bobChatPage.messageList).toHaveAttribute(
       'data-assistant-count',
       String(beforeAssistantCount + 1),
-      { timeout: 20_000 }
+      { timeout: TIMEOUTS.MEDIA_DECODE }
     );
 
     // iPhone-15 Virtuoso virtualizes the user-prompt row off-screen.
     const bobLastRowIndex = await bobChatPage.getLastRowIndex();
     await bobChatPage.scrollMessageIntoView(bobLastRowIndex - 1);
-    await unsettledExpect(bobChatPage.messageList.getByText(prompt).first()).toBeVisible({
-      timeout: 15_000,
+    await expect(bobChatPage.messageList.getByText(prompt).first()).toBeVisible({
+      timeout: TIMEOUTS.WS_HANDSHAKE,
     });
 
     // Bob's last assistant message renders an `<img>` whose pixel data decoded
@@ -62,10 +63,10 @@ test.describe('Real-time media broadcast', () => {
       .last()
       .locator('img')
       .first();
-    await expect(bobLastImage).toBeVisible({ timeout: 30_000 });
+    await expect(bobLastImage).toBeVisible({ timeout: TIMEOUTS.MEDIA_DECODE });
     await expect
       .poll(async () => bobLastImage.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
-        timeout: 15_000,
+        timeout: TIMEOUTS.MEDIA_DECODE,
       })
       .toBeGreaterThan(0);
   });

@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures.js';
 import { UsagePage } from '../pages';
 import { navigateToUsage } from '../helpers/auth.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Usage Analytics', () => {
   test('usage page renders charts and filters work', async ({ authenticatedPage }) => {
@@ -33,7 +34,7 @@ test.describe('Usage Analytics', () => {
       await expect(async () => {
         const sevenDayText = await usagePage.getKpiTotalSpentText();
         expect(sevenDayText).not.toBe(allTimeText);
-      }).toPass({ timeout: 5000 });
+      }).toPass({ timeout: TIMEOUTS.MODAL });
     });
 
     await test.step('model filter narrows data', async () => {

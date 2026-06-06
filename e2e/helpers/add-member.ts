@@ -1,4 +1,6 @@
-import { expect, unsettledExpect } from './settled-expect.js';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { expect } from './expect.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 import type { Page } from '@playwright/test';
 import type { MemberSidebarPage } from '../pages/member-sidebar.page.js';
 
@@ -14,15 +16,15 @@ export async function searchAndSelectMember(
 ): Promise<void> {
   await sidebar.clickNewMember();
 
-  const modal = page.getByTestId('add-member-modal');
+  const modal = page.getByTestId(TEST_IDS.addMemberModal);
   await expect(modal).toBeVisible();
 
-  const searchInput = page.getByTestId('add-member-search-input');
+  const searchInput = page.getByTestId(TEST_IDS.addMemberSearchInput);
   await searchInput.fill(username);
 
-  const result = page.getByTestId(/^add-member-result-/);
-  await unsettledExpect(result.first()).toBeVisible({ timeout: 10_000 });
+  const result = page.getByTestId(new RegExp(`^${TEST_ID_BUILDERS.addMemberResult('')}`));
+  await expect(result.first()).toBeVisible({ timeout: TIMEOUTS.ASSERT });
   await result.first().click();
 
-  await expect(page.getByTestId('add-member-selected')).toBeVisible();
+  await expect(page.getByTestId(TEST_IDS.addMemberSelected)).toBeVisible();
 }

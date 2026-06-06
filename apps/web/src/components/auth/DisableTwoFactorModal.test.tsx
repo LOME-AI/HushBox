@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import { DisableTwoFactorModal } from './DisableTwoFactorModal';
 
 vi.mock('@hushbox/ui', async (importOriginal) => {
@@ -171,7 +172,7 @@ describe('DisableTwoFactorModal', () => {
     it('shows OTP input and Disable 2FA button', async () => {
       await goToCodeStep();
 
-      expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /disable 2fa/i })).toBeInTheDocument();
     });
 
@@ -202,7 +203,7 @@ describe('DisableTwoFactorModal', () => {
       mockDisable2FAFinish.mockImplementation(() => new Promise(() => {}));
       const user = await goToCodeStep();
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -223,7 +224,7 @@ describe('DisableTwoFactorModal', () => {
         expect(screen.getByText('Enter Verification Code')).toBeInTheDocument();
       });
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -239,7 +240,7 @@ describe('DisableTwoFactorModal', () => {
       });
       const user = await goToCodeStep();
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -262,7 +263,7 @@ describe('DisableTwoFactorModal', () => {
         expect(screen.getByText('Enter Verification Code')).toBeInTheDocument();
       });
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -280,7 +281,7 @@ describe('DisableTwoFactorModal', () => {
       mockDisable2FAFinish.mockImplementation(() => new Promise(() => {}));
       const user = await goToCodeStep();
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -296,7 +297,7 @@ describe('DisableTwoFactorModal', () => {
       });
       const user = await goToCodeStep();
 
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 
 vi.mock('@/hooks/chat', () => ({
@@ -195,12 +196,12 @@ describe('Sidebar', () => {
 
     it('renders sidebar header', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(screen.getByTestId('sidebar-header')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.sidebarHeader)).toBeInTheDocument();
     });
 
     it('renders SidebarFooter', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(screen.getByTestId('sidebar-footer')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.sidebarFooter)).toBeInTheDocument();
     });
 
     it('has w-72 class when sidebar is open', () => {
@@ -250,7 +251,7 @@ describe('Sidebar', () => {
   describe('content area', () => {
     it('renders SidebarContent navigation', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(screen.getByTestId('sidebar-nav')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.sidebarNav)).toBeInTheDocument();
     });
 
     it('renders NewChatButton', () => {
@@ -279,8 +280,8 @@ describe('Sidebar', () => {
       mockConversationsHook({ data: undefined, isLoading: true });
 
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(screen.getByTestId('decrypting-indicator')).toBeInTheDocument();
-      expect(screen.getByTestId('decrypting-lock-icon')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.decryptingIndicator)).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.decryptingLockIcon)).toBeInTheDocument();
       expect(screen.getByText('Decrypting...')).toBeInTheDocument();
     });
 
@@ -289,7 +290,7 @@ describe('Sidebar', () => {
       mockConversationsHook({ data: undefined, isLoading: true });
 
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(screen.getByTestId('decrypting-lock-icon')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.decryptingLockIcon)).toBeInTheDocument();
       expect(screen.queryByText('Decrypting...')).not.toBeInTheDocument();
     });
 
@@ -342,7 +343,7 @@ describe('Sidebar', () => {
 
       render(<Sidebar />, { wrapper: createWrapper() });
       expect(screen.queryByText('Decrypting...')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('decrypting-indicator')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.decryptingIndicator)).not.toBeInTheDocument();
     });
 
     it('shows NewChatButton when session is null', () => {

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Input, useAsyncAction } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { useFormEnterNav } from '../../hooks/use-form-enter-nav.js';
 import { ActionModal } from '../shared/action-modal.js';
 
@@ -36,15 +37,15 @@ export function RenameConversationDialog({
           await onConfirm();
         },
         disabled: !value.trim(),
-        testId: 'save-rename-button',
+        testId: TEST_IDS.saveRenameButton,
         type: 'submit',
         form: 'rename-conversation',
       }}
       cancel={{
         label: 'Cancel',
-        testId: 'cancel-rename-button',
+        testId: TEST_IDS.cancelRenameButton,
       }}
-      testId="rename-conversation-dialog"
+      testId={TEST_IDS.renameConversationDialog}
     >
       <p className="text-muted-foreground text-sm">Enter a new name for this conversation.</p>
       <form

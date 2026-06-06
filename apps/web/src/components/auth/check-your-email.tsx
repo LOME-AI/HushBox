@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Mail } from 'lucide-react';
+import { TEST_IDS } from '@hushbox/shared';
 import { authClient } from '@/lib/auth';
 import { AuthButton } from '@/components/auth/AuthButton';
 
@@ -66,7 +67,7 @@ export function CheckYourEmail({
   }
 
   return (
-    <div className="text-center" data-testid="check-your-email">
+    <div className="text-center" data-testid={TEST_IDS.checkYourEmail}>
       <Mail className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
       <h1 className="text-foreground mb-2 text-3xl font-bold">Check your email</h1>
       <p className="text-muted-foreground mb-6">
@@ -82,7 +83,7 @@ export function CheckYourEmail({
         onClick={() => {
           void handleResend();
         }}
-        data-testid="resend-button"
+        data-testid={TEST_IDS.resendButton}
       >
         {buttonText}
       </AuthButton>
@@ -90,7 +91,7 @@ export function CheckYourEmail({
       {feedback && (
         <p
           className={`mt-3 text-sm ${feedback.isError ? 'text-destructive' : 'text-success'}`}
-          data-testid="resend-feedback"
+          data-testid={TEST_IDS.resendFeedback}
         >
           {feedback.isError ? '✗' : '✓'} {feedback.message}
         </p>

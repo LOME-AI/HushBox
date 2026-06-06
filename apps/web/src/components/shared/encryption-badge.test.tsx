@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
 import { EncryptionBadge } from './encryption-badge';
 
 vi.mock('@tanstack/react-router', () => ({
@@ -28,28 +29,28 @@ describe('EncryptionBadge', () => {
   it('renders the shield icon', () => {
     render(<EncryptionBadge isAuthenticated={true} />);
 
-    expect(screen.getByTestId('encryption-badge')).toBeInTheDocument();
-    expect(screen.getByTestId('encryption-badge-icon')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.encryptionBadge)).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.encryptionBadgeIcon)).toBeInTheDocument();
   });
 
   it('applies green color to the icon', () => {
     render(<EncryptionBadge isAuthenticated={true} />);
 
-    const icon = screen.getByTestId('encryption-badge-icon');
+    const icon = screen.getByTestId(TEST_IDS.encryptionBadgeIcon);
     expect(icon).toHaveClass('text-green-500');
   });
 
   it('renders tooltip trigger with aria-hidden icon', () => {
     render(<EncryptionBadge isAuthenticated={false} />);
 
-    const icon = screen.getByTestId('encryption-badge-icon');
+    const icon = screen.getByTestId(TEST_IDS.encryptionBadgeIcon);
     expect(icon).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('renders as inline-flex container', () => {
     render(<EncryptionBadge isAuthenticated={true} />);
 
-    const badge = screen.getByTestId('encryption-badge');
+    const badge = screen.getByTestId(TEST_IDS.encryptionBadge);
     expect(badge).toHaveClass('inline-flex', 'items-center');
   });
 

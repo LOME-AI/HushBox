@@ -1,10 +1,12 @@
-import { test, expect, unsettledExpect } from '../fixtures.js';
+import { test, expect } from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
 import {
   sumDisplayedMessageCostMicros,
   DISPLAY_COST_TOLERANCE_MICROS,
 } from '../helpers/cost-display.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 import type { Page, Request } from '@playwright/test';
 
 /**
@@ -14,7 +16,9 @@ import type { Page, Request } from '@playwright/test';
  * `toBeGreaterThan(0)` checks. Micros preserve those values exactly.
  */
 async function getMessageCostMicros(page: Page, messageId: string): Promise<number> {
-  const badge = page.locator(`[data-message-id="${messageId}"] [data-testid="message-cost"]`);
+  const badge = page.locator(
+    `[data-message-id="${messageId}"] [data-testid="${TEST_IDS.messageCost}"]`
+  );
   const text = (await badge.textContent()) ?? '';
   const match = /\$?([\d.]+)/.exec(text);
   return match ? Math.round(Number.parseFloat(match[1] ?? '0') * 1_000_000) : 0;
@@ -28,7 +32,7 @@ async function snapshotAssistantTiles(page: Page): Promise<{ id: string; modelNa
   for (let index = 0; index < count; index++) {
     const tile = tiles.nth(index);
     const id = (await tile.getAttribute('data-message-id')) ?? '';
-    const nametag = (await tile.getByTestId('model-nametag').textContent()) ?? '';
+    const nametag = (await tile.getByTestId(TEST_IDS.modelNametag).textContent()) ?? '';
     if (id) out.push({ id, modelName: nametag.trim() });
   }
   return out;
@@ -45,7 +49,7 @@ interface RegenerateRequestBody {
 function captureNextRegenerateRequest(page: Page): Promise<Request> {
   return page.waitForRequest(
     (req) => req.url().includes('/regenerate') && req.method() === 'POST',
-    { timeout: 15_000 }
+    { timeout: TIMEOUTS.STREAM }
   );
 }
 
@@ -54,6 +58,7 @@ function parseRegenerateBody(req: Request): RegenerateRequestBody {
 }
 
 test.describe('Multi-Model Regeneration', () => {
+  // eslint-disable-next-line no-restricted-syntax -- serial: both tests assert the shared Alice wallet balance before/after a regenerate; running them concurrently would interleave debits and corrupt the per-test delta.
   test.describe.configure({ mode: 'serial' });
 
   // Retry on the user message of a multi-model turn fans out to ALL selected
@@ -89,12 +94,12 @@ test.describe('Multi-Model Regeneration', () => {
     });
 
     await test.step('wait for both new responses + their cost badges', async () => {
-      await chatPage.waitForStreamComplete(30_000);
-      await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-        timeout: 20_000,
+      await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
+      await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+        timeout: TIMEOUTS.ROUTE,
       });
-      await unsettledExpect(chatPage.messageList).toHaveAttribute('data-cost-count', '2', {
-        timeout: 20_000,
+      await expect(chatPage.messageList).toHaveAttribute('data-cost-count', '2', {
+        timeout: TIMEOUTS.ROUTE,
       });
     });
 
@@ -157,9 +162,9 @@ test.describe('Multi-Model Regeneration', () => {
     });
 
     await test.step('wait for the replacement to stream + persist', async () => {
-      await chatPage.waitForStreamComplete(30_000);
-      await unsettledExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
-        timeout: 20_000,
+      await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
+      await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+        timeout: TIMEOUTS.ROUTE,
       });
     });
 

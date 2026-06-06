@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 import { ChartTooltipContent, ChartLegendContent } from '@hushbox/ui';
+import { TEST_IDS, type TokenUsageOverTimeResponse } from '@hushbox/shared';
 import {
   UsageChartCard,
   formatTokenCount,
@@ -8,7 +9,6 @@ import {
   DEFAULT_AXIS_PROPS,
 } from './chart-utilities';
 import type { ChartConfig } from '@hushbox/ui';
-import type { TokenUsageOverTimeResponse } from '@hushbox/shared';
 
 interface TokenUsageChartProps {
   data: TokenUsageOverTimeResponse | undefined;
@@ -41,7 +41,7 @@ export function TokenUsageChart({
   return (
     <UsageChartCard
       title="Token Usage"
-      testId="token-usage-chart"
+      testId={TEST_IDS.tokenUsageChart}
       isLoading={isLoading}
       isEmpty={chartData.length === 0}
       chartConfig={chartConfig}

@@ -3,6 +3,7 @@ import { render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 import { ChatItem, type SidebarConversation } from './chat-item';
 
@@ -148,7 +149,7 @@ describe('ChatItem', () => {
 
     it('links to conversation page', () => {
       render(<ChatItem conversation={mockConversation} />);
-      const link = screen.getByTestId('chat-link');
+      const link = screen.getByTestId(TEST_IDS.chatLink);
       expect(link).toHaveAttribute('href', '/chat/conv-123');
     });
 
@@ -165,18 +166,18 @@ describe('ChatItem', () => {
     it('renders lock icon with muted style when title is Decrypting...', () => {
       const decryptingConversation = { ...mockConversation, title: 'Decrypting...' };
       render(<ChatItem conversation={decryptingConversation} />);
-      expect(screen.getByTestId('decrypting-title')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.decryptingTitle)).toBeInTheDocument();
       expect(screen.getByText('Decrypting...')).toHaveClass('text-muted-foreground');
     });
 
     it('hides message icon when expanded', () => {
       render(<ChatItem conversation={mockConversation} />);
-      expect(screen.queryByTestId('message-icon')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.messageIcon)).not.toBeInTheDocument();
     });
 
     it('highlights when active', () => {
       render(<ChatItem conversation={mockConversation} isActive />);
-      const link = screen.getByTestId('chat-link');
+      const link = screen.getByTestId(TEST_IDS.chatLink);
       expect(link.parentElement).toHaveClass('bg-sidebar-border');
     });
   });
@@ -188,27 +189,27 @@ describe('ChatItem', () => {
 
     it('shows only icon when collapsed', () => {
       render(<ChatItem conversation={mockConversation} />);
-      expect(screen.getByTestId('message-icon')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.messageIcon)).toBeInTheDocument();
       expect(screen.queryByText('Test Conversation')).not.toBeInTheDocument();
     });
 
     it('hides more options button when collapsed', () => {
       render(<ChatItem conversation={mockConversation} />);
-      expect(screen.queryByTestId('chat-item-more-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.chatItemMoreButton)).not.toBeInTheDocument();
     });
   });
 
   describe('actions dropdown', () => {
     it('shows more options button when sidebar is expanded', () => {
       render(<ChatItem conversation={mockConversation} />);
-      expect(screen.getByTestId('chat-item-more-button')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.chatItemMoreButton)).toBeInTheDocument();
     });
 
     it('opens dropdown menu on more button click', async () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Rename')).toBeInTheDocument();
       expect(screen.getByText('Delete')).toBeInTheDocument();
@@ -218,7 +219,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      const moreButton = screen.getByTestId('chat-item-more-button');
+      const moreButton = screen.getByTestId(TEST_IDS.chatItemMoreButton);
       await user.click(moreButton);
 
       expect(screen.getByText('Rename')).toBeInTheDocument();
@@ -230,7 +231,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Delete'));
 
       expect(screen.getByText('Delete conversation?')).toBeInTheDocument();
@@ -241,9 +242,9 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Delete'));
-      await user.click(screen.getByTestId('confirm-delete-button'));
+      await user.click(screen.getByTestId(TEST_IDS.confirmDeleteButton));
 
       expect(mockDeleteMutate).toHaveBeenCalledWith('conv-123', expect.any(Object));
     });
@@ -252,9 +253,9 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Delete'));
-      await user.click(screen.getByTestId('cancel-delete-button'));
+      await user.click(screen.getByTestId(TEST_IDS.cancelDeleteButton));
 
       await waitFor(() => {
         expect(screen.queryByText('Delete conversation?')).not.toBeInTheDocument();
@@ -268,7 +269,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Rename'));
 
       expect(screen.getByText('Rename conversation')).toBeInTheDocument();
@@ -279,13 +280,13 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Rename'));
 
       const input = screen.getByDisplayValue('Test Conversation');
       await user.clear(input);
       await user.type(input, 'New Title');
-      await user.click(screen.getByTestId('save-rename-button'));
+      await user.click(screen.getByTestId(TEST_IDS.saveRenameButton));
 
       expect(mockUpdateMutate).toHaveBeenCalledWith(
         {
@@ -300,9 +301,9 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Rename'));
-      await user.click(screen.getByTestId('cancel-rename-button'));
+      await user.click(screen.getByTestId(TEST_IDS.cancelRenameButton));
 
       await waitFor(() => {
         expect(screen.queryByText('Rename conversation')).not.toBeInTheDocument();
@@ -314,13 +315,13 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Rename'));
 
       const input = screen.getByDisplayValue('Test Conversation');
       await user.clear(input);
 
-      expect(screen.getByTestId('save-rename-button')).toBeDisabled();
+      expect(screen.getByTestId(TEST_IDS.saveRenameButton)).toBeDisabled();
     });
   });
 
@@ -334,7 +335,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={nonOwnerConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Leave')).toBeInTheDocument();
       expect(screen.queryByText('Rename')).not.toBeInTheDocument();
@@ -349,7 +350,7 @@ describe('ChatItem', () => {
         />
       );
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Leave')).toBeInTheDocument();
       expect(screen.queryByText('Rename')).not.toBeInTheDocument();
@@ -363,7 +364,7 @@ describe('ChatItem', () => {
         />
       );
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Leave')).toBeInTheDocument();
       expect(screen.queryByText('Delete')).not.toBeInTheDocument();
@@ -373,11 +374,11 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={nonOwnerConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Leave'));
 
       await waitFor(() => {
-        expect(screen.getByTestId('leave-confirmation-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.leaveConfirmationModal)).toBeInTheDocument();
       });
     });
 
@@ -385,13 +386,13 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={nonOwnerConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Leave'));
 
       await waitFor(() => {
-        expect(screen.getByTestId('leave-confirmation-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.leaveConfirmationModal)).toBeInTheDocument();
       });
-      await user.click(screen.getByTestId('leave-confirmation-confirm'));
+      await user.click(screen.getByTestId(TEST_IDS.leaveConfirmationConfirm));
 
       await waitFor(() => {
         expect(mockExecuteWithRotation).toHaveBeenCalledOnce();
@@ -416,16 +417,16 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={nonOwnerConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Leave'));
 
       await waitFor(() => {
-        expect(screen.getByTestId('leave-confirmation-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.leaveConfirmationModal)).toBeInTheDocument();
       });
-      await user.click(screen.getByTestId('leave-confirmation-cancel'));
+      await user.click(screen.getByTestId(TEST_IDS.leaveConfirmationCancel));
 
       await waitFor(() => {
-        expect(screen.queryByTestId('leave-confirmation-modal')).not.toBeInTheDocument();
+        expect(screen.queryByTestId(TEST_IDS.leaveConfirmationModal)).not.toBeInTheDocument();
       });
       expect(mockExecuteWithRotation).not.toHaveBeenCalled();
       expect(mockLeaveMutateAsync).not.toHaveBeenCalled();
@@ -435,12 +436,12 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={nonOwnerConversation} isActive />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Leave'));
       await waitFor(() => {
-        expect(screen.getByTestId('leave-confirmation-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.leaveConfirmationModal)).toBeInTheDocument();
       });
-      await user.click(screen.getByTestId('leave-confirmation-confirm'));
+      await user.click(screen.getByTestId(TEST_IDS.leaveConfirmationConfirm));
 
       await waitFor(() => {
         expect(mockNavigate).toHaveBeenCalledWith({ to: '/chat' });
@@ -451,12 +452,12 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={nonOwnerConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Leave'));
       await waitFor(() => {
-        expect(screen.getByTestId('leave-confirmation-modal')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.leaveConfirmationModal)).toBeInTheDocument();
       });
-      await user.click(screen.getByTestId('leave-confirmation-confirm'));
+      await user.click(screen.getByTestId(TEST_IDS.leaveConfirmationConfirm));
 
       // Wait for the leave action to settle, then assert no navigation
       await waitFor(() => {
@@ -469,7 +470,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Rename')).toBeInTheDocument();
       expect(screen.getByText('Delete')).toBeInTheDocument();
@@ -482,7 +483,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Mute')).toBeInTheDocument();
       expect(screen.queryByText('Unmute')).not.toBeInTheDocument();
@@ -492,7 +493,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={{ ...mockConversation, muted: true }} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Unmute')).toBeInTheDocument();
       expect(screen.queryByText('Mute')).not.toBeInTheDocument();
@@ -502,7 +503,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Mute'));
 
       expect(mockMuteMutate).toHaveBeenCalledWith({
@@ -515,7 +516,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={{ ...mockConversation, muted: true }} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Unmute'));
 
       expect(mockMuteMutate).toHaveBeenCalledWith({
@@ -532,7 +533,7 @@ describe('ChatItem', () => {
         />
       );
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Mute')).toBeInTheDocument();
     });
@@ -543,7 +544,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Pin')).toBeInTheDocument();
       expect(screen.queryByText('Unpin')).not.toBeInTheDocument();
@@ -553,7 +554,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={{ ...mockConversation, pinned: true }} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Unpin')).toBeInTheDocument();
       expect(screen.queryByText('Pin')).not.toBeInTheDocument();
@@ -563,7 +564,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={mockConversation} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Pin'));
 
       expect(mockPinMutate).toHaveBeenCalledWith({
@@ -576,7 +577,7 @@ describe('ChatItem', () => {
       const user = userEvent.setup();
       render(<ChatItem conversation={{ ...mockConversation, pinned: true }} />);
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
       await user.click(screen.getByText('Unpin'));
 
       expect(mockPinMutate).toHaveBeenCalledWith({
@@ -593,7 +594,7 @@ describe('ChatItem', () => {
         />
       );
 
-      await user.click(screen.getByTestId('chat-item-more-button'));
+      await user.click(screen.getByTestId(TEST_IDS.chatItemMoreButton));
 
       expect(screen.getByText('Pin')).toBeInTheDocument();
     });

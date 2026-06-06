@@ -74,7 +74,9 @@ export function getAIClient(env: AIClientEnv, options: AIClientOptions = {}): AI
       ...options.mockConfig,
       textDelayMs: options.mockConfig?.textDelayMs ?? defaultTextDelayMs,
     };
-    return createMockAIClient(mockConfig);
+    // E2E pins the catalog to a committed fixture so no run touches the live
+    // public `/v1/models` endpoint. Plain local dev keeps the live fetch.
+    return createMockAIClient(mockConfig, { useFixtureCatalog: isE2E });
   }
 
   return createRealAIClient({

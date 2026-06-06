@@ -1,4 +1,5 @@
-import { expect } from '@playwright/test';
+import { TEST_IDS } from '@hushbox/shared';
+import { expect } from './expect.js';
 import type { ChatPage } from '../pages/index.js';
 
 type MediaKind = 'image' | 'video';
@@ -38,7 +39,7 @@ export async function assertCostAndNametagForFreshGeneration(
   }
   await chatPage.waitForStreamComplete();
 
-  const costBadge = chatPage.messageList.locator('[data-testid="message-cost"]').first();
+  const costBadge = chatPage.messageList.getByTestId(TEST_IDS.messageCost).first();
   await expect(costBadge).toBeVisible();
   await expect(costBadge).toContainText(/\$/);
 

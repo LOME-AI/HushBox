@@ -10,6 +10,7 @@ import {
   InlineFormError,
   useAsyncAction,
 } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { useMessageShare } from '../../hooks/use-message-share.js';
 
 interface ShareMessageModalProps {
@@ -47,11 +48,14 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
   if (input.generatedUrl === null) {
     return (
       <>
-        <div data-testid="share-message-preview" className="border-border rounded-md border p-3">
+        <div
+          data-testid={TEST_IDS.shareMessagePreview}
+          className="border-border rounded-md border p-3"
+        >
           <p className="line-clamp-4 text-sm">{input.messageContent}</p>
         </div>
 
-        <Alert variant="default" data-testid="share-message-isolation-info">
+        <Alert variant="default" data-testid={TEST_IDS.shareMessageIsolationInfo}>
           <Lock />
           <span>
             Cryptographically isolated. This link gives access to this single message only.
@@ -62,7 +66,7 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
           cancel={{
             label: 'Cancel',
             onClick: input.onCancel,
-            testId: 'share-message-cancel-button',
+            testId: TEST_IDS.shareMessageCancelButton,
           }}
           primary={{
             label: 'Create Link',
@@ -70,7 +74,7 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
               void input.onCreate();
             },
             disabled: input.isPending,
-            testId: 'share-message-create-button',
+            testId: TEST_IDS.shareMessageCreateButton,
           }}
         />
       </>
@@ -80,7 +84,7 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
   return (
     <>
       <div
-        data-testid="share-message-success"
+        data-testid={TEST_IDS.shareMessageSuccess}
         role="status"
         aria-live="polite"
         className="flex items-center gap-2 text-sm text-green-600"
@@ -90,7 +94,7 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
       </div>
 
       <div
-        data-testid="share-message-url"
+        data-testid={TEST_IDS.shareMessageUrl}
         className="bg-muted overflow-hidden rounded-md p-3 text-xs break-all"
       >
         {input.generatedUrl}
@@ -104,7 +108,7 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
         primary={{
           label: input.copied ? 'Copied' : 'Copy',
           onClick: input.onCopy,
-          testId: 'share-message-copy-button',
+          testId: TEST_IDS.shareMessageCopyButton,
         }}
       />
     </>
@@ -167,7 +171,7 @@ export function ShareMessageModal({
       ariaLabel="Share Message"
       dismissible={!isPending}
     >
-      <OverlayContent data-testid="share-message-modal">
+      <OverlayContent data-testid={TEST_IDS.shareMessageModal}>
         <OverlayHeader title="Share Message" />
 
         {renderShareContent({

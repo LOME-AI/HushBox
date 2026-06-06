@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@hushbox/ui';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 
 export type DateRangePreset = '7d' | '30d' | '90d' | 'all';
 
@@ -26,8 +27,8 @@ export function UsageFilters({
   availableModels,
 }: Readonly<UsageFiltersProps>): React.JSX.Element {
   return (
-    <div className="flex flex-wrap items-center gap-3" data-testid="usage-filters">
-      <div className="flex gap-1" data-testid="date-range-buttons">
+    <div className="flex flex-wrap items-center gap-3" data-testid={TEST_IDS.usageFilters}>
+      <div className="flex gap-1" data-testid={TEST_IDS.dateRangeButtons}>
         {PRESETS.map((preset) => (
           <Button
             key={preset.value}
@@ -36,7 +37,7 @@ export function UsageFilters({
             onClick={() => {
               onRangeChange(preset.value);
             }}
-            data-testid={`range-${preset.value}`}
+            data-testid={TEST_ID_BUILDERS.range(preset.value)}
           >
             {preset.label}
           </Button>
@@ -49,7 +50,7 @@ export function UsageFilters({
             onModelChange(v === 'all' ? undefined : v);
           }}
         >
-          <SelectTrigger data-testid="model-filter">
+          <SelectTrigger data-testid={TEST_IDS.modelFilter}>
             <SelectValue placeholder="All Models" />
           </SelectTrigger>
           <SelectContent>

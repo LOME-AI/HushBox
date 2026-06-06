@@ -45,7 +45,7 @@ Deterministic by construction. Removes the root causes of saturation flake inste
 | - | ---- | ----------- | ---- |
 | 2.1 | No wall-clock waits, anywhere | `lint:playwright/no-wait-for-timeout` · `lint:playwright/no-networkidle` · `lint:no-restricted-syntax(setTimeout/setInterval)` | 2 |
 | 2.2 | Wait only on app-emitted readiness signals; signals are typed and contract-tested | `type:signalRegistry` · `test:contracts/signals` · prefer signals over other waits `doc` | 1/3/6 |
-| 2.3 | Timeouts are named budgets × `HB_E2E_TIMEOUT_FACTOR`; no inline literals | `lint:no-restricted-syntax(numeric timeout:)` · `config:HB_E2E_TIMEOUT_FACTOR` | 2 |
+| 2.3 | Timeouts are fixed named budgets from one module; no inline literals, no runtime scaling | `lint:no-restricted-syntax(numeric timeout:)` · `type:timeouts` | 2 |
 | 2.4 | Control time, randomness, locale, timezone | `config:timezoneId=UTC` · `config:locale` · `lint:no-restricted-syntax(Math.random, bare new Date())` · `page.clock` when time-dependent `doc` | 2/3/6 |
 | 2.5 | No motion in tests | `config:VITE_E2E` (existing — forces reduced-motion app-wide) · `test:contracts/motion-off` | 3 |
 | 2.6 | Total isolation; order-independent; no `serial` except an explicit allowlist | `config:fullyParallel` · `lint:no-restricted-syntax(describe.serial)` · `lint:no-restricted-imports(@hushbox/db in specs)` | 2/3 |

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TEST_IDS } from '@hushbox/shared';
 import type { ReactNode } from 'react';
 vi.mock('@/lib/api', () => ({
   getApiUrl: () => 'http://localhost:8787',
@@ -113,7 +114,7 @@ describe('AppShell', () => {
       </AppShell>,
       { wrapper: createWrapper() }
     );
-    const shell = screen.getByTestId('app-shell');
+    const shell = screen.getByTestId(TEST_IDS.appShell);
     expect(shell).toHaveClass('flex');
   });
 
@@ -124,7 +125,7 @@ describe('AppShell', () => {
       </AppShell>,
       { wrapper: createWrapper() }
     );
-    const shell = screen.getByTestId('app-shell');
+    const shell = screen.getByTestId(TEST_IDS.appShell);
     expect(shell).toHaveClass('h-dvh');
   });
 

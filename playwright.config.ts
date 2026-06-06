@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { TIMEOUTS } from './e2e/config/timeouts';
+
 const isCI = !!process.env['CI'];
 const previewPort = process.env['HB_PREVIEW_PORT']!;
 const apiPort = process.env['HB_API_PORT']!;
@@ -14,6 +16,13 @@ const apiUrl = `http://localhost:${apiPort}`;
 // e2e/global-setup.ts.
 const chromiumLaunchOptions = { args: ['--disable-dev-shm-usage'] };
 
+// Project-level gate for the `@chromium-only` tag: tests carrying it run on the
+// `chromium` project only. Spread into every other project so they skip those
+// tests in both CI and local runs. Project `grepInvert` composes (AND) with the
+// CLI `--grep-invert` the CI matrix passes for `@local-only`/`@webhook`, so the
+// two gating mechanisms don't interfere. Matched against the tagged test title.
+const excludeChromiumOnly = { grepInvert: /@chromium-only/ } as const;
+
 export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   globalTeardown: './e2e/global-teardown.ts',
@@ -23,14 +32,15 @@ export default defineConfig({
   retries: isCI ? 2 : 1,
   maxFailures: isCI ? 1 : 0,
   workers: isCI ? 3 : '45%',
-  timeout: 45_000,
+  timeout: TIMEOUTS.LONG,
   // Backstop so a wedged run can't hang forever. Playwright aborts via its
   // normal shutdown, which group-kills each webServer — so it won't leak orphan
   // dev servers the way a hard Ctrl+C of a stuck run does. Sized above the
-  // observed full local matrix (~46m); raise if that grows.
-  globalTimeout: 75 * 60_000,
+  // observed full local matrix (~46m); the multiplier is a fixed count of the
+  // per-test budget, not runtime scaling. Raise the count if the matrix grows.
+  globalTimeout: 75 * TIMEOUTS.LONG,
   expect: {
-    timeout: 10_000,
+    timeout: TIMEOUTS.ASSERT,
   },
   reporter: isCI
     ? [['list'], ['github'], ['html', { open: 'never' }]]
@@ -40,6 +50,11 @@ export default defineConfig({
     trace: 'retain-on-first-failure',
     screenshot: isCI ? 'only-on-failure' : 'on',
     video: 'retain-on-failure',
+    // Determinism: pin clock zone and locale so date/number/collation behaviour
+    // is identical on every machine and in CI. Time itself is controlled
+    // per-test via page.clock where a test depends on it.
+    timezoneId: 'UTC',
+    locale: 'en-US',
   },
   webServer: [
     {
@@ -119,6 +134,7 @@ export default defineConfig({
     },
     {
       name: 'auth-tests',
+      ...excludeChromiumOnly,
       testDir: './e2e/auth',
       use: {
         ...devices['Desktop Chrome'],
@@ -135,17 +151,22 @@ export default defineConfig({
         launchOptions: chromiumLaunchOptions,
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**'],
+      // `**/auth/**` keeps e2e/auth/** in the auth-tests project only; those specs
+      // are chromium-family-only, and auth-tests is the dedicated chromium run for
+      // them. Gating here (not via the @chromium-only tag) is required because
+      // auth-tests grepInverts @chromium-only, so the tag can't reach it.
+      testIgnore: ['**/mobile/**', '**/auth/**'],
       dependencies: ['setup-chromium'],
     },
     {
       name: 'firefox',
+      ...excludeChromiumOnly,
       use: {
         ...devices['Desktop Firefox'],
         storageState: 'e2e/.auth/firefox/test-alice.json',
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**'],
+      testIgnore: ['**/mobile/**', '**/auth/**'],
       dependencies: ['setup-firefox'],
       // See setup-firefox above for why firefox is capped below the global
       // worker count. Other projects are unconstrained and can use the
@@ -154,37 +175,44 @@ export default defineConfig({
     },
     {
       name: 'webkit',
+      ...excludeChromiumOnly,
       use: {
         ...devices['Desktop Safari'],
         storageState: 'e2e/.auth/webkit/test-alice.json',
       },
       testDir: './e2e',
-      testIgnore: ['**/mobile/**'],
+      testIgnore: ['**/mobile/**', '**/auth/**'],
       dependencies: ['setup-webkit'],
     },
     {
       name: 'iphone-15',
+      ...excludeChromiumOnly,
       use: {
         ...devices['iPhone 15'],
         storageState: 'e2e/.auth/iphone-15/test-alice.json',
       },
+      testIgnore: ['**/auth/**'],
       dependencies: ['setup-iphone-15'],
     },
     {
       name: 'pixel-7',
+      ...excludeChromiumOnly,
       use: {
         ...devices['Pixel 7'],
         storageState: 'e2e/.auth/pixel-7/test-alice.json',
         launchOptions: chromiumLaunchOptions,
       },
+      testIgnore: ['**/auth/**'],
       dependencies: ['setup-pixel-7'],
     },
     {
       name: 'ipad-pro',
+      ...excludeChromiumOnly,
       use: {
         ...devices['iPad Pro 11'],
         storageState: 'e2e/.auth/ipad-pro/test-alice.json',
       },
+      testIgnore: ['**/auth/**'],
       dependencies: ['setup-ipad-pro'],
     },
   ],

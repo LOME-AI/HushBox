@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { CheckYourEmail } from './check-your-email';
 
 const mockResendVerification = vi.fn();
@@ -30,7 +31,7 @@ describe('CheckYourEmail', () => {
 
   it('renders the resend button enabled by default', () => {
     render(<CheckYourEmail email="alice@example.com" />);
-    const button = screen.getByTestId('resend-button');
+    const button = screen.getByTestId(TEST_IDS.resendButton);
     expect(button).toBeEnabled();
     expect(button).toHaveTextContent(/resend verification email/i);
   });
@@ -51,10 +52,10 @@ describe('CheckYourEmail', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<CheckYourEmail email="alice@example.com" />);
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
 
-    expect(screen.getByTestId('resend-button')).toHaveTextContent(/sending/i);
-    expect(screen.getByTestId('resend-button')).toBeDisabled();
+    expect(screen.getByTestId(TEST_IDS.resendButton)).toHaveTextContent(/sending/i);
+    expect(screen.getByTestId(TEST_IDS.resendButton)).toBeDisabled();
 
     await act(async () => {
       resolveFunction({ error: null });
@@ -68,9 +69,9 @@ describe('CheckYourEmail', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<CheckYourEmail email="alice@example.com" />);
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
 
-    const feedback = await screen.findByTestId('resend-feedback');
+    const feedback = await screen.findByTestId(TEST_IDS.resendFeedback);
     expect(feedback).toHaveTextContent(/verification email sent/i);
     expect(feedback.className).toContain('text-success');
   });
@@ -81,9 +82,9 @@ describe('CheckYourEmail', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<CheckYourEmail email="alice@example.com" />);
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
 
-    const button = await screen.findByTestId('resend-button');
+    const button = await screen.findByTestId(TEST_IDS.resendButton);
     expect(button).toHaveTextContent(/\d+s/);
     expect(button).toBeDisabled();
   });
@@ -94,9 +95,9 @@ describe('CheckYourEmail', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<CheckYourEmail email="alice@example.com" />);
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
 
-    const button = await screen.findByTestId('resend-button');
+    const button = await screen.findByTestId(TEST_IDS.resendButton);
     expect(button).toHaveTextContent('(60s)');
 
     act(() => {
@@ -112,7 +113,7 @@ describe('CheckYourEmail', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<CheckYourEmail email="alice@example.com" />);
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
 
     await screen.findByText(/verification email sent/i);
 
@@ -120,8 +121,10 @@ describe('CheckYourEmail', () => {
       vi.advanceTimersByTime(60_000);
     });
 
-    expect(screen.getByTestId('resend-button')).toBeEnabled();
-    expect(screen.getByTestId('resend-button')).toHaveTextContent(/resend verification email/i);
+    expect(screen.getByTestId(TEST_IDS.resendButton)).toBeEnabled();
+    expect(screen.getByTestId(TEST_IDS.resendButton)).toHaveTextContent(
+      /resend verification email/i
+    );
   });
 
   it('renders error feedback when result.error is set', async () => {
@@ -132,9 +135,9 @@ describe('CheckYourEmail', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<CheckYourEmail email="alice@example.com" />);
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
 
-    const feedback = await screen.findByTestId('resend-feedback');
+    const feedback = await screen.findByTestId(TEST_IDS.resendFeedback);
     expect(feedback).toHaveTextContent(/rate limited/i);
     expect(feedback.className).toContain('text-destructive');
   });
@@ -147,9 +150,9 @@ describe('CheckYourEmail', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<CheckYourEmail email="alice@example.com" />);
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
 
-    const button = await screen.findByTestId('resend-button');
+    const button = await screen.findByTestId(TEST_IDS.resendButton);
     expect(button).toHaveTextContent('(60s)');
     expect(button).toBeDisabled();
   });
@@ -160,13 +163,13 @@ describe('CheckYourEmail', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<CheckYourEmail email="alice@example.com" />);
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
 
-    const feedback = await screen.findByTestId('resend-feedback');
+    const feedback = await screen.findByTestId(TEST_IDS.resendFeedback);
     expect(feedback).toHaveTextContent(/something went wrong/i);
     expect(feedback.className).toContain('text-destructive');
     // Throw path does NOT start cooldown
-    expect(screen.getByTestId('resend-button')).toBeEnabled();
+    expect(screen.getByTestId(TEST_IDS.resendButton)).toBeEnabled();
   });
 
   it('automatically resends once when autoResend is true', async () => {
@@ -203,7 +206,7 @@ describe('CheckYourEmail', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<CheckYourEmail email="alice@example.com" />);
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
     await screen.findByText(/rate limited/i);
 
     // Wait out the cooldown so the button becomes clickable again.
@@ -218,7 +221,7 @@ describe('CheckYourEmail', () => {
       })
     );
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
 
     expect(screen.queryByText(/rate limited/i)).not.toBeInTheDocument();
 
@@ -234,7 +237,7 @@ describe('CheckYourEmail', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<CheckYourEmail email="bob@example.com" />);
 
-    await user.click(screen.getByTestId('resend-button'));
+    await user.click(screen.getByTestId(TEST_IDS.resendButton));
 
     await screen.findByText(/verification email sent/i);
     expect(mockResendVerification).toHaveBeenCalledWith({ email: 'bob@example.com' });

@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
+import { TEST_IDS } from '@hushbox/shared';
 import {
   ChartSkeleton,
   formatTokenCount,
@@ -23,7 +24,7 @@ vi.mock('recharts', async (importOriginal) => {
 describe('ChartSkeleton', () => {
   it('renders skeleton block', () => {
     render(<ChartSkeleton />);
-    expect(screen.getByTestId('skeleton-block')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.skeletonBlock)).toBeInTheDocument();
   });
 });
 
@@ -108,7 +109,7 @@ describe('UsageChartCard', () => {
         <div>chart content</div>
       </UsageChartCard>
     );
-    expect(screen.getByTestId('skeleton-block')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.skeletonBlock)).toBeInTheDocument();
     expect(screen.queryByText('chart content')).not.toBeInTheDocument();
   });
 
@@ -173,7 +174,7 @@ describe('UsageChartCard', () => {
       </UsageChartCard>
     );
     expect(screen.getByText('chart content')).toBeInTheDocument();
-    expect(screen.queryByTestId('skeleton-block')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(TEST_IDS.skeletonBlock)).not.toBeInTheDocument();
     expect(screen.queryByText('No usage data for this period')).not.toBeInTheDocument();
   });
 
@@ -189,7 +190,7 @@ describe('UsageChartCard', () => {
         <div>chart content</div>
       </UsageChartCard>
     );
-    expect(screen.getByTestId('skeleton-block')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.skeletonBlock)).toBeInTheDocument();
     expect(screen.queryByText('No usage data for this period')).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { cn, DropdownMenuItem } from '@hushbox/ui';
+import { TEST_ID_BUILDERS } from '@hushbox/shared';
 import { ItemRow } from '@/components/shared/item-row';
 
 interface Fork {
@@ -40,7 +41,7 @@ export function ForkTabs({
         return (
           <ItemRow
             key={fork.id}
-            data-testid={`fork-tab-${fork.id}`}
+            data-testid={TEST_ID_BUILDERS.forkTab(fork.id)}
             className={cn(
               'shrink-0',
               '[&:hover:not(:has([data-menu-trigger]:hover))]:bg-muted',

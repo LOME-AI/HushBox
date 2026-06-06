@@ -48,6 +48,7 @@ function apiError(
   return new ApiError(code, status, details === undefined ? { code } : { code, details });
 }
 
+import { TEST_IDS } from '@hushbox/shared';
 import { DeleteAccountModal } from './DeleteAccountModal';
 
 vi.mock('@/hooks/use-is-mobile', () => ({
@@ -408,14 +409,14 @@ describe('DeleteAccountModal', () => {
       await user.type(screen.getByLabelText('Password'), 'mypassword');
       await user.click(screen.getByRole('button', { name: /continue/i }));
       await waitFor(() => {
-        expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
       });
       return user;
     }
 
     it('shows the OTP input when user has 2FA', async () => {
       await advanceToTotpStep();
-      expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
     });
 
     it('skips TOTP step when user has no 2FA', async () => {
@@ -430,12 +431,12 @@ describe('DeleteAccountModal', () => {
           screen.getByRole('heading', { name: /type delete my account/i })
         ).toBeInTheDocument();
       });
-      expect(screen.queryByTestId('otp-input')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.otpInput)).not.toBeInTheDocument();
     });
 
     it('advances to final step after entering 6 digits', async () => {
       const user = await advanceToTotpStep();
-      const otpInput = screen.getByTestId('otp-input');
+      const otpInput = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(otpInput);
       await user.keyboard('123456');
 
@@ -467,9 +468,9 @@ describe('DeleteAccountModal', () => {
 
       if (options?.withTotp === true) {
         await waitFor(() => {
-          expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+          expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
         });
-        const otpInput = screen.getByTestId('otp-input');
+        const otpInput = screen.getByTestId(TEST_IDS.otpInput);
         await user.click(otpInput);
         await user.keyboard('123456');
         await user.click(screen.getByRole('button', { name: /continue/i }));
@@ -575,7 +576,7 @@ describe('DeleteAccountModal', () => {
       await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
 
       await waitFor(() => {
-        expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
       });
       expect(screen.getByText(/invalid verification code/i)).toBeInTheDocument();
     });
@@ -587,7 +588,7 @@ describe('DeleteAccountModal', () => {
       await user.click(screen.getByRole('button', { name: /delete account permanently/i }));
 
       await waitFor(() => {
-        expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
       });
       expect(screen.getByText(/6-digit verification code/i)).toBeInTheDocument();
     });
@@ -630,7 +631,7 @@ describe('DeleteAccountModal', () => {
     it('Back from final step with 2FA returns to TOTP step', async () => {
       const user = await advanceToFinalStep({ withTotp: true });
       await user.click(screen.getByRole('button', { name: /back/i }));
-      expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
     });
 
     it('Back from final step without 2FA returns to password step', async () => {
@@ -667,7 +668,7 @@ describe('DeleteAccountModal', () => {
     it('disables the intro Continue button while balance is still loading', () => {
       mockUseBalance.mockReturnValue({ data: undefined, isPending: true });
       renderModal();
-      expect(screen.getByTestId('delete-account-intro-continue')).toBeDisabled();
+      expect(screen.getByTestId(TEST_IDS.deleteAccountIntroContinue)).toBeDisabled();
     });
 
     it('enables Continue once balance has loaded (zero balance, skip wallet step)', () => {
@@ -676,7 +677,7 @@ describe('DeleteAccountModal', () => {
         isPending: false,
       });
       renderModal();
-      expect(screen.getByTestId('delete-account-intro-continue')).not.toBeDisabled();
+      expect(screen.getByTestId(TEST_IDS.deleteAccountIntroContinue)).not.toBeDisabled();
     });
   });
 

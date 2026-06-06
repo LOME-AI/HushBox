@@ -1,11 +1,7 @@
-import {
-  test,
-  expect,
-  unsettledExpect,
-  expectApiErrors,
-  expectConsoleErrors,
-} from '../fixtures.js';
+import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Fork Lifecycle', () => {
   test('create first fork shows tab UI with Main and Fork 1', async ({
@@ -62,7 +58,7 @@ test.describe('Fork Lifecycle', () => {
     const fork1MessageCount = await chatPage.countMessages();
 
     await test.step('switch to Main tab — fewer messages', async () => {
-      await unsettledExpect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
+      await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await chatPage.clickForkTab('Main');
       await chatPage.expectActiveForkTab('Main');
       await chatPage.waitForConversationLoaded();
@@ -71,7 +67,7 @@ test.describe('Fork Lifecycle', () => {
     });
 
     await test.step('switch back to Fork 1 — more messages', async () => {
-      await unsettledExpect(chatPage.getForkTab('Fork 1')).toBeVisible({ timeout: 10_000 });
+      await expect(chatPage.getForkTab('Fork 1')).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await chatPage.clickForkTab('Fork 1');
       await chatPage.expectActiveForkTab('Fork 1');
       await chatPage.waitForConversationLoaded();
@@ -179,12 +175,12 @@ test.describe('Fork Lifecycle', () => {
     });
 
     await test.step('verify URL has no fork param', async () => {
-      await expect.poll(() => chatPage.getForkIdFromUrl(), { timeout: 5000 }).toBeNull();
+      await expect.poll(() => chatPage.getForkIdFromUrl(), { timeout: TIMEOUTS.MODAL }).toBeNull();
     });
 
     await test.step('verify messages display normally', async () => {
       await expect
-        .poll(() => chatPage.countMessages(), { timeout: 10_000 })
+        .poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.ASSERT })
         .toBeGreaterThanOrEqual(2);
     });
   });
@@ -212,7 +208,7 @@ test.describe('Fork Lifecycle', () => {
 
       // Create forks 2-4 via UI (fork from AI message on Main)
       for (let index = 2; index <= 4; index++) {
-        await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
+        await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: TIMEOUTS.ASSERT });
         await chatPage.clickForkTab('Main');
         await chatPage.clickFork(1);
         await chatPage.expectForkTabCount(index + 1);
@@ -220,7 +216,7 @@ test.describe('Fork Lifecycle', () => {
     });
 
     await test.step('try to create 6th fork — should fail', async () => {
-      await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
+      await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await chatPage.clickForkTab('Main');
       await chatPage.prepareMessage(1);
       await chatPage.getForkButton(1).click();
@@ -295,8 +291,10 @@ test.describe('Fork URL and Refresh', () => {
 
     await test.step('verify messages load without crash', async () => {
       // Use auto-retrying assertion — Virtuoso may not have rendered all items yet
-      await expect(chatPage.messageList.locator('[data-testid="message-item"]')).toHaveCount(2, {
-        timeout: 10_000,
+      await expect(
+        chatPage.messageList.locator(`[data-testid="${TEST_IDS.messageItem}"]`)
+      ).toHaveCount(2, {
+        timeout: TIMEOUTS.ASSERT,
       });
     });
   });
@@ -320,7 +318,7 @@ test.describe('Group Chat Forking', () => {
       await aiMessage.hover();
       await aiMessage.getByRole('button', { name: 'Fork' }).click();
 
-      await unsettledExpect(aliceChatPage.getForkTabList()).toBeVisible({ timeout: 10_000 });
+      await expect(aliceChatPage.getForkTabList()).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await aliceChatPage.expectForkTabCount(2);
     });
 
@@ -375,11 +373,11 @@ test.describe('Fork History Preservation', () => {
     });
 
     await test.step('Fork 1 shows messages up to fork point', async () => {
-      await expect.poll(() => chatPage.countMessages(), { timeout: 10_000 }).toBe(4);
+      await expect.poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.ASSERT }).toBe(4);
     });
 
     await test.step('Main still has all 6 messages', async () => {
-      await unsettledExpect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
+      await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await chatPage.clickForkTab('Main');
       await chatPage.expectActiveForkTab('Main');
       const mainCount = await chatPage.getMessageCountViaAPI();
@@ -389,7 +387,7 @@ test.describe('Fork History Preservation', () => {
     await test.step('switching back to Fork 1 preserves 4 messages', async () => {
       await chatPage.clickForkTab('Fork 1');
       await chatPage.expectActiveForkTab('Fork 1');
-      await expect.poll(() => chatPage.countMessages(), { timeout: 10_000 }).toBe(4);
+      await expect.poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.ASSERT }).toBe(4);
     });
   });
 
@@ -436,7 +434,7 @@ test.describe('Fork History Preservation', () => {
     });
 
     await test.step('Main shows first message content', async () => {
-      await unsettledExpect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
+      await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await chatPage.clickForkTab('Main');
       await chatPage.expectActiveForkTab('Main');
       const mainCount = await chatPage.getMessageCountViaAPI();
@@ -483,7 +481,7 @@ test.describe('Fork History Preservation', () => {
     });
 
     await test.step('Main also still shows the original image', async () => {
-      await unsettledExpect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
+      await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await chatPage.clickForkTab('Main');
       await chatPage.expectActiveForkTab('Main');
       await chatPage.expectImageVisible();
@@ -510,7 +508,10 @@ test.describe('Fork History Preservation', () => {
     const totalMessages = await chatPage.getMessageCountViaAPI();
     expect(totalMessages).toBe(3); // 1 user + 2 AI
 
-    const firstAiNametag = await chatPage.getMessage(1).getByTestId('model-nametag').textContent();
+    const firstAiNametag = await chatPage
+      .getMessage(1)
+      .getByTestId(TEST_IDS.modelNametag)
+      .textContent();
 
     await test.step('fork from first AI message', async () => {
       await chatPage.clickFork(1);
@@ -525,10 +526,10 @@ test.describe('Fork History Preservation', () => {
     });
 
     await test.step('Main still has all 3 messages', async () => {
-      await unsettledExpect(chatPage.getForkTab('Main')).toBeVisible({ timeout: 10_000 });
+      await expect(chatPage.getForkTab('Main')).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       await chatPage.clickForkTab('Main');
       await chatPage.expectActiveForkTab('Main');
-      await unsettledExpect.poll(() => chatPage.countMessages(), { timeout: 10_000 }).toBe(3);
+      await expect.poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.ASSERT }).toBe(3);
     });
   });
 });

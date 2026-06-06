@@ -13,6 +13,7 @@ import pluginPromise from 'eslint-plugin-promise';
 import unusedImports from 'eslint-plugin-unused-imports';
 import importPlugin from 'eslint-plugin-import';
 import eslintPluginAstro from 'eslint-plugin-astro';
+import playwright from 'eslint-plugin-playwright';
 
 /**
  * Creates the base ESLint configuration with correct TypeScript project resolution.
@@ -380,6 +381,50 @@ export const reactConfig = [
       ],
     },
   },
+  {
+    // Component-side test-id discipline: every test-id must come from the typed
+    // TEST_IDS registry, never a hardcoded literal.
+    // reactConfig is composed only into the three product UIs (apps/web,
+    // packages/ui, apps/marketing); each lints from its own root, so the `src`
+    // glob is relative to that root and covers exactly those source trees. Test
+    // and story files are exempt.
+    //
+    // The style/img selectors from the block above are repeated here because
+    // ESLint's no-restricted-syntax does not merge across config blocks — a
+    // second `no-restricted-syntax` for these files would otherwise silently
+    // drop the accessibility bans. Keep the two selector sets in sync.
+    files: ['src/**/*.tsx'],
+    ignores: ['**/*.test.*', '**/*.stories.*'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "JSXAttribute[name.name='style'] ObjectExpression > Property[key.name=/^(color|backgroundColor|borderColor|fontFamily|fontSize|fill|stroke)$/]",
+          message:
+            'Do not set color/font in inline styles. Use Tailwind classes or CSS variables so accessibility settings (contrast, font scaling) can override them.',
+        },
+        {
+          selector: "JSXOpeningElement[name.name='img']",
+          message: 'Use <Img> from @hushbox/ui (content) or <Logo> (decorative) — never raw <img>.',
+        },
+        {
+          // Hardcoded string-literal data-testid attribute.
+          selector: "JSXAttribute[name.name='data-testid'] > Literal",
+          message: 'No literal data-testid — reference the typed TEST_IDS registry.',
+        },
+        {
+          // Template-literal data-testid with a leading literal segment
+          // (e.g. `foo-${x}`). Whole-prefix templates whose first segment is an
+          // expression (e.g. `${prefix}-x`) and bare `{identifier}` are allowed.
+          selector:
+            "JSXAttribute[name.name='data-testid'] > JSXExpressionContainer > TemplateLiteral > TemplateElement.quasis:first-child[value.raw!='']",
+          message:
+            'No literal data-testid segment — build the id from the typed TEST_IDS registry.',
+        },
+      ],
+    },
+  },
 ];
 
 /** @type {import('eslint').Linter.Config[]} */
@@ -415,6 +460,195 @@ export const astroConfig = [
         projectService: false,
         project: true,
       },
+    },
+  },
+];
+
+/**
+ * Playwright E2E lint enforcement.
+ *
+ * Lives here, not in `e2e/eslint.config.js`, because `eslint-plugin-playwright`
+ * resolves from this package (where it is a dependency) but not from `e2e/`.
+ * Composed ONLY into the e2e config, so these rules never reach app/unit code.
+ *
+ * File globs are relative to the e2e package root (the suite lints via
+ * `eslint .` with cwd `e2e/`), so `**` matches every e2e file.
+ *
+ * The plugin is registered explicitly rather than via `flat/recommended` so the
+ * enabled rule set is exactly the rule set we intend, with no extra rules
+ * leaking in (recommended would turn on rules we don't want).
+ *
+ * The e2e-wide `no-restricted-syntax` and `no-restricted-imports` blocks
+ * supersede the base config's identical rule keys for e2e files (flat config
+ * replaces, not merges, a rule key across matching objects). E2E owns these
+ * syntax/import bans; the base execa and animation-library bans have no e2e
+ * usage to protect.
+ *
+ * Because flat config replaces (never merges) a rule key, the spec-only block
+ * below must re-list the universal e2e selectors alongside its spec-only ones —
+ * otherwise the universal bans would silently vanish on `*.spec.ts` files, where
+ * they matter most. The shared selectors are defined once and spread into both.
+ */
+
+/**
+ * E2E `no-restricted-syntax` selectors that apply to every e2e file (specs and
+ * helpers/pages/setup alike): timeout literals, literal test-ids, wall-clock
+ * waits, serial describes, and direct `@hushbox/db` imports.
+ * @type {{selector: string, message: string}[]}
+ */
+const e2eUniversalRestrictedSyntax = [
+  {
+    // (a) numeric literal used as a `timeout:` property value. Matches on `raw`
+    // (the source text) not `value`: esquery regex-attribute matching only
+    // applies to string values, so `[value=/.../]` silently never matches a
+    // numeric literal. `raw` also captures numeric separators (e.g. 30_000).
+    selector: "Property[key.name='timeout'] > Literal[raw=/^[0-9][0-9_]*$/]",
+    message:
+      'No inline timeout literals — use a named budget from the timeouts module.',
+  },
+  {
+    // (b) string-literal data-testid as a JSX attribute
+    selector: "JSXAttribute[name.name='data-testid'] > Literal",
+    message: 'No literal data-testid — reference the typed TEST_IDS registry.',
+  },
+  {
+    // (b) string-literal passed to getByTestId('literal')
+    selector: "CallExpression[callee.property.name='getByTestId'] > Literal",
+    message: 'No literal test id — reference the typed TEST_IDS registry.',
+  },
+  {
+    // (b) raw `[data-testid="..."]` string selector passed to .locator()
+    selector: "CallExpression[callee.property.name='locator'] > Literal[value=/\\[data-testid=/]",
+    message:
+      'No raw [data-testid="..."] selector — build it from the typed TEST_IDS registry.',
+  },
+  {
+    // (c) setTimeout / setInterval calls
+    selector: 'CallExpression[callee.name=/^(setTimeout|setInterval)$/]',
+    message: 'No wall-clock waits — gate on app-emitted readiness signals.',
+  },
+  {
+    // (d) test.describe.configure({ mode: 'serial' })
+    selector:
+      "CallExpression[callee.property.name='configure'] ObjectExpression > Property[key.name='mode'][value.value='serial']",
+    message:
+      'No serial describes outside the @serial allowlist — keep tests order-independent.',
+  },
+  {
+    // (d) describe.serial
+    selector: "MemberExpression[object.name='describe'][property.name='serial']",
+    message:
+      'No serial describes outside the @serial allowlist — keep tests order-independent.',
+  },
+  {
+    // (f) importing @hushbox/db (covers static imports the import ban also catches)
+    selector: 'ImportDeclaration[source.value=/^@hushbox\\/db(\\/.*)?$/]',
+    message: 'Specs must not touch the DB directly — set up state via API/dev endpoints.',
+  },
+];
+
+/** @type {import('eslint').Linter.Config[]} */
+export const playwrightConfig = [
+  {
+    files: ['**/*.ts'],
+    plugins: { playwright },
+    rules: {
+      'playwright/no-element-handle': 'error',
+      'playwright/no-eval': 'error',
+      'playwright/no-networkidle': 'error',
+      'playwright/no-force-option': 'error',
+      'playwright/missing-playwright-await': 'error',
+      'playwright/no-focused-test': 'error',
+
+      // Semantic locators preferred; positional/raw locators surface as warnings
+      // rather than blocking.
+      'playwright/no-raw-locators': 'warn',
+      'playwright/no-nth-methods': 'warn',
+
+      // Every async assertion awaited; no floating promises in test flow.
+      '@typescript-eslint/no-floating-promises': 'error',
+
+      'playwright/no-wait-for-timeout': 'error',
+      'playwright/no-skipped-test': 'error',
+
+      // Point-in-time reads used as assertions are banned; only web-first
+      // retrying assertions are allowed.
+      'playwright/prefer-web-first-assertions': 'error',
+
+      // Ban implicit per-assertion settling: explicit quiescence only.
+      // @hushbox/db ban enforces isolation.
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['*settled-expect', '*settled-expect.js'],
+              message:
+                'Import explicit quiescence helpers instead of the auto-settling expect; use waitForSettled where opt-in settling is needed.',
+            },
+            {
+              group: ['@hushbox/db', '@hushbox/db/*'],
+              message: 'Specs must not touch the DB directly — set up state via API/dev endpoints.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Universal e2e syntax bans. Applies to every e2e file EXCEPT specs, which
+    // get the superset block below (flat config replaces this key for
+    // *.spec.ts, so the spec block re-lists these).
+    files: ['**/*.ts'],
+    ignores: ['**/*.spec.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', ...e2eUniversalRestrictedSyntax],
+    },
+  },
+  {
+    // Spec bans = universal bans + spec-only bans. The spec-only additions:
+    // deterministic data, spec-scoped so legitimate logging
+    // `new Date().toISOString()` in fixtures stays valid; and cleanup hooks,
+    // afterEach/afterAll banned in specs only since setup files legitimately use
+    // lifecycle hooks. The universal selectors are re-listed because flat config
+    // replaces (never merges) this rule key per file.
+    files: ['**/*.spec.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...e2eUniversalRestrictedSyntax,
+        {
+          selector: "CallExpression[callee.object.name='Math'][callee.property.name='random']",
+          message:
+            'No Math.random in specs — use deterministic, seeded data. Control randomness at the fixture boundary.',
+        },
+        {
+          selector: "NewExpression[callee.name='Date'][arguments.length=0]",
+          message:
+            'No bare new Date() in specs — pass an explicit timestamp or use page.clock for deterministic time.',
+        },
+        {
+          selector: 'CallExpression[callee.name=/^(afterEach|afterAll)$/]',
+          message:
+            'No afterEach/afterAll in specs — clean up via fixture teardown instead.',
+        },
+      ],
+    },
+  },
+  {
+    // Every test makes ≥1 real assertion. Scoped to specs and
+    // excludes setup files, which legitimately lack inline expects. Custom
+    // assertion helpers (expect*/assert*/waitFor*/unsettled*) count as assertions.
+    files: ['**/*.spec.ts'],
+    ignores: ['**/*.setup.ts'],
+    plugins: { playwright },
+    rules: {
+      'playwright/expect-expect': [
+        'error',
+        {
+          assertFunctionPatterns: ['^expect[A-Z]', '^assert[A-Z]', '^waitFor[A-Z]', '^unsettled'],
+        },
+      ],
     },
   },
 ];

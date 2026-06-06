@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { OTPInput, type SlotProps } from 'input-otp';
 import { cn } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 
 interface OtpInputProps {
   value: string;
@@ -18,7 +19,7 @@ export function OtpInput({
   return (
     <div className="flex flex-col items-center gap-4 py-4">
       <OTPInput
-        data-testid="otp-input"
+        data-testid={TEST_IDS.otpInput}
         maxLength={6}
         value={value}
         onChange={onChange}

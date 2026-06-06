@@ -1,18 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
 import { PasswordStrength } from './PasswordStrength';
 
 describe('PasswordStrength', () => {
   it('starts with collapsed container when password is empty', () => {
     render(<PasswordStrength password="" />);
-    const container = screen.getByTestId('strength-indicator');
+    const container = screen.getByTestId(TEST_IDS.strengthIndicator);
     expect(container).toBeInTheDocument();
     expect(container).toHaveClass('h-0');
   });
 
   it('expands container when password has value', () => {
     render(<PasswordStrength password="test" />);
-    const container = screen.getByTestId('strength-indicator');
+    const container = screen.getByTestId(TEST_IDS.strengthIndicator);
     expect(container).toHaveClass('h-6');
   });
 
@@ -48,7 +49,7 @@ describe('PasswordStrength', () => {
 
   it('has correct number of segments (always 3)', () => {
     render(<PasswordStrength password="password" />);
-    expect(screen.getAllByTestId('strength-segment')).toHaveLength(3);
+    expect(screen.getAllByTestId(TEST_IDS.strengthSegment)).toHaveLength(3);
   });
 
   it('uses accessible text contrast for strength label', () => {

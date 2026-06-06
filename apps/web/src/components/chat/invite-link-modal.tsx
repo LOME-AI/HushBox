@@ -12,7 +12,7 @@ import {
   useAsyncAction,
 } from '@hushbox/ui';
 import { createSharedLink } from '@hushbox/crypto';
-import { fromBase64, toBase64, MAX_CONVERSATION_MEMBERS } from '@hushbox/shared';
+import { fromBase64, toBase64, MAX_CONVERSATION_MEMBERS, TEST_IDS } from '@hushbox/shared';
 import { CheckboxField } from '../shared/checkbox-field.js';
 import { useCreateLink } from '../../hooks/use-conversation-links.js';
 import { useFormEnterNav } from '../../hooks/use-form-enter-nav.js';
@@ -127,7 +127,7 @@ export function InviteLinkModal({
       ariaLabel="Invite via Link"
       dismissible={!isPending}
     >
-      <OverlayContent data-testid="invite-link-modal" size="md">
+      <OverlayContent data-testid={TEST_IDS.inviteLinkModal} size="md">
         <OverlayHeader title="Invite via Link" />
 
         {generatedUrl === null ? (
@@ -154,7 +154,7 @@ export function InviteLinkModal({
                 </Alert>
               )}
 
-              <Alert data-testid="invite-link-warning">
+              <Alert data-testid={TEST_IDS.inviteLinkWarning}>
                 <AlertTriangle />
                 <span>
                   Anyone with this link can decrypt the entire conversation. Only share it with
@@ -171,7 +171,7 @@ export function InviteLinkModal({
                 </label>
                 <select
                   id="invite-privilege-select"
-                  data-testid="invite-link-privilege-select"
+                  data-testid={TEST_IDS.inviteLinkPrivilegeSelect}
                   value={privilege}
                   onChange={(e) => {
                     setPrivilege(e.target.value);
@@ -190,7 +190,7 @@ export function InviteLinkModal({
                   onCheckedChange={setIncludeHistory}
                   label="Give access to all history"
                   description="Leaving this unchecked will only show messages from now on"
-                  testId="invite-link-history-checkbox"
+                  testId={TEST_IDS.inviteLinkHistoryCheckbox}
                 />
               </div>
 
@@ -203,7 +203,7 @@ export function InviteLinkModal({
                 </label>
                 <Input
                   id="invite-name-input"
-                  data-testid="invite-link-name-input"
+                  data-testid={TEST_IDS.inviteLinkNameInput}
                   type="text"
                   placeholder="This can be changed later"
                   value={guestName}
@@ -226,7 +226,7 @@ export function InviteLinkModal({
               cancel={{
                 label: 'Cancel',
                 onClick: handleCancel,
-                testId: 'invite-link-cancel-button',
+                testId: TEST_IDS.inviteLinkCancelButton,
               }}
               primary={{
                 label: 'Generate Link',
@@ -235,7 +235,7 @@ export function InviteLinkModal({
                   void handleGenerate();
                 },
                 disabled: isPending || atCapacity,
-                testId: 'invite-link-generate-button',
+                testId: TEST_IDS.inviteLinkGenerateButton,
               }}
             />
           </>
@@ -247,7 +247,7 @@ export function InviteLinkModal({
             </div>
 
             <div
-              data-testid="invite-link-url"
+              data-testid={TEST_IDS.inviteLinkUrl}
               className="bg-muted overflow-hidden rounded-md p-3 text-xs break-all"
             >
               {generatedUrl}
@@ -269,7 +269,7 @@ export function InviteLinkModal({
                     setCopied(false);
                   }, 3000);
                 },
-                testId: 'invite-link-copy-button',
+                testId: TEST_IDS.inviteLinkCopyButton,
               }}
             />
           </>

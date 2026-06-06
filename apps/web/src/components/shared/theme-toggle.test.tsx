@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { ThemeToggle } from './theme-toggle';
 
 const mockTriggerTransition = vi.fn();
@@ -18,13 +19,13 @@ describe('ThemeToggle wrapper', () => {
 
   it('renders the base ThemeToggle from @hushbox/ui', () => {
     render(<ThemeToggle />);
-    expect(screen.getByTestId('theme-toggle')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.themeToggle)).toBeInTheDocument();
   });
 
   it('renders the SVG morph icon', () => {
     render(<ThemeToggle />);
-    expect(screen.getByTestId('theme-morph-icon')).toBeInTheDocument();
-    expect(screen.getByTestId('theme-morph-icon').tagName.toLowerCase()).toBe('svg');
+    expect(screen.getByTestId(TEST_IDS.themeMorphIcon)).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.themeMorphIcon).tagName.toLowerCase()).toBe('svg');
   });
 
   it('calls triggerTransition with click coordinates when clicked', async () => {

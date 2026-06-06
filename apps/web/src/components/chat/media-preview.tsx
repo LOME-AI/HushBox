@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Download } from 'lucide-react';
 import { Button, cn, Img } from '@hushbox/ui';
-import { friendlyErrorMessage, ERROR_CODE_STORAGE_READ_FAILED } from '@hushbox/shared';
+import { friendlyErrorMessage, ERROR_CODE_STORAGE_READ_FAILED, TEST_IDS } from '@hushbox/shared';
 import { buildDownloadFilename } from '@/lib/media-filename';
 import { MediaModal } from './media-modal';
 
@@ -9,7 +9,7 @@ function MediaProgressBar({ percent }: Readonly<{ percent: number }>): React.JSX
   const clamped = Math.min(100, Math.max(0, percent));
   return (
     <div
-      data-testid="media-progress-bar"
+      data-testid={TEST_IDS.mediaProgressBar}
       className="bg-background h-1.5 w-full max-w-xs overflow-hidden rounded-full"
     >
       <div

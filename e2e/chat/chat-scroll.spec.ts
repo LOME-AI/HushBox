@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures.js';
 import { ChatPage } from '../pages';
+import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Auto-scroll During Streaming', () => {
   test('auto-scrolls to bottom in all scenarios', async ({
@@ -65,7 +66,7 @@ test.describe('Auto-scroll During Streaming', () => {
       chatPage.messageList
         .locator('[data-role="assistant"]')
         .getByText('Testing scroll', { exact: false })
-    ).toBeVisible({ timeout: 10_000 });
+    ).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
     await chatPage.scrollUp(300);
     await chatPage.waitForScrollStable();
@@ -74,7 +75,7 @@ test.describe('Auto-scroll During Streaming', () => {
       const pos = await chatPage.getScrollPosition();
       const distanceFromBottom = pos.scrollHeight - pos.scrollTop - pos.clientHeight;
       expect(distanceFromBottom).toBeGreaterThan(20);
-    }).toPass({ timeout: 10_000 });
+    }).toPass({ timeout: TIMEOUTS.ASSERT });
 
     const midStreamPos = await chatPage.getScrollPosition();
     const midStreamDistance =
@@ -198,7 +199,7 @@ test.describe('Input Ready After Streaming', () => {
     await chatPage.sendFollowUpMessage(message);
 
     await expect
-      .poll(() => chatPage.getMessageCountViaAPI(), { timeout: 10_000 })
+      .poll(() => chatPage.getMessageCountViaAPI(), { timeout: TIMEOUTS.ASSERT })
       .toBe(countBefore + 2);
 
     await chatPage.messageList.click();

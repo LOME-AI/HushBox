@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle, Info, X } from 'lucide-react';
 import { cn, IconButton } from '@hushbox/ui';
+import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import type { BudgetError, MessageSegment } from '@hushbox/shared';
 
 interface BudgetMessagesProps {
@@ -81,7 +82,7 @@ function renderBudgetIcon(error: BudgetError): React.JSX.Element {
   const Icon = getIcon(error.type);
   return (
     <Icon
-      data-testid={`budget-message-icon-${error.id}`}
+      data-testid={TEST_ID_BUILDERS.budgetMessageIcon(error.id)}
       className={cn('h-4 w-4 shrink-0', getIconColor(error.type))}
     />
   );
@@ -97,7 +98,7 @@ function BudgetMessageBody({
   const canDismiss = isDismissible(error.type);
   return (
     <div
-      data-testid={`budget-message-${error.id}`}
+      data-testid={TEST_ID_BUILDERS.budgetMessage(error.id)}
       role="alert"
       className={cn(
         'flex items-center gap-2 rounded px-3 py-2 text-sm',
@@ -109,7 +110,7 @@ function BudgetMessageBody({
       <span className="flex-1">{renderMessageContent(error)}</span>
       {canDismiss && (
         <IconButton
-          data-testid={`budget-dismiss-${error.id}`}
+          data-testid={TEST_ID_BUILDERS.budgetDismiss(error.id)}
           aria-label="Dismiss notification"
           onClick={() => {
             onDismiss(error.id);
@@ -156,7 +157,7 @@ export function BudgetMessages({
 
   return (
     <div
-      data-testid="budget-messages"
+      data-testid={TEST_IDS.budgetMessages}
       className={cn('flex flex-col gap-2', className)}
       role="region"
       aria-live="polite"

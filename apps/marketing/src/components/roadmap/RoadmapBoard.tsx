@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { TEST_IDS } from '@hushbox/shared';
 import { useRoadmapQuery } from './use-roadmap-query';
 import { useFilterState, type FilterStatus } from './use-filter-state';
 import { computeBoard } from './compute-board';
@@ -67,7 +68,7 @@ export function RoadmapBoard(): React.JSX.Element {
     return (
       <div
         className="flex flex-col gap-8"
-        data-testid="roadmap-loading"
+        data-testid={TEST_IDS.roadmapLoading}
         data-skeleton
         inert
         role="status"

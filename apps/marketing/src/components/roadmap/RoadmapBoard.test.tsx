@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import type { RoadmapResponse, RoadmapNode } from '@hushbox/shared';
 import { RoadmapBoard } from './RoadmapBoard';
 import * as queryModule from './use-roadmap-query';
@@ -41,7 +42,7 @@ function mockQuery(state: {
 function renderLoading(): HTMLElement {
   mockQuery({ data: null, error: null, isLoading: true });
   render(<RoadmapBoard />);
-  return screen.getByTestId('roadmap-loading');
+  return screen.getByTestId(TEST_IDS.roadmapLoading);
 }
 
 describe('RoadmapBoard', () => {

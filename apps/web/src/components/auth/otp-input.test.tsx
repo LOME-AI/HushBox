@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { OtpInput } from './otp-input';
 
 // Mock document.elementFromPoint (used by input-otp, not available in jsdom)
@@ -25,7 +26,7 @@ describe('OtpInput', () => {
 
   it('renders otp-input test id', () => {
     render(<OtpInput {...defaultProps} />);
-    expect(screen.getByTestId('otp-input')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.otpInput)).toBeInTheDocument();
   });
 
   it('renders 6 slot cells', () => {
@@ -63,7 +64,7 @@ describe('OtpInput', () => {
       const onComplete = vi.fn();
       render(<Wrapper onComplete={onComplete} />);
 
-      const input = screen.getByTestId('otp-input');
+      const input = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(input);
       await user.keyboard('123456');
 
@@ -74,7 +75,7 @@ describe('OtpInput', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<OtpInput value="" onChange={vi.fn()} />);
 
-      const input = screen.getByTestId('otp-input');
+      const input = screen.getByTestId(TEST_IDS.otpInput);
       await user.click(input);
       await user.keyboard('123456');
       expect(input).toBeInTheDocument();

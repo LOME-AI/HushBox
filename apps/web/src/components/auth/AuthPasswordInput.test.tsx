@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 import { AuthPasswordInput } from './AuthPasswordInput';
 
 describe('AuthPasswordInput', () => {
@@ -33,7 +34,7 @@ describe('AuthPasswordInput', () => {
 
   it('renders lock icon', () => {
     render(<AuthPasswordInput label="Password" />);
-    expect(screen.getByTestId('input-icon')).toBeInTheDocument();
+    expect(screen.getByTestId(TEST_IDS.inputIcon)).toBeInTheDocument();
   });
 
   it('displays error message when provided', () => {
@@ -86,7 +87,7 @@ describe('AuthPasswordInput', () => {
 
   it('starts with collapsed feedback container', () => {
     render(<AuthPasswordInput label="Password" />);
-    const feedbackContainer = screen.getByTestId('form-input-feedback');
+    const feedbackContainer = screen.getByTestId(TEST_IDS.formInputFeedback);
     expect(feedbackContainer).toBeInTheDocument();
     expect(feedbackContainer).toHaveClass('h-0');
   });
@@ -98,7 +99,7 @@ describe('AuthPasswordInput', () => {
     const input = screen.getByLabelText('Password');
     await user.click(input);
 
-    const feedbackContainer = screen.getByTestId('form-input-feedback');
+    const feedbackContainer = screen.getByTestId(TEST_IDS.formInputFeedback);
     expect(feedbackContainer).toHaveClass('h-5');
   });
 
@@ -109,27 +110,27 @@ describe('AuthPasswordInput', () => {
     const input = screen.getByLabelText('Password');
     await user.click(input);
 
-    const feedbackContainer = screen.getByTestId('form-input-feedback');
+    const feedbackContainer = screen.getByTestId(TEST_IDS.formInputFeedback);
     expect(feedbackContainer).toHaveClass('h-0');
   });
 
   it('shows error when unfocused', () => {
     render(<AuthPasswordInput label="Password" error="Required" />);
-    const feedbackContainer = screen.getByTestId('form-input-feedback');
+    const feedbackContainer = screen.getByTestId(TEST_IDS.formInputFeedback);
     expect(feedbackContainer).toHaveClass('h-5');
   });
 
   describe('showStrength', () => {
     it('does not render strength indicator by default', () => {
       render(<AuthPasswordInput label="Password" value="test1234" onChange={vi.fn()} />);
-      expect(screen.queryByTestId('strength-indicator')).not.toBeInTheDocument();
+      expect(screen.queryByTestId(TEST_IDS.strengthIndicator)).not.toBeInTheDocument();
     });
 
     it('renders strength indicator when showStrength is true', () => {
       render(
         <AuthPasswordInput label="Password" value="test1234" onChange={vi.fn()} showStrength />
       );
-      expect(screen.getByTestId('strength-indicator')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.strengthIndicator)).toBeInTheDocument();
     });
 
     it('shows strength based on password value', () => {

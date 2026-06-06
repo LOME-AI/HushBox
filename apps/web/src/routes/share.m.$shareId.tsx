@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useMemo } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { AlertTriangle } from 'lucide-react';
+import { TEST_IDS } from '@hushbox/shared';
 import { AppShell } from '../components/shared/app-shell.js';
 import { MarkdownRenderer } from '../components/chat/markdown-renderer.js';
 import { SharedMediaContentItem } from '../components/chat/shared-media-content-item.js';
@@ -20,7 +21,7 @@ export function SharedMessagePage(): React.JSX.Element {
   if (isLoading) {
     return (
       <div
-        data-testid="shared-message-loading"
+        data-testid={TEST_IDS.sharedMessageLoading}
         role="status"
         aria-live="polite"
         className="flex h-dvh items-center justify-center"
@@ -34,7 +35,7 @@ export function SharedMessagePage(): React.JSX.Element {
     return (
       <AppShell>
         <div
-          data-testid="shared-message-error"
+          data-testid={TEST_IDS.sharedMessageError}
           role="alert"
           className="flex flex-1 items-center justify-center"
         >
@@ -56,7 +57,7 @@ export function SharedMessagePage(): React.JSX.Element {
         <div className="mx-auto w-full max-w-2xl">
           <h1 className="mb-6 text-lg font-semibold">Shared Message</h1>
           <div
-            data-testid="shared-message-content"
+            data-testid={TEST_IDS.sharedMessageContent}
             className="bg-card flex flex-col gap-4 rounded-md border p-4"
           >
             {data.contentItems.map((item) => {

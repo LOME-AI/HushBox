@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useAsyncAction } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
 import { ActionModal } from '../shared/action-modal.js';
 
 interface DeleteConversationDialogProps {
@@ -31,13 +32,13 @@ export function DeleteConversationDialog({
         onSubmit: async () => {
           await onConfirm();
         },
-        testId: 'confirm-delete-button',
+        testId: TEST_IDS.confirmDeleteButton,
       }}
       cancel={{
         label: 'Cancel',
-        testId: 'cancel-delete-button',
+        testId: TEST_IDS.cancelDeleteButton,
       }}
-      testId="delete-conversation-dialog"
+      testId={TEST_IDS.deleteConversationDialog}
     >
       <p className="text-muted-foreground text-sm">
         This will permanently delete &quot;{title}&quot;. This action cannot be undone.

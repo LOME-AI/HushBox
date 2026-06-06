@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { formatNumber, formatPriceRange, isExpensiveModel } from '@hushbox/shared';
+import { formatNumber, formatPriceRange, isExpensiveModel, TEST_IDS } from '@hushbox/shared';
 import { formatPricePer1k } from '../../lib/format';
 import type { Model } from '@hushbox/shared';
 
@@ -115,7 +115,10 @@ function TextStandardPanel({
       </LabeledValue>
 
       {!compact && isExpensiveModel(model.pricePerInputToken, model.pricePerOutputToken) && (
-        <p className="-mt-6 mb-1 text-sm text-amber-500" data-testid="expensive-model-warning">
+        <p
+          className="-mt-6 mb-1 text-sm text-amber-500"
+          data-testid={TEST_IDS.expensiveModelWarning}
+        >
           Long chats with this model can be costly
         </p>
       )}

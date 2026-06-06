@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { clearModelCache } from '@hushbox/shared/models';
 import { getAIClient } from './index.js';
+import { E2E_MODEL_CATALOG } from './e2e-catalog.fixture.js';
 
 describe('getAIClient', () => {
   it('returns a mock client in local development', () => {
@@ -85,5 +87,33 @@ describe('getAIClient', () => {
       .map((e) => e.content)
       .join('');
     expect(text).toBe('anthropic/claude-opus-4.6');
+  });
+
+  describe('E2E catalog is pinned to the fixture', () => {
+    beforeEach(() => {
+      clearModelCache();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.reject(new Error('fetch must not be called in E2E')))
+      );
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('serves the pinned fixture catalog and hits no network in E2E', async () => {
+      const client = getAIClient({ NODE_ENV: 'development', E2E: 'true' });
+      const raw = await client.listRawModels();
+      expect(raw).toEqual(E2E_MODEL_CATALOG);
+    });
+
+    it('does not pin the catalog in plain local dev (live fetch path)', async () => {
+      const fetchSpy = vi.fn(() => Promise.reject(new Error('reached network')));
+      vi.stubGlobal('fetch', fetchSpy);
+      const client = getAIClient({ NODE_ENV: 'development' });
+      await expect(client.listRawModels()).rejects.toThrow('reached network');
+      expect(fetchSpy).toHaveBeenCalled();
+    });
   });
 });

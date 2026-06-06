@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { DEV_PASSWORD } from '@hushbox/shared';
+import { DEV_PASSWORD, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { toast } from '@hushbox/ui';
 import { signIn } from '@/lib/auth';
 import type { DevPersona } from '@hushbox/shared';
@@ -173,7 +173,7 @@ describe('PersonasPage', () => {
 
       for (const persona of mockPersonas) {
         const emailPrefix = persona.email.split('@')[0] ?? '';
-        expect(screen.getByTestId(`persona-card-${emailPrefix}`)).toHaveAttribute(
+        expect(screen.getByTestId(TEST_ID_BUILDERS.personaCard(emailPrefix))).toHaveAttribute(
           'data-persona',
           persona.id
         );
@@ -186,7 +186,7 @@ describe('PersonasPage', () => {
       const { PersonasPage } = await import('./dev.personas');
       render(<PersonasPage />);
 
-      const aliceCard = screen.getByTestId('persona-card-alice');
+      const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
       expect(aliceCard).toHaveTextContent('3 conversations');
     });
 
@@ -194,7 +194,7 @@ describe('PersonasPage', () => {
       const { PersonasPage } = await import('./dev.personas');
       render(<PersonasPage />);
 
-      const aliceCard = screen.getByTestId('persona-card-alice');
+      const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
       expect(aliceCard).toHaveTextContent('12 messages');
     });
 
@@ -202,7 +202,7 @@ describe('PersonasPage', () => {
       const { PersonasPage } = await import('./dev.personas');
       render(<PersonasPage />);
 
-      const aliceCard = screen.getByTestId('persona-card-alice');
+      const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
       expect(aliceCard).toHaveTextContent('2 projects');
     });
 
@@ -234,7 +234,7 @@ describe('PersonasPage', () => {
       const { PersonasPage } = await import('./dev.personas');
       render(<PersonasPage />);
 
-      const aliceCard = screen.getByTestId('persona-card-alice');
+      const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
       expect(aliceCard).toHaveTextContent('1 conversation');
       expect(aliceCard).toHaveTextContent('1 message');
       expect(aliceCard).toHaveTextContent('1 project');
@@ -249,7 +249,7 @@ describe('PersonasPage', () => {
 
       render(<PersonasPage />);
 
-      await user.click(screen.getByTestId('persona-card-alice'));
+      await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
       expect(mockSignOutAndClearCache).toHaveBeenCalled();
       expect(signIn.email).toHaveBeenCalledWith({
@@ -272,7 +272,7 @@ describe('PersonasPage', () => {
 
       render(<PersonasPage />);
 
-      await user.click(screen.getByTestId('persona-card-alice'));
+      await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
       await waitFor(() => {
         expect(mockNavigate).toHaveBeenCalledWith({ to: '/chat' });
@@ -288,7 +288,7 @@ describe('PersonasPage', () => {
 
       render(<PersonasPage />);
 
-      await user.click(screen.getByTestId('persona-card-charlie'));
+      await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('charlie')));
 
       await waitFor(() => {
         expect(toast.error).toHaveBeenCalledWith('Email not verified');
@@ -303,7 +303,7 @@ describe('PersonasPage', () => {
 
       render(<PersonasPage />);
 
-      await user.click(screen.getByTestId('persona-card-alice'));
+      await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
       await waitFor(() => {
         expect(toast.error).toHaveBeenCalledWith('Failed to switch persona. Please try again.');
@@ -321,10 +321,13 @@ describe('PersonasPage', () => {
 
       render(<PersonasPage />);
 
-      await user.click(screen.getByTestId('persona-card-alice'));
+      await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
       await waitFor(() => {
-        expect(screen.getByTestId('persona-card-alice')).toHaveAttribute('aria-busy', 'false');
+        expect(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'))).toHaveAttribute(
+          'aria-busy',
+          'false'
+        );
       });
     });
 
@@ -341,14 +344,20 @@ describe('PersonasPage', () => {
 
       render(<PersonasPage />);
 
-      await user.click(screen.getByTestId('persona-card-alice'));
+      await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
-      expect(screen.getByTestId('persona-card-alice')).toHaveAttribute('aria-busy', 'true');
+      expect(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'))).toHaveAttribute(
+        'aria-busy',
+        'true'
+      );
 
       if (resolveSignIn) resolveSignIn({});
 
       await waitFor(() => {
-        expect(screen.getByTestId('persona-card-alice')).toHaveAttribute('aria-busy', 'false');
+        expect(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'))).toHaveAttribute(
+          'aria-busy',
+          'false'
+        );
       });
     });
 
@@ -365,11 +374,11 @@ describe('PersonasPage', () => {
 
       render(<PersonasPage />);
 
-      await user.click(screen.getByTestId('persona-card-alice'));
+      await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
       for (const persona of mockPersonas) {
         const emailPrefix = persona.email.split('@')[0] ?? '';
-        expect(screen.getByTestId(`persona-card-${emailPrefix}`)).toHaveAttribute(
+        expect(screen.getByTestId(TEST_ID_BUILDERS.personaCard(emailPrefix))).toHaveAttribute(
           'aria-disabled',
           'true'
         );
