@@ -2,10 +2,7 @@ import { test, expect } from '../fixtures.js';
 import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
-import {
-  sumDisplayedMessageCostMicros,
-  DISPLAY_COST_TOLERANCE_MICROS,
-} from '../helpers/cost-display.js';
+import { expectConversationChargeMatchesDisplay } from '../helpers/cost-display.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 import type { Page, Request } from '@playwright/test';
 
@@ -109,16 +106,11 @@ test.describe('Multi-Model Regeneration', () => {
     });
 
     await test.step('charge for the new tiles equals their displayed cost', async () => {
-      // After retry-all the only surviving tiles are the new ones, so the
-      // conversation's charged total (usage_records = wallet debit) equals the
-      // displayed sum. Reading per-conversation keeps the assertion isolated
-      // from concurrent charges on the shared per-project user.
-      const chargedMicros = await budgetHelper.getConversationChargedMicros(
-        multiModelConversation.id
-      );
-      const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
-      expect(Math.abs(chargedMicros - displayedMicros)).toBeLessThanOrEqual(
-        DISPLAY_COST_TOLERANCE_MICROS
+      // After retry-all the only surviving tiles are the new ones.
+      await expectConversationChargeMatchesDisplay(
+        budgetHelper,
+        multiModelConversation.id,
+        chatPage.messageList
       );
     });
   });
@@ -184,17 +176,12 @@ test.describe('Multi-Model Regeneration', () => {
     });
 
     await test.step('charge equals the displayed total (survivor not re-charged)', async () => {
-      // Surviving tiles are the untouched survivor + the one new tile. Their
-      // charged total (usage_records = wallet debit, scoped to this
-      // conversation) must equal what's displayed — a survivor re-charge would
-      // push the charged total above the displayed sum. Per-conversation keeps
-      // this isolated from concurrent charges on the shared per-project user.
-      const chargedMicros = await budgetHelper.getConversationChargedMicros(
-        multiModelConversation.id
-      );
-      const displayedTotalMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
-      expect(Math.abs(chargedMicros - displayedTotalMicros)).toBeLessThanOrEqual(
-        DISPLAY_COST_TOLERANCE_MICROS
+      // Surviving tiles = untouched survivor + one new tile; a survivor
+      // re-charge would push the charged total above the displayed sum.
+      await expectConversationChargeMatchesDisplay(
+        budgetHelper,
+        multiModelConversation.id,
+        chatPage.messageList
       );
     });
   });

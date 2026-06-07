@@ -9,6 +9,8 @@ const apiUrl = requireEnv('VITE_API_URL');
 
 const MESSAGE_ID_SELECTOR = `[${TEST_SIGNALS.messageId}]`;
 const ROLE_ATTR = TEST_SIGNALS.role;
+const MODEL_ITEM_PREFIX = `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]`;
+const LOCK_ICON_SELECTOR = `[data-testid="${TEST_IDS.lockIcon}"]`;
 
 /**
  * Selects every selectable non-premium model row in the picker: any
@@ -16,9 +18,14 @@ const ROLE_ATTR = TEST_SIGNALS.role;
  * Derived entirely from the registry so a renamed id/builder breaks here too.
  */
 const NON_PREMIUM_MODEL_ITEMS =
-  `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]` +
+  MODEL_ITEM_PREFIX +
   `:not([data-testid="${TEST_ID_BUILDERS.modelItem('smart-model')}"])` +
-  `:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`;
+  `:not(:has(${LOCK_ICON_SELECTOR}))`;
+
+/** Escape a value for safe interpolation into a `[attr="…"]` CSS selector. */
+function escapeAttributeValue(value: string): string {
+  return value.replaceAll(/["\\]/g, String.raw`\$&`);
+}
 
 export class ChatPage {
   readonly page: Page;
@@ -851,7 +858,9 @@ export class ChatPage {
 
   /** A message item addressed by its message-id signal. */
   messageById(messageId: string): Locator {
-    return this.messageList.locator(`[${TEST_SIGNALS.messageId}="${messageId}"]`);
+    return this.messageList.locator(
+      `[${TEST_SIGNALS.messageId}="${escapeAttributeValue(messageId)}"]`
+    );
   }
 
   /** A role-tagged message within a specific Virtuoso row (`data-item-index`). */
@@ -873,7 +882,7 @@ export class ChatPage {
 
   /** `<video>` elements with a specific `src` within a scope. */
   videosWithSrcIn(scope: Locator, source: string): Locator {
-    return scope.locator(`video[src="${source}"]`);
+    return scope.locator(`video[src="${escapeAttributeValue(source)}"]`);
   }
 
   /** `<img>` elements within a scope. Selected by element since generated images may carry an empty alt (presentation role). */
@@ -886,29 +895,26 @@ export class ChatPage {
     return scope.locator('img[src=""]');
   }
 
-  /** Model rows in the open model selector that are currently selected. */
-  selectedModelItems(): Locator {
+  /** Model rows in the open selector matching the model-item id prefix plus a CSS suffix. */
+  private modelItemsMatching(suffix: string): Locator {
     return this.page
       .getByTestId(TEST_IDS.modelSelectorModal)
-      .locator(`[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="true"]`);
+      .locator(`${MODEL_ITEM_PREFIX}${suffix}`);
+  }
+
+  /** Model rows in the open model selector that are currently selected. */
+  selectedModelItems(): Locator {
+    return this.modelItemsMatching('[data-selected="true"]');
   }
 
   /** Unselected, selectable (not premium-locked) model rows in the open selector. */
   unselectedSelectableModelItems(): Locator {
-    return this.page
-      .getByTestId(TEST_IDS.modelSelectorModal)
-      .locator(
-        `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="false"]:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
-      );
+    return this.modelItemsMatching(`[data-selected="false"]:not(:has(${LOCK_ICON_SELECTOR}))`);
   }
 
   /** Selectable (not premium-locked) model rows in the open selector. */
   selectableModelItems(): Locator {
-    return this.page
-      .getByTestId(TEST_IDS.modelSelectorModal)
-      .locator(
-        `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
-      );
+    return this.modelItemsMatching(`:not(:has(${LOCK_ICON_SELECTOR}))`);
   }
 
   /** Selectable model rows excluding the Smart Model (a concrete provider model). */
@@ -918,18 +924,12 @@ export class ChatPage {
 
   /** All model rows in the open selector. */
   modelItems(): Locator {
-    return this.page
-      .getByTestId(TEST_IDS.modelSelectorModal)
-      .locator(`[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]`);
+    return this.modelItemsMatching('');
   }
 
   /** Premium-locked model rows in the open selector. */
   lockedModelItems(): Locator {
-    return this.page
-      .getByTestId(TEST_IDS.modelSelectorModal)
-      .locator(
-        `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:has([data-testid="${TEST_IDS.lockIcon}"])`
-      );
+    return this.modelItemsMatching(`:has(${LOCK_ICON_SELECTOR})`);
   }
 
   async getScrollPosition(): Promise<{

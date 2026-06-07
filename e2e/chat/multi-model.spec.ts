@@ -2,10 +2,7 @@ import { test, expect } from '../fixtures.js';
 import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
-import {
-  sumDisplayedMessageCostMicros,
-  DISPLAY_COST_TOLERANCE_MICROS,
-} from '../helpers/cost-display.js';
+import { expectConversationChargeMatchesDisplay } from '../helpers/cost-display.js';
 import { assertPartialFailurePersistence } from '../helpers/partial-failure.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 
@@ -356,16 +353,10 @@ test.describe('Multi-Model Chat', () => {
         timeout: TIMEOUTS.ROUTE,
       });
 
-      const chargedMicros = await budgetHelper.getConversationChargedMicros(conversationId);
-      const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
-
-      // The cost charged to the wallet (usage_records, written in the same
-      // transaction as the debit) must equal the displayed per-model cost.
-      // Scoped to this conversation so a concurrent test charging the shared
-      // user can't skew it. 1-cent tolerance: billing snaps to cents, the UI
-      // shows finer dollars.
-      expect(Math.abs(chargedMicros - displayedMicros)).toBeLessThanOrEqual(
-        DISPLAY_COST_TOLERANCE_MICROS
+      await expectConversationChargeMatchesDisplay(
+        budgetHelper,
+        conversationId,
+        chatPage.messageList
       );
     });
 
@@ -400,14 +391,11 @@ test.describe('Multi-Model Chat', () => {
         timeout: TIMEOUTS.ROUTE,
       });
 
-      const chargedMicros = await budgetHelper.getConversationChargedMicros(conversationId);
-      const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
-
-      // Charge (usage_records, same transaction as the debit) must equal the
-      // displayed search-inclusive cost. Scoped to this conversation so a
-      // concurrent test charging the shared user can't skew it.
-      expect(Math.abs(chargedMicros - displayedMicros)).toBeLessThanOrEqual(
-        DISPLAY_COST_TOLERANCE_MICROS
+      // Charge must equal the displayed search-inclusive cost.
+      await expectConversationChargeMatchesDisplay(
+        budgetHelper,
+        conversationId,
+        chatPage.messageList
       );
     });
   });
@@ -566,15 +554,12 @@ test.describe('Multi-Model Chat', () => {
         await expect(errorTile).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
         // The failed model persists no usage_records row, so the conversation's
-        // charged total (usage_records = wallet debit, scoped to this
-        // conversation) covers only the successful tile — the one tile that has
-        // a cost badge. Per-conversation keeps it isolated from concurrent
-        // charges on the shared user.
-        const chargedMicros = await budgetHelper.getConversationChargedMicros(conversationId);
-        const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
-
-        expect(Math.abs(chargedMicros - displayedMicros)).toBeLessThanOrEqual(
-          DISPLAY_COST_TOLERANCE_MICROS
+        // charged total covers only the successful tile — the one tile with a
+        // cost badge.
+        await expectConversationChargeMatchesDisplay(
+          budgetHelper,
+          conversationId,
+          chatPage.messageList
         );
       } finally {
         await authenticatedPage.setExtraHTTPHeaders({});
