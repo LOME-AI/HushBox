@@ -58,10 +58,8 @@ test.describe('Real-time media broadcast', () => {
     // (naturalWidth > 0). This proves the realtime broadcast carried the
     // wrapped content key + storage reference and Bob's client minted a fresh
     // download URL and decrypted the bytes.
-    const bobLastImage = bobChatPage.messageList
-      .locator('[data-role="assistant"]')
-      .last()
-      .locator('img')
+    const bobLastImage = bobChatPage
+      .imagesIn(bobChatPage.messagesByRole('assistant').last())
       .first();
     await expect(bobLastImage).toBeVisible({ timeout: TIMEOUTS.MEDIA_DECODE });
     await expect

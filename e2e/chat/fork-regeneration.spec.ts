@@ -144,7 +144,7 @@ test.describe('Fork and Regeneration Interaction', () => {
     });
 
     await test.step('fork from a message on Fork 1 to create Fork 2', async () => {
-      const aiMessages = chatPage.messageList.locator('[data-role="assistant"]');
+      const aiMessages = chatPage.messagesByRole('assistant');
       const lastAi = aiMessages.last();
       await lastAi.hover();
       await lastAi.getByRole('button', { name: 'Fork' }).click();

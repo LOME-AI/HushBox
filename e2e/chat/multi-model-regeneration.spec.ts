@@ -16,9 +16,7 @@ import type { Page, Request } from '@playwright/test';
  * `toBeGreaterThan(0)` checks. Micros preserve those values exactly.
  */
 async function getMessageCostMicros(page: Page, messageId: string): Promise<number> {
-  const badge = page.locator(
-    `[data-message-id="${messageId}"] [data-testid="${TEST_IDS.messageCost}"]`
-  );
+  const badge = new ChatPage(page).messageById(messageId).getByTestId(TEST_IDS.messageCost);
   const text = (await badge.textContent()) ?? '';
   const match = /\$?([\d.]+)/.exec(text);
   return match ? Math.round(Number.parseFloat(match[1] ?? '0') * 1_000_000) : 0;
@@ -26,7 +24,7 @@ async function getMessageCostMicros(page: Page, messageId: string): Promise<numb
 
 /** Collect the (id, modelName) of every persisted assistant message currently rendered. */
 async function snapshotAssistantTiles(page: Page): Promise<{ id: string; modelName: string }[]> {
-  const tiles = page.locator('[data-role="assistant"][data-message-id]');
+  const tiles = new ChatPage(page).assistantTilesWithId();
   const count = await tiles.count();
   const out: { id: string; modelName: string }[] = [];
   for (let index = 0; index < count; index++) {
@@ -66,7 +64,7 @@ test.describe('Multi-Model Regeneration', () => {
   // model. Wallet debit must equal the sum of the new tiles' displayed costs.
   test('retry-all replaces every sibling and charges the sum of all new costs', async ({
     authenticatedPage,
-    multiModelConversation: _multiModelConversation,
+    multiModelConversation,
   }) => {
     test.slow();
     const chatPage = new ChatPage(authenticatedPage);
@@ -75,9 +73,6 @@ test.describe('Multi-Model Regeneration', () => {
     const tilesBefore = await snapshotAssistantTiles(authenticatedPage);
     expect(tilesBefore).toHaveLength(2);
     const beforeIds = new Set(tilesBefore.map((t) => t.id));
-
-    const beforeBalance = await budgetHelper.getBalance();
-    const balanceBefore = Number.parseFloat(beforeBalance.balance);
 
     let body: RegenerateRequestBody = {};
     await test.step('click retry on the user message — capture the request body', async () => {
@@ -113,12 +108,16 @@ test.describe('Multi-Model Regeneration', () => {
       }
     });
 
-    await test.step('wallet debit equals the sum of the NEW per-tile costs', async () => {
-      const afterBalance = await budgetHelper.getBalance();
-      const balanceAfter = Number.parseFloat(afterBalance.balance);
-      const debitMicros = Math.round((balanceBefore - balanceAfter) * 1_000_000);
+    await test.step('charge for the new tiles equals their displayed cost', async () => {
+      // After retry-all the only surviving tiles are the new ones, so the
+      // conversation's charged total (usage_records = wallet debit) equals the
+      // displayed sum. Reading per-conversation keeps the assertion isolated
+      // from concurrent charges on the shared per-project user.
+      const chargedMicros = await budgetHelper.getConversationChargedMicros(
+        multiModelConversation.id
+      );
       const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
-      expect(Math.abs(debitMicros - displayedMicros)).toBeLessThanOrEqual(
+      expect(Math.abs(chargedMicros - displayedMicros)).toBeLessThanOrEqual(
         DISPLAY_COST_TOLERANCE_MICROS
       );
     });
@@ -129,7 +128,7 @@ test.describe('Multi-Model Regeneration', () => {
   // and cost badge — and the wallet only sees the new tile's cost.
   test('regenerate-one replaces just the clicked tile and preserves siblings', async ({
     authenticatedPage,
-    multiModelConversation: _multiModelConversation,
+    multiModelConversation,
   }) => {
     test.slow();
     const chatPage = new ChatPage(authenticatedPage);
@@ -143,9 +142,6 @@ test.describe('Multi-Model Regeneration', () => {
     const toReplace = tilesBefore[1]!;
     const survivorCostBefore = await getMessageCostMicros(authenticatedPage, survivor.id);
     expect(survivorCostBefore).toBeGreaterThan(0);
-
-    const beforeBalance = await budgetHelper.getBalance();
-    const balanceBefore = Number.parseFloat(beforeBalance.balance);
 
     let body: RegenerateRequestBody = {};
     await test.step('click Regenerate on the second tile — capture the request body', async () => {
@@ -187,15 +183,17 @@ test.describe('Multi-Model Regeneration', () => {
       expect(newTiles).toHaveLength(1);
     });
 
-    await test.step('wallet debit equals the new tile cost only', async () => {
-      const afterBalance = await budgetHelper.getBalance();
-      const balanceAfter = Number.parseFloat(afterBalance.balance);
-      const debitMicros = Math.round((balanceBefore - balanceAfter) * 1_000_000);
+    await test.step('charge equals the displayed total (survivor not re-charged)', async () => {
+      // Surviving tiles are the untouched survivor + the one new tile. Their
+      // charged total (usage_records = wallet debit, scoped to this
+      // conversation) must equal what's displayed — a survivor re-charge would
+      // push the charged total above the displayed sum. Per-conversation keeps
+      // this isolated from concurrent charges on the shared per-project user.
+      const chargedMicros = await budgetHelper.getConversationChargedMicros(
+        multiModelConversation.id
+      );
       const displayedTotalMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
-      // displayedTotalMicros = survivorCostBefore + newTileCost
-      // debit should equal newTileCost (survivor wasn't re-charged).
-      const newTileCostMicros = displayedTotalMicros - survivorCostBefore;
-      expect(Math.abs(debitMicros - newTileCostMicros)).toBeLessThanOrEqual(
+      expect(Math.abs(chargedMicros - displayedTotalMicros)).toBeLessThanOrEqual(
         DISPLAY_COST_TOLERANCE_MICROS
       );
     });

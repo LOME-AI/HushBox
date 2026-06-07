@@ -45,12 +45,12 @@ test.describe('Smart Model', () => {
     await chatPage.waitForStreamComplete();
 
     // F2: nametag visible alongside the Smart chip on the assistant message.
-    const assistantMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const assistantMessage = chatPage.messagesByRole('assistant').first();
     await expect(assistantMessage.getByTestId(TEST_IDS.modelNametag)).toBeVisible();
     await expect(assistantMessage.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
     await expect(assistantMessage.getByTestId(TEST_IDS.smartModelChip)).toContainText(/smart/i);
 
-    const costBadge = assistantMessage.locator(`[data-testid="${TEST_IDS.messageCost}"]`).first();
+    const costBadge = assistantMessage.getByTestId(TEST_IDS.messageCost).first();
     await expect(costBadge).toBeVisible();
     await expect(costBadge).toContainText(/\$/);
   });
@@ -84,7 +84,7 @@ test.describe('Smart Model', () => {
     await chatPage.waitForAIResponse();
     await chatPage.waitForStreamComplete();
 
-    const initialAssistant = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const initialAssistant = chatPage.messagesByRole('assistant').first();
     await expect(initialAssistant.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
     await expect(initialAssistant.getByTestId(TEST_IDS.modelNametag)).toContainText(
       SONNET_MODEL_NAME
@@ -97,11 +97,9 @@ test.describe('Smart Model', () => {
     await chatPage.clickRegenerate(1);
     await chatPage.waitForStreamComplete();
 
-    const refreshedAssistant = chatPage.messageList.locator('[data-role="assistant"]').last();
+    const refreshedAssistant = chatPage.messagesByRole('assistant').last();
     await expect(refreshedAssistant.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
-    await expect(
-      refreshedAssistant.locator(`[data-testid="${TEST_IDS.messageCost}"]`).first()
-    ).toBeVisible();
+    await expect(refreshedAssistant.getByTestId(TEST_IDS.messageCost).first()).toBeVisible();
     await expect(refreshedAssistant.getByTestId(TEST_IDS.modelNametag)).toContainText(
       OPUS_MODEL_NAME
     );
@@ -131,7 +129,7 @@ test.describe('Smart Model', () => {
     await chatPage.waitForConversation();
     await chatPage.waitForStreamComplete();
 
-    const assistantMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const assistantMessage = chatPage.messagesByRole('assistant').first();
     await expect(assistantMessage.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
     await expect(assistantMessage.getByTestId(TEST_IDS.modelNametag)).toContainText(
       OPUS_MODEL_NAME
@@ -160,7 +158,7 @@ test.describe('Smart Model', () => {
     await chatPage.waitForConversation();
     await chatPage.waitForStreamComplete();
 
-    const assistantMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const assistantMessage = chatPage.messagesByRole('assistant').first();
     await expect(assistantMessage.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
     await expect(assistantMessage.getByTestId(TEST_IDS.modelNametag)).toContainText(
       SONNET_MODEL_NAME
@@ -196,7 +194,7 @@ test.describe('Smart Model', () => {
     // Fallback resolves to the cheapest eligible model (config.classifierModelId
     // in `runSmartModelStage`), so the specific nametag depends on the mock
     // catalog's pricing — assert only that it's a non-empty real model name.
-    const assistantMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const assistantMessage = chatPage.messagesByRole('assistant').first();
     await expect(assistantMessage.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
     const nametag = assistantMessage.getByTestId(TEST_IDS.modelNametag);
     await expect(nametag, 'fallback nametag must be non-empty').not.toHaveText('');
@@ -312,7 +310,7 @@ test.describe('Smart Model', () => {
 
     // Sanity: the assistant message arrived with a real response.
     await chatPage.waitForStreamComplete();
-    const assistant = chatPage.messageList.locator('[data-role="assistant"]').last();
+    const assistant = chatPage.messagesByRole('assistant').last();
     await expect(assistant.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
   });
 });

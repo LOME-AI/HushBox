@@ -63,9 +63,7 @@ test.describe('Auto-scroll During Streaming', () => {
     await chatPage.sendFollowUpMessage(testMessage);
 
     await expect(
-      chatPage.messageList
-        .locator('[data-role="assistant"]')
-        .getByText('Testing scroll', { exact: false })
+      chatPage.messagesByRole('assistant').getByText('Testing scroll', { exact: false })
     ).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
     await chatPage.scrollUp(300);
@@ -121,12 +119,12 @@ test.describe('Message Visibility', () => {
     const message = 'Visibility test message';
     await chatPage.sendFollowUpMessage(message);
 
-    const userMessage = chatPage.page.locator('[data-role="user"]').last();
+    const userMessage = chatPage.messagesByRole('user').last();
     await expect(userMessage).toBeInViewport();
 
     await chatPage.waitForAIResponse(message);
 
-    const aiMessage = chatPage.page.locator('[data-role="assistant"]').last();
+    const aiMessage = chatPage.messagesByRole('assistant').last();
     await expect(aiMessage).toBeInViewport();
   });
 
@@ -142,7 +140,7 @@ test.describe('Message Visibility', () => {
       await chatPage.sendFollowUpMessage(msg);
       await chatPage.waitForAIResponse(msg);
 
-      const lastAiMessage = chatPage.page.locator('[data-role="assistant"]').last();
+      const lastAiMessage = chatPage.messagesByRole('assistant').last();
       await expect(lastAiMessage).toBeInViewport();
     }
   });

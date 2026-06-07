@@ -2,6 +2,7 @@ import { TEST_IDS } from '@hushbox/shared';
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { setupConversationWithSidebar } from '../helpers/group-test-setup.js';
 import { ChatPage, MemberSidebarPage, SidebarPage } from '../pages/index.js';
+import { waitForAppStable } from '../helpers/page-signals.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Group Chat Leave', () => {
@@ -148,7 +149,7 @@ test.describe('Group Chat Leave', () => {
     // sidebar dropdown. The URL must NOT change to /chat — only the active
     // chat's Leave should redirect.
     await testBobPage.goto('/chat', { waitUntil: 'domcontentloaded' });
-    await testBobPage.locator('[data-app-stable="true"]').waitFor({ state: 'visible' });
+    await waitForAppStable(testBobPage);
 
     const sidebar = new SidebarPage(testBobPage);
     await sidebar.openMoreMenu(groupConversation.id);

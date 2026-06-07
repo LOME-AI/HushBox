@@ -54,7 +54,7 @@ test.describe('Real-time WebSocket events', () => {
     });
 
     // Bob sees an assistant message element appear (via message:stream — phantom AI)
-    await expect(bobChatPage.messageList.locator('[data-role="assistant"]').last()).toBeVisible({
+    await expect(bobChatPage.messagesByRole('assistant').last()).toBeVisible({
       timeout: TIMEOUTS.STREAM,
     });
 

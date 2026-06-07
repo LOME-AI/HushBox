@@ -560,10 +560,11 @@ export const playwrightConfig = [
       'playwright/missing-playwright-await': 'error',
       'playwright/no-focused-test': 'error',
 
-      // Semantic locators preferred; positional/raw locators surface as warnings
-      // rather than blocking.
-      'playwright/no-raw-locators': 'warn',
-      'playwright/no-nth-methods': 'warn',
+      // Raw CSS/signal/media selectors are confined to the page-object + helper
+      // abstraction layer, where this rule is intentionally off; specs get it at
+      // error (block below). Positional selection (.first/.last/.nth) is a
+      // legitimate, clear pattern in this suite, so it is not restricted.
+      'playwright/no-raw-locators': 'off',
 
       // Every async assertion awaited; no floating promises in test flow.
       '@typescript-eslint/no-floating-promises': 'error',
@@ -598,6 +599,18 @@ export const playwrightConfig = [
           ],
         },
       ],
+    },
+  },
+  {
+    // Specs must select via semantic locators or page-object methods. Raw
+    // CSS/signal selectors belong in the page-object/helper layer (off above),
+    // not in specs. Contract tests assert raw signal attributes by design, so
+    // they are excluded.
+    files: ['**/*.spec.ts'],
+    ignores: ['**/contracts/**'],
+    plugins: { playwright },
+    rules: {
+      'playwright/no-raw-locators': 'error',
     },
   },
   {

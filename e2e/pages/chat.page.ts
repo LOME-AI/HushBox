@@ -844,6 +844,94 @@ export class ChatPage {
     return this.messageList.getByTestId(TEST_IDS.messageItem);
   }
 
+  /** Message items carrying the given role signal (`data-role`). */
+  messagesByRole(role: 'assistant' | 'user'): Locator {
+    return this.messageList.locator(`[${ROLE_ATTR}="${role}"]`);
+  }
+
+  /** A message item addressed by its message-id signal. */
+  messageById(messageId: string): Locator {
+    return this.messageList.locator(`[${TEST_SIGNALS.messageId}="${messageId}"]`);
+  }
+
+  /** A role-tagged message within a specific Virtuoso row (`data-item-index`). */
+  messageAtRow(rowIndex: number, role: 'assistant' | 'user'): Locator {
+    return this.messageList.locator(
+      `[data-item-index="${String(rowIndex)}"] [${ROLE_ATTR}="${role}"]`
+    );
+  }
+
+  /** Persisted assistant tiles — assistant messages carrying a message-id. */
+  assistantTilesWithId(): Locator {
+    return this.messageList.locator(`[${ROLE_ATTR}="assistant"][${TEST_SIGNALS.messageId}]`);
+  }
+
+  /** `<video>` elements within a scope. `<video>` has no ARIA role, so a raw element locator is required. */
+  videosIn(scope: Locator): Locator {
+    return scope.locator('video');
+  }
+
+  /** `<video>` elements with a specific `src` within a scope. */
+  videosWithSrcIn(scope: Locator, source: string): Locator {
+    return scope.locator(`video[src="${source}"]`);
+  }
+
+  /** `<img>` elements within a scope. Selected by element since generated images may carry an empty alt (presentation role). */
+  imagesIn(scope: Locator): Locator {
+    return scope.locator('img');
+  }
+
+  /** `<img>` elements with an empty `src` (would render as a broken image). */
+  brokenImagesIn(scope: Locator): Locator {
+    return scope.locator('img[src=""]');
+  }
+
+  /** Model rows in the open model selector that are currently selected. */
+  selectedModelItems(): Locator {
+    return this.page
+      .getByTestId(TEST_IDS.modelSelectorModal)
+      .locator(`[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="true"]`);
+  }
+
+  /** Unselected, selectable (not premium-locked) model rows in the open selector. */
+  unselectedSelectableModelItems(): Locator {
+    return this.page
+      .getByTestId(TEST_IDS.modelSelectorModal)
+      .locator(
+        `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="false"]:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
+      );
+  }
+
+  /** Selectable (not premium-locked) model rows in the open selector. */
+  selectableModelItems(): Locator {
+    return this.page
+      .getByTestId(TEST_IDS.modelSelectorModal)
+      .locator(
+        `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
+      );
+  }
+
+  /** Selectable model rows excluding the Smart Model (a concrete provider model). */
+  nonPremiumModelItems(): Locator {
+    return this.page.getByTestId(TEST_IDS.modelSelectorModal).locator(NON_PREMIUM_MODEL_ITEMS);
+  }
+
+  /** All model rows in the open selector. */
+  modelItems(): Locator {
+    return this.page
+      .getByTestId(TEST_IDS.modelSelectorModal)
+      .locator(`[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]`);
+  }
+
+  /** Premium-locked model rows in the open selector. */
+  lockedModelItems(): Locator {
+    return this.page
+      .getByTestId(TEST_IDS.modelSelectorModal)
+      .locator(
+        `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:has([data-testid="${TEST_IDS.lockIcon}"])`
+      );
+  }
+
   async getScrollPosition(): Promise<{
     scrollTop: number;
     scrollHeight: number;

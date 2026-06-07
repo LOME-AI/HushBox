@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures.js';
-import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages';
 import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
 import { captureChatRoutePayload } from '../helpers/route-payload.js';
@@ -57,7 +57,7 @@ test.describe('Video Generation', () => {
     // Proves the browser parsed the bytes (positive finite duration => moov
     // atom / EBML header read). expectVideoDecoded degrades to a "src bound"
     // check on engines that can't decode — see helper for the why.
-    const videoElement = chatPage.messageList.locator('video').first();
+    const videoElement = chatPage.videosIn(chatPage.messageList).first();
     await expectVideoDecoded(videoElement, browserName, { timeout: TIMEOUTS.ASSERT });
   });
 
@@ -150,7 +150,10 @@ test.describe('Video Generation', () => {
     await chatPage.expectVideoVisible();
     await chatPage.waitForStreamComplete();
 
-    const originalSource = await chatPage.messageList.locator('video').first().getAttribute('src');
+    const originalSource = await chatPage
+      .videosIn(chatPage.messageList)
+      .first()
+      .getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
     await chatPage.clickEdit(0);
@@ -168,7 +171,7 @@ test.describe('Video Generation', () => {
     await expect(chatPage.messageList.getByText(prompt, { exact: true })).toHaveCount(0, {
       timeout: TIMEOUTS.MODAL,
     });
-    await expect(chatPage.messageList.locator(`video[src="${originalSource ?? ''}"]`)).toHaveCount(
+    await expect(chatPage.videosWithSrcIn(chatPage.messageList, originalSource ?? '')).toHaveCount(
       0,
       { timeout: TIMEOUTS.MODAL }
     );
@@ -178,7 +181,7 @@ test.describe('Video Generation', () => {
     await chatPage.expectVideoVisible();
 
     await expect
-      .poll(async () => chatPage.messageList.locator('video').first().getAttribute('src'), {
+      .poll(async () => chatPage.videosIn(chatPage.messageList).first().getAttribute('src'), {
         timeout: TIMEOUTS.ASSERT,
       })
       .not.toBe(originalSource);
@@ -200,7 +203,10 @@ test.describe('Video Generation', () => {
     await chatPage.expectVideoVisible();
     await chatPage.waitForStreamComplete();
 
-    const originalSource = await chatPage.messageList.locator('video').first().getAttribute('src');
+    const originalSource = await chatPage
+      .videosIn(chatPage.messageList)
+      .first()
+      .getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
     await chatPage.clickRetry(0);
@@ -209,7 +215,7 @@ test.describe('Video Generation', () => {
 
     await chatPage.expectMessageVisible(prompt);
     await expect
-      .poll(async () => chatPage.messageList.locator('video').first().getAttribute('src'), {
+      .poll(async () => chatPage.videosIn(chatPage.messageList).first().getAttribute('src'), {
         timeout: TIMEOUTS.ASSERT,
       })
       .not.toBe(originalSource);
@@ -274,7 +280,7 @@ test.describe('Video Generation', () => {
     const initialValue = await slider.inputValue();
     expect(Number(initialValue)).toBeGreaterThanOrEqual(1);
 
-    const costLine = authenticatedPage.locator(String.raw`text=/^≈\s+\$\d+\.\d{3}$/`).first();
+    const costLine = authenticatedPage.getByText(/^≈\s+\$\d+\.\d{3}$/).first();
     await expect(costLine).toBeVisible({ timeout: TIMEOUTS.ASSERT });
     const initialCost = await costLine.textContent();
 
@@ -325,12 +331,12 @@ test.describe('Video Generation', () => {
     expect(viewport, 'viewport size is required').not.toBeNull();
     const viewportWidth = viewport!.width;
 
-    const videoElement = chatPage.messageList.locator('video').first();
+    const videoElement = chatPage.videosIn(chatPage.messageList).first();
     const videoBox = await videoElement.boundingBox();
     expect(videoBox).not.toBeNull();
     expect(videoBox!.width).toBeLessThanOrEqual(viewportWidth);
 
-    const bubble = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const bubble = chatPage.messagesByRole('assistant').first();
     const bubbleBox = await bubble.boundingBox();
     expect(bubbleBox).not.toBeNull();
 
@@ -351,7 +357,7 @@ test.describe('Video Generation', () => {
     await chatPage.waitForConversation();
     await chatPage.expectVideoVisible();
 
-    const videoElement = chatPage.messageList.locator('video').first();
+    const videoElement = chatPage.videosIn(chatPage.messageList).first();
     // The `controls` HTML attribute is present (any value, including empty string).
     const hasControls = await videoElement.evaluate((el) => (el as HTMLVideoElement).controls);
     expect(hasControls).toBe(true);
@@ -381,7 +387,7 @@ test.describe('Video Generation', () => {
     await chatPage.openGenerationSheetIfNeeded();
     await chatPage.setVideoDuration(6);
 
-    const costLine = authenticatedPage.locator(String.raw`text=/^≈\s+\$\d+\.\d{3}$/`).first();
+    const costLine = authenticatedPage.getByText(/^≈\s+\$\d+\.\d{3}$/).first();
     await expect(costLine).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
     await chatPage.selectResolution('1080p');
@@ -451,18 +457,16 @@ test.describe('Video Generation', () => {
       await chatPage.openModelSelector();
       const modal = lowBalancePage.getByTestId(TEST_IDS.modelSelectorModal);
       await expect(modal).toBeVisible();
-      const items = modal.locator(`[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]`);
+      const items = chatPage.modelItems();
       const total = await items.count();
       expect(total).toBeGreaterThan(0);
-      const locked = modal.locator(
-        `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:has([data-testid="${TEST_IDS.lockIcon}"])`
-      );
+      const locked = chatPage.lockedModelItems();
       await expect(locked).toHaveCount(total);
       await lowBalancePage.keyboard.press('Escape');
       await expect(modal).not.toBeVisible({ timeout: TIMEOUTS.MODAL });
     });
 
     await expect(lowBalancePage).toHaveURL(/\/chat$/);
-    await expect(chatPage.messageList.locator('video')).toHaveCount(0);
+    await expect(chatPage.videosIn(chatPage.messageList)).toHaveCount(0);
   });
 });

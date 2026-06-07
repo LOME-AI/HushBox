@@ -296,6 +296,30 @@ export const devRoute = new Hono<AppEnv>()
       });
     }
   )
+  // Sums the actual cost charged (from `usage_records`, written in the same
+  // transaction as the wallet debit) for a conversation's surviving AI messages.
+  // The INNER JOIN to `messages` scopes the total to one conversation and drops
+  // deleted/regenerated tiles, so the figure isn't polluted by other tests
+  // charging the same shared user in parallel. Cost-reconciliation E2E tests
+  // compare it against the displayed per-message cost badges. `conversation_spending`
+  // can't be used here: it stays at 0 for solo (non-group) conversations.
+  .get(
+    '/conversation-cost/:conversationId',
+    zValidator('param', z.object({ conversationId: z.string().min(1) })),
+    async (c) => {
+      const db = c.get('db');
+      const { conversationId } = c.req.valid('param');
+      const [row] = await db
+        .select({ cost: sql<string>`coalesce(sum(${usageRecords.cost}::numeric), 0)::text` })
+        .from(usageRecords)
+        .innerJoin(
+          messages,
+          and(eq(messages.id, usageRecords.sourceId), eq(usageRecords.sourceType, 'message'))
+        )
+        .where(eq(messages.conversationId, conversationId));
+      return c.json({ cost: row?.cost ?? '0' });
+    }
+  )
   // Revokes a single message share by deleting the row from `shared_messages`.
   // Used by E2E to assert that subsequent /api/shares/:id calls return 404.
   .post(

@@ -45,13 +45,13 @@ test.describe('Multi-Model Media', () => {
     // assertions don't depend on which messages are currently rendered.
     await chatPage.expectMediaVisibleAt(1, 'img', TIMEOUTS.MEDIA_DECODE);
     const tag1 = chatPage.getMessage(1).getByTestId(TEST_IDS.modelNametag);
-    const image1 = chatPage.getMessage(1).locator('img').first();
+    const image1 = chatPage.imagesIn(chatPage.getMessage(1)).first();
     const source1 = await image1.getAttribute('src');
 
     await chatPage.expectMediaVisibleAt(2, 'img', TIMEOUTS.MEDIA_DECODE);
     const tag2 =
       (await chatPage.getMessage(2).getByTestId(TEST_IDS.modelNametag).textContent()) ?? '';
-    const source2 = await chatPage.getMessage(2).locator('img').first().getAttribute('src');
+    const source2 = await chatPage.imagesIn(chatPage.getMessage(2)).first().getAttribute('src');
 
     await expect(tag1).not.toHaveText(tag2);
     // Distinct decrypted blob URLs — each <img> must have its own object URL,
@@ -93,7 +93,7 @@ test.describe('Multi-Model Media', () => {
       await chatPage.waitForConversation();
       await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
-      const successImage = chatPage.messageList.locator('[data-role="assistant"] img');
+      const successImage = chatPage.imagesIn(chatPage.messagesByRole('assistant'));
       await expect(successImage.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
       const errorTile = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
@@ -215,7 +215,7 @@ test.describe('Multi-Model Media', () => {
       await chatPage.waitForConversation();
       await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
-      const successVideo = chatPage.messageList.locator('[data-role="assistant"] video');
+      const successVideo = chatPage.videosIn(chatPage.messagesByRole('assistant'));
       await expect(successVideo.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
       const errorTile = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);

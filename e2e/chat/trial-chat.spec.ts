@@ -1,5 +1,5 @@
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
-import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages';
 import { requireEnv } from '../helpers/env.js';
 import { TIMEOUTS } from '../config/timeouts.js';
@@ -166,15 +166,11 @@ test.describe('Trial Chat', { tag: '@chromium-only' }, () => {
       const modal = unauthenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
       await expect(modal).toBeVisible({ timeout: TIMEOUTS.MODAL });
 
-      const premiumModel = modal
-        .locator(
-          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:has([data-testid="${TEST_IDS.lockIcon}"])`
-        )
-        .first();
+      const premiumModel = chatPage.lockedModelItems().first();
       await expect(premiumModel).toBeVisible({ timeout: TIMEOUTS.ASSERT });
       // Single click on a premium row triggers onPremiumClick now that the
       // dual-zone (focus vs commit) pattern was removed in the picker rewrite.
-      await premiumModel.locator('button').first().click();
+      await premiumModel.getByRole('button').first().click();
 
       await expect(signupModal).toBeVisible({ timeout: TIMEOUTS.MODAL });
       const heading = signupModal.getByRole('heading');

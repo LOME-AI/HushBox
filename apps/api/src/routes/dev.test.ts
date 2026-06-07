@@ -822,6 +822,34 @@ describe('devRoute', () => {
     });
   });
 
+  describe('GET /conversation-cost/:conversationId', () => {
+    function createConversationCostApp(rows: { cost: string }[]): Hono<AppEnv> {
+      const where = vi.fn().mockResolvedValue(rows);
+      const innerJoin = vi.fn().mockReturnValue({ where });
+      const from = vi.fn().mockReturnValue({ innerJoin });
+      const select = vi.fn().mockReturnValue({ from });
+      return createTestAppWithMockDb({ select });
+    }
+
+    it('returns the summed usage_records cost charged for the conversation', async () => {
+      const app = createConversationCostApp([{ cost: '0.00017768' }]);
+      const res = await app.request('/dev/conversation-cost/conv-1');
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ cost: string }>(res);
+      expect(body.cost).toBe('0.00017768');
+    });
+
+    it('returns "0" when the conversation has no charged usage', async () => {
+      const app = createConversationCostApp([]);
+      const res = await app.request('/dev/conversation-cost/conv-none');
+
+      expect(res.status).toBe(200);
+      const body = await jsonBody<{ cost: string }>(res);
+      expect(body.cost).toBe('0');
+    });
+  });
+
   describe('POST /set-version', () => {
     afterEach(() => {
       clearVersionOverride();

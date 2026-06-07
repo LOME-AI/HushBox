@@ -27,7 +27,7 @@ test.describe('Custom Instructions', () => {
       const modal = authenticatedPage.getByTestId(TEST_IDS.customInstructionsModal);
       await expect(modal).toBeVisible();
 
-      const textarea = modal.locator('textarea');
+      const textarea = modal.getByRole('textbox');
       await expect(textarea).toBeVisible();
       await expect(textarea).toHaveValue('');
 
@@ -37,7 +37,7 @@ test.describe('Custom Instructions', () => {
 
     await test.step('save custom instructions', async () => {
       const modal = authenticatedPage.getByTestId(TEST_IDS.customInstructionsModal);
-      const textarea = modal.locator('textarea');
+      const textarea = modal.getByRole('textbox');
 
       await textarea.fill('Always respond in bullet points. Never use emojis.');
       await expect(modal.getByText(/50 \/ 5,000/)).toBeVisible();
@@ -56,13 +56,13 @@ test.describe('Custom Instructions', () => {
       const modal = authenticatedPage.getByTestId(TEST_IDS.customInstructionsModal);
       await expect(modal).toBeVisible();
 
-      const textarea = modal.locator('textarea');
+      const textarea = modal.getByRole('textbox');
       await expect(textarea).toHaveValue('Always respond in bullet points. Never use emojis.');
     });
 
     await test.step('clear custom instructions', async () => {
       const modal = authenticatedPage.getByTestId(TEST_IDS.customInstructionsModal);
-      const textarea = modal.locator('textarea');
+      const textarea = modal.getByRole('textbox');
 
       await textarea.clear();
       await expect(modal.getByText(/0 \/ 5,000/)).toBeVisible();

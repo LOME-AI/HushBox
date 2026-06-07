@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures.js';
-import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
 import { BudgetHelper } from '../helpers/budget.js';
 import {
@@ -44,7 +44,7 @@ test.describe('Multi-Model Chat', () => {
 
       await test.step('remove one model via X — bar shows 2', async () => {
         const bar = authenticatedPage.getByTestId(TEST_IDS.selectedModelsBar);
-        const firstRemoveButton = bar.locator('button[aria-label^="Remove "]').first();
+        const firstRemoveButton = bar.getByRole('button', { name: /^Remove / }).first();
         await firstRemoveButton.click();
 
         const count = await chatPage.getComparisonBarModelCount();
@@ -53,7 +53,7 @@ test.describe('Multi-Model Chat', () => {
 
       await test.step('remove another — bar disappears, single model in header', async () => {
         const bar = authenticatedPage.getByTestId(TEST_IDS.selectedModelsBar);
-        const removeButton = bar.locator('button[aria-label^="Remove "]').first();
+        const removeButton = bar.getByRole('button', { name: /^Remove / }).first();
         await removeButton.click();
 
         await chatPage.expectComparisonBarHidden();
@@ -77,12 +77,9 @@ test.describe('Multi-Model Chat', () => {
 
       await test.step('verify unselected models are dimmed in modal', async () => {
         await chatPage.openModelSelector();
-        const modal = authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
 
         // Find an unselected model (not disabled by premium lock)
-        const unselectedModels = modal.locator(
-          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="false"]:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
-        );
+        const unselectedModels = chatPage.unselectedSelectableModelItems();
         const unselectedCount = await unselectedModels.count();
 
         if (unselectedCount > 0) {
@@ -91,16 +88,11 @@ test.describe('Multi-Model Chat', () => {
       });
 
       await test.step('deselect one model — dimming lifts', async () => {
-        const modal = authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
-        const selectedItems = modal.locator(
-          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="true"]`
-        );
+        const selectedItems = chatPage.selectedModelItems();
         // Click the row body to toggle (no separate checkbox zone in the new design).
-        await selectedItems.last().locator('button').first().click();
+        await selectedItems.last().getByRole('button').first().click();
 
-        const unselected = modal.locator(
-          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"][data-selected="false"]:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
-        );
+        const unselected = chatPage.unselectedSelectableModelItems();
         const count = await unselected.count();
         if (count > 0) {
           await expect(unselected.first()).not.toHaveClass(/opacity-40/);
@@ -139,15 +131,12 @@ test.describe('Multi-Model Chat', () => {
 
       await test.step('reopen modal, clear, select 1 model, confirm', async () => {
         await chatPage.openModelSelector();
-        const modal = authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
         // Picker remembers per-modality mode; tests selecting 3 left it in multi.
         await authenticatedPage.getByTestId(TEST_IDS.clearSelectionButton).first().click();
-        await expect(modal.locator('[data-selected="true"]')).toHaveCount(0);
+        await expect(chatPage.selectedModelItems()).toHaveCount(0);
         // Click row body to add the first non-premium back in.
-        const firstNonPremium = modal.locator(
-          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
-        );
-        await firstNonPremium.first().locator('button').first().click();
+        const firstNonPremium = chatPage.selectableModelItems();
+        await firstNonPremium.first().getByRole('button').first().click();
         await chatPage.confirmModelSelection();
       });
 
@@ -220,14 +209,10 @@ test.describe('Multi-Model Chat', () => {
       await chatPage.switchPickerMode('single');
 
       const modal = authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
-      const firstNonPremium = modal
-        .locator(
-          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:not([data-testid="${TEST_ID_BUILDERS.modelItem('smart-model')}"]):not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
-        )
-        .first();
+      const firstNonPremium = chatPage.nonPremiumModelItems().first();
       const targetId = (await firstNonPremium.getAttribute('data-testid')) ?? '';
 
-      await firstNonPremium.locator('button').first().click();
+      await firstNonPremium.getByRole('button').first().click();
 
       // Modal closed without needing a Use button click. The close is a Radix
       // CSS animation with no in-flight queries, so allow a generous timeout
@@ -255,12 +240,8 @@ test.describe('Multi-Model Chat', () => {
       await chatPage.openModelSelector();
       await chatPage.switchPickerMode('multi');
       const modal = authenticatedPage.getByTestId(TEST_IDS.modelSelectorModal);
-      const firstNonPremium = modal
-        .locator(
-          `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:not([data-testid="${TEST_ID_BUILDERS.modelItem('smart-model')}"]):not(:has([data-testid="${TEST_IDS.lockIcon}"]))`
-        )
-        .first();
-      await firstNonPremium.locator('button').first().click();
+      const firstNonPremium = chatPage.nonPremiumModelItems().first();
+      await firstNonPremium.getByRole('button').first().click();
 
       await modal.getByTestId(TEST_IDS.cancelButton).click();
       // Close is a Radix CSS animation with no in-flight queries, so allow a
@@ -311,7 +292,7 @@ test.describe('Multi-Model Chat', () => {
 
         // For index-based access use DOM count — the 2 multi-model responses
         // are always rendered because they're the newest messages.
-        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
+        const assistantMessages = chatPage.messagesByRole('assistant');
         const nametag1 = assistantMessages.nth(0).getByTestId(TEST_IDS.modelNametag);
         const nametag2 =
           (await assistantMessages.nth(1).getByTestId(TEST_IDS.modelNametag).textContent()) ?? '';
@@ -367,25 +348,23 @@ test.describe('Multi-Model Chat', () => {
       await chatPage.waitForAppStable();
       await chatPage.selectModels(2);
 
-      const beforeData = await budgetHelper.getBalance();
-      const balanceBefore = Number.parseFloat(beforeData.balance);
-
       const msg = `Wallet debit ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(msg);
-      await chatPage.waitForConversation();
+      const conversationId = await chatPage.waitForConversation();
       await chatPage.waitForStreamComplete(TIMEOUTS.ROUTE);
       await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
         timeout: TIMEOUTS.ROUTE,
       });
 
-      const afterData = await budgetHelper.getBalance();
-      const balanceAfter = Number.parseFloat(afterData.balance);
-      const debitMicros = Math.round((balanceBefore - balanceAfter) * 1_000_000);
+      const chargedMicros = await budgetHelper.getConversationChargedMicros(conversationId);
       const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
 
-      // 1-cent tolerance in either direction (DISPLAY_COST_TOLERANCE_MICROS =
-      // 10_000) — billing snaps to cents but the UI shows finer dollars.
-      expect(Math.abs(debitMicros - displayedMicros)).toBeLessThanOrEqual(
+      // The cost charged to the wallet (usage_records, written in the same
+      // transaction as the debit) must equal the displayed per-model cost.
+      // Scoped to this conversation so a concurrent test charging the shared
+      // user can't skew it. 1-cent tolerance: billing snaps to cents, the UI
+      // shows finer dollars.
+      expect(Math.abs(chargedMicros - displayedMicros)).toBeLessThanOrEqual(
         DISPLAY_COST_TOLERANCE_MICROS
       );
     });
@@ -413,23 +392,21 @@ test.describe('Multi-Model Chat', () => {
         authenticatedPage.getByRole('button', { name: /Turn off internet search/i })
       ).toBeVisible();
 
-      const beforeData = await budgetHelper.getBalance();
-      const balanceBefore = Number.parseFloat(beforeData.balance);
-
       const msg = `Search debit ${String(Date.now())}`;
       await chatPage.sendNewChatMessage(msg);
-      await chatPage.waitForConversation();
+      const conversationId = await chatPage.waitForConversation();
       await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
       await expect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
         timeout: TIMEOUTS.ROUTE,
       });
 
-      const afterData = await budgetHelper.getBalance();
-      const balanceAfter = Number.parseFloat(afterData.balance);
-      const debitMicros = Math.round((balanceBefore - balanceAfter) * 1_000_000);
+      const chargedMicros = await budgetHelper.getConversationChargedMicros(conversationId);
       const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
 
-      expect(Math.abs(debitMicros - displayedMicros)).toBeLessThanOrEqual(
+      // Charge (usage_records, same transaction as the debit) must equal the
+      // displayed search-inclusive cost. Scoped to this conversation so a
+      // concurrent test charging the shared user can't skew it.
+      expect(Math.abs(chargedMicros - displayedMicros)).toBeLessThanOrEqual(
         DISPLAY_COST_TOLERANCE_MICROS
       );
     });
@@ -482,7 +459,7 @@ test.describe('Multi-Model Chat', () => {
         // node). The multi-model responses are the two newest assistant items,
         // which Virtuoso always keeps rendered since it auto-scrolls on new
         // content.
-        const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
+        const assistantMessages = chatPage.messagesByRole('assistant');
         const domCount = await assistantMessages.count();
         const nametag1 = assistantMessages.nth(domCount - 2).getByTestId(TEST_IDS.modelNametag);
         const nametag2 =
@@ -544,9 +521,7 @@ test.describe('Multi-Model Chat', () => {
 
         await chatPage.waitForStreamComplete();
 
-        const successResponse = authenticatedPage
-          .locator('[data-role="assistant"]')
-          .filter({ hasText: 'Echo:' });
+        const successResponse = chatPage.messagesByRole('assistant').filter({ hasText: 'Echo:' });
         await expect(successResponse.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
         // Error renders on an optimistic message after stream ends — opt out of settled
@@ -583,23 +558,22 @@ test.describe('Multi-Model Chat', () => {
       const { failModelId } = await chatPage.selectModelsWithFailTarget();
       await authenticatedPage.setExtraHTTPHeaders({ 'x-mock-failing-models': failModelId });
       try {
-        const beforeData = await budgetHelper.getBalance();
-        const balanceBefore = Number.parseFloat(beforeData.balance);
         await chatPage.sendNewChatMessage(`Refund test ${String(Date.now())}`);
-        await chatPage.waitForConversation();
+        const conversationId = await chatPage.waitForConversation();
         await chatPage.waitForStreamComplete(TIMEOUTS.MEDIA_DECODE);
 
         const errorTile = authenticatedPage.getByTestId(TEST_IDS.modelErrorMessage);
         await expect(errorTile).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
-        const afterData = await budgetHelper.getBalance();
-        const balanceAfter = Number.parseFloat(afterData.balance);
-        const debitMicros = Math.round((balanceBefore - balanceAfter) * 1_000_000);
-        // Only the successful response has a cost badge — the failed tile
-        // emits an error-message instead of a cost row.
+        // The failed model persists no usage_records row, so the conversation's
+        // charged total (usage_records = wallet debit, scoped to this
+        // conversation) covers only the successful tile — the one tile that has
+        // a cost badge. Per-conversation keeps it isolated from concurrent
+        // charges on the shared user.
+        const chargedMicros = await budgetHelper.getConversationChargedMicros(conversationId);
         const displayedMicros = await sumDisplayedMessageCostMicros(chatPage.messageList);
 
-        expect(Math.abs(debitMicros - displayedMicros)).toBeLessThanOrEqual(
+        expect(Math.abs(chargedMicros - displayedMicros)).toBeLessThanOrEqual(
           DISPLAY_COST_TOLERANCE_MICROS
         );
       } finally {

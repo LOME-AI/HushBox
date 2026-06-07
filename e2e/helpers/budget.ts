@@ -78,6 +78,27 @@ export class BudgetHelper {
   }
 
   /**
+   * Actual cost charged for a conversation's surviving AI messages, in micros
+   * (millionths of a dollar). Sums `usage_records.cost` — written in the same
+   * transaction as the wallet debit, so it equals the real wallet charge — but
+   * scoped to one conversation. Unlike the global `getBalance()` delta, this is
+   * immune to other tests charging the same shared per-project user in parallel,
+   * which is the source of cost-reconciliation flake.
+   */
+  async getConversationChargedMicros(conversationId: string): Promise<number> {
+    const response = await this.request.get(
+      `${API_BASE}/api/dev/conversation-cost/${conversationId}`
+    );
+    if (!response.ok()) {
+      throw new Error(
+        `getConversationChargedMicros failed: ${String(response.status())} ${await response.text()}`
+      );
+    }
+    const data = (await response.json()) as { cost: string };
+    return Math.round(Number.parseFloat(data.cost) * 1_000_000);
+  }
+
+  /**
    * Find a member's conversation-member ID by their user ID.
    * Note: the budgets endpoint filters out the owner, so this only finds non-owner members.
    */

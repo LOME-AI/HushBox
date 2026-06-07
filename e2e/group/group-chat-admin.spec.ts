@@ -5,6 +5,7 @@ import { searchAndSelectMember } from '../helpers/add-member.js';
 import { expectAccessRevoked } from '../helpers/member-actions.js';
 import { closeOverlay } from '../helpers/overlay.js';
 import { personaEmail, personaUsername } from '../helpers/personas.js';
+import { budgetMemberInputs, linkItemsIn } from '../helpers/page-signals.js';
 
 test.describe('Group Chat Admin', () => {
   test('displays sender labels, groups consecutive messages, and AI toggle works', async ({
@@ -35,7 +36,7 @@ test.describe('Group Chat Admin', () => {
 
       await expect(aliceLabels.getByText(bobMember!.username)).toBeVisible();
 
-      const aiMessage = aliceChatPage.messageList.locator('[data-role="assistant"]').first();
+      const aiMessage = aliceChatPage.messagesByRole('assistant').first();
       await expect(aiMessage).toBeVisible();
       const aiLabels = aiMessage.locator(`[data-testid="${TEST_IDS.senderLabel}"]`);
       await expect(aiLabels).toHaveCount(0);
@@ -91,9 +92,7 @@ test.describe('Group Chat Admin', () => {
       await aliceChatPage.sendFollowUpMessage(humanMessage);
       await aliceChatPage.expectMessageVisible(humanMessage);
 
-      const thinkingIndicator = aliceChatPage.messageList.locator(
-        `[data-testid="${TEST_IDS.thinkingIndicator}"]`
-      );
+      const thinkingIndicator = aliceChatPage.messageList.getByTestId(TEST_IDS.thinkingIndicator);
       await expect(thinkingIndicator).not.toBeVisible();
     });
 
@@ -350,9 +349,7 @@ test.describe('Group Chat Admin', () => {
     });
 
     await test.step('read link appears in sidebar', async () => {
-      const linkRow = sidebar.content
-        .locator(`[data-testid^="${TEST_ID_BUILDERS.linkItem('')}"]`)
-        .filter({ hasText: 'Guest Reader' });
+      const linkRow = linkItemsIn(sidebar.content).filter({ hasText: 'Guest Reader' });
       await expect(linkRow).toBeVisible();
 
       const testId = await linkRow.getAttribute('data-testid');
@@ -441,9 +438,7 @@ test.describe('Group Chat Admin', () => {
       await convInput.clear();
       await convInput.fill('10.00');
 
-      const memberInputs = authenticatedPage.locator(
-        `[data-testid^="${TEST_ID_BUILDERS.budgetInput('')}"]`
-      );
+      const memberInputs = budgetMemberInputs(authenticatedPage);
       const memberCount = await memberInputs.count();
       if (memberCount > 0) {
         await memberInputs.first().clear();
@@ -508,7 +503,7 @@ test.describe('Group Chat Admin', () => {
     await chatPage.waitForConversationLoaded();
 
     await test.step('share button appears on hover for AI message', async () => {
-      const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+      const aiMessage = chatPage.messagesByRole('assistant').first();
       await aiMessage.hover();
 
       const shareButton = aiMessage.getByRole('button', { name: 'Share' });
@@ -537,7 +532,7 @@ test.describe('Group Chat Admin', () => {
     });
 
     await test.step('cancel share does not create link', async () => {
-      const userMessages = chatPage.messageList.locator('[data-role="user"]');
+      const userMessages = chatPage.messagesByRole('user');
       const firstUserMessage = userMessages.first();
       await firstUserMessage.hover();
 

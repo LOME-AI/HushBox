@@ -291,9 +291,7 @@ test.describe('Fork URL and Refresh', () => {
 
     await test.step('verify messages load without crash', async () => {
       // Use auto-retrying assertion — Virtuoso may not have rendered all items yet
-      await expect(
-        chatPage.messageList.locator(`[data-testid="${TEST_IDS.messageItem}"]`)
-      ).toHaveCount(2, {
+      await expect(chatPage.getMessageGroups()).toHaveCount(2, {
         timeout: TIMEOUTS.ASSERT,
       });
     });
@@ -314,7 +312,7 @@ test.describe('Group Chat Forking', () => {
       await aliceChatPage.gotoConversation(groupConversation.id);
       await aliceChatPage.waitForConversationLoaded();
 
-      const aiMessage = aliceChatPage.messageList.locator('[data-role="assistant"]').first();
+      const aiMessage = aliceChatPage.messagesByRole('assistant').first();
       await aiMessage.hover();
       await aiMessage.getByRole('button', { name: 'Fork' }).click();
 

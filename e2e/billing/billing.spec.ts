@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures.js';
+import { test, expect, allowExternalHosts } from '../fixtures.js';
 import { TEST_IDS } from '@hushbox/shared';
 import { BillingPage } from '../pages';
 import { requireEnv } from '../helpers/env.js';
@@ -9,6 +9,13 @@ const apiUrl = requireEnv('VITE_API_URL');
 test.describe('Billing & Payments', () => {
   test.describe('Billing Page', () => {
     test('displays balance and opens payment modal', async ({ authenticatedPage }) => {
+      // Opening the modal mounts PaymentForm, which loads Helcim's version2.js
+      // from secure.myhelcim.com when isLocalDev is false (CI). The @webhook
+      // describes auto-opt into the billing hosts; this untagged Billing-Page
+      // test must opt in explicitly, or the network allowlist aborts the script
+      // load and fails teardown.
+      allowExternalHosts(authenticatedPage);
+
       const billingPage = new BillingPage(authenticatedPage);
       await billingPage.goto();
 

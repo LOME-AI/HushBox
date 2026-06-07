@@ -9,6 +9,7 @@ import {
 } from '../helpers/auth.js';
 import { DEV_PASSWORD } from '../../packages/shared/src/constants.js';
 import { personaEmail, personaUsername } from '../helpers/personas.js';
+import { waitForAppStable } from '../helpers/page-signals.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Login & Session', () => {
@@ -118,9 +119,7 @@ test.describe('Login & Session', () => {
       });
 
       await test.step('logout redirects to /login', async () => {
-        await page
-          .locator('[data-app-stable="true"]')
-          .waitFor({ state: 'visible', timeout: TIMEOUTS.APP_STABLE });
+        await waitForAppStable(page);
         await logoutViaUI(page);
         await expect(page).toHaveURL('/login');
       });

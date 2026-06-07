@@ -1,5 +1,5 @@
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
-import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages';
 import { assertCostAndNametagForFreshGeneration } from '../helpers/media-flows.js';
 import { captureChatRoutePayload } from '../helpers/route-payload.js';
@@ -44,7 +44,7 @@ test.describe('Image Generation', () => {
     // The canned JPEG must actually decode in the browser — naturalWidth /
     // naturalHeight match the 400×300 dimensions emitted by mock.ts. A DOM-only
     // <img> assertion does not prove the bytes are valid; this does.
-    const imgElement = chatPage.messageList.locator('img').first();
+    const imgElement = chatPage.imagesIn(chatPage.messageList).first();
     await expect
       .poll(async () => imgElement.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
         timeout: TIMEOUTS.ASSERT,
@@ -152,7 +152,10 @@ test.describe('Image Generation', () => {
     await chatPage.expectImageVisible();
     await chatPage.waitForStreamComplete();
 
-    const originalSource = await chatPage.messageList.locator('img').first().getAttribute('src');
+    const originalSource = await chatPage
+      .imagesIn(chatPage.messageList)
+      .first()
+      .getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
     await chatPage.clickEdit(0);
@@ -169,7 +172,7 @@ test.describe('Image Generation', () => {
     await chatPage.expectImageVisible();
 
     await expect
-      .poll(async () => chatPage.messageList.locator('img').first().getAttribute('src'), {
+      .poll(async () => chatPage.imagesIn(chatPage.messageList).first().getAttribute('src'), {
         timeout: TIMEOUTS.ASSERT,
       })
       .not.toBe(originalSource);
@@ -194,7 +197,10 @@ test.describe('Image Generation', () => {
     await chatPage.expectImageVisible();
     await chatPage.waitForStreamComplete();
 
-    const originalSource = await chatPage.messageList.locator('img').first().getAttribute('src');
+    const originalSource = await chatPage
+      .imagesIn(chatPage.messageList)
+      .first()
+      .getAttribute('src');
     expect(originalSource).toMatch(/^blob:/);
 
     await chatPage.clickRetry(0);
@@ -203,7 +209,7 @@ test.describe('Image Generation', () => {
 
     await chatPage.expectMessageVisible(prompt);
     await expect
-      .poll(async () => chatPage.messageList.locator('img').first().getAttribute('src'), {
+      .poll(async () => chatPage.imagesIn(chatPage.messageList).first().getAttribute('src'), {
         timeout: TIMEOUTS.ASSERT,
       })
       .not.toBe(originalSource);
@@ -329,12 +335,12 @@ test.describe('Image Generation', () => {
     expect(viewport, 'viewport size is required').not.toBeNull();
     const viewportWidth = viewport!.width;
 
-    const imgElement = chatPage.messageList.locator('img').first();
+    const imgElement = chatPage.imagesIn(chatPage.messageList).first();
     const imgBox = await imgElement.boundingBox();
     expect(imgBox).not.toBeNull();
     expect(imgBox!.width).toBeLessThanOrEqual(viewportWidth);
 
-    const bubble = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const bubble = chatPage.messagesByRole('assistant').first();
     const bubbleBox = await bubble.boundingBox();
     expect(bubbleBox).not.toBeNull();
 
@@ -382,12 +388,10 @@ test.describe('Image Generation', () => {
       await chatPage.openModelSelector();
       const modal = lowBalancePage.getByTestId(TEST_IDS.modelSelectorModal);
       await expect(modal).toBeVisible();
-      const items = modal.locator(`[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]`);
+      const items = chatPage.modelItems();
       const total = await items.count();
       expect(total).toBeGreaterThan(0);
-      const locked = modal.locator(
-        `[data-testid^="${TEST_ID_BUILDERS.modelItem('')}"]:has([data-testid="${TEST_IDS.lockIcon}"])`
-      );
+      const locked = chatPage.lockedModelItems();
       await expect(locked).toHaveCount(total);
       await lowBalancePage.keyboard.press('Escape');
       await expect(modal).not.toBeVisible();
@@ -395,7 +399,7 @@ test.describe('Image Generation', () => {
 
     // Image generation never happens — no /api/chat round-trip, no R2 object.
     await expect(lowBalancePage).toHaveURL(/\/chat$/);
-    await expect(chatPage.messageList.locator('img')).toHaveCount(0);
+    await expect(chatPage.imagesIn(chatPage.messageList)).toHaveCount(0);
   });
 
   /**
@@ -449,12 +453,12 @@ test.describe('Image Generation', () => {
     });
     await expect(errorPlaceholder.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
 
-    const imgs = chatPage.messageList.locator('img');
+    const imgs = chatPage.imagesIn(chatPage.messageList);
     await expect(imgs).toHaveCount(0);
 
     // Sanity: no img element with empty src exists either (which would render
     // a broken-image icon in browsers and be a regression).
-    const brokenImgs = chatPage.messageList.locator('img[src=""]');
+    const brokenImgs = chatPage.brokenImagesIn(chatPage.messageList);
     await expect(brokenImgs).toHaveCount(0);
   });
 });

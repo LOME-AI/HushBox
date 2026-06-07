@@ -21,7 +21,7 @@ test.describe('Model Nametag', () => {
       await chatPage.expectAllAIMessagesHaveNametag();
     });
 
-    const assistantMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const assistantMessage = chatPage.messagesByRole('assistant').first();
     const nametagBefore =
       (await assistantMessage.getByTestId(TEST_IDS.modelNametag).textContent()) ?? '';
 
@@ -56,7 +56,7 @@ test.describe('Model Nametag', () => {
       // For index-based iteration use DOM count — avoid iterating past the
       // DOM end under virtualization (the 2 multi-model responses are newest
       // and always rendered, so this matches state count in practice).
-      const assistantMessages = chatPage.messageList.locator('[data-role="assistant"]');
+      const assistantMessages = chatPage.messagesByRole('assistant');
       const domCount = await assistantMessages.count();
       const names = new Set<string>();
       for (let index = 0; index < domCount; index++) {

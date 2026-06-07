@@ -142,7 +142,10 @@ test.describe('Solo Regeneration', () => {
     });
 
     await test.step('retry first user message', async () => {
-      await chatPage.withStreamCycle(() => chatPage.clickRetry(0));
+      // Clearing the whole conversation and re-streaming is the heaviest stream
+      // cycle; use the wider STREAM_CLEAR budget so it still completes on a
+      // saturated host (every browser project's workers run at once).
+      await chatPage.withStreamCycle(() => chatPage.clickRetry(0), TIMEOUTS.STREAM_CLEAR);
     });
 
     await test.step('verify only 2 messages remain', async () => {
@@ -164,7 +167,7 @@ test.describe('Solo Regeneration', () => {
 
       // During streaming, retry/edit buttons should not exist on user messages
       // Use a short timeout since streaming is brief with mock
-      const userMessages = chatPage.messageList.locator('[data-role="user"]');
+      const userMessages = chatPage.messagesByRole('user');
       await expect(userMessages.last()).toBeVisible();
 
       await expect(chatPage.sendButton).toBeDisabled();
@@ -252,7 +255,7 @@ test.describe('Group Chat Regeneration', () => {
 
     await test.step('hover Alice latest user message and retry', async () => {
       // Find Alice's latest user message (second to last, before AI response)
-      const userMessages = chatPage.messageList.locator('[data-role="user"]');
+      const userMessages = chatPage.messagesByRole('user');
       const lastUserMsg = userMessages.last();
       await lastUserMsg.hover();
 
@@ -326,7 +329,7 @@ test.describe('Group Chat Regeneration', () => {
 
     await test.step('hover first AI message — no regenerate (Bob replied after)', async () => {
       // The seeded AI message has Bob's message after it
-      const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+      const aiMessage = chatPage.messagesByRole('assistant').first();
       await aiMessage.hover();
       await expect(aiMessage.getByRole('button', { name: 'Regenerate' })).not.toBeVisible();
     });
@@ -349,7 +352,7 @@ test.describe('Group Chat Regeneration', () => {
     });
 
     await test.step('hover latest AI message and regenerate', async () => {
-      const aiMessages = chatPage.messageList.locator('[data-role="assistant"]');
+      const aiMessages = chatPage.messagesByRole('assistant');
       const lastAi = aiMessages.last();
       await lastAi.hover();
 

@@ -1,6 +1,7 @@
 import { TEST_IDS } from '@hushbox/shared';
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { SidebarPage } from '../pages/sidebar.page.js';
+import { waitForAppStable } from '../helpers/page-signals.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Inbox decline invite', () => {
@@ -44,7 +45,7 @@ test.describe('Inbox decline invite', () => {
     const { conversationId } = (await createResponse.json()) as { conversationId: string };
 
     await testBobPage.goto('/chat', { waitUntil: 'domcontentloaded' });
-    await testBobPage.locator('[data-app-stable="true"]').waitFor({ state: 'visible' });
+    await waitForAppStable(testBobPage);
 
     await test.step('Bob opens the Invites tab and sees the pending conversation', async () => {
       const sidebar = new SidebarPage(testBobPage);

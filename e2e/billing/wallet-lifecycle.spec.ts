@@ -64,10 +64,7 @@ test.describe('Wallet Lifecycle', { tag: '@chromium-only' }, () => {
       await chatPage.waitForAIResponse(freeMessage);
       // Wait for billing to complete — cost badge appears after saveChatTurn
       await expect(
-        chatPage.messageList
-          .locator('[data-role="assistant"]')
-          .last()
-          .locator(`[data-testid="${TEST_IDS.messageCost}"]`)
+        chatPage.messagesByRole('assistant').last().getByTestId(TEST_IDS.messageCost)
       ).toBeVisible({ timeout: TIMEOUTS.STREAM });
     });
 
@@ -98,10 +95,7 @@ test.describe('Wallet Lifecycle', { tag: '@chromium-only' }, () => {
       await chatPage.sendFollowUpMessage(paidMessage);
       await chatPage.waitForAIResponse(paidMessage);
       await expect(
-        chatPage.messageList
-          .locator('[data-role="assistant"]')
-          .last()
-          .locator(`[data-testid="${TEST_IDS.messageCost}"]`)
+        chatPage.messagesByRole('assistant').last().getByTestId(TEST_IDS.messageCost)
       ).toBeVisible({ timeout: TIMEOUTS.STREAM });
     });
 

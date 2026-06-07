@@ -1,7 +1,11 @@
 import { test } from '@playwright/test';
 import { expect } from './helpers/expect.js';
 import { openMobileLandingMenuIfNeeded } from './helpers/marketing-nav.js';
-import { TIMEOUTS } from './config/timeouts.js';
+import {
+  waitForRoadmapReady,
+  roadmapSections,
+  roadmapSectionsByStatus,
+} from './helpers/page-signals.js';
 
 /**
  * End-to-end coverage of the public /roadmap page. The page is built by
@@ -23,13 +27,8 @@ test.describe('Public roadmap', () => {
     await expect(page).toHaveURL(/\/roadmap/);
 
     await expect(page.getByRole('heading', { name: 'Roadmap', level: 1 })).toBeVisible();
-    await page
-      .locator('[data-roadmap-ready]')
-      .waitFor({ state: 'visible', timeout: TIMEOUTS.ASSERT });
-    await expect(page.locator('section[data-status]').first()).toHaveAttribute(
-      'data-status',
-      'in_progress'
-    );
+    await waitForRoadmapReady(page);
+    await expect(roadmapSections(page).first()).toHaveAttribute('data-status', 'in_progress');
     for (const name of ['Shipping now', 'Up next', 'Shipped', 'Features', 'Bugs']) {
       await expect(page.getByRole('button', { name: new RegExp(name, 'i') })).toBeVisible();
     }
@@ -38,13 +37,13 @@ test.describe('Public roadmap', () => {
     await expect
       .poll(() => new URL(page.url()).searchParams.get('status'))
       .toContain('in_progress');
-    await expect(page.locator('section[data-status="shipped"]')).toHaveCount(0);
+    await expect(roadmapSectionsByStatus(page, 'shipped')).toHaveCount(0);
 
     await page.getByRole('button', { name: /Bugs/i }).click();
     await expect(page.getByText(/hidden by filter/i).first()).toBeVisible();
 
     await page.goto('/roadmap?status=in_progress&type=feature');
-    await page.locator('[data-roadmap-ready]').waitFor({ state: 'visible' });
+    await waitForRoadmapReady(page);
     await expect(page.getByRole('button', { name: /Shipped/i })).toHaveAttribute(
       'aria-pressed',
       'false'

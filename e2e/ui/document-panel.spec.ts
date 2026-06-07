@@ -246,12 +246,8 @@ test.describe('Document Panel', () => {
       // prior (mermaid) row that does have a card.
       const lastRowIndex = await chatPage.getLastRowIndex();
       await chatPage.scrollMessageIntoView(lastRowIndex);
-      const lastAssistant = chatPage.messageList.locator(
-        `[data-item-index="${String(lastRowIndex)}"] [data-role="assistant"]`
-      );
-      await expect(lastAssistant.locator(`[data-testid="${TEST_IDS.documentCard}"]`)).toHaveCount(
-        0
-      );
+      const lastAssistant = chatPage.messageAtRow(lastRowIndex, 'assistant');
+      await expect(lastAssistant.getByTestId(TEST_IDS.documentCard)).toHaveCount(0);
     });
   });
 });

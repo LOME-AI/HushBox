@@ -50,6 +50,15 @@ async function provisionFreshUser(
   return { email, username, password: FRESH_PASSWORD };
 }
 
+/**
+ * The delete-account password input is an HTML `id` (no associated label or
+ * test-id), so it must be targeted by id.
+ */
+function deleteAccountPasswordField(page: Page): Locator {
+  // eslint-disable-next-line playwright/no-raw-locators -- HTML id input; no semantic role/label/test-id to target
+  return page.locator('#delete-account-password');
+}
+
 async function seedWalletBalance(
   request: APIRequestContext,
   email: string,
@@ -111,7 +120,7 @@ async function advanceThroughIntroAndWallet(page: Page): Promise<void> {
   // reading forfeit visibility point-in-time would race the React transition
   // and silently skip the required forfeit step for a user with credits.
   const forfeit = page.getByTestId(TEST_IDS.deleteAccountForfeitCheckbox);
-  const passwordField = page.locator('#delete-account-password');
+  const passwordField = deleteAccountPasswordField(page);
   await expect(forfeit.or(passwordField)).toBeVisible();
   if (await forfeit.isVisible()) {
     await forfeit.click();
@@ -120,7 +129,7 @@ async function advanceThroughIntroAndWallet(page: Page): Promise<void> {
 }
 
 async function submitPasswordStep(page: Page, password: string): Promise<void> {
-  await page.locator('#delete-account-password').fill(password);
+  await deleteAccountPasswordField(page).fill(password);
   const initWait = page.waitForResponse(
     (response) =>
       response.url().includes('/api/auth/delete-account/init') &&
@@ -222,7 +231,7 @@ test.describe('Account deletion', () => {
       await expect(continueButton).toBeEnabled();
       await continueButton.click();
 
-      await expect(unauthenticatedPage.locator('#delete-account-password')).toBeVisible();
+      await expect(deleteAccountPasswordField(unauthenticatedPage)).toBeVisible();
     });
   });
 
@@ -251,7 +260,7 @@ test.describe('Account deletion', () => {
       await expect(backButton).toBeVisible();
 
       await continueFromWallet(unauthenticatedPage);
-      await expect(unauthenticatedPage.locator('#delete-account-password')).toBeVisible();
+      await expect(deleteAccountPasswordField(unauthenticatedPage)).toBeVisible();
 
       await backButton.click();
       await expect(unauthenticatedPage.getByText('$3.00').first()).toBeVisible();
@@ -289,7 +298,7 @@ test.describe('Account deletion', () => {
       await chatPage.gotoConversation(conversationId);
       await chatPage.waitForConversationLoaded();
 
-      const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+      const aiMessage = chatPage.messagesByRole('assistant').first();
       await aiMessage.hover();
       await aiMessage.getByRole('button', { name: 'Share' }).click();
 
@@ -381,7 +390,7 @@ test.describe('Account deletion', () => {
 
       const modal = await openDeleteAccountModal(unauthenticatedPage);
       await advanceThroughIntroAndWallet(unauthenticatedPage);
-      await unauthenticatedPage.locator('#delete-account-password').fill('Wrong-Password-1!');
+      await deleteAccountPasswordField(unauthenticatedPage).fill('Wrong-Password-1!');
       // OPAQUE init is constant-time and returns 200 even for a wrong
       // password; the mismatch only surfaces when finishLogin throws
       // client-side, so wait on /init rather than /finish.

@@ -5,6 +5,7 @@ import { createInviteLink } from '../helpers/invite-link.js';
 import { createMessageShareUrl } from '../helpers/share-message.js';
 import { requireEnv } from '../helpers/env.js';
 import { expectVideoDecoded } from '../helpers/webkit-media-decode.js';
+import { imagesOnPage, videosOnPage } from '../helpers/page-signals.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
@@ -215,7 +216,7 @@ test.describe('Shared Content', () => {
       // Image renders for the guest. The shared media renderer uses the same
       // MediaPreview component, so an `<img>` element appears once decryption
       // completes against the URL-fragment shareSecret.
-      await expect(recipient.locator('img').first()).toBeVisible({
+      await expect(imagesOnPage(recipient).first()).toBeVisible({
         timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
 
@@ -277,7 +278,7 @@ test.describe('Shared Content', () => {
         timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
 
-      const videoElement = recipient.locator('video').first();
+      const videoElement = videosOnPage(recipient).first();
       await expect(videoElement).toBeVisible({ timeout: TIMEOUTS.CONVERSATION_LOAD });
 
       await expect(recipient.getByTestId(TEST_IDS.sharedMessageError)).not.toBeVisible();
@@ -319,7 +320,7 @@ test.describe('Shared Content', () => {
       await route.continue();
     });
 
-    const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const aiMessage = chatPage.messagesByRole('assistant').first();
     await aiMessage.hover();
     await aiMessage.getByRole('button', { name: 'Share' }).click();
 
@@ -370,7 +371,7 @@ test.describe('Shared Content', () => {
       await route.fulfill({ response });
     });
 
-    const aiMessage = chatPage.messageList.locator('[data-role="assistant"]').first();
+    const aiMessage = chatPage.messagesByRole('assistant').first();
     await aiMessage.hover();
     await aiMessage.getByRole('button', { name: 'Share' }).click();
     const modal = authenticatedPage.getByTestId(TEST_IDS.shareMessageModal);
@@ -408,7 +409,7 @@ test.describe('Shared Content', () => {
     await expect(recipient.getByTestId(TEST_IDS.sharedMessageError)).toBeVisible({
       timeout: TIMEOUTS.CONVERSATION_LOAD,
     });
-    await expect(recipient.locator('img')).toHaveCount(0);
+    await expect(imagesOnPage(recipient)).toHaveCount(0);
   });
 
   /**
@@ -483,7 +484,7 @@ test.describe('Shared Content', () => {
       // before the assertion runs.
       const guestChatPage = new ChatPage(guest);
       await guestChatPage.expectImageVisible(TIMEOUTS.CONVERSATION_LOAD);
-      const imageElement = guestChatPage.messageList.locator('img').first();
+      const imageElement = guestChatPage.imagesIn(guestChatPage.messageList).first();
       await expect
         .poll(async () => imageElement.evaluate((el) => (el as HTMLImageElement).naturalWidth), {
           timeout: TIMEOUTS.ASSERT,
@@ -491,7 +492,7 @@ test.describe('Shared Content', () => {
         .toBeGreaterThan(0);
 
       await guestChatPage.expectVideoVisible(TIMEOUTS.CONVERSATION_LOAD);
-      const videoElement = guestChatPage.messageList.locator('video').first();
+      const videoElement = guestChatPage.videosIn(guestChatPage.messageList).first();
       // Wait until the video reports a parseable duration (metadata loaded);
       // degrades to a "src bound" check on engines that can't decode.
       await expectVideoDecoded(videoElement, browserName, { timeout: TIMEOUTS.CONVERSATION_LOAD });

@@ -19,6 +19,13 @@ export const TIMEOUTS = {
   CONVERSATION_LOAD: 15_000,
   /** A streamed LLM response has completed. */
   STREAM: 15_000,
+  /**
+   * A regeneration that clears the whole conversation and re-streams the first
+   * turn — the heaviest single stream cycle (cascade-delete then a fresh
+   * stream). Wider than STREAM so the cycle still completes when every browser
+   * project's workers run at once and saturate the host (see resource-scan).
+   */
+  STREAM_CLEAR: 30_000,
   /** A media asset (image/video) has decoded and rendered. */
   MEDIA_DECODE: 30_000,
   /** A realtime WebSocket connection has completed its handshake. */
