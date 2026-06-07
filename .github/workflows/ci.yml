@@ -178,6 +178,8 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+        env:
+          TURBO_FORCE: true
 
       - name: Verify AI Gateway was called
         run: pnpm verify:evidence --require=ai-gateway
