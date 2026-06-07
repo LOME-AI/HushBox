@@ -42,11 +42,16 @@ const DEFAULT_MAX_AGE_SECONDS = 3600;
 
 /**
  * Subset of env vars required to authenticate against R2 via the S3 API.
+ *
+ * Bucket-config operations like PutBucketCors require a bucket-admin token, so
+ * this script reads the dedicated `R2_ADMIN_*` credentials (Destination.Ops in
+ * env.config) rather than the object-scoped `R2_ACCESS_KEY_ID` the runtime
+ * Worker uses.
  */
 export interface R2Env {
   R2_S3_ENDPOINT: string;
-  R2_ACCESS_KEY_ID: string;
-  R2_SECRET_ACCESS_KEY: string;
+  R2_ADMIN_ACCESS_KEY_ID: string;
+  R2_ADMIN_SECRET_ACCESS_KEY: string;
   R2_BUCKET_MEDIA: string;
 }
 
@@ -58,8 +63,8 @@ export interface R2Env {
  */
 export interface R2EnvInput {
   R2_S3_ENDPOINT: string | undefined;
-  R2_ACCESS_KEY_ID: string | undefined;
-  R2_SECRET_ACCESS_KEY: string | undefined;
+  R2_ADMIN_ACCESS_KEY_ID: string | undefined;
+  R2_ADMIN_SECRET_ACCESS_KEY: string | undefined;
   R2_BUCKET_MEDIA: string | undefined;
 }
 
@@ -135,19 +140,19 @@ function requireEnv(env: R2EnvInput): R2Env {
   if (env.R2_S3_ENDPOINT === undefined || env.R2_S3_ENDPOINT.length === 0) {
     throw new Error('R2_S3_ENDPOINT is required to configure R2 CORS');
   }
-  if (env.R2_ACCESS_KEY_ID === undefined || env.R2_ACCESS_KEY_ID.length === 0) {
-    throw new Error('R2_ACCESS_KEY_ID is required to configure R2 CORS');
+  if (env.R2_ADMIN_ACCESS_KEY_ID === undefined || env.R2_ADMIN_ACCESS_KEY_ID.length === 0) {
+    throw new Error('R2_ADMIN_ACCESS_KEY_ID is required to configure R2 CORS');
   }
-  if (env.R2_SECRET_ACCESS_KEY === undefined || env.R2_SECRET_ACCESS_KEY.length === 0) {
-    throw new Error('R2_SECRET_ACCESS_KEY is required to configure R2 CORS');
+  if (env.R2_ADMIN_SECRET_ACCESS_KEY === undefined || env.R2_ADMIN_SECRET_ACCESS_KEY.length === 0) {
+    throw new Error('R2_ADMIN_SECRET_ACCESS_KEY is required to configure R2 CORS');
   }
   if (env.R2_BUCKET_MEDIA === undefined || env.R2_BUCKET_MEDIA.length === 0) {
     throw new Error('R2_BUCKET_MEDIA is required to configure R2 CORS');
   }
   return {
     R2_S3_ENDPOINT: env.R2_S3_ENDPOINT,
-    R2_ACCESS_KEY_ID: env.R2_ACCESS_KEY_ID,
-    R2_SECRET_ACCESS_KEY: env.R2_SECRET_ACCESS_KEY,
+    R2_ADMIN_ACCESS_KEY_ID: env.R2_ADMIN_ACCESS_KEY_ID,
+    R2_ADMIN_SECRET_ACCESS_KEY: env.R2_ADMIN_SECRET_ACCESS_KEY,
     R2_BUCKET_MEDIA: env.R2_BUCKET_MEDIA,
   };
 }
@@ -161,8 +166,8 @@ export async function configureR2Cors(deps: ConfigureR2CorsDeps): Promise<void> 
   const origins = deps.origins ?? PRODUCTION_ALLOWED_ORIGINS;
 
   const client = deps.createClient({
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    accessKeyId: env.R2_ADMIN_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_ADMIN_SECRET_ACCESS_KEY,
     service: 's3',
     region: 'auto',
   });
@@ -210,8 +215,8 @@ async function main(): Promise<void> {
 
   const env: R2EnvInput = {
     R2_S3_ENDPOINT: process.env['R2_S3_ENDPOINT'],
-    R2_ACCESS_KEY_ID: process.env['R2_ACCESS_KEY_ID'],
-    R2_SECRET_ACCESS_KEY: process.env['R2_SECRET_ACCESS_KEY'],
+    R2_ADMIN_ACCESS_KEY_ID: process.env['R2_ADMIN_ACCESS_KEY_ID'],
+    R2_ADMIN_SECRET_ACCESS_KEY: process.env['R2_ADMIN_SECRET_ACCESS_KEY'],
     R2_BUCKET_MEDIA: process.env['R2_BUCKET_MEDIA'],
   };
 

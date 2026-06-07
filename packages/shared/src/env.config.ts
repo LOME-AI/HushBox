@@ -253,6 +253,30 @@ export const envConfig = {
     [Mode.Production]: 'hushbox-media',
   },
 
+  // R2 bucket-admin S3 credentials — separate token from the object-scoped
+  // runtime credentials above. Only bucket-config ops (e.g. PutBucketCors in
+  // ops/r2/configure-cors.ts) need this; the runtime Worker must NOT hold it,
+  // so these go to Destination.Ops (ops runner env blocks only), never to
+  // wrangler secret put. Locally the MinIO root account is admin-capable, so
+  // dev/CI reuse the same minioadmin defaults as the object credentials.
+  R2_ADMIN_ACCESS_KEY_ID: {
+    to: [Destination.Ops],
+    [Mode.Development]: 'minioadmin',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: secret('R2_ADMIN_ACCESS_KEY_ID'),
+  },
+
+  R2_ADMIN_SECRET_ACCESS_KEY: {
+    to: [Destination.Ops],
+    [Mode.Development]: 'minioadmin',
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: secret('R2_ADMIN_SECRET_ACCESS_KEY'),
+  },
+
   // Frontend only
   VITE_API_URL: {
     to: [Destination.Frontend],

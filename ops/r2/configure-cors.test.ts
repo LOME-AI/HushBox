@@ -61,8 +61,8 @@ describe('PRODUCTION_ALLOWED_ORIGINS', () => {
 describe('configureR2Cors', () => {
   const baseEnv = {
     R2_S3_ENDPOINT: 'https://abc.r2.cloudflarestorage.com',
-    R2_ACCESS_KEY_ID: 'test-key',
-    R2_SECRET_ACCESS_KEY: 'test-secret',
+    R2_ADMIN_ACCESS_KEY_ID: 'test-key',
+    R2_ADMIN_SECRET_ACCESS_KEY: 'test-secret',
     R2_BUCKET_MEDIA: 'hushbox-media',
   };
 
@@ -116,22 +116,22 @@ describe('configureR2Cors', () => {
     await expect(configureR2Cors(deps)).rejects.toThrow(/R2_S3_ENDPOINT/);
   });
 
-  it('fails fast when R2_ACCESS_KEY_ID is missing', async () => {
+  it('fails fast when R2_ADMIN_ACCESS_KEY_ID is missing', async () => {
     const deps: ConfigureR2CorsDeps = {
-      env: { ...baseEnv, R2_ACCESS_KEY_ID: '' },
+      env: { ...baseEnv, R2_ADMIN_ACCESS_KEY_ID: '' },
       createClient: vi.fn(),
     };
 
-    await expect(configureR2Cors(deps)).rejects.toThrow(/R2_ACCESS_KEY_ID/);
+    await expect(configureR2Cors(deps)).rejects.toThrow(/R2_ADMIN_ACCESS_KEY_ID/);
   });
 
-  it('fails fast when R2_SECRET_ACCESS_KEY is missing', async () => {
+  it('fails fast when R2_ADMIN_SECRET_ACCESS_KEY is missing', async () => {
     const deps: ConfigureR2CorsDeps = {
-      env: { ...baseEnv, R2_SECRET_ACCESS_KEY: '' },
+      env: { ...baseEnv, R2_ADMIN_SECRET_ACCESS_KEY: '' },
       createClient: vi.fn(),
     };
 
-    await expect(configureR2Cors(deps)).rejects.toThrow(/R2_SECRET_ACCESS_KEY/);
+    await expect(configureR2Cors(deps)).rejects.toThrow(/R2_ADMIN_SECRET_ACCESS_KEY/);
   });
 
   it('fails fast when R2_BUCKET_MEDIA is missing', async () => {

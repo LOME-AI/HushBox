@@ -3,6 +3,7 @@ export enum Destination {
   Backend = 'backend', // → .dev.vars (local) / wrangler.toml + secrets (prod)
   Frontend = 'frontend', // → .env.development (Vite, VITE_* vars only)
   Scripts = 'scripts', // → .env.scripts (migrations, seed, etc.)
+  Ops = 'ops', // → ops runner env blocks only (ci.yml ops-env + run-ops-script.yml ops-dispatch-env); never wrangler secret put / runtime Worker
 }
 
 /** Environment modes */

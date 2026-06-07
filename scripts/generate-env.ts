@@ -312,7 +312,11 @@ function generateOpsEnv(omitKeys: ReadonlySet<string> = new Set()): string {
   const entries = Object.entries(envConfig).filter(([key]) => !omitKeys.has(key));
   for (const [key, config] of entries) {
     const destinations = getDestinations(config as VariableConfig, Mode.Production);
-    if (!destinations.includes(Destination.Backend)) continue;
+    // Backend secrets the runtime Worker also gets, plus Ops-only secrets
+    // (bucket-admin R2 creds) the runner needs but the Worker must never hold.
+    if (!destinations.includes(Destination.Backend) && !destinations.includes(Destination.Ops)) {
+      continue;
+    }
 
     const raw = resolveRaw(config as VariableConfig, Mode.Production);
     if (!raw) continue;

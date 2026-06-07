@@ -559,6 +559,20 @@ old content
         'echo "${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}" | pnpm exec wrangler secret put HELCIM_WEBHOOK_VERIFIER'
       );
     });
+
+    it('never deploys the Ops-lane R2 admin credentials to the runtime Worker', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: deploy-secrets
+old content
+# END GENERATED: deploy-secrets`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // Destination.Ops creds must stay off the Worker — no wrangler secret put.
+      expect(content).not.toContain('R2_ADMIN_ACCESS_KEY_ID');
+      expect(content).not.toContain('R2_ADMIN_SECRET_ACCESS_KEY');
+    });
   });
 
   describe('decode-google-services section', () => {
@@ -594,6 +608,8 @@ old content
       expect(content).toContain(
         'for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN OPAQUE_MASTER_SECRET IRON_SESSION_SECRET APP_VERSION RESEND_API_KEY AI_GATEWAY_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON HELCIM_API_TOKEN LINEAR_API_KEY_READ HELCIM_WEBHOOK_VERIFIER R2_S3_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do'
       );
+      // The Ops-lane admin creds are not Worker secrets, so they are not verified here.
+      expect(content).not.toContain('R2_ADMIN_ACCESS_KEY_ID');
     });
   });
 
@@ -615,6 +631,23 @@ old content
       expect(content).toContain('R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}');
       expect(content).toContain('R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}');
       expect(content).toContain('R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}');
+    });
+
+    it('exposes the Ops-lane R2 admin credentials to the runner', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: ops-env
+old content
+# END GENERATED: ops-env`);
+
+      updateWorkflows(TEST_DIR_CI);
+
+      const content = readCiYml();
+      // Destination.Ops secrets are bucket-admin R2 creds, needed by ops scripts
+      // (configure-cors) but deliberately kept off the runtime Worker.
+      expect(content).toContain('R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}');
+      expect(content).toContain(
+        'R2_ADMIN_SECRET_ACCESS_KEY: ${{ secrets.R2_ADMIN_SECRET_ACCESS_KEY }}'
+      );
     });
 
     it('emits non-secret production literals (e.g. R2_BUCKET_MEDIA) so runner scripts have them too', () => {

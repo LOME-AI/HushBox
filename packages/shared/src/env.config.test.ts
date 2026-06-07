@@ -323,6 +323,45 @@ describe('envConfig', () => {
     });
   });
 
+  describe('R2_ADMIN_ACCESS_KEY_ID', () => {
+    it('goes to the Ops lane only (never the runtime Worker)', () => {
+      expect(envConfig.R2_ADMIN_ACCESS_KEY_ID.to).toEqual([Destination.Ops]);
+    });
+
+    it('has MinIO default for development', () => {
+      expect(resolveRaw(envConfig.R2_ADMIN_ACCESS_KEY_ID, Mode.Development)).toBe('minioadmin');
+    });
+
+    it('is the R2_ADMIN_ACCESS_KEY_ID secret in production', () => {
+      const raw = resolveRaw(envConfig.R2_ADMIN_ACCESS_KEY_ID, Mode.Production);
+      expect(isSecret(raw)).toBe(true);
+      expect(isSecret(raw) && raw.name).toBe('R2_ADMIN_ACCESS_KEY_ID');
+    });
+  });
+
+  describe('R2_ADMIN_SECRET_ACCESS_KEY', () => {
+    it('goes to the Ops lane only (never the runtime Worker)', () => {
+      expect(envConfig.R2_ADMIN_SECRET_ACCESS_KEY.to).toEqual([Destination.Ops]);
+    });
+
+    it('has MinIO default for development', () => {
+      expect(resolveRaw(envConfig.R2_ADMIN_SECRET_ACCESS_KEY, Mode.Development)).toBe('minioadmin');
+    });
+
+    it('is the R2_ADMIN_SECRET_ACCESS_KEY secret in production', () => {
+      const raw = resolveRaw(envConfig.R2_ADMIN_SECRET_ACCESS_KEY, Mode.Production);
+      expect(isSecret(raw)).toBe(true);
+      expect(isSecret(raw) && raw.name).toBe('R2_ADMIN_SECRET_ACCESS_KEY');
+    });
+  });
+
+  describe('admin R2 credentials never reach the runtime Worker', () => {
+    it('omits R2_ADMIN_* from the backend env schema', () => {
+      expect('R2_ADMIN_ACCESS_KEY_ID' in backendEnvSchema.shape).toBe(false);
+      expect('R2_ADMIN_SECRET_ACCESS_KEY' in backendEnvSchema.shape).toBe(false);
+    });
+  });
+
   describe('MIGRATION_DATABASE_URL', () => {
     it('goes to Scripts only', () => {
       expect(envConfig.MIGRATION_DATABASE_URL.to).toEqual([Destination.Scripts]);
