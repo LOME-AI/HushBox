@@ -140,6 +140,7 @@ export function getExpectedEnvUtilities(mode: Mode): EnvUtilities {
     development: {
       isDev: true,
       isLocalDev: true,
+      isDevServer: true,
       isProduction: false,
       isCI: false,
       isE2E: false,
@@ -148,6 +149,7 @@ export function getExpectedEnvUtilities(mode: Mode): EnvUtilities {
     ciVitest: {
       isDev: true,
       isLocalDev: false,
+      isDevServer: false,
       isProduction: false,
       isCI: true,
       isE2E: false,
@@ -156,6 +158,7 @@ export function getExpectedEnvUtilities(mode: Mode): EnvUtilities {
     e2e: {
       isDev: true,
       isLocalDev: true,
+      isDevServer: false,
       isProduction: false,
       isCI: false,
       isE2E: true,
@@ -164,6 +167,7 @@ export function getExpectedEnvUtilities(mode: Mode): EnvUtilities {
     ciE2E: {
       isDev: true,
       isLocalDev: false,
+      isDevServer: false,
       isProduction: false,
       isCI: true,
       isE2E: true,
@@ -172,6 +176,7 @@ export function getExpectedEnvUtilities(mode: Mode): EnvUtilities {
     production: {
       isDev: false,
       isLocalDev: false,
+      isDevServer: false,
       isProduction: true,
       isCI: false,
       isE2E: false,
@@ -190,6 +195,7 @@ function compareEnvUtilities(actual: EnvUtilities, expected: EnvUtilities): Mism
   const keys: (keyof EnvUtilities)[] = [
     'isDev',
     'isLocalDev',
+    'isDevServer',
     'isProduction',
     'isCI',
     'isE2E',
@@ -287,7 +293,7 @@ export async function verifyFrontendEnv(
  * Format EnvUtilities as a string for display
  */
 export function formatEnvUtilities(env: EnvUtilities): string {
-  return `isDev=${String(env.isDev)}, isLocalDev=${String(env.isLocalDev)}, isProduction=${String(env.isProduction)}, isCI=${String(env.isCI)}, isE2E=${String(env.isE2E)}, requiresRealServices=${String(env.requiresRealServices)}`;
+  return `isDev=${String(env.isDev)}, isLocalDev=${String(env.isLocalDev)}, isDevServer=${String(env.isDevServer)}, isProduction=${String(env.isProduction)}, isCI=${String(env.isCI)}, isE2E=${String(env.isE2E)}, requiresRealServices=${String(env.requiresRealServices)}`;
 }
 
 /**

@@ -188,6 +188,7 @@ VITE_E2E=true
       expect(expected).toEqual({
         isDev: true,
         isLocalDev: true,
+        isDevServer: true,
         isProduction: false,
         isCI: false,
         isE2E: false,
@@ -201,6 +202,7 @@ VITE_E2E=true
       expect(expected).toEqual({
         isDev: true,
         isLocalDev: false,
+        isDevServer: false,
         isProduction: false,
         isCI: true,
         isE2E: false,
@@ -214,6 +216,7 @@ VITE_E2E=true
       expect(expected).toEqual({
         isDev: true,
         isLocalDev: true,
+        isDevServer: false,
         isProduction: false,
         isCI: false,
         isE2E: true,
@@ -227,6 +230,7 @@ VITE_E2E=true
       expect(expected).toEqual({
         isDev: false,
         isLocalDev: false,
+        isDevServer: false,
         isProduction: true,
         isCI: false,
         isE2E: false,
@@ -417,6 +421,7 @@ VITE_E2E=true
       const env = {
         isDev: true,
         isLocalDev: false,
+        isDevServer: false,
         isProduction: false,
         isCI: true,
         isE2E: false,
@@ -426,7 +431,7 @@ VITE_E2E=true
       const result = formatEnvUtilities(env);
 
       expect(result).toBe(
-        'isDev=true, isLocalDev=false, isProduction=false, isCI=true, isE2E=false, requiresRealServices=true'
+        'isDev=true, isLocalDev=false, isDevServer=false, isProduction=false, isCI=true, isE2E=false, requiresRealServices=true'
       );
     });
   });
@@ -583,6 +588,7 @@ VITE_CI=true
         actual: {
           isDev: true,
           isLocalDev: true,
+          isDevServer: true,
           isProduction: false,
           isCI: false,
           isE2E: false,
@@ -591,6 +597,7 @@ VITE_CI=true
         expected: {
           isDev: true,
           isLocalDev: true,
+          isDevServer: true,
           isProduction: false,
           isCI: false,
           isE2E: false,
@@ -612,6 +619,7 @@ VITE_CI=true
         actual: {
           isDev: true,
           isLocalDev: true,
+          isDevServer: true,
           isProduction: false,
           isCI: false,
           isE2E: false,
@@ -620,6 +628,7 @@ VITE_CI=true
         expected: {
           isDev: true,
           isLocalDev: false,
+          isDevServer: false,
           isProduction: false,
           isCI: true,
           isE2E: false,
