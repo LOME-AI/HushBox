@@ -55,6 +55,36 @@ export interface AIClientOptions {
 }
 
 /**
+ * Wall-clock delay the mock inserts between an image / video / audio
+ * generation's `media-start` and `media-done` on a real local dev server, so
+ * the "Generating…" placeholder (and its latent-develop animation) is visible
+ * instead of resolving instantly. Long enough to show a full animation cycle;
+ * video additionally shows the leading edge of the synthetic progress sweep.
+ */
+export const LOCAL_DEV_MEDIA_DELAY_MS = 3000;
+
+/** Echo-typewriter inter-chunk delay on a real dev server (visible streaming). */
+const LOCAL_DEV_TEXT_DELAY_MS = 60;
+
+/**
+ * Assemble the mock client config. The echo typewriter (`textDelayMs`) and the
+ * media-generation placeholder (`mediaDelayMs`) are human-facing dev
+ * affordances, so they fire only on a real dev server (`isDevServer` — never
+ * under vitest, E2E, CI, or production). Per-request `x-mock-*` overrides on
+ * `options.mockConfig` win when present.
+ */
+export function buildMockConfig(
+  options: AIClientOptions,
+  isDevServer: boolean
+): MockAIClientConfig {
+  return {
+    ...options.mockConfig,
+    textDelayMs: options.mockConfig?.textDelayMs ?? (isDevServer ? LOCAL_DEV_TEXT_DELAY_MS : 0),
+    mediaDelayMs: options.mockConfig?.mediaDelayMs ?? (isDevServer ? LOCAL_DEV_MEDIA_DELAY_MS : 0),
+  };
+}
+
+/**
  * Get the appropriate AIClient based on environment.
  *
  * - Local dev / E2E: Returns a fresh mock client configured from
@@ -64,19 +94,14 @@ export interface AIClientOptions {
  *   credentials; fails fast if missing. Evidence recording optional.
  */
 export function getAIClient(env: AIClientEnv, options: AIClientOptions = {}): AIClient {
-  const { isLocalDev, isE2E } = createEnvUtilities(env);
+  const { isLocalDev, isE2E, isDevServer } = createEnvUtilities(env);
 
   if (isLocalDev || isE2E) {
-    // Echo typewriter paints visibly only on a running dev server. E2E and
-    // vitest both land here with isLocalDev=false so they stay instant.
-    const defaultTextDelayMs = isLocalDev && !isE2E ? 60 : 0;
-    const mockConfig: MockAIClientConfig = {
-      ...options.mockConfig,
-      textDelayMs: options.mockConfig?.textDelayMs ?? defaultTextDelayMs,
-    };
     // E2E pins the catalog to a committed fixture so no run touches the live
     // public `/v1/models` endpoint. Plain local dev keeps the live fetch.
-    return createMockAIClient(mockConfig, { useFixtureCatalog: isE2E });
+    return createMockAIClient(buildMockConfig(options, isDevServer), {
+      useFixtureCatalog: isE2E,
+    });
   }
 
   return createRealAIClient({

@@ -42,12 +42,15 @@ vi.mock('@/lib/chat-regeneration', () => ({}));
 vi.mock('@/stores/streaming-activity', () => ({}));
 vi.mock('@hushbox/crypto', () => ({}));
 
+import type { ImageConfig, VideoConfig } from '@hushbox/shared';
 import {
   shouldRedirect,
   computeRenderState,
   computePruneIds,
   mergeMessages,
   shouldClearStateOnConversationSwitch,
+  requestedMediaAspectRatio,
+  pendingMediaInFlight,
   DECRYPTING_TITLE,
 } from './use-authenticated-chat';
 
@@ -75,6 +78,55 @@ function baseParams(): Parameters<typeof computeRenderState>[0] {
     isDecryptionPending: false,
   };
 }
+
+describe('pendingMediaInFlight', () => {
+  const imageConfig: ImageConfig = { aspectRatio: '4:3' };
+  const videoConfig: VideoConfig = { aspectRatio: '9:16', durationSeconds: 4, resolution: '720p' };
+
+  it('returns undefined for text turns', () => {
+    expect(pendingMediaInFlight('text', imageConfig, videoConfig)).toBeUndefined();
+  });
+
+  it('stamps image with the requested aspect ratio and a placeholder mime', () => {
+    expect(pendingMediaInFlight('image', imageConfig, videoConfig)).toEqual({
+      mediaType: 'image',
+      mimeType: 'application/octet-stream',
+      aspectRatio: '4:3',
+    });
+  });
+
+  it('stamps video with the requested aspect ratio', () => {
+    expect(pendingMediaInFlight('video', imageConfig, videoConfig)).toEqual({
+      mediaType: 'video',
+      mimeType: 'application/octet-stream',
+      aspectRatio: '9:16',
+    });
+  });
+
+  it('stamps audio with no aspect ratio', () => {
+    expect(pendingMediaInFlight('audio', imageConfig, videoConfig)).toEqual({
+      mediaType: 'audio',
+      mimeType: 'application/octet-stream',
+    });
+  });
+});
+
+describe('requestedMediaAspectRatio', () => {
+  const imageConfig: ImageConfig = { aspectRatio: '4:3' };
+  const videoConfig: VideoConfig = { aspectRatio: '9:16', durationSeconds: 4, resolution: '720p' };
+
+  it('returns the image aspect ratio for image generation', () => {
+    expect(requestedMediaAspectRatio('image', imageConfig, videoConfig)).toBe('4:3');
+  });
+
+  it('returns the video aspect ratio for video generation', () => {
+    expect(requestedMediaAspectRatio('video', imageConfig, videoConfig)).toBe('9:16');
+  });
+
+  it('returns undefined for audio, which has no 2D shape', () => {
+    expect(requestedMediaAspectRatio('audio', imageConfig, videoConfig)).toBeUndefined();
+  });
+});
 
 describe('computePruneIds', () => {
   it('retry: removes every descendant of the user-message target, keeps target', () => {

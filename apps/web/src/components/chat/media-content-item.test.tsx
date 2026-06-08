@@ -2,10 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ContentKey } from '@hushbox/crypto';
-import type { MessageMediaItem } from '@/lib/api';
+import type { RenderableMedia } from './media-content-item';
 
 const mockUseDecryptedMedia = vi.fn<
-  (params: { contentItemId: string; contentKey: ContentKey | null; mimeType: string }) => {
+  (params: {
+    contentItemId: string;
+    contentKey: ContentKey | null;
+    mimeType: string;
+    preFetchedUrl?: string;
+  }) => {
     blobUrl: string | null;
     isLoading: boolean;
     error: Error | null;
@@ -17,15 +22,13 @@ vi.mock('@/hooks/use-decrypted-media', () => ({
     mockUseDecryptedMedia(params),
 }));
 
-import { MediaContentItem } from './media-content-item';
+import { MediaContentItem, messageMediaToRenderable } from './media-content-item';
 
-function defaultItem(overrides: Partial<MessageMediaItem> = {}): MessageMediaItem {
+function defaultItem(overrides: Partial<RenderableMedia> = {}): RenderableMedia {
   return {
-    id: 'media-1',
+    contentItemId: 'media-1',
     contentType: 'image',
-    position: 0,
     mimeType: 'image/png',
-    sizeBytes: 1024,
     width: 512,
     height: 512,
     ...overrides,
@@ -35,6 +38,7 @@ function defaultItem(overrides: Partial<MessageMediaItem> = {}): MessageMediaIte
 const baseContentKey = new Uint8Array([1, 2, 3]) as ContentKey;
 const baseProps = {
   contentKey: baseContentKey,
+  ariaPrefix: 'Generated',
 };
 
 describe('MediaContentItem', () => {
@@ -148,7 +152,7 @@ describe('MediaContentItem', () => {
 
     render(
       <MediaContentItem
-        item={defaultItem({ id: 'abc-123', mimeType: 'image/png' })}
+        item={defaultItem({ contentItemId: 'abc-123', mimeType: 'image/png' })}
         {...baseProps}
       />
     );
@@ -167,7 +171,7 @@ describe('MediaContentItem', () => {
 
     render(
       <MediaContentItem
-        item={defaultItem({ id: 'vid-9', contentType: 'video', mimeType: 'video/mp4' })}
+        item={defaultItem({ contentItemId: 'vid-9', contentType: 'video', mimeType: 'video/mp4' })}
         {...baseProps}
       />
     );
@@ -185,7 +189,7 @@ describe('MediaContentItem', () => {
 
     render(
       <MediaContentItem
-        item={defaultItem({ id: 'aud-7', contentType: 'audio', mimeType: 'audio/mpeg' })}
+        item={defaultItem({ contentItemId: 'aud-7', contentType: 'audio', mimeType: 'audio/mpeg' })}
         {...baseProps}
       />
     );
@@ -203,7 +207,7 @@ describe('MediaContentItem', () => {
 
     render(
       <MediaContentItem
-        item={defaultItem({ id: 'weird-1', mimeType: 'application/octet-stream' })}
+        item={defaultItem({ contentItemId: 'weird-1', mimeType: 'application/octet-stream' })}
         {...baseProps}
       />
     );
@@ -260,8 +264,9 @@ describe('MediaContentItem', () => {
     const ck = new Uint8Array([7, 7, 7]) as ContentKey;
     render(
       <MediaContentItem
-        item={defaultItem({ id: 'item-42', mimeType: 'image/webp' })}
+        item={defaultItem({ contentItemId: 'item-42', mimeType: 'image/webp' })}
         contentKey={ck}
+        ariaPrefix="Generated"
       />
     );
 
@@ -270,5 +275,71 @@ describe('MediaContentItem', () => {
       contentKey: ck,
       mimeType: 'image/webp',
     });
+  });
+
+  it('forwards a pre-supplied downloadUrl as preFetchedUrl (share / SSE path)', () => {
+    mockUseDecryptedMedia.mockReturnValue({
+      blobUrl: 'blob:mock-1',
+      isLoading: false,
+      error: null,
+    });
+
+    const ck = new Uint8Array([5, 5, 5]) as ContentKey;
+    render(
+      <MediaContentItem
+        item={defaultItem({
+          contentItemId: 'ci-7',
+          mimeType: 'image/png',
+          downloadUrl: 'https://signed.example/y?sig=z',
+        })}
+        contentKey={ck}
+        ariaPrefix="Shared"
+      />
+    );
+
+    expect(mockUseDecryptedMedia).toHaveBeenCalledWith({
+      contentItemId: 'ci-7',
+      contentKey: ck,
+      mimeType: 'image/png',
+      preFetchedUrl: 'https://signed.example/y?sig=z',
+    });
+  });
+});
+
+describe('messageMediaToRenderable', () => {
+  it('maps a media item without a downloadUrl to the renderable shape', () => {
+    const result = messageMediaToRenderable({
+      id: 'm1',
+      position: 0,
+      contentType: 'image',
+      mimeType: 'image/png',
+      sizeBytes: 10,
+      width: 4,
+      height: 5,
+    });
+
+    expect(result).toEqual({
+      contentItemId: 'm1',
+      contentType: 'image',
+      mimeType: 'image/png',
+      width: 4,
+      height: 5,
+    });
+    expect('downloadUrl' in result).toBe(false);
+  });
+
+  it('carries the downloadUrl through when the item has one', () => {
+    const result = messageMediaToRenderable({
+      id: 'm2',
+      position: 1,
+      contentType: 'video',
+      mimeType: 'video/mp4',
+      sizeBytes: 20,
+      width: null,
+      height: null,
+      downloadUrl: 'https://signed.example/v',
+    });
+
+    expect(result.downloadUrl).toBe('https://signed.example/v');
   });
 });

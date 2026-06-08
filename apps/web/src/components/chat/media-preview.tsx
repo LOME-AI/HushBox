@@ -4,6 +4,7 @@ import { Button, cn, Img } from '@hushbox/ui';
 import { friendlyErrorMessage, ERROR_CODE_STORAGE_READ_FAILED, TEST_IDS } from '@hushbox/shared';
 import { buildDownloadFilename } from '@/lib/media-filename';
 import { MediaModal } from './media-modal';
+import { LatentDevelopBackdrop } from './latent-develop-backdrop';
 
 function MediaProgressBar({ percent }: Readonly<{ percent: number }>): React.JSX.Element {
   const clamped = Math.min(100, Math.max(0, percent));
@@ -31,6 +32,57 @@ function resolvePlaceholderLabel(
   return friendlyErrorMessage(ERROR_CODE_STORAGE_READ_FAILED);
 }
 
+const MEDIA_MAX_WIDTH_REM = 28; // Tailwind max-w-md
+const MEDIA_MAX_HEIGHT_REM = 24; // Tailwind max-h-96
+
+export interface MediaRatio {
+  /** width ÷ height — used to clamp the box width so tall ratios still fit max-h-96. */
+  value: number;
+  /** CSS `aspect-ratio` token, e.g. "16 / 9". */
+  css: string;
+}
+
+/**
+ * Resolve a media item's aspect ratio. Precedence:
+ *   1. An explicit requested ratio (`"16:9"`), known during generation before
+ *      any pixel dimensions exist.
+ *   2. Persisted pixel dimensions (decrypt-load path).
+ *   3. Square fallback when nothing is known.
+ */
+export function mediaRatio(
+  aspectRatio: string | undefined,
+  width: number | null | undefined,
+  height: number | null | undefined
+): MediaRatio {
+  if (aspectRatio) {
+    const [rawW, rawH] = aspectRatio.split(':');
+    const ratioW = Number(rawW);
+    const ratioH = Number(rawH);
+    if (ratioW > 0 && ratioH > 0) {
+      return { value: ratioW / ratioH, css: `${String(ratioW)} / ${String(ratioH)}` };
+    }
+  }
+  if (width && height) {
+    return { value: width / height, css: `${String(width)} / ${String(height)}` };
+  }
+  return { value: 1, css: '1 / 1' };
+}
+
+/**
+ * THE shared on-screen box for a media item. The loading placeholder and the
+ * resolved `<img>`/`<video>` both size from this, so swapping one for the other
+ * never shifts layout. The box keeps the ratio while fitting inside BOTH
+ * max-w-md and max-h-96 at any orientation — landscape is width-bound,
+ * square/portrait height-bound — via `width = min(100%, max-w, max-h × ratio)`,
+ * staying responsive on narrow viewports.
+ */
+export function mediaBoxStyle(ratio: MediaRatio): React.CSSProperties {
+  return {
+    width: `min(100%, ${String(MEDIA_MAX_WIDTH_REM)}rem, calc(${String(MEDIA_MAX_HEIGHT_REM)}rem * ${String(ratio.value)}))`,
+    aspectRatio: ratio.css,
+  };
+}
+
 export function MediaPlaceholder({
   width,
   height,
@@ -46,14 +98,21 @@ export function MediaPlaceholder({
    * "Generating video…"). Falls back to the generic "Loading media…".
    */
   loadingLabel,
+  /**
+   * Requested aspect ratio in colon form (`"16:9"`). Set during generation,
+   * where the target shape is known from the user's config before any pixel
+   * dimensions exist. Takes precedence over `width`/`height`.
+   */
+  aspectRatio,
 }: Readonly<{
   width: number | null | undefined;
   height: number | null | undefined;
   status: 'loading' | 'error';
   progressPercent?: number | undefined;
   loadingLabel?: string | undefined;
+  aspectRatio?: string | undefined;
 }>): React.JSX.Element {
-  const aspectRatio = width && height ? `${String(width)} / ${String(height)}` : '1 / 1';
+  const ratio = mediaRatio(aspectRatio, width, height);
   const label = resolvePlaceholderLabel(status, loadingLabel);
   const showProgress = status === 'loading' && typeof progressPercent === 'number';
   // Once we hit 95% the server is still finalising — surface that so users
@@ -64,13 +123,18 @@ export function MediaPlaceholder({
       role="status"
       aria-label={label}
       className={cn(
-        'bg-muted flex w-full max-w-md flex-col items-center justify-center gap-2 rounded-md border p-4 text-sm',
+        'bg-muted relative flex flex-col items-center justify-center gap-2 overflow-hidden rounded-md border p-4 text-sm',
         status === 'error' && 'text-destructive'
       )}
-      style={{ aspectRatio }}
+      style={mediaBoxStyle(ratio)}
     >
-      <span>{isAlmostThere ? 'Almost there…' : label}</span>
-      {showProgress && <MediaProgressBar percent={progressPercent} />}
+      {status === 'loading' && (
+        <LatentDevelopBackdrop {...(progressPercent !== undefined && { progressPercent })} />
+      )}
+      <div className="relative z-10 flex flex-col items-center gap-2">
+        <span>{isAlmostThere ? 'Almost there…' : label}</span>
+        {showProgress && <MediaProgressBar percent={progressPercent} />}
+      </div>
     </div>
   );
 }
@@ -124,16 +188,25 @@ export function MediaPreview({
     ...(width != null && { width }),
     ...(height != null && { height }),
   };
+  // Image/video render in the SAME box `MediaPlaceholder` reserved (shared
+  // `mediaBoxStyle`), so the loading→loaded swap never shifts layout. Audio is
+  // a control bar with no 2D shape, so it keeps a plain full-width row.
+  const frameProps = isAudio
+    ? { className: cn('relative w-full max-w-md', className) }
+    : {
+        className: cn('relative', className),
+        style: mediaBoxStyle(mediaRatio(undefined, width, height)),
+      };
 
   return (
-    <div className={cn('relative inline-block max-w-md', className)}>
+    <div {...frameProps}>
       {isImage && (
         <button
           type="button"
           onClick={() => {
             setModalOpen(true);
           }}
-          className="block cursor-zoom-in rounded-md border"
+          className="block h-full w-full cursor-zoom-in rounded-md border"
           aria-label="Open image in lightbox"
         >
           <Img
@@ -141,7 +214,7 @@ export function MediaPreview({
             alt={mediaAlt}
             loading="eager"
             {...dimensionProps}
-            className="max-h-96 w-full rounded-md object-contain"
+            className="h-full w-full rounded-md object-contain"
           />
         </button>
       )}
@@ -157,7 +230,7 @@ export function MediaPreview({
           onClick={() => {
             setModalOpen(true);
           }}
-          className="block w-full cursor-zoom-in rounded-md border"
+          className="block h-full w-full cursor-zoom-in rounded-md border"
           aria-label="Open video in fullscreen"
         >
           {/* eslint-disable-next-line jsx-a11y/media-has-caption -- AI-generated video: no caption track is available; aria-label provides accessible name */}
@@ -167,7 +240,7 @@ export function MediaPreview({
             preload="metadata"
             playsInline
             {...dimensionProps}
-            className="max-h-96 w-full rounded-md"
+            className="h-full w-full rounded-md object-contain"
             aria-label={`${ariaPrefix} video`}
             // Stop propagation so clicking the native controls doesn't open
             // the modal — only clicking the surrounding frame does.

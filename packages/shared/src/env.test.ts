@@ -71,6 +71,43 @@ describe('createEnvUtilities', () => {
     });
   });
 
+  describe('isDevServer', () => {
+    it('returns true for a plain local dev server', () => {
+      const env = createEnvUtilities({ NODE_ENV: 'development' });
+      expect(env.isDevServer).toBe(true);
+    });
+
+    it('returns false under vitest (VITEST set), even in dev mode', () => {
+      const env = createEnvUtilities({ NODE_ENV: 'development', VITEST: 'true' });
+      expect(env.isDevServer).toBe(false);
+    });
+
+    it('returns false under E2E, even in dev mode', () => {
+      const env = createEnvUtilities({ NODE_ENV: 'development', E2E: 'true' });
+      expect(env.isDevServer).toBe(false);
+    });
+
+    it('returns false in CI vitest', () => {
+      const env = createEnvUtilities({ NODE_ENV: 'development', CI: 'true', VITEST: 'true' });
+      expect(env.isDevServer).toBe(false);
+    });
+
+    it('returns false in CI E2E', () => {
+      const env = createEnvUtilities({ NODE_ENV: 'development', CI: 'true', E2E: 'true' });
+      expect(env.isDevServer).toBe(false);
+    });
+
+    it('returns false in production', () => {
+      const env = createEnvUtilities({ NODE_ENV: 'production' });
+      expect(env.isDevServer).toBe(false);
+    });
+
+    it('treats an empty VITEST string as not-vitest', () => {
+      const env = createEnvUtilities({ NODE_ENV: 'development', VITEST: '' });
+      expect(env.isDevServer).toBe(true);
+    });
+  });
+
   describe('isProduction', () => {
     it('returns true when NODE_ENV is production', () => {
       const env = createEnvUtilities({ NODE_ENV: 'production' });

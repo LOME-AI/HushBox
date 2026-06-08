@@ -447,6 +447,8 @@ interface StreamOptions {
     models: { modelId: string; assistantMessageId: string }[];
   }) => void;
   onToken?: (token: string, modelId: string) => void;
+  onAllModelsComplete?: () => void;
+  onAllStreamsSettled?: () => void;
 }
 
 interface SetupMocksOptions {
@@ -1210,6 +1212,107 @@ describe('AuthenticatedChatPage', () => {
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
       expect(screen.getByTestId('message-count')).toHaveTextContent('1');
+    });
+  });
+
+  // The hook re-enables the input on the early model:done flip, so a user can
+  // start a second turn while the first is still settling. That only stays
+  // race-free if every stop call releases ONLY the ids its own turn owns —
+  // these assert the hook threads the correct scoped ids (multi-model) into
+  // stopStreaming/stopPersisting, never a blanket clear. Pairs with
+  // use-chat-page.test.ts, which proves scoped removal leaves a concurrent
+  // turn intact.
+  describe('scoped streaming-state release', () => {
+    it('releases only the sent turn tile ids on completion (multi-model)', async () => {
+      const user = userEvent.setup();
+      mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
+        options?.onStart?.({
+          userMessageId: 'user-2',
+          models: [
+            { modelId: 'model-a', assistantMessageId: 'assistant-1' },
+            { modelId: 'model-b', assistantMessageId: 'assistant-2' },
+          ],
+        });
+        options?.onAllModelsComplete?.();
+        options?.onAllStreamsSettled?.();
+        return Promise.resolve({
+          userMessageId: 'user-2',
+          models: [
+            { modelId: 'model-a', assistantMessageId: 'assistant-1', cost: '0' },
+            { modelId: 'model-b', assistantMessageId: 'assistant-2', cost: '0' },
+          ],
+        });
+      });
+
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test Chat' },
+        messagesData: [],
+        inputValue: 'New message',
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+      await user.click(screen.getByTestId('submit'));
+
+      await waitFor(() => {
+        expect(mockStopStreaming).toHaveBeenCalledWith(['assistant-1', 'assistant-2']);
+      });
+      expect(mockStopPersisting).toHaveBeenCalledWith(['assistant-1', 'assistant-2']);
+    });
+
+    it('releases only the first turn tile ids after conversation creation (multi-model)', async () => {
+      mockCreateConversationMutateAsync.mockResolvedValue({
+        conversation: { id: 'conv-123' },
+        isNew: true,
+      });
+      mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
+        options?.onStart?.({
+          userMessageId: 'user-1',
+          models: [
+            { modelId: 'model-a', assistantMessageId: 'assistant-1' },
+            { modelId: 'model-b', assistantMessageId: 'assistant-2' },
+          ],
+        });
+        return Promise.resolve({
+          userMessageId: 'user-1',
+          models: [
+            { modelId: 'model-a', assistantMessageId: 'assistant-1', cost: '0' },
+            { modelId: 'model-b', assistantMessageId: 'assistant-2', cost: '0' },
+          ],
+        });
+      });
+      setupMocks({ pendingMessage: 'Hello AI' });
+      render(<AuthenticatedChatPage routeConversationId="new" />);
+
+      await waitFor(() => {
+        expect(mockStopStreaming).toHaveBeenCalledWith(['assistant-1', 'assistant-2']);
+      });
+      expect(mockStopPersisting).toHaveBeenCalledWith(['assistant-1', 'assistant-2']);
+    });
+
+    it('releases only the sent turn placeholder ids when the send errors', async () => {
+      const user = userEvent.setup();
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(vi.fn());
+      mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
+        options?.onStart?.({
+          userMessageId: 'user-2',
+          models: [{ modelId: 'model-a', assistantMessageId: 'assistant-1' }],
+        });
+        return Promise.reject(new Error('Stream failed'));
+      });
+
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test Chat' },
+        messagesData: [],
+        inputValue: 'New message',
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+      await user.click(screen.getByTestId('submit'));
+
+      await waitFor(() => {
+        expect(mockStopStreaming).toHaveBeenCalledWith(['assistant-1']);
+      });
+      consoleErrorSpy.mockRestore();
     });
   });
 

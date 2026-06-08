@@ -287,6 +287,7 @@ function createTestApp(envUtilitiesOverride?: { isCI: boolean }) {
       c.set('envUtils', {
         isDev: false,
         isLocalDev: false,
+        isDevServer: false,
         isE2E: false,
         isCI: envUtilitiesOverride.isCI,
         requiresRealServices: false,

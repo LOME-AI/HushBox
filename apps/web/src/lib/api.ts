@@ -112,6 +112,12 @@ export interface Message {
   mediaInFlight?: {
     mediaType: 'image' | 'audio' | 'video';
     mimeType: string;
+    /**
+     * Requested aspect ratio in colon form (e.g. "16:9"), snapshotted from the
+     * send-time generation config so the in-flight placeholder reserves the
+     * media's true shape instead of a square. Absent for audio (no 2D shape).
+     */
+    aspectRatio?: string;
   };
   /**
    * 0-100 progress for long-running media generations (today: video). Sourced

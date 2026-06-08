@@ -24,14 +24,17 @@ vi.mock('../components/chat/markdown-renderer.js', () => ({
   ),
 }));
 
-vi.mock('../components/chat/shared-media-content-item.js', () => ({
-  SharedMediaContentItem: ({
+// The share page renders media through the same MediaContentItem the chat uses
+// (via MessageBody → MessageMediaList). Mock the leaf to avoid the fetch +
+// decrypt chain; MessageBody / MessageMediaList render for real.
+vi.mock('../components/chat/media-content-item.js', () => ({
+  MediaContentItem: ({
     item,
   }: {
     item: {
       contentItemId: string;
       contentType: string;
-      downloadUrl: string;
+      downloadUrl?: string;
     };
   }) => (
     <div
@@ -195,7 +198,7 @@ describe('SharedMessagePage', () => {
     expect(renderers[1]).toHaveTextContent('Second paragraph');
   });
 
-  it('renders media content items via SharedMediaContentItem', () => {
+  it('renders media content items via the shared media renderer', () => {
     mockUseSharedMessage.mockReturnValue({
       data: mockData({
         contentItems: [
@@ -240,7 +243,7 @@ describe('SharedMessagePage', () => {
     expect(vid).toHaveAttribute('data-content-type', 'video');
   });
 
-  it('renders interleaved text and media in position order', () => {
+  it('groups all text before media, matching how chat renders an assistant message', () => {
     mockUseSharedMessage.mockReturnValue({
       data: mockData({
         contentItems: [
@@ -267,16 +270,16 @@ describe('SharedMessagePage', () => {
 
     render(<SharedMessagePage />);
 
-    const container = screen.getByTestId(TEST_IDS.sharedMessageContent);
-    const children = [...container.children];
-    expect(children).toHaveLength(3);
-    expect(
-      children[0]!.querySelector(`[data-testid="${TEST_IDS.markdownRenderer}"]`)?.textContent
-    ).toBe('before');
-    expect(children[1]!.querySelector('[data-testid="shared-media-img-mid"]')).not.toBeNull();
-    expect(
-      children[2]!.querySelector(`[data-testid="${TEST_IDS.markdownRenderer}"]`)?.textContent
-    ).toBe('after');
+    // Text blocks render in position order, then the media tile — text-then-media
+    // like a chat assistant message (not interleaved by raw position).
+    const texts = screen.getAllByTestId(TEST_IDS.markdownRenderer);
+    expect(texts.map((t) => t.textContent)).toEqual(['before', 'after']);
+
+    const media = screen.getByTestId('shared-media-img-mid');
+    expect(media).toBeInTheDocument();
+
+    const lastText = texts.at(-1)!;
+    expect(lastText.compareDocumentPosition(media) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('passes hash fragment as keyBase64 to hook', () => {

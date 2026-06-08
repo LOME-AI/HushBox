@@ -199,6 +199,15 @@ export interface MockAIClientConfig {
    */
   textDelayMs?: number;
   /**
+   * Sleep this many milliseconds between the `media-start` and `media-done`
+   * events of an image / video / audio generation. Defaults to 0 (instant).
+   * `getAIClient` raises this when the host process is an actual local dev
+   * server so the "Generating…" placeholder (and, for video, the synthetic
+   * progress sweep) is visible; tests, CI, and E2E keep it at 0 so the suite
+   * stays fast.
+   */
+  mediaDelayMs?: number;
+  /**
    * Public `/v1/models` URL forwarded to `fetchModels` for catalog reads.
    * Tests that stub `globalThis.fetch` ignore the value; defaults to the
    * same production URL the real client uses.

@@ -62,6 +62,7 @@ test.describe('Link Guest Chat', () => {
 
       // Fill message first — send button requires text content to become enabled
       const guestMessage = `Guest says hello ${String(Date.now())}`;
+      const spentBeforeFirst = await helper.getTotalSpent(groupConversation.id);
       await guestInput.fill(guestMessage);
 
       const sendButton = unauthenticatedPage.getByTestId(TEST_IDS.sendButton);
@@ -69,7 +70,20 @@ test.describe('Link Guest Chat', () => {
       await sendButton.click();
 
       await guestChatPage.assertMessageVisible(guestMessage);
-      await guestChatPage.assertMessageVisible('Echo:');
+      // Assert THIS turn's own echo, not a pre-existing "Echo:" from the seeded
+      // history — otherwise a BALANCE_RESERVED error tile would satisfy the step.
+      await guestChatPage.waitForAIResponse(guestMessage);
+
+      // The owner-funded worst-case reservation is released in the post-stream
+      // `finally` (stream-pipeline), AFTER the SSE `done` the client acted on.
+      // Wait for this turn's spend to land before sending the next message: the
+      // spend persists one step before the reservation release in that same
+      // `finally`, so by the time this poll's round-trip observes it the release
+      // has run — and two overlapping worst-case reservations can't trip the
+      // cushion guard (402 BALANCE_RESERVED) against the modest budget.
+      await expect
+        .poll(() => helper.getTotalSpent(groupConversation.id), { timeout: TIMEOUTS.ASSERT })
+        .toBeGreaterThan(spentBeforeFirst);
     });
 
     await test.step('guest selects a model and sends another message', async () => {
@@ -86,7 +100,9 @@ test.describe('Link Guest Chat', () => {
 
       await guestChatPage.assertMessageVisible(modelMessage);
 
-      await guestChatPage.waitForAIResponse();
+      // Assert THIS turn's own echo (scoped to assistant role) so a
+      // BALANCE_RESERVED error tile can't pass as a response.
+      await guestChatPage.waitForAIResponse(modelMessage);
       // Sanity: React state knows about all 4 assistant messages
       await expect(guestChatPage.messageList).toHaveAttribute('data-assistant-count', '4', {
         timeout: TIMEOUTS.ASSERT,

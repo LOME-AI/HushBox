@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { clearModelCache } from '@hushbox/shared/models';
-import { getAIClient } from './index.js';
+import { getAIClient, buildMockConfig, LOCAL_DEV_MEDIA_DELAY_MS } from './index.js';
 import { E2E_MODEL_CATALOG } from './e2e-catalog.fixture.js';
 
 describe('getAIClient', () => {
@@ -115,5 +115,25 @@ describe('getAIClient', () => {
       await expect(client.listRawModels()).rejects.toThrow('reached network');
       expect(fetchSpy).toHaveBeenCalled();
     });
+  });
+});
+
+describe('buildMockConfig', () => {
+  it('applies the dev-server delays when isDevServer is true', () => {
+    const config = buildMockConfig({}, true);
+    expect(config.mediaDelayMs).toBe(LOCAL_DEV_MEDIA_DELAY_MS);
+    expect(config.textDelayMs ?? 0).toBeGreaterThan(0);
+  });
+
+  it('zeroes both delays when isDevServer is false (vitest, E2E, CI, production)', () => {
+    const config = buildMockConfig({}, false);
+    expect(config.mediaDelayMs).toBe(0);
+    expect(config.textDelayMs).toBe(0);
+  });
+
+  it('lets an explicit mockConfig override win over the dev-server default', () => {
+    const config = buildMockConfig({ mockConfig: { mediaDelayMs: 0, textDelayMs: 5 } }, true);
+    expect(config.mediaDelayMs).toBe(0);
+    expect(config.textDelayMs).toBe(5);
   });
 });

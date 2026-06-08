@@ -91,6 +91,7 @@ describe('webhooks routes', () => {
         isCI: false,
         isE2E: false,
         isLocalDev: false,
+        isDevServer: false,
         isDev: false,
         isProduction: false,
         requiresRealServices: false,

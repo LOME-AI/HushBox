@@ -8,7 +8,10 @@ export interface ChatPageState {
   streamingMessageIds: Set<string>;
   streamingMessageIdsRef: React.RefObject<Set<string>>;
   startStreaming: (messageIds: string[]) => void;
-  stopStreaming: () => void;
+  // Releases only the named ids. A turn that finishes while a newer overlapping
+  // turn is still streaming must not clear the newer turn's ids — callers pass
+  // the ids their own turn owns, never a blanket clear.
+  stopStreaming: (messageIds: string[]) => void;
 
   // Cleared on the SSE `done` event (post-saveChatTurn commit, post-cost
   // settlement). Distinct from streamingMessageIds, which is cleared on the
@@ -22,7 +25,10 @@ export interface ChatPageState {
   // toolbar and input stay responsive.
   persistingMessageIds: Set<string>;
   persistingMessageIdsRef: React.RefObject<Set<string>>;
-  stopPersisting: () => void;
+  // Scoped like {@link stopStreaming}: releases only the named ids. This is the
+  // SSE `done` release, so a prior turn's late `done` can't clear the
+  // persistence tracking of an overlapping turn the user sent in the meantime.
+  stopPersisting: (messageIds: string[]) => void;
 }
 
 const EMPTY_SET = new Set<string>();
@@ -38,22 +44,35 @@ export function useChatPageState(): ChatPageState {
     setInputValue('');
   }, []);
 
+  // Union rather than replace: a fresh turn's ids are added alongside any turn
+  // still settling, so overlapping sends accumulate instead of evicting one
+  // another. The refs (read here as the live source of truth, since the
+  // callbacks are stable) stay in sync with the rendered sets.
   const startStreaming = React.useCallback((messageIds: string[]) => {
-    const ids = new Set(messageIds);
-    setStreamingMessageIds(ids);
-    streamingMessageIdsRef.current = ids;
-    setPersistingMessageIds(ids);
-    persistingMessageIdsRef.current = ids;
+    const streaming = new Set(streamingMessageIdsRef.current);
+    const persisting = new Set(persistingMessageIdsRef.current);
+    for (const id of messageIds) {
+      streaming.add(id);
+      persisting.add(id);
+    }
+    streamingMessageIdsRef.current = streaming;
+    persistingMessageIdsRef.current = persisting;
+    setStreamingMessageIds(streaming);
+    setPersistingMessageIds(persisting);
   }, []);
 
-  const stopStreaming = React.useCallback(() => {
-    setStreamingMessageIds(EMPTY_SET);
-    streamingMessageIdsRef.current = new Set();
+  const stopStreaming = React.useCallback((messageIds: string[]) => {
+    const next = new Set(streamingMessageIdsRef.current);
+    for (const id of messageIds) next.delete(id);
+    streamingMessageIdsRef.current = next;
+    setStreamingMessageIds(next);
   }, []);
 
-  const stopPersisting = React.useCallback(() => {
-    setPersistingMessageIds(EMPTY_SET);
-    persistingMessageIdsRef.current = new Set();
+  const stopPersisting = React.useCallback((messageIds: string[]) => {
+    const next = new Set(persistingMessageIdsRef.current);
+    for (const id of messageIds) next.delete(id);
+    persistingMessageIdsRef.current = next;
+    setPersistingMessageIds(next);
   }, []);
 
   return {

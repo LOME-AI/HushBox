@@ -6,6 +6,20 @@ vi.mock('../../hooks/use-message-share.js', () => ({
   useMessageShare: vi.fn(),
 }));
 
+// Mock the shared media list so the preview test doesn't pull in the full
+// fetch + decrypt chain; it renders nothing when there is no media (matching
+// the real component) so non-media tests are unaffected.
+vi.mock('./message-media-list.js', () => ({
+  MessageMediaList: ({ media }: { media: { contentItemId: string }[] }) =>
+    media.length === 0 ? null : (
+      <div data-testid="modal-media-list" data-count={media.length}>
+        {media.map((m) => (
+          <span key={m.contentItemId} data-testid={`modal-media-${m.contentItemId}`} />
+        ))}
+      </div>
+    ),
+}));
+
 import { useMessageShare } from '../../hooks/use-message-share.js';
 import { ShareMessageModal } from './share-message-modal.js';
 
@@ -21,6 +35,7 @@ describe('ShareMessageModal', () => {
     conversationId: 'conv-1',
     epochNumber: 1,
     wrappedContentKey: 'base64-wrapped-content-key',
+    mediaItems: null,
   };
 
   beforeEach(() => {
@@ -143,5 +158,30 @@ describe('ShareMessageModal', () => {
       wrappedContentKey: 'base64-wrapped-content-key',
     });
     expect(screen.getByTestId('share-message-url')).toBeInTheDocument();
+  });
+
+  it('renders media in the preview for a media-only message (no blank container)', () => {
+    render(
+      <ShareMessageModal
+        {...defaultProps}
+        messageContent=""
+        mediaItems={[
+          {
+            id: 'ci-1',
+            contentType: 'image',
+            position: 0,
+            mimeType: 'image/png',
+            sizeBytes: 1024,
+            width: 512,
+            height: 512,
+          },
+        ]}
+      />
+    );
+
+    const list = screen.getByTestId('modal-media-list');
+    expect(list).toHaveAttribute('data-count', '1');
+    expect(screen.getByTestId('modal-media-ci-1')).toBeInTheDocument();
+    expect(screen.getByTestId('share-message-preview')).toContainElement(list);
   });
 });

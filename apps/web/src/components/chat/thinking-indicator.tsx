@@ -1,7 +1,5 @@
 import * as React from 'react';
 import { shortenModelName, TEST_IDS } from '@hushbox/shared';
-import { useModelStore } from '@/stores/model';
-import { getGeneratingLabel } from '@/lib/modality-strings';
 import { DotPulseIndicator } from './dot-pulse-indicator';
 
 interface ThinkingIndicatorProps {
@@ -14,20 +12,18 @@ interface ThinkingIndicatorProps {
   stageLabel?: string;
 }
 
+/**
+ * Pre-inference / text-streaming indicator. Media turns never render this —
+ * they carry `mediaInFlight` from the first frame and show the media backdrop
+ * instead — so this only ever shows "X is thinking" or a pre-inference stage
+ * label.
+ */
 export function ThinkingIndicator({
   modelName,
   stageLabel,
 }: Readonly<ThinkingIndicatorProps>): React.JSX.Element {
-  const activeModality = useModelStore((state) => state.activeModality);
   const displayName = shortenModelName(modelName) || 'AI';
-  // For text modality keep the existing "is thinking" copy — "typing" reads
-  // wrong for a pre-inference state. Media modalities use the shared
-  // "is generating an image/video/audio" labels.
-  const defaultLabel =
-    activeModality === 'text'
-      ? `${displayName} is thinking`
-      : getGeneratingLabel(activeModality, displayName);
-  const label = stageLabel ?? defaultLabel;
+  const label = stageLabel ?? `${displayName} is thinking`;
 
   return (
     <div

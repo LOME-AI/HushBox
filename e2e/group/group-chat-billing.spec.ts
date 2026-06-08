@@ -76,16 +76,10 @@ test.describe('Group Chat Billing', () => {
       // Group spending incremented (owner-funded → spending tracked)
       // Use expect.poll() — the DB write may not be visible to the next API call immediately
       await expect
-        .poll(
-          async () => {
-            const budgets = await helper.getBudgets(groupConversation.id);
-            return Number.parseFloat(budgets.totalSpent);
-          },
-          {
-            timeout: TIMEOUTS.ASSERT,
-            message: 'totalSpent should be > 0 after owner-funded message',
-          }
-        )
+        .poll(() => helper.getTotalSpent(groupConversation.id), {
+          timeout: TIMEOUTS.ASSERT,
+          message: 'totalSpent should be > 0 after owner-funded message',
+        })
         .toBeGreaterThan(0);
 
       await expect

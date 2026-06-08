@@ -452,6 +452,21 @@ describe('createMockAIClient', () => {
       expect(done!.height).toBe(300);
     });
 
+    it('reports dimensions matching the requested aspect ratio', async () => {
+      const request: ImageRequest = {
+        modality: 'image',
+        model: 'google/imagen-4',
+        prompt: 'A cat',
+        aspectRatio: '16:9',
+      };
+      const events = await collectEvents(client.stream(request));
+      const done = events.find(
+        (e): e is Extract<InferenceEvent, { kind: 'media-done' }> => e.kind === 'media-done'
+      );
+      expect(done).toBeDefined();
+      expect(done!.width! / done!.height!).toBeCloseTo(16 / 9);
+    });
+
     it('canned image bytes start with the JPEG SOI marker', () => {
       expect(CANNED_IMAGE.length).toBeGreaterThan(0);
       expect(CANNED_IMAGE[0]).toBe(0xff);
@@ -474,6 +489,41 @@ describe('createMockAIClient', () => {
       expect(finish).toBeDefined();
       expect(finish!.providerMetadata).toBeDefined();
       expect(typeof finish!.providerMetadata!.generationId).toBe('string');
+    });
+
+    it('yields media-start immediately, then media-done after mediaDelayMs', async () => {
+      const delayMs = 50;
+      const delayed = createMockAIClient({ mediaDelayMs: delayMs });
+      const request: ImageRequest = {
+        modality: 'image',
+        model: 'google/imagen-4',
+        prompt: 'A cat wearing a hat',
+      };
+      const iterator = delayed.stream(request)[Symbol.asyncIterator]();
+
+      const startedAt = Date.now();
+      const first = await iterator.next();
+      const afterStart = Date.now() - startedAt;
+      const second = await iterator.next();
+      const afterDone = Date.now() - startedAt;
+
+      expect(first.value?.kind).toBe('media-start');
+      expect(second.value?.kind).toBe('media-done');
+      // The wait sits BETWEEN the two events, so the placeholder paints first
+      // and then lingers for mediaDelayMs.
+      expect(afterDone - afterStart).toBeGreaterThanOrEqual(delayMs);
+    });
+
+    it('does not delay media when mediaDelayMs is unset (default 0)', async () => {
+      const fast = createMockAIClient();
+      const request: ImageRequest = {
+        modality: 'image',
+        model: 'google/imagen-4',
+        prompt: 'A cat',
+      };
+      const start = Date.now();
+      await collectEvents(fast.stream(request));
+      expect(Date.now() - start).toBeLessThan(50);
     });
   });
 
@@ -526,6 +576,21 @@ describe('createMockAIClient', () => {
       expect(done!.durationMs).toBe(3000);
     });
 
+    it('reports dimensions matching the requested aspect ratio', async () => {
+      const request: VideoRequest = {
+        modality: 'video',
+        model: 'google/veo-3.1',
+        prompt: 'A bird',
+        aspectRatio: '9:16',
+      };
+      const events = await collectEvents(client.stream(request));
+      const done = events.find(
+        (e): e is Extract<InferenceEvent, { kind: 'media-done' }> => e.kind === 'media-done'
+      );
+      expect(done).toBeDefined();
+      expect(done!.width! / done!.height!).toBeCloseTo(9 / 16);
+    });
+
     it('canned video bytes carry the EBML header signature at offset 0', () => {
       expect(CANNED_VIDEO.length).toBeGreaterThan(0);
       expect(CANNED_VIDEO[0]).toBe(0x1a);
@@ -561,6 +626,20 @@ describe('createMockAIClient', () => {
       const events = await collectEvents(client.stream(request));
       expect(events.map((e) => e.kind)).toEqual(['media-start', 'media-done', 'finish']);
     });
+
+    it('delays media generation by mediaDelayMs while preserving event order', async () => {
+      const delayMs = 50;
+      const delayed = createMockAIClient({ mediaDelayMs: delayMs });
+      const request: VideoRequest = {
+        modality: 'video',
+        model: 'google/veo-3.1',
+        prompt: 'A flying bird',
+      };
+      const start = Date.now();
+      const events = await collectEvents(delayed.stream(request));
+      expect(Date.now() - start).toBeGreaterThanOrEqual(delayMs);
+      expect(events.map((e) => e.kind)).toEqual(['media-start', 'media-done', 'finish']);
+    });
   });
 
   describe('audio generation', () => {
@@ -593,6 +672,20 @@ describe('createMockAIClient', () => {
       expect(done!.bytes.length).toBeGreaterThan(0);
       expect(done!.mimeType).toBe('audio/mpeg');
       expect(done!.durationMs).toBeGreaterThan(0);
+    });
+
+    it('delays media generation by mediaDelayMs while preserving event order', async () => {
+      const delayMs = 50;
+      const delayed = createMockAIClient({ mediaDelayMs: delayMs });
+      const request: AudioRequest = {
+        modality: 'audio',
+        model: 'some/audio-model',
+        prompt: 'A soothing melody',
+      };
+      const start = Date.now();
+      const events = await collectEvents(delayed.stream(request));
+      expect(Date.now() - start).toBeGreaterThanOrEqual(delayMs);
+      expect(events.map((e) => e.kind)).toEqual(['media-start', 'media-done', 'finish']);
     });
   });
 

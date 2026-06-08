@@ -28,6 +28,10 @@ function readEnvFromProcess(): IntegrationEnv {
     ...(process.env['NODE_ENV'] !== undefined && { NODE_ENV: process.env['NODE_ENV'] }),
     ...(process.env['CI'] !== undefined && { CI: process.env['CI'] }),
     ...(process.env['E2E'] !== undefined && { E2E: process.env['E2E'] }),
+    // Vitest sets VITEST in its process; forwarding it lets `isDevServer` stay
+    // false under a local integration run (NODE_ENV stays 'development'), so the
+    // dev-server-only mock delays don't slow the suite.
+    ...(process.env['VITEST'] !== undefined && { VITEST: process.env['VITEST'] }),
     ...(process.env['AI_GATEWAY_API_KEY'] !== undefined && {
       AI_GATEWAY_API_KEY: process.env['AI_GATEWAY_API_KEY'],
     }),

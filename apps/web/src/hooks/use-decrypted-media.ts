@@ -14,8 +14,8 @@ interface MessageContentKeyResult {
  * Resolve a message's content key ONCE per message: look up the epoch key from
  * the cache and ECIES-open the wrapped content key. Hoisted out of
  * `useDecryptedMedia` so an N-media message performs one unwrap, not N
- * (Plan §15.5). The parent (`MessageMediaItems`) calls this and passes the
- * resulting `contentKey` to each media item.
+ * (Plan §15.5). The message renderer (`MessageItem`) calls this and passes the
+ * resulting `contentKey` down to each media item via the shared media list.
  */
 export function useMessageContentKey(
   conversationId: string,
@@ -73,8 +73,8 @@ interface DecryptedMediaResult {
  * using a pre-unwrapped message-level content key, producing a blob URL.
  *
  * The content key MUST be resolved once at the message level (see
- * `useMessageContentKey` + `MessageMediaItems`) — an N-media message
- * performs exactly one ECIES unwrap, not N.
+ * `useMessageContentKey`) — an N-media message performs exactly one ECIES
+ * unwrap, not N.
  *
  * Composes two pieces:
  *   useMediaDownloadUrl  — fetches the presigned R2 URL

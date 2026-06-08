@@ -31,7 +31,7 @@ import { TypingIndicator } from '@/components/chat/typing-indicator';
 import { useDocumentStore } from '@/stores/document';
 import type { FundingSource, MemberPrivilege, Modality } from '@hushbox/shared';
 import type { ChatSearchProps, PromptInputRef } from '@/components/chat/prompt-input';
-import type { Message } from '@/lib/api';
+import type { Message, MessageMediaItem } from '@/lib/api';
 import type { PhantomMessage } from '@/hooks/use-remote-streaming';
 import type { ConversationWebSocket } from '@/lib/ws-client';
 
@@ -290,12 +290,16 @@ interface ChatLayoutDerivedInput {
   readonly messages: Message[];
 }
 
-interface ChatLayoutDerivedState {
-  premiumIds: Set<string>;
-  canAccessPremium: boolean;
+interface SharedMessageFields {
   sharedMessageContent: string | null;
   sharedMessageEpochNumber: number | null;
   sharedMessageWrappedContentKey: string | null;
+  sharedMessageMediaItems: MessageMediaItem[] | null;
+}
+
+interface ChatLayoutDerivedState extends SharedMessageFields {
+  premiumIds: Set<string>;
+  canAccessPremium: boolean;
 }
 
 function findSharedMessage(messages: Message[], shareMessageId: string | null): Message | null {
@@ -303,14 +307,21 @@ function findSharedMessage(messages: Message[], shareMessageId: string | null): 
   return messages.find((m) => m.id === shareMessageId) ?? null;
 }
 
+function deriveSharedMessageFields(sharedMessage: Message | null): SharedMessageFields {
+  return {
+    sharedMessageContent: sharedMessage?.content ?? null,
+    sharedMessageEpochNumber: sharedMessage?.epochNumber ?? null,
+    sharedMessageWrappedContentKey: sharedMessage?.wrappedContentKey ?? null,
+    sharedMessageMediaItems: sharedMessage?.mediaItems ?? null,
+  };
+}
+
 function resolveChatLayoutDerivedState(input: ChatLayoutDerivedInput): ChatLayoutDerivedState {
   const sharedMessage = findSharedMessage(input.messages, input.shareMessageId);
   return {
     premiumIds: input.premiumIds,
     canAccessPremium: input.tierInfo?.canAccessPremium ?? false,
-    sharedMessageContent: sharedMessage?.content ?? null,
-    sharedMessageEpochNumber: sharedMessage?.epochNumber ?? null,
-    sharedMessageWrappedContentKey: sharedMessage?.wrappedContentKey ?? null,
+    ...deriveSharedMessageFields(sharedMessage),
   };
 }
 
@@ -716,6 +727,7 @@ interface ChatLayoutModalsProps {
   readonly sharedMessageContent: string | null;
   readonly sharedMessageEpochNumber: number | null;
   readonly sharedMessageWrappedContentKey: string | null;
+  readonly sharedMessageMediaItems: MessageMediaItem[] | null;
   readonly groupChat: GroupChatProps | undefined;
   readonly title: string | undefined;
   readonly addMemberModalOpen: boolean;
@@ -739,6 +751,7 @@ function ChatLayoutModals({
   sharedMessageContent,
   sharedMessageEpochNumber,
   sharedMessageWrappedContentKey,
+  sharedMessageMediaItems,
   groupChat,
   title,
   addMemberModalOpen,
@@ -786,6 +799,7 @@ function ChatLayoutModals({
         conversationId={shareMessageConversationId}
         epochNumber={sharedMessageEpochNumber}
         wrappedContentKey={sharedMessageWrappedContentKey}
+        mediaItems={sharedMessageMediaItems}
       />
     </>
   );
@@ -909,6 +923,7 @@ export function ChatLayout({
     sharedMessageContent,
     sharedMessageEpochNumber,
     sharedMessageWrappedContentKey,
+    sharedMessageMediaItems,
   } = derived;
 
   const handleSubmit = React.useCallback(
@@ -1065,6 +1080,7 @@ export function ChatLayout({
         sharedMessageContent={sharedMessageContent}
         sharedMessageEpochNumber={sharedMessageEpochNumber}
         sharedMessageWrappedContentKey={sharedMessageWrappedContentKey}
+        sharedMessageMediaItems={sharedMessageMediaItems}
         groupChat={groupChat}
         title={title}
         addMemberModalOpen={modals.addMemberModalOpen}

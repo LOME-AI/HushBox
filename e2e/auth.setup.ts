@@ -77,9 +77,16 @@ async function finishSetup({
 // Standard personas: fast login via persona card. Project-specific persona
 // resolved at runtime from testInfo.project.name.
 for (const basePersona of standardPersonas) {
-  setup(`authenticate ${basePersona.name}`, async ({ browser }, testInfo) => {
+  setup(`authenticate ${basePersona.name}`, async ({ browser, request }, testInfo) => {
     const project = projectFromSetupName(testInfo.project.name);
     const personaName = testPersonaName(basePersona.name, project);
+
+    // The persona card performs a real OPAQUE login (`/api/auth/login/init`),
+    // which is IP-rate-limited. Every setup project logs in from the same
+    // localhost IP, so without clearing first the shared bucket accumulates
+    // across all projects' logins, 429s mid-run, and strands the page off
+    // `/chat`. The 2FA setup below clears for the same reason.
+    await clearAuthRateLimits(request);
 
     const context = await browser.newContext();
     const page = await context.newPage();

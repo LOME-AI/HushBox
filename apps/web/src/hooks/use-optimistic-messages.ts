@@ -24,7 +24,8 @@ interface UseOptimisticMessagesResult {
   readonly setOptimisticMessageMediaStart: (
     messageId: string,
     mediaType: 'image' | 'audio' | 'video',
-    mimeType: string
+    mimeType: string,
+    aspectRatio?: string
   ) => void;
   /**
    * Update a slot's synthetic media-progress percent — sourced from
@@ -112,10 +113,24 @@ export function useOptimisticMessages(): UseOptimisticMessagesResult {
   );
 
   const setOptimisticMessageMediaStart = React.useCallback(
-    (messageId: string, mediaType: 'image' | 'audio' | 'video', mimeType: string): void => {
+    (
+      messageId: string,
+      mediaType: 'image' | 'audio' | 'video',
+      mimeType: string,
+      aspectRatio?: string
+    ): void => {
       setOptimisticMessages((previous) =>
         previous.map((m) =>
-          m.id === messageId ? { ...m, mediaInFlight: { mediaType, mimeType } } : m
+          m.id === messageId
+            ? {
+                ...m,
+                mediaInFlight: {
+                  mediaType,
+                  mimeType,
+                  ...(aspectRatio !== undefined && { aspectRatio }),
+                },
+              }
+            : m
         )
       );
     },

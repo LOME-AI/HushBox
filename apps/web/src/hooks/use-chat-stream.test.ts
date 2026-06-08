@@ -57,6 +57,33 @@ function createSSEStream(events: string[]): ReadableStream<Uint8Array> {
   });
 }
 
+/**
+ * A stream whose events are pushed on demand so a test can interleave two
+ * overlapping turns (emit turn 1, start turn 2, then settle turn 1).
+ */
+function createControllableSSEStream(): {
+  stream: ReadableStream<Uint8Array>;
+  emit: (event: string, data: string) => void;
+  close: () => void;
+} {
+  const encoder = new TextEncoder();
+  let controller: ReadableStreamDefaultController<Uint8Array>;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  return {
+    stream,
+    emit: (event, data) => {
+      controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`));
+    },
+    close: () => {
+      controller.close();
+    },
+  };
+}
+
 describe('useChatStream', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -435,6 +462,101 @@ describe('useChatStream', () => {
           });
         })
       ).rejects.toThrow('INTERNAL');
+    });
+  });
+
+  // Overlapping turns: the input re-enables on turn 1's early model:done flip,
+  // so the user can start turn 2 while turn 1 is still settling. Turn 1's later
+  // SSE `done` resolves its promise and runs the hook's cleanup — that cleanup
+  // must not clear `isStreaming` while turn 2 is still producing tokens.
+  describe('overlapping streams', () => {
+    it('keeps isStreaming true when a settled turn finishes while a newer turn is active', async () => {
+      const turn1 = createControllableSSEStream();
+      const turn2 = createControllableSSEStream();
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+          body: turn1.stream,
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+          body: turn2.stream,
+        });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      let p1: Promise<unknown> = Promise.resolve();
+      act(() => {
+        p1 = result.current.startStream({
+          conversationId: 'c',
+          models: ['gpt-4', 'claude'],
+          userMessage: { id: 'u1', content: 'hi' },
+          messagesForInference: [{ role: 'user', content: 'hi' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      // Turn 1 (2 models) streams, then both models reach model:done — the
+      // early flip that re-enables the input before the server's `done`.
+      turn1.emit(
+        'start',
+        JSON.stringify({
+          userMessageId: 'u1',
+          models: [
+            { modelId: 'gpt-4', assistantMessageId: 'a1' },
+            { modelId: 'claude', assistantMessageId: 'a2' },
+          ],
+        })
+      );
+      turn1.emit('model:done', JSON.stringify({ modelId: 'gpt-4', assistantMessageId: 'a1' }));
+      turn1.emit('model:done', JSON.stringify({ modelId: 'claude', assistantMessageId: 'a2' }));
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(false);
+      });
+
+      // User sends turn 2 during turn 1's cost-settling window.
+      let p2: Promise<unknown> = Promise.resolve();
+      act(() => {
+        p2 = result.current.startStream({
+          conversationId: 'c',
+          models: ['gpt-4'],
+          userMessage: { id: 'u2', content: 'next' },
+          messagesForInference: [{ role: 'user', content: 'next' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+      turn2.emit(
+        'start',
+        JSON.stringify({
+          userMessageId: 'u2',
+          models: [{ modelId: 'gpt-4', assistantMessageId: 'b1' }],
+        })
+      );
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+      });
+
+      // Turn 1's `done` finally arrives and resolves turn 1's promise.
+      await act(async () => {
+        turn1.emit('done', JSON.stringify({}));
+        turn1.close();
+        await p1;
+      });
+
+      // Turn 2 is still producing tokens, so the processing flag must hold.
+      expect(result.current.isStreaming).toBe(true);
+
+      await act(async () => {
+        turn2.emit('model:done', JSON.stringify({ modelId: 'gpt-4', assistantMessageId: 'b1' }));
+        turn2.emit('done', JSON.stringify({}));
+        turn2.close();
+        await p2;
+      });
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(false);
+      });
     });
   });
 

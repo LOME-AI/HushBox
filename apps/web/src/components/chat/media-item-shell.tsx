@@ -24,14 +24,12 @@ interface MediaItemShellProps {
 }
 
 /**
- * Shared error / loading / preview tail used by both member-side
- * (`MediaContentItem`) and share-recipient-side (`SharedMediaContentItem`)
- * media wrappers. Captures the parallel logic those wrappers used to inline:
- * surface an error placeholder when the decrypt hook reports failure, a
- * loading placeholder while bytes resolve, and otherwise hand off to
- * `MediaPreview`. The two wrappers stay distinct because they own *different*
- * decrypt hooks (auth-side fetches the URL itself; share-side gets a
- * pre-baked presigned URL).
+ * Shared error / loading / preview tail for a decrypted media item: surface an
+ * error placeholder when the decrypt hook reports failure, a loading
+ * placeholder while bytes resolve, and otherwise hand off to `MediaPreview`.
+ * Used by `MediaContentItem`, which renders media identically across the chat,
+ * the share dialog preview, and the public share view — only the content-key
+ * and download-URL sources differ per caller.
  */
 export function MediaItemShell({
   blobUrl,

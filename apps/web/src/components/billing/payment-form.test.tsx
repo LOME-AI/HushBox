@@ -125,6 +125,7 @@ describe('PaymentForm', () => {
     vi.mocked(envModule).env = {
       isDev: true,
       isLocalDev: false,
+      isDevServer: false,
       isProduction: false,
       isCI: false,
       isE2E: false,
@@ -630,6 +631,7 @@ describe('PaymentForm', () => {
       vi.mocked(envModule).env = {
         isDev: false,
         isLocalDev: false,
+        isDevServer: false,
         isProduction: true,
         isCI: false,
         isE2E: false,
@@ -651,6 +653,7 @@ describe('PaymentForm', () => {
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
+        isDevServer: true,
         isProduction: false,
         isCI: false,
         isE2E: false,
@@ -674,6 +677,7 @@ describe('PaymentForm', () => {
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
+        isDevServer: true,
         isProduction: false,
         isCI: false,
         isE2E: false,
@@ -713,6 +717,7 @@ describe('PaymentForm', () => {
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
+        isDevServer: true,
         isProduction: false,
         isCI: false,
         isE2E: false,
@@ -1301,6 +1306,7 @@ describe('PaymentForm', () => {
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
+        isDevServer: true,
         isProduction: false,
         isCI: false,
         isE2E: false,
@@ -1432,6 +1438,7 @@ describe('PaymentForm', () => {
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
+        isDevServer: true,
         isProduction: false,
         isCI: false,
         isE2E: false,
@@ -1454,6 +1461,7 @@ describe('PaymentForm', () => {
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
+        isDevServer: true,
         isProduction: false,
         isCI: false,
         isE2E: false,
@@ -1484,6 +1492,7 @@ describe('PaymentForm', () => {
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
+        isDevServer: true,
         isProduction: false,
         isCI: false,
         isE2E: false,
@@ -1632,6 +1641,7 @@ describe('PaymentForm', () => {
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
+        isDevServer: true,
         isProduction: false,
         isCI: false,
         isE2E: false,
@@ -1758,6 +1768,7 @@ describe('PaymentForm', () => {
       vi.mocked(envModule).env = {
         isDev: true,
         isLocalDev: true,
+        isDevServer: true,
         isProduction: false,
         isCI: false,
         isE2E: false,

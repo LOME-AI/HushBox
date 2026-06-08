@@ -5,6 +5,14 @@ export interface EnvContext {
   NODE_ENV?: string;
   CI?: string;
   E2E?: string;
+  /**
+   * Set to `'true'` when running under the Vitest runner. Vitest exposes this
+   * as `process.env.VITEST` (Node) / `import.meta.env.VITEST` (browser); the
+   * caller that builds this context forwards it. Distinguishes a local vitest
+   * run from the local dev server — both of which are otherwise `NODE_ENV=
+   * development` with no CI/E2E — so `isDevServer` can stay honest.
+   */
+  VITEST?: string;
 }
 
 /**
@@ -29,15 +37,22 @@ export function createEnvUtilities(env: EnvContext): EnvUtilities {
   const nodeEnv = env.NODE_ENV ?? 'development';
   const isCI = Boolean(env.CI);
   const isE2E = Boolean(env.E2E);
-  // Vitest sets MODE='test' on the frontend; backend stays on 'development'
-  // via .dev.vars. Treating only 'development' as dev mode keeps `isLocalDev`
-  // honest about whether we're running the dev server (where mock streams
-  // should paint visibly) vs running tests (where they shouldn't).
+  // Vitest sets `VITEST='true'` in its process. The backend stays on
+  // `NODE_ENV=development` under vitest (via .dev.vars), so without this signal
+  // a local vitest run is indistinguishable from the dev server. Kept private —
+  // its only purpose is to make `isDevServer` honest (no direct consumers).
+  const isVitest = Boolean(env.VITEST);
   const isDevMode = nodeEnv === 'development';
+  const isLocalDev = isDevMode && !isCI;
 
   return {
     isDev: isDevMode,
-    isLocalDev: isDevMode && !isCI,
+    isLocalDev,
+    // A real interactive dev server with no automated test harness attached —
+    // the only place human-facing dev affordances (visible mock streaming, the
+    // media-generation placeholder delay) should fire. A strict subset of
+    // `isLocalDev`, which also covers local vitest and local E2E.
+    isDevServer: isLocalDev && !isE2E && !isVitest,
     isProduction: nodeEnv === 'production',
     isCI,
     isE2E,
@@ -53,6 +68,12 @@ export interface EnvUtilities {
   isDev: boolean;
   /** Local development only (not CI, not production) - for using mocks */
   isLocalDev: boolean;
+  /**
+   * A real interactive dev server — local dev mode, but NOT under vitest or
+   * E2E. Strict subset of `isLocalDev`. Use this (not `isLocalDev`) to gate
+   * human-facing dev affordances like visible mock-stream timing.
+   */
+  isDevServer: boolean;
   /** Production mode */
   isProduction: boolean;
   /** Running in CI */

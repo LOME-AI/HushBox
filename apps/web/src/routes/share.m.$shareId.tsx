@@ -5,8 +5,9 @@ import { AlertTriangle } from 'lucide-react';
 import { TEST_IDS } from '@hushbox/shared';
 import { AppShell } from '../components/shared/app-shell.js';
 import { MarkdownRenderer } from '../components/chat/markdown-renderer.js';
-import { SharedMediaContentItem } from '../components/chat/shared-media-content-item.js';
-import { useSharedMessage } from '../hooks/use-shared-message.js';
+import { MessageBody } from '../components/chat/message-body.js';
+import { useSharedMessage, type SharedContentItem } from '../hooks/use-shared-message.js';
+import type { RenderableMedia } from '../components/chat/media-content-item.js';
 
 export const Route = createFileRoute('/share/m/$shareId')({
   component: SharedMessagePage,
@@ -51,32 +52,46 @@ export function SharedMessagePage(): React.JSX.Element {
     );
   }
 
+  // Render the shared message through the same MessageBody the chat uses, so
+  // media looks identical to a regular conversation. Text-then-media mirrors how
+  // an assistant message renders in chat (a single content block, then media).
+  const textItems = data.contentItems.filter(
+    (item): item is Extract<SharedContentItem, { type: 'text' }> => item.type === 'text'
+  );
+  const media: RenderableMedia[] = data.contentItems
+    .filter((item): item is Extract<SharedContentItem, { type: 'media' }> => item.type === 'media')
+    .map((item) => ({
+      contentItemId: item.contentItemId,
+      contentType: item.contentType,
+      mimeType: item.mimeType,
+      width: item.width,
+      height: item.height,
+      downloadUrl: item.downloadUrl,
+    }));
+
   return (
     <AppShell>
       <div className="flex flex-1 flex-col overflow-y-auto px-4 py-8">
-        <div className="mx-auto w-full max-w-2xl">
-          <h1 className="mb-6 text-lg font-semibold">Shared Message</h1>
-          <div
-            data-testid={TEST_IDS.sharedMessageContent}
-            className="bg-card flex flex-col gap-4 rounded-md border p-4"
-          >
-            {data.contentItems.map((item) => {
-              if (item.type === 'text') {
-                return (
-                  <div
-                    key={`text-${String(item.position)}`}
-                    className="prose dark:prose-invert max-w-none"
-                  >
-                    <MarkdownRenderer content={item.content} />
-                  </div>
-                );
-              }
-              return (
-                <div key={item.contentItemId}>
-                  <SharedMediaContentItem item={item} contentKey={data.contentKey} />
+        <div className="mx-auto w-full max-w-3xl">
+          <h1 className="text-muted-foreground mb-2 px-4 text-sm font-medium">Shared message</h1>
+          <div data-testid={TEST_IDS.sharedMessageContent}>
+            <MessageBody
+              variant="assistant"
+              media={media}
+              contentKey={data.contentKey}
+              ariaPrefix="Shared"
+            >
+              {textItems.length > 0 && (
+                <div className="w-full overflow-hidden text-base leading-relaxed break-words">
+                  {textItems.map((item) => (
+                    <MarkdownRenderer
+                      key={`text-${String(item.position)}`}
+                      content={item.content}
+                    />
+                  ))}
                 </div>
-              );
-            })}
+              )}
+            </MessageBody>
           </div>
         </div>
       </div>

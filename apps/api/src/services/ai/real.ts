@@ -18,7 +18,7 @@ import { recordServiceEvidence, SERVICE_NAMES, type EvidenceConfig } from '@hush
 import { rawModelToModelInfo } from './model-mapping.js';
 import { buildModelViewsForModality, type ModelViewFor } from './model-view.js';
 import type { RawModel } from '@hushbox/shared/models';
-import type { ImagePart, TextPart } from 'ai';
+import type { ImagePart, TextPart, LanguageModelUsage, FinishReason } from 'ai';
 import type {
   AIClient,
   InferenceEvent,
@@ -140,6 +140,51 @@ function buildFinishMetadata(
 }
 
 /**
+ * Build the terminal `finish` InferenceEvent from the gateway's post-stream
+ * metadata and usage. Kept out of the stream loop so the iterator stays within
+ * its complexity budget; `?? null` maps the SDK's optional token counts onto
+ * buildFinishMetadata's `number | null` contract.
+ */
+function buildTextFinishEvent(metadata: unknown, usage: LanguageModelUsage): InferenceEvent {
+  return {
+    kind: 'finish',
+    providerMetadata: buildFinishMetadata(extractGatewayMeta(metadata), {
+      inputTokens: usage.inputTokens ?? null,
+      outputTokens: usage.outputTokens ?? null,
+    }),
+  };
+}
+
+/**
+ * Coerce an unknown error payload from a `fullStream` error/tool-error part
+ * into an Error. Preserves an existing Error instance so its `name`/`status`
+ * survive for classifyStreamErrorCode; wraps a string; falls back otherwise.
+ */
+function asInferenceError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  if (typeof error === 'string') return new Error(error);
+  return new Error('Inference stream error');
+}
+
+function abortError(reason: string | undefined): Error {
+  return new Error(reason === undefined ? 'Inference aborted' : `Inference aborted: ${reason}`);
+}
+
+/**
+ * Terminal error for a turn that ended with no text. A failed tool call that
+ * never recovered into an answer is the real cause, so surface it (preserving
+ * the original error for classifyStreamErrorCode); otherwise report the empty
+ * completion with its finishReason.
+ */
+function noTextError(
+  toolError: { error: unknown } | undefined,
+  finishReason: FinishReason | undefined
+): Error {
+  if (toolError) return asInferenceError(toolError.error);
+  return new Error(`Model returned no text (finishReason: ${finishReason ?? 'unknown'})`);
+}
+
+/**
  * Convert our internal `MessageContentPart` to the AI SDK v6 wire shape.
  *
  * The return type is constrained by the `TextPart` / `ImagePart` imports from
@@ -202,26 +247,52 @@ function streamTextRequest(
 
   return {
     async *[Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      let sawText = false;
+      let finishReason: FinishReason | undefined;
+      // A failed tool call is not necessarily fatal: with `stopWhen` the model
+      // can recover from a failed search and still answer on a later step. Hold
+      // the last tool error and surface it only if the turn ends with no text.
+      // Wrapped in an object so a tool error whose payload is `undefined` is
+      // still distinguishable from "no tool error".
+      let toolError: { error: unknown } | undefined;
+
+      // v6 surfaces stream and tool failures as data parts on `fullStream`
+      // rather than throwing. Rethrow them so collectSingleSlot records a real
+      // error (which classifyStreamErrorCode then buckets) instead of the
+      // pipeline reporting the generic "No content generated" fallback.
       for await (const part of result.fullStream) {
-        if (
-          part.type === 'text-delta' && // v6 TextStreamTextDeltaPart: { type: 'text-delta'; text: string; ... }
-          part.text.length > 0
-        ) {
-          yield { kind: 'text-delta', content: part.text };
+        switch (part.type) {
+          case 'text-delta': {
+            // v6 TextStreamTextDeltaPart: { type: 'text-delta'; text: string; ... }
+            if (part.text.length > 0) {
+              sawText = true;
+              yield { kind: 'text-delta', content: part.text };
+            }
+            break;
+          }
+          case 'error': {
+            throw asInferenceError(part.error);
+          }
+          case 'abort': {
+            throw abortError(part.reason);
+          }
+          case 'tool-error': {
+            toolError = { error: part.error };
+            break;
+          }
+          case 'finish': {
+            finishReason = part.finishReason;
+            break;
+          }
         }
       }
 
+      if (!sawText) throw noTextError(toolError, finishReason);
+
       const metadata = await result.providerMetadata;
-      const gatewayMeta = extractGatewayMeta(metadata);
       const usage = await result.totalUsage;
 
-      yield {
-        kind: 'finish',
-        providerMetadata: buildFinishMetadata(gatewayMeta, {
-          inputTokens: usage.inputTokens ?? null,
-          outputTokens: usage.outputTokens ?? null,
-        }),
-      };
+      yield buildTextFinishEvent(metadata, usage);
     },
   };
 }

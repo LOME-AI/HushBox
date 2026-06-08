@@ -8,12 +8,13 @@ import { getSenderLabel, isOwnMessage } from '@/lib/chat-sender';
 import { useMessageContentKey } from '@/hooks/use-decrypted-media';
 import { omitUndefined } from '@/lib/optional-props';
 import { MarkdownRenderer } from './markdown-renderer';
-import { MediaContentItem } from './media-content-item';
+import { MessageBody, type MessageBodyVariant } from './message-body';
 import { MediaPlaceholder } from './media-preview';
 import { MessageCost } from './message-cost';
 import { ThinkingIndicator } from './thinking-indicator';
 import { TtsStopButton } from './tts-stop-button';
 import { TtsStoppedNotice } from './tts-stopped-notice';
+import { messageMediaToRenderable, type RenderableMedia } from './media-content-item';
 import type { MessageGroup, LinkInfo } from '@/lib/chat-sender';
 import type { Message } from '@/lib/api';
 import type { MessageAction } from '@/lib/message-actions';
@@ -70,18 +71,14 @@ function computeContainerClasses(
   return cn('pt-1.5 pb-8', 'mr-4 ml-auto w-fit max-w-[82%]');
 }
 
-function computeBubbleClasses(
+function computeBubbleVariant(
   isUser: boolean,
   isGroupedUser: boolean,
   ownMessage: boolean
-): string {
-  if (!isUser) {
-    return cn('px-4 py-2', 'text-foreground overflow-hidden');
-  }
-  if (isGroupedUser && !ownMessage) {
-    return cn('px-4 py-2', 'bg-muted text-foreground rounded-lg');
-  }
-  return cn('px-4 py-2', 'bg-message-user text-foreground rounded-lg');
+): MessageBodyVariant {
+  if (!isUser) return 'assistant';
+  if (isGroupedUser && !ownMessage) return 'user-other';
+  return 'user-own';
 }
 
 function TooltipIconButton({
@@ -372,38 +369,19 @@ function computeMessageDisplayState(input: MessageDisplayInput): MessageDisplayS
   };
 }
 
-function MessageMediaItems({
-  message,
-}: Readonly<{
-  message: Message;
-}>): React.JSX.Element | null {
-  const { wrappedContentKey, epochNumber, mediaItems, conversationId } = message;
-
-  const ordered = React.useMemo(
-    () => (mediaItems ? mediaItems.toSorted((a, b) => a.position - b.position) : []),
-    [mediaItems]
-  );
-
-  // Hoist contentKey resolution to the message level (Plan §15.5):
-  // unwrap ONCE per message and pass the result to every MediaContentItem.
-  // Hooks must run unconditionally — we always call the hook with safe
-  // fallbacks and only use the result when the message envelope is present.
-  const { contentKey } = useMessageContentKey(
-    conversationId,
-    epochNumber ?? 0,
-    wrappedContentKey ?? ''
-  );
-
-  if (!mediaItems || mediaItems.length === 0) return null;
-  if (!wrappedContentKey || epochNumber === undefined) return null;
-
-  return (
-    <div className="mt-2 flex flex-col gap-2">
-      {ordered.map((item) => (
-        <MediaContentItem key={item.id} item={item} contentKey={contentKey} />
-      ))}
-    </div>
-  );
+/**
+ * Map a message's persisted media items onto the shared `RenderableMedia`
+ * shape, position-sorted. Returns [] when the message carries no media or is
+ * missing the wrap-once envelope fields needed to decrypt them, so a text-only
+ * message renders no media container.
+ */
+function buildRenderableMedia(message: Message): RenderableMedia[] {
+  const { mediaItems, wrappedContentKey, epochNumber } = message;
+  if (!mediaItems || mediaItems.length === 0) return [];
+  if (!wrappedContentKey || epochNumber === undefined) return [];
+  return mediaItems
+    .toSorted((a, b) => a.position - b.position)
+    .map((item) => messageMediaToRenderable(item));
 }
 
 const MEDIA_LOADING_LABEL_BY_TYPE: Record<'image' | 'audio' | 'video', string> = {
@@ -414,9 +392,11 @@ const MEDIA_LOADING_LABEL_BY_TYPE: Record<'image' | 'audio' | 'video', string> =
 
 function MediaInFlightPlaceholder({
   mediaType,
+  aspectRatio,
   progressPercent,
 }: Readonly<{
   mediaType: 'image' | 'audio' | 'video';
+  aspectRatio: string | undefined;
   progressPercent: number | undefined;
 }>): React.JSX.Element {
   const loadingLabel = MEDIA_LOADING_LABEL_BY_TYPE[mediaType];
@@ -426,6 +406,7 @@ function MediaInFlightPlaceholder({
       height={null}
       status="loading"
       loadingLabel={loadingLabel}
+      {...(aspectRatio !== undefined && { aspectRatio })}
       {...(progressPercent !== undefined && { progressPercent })}
     />
   );
@@ -440,13 +421,16 @@ function StreamingPlaceholder({
   modelName: string | undefined;
   models: ReturnType<typeof useModels>['data'] | undefined;
 }>): React.JSX.Element {
-  // Media generation in flight: swap the generic thinking indicator for a
-  // media-specific label as soon as `model:media:start` arrives.
+  // A media turn carries `mediaInFlight` from the first frame (stamped at
+  // creation), so the backdrop shows immediately — EXCEPT while a pre-inference
+  // stage runs: the "Choosing the best model…" label wins briefly so it isn't
+  // hidden for media Smart-Model turns.
   const mediaInFlight = primaryMessage.mediaInFlight;
-  if (mediaInFlight) {
+  if (mediaInFlight && primaryMessage.classifyingStageId === undefined) {
     return (
       <MediaInFlightPlaceholder
         mediaType={mediaInFlight.mediaType}
+        aspectRatio={mediaInFlight.aspectRatio}
         progressPercent={primaryMessage.mediaProgress?.percent}
       />
     );
@@ -689,6 +673,18 @@ export function MessageItem({
     primaryMessage,
   } = computeMessageDisplayState({ message, group, isGroupChat, currentUserId, members, links });
 
+  // Media lives on the individual `message` for user bubbles and on the
+  // representative `primaryMessage` for assistant bubbles (group chat collapses
+  // consecutive user messages, never assistant ones). Resolve the content key
+  // ONCE here (Plan §15.5) and hand it to the shared media list.
+  const mediaSourceMessage = isUser ? message : primaryMessage;
+  const { contentKey } = useMessageContentKey(
+    mediaSourceMessage.conversationId,
+    mediaSourceMessage.epochNumber ?? 0,
+    mediaSourceMessage.wrappedContentKey ?? ''
+  );
+  const media = buildRenderableMedia(mediaSourceMessage);
+
   const handleCopy = async (): Promise<void> => {
     const allContent = messagesToRender.map((m) => m.content).join('\n\n');
     await navigator.clipboard.writeText(allContent);
@@ -699,7 +695,7 @@ export function MessageItem({
   };
 
   const containerClasses = computeContainerClasses(isUser, isGroupedUser, ownMessage);
-  const bubbleClasses = computeBubbleClasses(isUser, isGroupedUser, ownMessage);
+  const bubbleVariant = computeBubbleVariant(isUser, isGroupedUser, ownMessage);
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -722,16 +718,18 @@ export function MessageItem({
         className={containerClasses}
       >
         <div className="relative">
-          <div className={bubbleClasses}>
+          <MessageBody
+            variant={bubbleVariant}
+            media={media}
+            contentKey={contentKey}
+            ariaPrefix="Generated"
+          >
             {isUser ? (
-              <>
-                <UserMessageContent
-                  messagesToRender={messagesToRender}
-                  isGroupedUser={isGroupedUser}
-                  message={message}
-                />
-                <MessageMediaItems message={message} />
-              </>
+              <UserMessageContent
+                messagesToRender={messagesToRender}
+                isGroupedUser={isGroupedUser}
+                message={message}
+              />
             ) : (
               <>
                 <TtsStoppedNotice messageId={primaryMessage.id} />
@@ -751,10 +749,9 @@ export function MessageItem({
                     isError={isError}
                   />
                 </div>
-                <MessageMediaItems message={primaryMessage} />
               </>
             )}
-          </div>
+          </MessageBody>
 
           <MessageActionButtons
             isUser={isUser}

@@ -244,6 +244,24 @@ describe('useOptimisticMessages', () => {
       expect(msg.mediaInFlight).toEqual({ mediaType: 'image', mimeType: 'image/png' });
     });
 
+    it('records the requested aspectRatio on mediaInFlight when provided', () => {
+      const { result } = renderHook(() => useOptimisticMessages());
+      act(() => {
+        result.current.addOptimisticMessage(createMessage({ id: 'msg-image' }));
+      });
+
+      act(() => {
+        result.current.setOptimisticMessageMediaStart('msg-image', 'image', 'image/png', '16:9');
+      });
+
+      const msg = result.current.optimisticMessages[0]!;
+      expect(msg.mediaInFlight).toEqual({
+        mediaType: 'image',
+        mimeType: 'image/png',
+        aspectRatio: '16:9',
+      });
+    });
+
     it('records mediaProgress.percent on the matching message', () => {
       const { result } = renderHook(() => useOptimisticMessages());
       act(() => {

@@ -3,7 +3,6 @@ import type { Modality } from '@hushbox/shared';
 import {
   getPromptPlaceholder,
   getSendAriaLabel,
-  getGeneratingLabel,
   getMediaLoadingLabel,
   getInspirationLabel,
   getCostUnit,
@@ -53,28 +52,6 @@ describe('getSendAriaLabel', () => {
 
   it('returns "Generate audio" for audio modality', () => {
     expect(getSendAriaLabel('audio')).toBe('Generate audio');
-  });
-});
-
-describe('getGeneratingLabel', () => {
-  it('returns typing label for text modality', () => {
-    expect(getGeneratingLabel('text', 'GPT-4')).toBe('GPT-4 is typing...');
-  });
-
-  it('returns typing label for undefined modality', () => {
-    expect(getGeneratingLabel(undefined, 'GPT-4')).toBe('GPT-4 is typing...');
-  });
-
-  it('returns image generation label for image modality', () => {
-    expect(getGeneratingLabel('image', 'DALL-E')).toBe('DALL-E is generating an image...');
-  });
-
-  it('returns video generation label for video modality', () => {
-    expect(getGeneratingLabel('video', 'Sora')).toBe('Sora is generating a video...');
-  });
-
-  it('returns audio generation label for audio modality', () => {
-    expect(getGeneratingLabel('audio', 'ElevenLabs')).toBe('ElevenLabs is generating audio...');
   });
 });
 

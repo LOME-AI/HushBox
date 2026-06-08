@@ -42,6 +42,17 @@ export class BudgetHelper {
     return (await response.json()) as BudgetData;
   }
 
+  /**
+   * Total spend recorded against a conversation, in dollars. Reads the same
+   * `totalSpent` the budgets endpoint reports; poll it to wait for a turn's
+   * post-flight billing to settle (the spend persists alongside the wallet
+   * debit, just before the speculative reservation is released).
+   */
+  async getTotalSpent(conversationId: string): Promise<number> {
+    const budgets = await this.getBudgets(conversationId);
+    return Number.parseFloat(budgets.totalSpent);
+  }
+
   async setConversationBudget(conversationId: string, budgetCents: number): Promise<void> {
     const response = await this.request.patch(`${API_BASE}/api/budgets/${conversationId}/budget`, {
       data: { budgetCents },

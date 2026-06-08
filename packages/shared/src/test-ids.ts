@@ -271,6 +271,8 @@ export const TEST_IDS = {
   documentPanel: 'document-panel',
   documentPanelScroll: 'document-panel-scroll',
   highlightedCode: 'highlighted-code',
+  latentDevelop: 'latent-develop',
+  latentDevelopSheen: 'latent-develop-sheen',
   markdownRenderFallback: 'markdown-render-fallback',
   markdownRenderer: 'markdown-renderer',
   mediaProgressBar: 'media-progress-bar',

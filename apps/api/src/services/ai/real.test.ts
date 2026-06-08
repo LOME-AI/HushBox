@@ -388,6 +388,183 @@ describe('createRealAIClient', () => {
       expect(imagePart!['mediaType']).toBe('image/png');
       expect(imagePart!['mimeType']).toBeUndefined();
     });
+
+    it('skips empty text-delta parts', async () => {
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          { type: 'text-delta', text: '' },
+          { type: 'text-delta', text: 'Hello' },
+          { type: 'finish', finishReason: 'stop', totalUsage: {} },
+        ])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      const events = await collectEvents(client.stream(request));
+      const deltas = events.filter((e) => e.kind === 'text-delta');
+      expect(deltas).toEqual([{ kind: 'text-delta', content: 'Hello' }]);
+    });
+
+    it('rethrows a stream-level error part, preserving the original error', async () => {
+      // v6 surfaces stream failures as a `{ type: 'error' }` part on
+      // fullStream, not a thrown exception. The iterator must rethrow the
+      // original error — even after partial text — so collectSingleSlot marks
+      // the slot failed and classifyStreamErrorCode can read its status/name,
+      // instead of the pipeline reporting the generic "No content generated".
+      const streamError = Object.assign(new Error('gateway exploded'), { status: 503 });
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          { type: 'text-delta', text: 'Partial ' },
+          { type: 'error', error: streamError },
+        ])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toBe(streamError);
+    });
+
+    it('wraps a non-Error string payload from an error part', async () => {
+      mockStreamText.mockReturnValue(
+        createMockFullStream([{ type: 'error', error: 'plain string failure' }])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(/plain string failure/);
+    });
+
+    it('wraps a non-Error, non-string payload from an error part', async () => {
+      mockStreamText.mockReturnValue(
+        createMockFullStream([{ type: 'error', error: { provider: 'oops' } }])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(/Inference stream error/);
+    });
+
+    it('rethrows an abort part with its reason', async () => {
+      mockStreamText.mockReturnValue(
+        createMockFullStream([{ type: 'abort', reason: 'provider timeout' }])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(
+        /aborted: provider timeout/i
+      );
+    });
+
+    it('rethrows an abort part that carries no reason', async () => {
+      mockStreamText.mockReturnValue(createMockFullStream([{ type: 'abort' }]));
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(/^Inference aborted$/);
+    });
+
+    it('surfaces the tool error when a failed search yields no text answer', async () => {
+      // A search that fails and never recovers into a text answer must surface
+      // the real tool error so the user learns search failed, rather than the
+      // generic empty-content fallback.
+      const toolError = Object.assign(new Error('search upstream 503'), { status: 503 });
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          {
+            type: 'tool-error',
+            toolCallId: 'tc-1',
+            toolName: 'perplexitySearch',
+            input: {},
+            error: toolError,
+          },
+          { type: 'finish', finishReason: 'tool-calls', totalUsage: {} },
+        ])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Search for X' }],
+        webSearchEnabled: true,
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toBe(toolError);
+    });
+
+    it('keeps the answer when a tool error is followed by text (non-fatal tool error)', async () => {
+      // With stopWhen the model can recover from a failed search and still
+      // answer on a later step. A non-fatal tool error must not discard that
+      // answer.
+      mockStreamText.mockReturnValue(
+        createMockFullStream([
+          {
+            type: 'tool-error',
+            toolCallId: 'tc-1',
+            toolName: 'perplexitySearch',
+            input: {},
+            error: new Error('transient search failure'),
+          },
+          { type: 'text-delta', text: 'Recovered answer' },
+          { type: 'finish', finishReason: 'stop', totalUsage: {} },
+        ])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Search for X' }],
+        webSearchEnabled: true,
+      };
+
+      const events = await collectEvents(client.stream(request));
+      const deltas = events.filter((e) => e.kind === 'text-delta');
+      expect(deltas).toEqual([{ kind: 'text-delta', content: 'Recovered answer' }]);
+      expect(events.some((e) => e.kind === 'finish')).toBe(true);
+    });
+
+    it('throws when the stream finishes without producing any text', async () => {
+      // The model can spend every step on tool calls and hit
+      // stopWhen(MAX_SEARCH_TOOL_CALLS) without writing an answer. The empty
+      // turn must surface as an error carrying the finishReason, not the
+      // generic "No content generated" fallback.
+      mockStreamText.mockReturnValue(
+        createMockFullStream([{ type: 'finish', finishReason: 'tool-calls', totalUsage: {} }])
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Search for X' }],
+        webSearchEnabled: true,
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(/no text.*tool-calls/i);
+    });
   });
 
   describe('image generation', () => {

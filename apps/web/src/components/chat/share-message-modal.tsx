@@ -12,6 +12,10 @@ import {
 } from '@hushbox/ui';
 import { TEST_IDS } from '@hushbox/shared';
 import { useMessageShare } from '../../hooks/use-message-share.js';
+import { useMessageContentKey } from '../../hooks/use-decrypted-media.js';
+import { MessageMediaList } from './message-media-list.js';
+import { messageMediaToRenderable } from './media-content-item.js';
+import type { MessageMediaItem } from '../../lib/api.js';
 
 interface ShareMessageModalProps {
   open: boolean;
@@ -24,11 +28,15 @@ interface ShareMessageModalProps {
   epochNumber: number | null;
   /** Base64-encoded wrapped content key from the message envelope. */
   wrappedContentKey: string | null;
+  /** Media items on the message — shown in the preview the same way as chat. */
+  mediaItems: MessageMediaItem[] | null;
 }
 
 interface ShareContentInput {
   messageId: string | null;
   messageContent: string | null;
+  /** Rendered media list for the preview (null when the message has no media). */
+  mediaPreview: React.ReactNode;
   generatedUrl: string | null;
   copied: boolean;
   isPending: boolean;
@@ -52,7 +60,10 @@ function renderShareContent(input: Readonly<ShareContentInput>): React.JSX.Eleme
           data-testid={TEST_IDS.shareMessagePreview}
           className="border-border rounded-md border p-3"
         >
-          <p className="line-clamp-4 text-sm">{input.messageContent}</p>
+          {input.messageContent !== null && input.messageContent !== '' && (
+            <p className="line-clamp-4 text-sm">{input.messageContent}</p>
+          )}
+          {input.mediaPreview}
         </div>
 
         <Alert variant="default" data-testid={TEST_IDS.shareMessageIsolationInfo}>
@@ -123,6 +134,7 @@ export function ShareMessageModal({
   conversationId,
   epochNumber,
   wrappedContentKey,
+  mediaItems,
 }: Readonly<ShareMessageModalProps>): React.JSX.Element {
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -131,6 +143,18 @@ export function ShareMessageModal({
   const mutateAsync = share.mutateAsync;
   const asyncAction = useAsyncAction();
   const isPending = asyncAction.isPending;
+
+  // Resolve the content key the same way the chat does so the preview renders
+  // media identically. The sender is an authenticated member, so the epoch key
+  // is already cached; MessageMediaList renders nothing when there's no media.
+  const { contentKey } = useMessageContentKey(
+    conversationId ?? '',
+    epochNumber ?? 0,
+    wrappedContentKey ?? ''
+  );
+  const media = (mediaItems ?? [])
+    .toSorted((a, b) => a.position - b.position)
+    .map((item) => messageMediaToRenderable(item));
 
   const [previousOpen, setPreviousOpen] = useState(open);
   if (open !== previousOpen) {
@@ -177,6 +201,9 @@ export function ShareMessageModal({
         {renderShareContent({
           messageId,
           messageContent,
+          mediaPreview: (
+            <MessageMediaList media={media} contentKey={contentKey} ariaPrefix="Generated" />
+          ),
           generatedUrl,
           copied,
           isPending,

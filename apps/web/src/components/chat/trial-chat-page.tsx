@@ -136,15 +136,15 @@ export function TrialChatPage(): React.JSX.Element {
             // Wrapper's finally fires this on error/abort too — single
             // cleanup path for persistingMessageIds regardless of outcome.
             onAllStreamsSettled: () => {
-              state.stopPersisting();
+              state.stopPersisting(placeholderIds);
             },
           }
         );
 
-        state.stopStreaming();
+        state.stopStreaming(placeholderIds);
         useStreamingActivityStore.getState().endStream();
       } catch (error) {
-        state.stopStreaming();
+        state.stopStreaming(placeholderIds);
         useStreamingActivityStore.getState().endStream();
         // Stream threw after `start` fired: drop the assistant placeholder so
         // it doesn't render as an invisible empty bubble whose action toolbar

@@ -32,6 +32,7 @@ import type {
   Modality,
   MockAIClient,
   MockAIClientConfig,
+  ImageRequest,
   ModelInfo,
   RecordedInferenceRequest,
   TextRequest,
@@ -236,6 +237,44 @@ function createFirstCallDelay(delayMs: number): () => Promise<void> {
 }
 
 /**
+ * Build a media inference stream. `media-start` (events[0]) is yielded
+ * immediately; `delayMs` then elapses before the remaining events
+ * (`media-done`, `finish`). On a dev server this holds the "Generating…"
+ * placeholder on screen — and gives the video pipeline's synthetic progress
+ * sweep time to run — without altering the event sequence. At `delayMs <= 0`
+ * the stream stays fully synchronous, so CI / E2E / unit runs are unaffected.
+ */
+function buildMediaStream(events: readonly InferenceEvent[], delayMs: number): InferenceStream {
+  if (delayMs <= 0) {
+    return syncStream(function* (): Generator<InferenceEvent> {
+      yield* events;
+    });
+  }
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+      let index = 0;
+      let waited = false;
+      return {
+        async next(): Promise<IteratorResult<InferenceEvent>> {
+          const event = events[index];
+          if (event === undefined) {
+            return { value: undefined, done: true };
+          }
+          // Wait once — after `media-start`, before `media-done` — so the
+          // placeholder paints first, then lingers for `delayMs`.
+          if (index === 1 && !waited) {
+            waited = true;
+            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+          }
+          index++;
+          return { value: event, done: false };
+        },
+      };
+    },
+  };
+}
+
+/**
  * Characters per streamed `text-delta`. Coarse enough to keep the SSE frame and
  * client re-render count low under load — the per-character version emitted
  * ~one frame + one React render per character (~500 for a long echo), which
@@ -311,23 +350,65 @@ function createTextStream(
   };
 }
 
-function createImageStream(): InferenceStream {
-  return syncStream(function* (): Generator<InferenceEvent> {
-    yield { kind: 'media-start', mediaType: 'image', mimeType: TEST_IMAGE_MIME };
-    yield {
-      kind: 'media-done',
-      bytes: TEST_IMAGE_BYTES,
-      mimeType: TEST_IMAGE_MIME,
-      width: TEST_IMAGE_WIDTH,
-      height: TEST_IMAGE_HEIGHT,
+/** Long side (px) of mock-generated media — a plausible resolution, not the tiny fixture size. */
+const MOCK_MEDIA_LONG_SIDE = 1024;
+
+/**
+ * Pixel dimensions a mock generation reports for a requested aspect ratio
+ * ("16:9"), scaled so the longer side is {@link MOCK_MEDIA_LONG_SIDE}. Lets the
+ * dev UI reserve a media box matching the requested shape, so the loading
+ * placeholder and the resolved media are the same size. Falls back to the
+ * fixture's own dimensions when no ratio was requested (keeps unit tests that
+ * omit `aspectRatio` deterministic). The canned bytes stay a fixed fixture, so
+ * the image is letterboxed inside the box — a dev-only artifact.
+ */
+function mockMediaDimensions(
+  aspectRatio: string | undefined,
+  fallback: { width: number; height: number }
+): { width: number; height: number } {
+  if (aspectRatio === undefined) return fallback;
+  const [rawW, rawH] = aspectRatio.split(':');
+  const ratioW = Number(rawW);
+  const ratioH = Number(rawH);
+  if (Number.isNaN(ratioW) || Number.isNaN(ratioH) || ratioW <= 0 || ratioH <= 0) {
+    return fallback;
+  }
+  if (ratioW >= ratioH) {
+    return {
+      width: MOCK_MEDIA_LONG_SIDE,
+      height: Math.round((MOCK_MEDIA_LONG_SIDE * ratioH) / ratioW),
     };
-    yield {
-      kind: 'finish',
-      providerMetadata: {
-        generationId: `mock-gen-${String(Date.now())}`,
-      },
-    };
+  }
+  return {
+    width: Math.round((MOCK_MEDIA_LONG_SIDE * ratioW) / ratioH),
+    height: MOCK_MEDIA_LONG_SIDE,
+  };
+}
+
+function createImageStream(request: ImageRequest, delayMs: number): InferenceStream {
+  const { width, height } = mockMediaDimensions(request.aspectRatio, {
+    width: TEST_IMAGE_WIDTH,
+    height: TEST_IMAGE_HEIGHT,
   });
+  return buildMediaStream(
+    [
+      { kind: 'media-start', mediaType: 'image', mimeType: TEST_IMAGE_MIME },
+      {
+        kind: 'media-done',
+        bytes: TEST_IMAGE_BYTES,
+        mimeType: TEST_IMAGE_MIME,
+        width,
+        height,
+      },
+      {
+        kind: 'finish',
+        providerMetadata: {
+          generationId: `mock-gen-${String(Date.now())}`,
+        },
+      },
+    ],
+    delayMs
+  );
 }
 
 /**
@@ -349,7 +430,7 @@ function rejectingStream(error: Error): InferenceStream {
   };
 }
 
-function createVideoStream(request: VideoRequest): InferenceStream {
+function createVideoStream(request: VideoRequest, delayMs: number): InferenceStream {
   const requested = request.durationSeconds;
   if (requested !== undefined) {
     const supported = getSupportedVideoDurations(request.model);
@@ -364,41 +445,51 @@ function createVideoStream(request: VideoRequest): InferenceStream {
     }
   }
 
-  return syncStream(function* (): Generator<InferenceEvent> {
-    yield { kind: 'media-start', mediaType: 'video', mimeType: TEST_VIDEO_MIME };
-    yield {
-      kind: 'media-done',
-      bytes: TEST_VIDEO_BYTES,
-      mimeType: TEST_VIDEO_MIME,
-      width: TEST_VIDEO_WIDTH,
-      height: TEST_VIDEO_HEIGHT,
-      durationMs: TEST_VIDEO_DURATION_MS,
-    };
-    yield {
-      kind: 'finish',
-      providerMetadata: {
-        generationId: `mock-gen-${String(Date.now())}`,
-      },
-    };
+  const { width, height } = mockMediaDimensions(request.aspectRatio, {
+    width: TEST_VIDEO_WIDTH,
+    height: TEST_VIDEO_HEIGHT,
   });
+  return buildMediaStream(
+    [
+      { kind: 'media-start', mediaType: 'video', mimeType: TEST_VIDEO_MIME },
+      {
+        kind: 'media-done',
+        bytes: TEST_VIDEO_BYTES,
+        mimeType: TEST_VIDEO_MIME,
+        width,
+        height,
+        durationMs: TEST_VIDEO_DURATION_MS,
+      },
+      {
+        kind: 'finish',
+        providerMetadata: {
+          generationId: `mock-gen-${String(Date.now())}`,
+        },
+      },
+    ],
+    delayMs
+  );
 }
 
-function createAudioStream(): InferenceStream {
-  return syncStream(function* (): Generator<InferenceEvent> {
-    yield { kind: 'media-start', mediaType: 'audio', mimeType: TEST_AUDIO_MIME };
-    yield {
-      kind: 'media-done',
-      bytes: TEST_AUDIO_BYTES,
-      mimeType: TEST_AUDIO_MIME,
-      durationMs: TEST_AUDIO_DURATION_MS,
-    };
-    yield {
-      kind: 'finish',
-      providerMetadata: {
-        generationId: `mock-gen-${String(Date.now())}`,
+function createAudioStream(delayMs: number): InferenceStream {
+  return buildMediaStream(
+    [
+      { kind: 'media-start', mediaType: 'audio', mimeType: TEST_AUDIO_MIME },
+      {
+        kind: 'media-done',
+        bytes: TEST_AUDIO_BYTES,
+        mimeType: TEST_AUDIO_MIME,
+        durationMs: TEST_AUDIO_DURATION_MS,
       },
-    };
-  });
+      {
+        kind: 'finish',
+        providerMetadata: {
+          generationId: `mock-gen-${String(Date.now())}`,
+        },
+      },
+    ],
+    delayMs
+  );
 }
 
 /**
@@ -427,6 +518,7 @@ export function createMockAIClient(
     config.classifierFailure === true ? new Error('Classifier unavailable (test)') : null;
   const classifierDelayMs = Math.max(0, config.classifierDelayMs ?? DEFAULT_CLASSIFIER_DELAY_MS);
   const textDelayMs = Math.max(0, config.textDelayMs ?? 0);
+  const mediaDelayMs = Math.max(0, config.mediaDelayMs ?? 0);
 
   const publicModelsUrl = config.publicModelsUrl ?? DEFAULT_PUBLIC_MODELS_URL;
 
@@ -506,13 +598,13 @@ export function createMockAIClient(
           return createTextStream(request, mint, textDelayMs);
         }
         case 'image': {
-          return createImageStream();
+          return createImageStream(request, mediaDelayMs);
         }
         case 'video': {
-          return createVideoStream(request);
+          return createVideoStream(request, mediaDelayMs);
         }
         case 'audio': {
-          return createAudioStream();
+          return createAudioStream(mediaDelayMs);
         }
         default: {
           return assertNever(request);

@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { TEST_IDS } from '@hushbox/shared';
 
 vi.mock('./media-modal', () => ({
   MediaModal: ({ open, alt }: { open: boolean; alt: string }) =>
     open ? <div data-testid="media-modal" data-alt={alt} /> : null,
 }));
 
-import { MediaPlaceholder, MediaPreview } from './media-preview';
+import { MediaPlaceholder, MediaPreview, mediaRatio, mediaBoxStyle } from './media-preview';
 
 function baseProps(
   overrides: Partial<Parameters<typeof MediaPreview>[0]> = {}
@@ -47,6 +48,18 @@ describe('MediaPlaceholder', () => {
     expect(placeholder.style.aspectRatio).toBe('1 / 1');
   });
 
+  it('derives the aspect ratio from a colon-form ratio string', () => {
+    render(<MediaPlaceholder width={null} height={null} status="loading" aspectRatio="16:9" />);
+    const placeholder = screen.getByRole('status');
+    expect(placeholder.style.aspectRatio).toBe('16 / 9');
+  });
+
+  it('prefers the explicit ratio string over width/height', () => {
+    render(<MediaPlaceholder width={100} height={100} status="loading" aspectRatio="9:16" />);
+    const placeholder = screen.getByRole('status');
+    expect(placeholder.style.aspectRatio).toBe('9 / 16');
+  });
+
   it('uses the loadingLabel override when provided', () => {
     render(
       <MediaPlaceholder
@@ -57,6 +70,28 @@ describe('MediaPlaceholder', () => {
       />
     );
     expect(screen.getByRole('status', { name: /generating image/i })).toBeInTheDocument();
+  });
+
+  it('renders the latent-develop backdrop while loading', () => {
+    render(<MediaPlaceholder width={null} height={null} status="loading" />);
+    expect(screen.getByTestId(TEST_IDS.latentDevelop)).toBeInTheDocument();
+  });
+
+  it('does not render the latent-develop backdrop in error state', () => {
+    render(<MediaPlaceholder width={null} height={null} status="error" />);
+    expect(screen.queryByTestId(TEST_IDS.latentDevelop)).not.toBeInTheDocument();
+  });
+
+  it('keeps the loading label visible above the backdrop', () => {
+    render(
+      <MediaPlaceholder
+        width={null}
+        height={null}
+        status="loading"
+        loadingLabel="Generating image…"
+      />
+    );
+    expect(screen.getByText('Generating image…')).toBeInTheDocument();
   });
 
   it('renders a progress bar when progressPercent is provided in loading state', () => {
@@ -75,6 +110,37 @@ describe('MediaPlaceholder', () => {
   it('hides the progress bar in error state', () => {
     render(<MediaPlaceholder width={null} height={null} status="error" progressPercent={50} />);
     expect(screen.queryByTestId('media-progress-bar')).not.toBeInTheDocument();
+  });
+});
+
+describe('media box sizing (shared by placeholder + media)', () => {
+  it('derives ratio value and css from a colon ratio', () => {
+    expect(mediaRatio('16:9', null, null)).toEqual({ value: 16 / 9, css: '16 / 9' });
+  });
+
+  it('derives the ratio from pixel dimensions when no colon ratio is given', () => {
+    expect(mediaRatio(undefined, 1920, 1080)).toEqual({ value: 1920 / 1080, css: '1920 / 1080' });
+  });
+
+  it('falls back to a square ratio when nothing is known', () => {
+    expect(mediaRatio(undefined, null, null)).toEqual({ value: 1, css: '1 / 1' });
+  });
+
+  it('clamps the box width by max-w-md and max-h-96 × ratio', () => {
+    const style = mediaBoxStyle({ value: 16 / 9, css: '16 / 9' });
+    expect(style.aspectRatio).toBe('16 / 9');
+    expect(style.width).toContain('100%');
+    expect(style.width).toContain('28rem');
+    expect(style.width).toContain(`calc(24rem * ${String(16 / 9)})`);
+  });
+
+  it('reserves the same box for a requested ratio and its matching resolved dimensions', () => {
+    // Dedup guarantee: the loading placeholder (requested "16:9") and the
+    // resolved media (1920×1080) size from the same functions, so the swap
+    // never shifts layout.
+    const requested = mediaBoxStyle(mediaRatio('16:9', null, null));
+    const resolved = mediaBoxStyle(mediaRatio(undefined, 1920, 1080));
+    expect(requested.width).toBe(resolved.width);
   });
 });
 

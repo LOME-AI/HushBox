@@ -412,6 +412,47 @@ function buildModalityConfigPayload(
   }
 }
 
+/**
+ * The aspect ratio the user requested for an in-flight media generation, in
+ * colon form (e.g. "16:9"). Lets the placeholder reserve the media's true
+ * shape the moment `model:media:start` arrives. Audio has no 2D shape, so it
+ * returns `undefined`. Read from the send-time config so the shape is a
+ * snapshot of the request, not the live (mutable) selector.
+ */
+export function requestedMediaAspectRatio(
+  mediaType: 'image' | 'audio' | 'video',
+  imageConfig: ImageConfig,
+  videoConfig: VideoConfig
+): string | undefined {
+  if (mediaType === 'image') return imageConfig.aspectRatio;
+  if (mediaType === 'video') return videoConfig.aspectRatio;
+  return undefined;
+}
+
+/** Stand-in mime stamped at creation; `model:media:start` reports the real one. */
+const PENDING_MEDIA_MIME = 'application/octet-stream';
+
+/**
+ * The `mediaInFlight` hint to stamp on a freshly-created assistant message when
+ * the turn is a media generation, so the loading placeholder shows the media
+ * backdrop (correctly shaped) from the first frame instead of a text "thinking"
+ * indicator. Returns `undefined` for text turns. The placeholder reads only
+ * `mediaType` + `aspectRatio`, so the mime is a stand-in until `model:media:start`.
+ */
+export function pendingMediaInFlight(
+  modality: Modality,
+  imageConfig: ImageConfig,
+  videoConfig: VideoConfig
+): Message['mediaInFlight'] {
+  if (modality === 'text') return undefined;
+  const aspectRatio = requestedMediaAspectRatio(modality, imageConfig, videoConfig);
+  return {
+    mediaType: modality,
+    mimeType: PENDING_MEDIA_MIME,
+    ...(aspectRatio !== undefined && { aspectRatio }),
+  };
+}
+
 function attachCostsToMessages(
   models: ModelResult[],
   setter: React.Dispatch<React.SetStateAction<Message[]>>
@@ -736,10 +777,15 @@ export function useAuthenticatedChat({
         data.userMessageId
       );
       modelMessageMapRef.current = modelMap;
-      setLocalMessages((previous) => [...previous, ...messages]);
+      // First message of a new conversation: stamp the media backdrop hint at
+      // creation, the same as the optimistic flow, so it shows the animation
+      // from the first frame instead of the text "is generating…" indicator.
+      const mediaInFlight = pendingMediaInFlight(activeModality, imageConfig, videoConfig);
+      const stamped = mediaInFlight ? messages.map((m) => ({ ...m, mediaInFlight })) : messages;
+      setLocalMessages((previous) => [...previous, ...stamped]);
       startStreamingIfNeeded(assistantMessageIds, state);
     },
-    [state]
+    [state, activeModality, imageConfig, videoConfig]
   );
 
   const handleStreamToken = React.useCallback((token: string, modelId: string) => {
@@ -808,76 +854,131 @@ export function useAuthenticatedChat({
             : m
         )
       );
-      state.stopStreaming();
+      state.stopStreaming([data.assistantMessageId]);
     },
     [state]
   );
 
+  // Media handlers for the new-chat flow (mutate localMessages, mirroring the
+  // optimistic setters). `model:media:start` refines the creation-time mime;
+  // `model:media:progress` drives the first-message video progress sweep.
+  const handleStreamMediaStart = React.useCallback(
+    (data: ModelMediaStartData) => {
+      const aspectRatio = requestedMediaAspectRatio(data.mediaType, imageConfig, videoConfig);
+      setLocalMessages((previous) =>
+        previous.map((m) =>
+          m.id === data.assistantMessageId
+            ? {
+                ...m,
+                mediaInFlight: {
+                  mediaType: data.mediaType,
+                  mimeType: data.mimeType,
+                  ...(aspectRatio !== undefined && { aspectRatio }),
+                },
+              }
+            : m
+        )
+      );
+    },
+    [imageConfig, videoConfig]
+  );
+
+  const handleStreamMediaProgress = React.useCallback((data: ModelMediaProgressData) => {
+    setLocalMessages((previous) =>
+      previous.map((m) =>
+        m.id === data.assistantMessageId ? { ...m, mediaProgress: { percent: data.percent } } : m
+      )
+    );
+  }, []);
+
+  // Routes onToken/onModelError to the right optimistic message for the active
+  // turn (modelId → assistantMessageId). Replaced wholesale on each onStart and
+  // intentionally not scoped per-turn: a newer turn only starts after the prior
+  // turn's last model:done, so no two turns emit tokens at once and stale
+  // entries between turns are never read.
   const optimisticModelMapRef = React.useRef(new Map<string, string>());
 
   const createOptimisticStreamCallbacks = React.useCallback(
-    (convId: string) => ({
-      onStart: (data: StartEventData) => {
-        const { modelMap, messages, assistantMessageIds } = processStartEvent(
-          data,
-          convId,
-          data.userMessageId
-        );
-        optimisticModelMapRef.current = modelMap;
-        for (const msg of messages) {
-          addOptimisticMessage(msg);
-        }
-        startStreamingIfNeeded(assistantMessageIds, state);
-      },
-      onToken: (token: string, modelId: string) => {
-        const msgId = optimisticModelMapRef.current.get(modelId);
-        if (msgId) {
-          updateOptimisticMessageContent(msgId, token);
-        }
-      },
-      onModelError: (data: { modelId: string; code?: string }) => {
-        const msgId = optimisticModelMapRef.current.get(data.modelId);
-        if (msgId) {
-          setOptimisticMessageError(msgId, data.code ?? 'STREAM_ERROR');
-        }
-      },
-      // `model:media:start` fires twice per media model: once pre-gateway with
-      // a placeholder mime, once post-gateway with the real mime. Both calls
-      // overwrite `mediaInFlight` so the placeholder progresses from
-      // "Generating image…" with placeholder mime to a precise mime ahead of
-      // the bytes landing.
-      onModelMediaStart: (data: ModelMediaStartData) => {
-        setOptimisticMessageMediaStart(data.assistantMessageId, data.mediaType, data.mimeType);
-      },
-      onModelMediaProgress: (data: ModelMediaProgressData) => {
-        setOptimisticMessageMediaProgress(data.assistantMessageId, data.percent);
-      },
-      onStageStart: (data: StageStartPayload) => {
-        setOptimisticMessageStageStart(data.assistantMessageId, data.stageId);
-      },
-      onStageDone: (data: StageDoneEventData) => {
-        setOptimisticMessageStageDone(data.assistantMessageId, data.payload);
-      },
-      onStageError: (data: StageErrorPayload) => {
-        setOptimisticMessageStageError(data.assistantMessageId, data.errorCode);
-      },
-      // Token streaming has ended for every model in this turn. The server is
-      // still settling cost / persistence and the SSE `done` event hasn't
-      // arrived yet, but the user has seen all the tokens — re-enable the
-      // input and let `resolveMessageActions` show the toolbar now rather
-      // than several seconds later. Fixes the "long awkward delay" UX bug.
-      onAllModelsComplete: () => {
-        state.stopStreaming();
-      },
-      // SSE `done` event — saveChatTurn has committed. Clear the persistence-
-      // tracking set so the next send doesn't race against an in-flight commit
-      // and resolve the wrong parentMessageId. Distinct from stopStreaming
-      // (early-flip, UX) so the toolbar/input stay responsive while tests
-      // gate on data-streaming-count for actual persistence.
-      onAllStreamsSettled: () => {
-        state.stopPersisting();
-      },
-    }),
+    (convId: string) => {
+      // The assistant tile ids this turn owns. Captured in onStart so the
+      // completion callbacks release ONLY this turn's tracking — a turn that
+      // settles while a newer overlapping turn is mid-flight must never clear
+      // the newer turn's streaming/persisting ids.
+      let turnAssistantIds: string[] = [];
+      return {
+        onStart: (data: StartEventData) => {
+          const { modelMap, messages, assistantMessageIds } = processStartEvent(
+            data,
+            convId,
+            data.userMessageId
+          );
+          optimisticModelMapRef.current = modelMap;
+          turnAssistantIds = assistantMessageIds;
+          // Stamp the media backdrop hint from the first frame so a media turn
+          // never flashes the text "thinking" indicator before model:media:start.
+          const mediaInFlight = pendingMediaInFlight(activeModality, imageConfig, videoConfig);
+          for (const msg of messages) {
+            addOptimisticMessage(mediaInFlight ? { ...msg, mediaInFlight } : msg);
+          }
+          startStreamingIfNeeded(assistantMessageIds, state);
+        },
+        onToken: (token: string, modelId: string) => {
+          const msgId = optimisticModelMapRef.current.get(modelId);
+          if (msgId) {
+            updateOptimisticMessageContent(msgId, token);
+          }
+        },
+        onModelError: (data: { modelId: string; code?: string }) => {
+          const msgId = optimisticModelMapRef.current.get(data.modelId);
+          if (msgId) {
+            setOptimisticMessageError(msgId, data.code ?? 'STREAM_ERROR');
+          }
+        },
+        // `model:media:start` fires twice per media model: once pre-gateway with
+        // a placeholder mime, once post-gateway with the real mime. Both calls
+        // overwrite `mediaInFlight` so the placeholder progresses from
+        // "Generating image…" with placeholder mime to a precise mime ahead of
+        // the bytes landing. The requested aspect ratio is stamped alongside so
+        // the placeholder reserves the media's true shape, not a square.
+        onModelMediaStart: (data: ModelMediaStartData) => {
+          const aspectRatio = requestedMediaAspectRatio(data.mediaType, imageConfig, videoConfig);
+          setOptimisticMessageMediaStart(
+            data.assistantMessageId,
+            data.mediaType,
+            data.mimeType,
+            aspectRatio
+          );
+        },
+        onModelMediaProgress: (data: ModelMediaProgressData) => {
+          setOptimisticMessageMediaProgress(data.assistantMessageId, data.percent);
+        },
+        onStageStart: (data: StageStartPayload) => {
+          setOptimisticMessageStageStart(data.assistantMessageId, data.stageId);
+        },
+        onStageDone: (data: StageDoneEventData) => {
+          setOptimisticMessageStageDone(data.assistantMessageId, data.payload);
+        },
+        onStageError: (data: StageErrorPayload) => {
+          setOptimisticMessageStageError(data.assistantMessageId, data.errorCode);
+        },
+        // Token streaming has ended for every model in this turn. The server is
+        // still settling cost / persistence and the SSE `done` event hasn't
+        // arrived yet, but the user has seen all the tokens — re-enable the
+        // input and let `resolveMessageActions` show the toolbar now rather
+        // than several seconds later. Fixes the "long awkward delay" UX bug.
+        onAllModelsComplete: () => {
+          state.stopStreaming(turnAssistantIds);
+        },
+        // SSE `done` event — saveChatTurn has committed. Clear the persistence-
+        // tracking set so the next send doesn't race against an in-flight commit
+        // and resolve the wrong parentMessageId. Distinct from stopStreaming
+        // (early-flip, UX) so the toolbar/input stay responsive while tests
+        // gate on data-streaming-count for actual persistence.
+        onAllStreamsSettled: () => {
+          state.stopPersisting(turnAssistantIds);
+        },
+      };
+    },
     [
       state,
       addOptimisticMessage,
@@ -888,6 +989,9 @@ export function useAuthenticatedChat({
       setOptimisticMessageStageStart,
       setOptimisticMessageStageDone,
       setOptimisticMessageStageError,
+      activeModality,
+      imageConfig,
+      videoConfig,
     ]
   );
 
@@ -897,6 +1001,9 @@ export function useAuthenticatedChat({
     messagesForInference: { role: 'user' | 'assistant' | 'system'; content: string }[];
     fundingSource: FundingSource;
     forkId?: string;
+    /** Receives this turn's assistant tile ids when `start` arrives, so the
+     * caller can scope its own error cleanup to the tiles it created. */
+    onPlaceholders: (assistantMessageIds: string[]) => void;
   }
 
   const executeStream = React.useCallback(
@@ -916,7 +1023,13 @@ export function useAuthenticatedChat({
           ...(forkId != null && { forkId }),
           ...buildModalityConfigPayload(activeModality, imageConfig, videoConfig, audioConfig),
         },
-        callbacks
+        {
+          ...callbacks,
+          onStart: (data: StartEventData) => {
+            callbacks.onStart(data);
+            params.onPlaceholders(data.models.map((m) => m.assistantMessageId));
+          },
+        }
       );
       if (doneData?.epochNumber !== undefined) {
         attachMediaItemsFromDoneEvent(doneData, doneData.epochNumber, setLocalMessages);
@@ -1012,6 +1125,10 @@ export function useAuthenticatedChat({
       fundingSource: FundingSource
     ): Promise<void> => {
       const userMsgId = crypto.randomUUID();
+      // Assistant tile ids for this first turn, captured from `start`. Scopes
+      // the explicit stop calls below so they release only this turn — a second
+      // send during the create→navigate window keeps its own tracking.
+      const newChatAssistantIds: string[] = [];
       try {
         const streamResult = await startStream(
           {
@@ -1026,9 +1143,16 @@ export function useAuthenticatedChat({
             ...buildModalityConfigPayload(activeModality, imageConfig, videoConfig, audioConfig),
           },
           {
-            onStart: handleStreamStart,
+            onStart: (data: StartEventData) => {
+              handleStreamStart(data);
+              // for-loop, not .map: a nested arrow here would exceed the
+              // function-nesting depth lint rule at this call site.
+              for (const m of data.models) newChatAssistantIds.push(m.assistantMessageId);
+            },
             onToken: handleStreamToken,
             onModelError: handleStreamModelError,
+            onModelMediaStart: handleStreamMediaStart,
+            onModelMediaProgress: handleStreamMediaProgress,
             onStageStart: handleStreamStageStart,
             onStageDone: handleStreamStageDone,
             onStageError: handleStreamStageError,
@@ -1075,13 +1199,13 @@ export function useAuthenticatedChat({
         // This call site uses hand-written callbacks instead of
         // createOptimisticStreamCallbacks, so the wrapper has no caller-provided
         // onAllStreamsSettled to fire. Persistence cleanup is explicit here.
-        state.stopStreaming();
-        state.stopPersisting();
+        state.stopStreaming(newChatAssistantIds);
+        state.stopPersisting(newChatAssistantIds);
         useStreamingActivityStore.getState().endStream();
       } catch (streamError: unknown) {
         console.error('Stream failed:', streamError);
-        state.stopStreaming();
-        state.stopPersisting();
+        state.stopStreaming(newChatAssistantIds);
+        state.stopPersisting(newChatAssistantIds);
         useStreamingActivityStore.getState().endStream();
         // New-chat flow has no fork yet — error belongs on the main slot.
         useChatErrorStore.getState().setError(
@@ -1174,6 +1298,11 @@ export function useAuthenticatedChat({
         { role: 'user' as const, content },
       ];
 
+      // This turn's assistant tile ids, captured from the `start` event. Scoped
+      // locally (not via a shared ref) so an overlapping send can't make this
+      // turn's error cleanup remove the other turn's tiles.
+      const placeholderIds: string[] = [];
+
       void (async () => {
         try {
           const { models: modelResults } = await executeStream({
@@ -1184,6 +1313,7 @@ export function useAuthenticatedChat({
             },
             messagesForInference,
             fundingSource,
+            onPlaceholders: (ids) => placeholderIds.push(...ids),
             ...(activeForkId != null && { forkId: activeForkId }),
           });
           removeOptimisticMessage(optimisticUserMessage.id);
@@ -1203,13 +1333,12 @@ export function useAuthenticatedChat({
           // `onStart` added optimistically. Without this, each placeholder
           // renders as an invisible empty bubble whose action toolbar floats
           // above the chat-error tile.
-          for (const placeholderId of optimisticModelMapRef.current.values()) {
+          for (const placeholderId of placeholderIds) {
             removeOptimisticMessage(placeholderId);
           }
-          optimisticModelMapRef.current.clear();
 
           removeOptimisticMessage(optimisticUserMessage.id);
-          state.stopStreaming();
+          state.stopStreaming(placeholderIds);
           useStreamingActivityStore.getState().endStream();
         }
       })();
@@ -1365,7 +1494,7 @@ export function useAuthenticatedChat({
             },
           });
 
-          state.stopStreaming();
+          state.stopStreaming(placeholderIds);
 
           await queryClient.invalidateQueries({
             queryKey: chatKeys.conversation(realConversationId),
@@ -1377,7 +1506,7 @@ export function useAuthenticatedChat({
           if (action === 'edit') removeOptimisticMessage(userMessageId);
           useStreamingActivityStore.getState().endStream();
         } catch (error: unknown) {
-          state.stopStreaming();
+          state.stopStreaming(placeholderIds);
 
           if (error instanceof BillingMismatchError) {
             await queryClient.invalidateQueries({ queryKey: billingKeys.balance() });

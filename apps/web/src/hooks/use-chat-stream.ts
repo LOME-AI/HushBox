@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { ERROR_CODE_CONTEXT_LENGTH_EXCEEDED } from '@hushbox/shared';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { getApiUrl } from '../lib/api';
@@ -557,23 +557,40 @@ function wrapForEarlyStreamingFlip(
 
 export function useChatStream(mode: StreamMode): ChatStreamHook {
   const [isStreaming, setIsStreaming] = useState(false);
+  // Counts turns still producing tokens (pre early-flip). Each turn releases
+  // its contribution exactly once — at the early model:done flip, or in the
+  // finally as a backup on error/abort. Counting (not a shared boolean) keeps
+  // the flag correct when a settled turn's finally runs while a newer,
+  // overlapping turn is still streaming.
+  const processingCountRef = useRef(0);
+  const releaseProcessing = useCallback((): void => {
+    processingCountRef.current = Math.max(0, processingCountRef.current - 1);
+    setIsStreaming(processingCountRef.current > 0);
+  }, []);
 
-  const startStream = useCallback(
-    async (request: StreamRequest, options?: StreamOptions): Promise<StreamResult> => {
+  const runStream = useCallback(
+    async (
+      buildConfig: () => StreamRequestConfig,
+      errorMode: StreamMode,
+      options?: StreamOptions
+    ): Promise<StreamResult> => {
+      processingCountRef.current += 1;
       setIsStreaming(true);
       useStreamingActivityStore.getState().startStream();
-      const wrapped = wrapForEarlyStreamingFlip(options, () => {
-        setIsStreaming(false);
-      });
+      // One release per turn: fired by the early flip on the last model:done,
+      // else by the finally below on error/abort/early-done. The guard makes
+      // the second caller a no-op so the count drops once.
+      let released = false;
+      const release = (): void => {
+        if (released) return;
+        released = true;
+        releaseProcessing();
+      };
+      const wrapped = wrapForEarlyStreamingFlip(options, release);
       try {
-        const config = buildStreamRequest(mode, request, options?.signal);
-        return await executeStream(config, mode, wrapped);
+        return await executeStream(buildConfig(), errorMode, wrapped);
       } finally {
-        // Idempotent — already flipped on last model:done in the happy path,
-        // but covers the cases where the stream errored before any model:done
-        // (no models started) or where the final `done` arrived before our
-        // counter caught up.
-        setIsStreaming(false);
+        release();
         // Backup fire for the persistence-tracking signal. The wrapper's
         // settled-once guard makes this a no-op when the happy path already
         // fired via executeStream's onDone; on error/abort it's the only
@@ -587,25 +604,19 @@ export function useChatStream(mode: StreamMode): ChatStreamHook {
         // stream ending and the post-stream work starting.
       }
     },
-    [mode]
+    [releaseProcessing]
+  );
+
+  const startStream = useCallback(
+    (request: StreamRequest, options?: StreamOptions): Promise<StreamResult> =>
+      runStream(() => buildStreamRequest(mode, request, options?.signal), mode, options),
+    [mode, runStream]
   );
 
   const startRegenerateStream = useCallback(
-    async (request: RegenerateStreamRequest, options?: StreamOptions): Promise<StreamResult> => {
-      setIsStreaming(true);
-      useStreamingActivityStore.getState().startStream();
-      const wrapped = wrapForEarlyStreamingFlip(options, () => {
-        setIsStreaming(false);
-      });
-      try {
-        const config = buildRegenerateRequest(request, options?.signal);
-        return await executeStream(config, 'authenticated', wrapped);
-      } finally {
-        setIsStreaming(false);
-        wrapped.onAllStreamsSettled?.();
-      }
-    },
-    []
+    (request: RegenerateStreamRequest, options?: StreamOptions): Promise<StreamResult> =>
+      runStream(() => buildRegenerateRequest(request, options?.signal), 'authenticated', options),
+    [runStream]
   );
 
   return { isStreaming, startStream, startRegenerateStream };

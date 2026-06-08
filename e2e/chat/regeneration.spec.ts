@@ -58,7 +58,11 @@ test.describe('Solo Regeneration', () => {
     });
 
     await test.step('click regenerate and wait for new response', async () => {
-      await chatPage.withStreamCycle(() => chatPage.clickRegenerate(1));
+      // Regenerate re-streams a full turn. Use the wider STREAM_CLEAR budget
+      // (not STREAM) so the cycle still completes when every browser project's
+      // workers run at once and saturate the host (see resource-scan) — the
+      // same rationale as the conversation-clear retry below.
+      await chatPage.withStreamCycle(() => chatPage.clickRegenerate(1), TIMEOUTS.STREAM_CLEAR);
       await chatPage.expectAssistantMessageContains('Echo:');
     });
 

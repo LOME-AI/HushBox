@@ -19,13 +19,6 @@ export function getSendAriaLabel(modality: Modality | undefined): string {
   return 'Send message';
 }
 
-export function getGeneratingLabel(modality: Modality | undefined, displayName: string): string {
-  if (modality === 'image') return `${displayName} is generating an image...`;
-  if (modality === 'video') return `${displayName} is generating a video...`;
-  if (modality === 'audio') return `${displayName} is generating audio...`;
-  return `${displayName} is typing...`;
-}
-
 export function getMediaLoadingLabel(modality: Modality | undefined): string {
   if (modality === 'image') return 'Generating image...';
   if (modality === 'video') return 'Generating video...';

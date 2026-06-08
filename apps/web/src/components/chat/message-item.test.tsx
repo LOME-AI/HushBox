@@ -88,11 +88,16 @@ vi.mock('@/hooks/models', () => ({
   useModels: () => mockModelsData,
 }));
 
-// Mock MediaContentItem to avoid the full fetch + decrypt chain in tests.
-// Tests assert that MessageMediaItems renders one <MediaContentItem> per media item.
-vi.mock('./media-content-item', () => ({
-  MediaContentItem: ({ item }: { item: { id: string; contentType: string } }) => (
-    <div data-testid={`mock-media-item-${item.id}`} data-content-type={item.contentType} />
+// Mock MediaContentItem to avoid the full fetch + decrypt chain in tests, but
+// keep the real `messageMediaToRenderable` mapper the bubble uses to normalize
+// media. Tests assert one <MediaContentItem> renders per media item.
+vi.mock('./media-content-item', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./media-content-item')>()),
+  MediaContentItem: ({ item }: { item: { contentItemId: string; contentType: string } }) => (
+    <div
+      data-testid={`mock-media-item-${item.contentItemId}`}
+      data-content-type={item.contentType}
+    />
   ),
 }));
 
@@ -1634,6 +1639,30 @@ describe('MessageItem', () => {
         expect(bar).toBeInTheDocument();
         const fill = bar.querySelector('div');
         expect(fill?.getAttribute('style')).toContain('42%');
+      });
+
+      it('shapes the in-flight placeholder to the requested aspect ratio', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          mediaInFlight: { mediaType: 'image', mimeType: 'image/png', aspectRatio: '16:9' },
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        const placeholder = screen.getByRole('status', { name: /generating image/i });
+        expect(placeholder.style.aspectRatio).toBe('16 / 9');
+      });
+
+      it('shows the classifier stage label, not the media backdrop, while choosing a model', () => {
+        const msg: Message = {
+          ...inFlightMessage,
+          modelName: 'smart-model',
+          mediaInFlight: { mediaType: 'image', mimeType: 'image/png', aspectRatio: '16:9' },
+          classifyingStageId: 'smart-model',
+        };
+        render(<MessageItem message={msg} allowedActions={NO_ACTIONS} isStreaming />);
+        expect(
+          screen.getByRole('status', { name: /choosing the best model/i })
+        ).toBeInTheDocument();
+        expect(screen.queryByRole('status', { name: /generating image/i })).not.toBeInTheDocument();
       });
     });
 

@@ -74,7 +74,7 @@ describe('useChatPageState', () => {
         result.current.startStreaming(['msg-123']);
       });
       act(() => {
-        result.current.stopStreaming();
+        result.current.stopStreaming(['msg-123']);
       });
 
       expect(result.current.streamingMessageIds.size).toBe(0);
@@ -125,7 +125,7 @@ describe('useChatPageState', () => {
         result.current.startStreaming(['msg-1']);
       });
       act(() => {
-        result.current.stopStreaming();
+        result.current.stopStreaming(['msg-1']);
       });
 
       expect(result.current.streamingMessageIds.size).toBe(0);
@@ -140,7 +140,7 @@ describe('useChatPageState', () => {
         result.current.startStreaming(['msg-1']);
       });
       act(() => {
-        result.current.stopPersisting();
+        result.current.stopPersisting(['msg-1']);
       });
 
       expect(result.current.streamingMessageIds.size).toBe(1);
@@ -155,10 +155,10 @@ describe('useChatPageState', () => {
         result.current.startStreaming(['msg-1']);
       });
       act(() => {
-        result.current.stopStreaming();
+        result.current.stopStreaming(['msg-1']);
       });
       act(() => {
-        result.current.stopPersisting();
+        result.current.stopPersisting(['msg-1']);
       });
 
       expect(result.current.streamingMessageIds.size).toBe(0);
@@ -172,6 +172,74 @@ describe('useChatPageState', () => {
         result.current.startStreaming(['msg-789']);
         expect(result.current.persistingMessageIdsRef.current.has('msg-789')).toBe(true);
       });
+    });
+  });
+
+  // Overlapping sends: the input re-enables on the early model:done flip
+  // (before the SSE `done`), so a user can fire turn N+1 while turn N is still
+  // settling cost/persistence. Turn N's later `done` must only release turn
+  // N's own ids — never the in-flight turn N+1's. These cover the multi-model
+  // case (N tiles per turn) since a turn tracks every tile id as a group.
+  describe('concurrent turns (overlapping sends)', () => {
+    it('startStreaming adds ids without evicting a still-active turn (multi-model)', () => {
+      const { result } = renderHook(() => useChatPageState());
+
+      act(() => {
+        result.current.startStreaming(['A1', 'A2']);
+      });
+      act(() => {
+        result.current.startStreaming(['B1', 'B2']);
+      });
+
+      for (const id of ['A1', 'A2', 'B1', 'B2']) {
+        expect(result.current.persistingMessageIds.has(id)).toBe(true);
+      }
+      expect(result.current.persistingMessageIds.size).toBe(4);
+    });
+
+    it('stopPersisting releases only the named turn, leaving a concurrent turn intact (multi-model)', () => {
+      const { result } = renderHook(() => useChatPageState());
+
+      // Turn N (2 models) streams, then reaches its model:done flip.
+      act(() => {
+        result.current.startStreaming(['A1', 'A2']);
+      });
+      act(() => {
+        result.current.stopStreaming(['A1', 'A2']);
+      });
+      // User sends turn N+1 (2 models) during N's cost-settling window.
+      act(() => {
+        result.current.startStreaming(['B1', 'B2']);
+      });
+      // Turn N's SSE `done` finally arrives.
+      act(() => {
+        result.current.stopPersisting(['A1', 'A2']);
+      });
+
+      // N+1 is still persisting; its tiles must survive N's late `done`.
+      expect(result.current.persistingMessageIds.has('B1')).toBe(true);
+      expect(result.current.persistingMessageIds.has('B2')).toBe(true);
+      expect(result.current.persistingMessageIds.has('A1')).toBe(false);
+      expect(result.current.persistingMessageIds.has('A2')).toBe(false);
+      expect(result.current.persistingMessageIds.size).toBe(2);
+    });
+
+    it('stopStreaming releases only the named turn, leaving a concurrent turn streaming', () => {
+      const { result } = renderHook(() => useChatPageState());
+
+      act(() => {
+        result.current.startStreaming(['A1']);
+      });
+      act(() => {
+        result.current.startStreaming(['B1']);
+      });
+      act(() => {
+        result.current.stopStreaming(['A1']);
+      });
+
+      expect(result.current.streamingMessageIds.has('A1')).toBe(false);
+      expect(result.current.streamingMessageIds.has('B1')).toBe(true);
+      expect(result.current.streamingMessageIds.size).toBe(1);
     });
   });
 
