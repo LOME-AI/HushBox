@@ -565,6 +565,36 @@ describe('createRealAIClient', () => {
 
       await expect(collectEvents(client.stream(request))).rejects.toThrow(/no text.*tool-calls/i);
     });
+
+    it('treats a finishReason "length" empty completion as billable truncation, not an error', async () => {
+      // A model that exhausts its output-token budget before emitting any
+      // visible text finishes with `length` and no text-delta. Truncation is a
+      // valid, billable terminal state, so the turn must yield its finish event
+      // (carrying generationId + usage) rather than throw. Only genuine
+      // non-answers — unrecovered tool errors and tool-call exhaustion — error.
+      mockStreamText.mockReturnValue(
+        Object.assign(createMockFullStream([{ type: 'finish', finishReason: 'length' }]), {
+          providerMetadata: Promise.resolve({ gateway: { generationId: 'gen-trunc-1' } }),
+          totalUsage: Promise.resolve({ inputTokens: 12, outputTokens: 10, totalTokens: 22 }),
+        })
+      );
+
+      const request: TextRequest = {
+        modality: 'text',
+        model: 'anthropic/claude-sonnet-4.6',
+        messages: [{ role: 'user', content: 'Say yes.' }],
+        maxOutputTokens: 10,
+      };
+
+      const events = await collectEvents(client.stream(request));
+
+      expect(events.map((e) => e.kind)).toEqual(['finish']);
+      const finish = events.find(
+        (e): e is Extract<InferenceEvent, { kind: 'finish' }> => e.kind === 'finish'
+      );
+      expect(finish!.providerMetadata?.generationId).toBe('gen-trunc-1');
+      expect(finish!.providerMetadata?.usage?.outputTokens).toBe(10);
+    });
   });
 
   describe('image generation', () => {

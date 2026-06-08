@@ -171,17 +171,23 @@ function abortError(reason: string | undefined): Error {
 }
 
 /**
- * Terminal error for a turn that ended with no text. A failed tool call that
- * never recovered into an answer is the real cause, so surface it (preserving
- * the original error for classifyStreamErrorCode); otherwise report the empty
- * completion with its finishReason.
+ * Guard a completed turn that produced no visible text. The turn is a failure
+ * only when the model never had a chance to answer: an unrecovered tool call
+ * (surface it, preserving the original error for classifyStreamErrorCode), or
+ * an empty finish from tool-call exhaustion / content filter / bare stop. A
+ * `length` finish with no tool error is ordinary truncation — the model hit its
+ * output-token budget — which is a valid, billable terminal state, so the
+ * caller emits the finish event instead. No-ops when text was produced.
  */
-function noTextError(
+function throwForEmptyTurn(
+  sawText: boolean,
   toolError: { error: unknown } | undefined,
   finishReason: FinishReason | undefined
-): Error {
-  if (toolError) return asInferenceError(toolError.error);
-  return new Error(`Model returned no text (finishReason: ${finishReason ?? 'unknown'})`);
+): void {
+  if (sawText) return;
+  if (toolError) throw asInferenceError(toolError.error);
+  if (finishReason === 'length') return;
+  throw new Error(`Model returned no text (finishReason: ${finishReason ?? 'unknown'})`);
 }
 
 /**
@@ -287,7 +293,7 @@ function streamTextRequest(
         }
       }
 
-      if (!sawText) throw noTextError(toolError, finishReason);
+      throwForEmptyTurn(sawText, toolError, finishReason);
 
       const metadata = await result.providerMetadata;
       const usage = await result.totalUsage;
