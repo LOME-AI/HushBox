@@ -112,12 +112,13 @@ bare `Uint8Array` key material inviting argument transposition.
   cancellation via **AbortController**; DI via factory functions + Hono `c.var`; Zod at
   boundaries; **Drizzle inference preserved**.
 - **Compute topology:** one product Cloudflare Worker (+ one separate admin Worker — §14);
-  **Durable Objects** for per-conversation realtime, stream survival/resume, and the
+  **Durable Objects** for per-conversation realtime, stream survival/resume, the
   **in-process flow executor** (the DO owns the turn: it calls the gateway and runs
-  finalize); **Cron** for scheduled jobs, sweeps, and the Postgres jobs pattern. **No
-  Cloudflare Workflows, no Queues** (re-entry triggers in §21): every
-  async need is covered by status tables + atomic claim + cron sweep, `waitUntil` for
-  declared-best-effort effects, and the DO for stateful execution.
+  settlement), and the **per-shard `JobDispatcher`** (§7); **Cron** only for pollers,
+  retention scans, and read-only auditors. **No Cloudflare Workflows, no Queues**
+  (re-entry triggers in §21): every async need is covered by transactional job rows +
+  the alarm-clocked dispatcher (§7), `waitUntil` for declared-best-effort effects, and
+  the DO for stateful execution.
 - **Data:** Neon Postgres (PG18) via **`@neondatabase/serverless` + Drizzle** as the single
   source of truth (**Hyperdrive deferred** — re-entry triggers in §21); **R2** for
   blobs (uuid-keyed, always ciphertext); **Upstash Redis** for ephemeral cache/coordination
@@ -138,7 +139,8 @@ flowchart LR
   R2["R2 (uuid-keyed ciphertext blobs)"]
   Redis["Upstash Redis (cache/coord)"]
   Prov["AI: Vercel AI Gateway (via AI SDK)"]
-  Cron["Cron (jobs pattern + sweeps)"]
+  Cron["Cron (pollers + retention + auditors)"]
+  Jobs["JobDispatcher DO (jobs table)"]
 
   Client --> Worker
   Worker --> PG
@@ -151,6 +153,9 @@ flowchart LR
   DO --> Redis
   Cron --> PG
   Cron --> R2
+  Worker -. wake .-> Jobs
+  Jobs --> PG
+  Jobs --> Prov
   DO -. realtime .-> Client
 ```
 
@@ -161,7 +166,7 @@ flowchart LR
 | Domain | Approach |
 |---|---|
 | **Data storage & management** | Neon Postgres (serverless driver; Hyperdrive deferred — §18/§21) is the single source of truth for durable state — Drizzle with `relations()`, pgEnums, FKs, **integer minor-unit** money. R2 for blobs: uuid keys, always ciphertext (content-addressing was dropped — §11.4). Redis is ephemeral only (idempotency fast-path, rate limits, OPAQUE challenge, reservation cache) and is *never* the sole store of money or state. Immutability where it pays: append-only ledger, versioned crypto blobs, versioned model descriptors and workflow definitions. Ciphertext at rest. |
-| **Data movement & processing** | Three modes: in-request synchronous; **in-DO flow execution** (the conversation DO runs whole definitions in one in-memory, deadline-bounded execution — §11); the **Postgres jobs pattern** (status table + atomic claim + cron sweep) for durable async ops. Inside a flow, values move **in memory**; R2 only at the edges (inputs in, epoch-wrapped finals out). Streaming reaches clients over the DO's hibernatable WebSocket with **abort propagation** and **resumability** (memory-only buffer + `Last-Event-ID`). The turn **completes server-side on disconnect** (best-effort — an eviction/deploy mid-stream saves nothing and bills nothing for **any** flow shape: nothing commits before settlement — §8 single-settlement); only an explicit user-stop aborts. Card charges use a **pre-claim** (Pattern D). |
+| **Data movement & processing** | Three modes: in-request synchronous; **in-DO flow execution** (the conversation DO runs whole definitions in one in-memory, deadline-bounded execution — §11); the **transactional jobs system** (job row in the caller's transaction + alarm-clocked dispatcher — §7) for durable async ops. Inside a flow, values move **in memory**; R2 only at the edges (inputs in, epoch-wrapped finals out). Streaming reaches clients over the DO's hibernatable WebSocket with **abort propagation** and **resumability** (memory-only buffer + `Last-Event-ID`). The turn **completes server-side on disconnect** (best-effort — an eviction/deploy mid-stream saves nothing and bills nothing for **any** flow shape: nothing commits before settlement — §8 single-settlement); only an explicit user-stop aborts. Card charges use a **pre-claim** (Pattern D). |
 | **Communication & API design** | Hono + typed `hc<AppType>()`. Errors: per-slice tagged `DomainError` → `{code, details}` via exhaustive ts-pattern → `friendlyErrorMessage`. Cross-slice communication is **only through published barrel APIs** (boundaries-enforced). Realtime via Durable Objects. `Idempotency-Key` required on all mutations (with five declared exemption classes — §8). |
 | **Compute & deployment topology** | One product Cloudflare Worker (modular monolith) + one admin Worker (§14). DOs for realtime + stream coordination + flow execution + the JobDispatcher (§7); Cron for pollers, retention, auditors only. Stateless Worker; all state in PG/Redis/R2 (DO holds only in-flight execution — no marker). Deploys kill in-flight DO work — **accepted** (nothing committed + idempotent client retry; §8/§15). GitHub Actions CI/CD. Heavy server-side compute (video transcode, code execution) is **deferred** — see §12. |
 | **Reliability & resilience** | Pre-claim + the delayed verify job (no lost/stuck card charges); DB-backed idempotency (exactly-once money); cockatiel retry/timeout on every external call (no in-isolate breakers — §18); **fast-fail flows**: deadline-bounded, never resumed; a breach with a persisted partial **bills** the partial; nothing persisted → **nothing was ever charged** (§8 single-settlement); the jobs system for roll-forward ops; GC crons + read-only auditors as backstops (crash recovery is in-mechanism — §16); best-effort vs critical separation; an explicit user-stop aborts, but a transport disconnect completes + bills best-effort (the user authorized it on send). |
@@ -250,7 +255,7 @@ slices together.
 | `models` | model catalog + capability registry + inference orchestration over the `ModelProvider` port; premium-tier gating; ZDR-reachability |
 | `media` | R2 GC, presign (**epoch-gated**: membership AND an `epoch_members` row for the message's epoch), media-transform node implementations |
 | `notifications` | email, push (suppressed by mute + DO presence), device-tokens |
-| `account` | user search, encrypted custom instructions, accessibility preferences (LWW merge); **data export** (the lone jobs-pattern op — §7) |
+| `account` | user search, encrypted custom instructions, accessibility preferences (LWW merge); **data export** (an `export.build.v1` job — §7) |
 | `workflows` | the generic DAG engine (the in-DO executor), the node registry, the **definitions library** (incl. Smart Model — §11.7), the typed builder |
 
 Beyond the slices, two app-level areas: **`platform`** (health, roadmap proxy, app-update/
@@ -1159,7 +1164,7 @@ as a single in-process execution:
   retried. Per-node retries are small and short (cockatiel; `NonRetryableError` stops
   spinning); a node failure past its retries, or the instance deadline, terminal-fails the
   run.
-- **Infra ops** (data export — the lone current member): the **jobs pattern** (§7) — roll
+- **Infra ops** (data export — the lone current member): the **jobs system** (§7) — roll
   forward, retried until done, no deadline. A deletion must never give up because the user
   "probably retried."
 
@@ -2055,7 +2060,7 @@ apps/
 │       ├── app.ts                # assembly: default-deny pipeline, mounts slice routes
 │       ├── middleware/           # rate-limit, CSRF, CORS, version-check, security headers
 │       ├── platform/             # health, roadmap, app-updates, dev-only routes
-│       ├── jobs/                 # cron: gc, catalog-refresh, reconciles, true-up, jobs sweep
+│       ├── jobs/                 # job-type handlers + registry (§7); cron: pollers, retention, auditors
 │       ├── lib/                  # idempotency/ jobs/ result/ errors/ resilience/ telemetry/
 │       └── slices/               # identity · conversations · chat · billing · models ·
 │           │                     #   media · notifications · account — each:
@@ -2065,7 +2070,7 @@ apps/
 │               ├── nodes/        # modelCall, transform, branch, fanOut, fanIn, loop, subWorkflow
 │               ├── definitions/  # versioned flow library: smart-chat, media flows, …
 │               └── builder/      # plain typed builder functions
-├── admin-api/                    # admin Worker — own secrets, privileged Neon role (§14)
+├── admin-api/                    # admin Worker — Access verification only; zero Neon credentials (§14)
 └── admin/                        # admin SPA (Pages)
 packages/
 ├── shared/                       # Zod contracts, modality enum, error codes, descriptors,
