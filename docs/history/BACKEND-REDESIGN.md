@@ -198,7 +198,7 @@ Legend: ✅ core value · ◐ valued with a deliberate nuance · ⚠️ delibera
 | Recoverability | ✅ | Durable pre-claim/job state, lapsing leases + the dispatcher's perpetual alarm, frequent encrypted backups (Kopia→B2), idempotent retries |
 | Backpressure | ◐ | Strict per-conversation serialization (a second concurrent run is **rejected**, frontend + backend — §11.5), rate limits, bounded fan-out widths, bounded job batches |
 | Modularity / separation of concerns | ✅ | Vertical slices, published barrels, lint-enforced boundaries |
-| Loose coupling, high cohesion | ✅ | Import-graph boundary; cohesion via **transaction-boundary slicing** |
+| Loose coupling, high cohesion | ✅ | Import-graph boundary; cohesion via **single-writer-per-table slicing** |
 | Evolvability | ✅ | Data-driven registries; versioned descriptors/definitions; clean-slate removes cruft |
 | Backward / forward compatibility | ◐ | No users → no live back-compat burden now; but we **version** crypto blobs, descriptors, and workflow definitions (in-flight instances pinned). API versioning deferred |
 | DRY without over-abstraction | ✅ | Single-source types (Drizzle/Zod); shared node primitives reused by chat + engine; **reject** anemic over-porting |
@@ -225,7 +225,7 @@ Legend: ✅ core value · ◐ valued with a deliberate nuance · ⚠️ delibera
 **Also valued (already in our docs / added in this redesign):** 95% test coverage ·
 fail-fast / never-hide-problems · type-safety, no `any` · serverless mindset / no
 in-memory state · accessibility (WCAG) · no security through obscurity · local-dev parity
-· frequent forever backups · DX-first · cost efficiency · **transaction-boundary slicing**
+· frequent forever backups · DX-first · cost efficiency · **single-writer-per-table slicing**
 · **capability-driven extensibility** · **AI SDK as the portability seam (single Vercel AI Gateway)** ·
 **behavioral-tests-as-spec**.
 
@@ -243,8 +243,10 @@ that is where to look if lock-in-avoidance is ever reweighted higher.)
 
 ### Slice map
 
-Slices are organized by feature and by **transaction boundary** — what commits together,
-slices together.
+Slices are organized by feature and by **write ownership**. The checkable rule is
+**single-writer-per-table**: every table has exactly one owning slice, and only that
+slice's published write helpers touch it — cross-slice transactions compose those
+helpers, never reach into another slice's tables.
 
 | Slice | Owns (tables / responsibility) |
 |---|---|
@@ -264,12 +266,18 @@ its exemption list, the rate-limit registry) lives in `apps/api` as cross-cuttin
 the **admin plane** is a *separate* `apps/admin-api` Worker + `apps/admin` SPA — full design
 in §14 (Admin plane).
 
+The ConversationRoom DO class straddles three concerns and has a named owner for each:
+`packages/realtime` owns the **class** (platform glue — WS, alarms, hibernation); the
+`chat` slice owns its **turn-coordination behavior**; `workflows` owns the **executor it
+hosts**.
+
 Model **descriptor schemas** live in `packages/shared` (consumed by chat, billing,
 workflows); the **catalog service** is the `models` slice; persistence is `packages/db`.
 Ports that earn their keep (infra edges only): `ModelProvider`, `Storage`,
 `PaymentProvider`, `EmailSender`, `RealtimeBroadcast`, `Telemetry` (best-effort) — six —
-plus `TransformCompute` (abstract; heavy backend deferred) and a reserved-but-deferred
-`FeatureFlags`. (There is no `QueuePublisher` or `WorkflowRunner` port — their backing
+plus `TransformCompute` (implementation #1 is the in-process server adapter — §12; the
+heavy backend is deferred, so the port has a live consumer from day one, not an
+ossifying placeholder) and a reserved-but-deferred `FeatureFlags`. (There is no `QueuePublisher` or `WorkflowRunner` port — their backing
 services are out of the stack.) We do **not** wrap `Db`/`Cache`/`Crypto` behind anemic ports (it would discard
 Drizzle/Zod inference).
 
@@ -302,7 +310,10 @@ So `chat`'s `saveChatTurn` calling `billing.chargeWithinTx(tx, …)` is the **no
 pattern, not an exception. A "transactions never cross
 slices" rule (and the contrived "row-kind ownership in a shared table" workaround it
 forces) is rejected. Coupling
-stays explicit and lint-enforced; atomicity stays intact.
+stays explicit and lint-enforced; atomicity stays intact. One more ts-morph rule keeps
+the handle honest: **slice code may reference only its own slice's schema objects** —
+`chargeWithinTx`'s `SettlementTx` is a transaction capability, not a cross-table
+backdoor (holding the handle does not grant other slices' tables).
 
 ---
 
@@ -350,12 +361,16 @@ repair is explicit redrive — never a silent self-healing sweep.
 `shard` (`default` | `bulk`), `priority`, `payload` jsonb (Zod per type; mutable — checkpoint
 state), `result` jsonb, `dedupeKey` (**partial unique** `WHERE status IN
 ('pending','running')` — "at most one active"; finished rows never block re-enqueue;
-`ON CONFLICT DO NOTHING` so a duplicate can't abort the caller's transaction), `status`
+a caller needing re-enqueue-*after-completion* semantics must re-read the terminal row —
+the dedupe window closes at terminal state; `ON CONFLICT DO NOTHING` so a duplicate can't
+abort the caller's transaction), `status`
 (`pending|running|succeeded|cancelled|dead`), **two counters** — `claims`/`maxClaims`
 (poison detection; incremented at claim, so deploys never burn retries) and
 `failures`/`maxFailures` (drives backoff and `dead`) — `scheduledAt`, `nextAttemptAt`
 (delayed start = future value), `claimedAt`/`claimedBy` (lease anchor + completion-fence
-identity; long jobs heartbeat-touch `claimedAt`), `leaseSeconds` (per type), `cancelRequested`,
+identity; long jobs heartbeat-touch `claimedAt` **through the same `claims`/`claimedBy`
+fence as terminal writes** — a zombie's heartbeat cannot keep a dead lease alive),
+`leaseSeconds` (per type), `cancelRequested`,
 `errors` jsonb (full `{at, claim, error}` history).
 
 **Handler registry** — registration is rejected if incomplete:
@@ -365,9 +380,13 @@ identity; long jobs heartbeat-touch `claimedAt`), `leaseSeconds` (per type), `ca
 key derived from `jobId`, never jobId+attempt) | `byEventId` (e.g. Helcim-derived credits).
 Handlers return `ok(result?) | fail(error) | yield(checkpoint) | dead(error)` — **`yield`
 re-pends with updated payload and neutralizes its claim increment** (checkpoints never
-consume retries); deterministic errors (payload parse, 4xx-class) return `dead` directly.
+consume retries), and the checkpoint write goes through the same `claims`/`claimedBy`
+fence as terminal writes (a zombie's checkpoint cannot corrupt the live claim);
+deterministic errors (payload parse, 4xx-class) return `dead` directly.
 Default backoff `failures⁴ s ± 10% jitter, capped 1 h`. Payload evolution by versioned type
 names + tolerant parsing; unknown/unparseable ⇒ `dead` with a distinct code.
+**Yield-budgeting is a hard rule for bulk-shard jobs:** every pass must fit the 15-min
+alarm wall cap with margin (`export.build.v1`'s 900 s lease sits at that wall).
 
 **The dispatcher** — one Durable Object per shard, stateless except its alarm; `wake()` =
 `setAlarm(min(getAlarm() ?? ∞, now))`, called via `waitUntil` after any enqueueing commit
@@ -381,23 +400,28 @@ names + tolerant parsing; unknown/unparseable ⇒ `dead` with a distinct code.
    OR (running AND claimedAt + lease < now())) AND claims < maxClaims
    ORDER BY priority, nextAttemptAt, id LIMIT $batch FOR UPDATE SKIP LOCKED) RETURNING *` —
    batch 20 (`default`) / 2 (`bulk`); fresh Neon connection per invocation.
-4. **Execute** (`allSettled`, 6-connection-aware). Terminal writes go through the
+4. **Execute** (`allSettled`, 6-connection-aware; each handler races a per-job execution
+   timeout derived from its `leaseSeconds` — a hung handler can't eat the pass). Terminal
+   writes go through the
    **completion fence** `WHERE id=$id AND status='running' AND claimedBy=$me AND
    claims=$myClaim` (0 rows ⇒ roll back / zombie loss logged); `cancelRequested` at the
    fence ⇒ `cancelled` (pending-cancel is a plain atomic `pending→cancelled`).
 5. **Re-arm, race- and skew-safe:** more due work ⇒ re-arm *now* (drain chaining, bounded
-   per-pass wall budget inside the 15-min alarm cap); else `setAlarm(min(now + pgDelay,
-   getAlarm() ?? ∞, idleDecay))` — `pgDelay` is fetched **as an interval** from Postgres
+   per-pass wall budget inside the 15-min alarm cap); future-scheduled work ⇒
+   `setAlarm(min(now + pgDelay, getAlarm() ?? ∞))` — the alarm is the **exact**
+   `nextAttemptAt`: `pgDelay` is fetched **as an interval** from Postgres
    (`min(nextAttemptAt) − now()`, floor 250 ms; never compare PG timestamps to the DO clock),
-   and the `getAlarm()` min closes the wake-overwrite race. **Idle decay:** 60 s → 2 m → 5 m
-   → 15 m → 30 m cap when the table is drained (lets Neon scale to zero); any `wake()`
-   resets. Lost-wake worst case: ≤30 s busy, ≤30 m fully idle, ≤1 h absolute via the
-   auditor nudge.
+   and the `getAlarm()` min closes the wake-overwrite race. **Idle decay applies only when
+   no pending or future-scheduled work exists:** 60 s → 2 m → 5 m
+   → 15 m → 30 m cap (lets Neon scale to zero; idle decay never displaces an exact
+   `nextAttemptAt`); any `wake()` resets. Lost-wake worst case: ≤30 s busy, ≤30 m fully
+   idle, ≤25 m via the auditor nudge when the alarm is wedged.
 
 **Timing:** enqueue → first attempt ~10–50 ms; retries at exact backoff, second-precision;
 delayed starts second-precision; crash mid-job = lease + ≤30 s (fast) / ≤lease + 30 s (bulk).
 
-**Liveness & audit:** the hourly **jobs-health auditor** (read-only cron) pages on anything
+**Liveness & audit:** the **jobs-health auditor** (read-only cron, **every 15 minutes**)
+pages on anything
 stuck past `nextAttemptAt + 10 min` or `2× lease`, then calls `wake()` on both shards — the
 one blessed clock-nudge, because the platform's at-least-once alarm has a documented
 observed violation (cloudflare-docs#18324). Queue depth + oldest-pending age → WAE per pass.
@@ -448,8 +472,8 @@ slice's published barrel and importable only by allowlisted composers
 |---|---|---|
 | `idempotent.byKey` | client `Idempotency-Key`; first call acquires it via a **Postgres unique insert**, stores the response; retries replay it (Redis caches the hot path) | general mutating endpoints |
 | `idempotent.byUpsert` | `INSERT … ON CONFLICT`; DB unique constraint is the guard | natural-key creation (device tokens, member add) |
-| `idempotent.byTransition` | `UPDATE … WHERE status = <expected>` in a txn; assert rows-affected = 1 | state-machine steps (payment, turn) |
-| `idempotent.byEventId` | atomic claim on a unique event id (Postgres for money, Redis `SET NX` + TTL otherwise) | webhook consumers, job handlers |
+| `idempotent.byTransition` | `UPDATE … WHERE status = <expected>` in a txn; assert rows-affected = 1. **0 rows ⇒ read the actual state and disambiguate**: already-terminal = idempotent no-op; illegal state = defect → Sentry | state-machine steps (payment, turn) |
+| `idempotent.byEventId` | atomic claim on a unique event id (Postgres for money, Redis `SET NX` + TTL otherwise — the Redis tier is admissible **only where losing the dedup record is tolerable**, i.e. non-money; money events always claim in Postgres) | webhook consumers, job handlers |
 | `idempotent.byExternalPreClaim` | write a `pending` row before an external effect we must capture exactly once; finalize/reconcile after | card charges (Pattern D); rarely needed elsewhere |
 
 **Money is DB-backed, never Redis-only.** Unique idempotency-key constraints on the charge
@@ -477,12 +501,19 @@ a run dies. Instead, the premise is removed: **nothing commits mid-run.**
 >   normal settlement of the partial** — exactly like an explicit stop, and therefore
 >   billed. The "breach" failure path applies only when nothing was persisted.
 > - **The referee is the idempotency-key row** (there is no `flowRuns` table — §9): the
->   settlement transaction is fenced by the key row's `claimed → succeeded` transition;
->   dead-run detection for retries is the key row's `claimedAt` lease vs deadline + grace.
->   One state machine, not three.
-> - **Settlement discipline:** the transaction is **one statement** (data-modifying CTE or
->   `settle()` pl/pgsql function — each statement is a network round trip on this driver);
->   lock order is content → wallet → key row; **no external or Redis calls inside it,
+>   settlement transaction is fenced by the key row's `claimed → succeeded` transition,
+>   checked against `claimedBy` + `claims` inside `settle()`; dead-run detection for
+>   retries is the key row's **heartbeat lease** (~90 s — the live DO touches `claimedAt`;
+>   a killed run is retryable in seconds, never deadline + grace). One state machine,
+>   not three.
+> - **Settlement discipline:** the transaction is **one statement** — the **`settle()`
+>   pl/pgsql function** (one statement = one network round trip on this driver; a `RAISE`
+>   inside it aborts everything). A data-modifying-CTE variant is rejected: PostgreSQL
+>   executes data-modifying CTEs exactly once, to completion, even when unreferenced — a
+>   0-row fence CTE cannot suppress sibling writes unless every write takes an explicit
+>   dependency on it, and one missed dependency is an unfenced money write. Lock order,
+>   in full: content → wallet → `member_budgets`/`conversation_spending` (period rows) →
+>   the `conversations` row → the key row; **no external or Redis calls inside it,
 >   ever** (a named rule, reviewed); the Redis hold is released after commit and is
 >   advisory only — it never authorizes money.
 
@@ -497,17 +528,27 @@ crash/interleaving simulation (settle × retry-claim × cancel with a crash inje
 any two steps, asserting conservation and exactly-once).
 
 *Structural enforcement:* ledger writes only inside `slices/billing`; money `*WithinTx`
-helpers require the branded `SettlementTx` handle (above); `usage_records` rows carry a
-**NOT NULL FK to the content they billed** — *saved ⟺ billed is referential, not
-conventional* (§9).
+helpers require the branded `SettlementTx` handle (above); every `usage_records` row is
+**inserted with a non-null FK to the run's settlement-anchor content item — enforced
+inside `settle()`** (billed ⟹ the run persisted content; the column itself is nullable
+with `ON DELETE SET NULL` so financial retention survives hard deletion — §9).
 
 **Idempotency-Key rows are THE run referee (dual-role).** The
 table serves two lifecycles, split by a `kind` column: `request` (generic mutation dedup)
-and `run` (the settlement fence). The state machine: first arrival INSERTs `claimed` (the
+and `run` (the settlement fence). The row carries the same **`claims` + `claimedBy`
+fence** the jobs table has (§7). The state machine: first arrival INSERTs `claimed` (the
 unique constraint *is* the claim — race-free); `succeeded` replays the stored response;
-`claimed` + fresh lease ⇒ **attach** (runs: return the handle, rejoin the live stream);
-`claimed` + lease expired (deadline + grace — the executor is provably dead) or `failed` ⇒
-a retry claims re-execution via `byTransition` with the `claimedAt` lease. **Semantics,
+`claimed` + live lease ⇒ for `kind=run`, **attach** (return the handle, rejoin the live
+stream); for `kind=request`, **409-in-progress**;
+`claimed` + lease expired or `failed` ⇒
+a retry claims re-execution via `byTransition` (`claims+1`, `claimedBy` reset). For runs,
+**the claim transition is performed inside the conversation DO** — claim and
+execution-start are atomic in one actor; what serializes execution is DO
+single-instancing + the in-DO hard block (§11.5), with the lease as the liveness signal,
+not the serializer. **The live DO heartbeat-touches the key row's `claimedAt` on a short
+interval** (through the fence — §7's rule), so the lease is short (**~90 s**) regardless
+of run deadline: a deploy-killed run is retryable in seconds, not deadline + grace. The
+completion fence on `settle()` checks `claimedBy` + `claims`. **Semantics,
 stated precisely: serialized, client-driven retries — at most one execution in
 flight per key, ever**; each re-execution requires a fresh client request, gated by rate
 limits and admission. The body hash is computed over **canonicalized JSON** (key reordering
@@ -524,13 +565,21 @@ the ledger sequence, and the write CASes on it** — two commits racing can neve
 snapshot to an older balance; a short TTL forces a PG re-read on miss (staleness bound =
 TTL); `member_budgets` consumption is folded into the same admission Lua script
 (check-then-act is banned — CODE-RULES), read from **period-keyed rows** (§9 — no resets);
-the Lua script is operationally pinned (SCRIPT LOAD at deploy, EVALSHA with NOSCRIPT
-fallback, SHA in config, integration-tested against the SRH emulator). **Redis-down =
+the Lua script is pinned by its source: the SHA is **derived at Worker init** (SHA-1 of
+the bundled script source — the repo file *is* the pin; no config value exists), then
+EVALSHA, with NOSCRIPT → SCRIPT LOAD → retry of the same canonical script
+(integration-tested against the SRH emulator). **Redis-down =
 fail-closed**: with an unguarded settlement charge, fail-open admission is
-unbounded negative exposure — paid runs are refused with a typed error + loud alert. The
-honest exposure bound is `(K−1) × Σ(concurrent holds)` per wallet per chargeback cycle
+unbounded negative exposure — paid runs are refused with a typed error + loud alert.
+There is **no degraded admission mode of any kind** — no fallback to separate Redis
+commands, no PG-fallback path. Fail-closed is *forced*, not merely safer: with no
+durable in-flight run record (`flowRuns` does not exist — §9), no fallback could bound
+concurrent exposure. The
+honest exposure bound is `(K−1) × Σ(concurrent holds)` per wallet per chargeback cycle,
+plus one maximum step cost per run (the cost circuit evaluates at step boundaries — §13)
 (admission passes at balance; the §13 cost circuit allows K×; the concurrent-run cap
-multiplies) — welcome credit and K are sized against this formula, and a **snapshot-drift
+multiplies) — welcome credit and K (initial value 5 — §13) are sized against this
+formula, and a **snapshot-drift
 auditor** (hourly, read-only) alerts when Redis and ledger diverge past bound.
 
 **Retry composition.** `cockatiel` retry policies may only wrap an already-`Idempotent<T>`
@@ -545,7 +594,8 @@ compile-time, sound, zero analysis.
 **Enforcement.** *Type:* `runMutation` requires `Idempotent<T>`; money `*WithinTx` writes
 require `SettlementTx`. *Structural:* no raw Drizzle mutations outside repos/adapters;
 `*WithinTx` exports only via barrels, imports allowlisted (boundaries); the Idempotency-Key
-middleware is mounted on every mutating route (ts-morph). *Runtime:* middleware rejects
+middleware is mounted on every mutating route (ts-morph); route handlers may not import
+their own slice's repos directly — domain layer only (ts-morph). *Runtime:* middleware rejects
 mutations missing the key. *Tests:* each pattern has duplicate-delivery + retry +
 crash-recovery tests; the pre-claim path has a "crash after external effect" integration
 test asserting no double-charge and no loss.
@@ -585,12 +635,18 @@ redesigned schema:
   (`revenue`, `payments-in`, `promo`) beside user wallets; `ledger_entries.kind`
   discriminator (deposit / charge / true-up / clawback / promo / refund). Markup math runs
   in `numeric` and casts back (bigint overflow above ~$922k intermediates); rounding is
-  banker's, applied **once** at settlement; Drizzle `mode:'bigint'`; money serializes as
-  strings at JSON boundaries.
-- **Saved ⟺ billed is referential:** `usage_records` carries a **NOT NULL
-  FK to the content item it billed** plus a plain `runId` uuid for grouping (no parent
-  table — `flowRuns` is deleted, below). A charge row cannot exist without persisted
-  content, by constraint.
+  banker's (half-even), applied **once** at settlement, implemented **inside `settle()`**
+  (PG's `round(numeric)` is half-away-from-zero); Drizzle `mode:'bigint'`; money
+  serializes as a **branded `NanoUSD` string** at JSON boundaries, and `Number()`
+  coercion on money is lint-banned (2^53 ≈ $9.007M — user wallets never approach it;
+  house-account aggregates will).
+- **Saved ⟺ billed is referential at insert:** `usage_records.contentItemId` is a
+  **nullable FK with `ON DELETE SET NULL`** pointing at the run's **settlement-anchor
+  content item**, plus a plain `runId` uuid for grouping (no parent
+  table — `flowRuns` is deleted, below). The invariant is enforced at insert time inside
+  `settle()`: **every usage_record is inserted with a non-null reference** — billed ⟹
+  the run persisted content; hard deletion may later null the column (financial
+  retention — a NOT NULL column would make deletion and retention contradict).
 - **`relations()`** declared for every table (so Drizzle's relational queries are usable
   and joins aren't all hand-written).
 - **FKs added:** `messages.parentMessageId`, `messages.epochNumber → epochs`, all model
@@ -603,8 +659,9 @@ redesigned schema:
   `(shard, priority, nextAttemptAt) WHERE status IN ('pending','running')`, dedupe
   `UNIQUE(dedupeKey)` under the same predicate, prune on `(finishedAt) WHERE
   status='succeeded'`); **`idempotency_keys`** (scoped `(userId, route, key)` + `kind`
-  (`request`|`run`), outcome state + response + canonical body hash + `claimedAt` lease +
-  plain `runId` per the §8 referee; TTL + purge cron with the config-asserted floor);
+  (`request`|`run`), outcome state + response + canonical body hash + the
+  `claims`/`claimedBy` fence (same semantics as `jobs` — §7) + the heartbeat `claimedAt`
+  lease + plain `runId` per the §8 referee; TTL + purge cron with the config-asserted floor);
   `admin_audit` (append-only — §14). **`shared_messages` gains a `createdBy` FK** so a
   creator's deletion severs their public shares (a verified hole in today's code).
 - **Deleted tables:** **`flowRuns`** (the run referee is the idempotency-key row;
@@ -617,7 +674,9 @@ redesigned schema:
   §13); `shared_links.revokedAt` + `expiresAt` (revoke/expiry enforced **lazily at the read
   path** — a predicate, not a process); `member_budgets` and the free-tier allowance are
   **period-keyed** (`(memberId, month)` / `(userId, day)` rows upserted at settlement — no
-  reset jobs exist; rollover is a new row by construction).
+  reset jobs exist; rollover is a new row by construction). Periods are **UTC-keyed**, and
+  the boundary rule is: a run settles into the period of its **settlement commit time**
+  (a boundary-straddling run bills where it settles, not where it started).
 - **Constraints:** `messages UNIQUE(conversationId, sequence)` (the DO's strict
   serialization, DB-enforced); `wallets UNIQUE(userId, type)`; **every FK column gets an
   index or a written justification** (Postgres does not auto-index FKs; unindexed-FK
@@ -640,12 +699,16 @@ redesigned schema:
   pgEnum, the Zod schema, and the dispatch types), consumed by DB + API + AI.
 - **Hard deletion, no soft-delete of user data** (the privacy promise is *full* deletion):
   account deletion physically removes rows + R2 objects (GC sweeps orphans). Financial/ledger
-  rows are *retained but anonymized* — the user link is severed via `ON DELETE SET NULL` — which
-  is record-retention, not a soft-deleted copy of user data.
+  rows are *retained but pseudonymized* — the user link is severed via `ON DELETE SET NULL`;
+  the rows remain pseudonymous, not anonymous (e.g. `cardLastFour`), retained under GDPR
+  Art. 17(3)(b) legal-obligation retention — record-retention, not a soft-deleted copy of
+  user data.
 
-Append-only `ledger_entries` with running `balanceAfter`, **double-entry legs summing to
-zero per `transactionId`**; financial rows survive user deletion (deliberate
-audit retention via `ON DELETE SET NULL`).
+Append-only `ledger_entries`, **double-entry legs summing to
+zero per `transactionId`**; a running `balanceAfter` exists **only on user-wallet legs** —
+house-account legs carry no running balance (a single `revenue` row with a running balance
+would serialize every settlement on one row lock); financial rows survive user deletion
+(deliberate audit retention via `ON DELETE SET NULL`).
 
 ### Complete table inventory (completeness is checkable, columns live in Drizzle)
 
@@ -653,7 +716,8 @@ A table absent from this list does not exist; "carried" is an explicit claim, no
 implication. T0.5's acceptance covers **every row** of this inventory. *(New)* `jobs`.
 *(Changed)* `users` (+lockedAt/lockReason/deletionRequestedAt) · `wallets` (+UNIQUE
 (userId,type), nano-USD) · `ledger_entries` (double-entry legs, `kind`, nano-USD) ·
-`usage_records` (+contentItemId NOT NULL FK, +runId, idempotency unique, nano-USD) ·
+`usage_records` (+contentItemId nullable FK `ON DELETE SET NULL` — non-null at insert
+inside `settle()`, +runId, idempotency unique, nano-USD) ·
 `llm_completions`/`media_generations` (tool-step shape — T0.5) · `payments` (nano-USD,
 idempotency unique) · `member_budgets` (period-keyed) · `conversation_spending`
 (period-keyed) · `messages` (+parent/epoch FKs, +UNIQUE(conversationId, sequence)) ·
@@ -661,7 +725,7 @@ idempotency unique) · `member_budgets` (period-keyed) · `conversation_spending
 `conversation_forks` (FKs, enums) · `epochs` (+previous_epoch_id)/`epoch_members` ·
 `shared_links` (+revokedAt/expiresAt)/`shared_messages` (+createdBy) · `modelCatalog`/
 `modelPricing` (surrogate PK)/`modelOverrides` · `idempotency_keys` (+kind/runId/body-hash/
-lease) · `admin_audit` · `device_tokens`, `custom_instructions`, accessibility prefs,
+claims/claimedBy/lease) · `admin_audit` · `device_tokens`, `custom_instructions`, accessibility prefs,
 verification tokens (carried, enum/FK pass). *(Deleted)* `flowRuns` · `exports` ·
 `admin_pending_actions` · `projects`.
 
@@ -735,18 +799,21 @@ inference call sets `providerOptions.gateway.zeroDataRetention: true`. The gatew
 enforcement is **provider-granular, not model-granular**: it routes only to providers under
 a ZDR agreement (`no_providers_available` otherwise), but Vercel documents that
 **model-level ZDR exclusions are NOT failed** — a documented-exception model passes the
-flag silently. And the flag is **undocumented for image/video/embedding calls** (81 of 282
-live models) — possibly silently ignored. Therefore: the descriptor's `zdrReachable` is
+flag silently. The flag is **undocumented for image/video/embedding calls** (81 of 282
+live models); its **enforcement for image and video calls is founder-verified
+(founder-verified 2026-06-10 — undocumented behavior)**; embeddings remain unverified.
+Therefore: the descriptor's `zdrReachable` is
 **model-granular** — derived from the ZDR-provider list (~14 names, manual sync) *minus*
 documented model-level exclusions maintained in `modelOverrides` — and **we self-enforce
-fail-closed**: modalities whose flag enforcement T1.0 has not empirically proven are treated
-as ZDR-unreachable and hidden. **Strict fail-closed is the launch posture** — with one
-recorded carve-in: **the currently exposed image and video
+fail-closed**: anything unverified — model or modality — is treated
+as ZDR-unreachable and hidden until verified. **Strict fail-closed is the launch
+posture**: the currently exposed image and video
 models are manually marked ZDR-eligible in `modelOverrides`, founder-verified working with
-ZDR (verified 2026-06-10)**; models outside that verified set stay hidden
-until T1.0 (or subsequent manual verification) proves them. **The provider list is aged data, not a constant**:
-stored with a `syncedAt` timestamp, surfaced on the admin dashboard, Sentry-alerted when
-older than N days — it is the only gate for the unproven-modality models, so silent
+ZDR (founder-verified 2026-06-10). **Verification is aged data, not a constant**: each
+verification is recorded with a `verifiedAt` timestamp, surfaced on the admin dashboard,
+and Sentry-alerted when older than 90 days — the same standard the ZDR-provider list
+lives under (`syncedAt` timestamp, dashboard-surfaced, staleness-alerted); these are the
+only gates for these models, so silent
 staleness is exposure. (Per-request flagging is free on our Pro tier; the account-wide
 toggle stays off — it's billed per-request.)
 
@@ -758,7 +825,8 @@ toggle stays off — it's billed per-request.)
   T2.4's brief says so explicitly so an implementer doesn't "preserve" it.)* Audio stays
   **deferred** until the gateway supports it; if a feature ever forces it sooner, a
   direct-provider exception must be *designed* (it breaks the single-gateway ZDR story),
-  not slipped in.
+  not slipped in. When audio arrives it will be **two call-shapes** — speech (TTS) and
+  transcription (STT) — i.e., two adapters, not one.
 - The "one generic `infer()`" maps cleanly onto **language models** (true streaming). Image
   (three different API shapes — multimodal-LLM `file` parts via `generateText`, image-only
   models via `generateImage`, and OpenAI-style `image_generation` **tool results** the
@@ -817,7 +885,9 @@ override supplies pricing), and image/video models report zeroed context/token l
 **Reranking models are excluded from the v1 catalog** (five exist on the
 gateway, no product feature consumes them; the modality enum value arrives via the budgeted
 rare-migration path when one does), and **embeddings' modality is normalized from the
-`type` field, not `architecture`** (which reports a bogus `text→text` for them). The
+`type` field, not `architecture`** (which reports a bogus `text→text` for them). An
+**unknown gateway `type` value fails closed**: the model is excluded from exposure and a
+Sentry alert fires — the catalog cron never crashes on it. The
 catalog cron is **bounded: hourly, jittered, skip-unchanged** (it makes N+1 per-model
 calls). Billing and content rows FK into `modelCatalog`, so pricing and capability are
 joinable and versioned. Sync is **one-directional** (gateway → catalog, with
@@ -828,15 +898,18 @@ historical pricing, availability independent of the gateway, and rich local quer
 Where the metadata omits a capability, the `modelOverrides` table supplies *only* the missing
 field — the sole manual input, used only where automatic discovery is impossible.
 
-**No model is ever added by hand.** The model list, capabilities, and pricing are discovered
-**automatically** from the gateway metadata and refreshed by cron — a model the gateway
-advertises appears on its own. The *only* manual inputs are (a) a `modelOverrides` supplement,
+**No model is ever added by CODE — zero code, not zero touch.** The model list,
+capabilities, and pricing are discovered
+**automatically** from the gateway metadata and refreshed by cron — a **language** model
+the gateway advertises appears on its own, zero-touch. **Image/video models ride a
+deliberate manual data pipeline before exposure**: override ParamSpecs + pricing in
+`modelOverrides` + ZDR verification (above) — still data, never code. The manual inputs
+are (a) a `modelOverrides` supplement,
 used **solely** to fill a field the metadata genuinely can't express (known cases: non-language
 parameter surfaces, empty-pricing models, capability gaps like missing audio-input flags), and
 (b) the ~14-name ZDR-provider list sync (above). The *only* code ever required is a new
 **dispatch adapter**, and that is for a genuinely new *modality* the AI SDK handles differently
-(paired with the §9 enum migration) — never for adding a model. End to end, models and
-capabilities are metadata-driven; manual touch is the rare exception, not the path.
+(paired with the §9 enum migration) — never for adding a model.
 
 ---
 
@@ -976,7 +1049,7 @@ export const WorkflowDefinition = z.object({
 
 - **Typed edges — TypeTag v1 is deliberately minimal.** "Assignability"
   cannot be computed from Zod schemas, so edge-compatibility runs on a closed **TypeTag
-  algebra** in `packages/shared` — and v1 ships exactly **three rules**, with the written
+  algebra** in `packages/shared` — and v1 ships exactly **four rules**, with the written
   laws table they imply (a half-specified structural lattice at the engine's most
   load-bearing joint fails *confidently* — mid-run, after charging; minimal rules fail
   *strict* — at `build()`, the safe direction):
@@ -1044,8 +1117,9 @@ today).
 2. **Intermediates live in DO memory only.** Values pass between nodes in-process via the
    in-memory `ValueStore`. No R2, no durable state, nothing retained by any vendor system.
 3. **Final outputs are wrapped to the epoch public key at persist.** **Epoch-at-persist rule,
-   with its enforcing mechanism:** the finalize transaction re-reads
-   the current-epoch row **`FOR SHARE`** and asserts it matches the wrap target — row locks
+   with its enforcing mechanism:** the settlement transaction locks the **`conversations`
+   row `FOR SHARE`** and asserts `conversations.currentEpoch` equals the wrap target —
+   rotation's first-write-wins `UPDATE` on that row serializes against it; row locks
    are the tool (advisory locks don't exist on our driver path). Finals wrap to the epoch
    current *at persist time* (today's exact behavior); if the initiating user is no longer
    an epoch member by then, the run terminal-fails and persists nothing — and therefore
@@ -1217,11 +1291,13 @@ classifier bill, cheapest-eligible selection — are captured by T0.0 and encode
 definition). Future routing/ensemble features (draft-then-refine, multi-model voting) are
 likewise just definitions.
 
-**Ownership, in one sentence:** the engine owns the run
-lifecycle — admission hold, deadline, the key-row claim, settlement — for **every** run; a
-slice supplies only a **typed settlement-transaction hook declared on the definition**
-(chat's hook = `saveChatTurn` + `chargeWithinTx(SettlementTx, …)`). That sentence is the
-anti-duplication seam: there is no second place where lifecycle logic may live.
+**Ownership, in one sentence:** the engine owns run *sequencing* — deadline, the key-row
+claim, settlement ordering — for **every** run; a definition declares two **typed policy
+hooks**: an **admission hook** (chat's = the §13 balance check + Redis hold; trial's = the
+no-charge quota check — admission is policy, and trial proves it varies) and a
+**settlement-transaction hook** (chat's = `saveChatTurn` + `chargeWithinTx(SettlementTx,
+…)`). That sentence is the anti-duplication seam: there is no second place where lifecycle
+logic may live, and no run starts or settles except through its declared hooks.
 
 **The streaming seam is the `ModelProvider` port, stated honestly.** `NodeImpl.run()` is
 promise-shaped and cannot express token deltas — so non-terminal nodes resolve to values,
@@ -1363,14 +1439,20 @@ How each principle the project cares about is realized *specifically in the work
   user never sees two numbers**: `done` carries `cost: pending`; a `cost-final` event
   follows inline true-up (~1–2 s, the common case); past the display timeout the UI shows
   the estimate `~`-marked and the adjustment lands silently; usage screens always render
-  the summed effective cost. Rounding is **banker's, applied once at settlement**.
+  the summed effective cost. Rounding is **banker's (half-even), applied once at
+  settlement, implemented inside `settle()`** (PG's `round(numeric)` is
+  half-away-from-zero).
   Rationale for stats-over-metadata-math (verified): empty pricing objects, reasoning
   tokens, cache pricing, tiered rates, per-size image matrices (a documented 4.4×
-  discrepancy incident). **Image/video are expected to be estimate-billed permanently**
-  (the generation-cost endpoint is documented for language models only; verified
-  against gateway docs 2026-06-10): their display shows the price as final (no `~`), their
-  accuracy hangs on `modelOverrides` price matrices, and T1.0 confirms rather than gates —
-  the estimate path is **first-class**, precisely so missing stats can never block billing.
+  discrepancy incident). **All modalities unify on estimate-at-settlement + true-up**:
+  the gateway's per-generation cost endpoint works for image and video as well as
+  language (founder-verified 2026-06-10 — undocumented behavior; the docs cover language
+  models only). The estimate path stays **first-class** precisely so missing or changed
+  stats can never block billing; image/video display may show the estimate as final
+  (no `~`) until their true-up lands.
+- **Monthly gateway-invoice reconciliation:** a read-only auditor compares the gateway
+  invoice total against Σ `usage_records` per modality and pages on drift (T4.2's auditor
+  roster) — the authoritative backstop above per-generation true-up.
 - **Append-only ledger** with running balance; one purchased + one free-tier wallet per user.
 - **Admission → charge — and admission is atomic.** Admission is a per-wallet
   **Redis Lua check-and-add** over a holds hash plus a balance snapshot — N parallel
@@ -1379,18 +1461,28 @@ How each principle the project cares about is realized *specifically in the work
   *before* any model call; data-driven fanOut is priced at its **declared max width**; and a
   **mid-run cost circuit caps actuals at `hold × K`** (the 4.4× incident proves estimates
   undershoot; the circuit runs on in-memory observed-usage accrual, evaluated at
-  step/branch/node boundaries). The charge is applied **atomically with persistence**
+  step/branch/node boundaries). **K is a named code constant, initial value 5** (headroom
+  above the documented 4.4× worst case), owned by T2.3a (the admission/hold readout) and
+  enforced by T2.9b (the circuit) — an acceptance test in each; because the circuit
+  evaluates at step boundaries, the true per-run exposure bound is **`hold × K` + one
+  maximum step cost**. The charge is applied **atomically with persistence**
   (`chargeWithinTx(SettlementTx, …)`) at settlement, with no balance guard at that point
   (negative supported). The hold is not money — it auto-expires; the ledger is the durable
   truth. A crash before settlement saves nothing and bills nothing, for any flow shape
   (§8 single-settlement). Honest exposure bound + Redis-down posture: §8.
 - **Disputes claw back.** A Helcim chargeback/reversal webhook posts a
   `byEventId` ledger debit — the dispute path exists in the design, not just the happy path.
+  Event handling is enumerated: **auto-defense (lock + session revoke — below) triggers
+  only on actual chargeback/reversal events; inquiries/retrievals notify admins but never
+  lock.**
 - **Group turns: the initiator's wallet pays**; `member_budgets` are checked at admission.
 - **Abuse bounds:** a global trial/welcome-credit budget with non-IP keying limits Sybil
   farming (email is otherwise the only gate); and "15% over base provider cost" is defined
   as **base = what the gateway charges us** (upstream provider cache discounts the gateway
-  doesn't pass through are out of scope).
+  doesn't pass through are out of scope). Hard deletion means a deleted account's email
+  can re-register and receive the welcome credit again — this loop is deliberately
+  accepted and bounded by the global trial/welcome budget (no fraud record survives
+  deletion: full deletion outranks grant dedup).
 - **Billing survives client disconnect.** Payment is authorized at send; a transport disconnect
   does not void it. The turn completes server-side, the answer is persisted, and the wallet is
   charged regardless of whether the client is still connected. Only an explicit user *stop*
@@ -1403,7 +1495,8 @@ How each principle the project cares about is realized *specifically in the work
 - **Agentic turns bill per generation:** a multi-step `modelCall` produces one
   `usage_records` row per gateway generation under one node-charge umbrella (§11.2); the
   declared `maxSteps` feeds admission; `hold × K` evaluates per step.
-- **Chargeback auto-defense:** the dispute webhook, besides the `byEventId`
+- **Chargeback auto-defense:** an actual chargeback/reversal event (never an
+  inquiry/retrieval), besides the `byEventId`
   clawback debit (a double-entry reversal pair — §9), also locks the account
   (`users.lockedAt`/`lockReason`) and revokes sessions — both reversible, so they
   qualify for §14's defensive (no-delay) class — bounding load-spend-dispute to one cycle
@@ -1429,14 +1522,24 @@ How each principle the project cares about is realized *specifically in the work
   `billingOnly`) is enforced **uniformly, including on step-up routes** — closing the bypass
   (Defect 1). The copy-pasted 16× middleware bundle is gone. **The pipeline includes a
   `pending-2FA` route class**: routes like `login/2fa/verify` must run while the
-  session is mid-2FA — without this class, default-deny breaks login-time 2FA. *(Defect 1's
+  session is mid-2FA — without this class, default-deny breaks login-time 2FA. Three
+  pinned edges: **WS upgrade requests run the full default-deny pipeline**; the
+  pending-2FA class is **exact-match routes**, never a prefix; and the **public allowlist
+  gets a ts-morph assertion**. *(Defect 1's
   evidence restated per current code: delete-account now mounts revocation with an
   intentional-skip comment elsewhere; the cleanly exploitable revoked-cookie surface is
   2FA-enable. The uniform pipeline closes the whole class regardless.)*
 - **Step-up** (OPAQUE re-auth + TOTP) for sensitive ops; least-privilege per-slice authz.
-- **Crypto hardening:** branded key types (no argument transposition), a versioned header on
-  **every** blob (including symmetric), **bounded decompression** (Defect 8), keyed (HKDF)
-  epoch confirmation, one `wrapSecretTo`/`unwrapSecret` primitive.
+- **Crypto hardening:** branded key types (no argument transposition); a versioned header on
+  **every** blob (including symmetric); AAD context binding that includes `senderId` and
+  binds the wrapped content key — AAD is **location-binding, not authorship** (anyone
+  holding the epoch public key, including the server, can mint valid ciphertext); fresh
+  random nonces per STREAM chunk (never a zero-nonce pattern); **bounded decompression**
+  (Defect 8) as an **absolute streaming-abort cap** — abort mid-inflate at the byte
+  limit, never a ratio check, never inflate-then-measure; keyed (HKDF)
+  epoch confirmation; one `wrapSecretTo`/`unwrapSecret` primitive taking
+  **domain-separation labels**. Compress-then-encrypt is safe here: no cross-source
+  co-compression in one stream ⇒ no CRIME-shaped leak (padding optional).
 - **ZDR enforced per-request** — self-enforced fail-closed (§10: the gateway's enforcement
   is provider-granular; unproven modalities are treated as unreachable); the catalog's
   derived `zdrReachable` gates model exposure.
@@ -1466,7 +1569,9 @@ executes inside the product Worker, under its role, through the same invariants 
 everything else (the §8 settlement discipline, idempotency, billing's published APIs).
 **Action tiers (defensive/ops/money/deletion) are product-side constants keyed by RPC
 method name — never a forwarded parameter** (a compromised admin Worker must not
-be able to mark a credit adjustment "defensive"). A fully compromised admin Worker can do
+be able to mark a credit adjustment "defensive"); **`adminRedriveJob`'s tier derives from
+the target job's type** (redriving a money-class job is a money-tier delay), never the
+RPC method alone. A fully compromised admin Worker can do
 exactly what the RPC surface permits, at the tier the product Worker says it has. Hand-rolled UI reusing `packages/ui`/`shared`; internal-tool
 platforms rejected (cloud ones proxy our data; self-hosted ones need an always-on server
 and have a real CVE history — Appsmith unauthenticated RCE).
@@ -1485,11 +1590,18 @@ and have a real CVE history — Appsmith unauthenticated RCE).
    fails closed (no header → 401). Access enablement alone validates nothing; this layer
    holds even if someone reaches the Worker around Access. Side doors closed in config:
    `workers_dev: false` *in wrangler config* (dashboard-only toggles re-enable on deploy),
-   preview URLs gated, the Pages `*.pages.dev`/preview Access toggle on,
+   preview URLs gated via the Pages preview-deployment Access toggle — which does **not**
+   cover the production `*.pages.dev` host: the admin SPA gets its **own Access app
+   covering the production `pages.dev` host** (or a custom domain with `pages.dev`
+   disabled), and
    `Cache-Control: no-store, private` on all admin responses.
-3. **In-app WebAuthn step-up** for any mutation — a fresh assertion against the admin Worker
-   itself (separate registration from Access's), elevation cached ~10 minutes. A stolen live
-   Access session still can't mutate.
+3. **In-app WebAuthn step-up** for the irreversible tiers (money, deletion) **and for
+   immediate defensive executions** — a fresh assertion against the admin Worker
+   itself (separate registration from Access's). Money/deletion elevation is cached
+   ~10 minutes; defensive executions take a fresh assertion per action with no elevation
+   cache (layer 4). Routine ops and account-state mutations do **not** require step-up —
+   their control is delay-and-notify (layer 4). A stolen live
+   Access session still can't move money, delete, or fire defensive actions.
 4. **Delay-and-notify on every mutation (no four-eyes — it deadlocks at 1–3
    people).** Mutations are **delayed `admin.executeAction.v1` jobs** (there is no
    `admin_pending_actions` table; `nextAttemptAt` = tier delay,
@@ -1502,13 +1614,17 @@ and have a real CVE history — Appsmith unauthenticated RCE).
    just as loudly, require a **fresh WebAuthn assertion per action (no elevation
    cache)**, and carry **bulk-target caps + a rate limit on the defensive class** (a
    hijacked session inside an elevation window must not mass-lock the userbase).
-   Notification delivery is itself an **`admin.notify.v1` job with retries**,
-   over **two pinned independent channels**; "delivered" = accepted on ≥1 channel to ≥1
+   Notification delivery is itself an **`admin.notify.v1` job with retries**, over **one
+   channel: email to every admin email via the existing Resend path** (Resend idempotency
+   key derived from the jobId — §7); "delivered" = accepted for ≥1
    **non-initiating** admin — honestly stated: at exactly one admin this degenerates to
-   self-notification, accepted until a second admin exists.
+   self-notification, accepted until a second admin exists. Accepted consequence: a
+   Resend outage freezes non-defensive mutations until recovery — they are delayed jobs
+   and fire when delivery succeeds; the **defensive class is execute-then-retry-notify**
+   and never waits on delivery.
 
-**CLI/scripts:** Access service tokens (1-year, Service-Auth policy, expiry alerts),
-verified through the same JWT path.
+**CLI/scripts:** Access service tokens (default 1-year, extendable; Service-Auth policy,
+expiry alerts), verified through the same JWT path.
 
 **Audit.** Structural middleware **in the product Worker, on RPC receipt** (not
 per-handler opt-in, and never written by the caller) records every admin action **and
@@ -1532,9 +1648,12 @@ content** (ciphertext by construction) but **can read the full plaintext metadat
 emails, membership/social graph, costs, share links. The four defense layers gate
 *mutations*; therefore **reads are audited too** (same `admin_audit` middleware), SELECT
 grants are scoped per panel area, and the break-glass Neon/R2 credentials get specified
-offline storage + rotation. **Delay-and-notify fails closed**: if the out-of-band
+offline storage + rotation. **Delay-and-notify fails closed for non-defensive
+mutations**: if the out-of-band
 notification cannot be delivered, the queued action does not execute — otherwise delays are
-rubber stamps. Any "test endpoint" feature is SSRF — destination allowlists only.
+rubber stamps; the defensive class executes first and retries notification (blocking
+defense on delivery would help the attacker). Any "test endpoint" feature is SSRF —
+destination allowlists only.
 
 **Break-glass.** Access has real outage
 history (Nov 2025, Oct 2023). Shared fate mostly covers us (edge down = panel down anyway).
@@ -1544,10 +1663,13 @@ re-opens the API, which is correct and is exactly why that token is useless. Ins
 an explicit **break-glass auth mode on the admin Worker** — an offline-stored static key
 accepted *in lieu of* the Access JWT only when a `BREAK_GLASS` flag is set via deploy,
 every use audited and Sentry-alerted — plus direct Neon/R2 credentials (offline storage,
-rotation) for out-of-band scripts. Step-up (layer 3) still applies in break-glass mode.
+rotation) for out-of-band scripts. The break-glass deploy is **one pre-staged, tested
+command**; it covers an Access outage but **not** a Cloudflare control-plane outage
+(`wrangler deploy` rides api.cloudflare.com) — the offline Neon/R2 credentials are the
+true last resort. Step-up (layer 3) still applies in break-glass mode.
 
-**Verify at implementation:** Independent MFA availability on the free tier (shipped
-2026-04 without an Enterprise flag — unconfirmed), and the 50-user free-tier figure.
+**Verified:** Independent MFA on the Zero Trust free tier (GA'd 2026-04-15). **Verify at
+implementation:** the 50-user free-tier figure.
 
 ---
 
@@ -1561,14 +1683,15 @@ rotation) for out-of-band scripts. Step-up (layer 3) still applies in break-glas
 - **Survival is engineered, not assumed.** An in-flight
   outbound fetch blocks hibernation but does **not** prevent eviction, and deploys restart
   DOs with no grace window or shutdown hook (verified platform behavior — there is no
-  "stays alive while fetching" guarantee; **T1.0 explicitly tests the headline case:
-  client-gone + in-flight gateway fetch → does the run complete?** — the platform
-  docs are ambiguous on it). A kill needs no cleanup: **nothing was committed** (§8
+  "stays alive while fetching" *guarantee*; in practice, **a DO sustaining a minutes-long
+  outbound fetch — including after the client disconnects — is founder-verified
+  (2026-06-10)**). A kill needs no cleanup: **nothing was committed** (§8
   single-settlement) — the hold TTLs out, the key lease lapses, the client's own deadline
   timer shows "turn failed — not billed," and the idempotent auto-resubmit re-executes.
   **Deploy kills are accepted (no separate DO deploy script).** An
   `AbortController` is threaded into the model call **only for an explicit user *stop***
-  (which settles any partial per policy).
+  (which settles any partial per policy); the stop itself is a **plain HTTP `POST`**,
+  never WS-dependent — a WS-blocked user must be able to abort a paid run.
 - **Resumable streams:** tokens are buffered in the per-conversation Durable Object —
   **memory-only, current-turn-only, capped (per-turn byte cap; overflow drops
   replay and the client falls back to fetch-after-settlement; an unknown `streamId` on
@@ -1583,8 +1706,10 @@ rotation) for out-of-band scripts. Step-up (layer 3) still applies in break-glas
   gutting "idle conversations cost ~nothing." **The unrecorded failure population is
   measured from day one:** corporate/school proxies and some mobile middleboxes
   block WS upgrades — for them the product produces zero output with a working API — so a
-  **WS upgrade-failure WAE metric** ships with T2.7b and §21 carries the transport re-entry
-  trigger. **No fallback is built (unverified problem):** noted for the
+  **WS upgrade-failure WAE metric** ships with T2.7b, paired with a **client-side
+  beacon** (an HTTPS report when the client's WS fails or goes silent — server-side WAE
+  alone cannot see middleboxes that kill before the edge), and §21 carries the transport
+  re-entry trigger. **No fallback is built (unverified problem):** noted for the
   record that a degraded fallback is *cheap* if ever needed — because turns complete and
   persist server-side regardless of transport, a client whose WS fails could simply poll
   message-fetch until the turn is terminal; the metric is the instrument that would justify
@@ -1592,9 +1717,14 @@ rotation) for out-of-band scripts. Step-up (layer 3) still applies in break-glas
 - **No zombie sockets (a verified hole in current code).** A WS is authorized once at upgrade today and never re-checked: a member removed
   mid-conversation keeps receiving live plaintext token streams indefinitely. v2 rule:
   membership change, epoch rotation, session revocation, **and link revocation** each
-  trigger eviction — addressed via a **short-TTL Redis revocation flag checked at broadcast
-  time** plus a per-user active-DO set for fan-out of `evict(principalId)` (broadcast-time
+  trigger eviction — addressed via a broadcast-time membership check whose Redis entry is
+  a **short-TTL cache of authoritative membership with a DB recheck on miss** — never an
+  expiring "revoked" signal (a TTL lapse would un-revoke) — plus a per-user active-DO set
+  for fan-out of `evict(principalId)` (broadcast-time
   revalidation is the guarantee; "or heartbeat" was a leak window and is dropped).
+  **Redis-down broadcast policy: fail-closed with a bounded last-known-good window** —
+  delivery continues to principals validated within the last N seconds; beyond that,
+  delivery pauses rather than risk plaintext to evicted members.
   Acceptance lives in T1.5/T2.2/T2.7b.
 - **Durable Object** = per-conversation realtime hub (hibernatable WebSockets, presence —
   fixed to emit the real `conversationId`) + the resumable-stream buffer; injected via DI, not
@@ -1634,8 +1764,13 @@ also silently hides the bug.**
   transactionally with its trigger (§7); the dispatcher's perpetual alarm is the only
   scheduler; terminally failed jobs are `status='dead'` rows — queryable forever, visible
   in the admin panel, redriven by `UPDATE`. (No DLQ by design: a row cannot evaporate.)
-- **Auditors (read-only, hourly):** ledger conservation, jobs health (+ the one blessed
-  clock-nudge — §7), snapshot drift. They page via Sentry; they never mutate domain state.
+- **Auditors (read-only; jobs-health every 15 minutes, the others on their declared
+  cadence):** ledger conservation, jobs health (+ the one blessed
+  clock-nudge — §7), snapshot drift, and the rest of T4.2's roster. They alert via
+  Sentry with a two-level discipline: **routine, expected-frequency anomalies (true-up
+  stragglers, transient drift) flow to a daily digest; pages are reserved for invariant
+  violations** (conservation breaks, stuck jobs past bounds). They never mutate domain
+  state.
 - Best-effort vs critical separation (push/email degrade; money/auth/persistence fail fast).
 
 ---
@@ -1647,8 +1782,8 @@ also silently hides the bug.**
   retention, Logpush to R2 for longer). Queryable from the coding assistant via the
   **Cloudflare Observability MCP**.
 - **App/business metrics — Workers Analytics Engine** (native; model usage, token counts, cost,
-  latency, tier — high-cardinality, 3-month retention, SQL/GraphQL). Replaces behavioral product
-  analytics for counts.
+  latency, tier — high-cardinality, 3-month retention, **SQL API only**). Replaces behavioral
+  product analytics for counts.
 - **Errors — Sentry** (the one third-party gap: native has no grouping/dedup/alerting/release
   regression). Source maps + native Tail-Worker integration; queryable via the **Sentry MCP**.
   Locked down for privacy (below). **Fingerprinting includes `errorCode`** (stack-
@@ -1656,6 +1791,8 @@ also silently hides the bug.**
   client-side Sentry SDK, as a rule:** browser capture (DOM breadcrumbs,
   URLs) lives too close to plaintext space; frontend errors are debugged from reports.
 - **Tracing — Cloudflare native OTel tracing** (vendor-neutral OTLP, exportable to Sentry).
+  Open beta, billed as observability events, metrics not exportable — **verify at
+  implementation** (§21), with Sentry tracing as the fallback.
 - **Product analytics (PostHog) — deferred.** No client analytics SDK, no autocapture, **no
   session replay, ever** (incompatible with the privacy mission). If ever needed: self-hosted,
   replay/autocapture off, server-side allowlist events only.
@@ -1665,7 +1802,10 @@ also silently hides the bug.**
   panel (§14); settled-run attribution via `usage_records.runId` + idempotency keys; live/
   failed-run telemetry rides WAE (no run table — §9); health endpoints. **Every WAE metric
   names its watcher** (WAE has no native alerting): each metric is either read by
-  an auditor that pages, or rendered on the admin dashboard, or it doesn't ship.
+  an auditor that pages, or rendered on the admin dashboard, or it doesn't ship. The
+  **WAE-metrics auditor** (read-only cron polling the WAE SQL API on the auditor
+  cadence — T4.2) is the named watcher for threshold metrics, the WS upgrade-failure
+  metric (§15) first among them.
 
 **Telemetry discipline (privacy mission — enforced, not hoped):**
 - One **`Telemetry` port**, **best-effort** (error channel `never`; never blocks or fails a
@@ -1682,8 +1822,11 @@ also silently hides the bug.**
 - **Never logged:** message content, prompts, model outputs, decrypted data, ciphertext, keys,
   secrets, email/PII, request/response bodies. *Enforcement:* ESLint `no-restricted-syntax` bans
   `console.*` string interpolation and logging any variable matching
-  `/message|prompt|content|body|text/i`; an optional OTel redaction processor
-  (`allow_all_keys:false` + allowlist) as a fail-closed second layer.
+  `/message|prompt|content|body|text/i`; `console.*` is additionally **patched at the
+  Worker entry point** — dependency console output otherwise reaches Workers Logs around
+  both the port and the lint; the OTel redaction processor
+  (`allow_all_keys:false` + allowlist) is **mandatory when tracing ships** —
+  auto-instrumented spans embed SQL and URLs.
 - **Errors carry codes, not content.** Sentry: `sendDefaultPii:false`, `beforeSend` strips
   user/request-body/cookies/headers/breadcrumbs, drop console+xhr breadcrumbs, remove the
   RequestData integration, plus server-side Advanced Data Scrubbing. `DomainError` messages never
@@ -1724,18 +1867,23 @@ Format: **Choice** — why. *Denied:* alternative (reason). 🆕 = new/changed i
   (fast-fail by policy makes resume-after-crash — the headline feature of any durable
   engine — explicitly unwanted); durable async ops use the **transactional jobs system**
   (§7: job row in the caller's transaction + alarm-clocked dispatcher — no sweep,
-  no queue); fire-and-forget effects use `waitUntil` (declared best-effort). The decisive
-  asymmetries vs Queues: a queue send can never be atomic with a Postgres commit
-  (the outbox problem — the job row IS the outbox), a queue ack can never be atomic with
-  the effect (the fenced completion transaction is), and dead jobs are rows: queryable
-  forever, admin-visible, redriven by `UPDATE` — vs a DLQ's 14-day evaporating retention.
+  no queue); fire-and-forget effects use `waitUntil` (declared best-effort). The denial of
+  Queues rests on **two atomicity asymmetries**: (a) a queue send can never be atomic with
+  a Postgres commit
+  (the outbox problem — the job row IS the outbox); (b) for **`txn`-class jobs**, a queue
+  ack can never be atomic with
+  the effect (the fenced completion transaction is). Pull-consumers and pause/purge exist
+  on Queues now, so cancellation and queue management are no longer differentiators —
+  but dead jobs as rows (queryable
+  forever, admin-visible, redriven by `UPDATE` — vs a DLQ's 14-day evaporating retention)
+  still favor rows, and the asymmetries are decisive.
   The dispatcher's alarm supplies the push latency a queue would have offered (~10–50 ms
   first attempt, second-precision retries).
   *Denied:* **Cloudflare Workflows** (zero in-scope consumers after fast-fail + Pattern-A
-  deletion; platform still young — V2 shipped mid-2026; user-reported multi-minute start
-  jitter); **Cloudflare Queues** (every advantage duplicated or
-  beaten by the jobs system; delays exist but messages can't be cancelled; no-DLQ silent
-  deletion); Temporal / Inngest / Trigger.dev / DBOS (external control planes, heavier than
+  deletion; platform still young — the V2 rearchitecture shipped 2026-04, which does not
+  change the zero-consumer denial; user-reported multi-minute start
+  jitter); **Cloudflare Queues** (the two atomicity asymmetries above);
+  Temporal / Inngest / Trigger.dev / DBOS (external control planes, heavier than
   the need); pg-boss / graphile-worker (daemon-shaped: polling loops, LISTEN/NOTIFY,
   long-lived pools — workerd has no daemons; their battle-tested *patterns* — SKIP LOCKED
   claims, partial-unique dedup, snooze-not-attempts, errors history — are adopted in §7,
@@ -1801,10 +1949,15 @@ Format: **Choice** — why. *Denied:* alternative (reason). 🆕 = new/changed i
 - **neverthrow** — typed `Result` error channel at service seams; explicit, never-swallowed
   errors. *Health note (verified):* releases have stalled (~16 months), bus factor 1 —
   acceptable on a small vendorable surface, **but a must-use lint is mandatory** or dropped
-  Results fail silently: adopt a maintained community fork (e.g.
-  `@ninoseki/eslint-plugin-neverthrow`) in T0.2. *Denied:* **Effect-TS** (50KB+, Workers
-  impedance, agent-unfriendly idiom, worse stack traces, would discard Drizzle/Zod inference —
-  full rationale in our evaluation); fp-ts (heavier); ts-results/oxide.ts (less maintained);
+  Results fail silently: the community forks peer-require ESLint ≥10 (the repo is on 9),
+  so the single must-use rule (~100 LOC) is **vendored into `packages/config`** in T0.2.
+  **The throw/Result boundary, stated once:** domain code returns `Result`; adapters
+  translate infra throws (including cockatiel's timeout/cancel errors) into typed errors
+  at the port; any exception reaching a route handler is a defect → 500 + Sentry capture.
+  *Denied:* **Effect-TS** — stated honestly: Effect 3.x is mature and Workers-capable; the
+  denial rests on team fit, agent-idiom friction, migration cost, and discarding
+  Drizzle/Zod inference — not on viability;
+  fp-ts (heavier); ts-results/oxide.ts (less maintained);
   throw+catch only (implicit, swallow-prone).
 - **ts-pattern** — exhaustive matching (DomainError→code, node dispatch); compiler catches
   unhandled variants. *Denied:* `switch`+`assertNever` (verbose, drift-prone); Effect `Match`
@@ -1875,7 +2028,7 @@ Format: **Choice** — why. *Denied:* alternative (reason). 🆕 = new/changed i
   Logpush to R2 for retention. *Denied:* Axiom (native covers it; a vendor for marginal
   retention/query gain — revisit only if long-retention ad-hoc querying hurts).
 - **Workers Analytics Engine** — native high-cardinality app/business metrics, 3-month retention,
-  SQL/GraphQL. *Denied:* Datadog (enterprise cost); Grafana (local-MCP friction).
+  SQL API only. *Denied:* Datadog (enterprise cost); Grafana (local-MCP friction).
 - **Sentry** — error grouping/dedup/alerting/release-regression (a real native gap), source maps,
   Tail-Worker integration, best-in-class MCP. *Denied:* native-only error visibility (no
   grouping/alerting); Highlight/Rollbar/Bugsnag (Sentry's DevEx + MCP lead).
@@ -1896,10 +2049,12 @@ Format: **Choice** — why. *Denied:* alternative (reason). 🆕 = new/changed i
 - **Turborepo** (graph caching) · **pnpm** (strict workspaces) · **Vitest ^4.1** (required by
   the pool — the repo's ^4.0.18 must bump) + 🆕 **@cloudflare/vitest-pool-workers**
   (real Workers runtime in tests; known: DO + WebSocket tests need `--no-isolate`
-  single-worker mode — mandate per-test storage cleanup; **coverage is Istanbul-only** —
-  the repo's `@vitest/coverage-v8` can't merge with it, so pool tests run as a separate
-  vitest project with a merged-report step, specified in T0.1/T0.4; DO-finalize
-  path validated in T0.4 with a pre-planned thin-shell fallback; alarms tested via
+  single-worker mode — mandate per-test storage cleanup and keep the project small;
+  **the pool project runs without coverage** (its coverage support is Istanbul-only and
+  actively broken against the required vitest) — all logic lives in plain modules under
+  the v8-covered node-environment projects, the thin-shell DO is the default pattern
+  (§19), and the DO-finalize
+  path is validated in T0.4; alarms tested via
   `runDurableObjectAlarm` with explicit per-test alarm cleanup — they leak across tests) ·
   **Playwright** (cross-browser E2E; CDP virtual WebAuthn authenticator for admin step-up
   tests) · **fishery + @faker-js/faker** · **MinIO** (local R2 emulator) · **execa + tsx** ·
@@ -1929,6 +2084,12 @@ confirmation at the end, not discovery.
   infra — Postgres, Redis, MinIO, workerd (vitest-pool-workers). **Internal slices are never
   mocked** — tests call the real barrel. Mocks/cassettes exist only for: gateway, Helcim,
   Resend, push.
+- **Test placement: node-environment vitest is the default.** The vitest-pool-workers
+  project exists only for alarms/WS/hibernation behavior; it runs `--no-isolate`
+  single-worker, must stay small, and runs **without coverage** — all logic lives in
+  plain modules under the v8-covered node-environment projects, where the 95% gate
+  applies. The **thin-shell DO is the default pattern, enforced by an arch rule**: DO
+  classes contain only platform glue.
 - **Standard batteries per pattern (enforced, checkably).**
   Every `idempotent.*` call site ships three tests by convention: duplicate delivery,
   retry-after-crash, concurrent race (money paths additionally the settlement
@@ -1948,7 +2109,10 @@ confirmation at the end, not discovery.
   live 4xx/5xx are correctly never cached, which means error paths never replay — so
   hand-curated synthetic failure cassettes (`no_providers_available` for ZDR fail-closed,
   429s, truncated streams) are injected at the same fetch seam, making error handling
-  deterministic in CI. Real-API tests run in CI with `verify:evidence`. (**Rejected:**
+  deterministic in CI. Real-API tests run in CI with `verify:evidence`. **Development and
+  implementation agents never hold production credentials**; real-API verification
+  questions are answered by the founder and recorded as dated facts in this doc (CI's
+  restricted-key tests are unchanged). (**Rejected:**
   a scheduled cassette-wipe/real-call canary, and mutation-testing gates.)
   **Stryker disposition:** the existing weekly mutation run's globs
   (`packages/shared`, `packages/db`) **exclude v2 paths during coexistence** and are
@@ -1961,7 +2125,10 @@ confirmation at the end, not discovery.
   lease-expired retry × cancel × true-up with a crash injected between any two steps,
   asserting conservation (write-time zero-sum) and exactly-once.
 - **Early e2e signal during the big-bang:** `app-v2`
-  mounts on a **dev-only prefix from T0.3**; a per-slice **API-level smoke project** (typed
+  mounts on a **dev-only prefix from T0.3**; each slice ships a **`registerRoutes`
+  manifest entry** consumed by `app-v2`'s dev-prefix mount, so live routes exist per
+  slice as each slice lands (slice tasks edit only their own dir); a per-slice
+  **API-level smoke project** (typed
   `hc` client against `app-v2`) runs from Wave 2; a **browser-crypto round-trip harness**
   exercises T0.7's AAD envelopes from Wave 1; T4.4a's transport swap gets a thin
   **sub-spike pulled forward** to Wave 2c. The frontend/crypto integration is otherwise
@@ -2007,9 +2174,11 @@ implementer pass (the former oversized identity/billing/chat tasks are split bel
 sensitive tasks (auth, authz, payments, crypto, user data, deletion, uploads, admin) that
 receive a multi-lens review. Each task: **objective · acceptance (testable) · owns (paths)**.
 **Owns convention:** a slice task owns `slices/<name>/**` plus any named extras;
-chained sub-tasks (T2.1a→c, T2.3a→c, T2.7a→c) share their slice dir and serialize; the
+chained sub-tasks (T2.1a→c, T2.3a→c, T2.7a→b) share their slice dir and serialize
+(T2.7c and T2.7d follow T2.7b in parallel on disjoint paths — trial/regenerate vs the
+multi-model/Smart-Model paths); the
 orchestrator runs a **same-wave glob-intersection check** before dispatching any wave.
-Named collision resolutions: the **true-up/stats client is owned by T2.3a** (T1.2 provides
+Named collision resolutions: the **true-up/stats client is owned by T2.3a** (T1.2a provides
 only the raw gateway client; T2.4 consumes); T2.1c's link-guest principal lives in
 `slices/identity/**` while T2.2 consumes it via barrel; **T0.3 owns the pipeline + context**
 (`middleware/pipeline*`, `lib/context`) while **T4.1 owns the edge-middleware files**.
@@ -2017,9 +2186,12 @@ only the raw gateway client; T2.4 consumes); T2.1c's link-guest principal lives 
 integration tests; T4.2 adds only the `scheduled.ts` triggers — otherwise T2.5/T3.3
 acceptances would be untestable when they run.
 **Review stopping criterion:** a task passes when the review has **no
-findings at severity ≥ correctness/security**; convention findings are filed as follow-ups,
-not blockers; the fix→review loop caps at three cycles with human escalation — "must find
-nothing valid" with no bar invites rubber-stamping or infinite churn.
+findings at severity ≥ correctness/security**; convention findings land in a **follow-up
+ledger**, not blockers — an **end-of-phase sweep task** drains the ledger; the fix→review
+loop caps at three cycles with human escalation — "must find
+nothing valid" with no bar invites rubber-stamping or infinite churn. Each fix→review
+cycle uses a **fresh-context reviewer**; one review lens explicitly owns
+**spec-coverage** — T0.0's behavioral specs demonstrably encoded as tests.
 
 ### Coexistence mechanics (how the old backend stays green mid-rewrite)
 
@@ -2033,10 +2205,15 @@ The repo carries both systems until T4.7 deletes the old one. The rules that mak
   drizzle config, **all v2 tables in `pgSchema('v2')`**, and **each drizzle config carries
   an explicit `schemaFilter`** (`['v2']` vs `['public']` — without it, push/drift-check on
   one tree tries to drop the other's objects); T4.7 moves v2 to `public` via
-  `ALTER TABLE … SET SCHEMA` (no users, no data-copy risk). Drift checks are scoped per
-  tree. The weekly Stryker globs exclude v2 during coexistence (§19).
+  `ALTER TABLE … SET SCHEMA` **plus `ALTER TYPE … SET SCHEMA` for the pgEnums**, then
+  regenerates a clean baseline migration (no users, no data-copy risk). Drift checks are
+  scoped per tree. The weekly Stryker globs exclude v2 during coexistence (§19).
 - **`shared`/`crypto` are additive-only.** Old surfaces frozen (no edits); v2 modules in new
-  subpaths. The 7 consumer packages keep compiling throughout.
+  subpaths. v2 env vars live in a new `packages/shared/src/v2` env module **composing**
+  the frozen `env.config.ts` (same per-mode/Zod pattern; merged back at T4.7). The
+  frozen-path diff guard permits **additive exports-map keys** in frozen `package.json`s
+  (new subpath entries only — existing keys immutable; v2 subpaths are unreachable without
+  them). The 7 consumer packages keep compiling throughout.
 - **Both DB drivers coexist.** The old neon-serverless client (+ neon-proxy container) stays
   until cutover **and beyond** (Hyperdrive deferred — v2 keeps neon-serverless,
   so `client-v2` is a thin wrapper over the same driver and T4.7 deletes only the old
@@ -2114,14 +2291,19 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   never mocked" rule gets its check), and a **per-task config-extension slot** (a
   conventions dir later tasks append to without editing T0.1's files — resolves the
   T0.2-same-wave conflict). The frozen-path manifest lists **exact globs, captured at
-  HEAD** (incl. the live `app.ts` and `packages/shared/src/env.ts` — f79d690 touched it).
+  HEAD** (incl. the live `app.ts` and `packages/shared/src/env.ts` — f79d690 touched it);
+  the diff guard permits **additive exports-map keys** in frozen `package.json`s (new
+  subpath entries only — existing keys immutable).
   *Acc:* cross-slice internal import fails lint; intra-slice layer violation fails lint;
-  **a PR touching a frozen path fails CI**; `vi.mock` of a slice barrel fails lint; arch
+  **a PR touching a frozen path fails CI** (a new exports-map subpath key does not);
+  `vi.mock` of a slice barrel fails lint; arch
   tests run in CI; legacy paths exempt. *Owns:* `slices/_template/**`,
   `packages/config/**`, `.github/workflows/*` (tooling steps only).
 - **T0.2 Lighter runtime primitives** — neverthrow/ts-pattern/cockatiel; `Result` convention
-  + **must-use-Result lint** (community fork — §18; wired via T0.1's config-extension slot,
-  not by editing `packages/config` — avoiding the same-wave conflict), base `DomainError` taxonomy
+  + **must-use-Result lint** (the single rule **vendored**, ~100 LOC — the community forks
+  peer-require ESLint ≥10 and the repo is on 9, §18; wired via T0.1's config-extension slot,
+  not by editing T0.1's `packages/config` files — avoiding the same-wave conflict), base
+  `DomainError` taxonomy
   (the *taxonomy*; the route-level error→code map is T0.6's — deliberate scope split),
   cockatiel policy factory (retry/timeout only — no in-isolate breakers, §18) **+ a
   `no-restricted-imports` rule: raw `cockatiel` importable only by the factory module**
@@ -2146,17 +2328,20 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   through the v2 client locally; latency mode demonstrably inflates a multi-statement
   txn's wall time (test);
   **DO-finalize under vitest-pool-workers validated (blocking — the DO runs finalize,
-  §15)**, with the pre-planned fallback if the pool fights it: the DO is a thin shell over a
-  plain executor+finalize object, billing tested in the normal pool, `runInDurableObject`
+  §15)**; the DO is a **thin shell** over a plain executor+finalize object (the default
+  pattern, arch-rule-enforced — §19), billing logic tested in the node-environment
+  projects, `runInDurableObject`
   reserved for alarms/WS/buffer. *Owns:* `packages/db/src/client-v2*`, `scripts/ensure-stack`.
 - **T0.5 DB schema redesign (v2 tree)** ⚠️ — §9 in full, in `schema-v2/**` under
-  `pgSchema('v2')` with explicit `schemaFilter` (coexistence rules); blocks on T0.6's
-  first-commit modality const. *Acc (shape-tests cover **every row of
+  `pgSchema('v2')` with explicit `schemaFilter` (coexistence rules). *Acc (shape-tests
+  cover **every row of
   §9's table inventory**):* **nano-USD bigint** money (`mode:'bigint'`, string-serialized);
   pgEnums **including modality** (+ `job_status`); **double-entry ledger** (signed legs,
-  `transactionId`, zero-sum constraint, `kind`, house accounts); **`usage_records` NOT NULL
-  content FK + `runId`** + idempotency uniques; **`jobs`** (full §7 column set + the three
-  partial indexes); `idempotency_keys` (+ `kind`, body-hash, lease, `runId`);
+  `transactionId`, zero-sum constraint, `kind`, house accounts); **`usage_records`
+  nullable content FK (`ON DELETE SET NULL` — the insert-time non-null invariant lives in
+  `settle()`, §8/§9) + `runId`** + idempotency uniques; **`jobs`** (full §7 column set + the three
+  partial indexes); `idempotency_keys` (+ `kind`, body-hash, the `claims`/`claimedBy`
+  fence, lease, `runId`);
   `modelCatalog` surrogate PK + `UNIQUE(id,version)` + `modelPricing` FKs;
   `epochs.previous_epoch_id`; `relations()` everywhere; **every FK column indexed or
   justified**; `messages UNIQUE(conversationId, sequence)`; `wallets UNIQUE(userId,type)`;
@@ -2164,53 +2349,75 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   `deletionRequestedAt`; `shared_links.revokedAt`/`expiresAt`; `shared_messages.createdBy`;
   `admin_audit`; **the persisted tool-step shape (§11.2)**; shape-tests also assert the
   **absence** of `flowRuns`/`exports`/`admin_pending_actions`/`projects`. *Owns:*
-  `packages/db/src/schema-v2/**`.
-- **T0.6 Shared contracts rewrite** — single **closed** modality enum (one const → pgEnum +
-  Zod + dispatch types); API Zod schemas; exhaustive error-code system; `ModelDescriptor`
+  `packages/db/src/schema-v2/**`. (dep T0.4, T0.6a)
+- **T0.6a Modality const** — a 10-minute pre-task, one commit: the single **closed**
+  modality const array + its Zod enum (the one source feeding the pgEnum, the Zod schema,
+  and the dispatch types — §9). T0.5 and T0.6 both depend on it. *Acc:* one modality
+  source exists in the v2 subpath; nothing else ships. *Owns:* the modality-const module
+  in `packages/shared`'s v2 subpath.
+- **T0.6 Shared contracts rewrite** — builds on T0.6a's modality const (the single closed
+  enum); API Zod schemas; exhaustive error-code system; `ModelDescriptor`
   (with model-granular `zdrReachable` + `ParamSpec` records), multimodal I/O,
   `WorkflowDefinition` (base fields on every node variant — §11.3), `ContentValue`/
-  `MediaValue`, **the TypeTag v1 algebra (three rules + written laws table — §11.3) +
+  `MediaValue`, **the TypeTag v1 algebra (four rules + written laws table — §11.3) +
   `isAssignable()` + `zodFor(tag)` + `Edge`/`PortRef`/`PortId`**, the ParamSpec shape +
   **ParamSpec→Zod compiler**, the named-constraint registry contract, the extended
   `InferenceEvent` (tool-result + step events), the `FlowExecutor` interface (the DO↔engine
-  composition seam); `.brand()` types. **First commit = the one-line modality const**
-  (T0.5 blocks on it). *Acc:* one modality source; error map compile-exhaustive;
+  composition seam); `.brand()` types. *Acc:* one modality source (T0.6a's); error map
+  compile-exhaustive;
   `isAssignable()` property-tested against the written laws; **node runtime schemas derived
   via `zodFor` — a hand-written schema alongside declared ports fails the arch test**;
   schemas unit-tested; no type duplicated vs Drizzle. *Owns:* **new v2 subpaths of
-  `packages/shared` only** (the frozen-path guard covers the rest).
+  `packages/shared` only** (the frozen-path guard covers the rest; the modality-const
+  module is T0.6a's). (dep T0.6a)
 - **T0.7 Crypto hardening (v2 modules, additive)** ⚠️ — branded key types; versioned blob
   headers; **AAD context binding** (the envelope binds `(version,
-  conversationId, messageId, contentItemId, position, epochNumber)` — splice-proof
-  attribution, end-state model unchanged); bounded decompression (**enforced at DO ingest
-  too, not just client-side**); keyed epoch confirmation; `wrapSecretTo`/`unwrapSecret`;
+  conversationId, messageId, contentItemId, position, epochNumber, senderId)` **and binds
+  the wrapped content key** — location-binding, not authorship (§14): a splice/relocation
+  fails the AAD check; end-state model unchanged); bounded decompression as an **absolute
+  streaming-abort cap** — abort mid-inflate at the byte limit, never a ratio check, never
+  inflate-then-measure (**enforced at DO ingest
+  too, not just client-side**); keyed epoch confirmation; `wrapSecretTo`/`unwrapSecret`
+  taking **domain-separation labels**;
   previous-epoch support; **large-media strategy**: per-flow media cap in the tens of MB
   (the isolate budget is shared across co-located DOs — §11.4) + STREAM-style chunked
-  encryption (chunk-index AAD, last-chunk flag) for what remains; **this task picks and
-  records the per-flow media-cap constant**. *Acc:* transposition blocked (type
-  test); **the bounded-decompression primitive rejects over-limit payloads**
+  encryption (chunk-index AAD, last-chunk flag, **a fresh random nonce per chunk — never
+  a zero-nonce pattern**) for what remains; **this task picks and
+  records the per-flow media-cap constant**. Compress-then-encrypt rationale, recorded: no
+  cross-source co-compression in one stream ⇒ no CRIME-shaped leak (padding optional).
+  *Acc:* transposition blocked (type
+  test); **the bounded-decompression primitive aborts mid-inflate at the byte limit**
   (no DO ingest exists in Wave 0a; ingest-point enforcement is T2.7b's); splice
   attempt fails AAD check (test); every blob versioned; round-trip behavioral tests pass;
   old crypto surfaces untouched. *Owns:* `packages/crypto/src/v2/**`.
-- **T0.8 Idempotency framework + the jobs system** ⚠️ — 5 wrappers + `Idempotent<T>` +
+- **T0.8a Idempotency framework** ⚠️ — 5 wrappers + `Idempotent<T>` +
   `runMutation` + the **branded `SettlementTx` handle** (no `Mutation<T>` brand, no
   absorption rule — §8) + Idempotency-Key middleware **+ the five exemption
-  classes (§8)** + the **key-row state machine** (`kind`, attach/replay, serialized
-  client-driven re-execution, `claimedAt` lease, canonical-JSON body-hash → 409, TTL-floor
-  config assertion) + the **complete §7 jobs system**: `enqueueWithinTx`, handler registry
+  classes (§8)** + the **key-row state machine** (`kind`, attach/replay, 409-in-progress
+  for claimed `request` keys, serialized
+  client-driven re-execution, the **`claims`/`claimedBy` fence + heartbeat `claimedAt`
+  lease (§8)**, canonical-JSON body-hash → 409, TTL-floor
+  config assertion). *Acc:* each wrapper tested incl.
+  dup/retry; `as Idempotent`/`as SettlementTx` casts fail lint; ts-morph fails an exempted
+  route whose handler lacks the matching wrapper; key-row fence + lease + body-hash +
+  TTL-floor tested; pre-claim crash-after-external test. *Owns:* `lib/idempotency/**`,
+  its config-extension file.
+- **T0.8b The jobs system** ⚠️ — the **complete §7 jobs system**: the `jobs` table
+  semantics, `enqueueWithinTx`, handler registry
   (mandatory `idempotency` declaration; registration rejects incomplete types), the
   `JobDispatcher` DO (arm-first, claim-time dead-letter, SKIP LOCKED batch claim,
-  completion fence, `ok/fail/yield/dead` outcomes, backoff + jitter, drain chaining, idle
+  completion fence — heartbeat and `yield` checkpoint writes through the same fence,
+  per-job execution timeout raced from `leaseSeconds`,
+  `ok/fail/yield/dead` outcomes, backoff + jitter, drain chaining, idle
   decay, `min(getAlarm())` re-arm, PG-interval skew rule, `wake()`), shard routing, and the
-  7-day succeeded prune as a retention-cron entry. *Acc:* each wrapper tested incl.
-  dup/retry; `as Idempotent`/`as SettlementTx` casts fail lint; ts-morph fails an exempted
-  route whose handler lacks the matching wrapper; key-row lease + body-hash + TTL-floor
-  tested; pre-claim crash-after-external test; **jobs property tests: alarm-always-armed;
+  7-day succeeded prune as a retention-cron entry. *Acc:* **jobs property tests:
+  alarm-always-armed;
   lost-enqueue recovered by the pulse; poison job dead-letters at claim without harming its
   batch; checkpoint `yield` consumes no attempts; zombie claimant loses the completion
-  fence; cancel races resolve; lease-expired re-claim works; dead is redrivable**. *Owns:*
-  `lib/idempotency/**`, `lib/jobs/**`, the dispatcher class in `packages/realtime` (named
-  extra), its config-extension file.
+  fence (heartbeat and checkpoint writes included); a hung handler cannot eat the pass
+  (timeout race); cancel races resolve; lease-expired re-claim works; dead is redrivable**.
+  *Owns:* `lib/jobs/**`, the dispatcher class in `packages/realtime` (named
+  extra), its config-extension file. (dep T0.8a)
 - **T0.9 Telemetry port + redaction logger** ⚠️ — `Telemetry` port (best-effort, `never` error
   channel); typed `SafeLogFields` allowlist logger; ESLint redaction rules; a native
   console/Workers-Logs adapter so logging works from day one. *Acc:* logger rejects disallowed
@@ -2219,19 +2426,6 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   `packages/config/eslint*`.
 
 ### Phase 1 — Infra ports & adapters
-- **T1.0 Gateway billing + ZDR spike** — against the **real** gateway: confirm (expected
-  absent — verified against gateway docs) per-generation `total_cost`/
-  `generationId` for image (incl. multi-image), video, and embeddings; **empirically prove
-  per-modality ZDR-flag enforcement** (the flag is undocumented for non-language calls;
-  unproven modalities stay ZDR-unreachable — **except the founder-verified image/video
-  set already marked eligible in `modelOverrides`, §10**); minutes-long sync video
-  fetch from a DO on workerd; **and the headline §15 case: client disconnects while the
-  DO's gateway fetch is in flight — does the run complete?** (platform docs are
-  ambiguous; the disconnect-completion promise rests on this). The estimate path is
-  first-class regardless (§13). *Acc:* findings filled into the spike-findings template +
-  summarized into this doc (`.md`-write grant for both paths); **T1.2b and the catalog's
-  ZDR gating block on this task**. *Owns:* `docs/plans/spikes/**` (spike code + findings);
-  requires the named real-gateway secret (`AI_GATEWAY_API_KEY_SPIKE`).
 - **T1.1 Storage port + R2/MinIO adapter** ⚠️ — uuid keys throughout (no CAS, §11.4); presign
   with the **two authorization paths** (member epoch-gate + share carve-out, §12); idempotent
   put; short-TTL large-input fallback class (Kopia exclusion of `inputs/` configured here).
@@ -2248,24 +2442,25 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   incl. tool-result/step events; failure fixtures (`no_providers_available`, 429, truncated
   stream) produce typed errors; abort mid-stream stops the fetch; ZDR flag asserted present
   on every recorded request. *Owns:* `slices/models/{ports,adapters}` (language paths).
-- **T1.2b Image/video adapters** — the remaining call-shape adapters, scoped by **T1.0's
-  findings** (runs *after* T1.0; embeddings deferred with reranking unless
+- **T1.2b Image/video adapters** — the remaining call-shape adapters, scoped by the
+  **founder-verified gateway facts (§10/§13)** (embeddings deferred with reranking unless
   a consumer exists). *Acc:* per-family cassettes replay; estimate computation inputs
-  exposed; ZDR behavior matches T1.0's per-modality verdict (unproven ⇒ family marked
-  ZDR-unreachable). *Owns:* `slices/models/adapters` (image/video paths).
+  exposed; ZDR behavior matches the founder-verified per-modality facts (§10 — unverified
+  ⇒ family marked
+  ZDR-unreachable). *Owns:* `slices/models/adapters` (image/video paths). (dep T1.2a)
 - **T1.3 Model catalog + capability registry** — two-tier fetch + normalize (list endpoint +
   N+1 per-model `/endpoints` for modalities/`supported_parameters`), persist to `modelCatalog`,
   cold-start cache + cron refresh, descriptor dispatch map, `modelOverrides` for genuine gaps,
   **`zdrReachable` derivation** from the gateway's ZDR-provider list, **empty-pricing models
   excluded** unless overridden. *Acc:* a new gateway model appears with **zero code and no
   hand-edited list**; a ZDR-unreachable model is hidden; an empty-pricing model is not exposed
-  without an override. *Owns:* `slices/models/domain`. (dep T1.2, T0.5, T0.6)
+  without an override. *Owns:* `slices/models/domain`. (dep T1.2a, T0.5, T0.6)
 - **T1.4 PaymentProvider port + Helcim adapter** ⚠️ — idempotency-key forwarding; sandbox/mock;
   **webhook signature verification fails closed** (§13). *Acc:*
   idempotency key forwarded on every charge call (asserted); missing/invalid signature
   headers ⇒ 401 with verifier configured (test); sandbox + mock parity suite green. *Owns:*
   `slices/billing/{ports,adapters}/payment*`.
-- **T1.5 Email / Realtime ports + adapters** — Resend/console; the ConversationRoom DO
+- **T1.5 Realtime port + the ConversationRoom DO** — the ConversationRoom DO
   (DI-injected; presence fix; **hibernatable-WS-only transport**; capped memory-only replay
   buffer with per-stream cursors — §15; **the deadline alarm — run control only; there is
   no janitor and no marker (§11.5)**; `evict(principal)` hooks + the
@@ -2275,8 +2470,8 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   *Acc:* hibernation round-trip preserves socket attachments; the deadline alarm fires run
   control at the declared deadline (test); buffer overflow drops replay with the explicit
   "stream gone" response (test); `evict(principal)` closes the right sockets and a revoked
-  principal receives nothing at the next broadcast; email adapter sends via the Resend mock
-  with an evidence row. *Owns:* `slices/notifications/*`, `packages/realtime/**`,
+  principal receives nothing at the next broadcast. *(The email port + adapter live in
+  T2.6.)* *Owns:* `packages/realtime/**`,
   `slices/conversations/adapters/realtime*`.
 - **T1.7 Telemetry adapters** ⚠️ — Sentry adapter (locked down: `sendDefaultPii:false` +
   `beforeSend` scrubbing + Advanced Data Scrubbing), Workers Analytics Engine metrics adapter,
@@ -2315,11 +2510,14 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   supported, §13**), `provisionWalletsWithinTx`, free-tier daily allowance + member budgets
   as **period-keyed rows** (never offsets negative; no reset jobs — §9), ledger adjustment
   legs + the **`trueup.fetch.v1` job** (inline-first; give-up = accept estimate + audit
-  row — §13); nano-USD; DB-backed charge idempotency; the **conservation + snapshot-drift
+  row — §13); nano-USD; DB-backed charge idempotency; the **named cost-circuit constant
+  `K` (initial value 5 — §13)** with the hold readout the circuit consumes; the
+  **conservation + snapshot-drift
   auditor queries** (consumed by T4.2's cron triggers). *Acc:* concurrent charges never
   double-charge; a zero-sum-violating write is rejected at commit (constraint test); a
   charge exceeding balance commits and goes negative; negative blocks new paid admission;
-  Redis-down blocks paid admission with the typed error; true-up adjustment idempotent;
+  Redis-down blocks paid admission with the typed error; the hold readout exposes the
+  estimate and `K` (test); true-up adjustment idempotent;
   period rollover needs no mutation; no float math.
 - **T2.3b billing: payments + webhooks** ⚠️ — Pattern-D pre-claim, Helcim processing, webhook
   (idempotent claim + retry + service-evidence logging; **verification fails closed —
@@ -2328,7 +2526,8 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   a dispute event debits the ledger once and locks the account; crash-after-charge
   reconciles exactly once.
 - **T2.3c billing: budgets + usage analytics** — member/conversation budgets; the usage-analytics
-  read endpoints. *Acc:* budget races safe; analytics queries paginated.
+  read endpoints. *Acc:* the named race battery — **concurrent budget-consumption upserts
+  on the same period row never double-count or deadlock**; analytics queries paginated.
 - **T2.4 models (inference orchestration)** — multimodal assembly + modality dispatch via
   registry; reasoning/tool/streaming events (tool loops inside `modelCall` via the closed
   `toolRegistry` — §11.2); **estimate computation** (the true-up flow is
@@ -2339,21 +2538,23 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   expressible; **the extensibility claim is a test, not prose**: registering a
   fake output-family adapter + enum value makes dispatch work with no other diffs;
   estimate/true-up sources asserted in tests; audio request → typed error.
-  (dep T1.2a, T1.3, T1.0)
+  (dep T1.2a, T1.3)
 - **T2.9a engine: definition schema + graph-compile + builder** (pure code, no DO) — the TypeTag algebra consumers, graph-compile validation (edges incl.
   `json<schema>`/`list<T>`, cycle checks, bounded fan-out, dangling versions), typed
   builder functions. *Acc:* type-incompatible edge rejected at `build()` and save; a
   tuple-typed fanIn (`N images + text → one input`) compiles; bare `json` rejected. *Owns:*
-  `slices/workflows/builder/**` + shared compile module. (dep T0.6)
+  `slices/workflows/builder/**` + shared compile module. (dep T0.6 — runs in Wave 1)
 - **T2.9b engine: the in-DO interpreter** — topological walk, deadline timer, in-memory
   `ValueStore` **with runtime byte metering at store + ingress** (§11.4 — over-budget →
   terminal-fail; nothing was charged), **multi-stream terminal nodes** (per-branch
   `streamId` + cursors — §11.5) via the `ModelProvider` port, the **`hold × K` circuit on
-  in-memory accrual** (T2.3a provides the hold readout). *Acc:* a 3-node
+  in-memory accrual** (T2.3a provides the hold readout and the named `K` constant — §13).
+  *Acc:* a 3-node
   classify→branch→answer definition executes in-process with the terminal node streaming;
   deadline breach with partial output **settles + bills the partial** (§11.6); breach with
   nothing persisted leaves zero committed effects (assert: no message, no charges, no
-  legs); over-byte-budget run terminal-fails cleanly. *Owns:*
+  legs); accrual crossing `hold × K` trips the circuit at the next step boundary (test);
+  over-byte-budget run terminal-fails cleanly. *Owns:*
   `slices/workflows/engine/**`. (dep T2.9a, **T2.3a**, **T1.5** (DO), T2.4)
 - **T2.9c engine: core nodes + money wiring + lint set** — `modelCall`, `branch`,
   `transform`, **data-driven `fanOut` + the tuple-typed fanIn the multi-model turn
@@ -2371,30 +2572,28 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   (behavioral spec); **upload → GC-runs-pre-finalize → object survives** (the grace test);
   a deleted account's group media reclaimed next GC run; GC reclaims orphans + crashed
   staging. *Owns:* `slices/media/**`.
-- **T2.6 notifications** — email templates, push, device-tokens. *Acc:* push filtered by
-  mute+presence; idempotent token upsert.
+- **T2.6 notifications** — the `EmailSender` port + Resend/console adapter; email
+  templates, push, device-tokens. *Acc:* the email adapter sends via the Resend mock with
+  an evidence row; push filtered by
+  mute+presence; idempotent token upsert. *Owns:* `slices/notifications/**`.
 - **T2.8 account** — user search (exclusion semantics), encrypted custom instructions,
   accessibility preferences with LWW merge. *Acc:* LWW conflict tests (behavioral spec);
   search excludes caller + current members.
-- **T2.7a chat: the turn pipeline** ⚠️ — saved ⟺ billed: atomic admission (Lua check-and-add,
-  §13) + hold → the turn definition on the in-DO executor (T2.9) — **including the
-  multi-model turn as data-driven fanOut** (shared `batchId`, hold = sum at declared max
-  width) — → the **single settlement transaction** (§8: `saveChatTurn` +
+- **T2.7a chat: the single-model turn pipeline** ⚠️ — saved ⟺ billed: atomic admission
+  (Lua check-and-add,
+  §13) + hold → the single-model turn definition on the in-DO executor (T2.9) → the
+  **single settlement transaction** (§8: `saveChatTurn` +
   `chargeWithinTx(SettlementTx, …)` (estimate, `isEstimated`) + key-row flip, fenced,
-  one statement) → inline true-up (+ `trueup.fetch.v1` on miss) → broadcast with the
+  one statement — `settle()`) → inline true-up (+ `trueup.fetch.v1` on miss) → broadcast
+  with the
   **display-gated cost contract** (`cost: pending` → `cost-final`; §13);
   **a second send while a run is in flight is rejected with a typed error** (§11.5 hard
-  block); **Smart Model as the 3-node definition** (T0.0 spec facts: fallback,
-  short-circuit, cheapest-eligible — the classifier is an *optional* node); unified
-  text+media path. Additionally: **per-wallet concurrent-run cap** at admission;
-  **trial/welcome Sybil budget** enforced at admission (with T2.3a). *Acc:* a crash before
+  block); unified
+  text+media path; **per-wallet concurrent-run cap** at admission. *Acc:* a crash before
   settlement saves and bills nothing — asserted as zero rows, any flow shape; retry follows
   the §8 key state machine (never double-charges; serialized re-execution); partial save
   bills the partial; concurrent send → typed 409-class error; **an empty `length`-finish is
-  billable terminal success — truncation, not error (cd1737a)**;
-  multi-model batch bills per branch in one settlement and **a failed branch doesn't kill
-  the successful subset** (optional-by-definition); Smart Model routes + bills per current
-  behavior.
+  billable terminal success — truncation, not error (cd1737a)**.
 - **T2.7b chat: DO stream coordination** ⚠️ — capped memory-only buffer + per-stream
   `Last-Event-ID` replay over the hibernatable WS (multi-stream `streamId` semantics —
   §11.5); disconnect-completion via the deadline alarm (run control — **there is no
@@ -2411,10 +2610,22 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   (serialized after T1.5, safe).
 - **T2.7c chat: trial mode + regenerate** — trial as the no-persist/no-charge policy variant of
   the same pipeline (quotas); **trial's DO identity: an ephemeral DO keyed by trial-session
-  id** (no conversation row exists); regenerate. *Acc:* trial quota depletion
-  (behavioral spec); trial streams over the same WS transport; one pipeline, two policies —
-  no divergent copy (ts-morph).
-  (T2.7x dep: T2.1–T2.5, T2.9, T1.5)
+  id** (no conversation row exists); regenerate; the **trial/welcome Sybil budget**
+  enforced at admission (with T2.3a — §13). *Acc:* trial quota depletion
+  (behavioral spec); the global trial/welcome budget caps grants at admission (test);
+  trial streams over the same WS transport; one pipeline, two policies —
+  no divergent copy (jscpd threshold + a named structural review check — ts-morph cannot
+  assert it).
+- **T2.7d chat: multi-model fanOut turn + Smart Model** ⚠️ — the **multi-model turn as
+  data-driven `fanOut`** (shared `batchId`, hold = sum at declared max width;
+  **branches optional-by-definition** — §11.7) and **Smart Model as the 3-node
+  definition** (T0.0 spec facts: fallback,
+  short-circuit, cheapest-eligible — the classifier is an *optional* node). *Acc:*
+  multi-model batch bills per branch in one settlement and **a failed branch doesn't kill
+  the successful subset** (optional-by-definition); Smart Model routes + bills per current
+  behavior. *Owns:* `slices/chat/**` (multi-model/Smart-Model paths — disjoint from
+  T2.7c's). (dep T2.7a, T2.7b)
+  (T2.7a–d dep: T2.1–T2.5, T2.9, T1.5)
 
 ### Phase 3 — Engine completion & durable ops
 - **T3.1 Remaining node set + reducer registry completion** — `loop` (typed fold,
@@ -2426,7 +2637,7 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   branch's failure can't corrupt siblings; ts-morph: no storage imports in node impls.
   *Owns:* `slices/workflows/nodes/**` (remaining). (dep T2.9, T2.5)
 - **T3.2 Definitions library** — the versioned product flows as definition data: smart-chat
-  (live since T2.7a — formalized here), media-generation flows, and the flow-template
+  (live since T2.7d — formalized here), media-generation flows, and the flow-template
   structure future features extend; **the dangling-`(type,version)` CI check**
   (§11.3). *Acc:* every definition passes graph-compile; the
   checkable triple, in place of an unfalsifiable rule: **`infer()` call sites only in
@@ -2462,9 +2673,14 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   **retention** — GC (media orphans incl. crash debris + input-staging TTL, **with the
   min-age grace**), `idempotency_keys` TTL purge (skips non-terminal), `jobs` succeeded
   prune (7 d), deletion-event purge; **auditors (read-only)** — ledger conservation,
-  jobs-health (+ the `wake()` clock-nudge — §7), snapshot drift. *Acc:* **every predicate
+  jobs-health (**every 15 minutes**, + the `wake()` clock-nudge — §7), snapshot drift,
+  the **WAE-metrics auditor** (polls the WAE SQL API on the auditor cadence — the named
+  watcher for the WS upgrade-failure metric and every threshold WAE metric, §17), the
+  **monthly gateway-invoice reconciliation** (invoice total vs Σ `usage_records` per
+  modality; pages on drift — §13). *Acc:* **every predicate
   has a partial index and a bounded batch** (asserted); each idempotent +
-  isolated; auditors page via Sentry and never mutate domain state (test). *Owns:*
+  isolated; auditors alert via Sentry (daily digest for routine drift, pages for
+  invariant violations — §16) and never mutate domain state (test). *Owns:*
   `jobs/**`, `scheduled.ts`.
 - **T4.6 Platform routes** — health, roadmap proxy, app-update/download routes, **dev-only
   routes incl. the `x-mock-*` resolution the e2e suite depends on** (must land before
@@ -2497,11 +2713,19 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   e2e re-pointed at the new backend + suites 1–4 (T4.8), `verify:evidence`, 95% coverage.
   *Acc:* all green.
 - **T4.7 Legacy deletion (the coexistence collapse)** — delete old routes/services, old
-  schema tree + neon-proxy + old client, prune frozen shared/crypto surfaces, repoint
+  schema tree + neon-proxy + old client, prune frozen shared/crypto surfaces (incl.
+  merging the v2 env module back), repoint
   `AppType`, retighten knip/jscpd/coverage to the whole repo, delete the T0.0 working
-  artifact. *Acc:* the §20 end-state tree is the actual tree; full check pass green.
+  artifact. The schema move is `ALTER TABLE … SET SCHEMA` **plus `ALTER TYPE … SET
+  SCHEMA` for every pgEnum**, followed by **regenerating a clean baseline migration**.
+  *Acc:* the §20 end-state tree is the actual tree; full check pass green.
 
 ### Phase 5 — Admin plane (§14)
+
+**Launch gate:** T5.1 → T5.2 (the audited admin API) **must complete before any public
+launch** — no public users without an audited redrive/intervention lever; T5.3 (the SPA)
+may follow launch.
+
 - **T5.1 Audit + delay foundations** ⚠️ — structural audit middleware **in the product
   Worker on RPC receipt** (§14), `admin_audit` (INSERT/SELECT-only role), admin
   mutations as **delayed `admin.executeAction.v1` jobs** (tiered `nextAttemptAt`;
@@ -2515,7 +2739,8 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
   service-binding RPC surface the product Worker exposes in this task, §14); Access JWT
   validation (`jose`, issuer/audience/allowlist, fail-closed); in-app WebAuthn step-up;
   SSRF allowlists; side doors closed (`workers_dev: false`, preview gating, `no-store`).
-  *Acc:* no/invalid/wrong-audience JWT → 401; mutation without step-up → 403; the RPC
+  *Acc:* no/invalid/wrong-audience JWT → 401; a money-, deletion-, or defensive-class
+  action without step-up → 403 (§14 layer 3); the RPC
   surface is unreachable over HTTP; admin mutations execute in the product Worker through
   the §8 settlement discipline + billing's published APIs (asserted); the admin Worker
   bundle contains zero Neon credentials (config test); every action **and read**
@@ -2531,21 +2756,21 @@ e2e/                              # Playwright: web project (+ suites 1–4), ad
 
 ```
 Wave 0a (∥): T0.0 · T0.1 · T0.2 · T0.7            (0.2 wires lint via 0.1's extension slot)
-Wave 0b:     T0.4 → T0.5 ; T0.6 ; T0.3            (0.6's FIRST COMMIT = the modality const;
-                                                   0.5 blocks on that commit, not on "coordination")
-Wave 0c:     T0.8 · T0.9                          (0.8 needs 0.5+0.2; 0.9 needs 0.1+0.2)
-Wave 1 (∥):  T1.0 · T1.1 · T1.2a · T1.4 · T1.5 · T1.7 ; then T1.2b (after 1.0) ·
-             T1.3 (after 1.2a AND 1.0 — ZDR gating blocks on the spike; explicit
-             edge) ; the §19 browser-crypto harness rides this wave
+Wave 0b:     T0.6a ; then T0.4 → T0.5 · T0.6 · T0.3   (0.6a = the 10-minute modality
+                                                   const; 0.5 and 0.6 both depend on it)
+Wave 0c:     T0.8a → T0.8b · T0.9                 (0.8a needs 0.5+0.2; 0.9 needs 0.1+0.2)
+Wave 1 (∥):  T1.1 · T1.2a · T1.4 · T1.5 · T1.7 · T2.9a (needs only 0.6) ;
+             then T1.2b · T1.3 (both after 1.2a) ;
+             the §19 browser-crypto harness rides this wave
 Wave 2a (∥): [T2.1a → T2.1b → T2.1c] · [T2.2a → T2.2b] · T2.6 · T2.8   (chains serialize;
              the §19 API smoke project starts here)
-Wave 2b (∥): [T2.3a → T2.3b → T2.3c] · T2.4 · T2.5 ; then T2.9a → T2.9b → T2.9c
-             (2.9a needs only 0.6; 2.9b needs 2.4 + 2.3a + 1.5)
-Wave 2c:     T2.7a → T2.7b → T2.7c                (convergence; needs T2.9c) ·
+Wave 2b (∥): [T2.3a → T2.3b → T2.3c] · T2.4 · T2.5 ; then T2.9b → T2.9c
+             (2.9a shipped in Wave 1; 2.9b needs 2.9a + 2.4 + 2.3a + 1.5)
+Wave 2c:     T2.7a → T2.7b → (T2.7c ∥ T2.7d)      (convergence; needs T2.9c) ·
              the T4.4a transport sub-spike (early signal)
 Wave 3 (∥):  T3.1 · T3.3 ; then T3.2              (3.1 needs 2.9c)
-Wave 4:      T4.1 · T4.2 · T4.6 → T4.3 → T4.4a → T4.4b → T4.8 → T4.5 → T4.7
-Wave 5:      T5.1 → T5.2 → T5.3 → T5.4            (admin plane; **after T4.7**:
+Wave 4:      T4.1 · T4.2 · T4.6 → T4.3 → T4.4a → T4.4b → T4.8 → T4.5 → T4.7 → T4.9
+Wave 5:      T5.1 → T5.2 → T5.3 → T5.4            (admin plane; **after T4.7**, ∥ T4.9:
              T5.2 owns the product Worker's admin-rpc module, which collides with T4.7's
              tree collapse; serializing removes the glob conflict)
 ```
@@ -2553,20 +2778,25 @@ Wave 5:      T5.1 → T5.2 → T5.3 → T5.4            (admin plane; **after T4
 Every implemented task ends on a review that must find nothing valid; ⚠️ tasks get a
 three-lens panel (correctness / security / conventions). T4.5 is the first moment the
 preserved e2e spec runs against the new backend (big-bang, by design); T4.7 collapses the
-coexistence tree; Phase 5 ships the admin plane on top of the assembled system.
+coexistence tree; Phase 5 ships the admin plane on top of the assembled system —
+**Phase 5's T5.1 → T5.2 must complete before any public launch** (the audited admin API
+is a launch gate; T5.3, the SPA, may follow launch).
 
 ---
 
 ## 21. Deferred decisions & re-entry triggers
 
 **Re-entry triggers (recorded so future-us doesn't re-litigate):**
-- **Hyperdrive** returns when **all three** hold: it supports our Postgres major; measured
-  p95 connect/query latency from Workers to Neon hurts users; the DO+vitest path is proven.
+- **Hyperdrive** returns when **all three** hold: it supports our Postgres major;
+  sustained p95 DB connect+query overhead per turn exceeds **150 ms for a week**; the
+  DO+vitest path is proven.
   Query caching stays off even then (not read-your-writes safe).
 - **Queues** return only if the jobs dispatcher's throughput ceiling is genuinely reached
   *after* shard-by-type and claim-then-fan-out scaling (§7) — i.e., sustained volume a
   per-type DO can't drain. (The dispatcher already supplies push
-  latency, so latency alone is not a trigger.)
+  latency, so latency alone is not a trigger.) **DO Facets (beta) are a watch item for
+  dispatcher sharding** — re-evaluate the shard topology against them before concluding
+  the ceiling is real.
 - **Concurrent runs per conversation** (two lanes / N slots) return when product feedback
   shows the hard block (§11.5) is a real complaint — e.g., users demonstrably wanting to
   chat while media generates. The multi-stream protocol already ships, so re-entry is
@@ -2581,8 +2811,9 @@ coexistence tree; Phase 5 ships the admin plane on top of the assembled system.
 - **R2 intermediates** return with the heavy-compute tier (container handoff requires them)
   — the K_inst staged design in §11.4 is the blueprint.
 - **Manifest-based GC** replaces list-and-check when bucket scans get slow (§7/T3.3).
-- **A non-WS transport fallback** (long-poll/SSE read-only) enters when the WS
-  upgrade-failure rate (WAE metric, shipped day one — §15) crosses a threshold —
+- **A non-WS transport fallback** (long-poll/SSE read-only) enters when **>0.5% of
+  session-starts fail the WS upgrade over 7 days** (client beacon + WAE combined, shipped
+  day one — §15) —
   corporate/school proxies blocking upgrades currently produce zero output with a working
   API; measurement is cheap, the rebuild is not.
 
@@ -2597,10 +2828,14 @@ coexistence tree; Phase 5 ships the admin plane on top of the assembled system.
 - **API versioning** — deferred until web/mobile release skew makes it necessary.
 - **GDPR/CCPA specifics** — architecture supports deletion/export; legal specifics TBD before
   an EU/CA launch.
-- **Verify at implementation:** Independent MFA on the Zero Trust free tier; the 50-user free
-  tier; per-generation cost coverage for image/video/embeddings **and per-modality ZDR-flag
-  enforcement** (T1.0 spike); minutes-long outbound fetch from a DO on workerd (sync video
-  generation); the DO-finalize vitest path (T0.4).
+- **Verified (recorded as dated facts):** Independent MFA on the Zero Trust free tier
+  (GA'd 2026-04-15); the gateway's per-generation cost endpoint for image/video and
+  per-request ZDR-flag enforcement for image/video (founder-verified 2026-06-10 —
+  §10/§13); a DO sustaining a minutes-long outbound fetch, including after client
+  disconnect (founder-verified 2026-06-10 — §15).
+- **Verify at implementation:** the 50-user free tier; the DO-finalize vitest path
+  (T0.4); native OTel tracing (open beta, billed as observability events, metrics not
+  exportable — Sentry tracing is the fallback, §17).
 
 ---
 
@@ -2644,7 +2879,7 @@ coexistence tree; Phase 5 ships the admin plane on top of the assembled system.
   transaction shape; noted so implementers don't hunt a missing symbol.)*
 - **Display-gated cost** — the client shows "…" until the inline true-up resolves
   (`cost-final` event), then one true number; a timeout shows the `~`-marked estimate;
-  image/video show the estimate as final (§13).
+  image/video may show the estimate as final until their true-up lands (§13).
 - **Factory DI / `c.var`** — request-scoped dependency injection via Hono context; no DI
   framework.
 - **Delay-and-notify** — the admin plane's substitute for four-eyes approval: every

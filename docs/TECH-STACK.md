@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines the complete technology stack for the AI chat aggregator application. All choices optimize for: serverless architecture, local development parity, end-to-end type safety, minimal vendor lock-in, and cost efficiency.
+This document defines the complete technology stack for the AI chat aggregator application. All choices optimize for: serverless architecture, local development parity, end-to-end type safety, minimal vendor lock-in, and cost efficiency. It describes the v2 target; the legacy backend coexists until cutover, and the design record lives in `docs/history/BACKEND-REDESIGN.md`.
 
 ---
 
@@ -19,6 +19,18 @@ TypeScript everywhere. Shared schemas between frontend and backend. Change a typ
 
 **Universal Idempotency**
 Every operation is safe to retry. Network glitch? Just retry. No duplicate charges, no corrupted state.
+
+**One Mechanism Per Task, Made Recoverable**
+No backup mechanisms. Each task has a single mechanism that recovers itself — leases, TTLs, lazy checks. Auditors detect; humans repair.
+
+**Crash Recovery by Construction**
+Nothing commits mid-run, so a crash at any moment leaves nothing to clean up.
+
+**Single Writer Per Table**
+Every table has exactly one owning slice; everyone else goes through its published API.
+
+**Configurability Over Rebuild**
+Models, capabilities, and workflows are data. New behavior ships as registry entries and definitions, not deploys.
 
 **Frequent Forever Backups**
 Your data is backed up daily to geographically separate storage. Encrypted. Verified.
@@ -94,6 +106,12 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 | **Zod**                 | Schema validation. Runtime validation + TypeScript inference. Shared schemas between frontend/backend.                  |
 | **@hono/zod-validator** | Input validation middleware. Zod schemas validate request body/params/query in Hono route chains.                       |
 | **hono/client**         | Typed RPC client. `hc<AppType>()` infers types from Hono route chains. Ships with `hono`, zero additional dependencies. |
+| **neverthrow**          | Typed `Result` error channel at service seams. Must-use enforced by a vendored lint rule.                               |
+| **ts-pattern**          | Exhaustive matching (DomainError→code, node dispatch); compiler catches unhandled variants.                              |
+| **cockatiel**           | Retry/timeout policies on external calls, built only via the policy factory. No in-isolate breakers.                    |
+| **eslint-plugin-boundaries** | Enforces slice/package boundaries and intra-slice layers from the import graph.                                     |
+| **ts-morph**            | Structural architecture tests lint can't express (idempotency wrapping, schema-object scoping).                         |
+| **jose**                | Cloudflare Access JWT verification in the admin Worker.                                                                  |
 
 ---
 
@@ -119,9 +137,9 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 
 | Technology                     | Purpose                                                                      |
 | ------------------------------ | ---------------------------------------------------------------------------- |
-| **Cloudflare Workers**         | API hosting.                                                                 |
-| **Cloudflare Pages**           | Frontend hosting. Deploys Vite app and Astro marketing site together.        |
-| **Cloudflare Durable Objects** | Per-conversation real-time broadcast hub. WebSocket fan-out for group chats. |
+| **Cloudflare Workers**         | API hosting: one product Worker + one admin Worker (service-binding RPC between them). |
+| **Cloudflare Pages**           | Frontend hosting. Deploys Vite app, admin SPA, and Astro marketing site.     |
+| **Cloudflare Durable Objects** | Two roles: ConversationRoom (realtime hub, stream coordination, in-process flow executor) and JobDispatcher (alarm-clocked job execution). |
 
 ---
 
@@ -139,7 +157,7 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 
 | Technology                      | Purpose                                                                                           |
 | ------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **Fly.io Machines** _(planned)_ | Server-side sandbox. Full Linux VMs for Python/Node execution. Spin up on demand, pay per second. |
+| **Cloudflare Containers / Sandbox SDK** _(deferred)_ | Server-side heavy compute (transcode, code execution) when a feature forces it. Same vendor; behind the `TransformCompute` port. |
 | **Sandpack** _(planned)_        | Client-side sandbox. Browser iframe for HTML/React/CSS preview. No server needed.                 |
 
 ---
@@ -187,9 +205,11 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 
 | Technology              | Purpose                                                                           |
 | ----------------------- | --------------------------------------------------------------------------------- |
-| **PostHog** _(planned)_ | Product analytics. Events, funnels, feature flags, session replay. Self-hostable. |
-| **Sentry** _(planned)_  | Error tracking. Stack traces, source maps, error grouping.                        |
-| **Axiom** _(planned)_   | Logs. Serverless-friendly.                                                        |
+| **Cloudflare Workers Logs**     | Structured logs, allowlisted fields; Logpush to R2 for retention.                  |
+| **Workers Analytics Engine**    | App/business metrics. SQL API only; every metric has a named watcher.              |
+| **Sentry**                      | Unexpected errors only, backend only. Scrubbed at the Telemetry port; `errorCode` fingerprints. |
+| **Cloudflare OTel tracing**     | Vendor-neutral tracing (open beta; Sentry tracing is the fallback).                |
+| **PostHog** _(deferred)_        | Product analytics, if ever: self-hosted, no autocapture, never session replay.     |
 
 ---
 
@@ -197,8 +217,23 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 
 | Technology            | Purpose                                                                                                    |
 | --------------------- | ---------------------------------------------------------------------------------------------------------- |
-| **Vercel AI SDK**     | Provider-agnostic streaming inference for text, image, and video. Backs the internal `AIClient` interface. |
-| **Vercel AI Gateway** | LLM gateway. Single API for GPT, Claude, Gemini, Grok, others. Model metadata API for auto-discovery.      |
+| **Vercel AI SDK**     | Provider-agnostic streaming inference for text, image, and video. The portability seam behind the `ModelProvider` port. |
+| **Vercel AI Gateway** | The single gateway: 100+ models, metadata auto-discovery, per-request ZDR, per-generation cost as billing truth. |
+
+---
+
+## Excluded Services
+
+Each was evaluated and excluded; re-entry conditions live in `ARCHITECTURE.md`.
+
+| Service                  | Why excluded                                                              |
+| ------------------------ | ------------------------------------------------------------------------- |
+| **Cloudflare Workflows** | Durable resume is exactly what fast-fail makes unwanted.                  |
+| **Cloudflare Queues**    | A send can't be atomic with a Postgres commit; the jobs table can.        |
+| **Hyperdrive**           | No PG18; caching isn't read-your-writes safe; pooling doesn't bind yet.   |
+| **Fly.io**               | Second compute vendor for a deferred feature; Cloudflare Containers preferred. |
+| **Axiom**                | Workers Logs covers it natively.                                          |
+| **Effect-TS**            | Team fit and migration cost; would discard Drizzle/Zod inference.         |
 
 ---
 
@@ -269,21 +304,21 @@ Local dev and CI use `.env.development`. No secrets needed outside production.
 ├── apps/
 │   ├── web/              # React + Vite (main application)
 │   ├── marketing/        # Astro (marketing site)
-│   └── api/              # Hono (Cloudflare Workers)
+│   ├── api/              # Product Worker — vertical slices (map in ARCHITECTURE.md)
+│   ├── admin-api/        # Admin Worker — Access-gated, RPC into the product Worker
+│   └── admin/            # Admin SPA (Pages)
 │
 ├── packages/
 │   ├── ui/               # Shared component library: primitives, composites, hooks, utilities
-│   ├── shared/           # Zod schemas, types, constants
+│   ├── shared/           # Zod schemas, types, constants, contracts
 │   ├── db/               # Drizzle schema, migrations, client
 │   ├── crypto/           # Encryption, key derivation, OPAQUE helpers
-│   ├── realtime/         # Durable Object class + WebSocket handling
-│   └── config/           # Shared ESLint, TypeScript configs
+│   ├── realtime/         # Durable Objects: ConversationRoom + JobDispatcher
+│   └── config/           # Shared ESLint, TypeScript configs, arch-test harness
 │
 ├── e2e/                  # Playwright E2E tests
 ├── scripts/              # Dev tooling (seed, db-reset, generate-env)
-├── services/             # (planned) Fly.io sandbox
-├── mocks/                # (planned) LLM response fixtures
-├── docs/                 # Documentation
+├── docs/                 # Documentation (history/ holds archived plans)
 │
 ├── .github/
 │   └── workflows/
@@ -304,19 +339,18 @@ Local dev and CI use `.env.development`. No secrets needed outside production.
 ### Cloud Mode
 
 ```
-Browser → API (Workers) → Neon Postgres / R2
-                       → Vercel AI Gateway (LLM)
-                       → Fly.io (code execution)
-                       → Durable Objects (group chat broadcast)
+Browser → API (Workers) → Neon Postgres / R2 / Redis
+                       → ConversationRoom DO → Vercel AI Gateway (flows + streaming)
+                       → JobDispatcher DO (async jobs)
 ```
 
 ## API Patterns
 
 | Pattern          | Technology                                | Use Case                                                           |
 | ---------------- | ----------------------------------------- | ------------------------------------------------------------------ |
-| Request/Response | Hono + Zod + `hc<AppType>()` typed client | CRUD, auth, billing, keys, members, links                          |
-| SSE Streaming    | Hono `streamSSE`                          | LLM token streaming (`POST /api/chat`, `POST /api/trial`)          |
-| WebSocket        | Durable Objects                           | Group chat real-time broadcast (typing, presence, message fan-out) |
+| Request/Response | Hono + Zod + `hc<AppType>()` typed client | CRUD, auth, billing, members, links; `POST /chat` returns a run handle |
+| WebSocket        | ConversationRoom Durable Object           | The sole streaming transport: turn tokens, flow progress, presence, media events, replay/resume |
+| Jobs             | `jobs` table + JobDispatcher DO           | All must-happen async work (true-up, exports, reclaim, admin actions) |
 
 ---
 
