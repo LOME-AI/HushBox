@@ -91,24 +91,59 @@ const video = (asset: DemoAsset): DemoMediaContent => ({
  * The conversation the demo auto-opens first on boot — a normal listed sidebar
  * conversation, just the one the director plays before the user clicks anything.
  */
-export const DEMO_BOOT_ID = 'demo-smart-model';
+export const DEMO_BOOT_ID = 'demo-welcome';
 
 export const DEMO_CONVERSATIONS: readonly DemoConversation[] = [
   {
     id: DEMO_BOOT_ID,
+    title: 'Welcome to HushBox',
+    modality: 'text',
+    script: [
+      {
+        user: 'What is HushBox?',
+        modelName: 'anthropic/claude-sonnet-4',
+        ai: [
+          t(
+            'HushBox is one chat app for every major AI model: GPT, Claude, Gemini, ' +
+              'and 100+ others, all behind a single interface.\n\n' +
+              '- Switch models in the middle of a conversation\n' +
+              '- No separate subscriptions; you only pay for what you use\n' +
+              '- Everything you write is encrypted before it is saved\n\n' +
+              'When a newer model launches, you just pick it from the dropdown. No migrating.'
+          ),
+        ],
+      },
+      {
+        user: "If it's encrypted, how can the AI still read my messages?",
+        modelName: 'anthropic/claude-sonnet-4',
+        ai: [
+          t(
+            'Good question. Your messages are encrypted in your browser, so HushBox ' +
+              'servers only ever store scrambled data they cannot read.\n\n' +
+              'When you send a message, it is decrypted just long enough for the AI ' +
+              'model to answer it, and we only work with providers who promise never to ' +
+              'log it or train on it. The AI sees the question, never who is asking.'
+          ),
+        ],
+      },
+    ],
+  },
+  {
+    id: 'demo-smart-model',
     title: 'Smart model routing',
     modality: 'text',
     script: [
       {
-        user: 'Which model should answer a quick fact vs. a hard reasoning problem?',
+        user: 'There are so many AI models. How do I know which one to use?',
         isSmartModel: true,
         modelName: 'openai/gpt-4o',
         ai: [
           t(
-            '**Smart Model** routes every message automatically:\n\n' +
+            "That's what **Smart Model** is for. It is the default: it reads each " +
+              'message and automatically picks the model that fits.\n\n' +
               '- Quick lookups go to a fast, lightweight model\n' +
               '- Hard reasoning goes to a frontier model\n\n' +
-              'You never touch the dropdown. It reads each message and picks the model that fits.'
+              'You never have to touch the dropdown. Smart Model chooses for you.'
           ),
         ],
       },
@@ -149,7 +184,7 @@ export const DEMO_CONVERSATIONS: readonly DemoConversation[] = [
               '  return -1;\n' +
               '}\n' +
               '```\n\n' +
-              String.raw`It runs in $O(\log n)$ time and $O(1)$ space.`
+              'It runs in `O(log n)` time and `O(1)` space.'
           ),
         ],
       },
@@ -193,12 +228,18 @@ export const DEMO_CONVERSATIONS: readonly DemoConversation[] = [
       {
         sender: 'user',
         senderId: DEMO_USER.id,
-        content: [t('Did everyone see the launch numbers?')],
+        content: [
+          t(
+            'Welcome to the group! This is a shared chat we can all use together, with AI right here in it.'
+          ),
+        ],
       },
       {
         sender: 'user',
         senderId: 'demo-user-amir',
-        content: [t('Yes, encrypted-by-default is clearly landing with people.')],
+        content: [
+          t('Nice. And since this is HushBox, it stays private even with a few of us in here?'),
+        ],
       },
       {
         sender: 'user',

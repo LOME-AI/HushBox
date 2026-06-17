@@ -8,6 +8,10 @@ import './app.css';
 
 // Streamdown rendering styles (animation keyframes for streaming cursor)
 import 'streamdown/styles.css';
+// KaTeX styles so `$$…$$` math renders (the math plugin emits KaTeX markup but
+// ships no CSS; Vite bundles the referenced fonts). Single-`$` inline math stays
+// disabled in @streamdown/math to avoid eating currency like "$5".
+import 'katex/dist/katex.min.css';
 
 // Set data-e2e on <html> before React mounts — disables all CSS transitions/animations
 // via the [data-e2e] rule in app.css, eliminating timing races in E2E tests.

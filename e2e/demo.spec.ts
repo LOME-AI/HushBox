@@ -22,7 +22,7 @@ test.describe('interactive demo (/demo)', () => {
     // screen (types the prompt there, fakes the send), then streams the reply and
     // a follow-up through the real token-by-token path. Wider budget covers the
     // welcome lead-in + two paced turns.
-    await expect(page.getByText('Pick any model from the dropdown and resend')).toBeVisible({
+    await expect(page.getByText('decrypted just long enough')).toBeVisible({
       timeout: TIMEOUTS.STREAM_CLEAR,
     });
 
@@ -40,8 +40,8 @@ test.describe('interactive demo (/demo)', () => {
 
   // The demo's sidebar renders as a collapsed icon rail, so conversation tiles
   // carry no title text to filter on — they're selected positionally, in the
-  // listed order: 0 smart-model, 1 code/math, 2 image, 3 video, 4 group.
-  const CONVERSATION = { codeMath: 1, image: 2, video: 3, group: 4 } as const;
+  // listed order: 0 welcome, 1 smart-model, 2 code/math, 3 image, 4 video, 5 group.
+  const CONVERSATION = { codeMath: 2, image: 3, video: 4, group: 5 } as const;
 
   test('decrypts generated image and video media from ciphertext', async ({ page }) => {
     await page.goto(ROUTES.DEMO);

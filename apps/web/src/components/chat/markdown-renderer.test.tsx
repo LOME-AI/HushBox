@@ -51,6 +51,12 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByText('const x = 1')).toBeInTheDocument();
   });
 
+  it('renders display math as KaTeX markup', () => {
+    const { container } = render(<MarkdownRenderer content={'$$E = mc^2$$'} />);
+
+    expect(container.querySelector('.katex')).toBeInTheDocument();
+  });
+
   it('renders short code blocks inline (not as document cards)', () => {
     const codeContent = '```javascript\nconst x = 1;\n```';
     render(<MarkdownRenderer content={codeContent} />);

@@ -381,18 +381,20 @@ describe('DemoBackendStore', () => {
     store.fillConversation('demo-group');
     const rows = decryptMessageTexts(store, account, 'demo-group');
     expect(rows).toHaveLength(3);
-    expect(rows[0]?.text).toContain('Did everyone see the launch numbers?');
+    expect(rows[0]?.text).toContain('Welcome to the group');
   });
 
   it('peekNextGroupText returns the demo user opener for the welcome lead-in', () => {
-    expect(store.peekNextGroupText('demo-group')).toBe('Did everyone see the launch numbers?');
+    expect(store.peekNextGroupText('demo-group')).toBe(
+      'Welcome to the group! This is a shared chat we can all use together, with AI right here in it.'
+    );
     expect(store.peekNextGroupText('demo-image')).toBeNull();
     expect(store.peekNextGroupText('unknown')).toBeNull();
   });
 
   it('peekNextUserText returns the next scripted prompt and null once the script is exhausted', () => {
     expect(store.peekNextUserText('demo-smart-model')).toBe(
-      'Which model should answer a quick fact vs. a hard reasoning problem?'
+      'There are so many AI models. How do I know which one to use?'
     );
     store.recordSendTurn('demo-smart-model', { id: 'u1', content: 'x' }, 'm');
     expect(store.peekNextUserText('demo-smart-model')).toBe(
