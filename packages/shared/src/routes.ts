@@ -15,6 +15,7 @@ export const ROUTES = {
   USAGE: '/usage',
   SETTINGS: '/settings',
   ACCESSIBILITY: '/accessibility',
+  DEMO: '/demo',
 
   LOGIN: '/login',
   SIGNUP: '/signup',

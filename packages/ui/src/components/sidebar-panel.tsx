@@ -65,7 +65,7 @@ export function SidebarPanelHeader({
 
   const testIdProps = testId === undefined ? {} : { 'data-testid': `${testId}-header` };
   const baseClasses =
-    'border-sidebar-border flex min-h-[53px] shrink-0 items-center border-b px-4 py-2 whitespace-nowrap';
+    'border-sidebar-border flex min-h-[var(--app-header-height)] shrink-0 items-center border-b px-4 py-2 whitespace-nowrap';
 
   if (collapsed) {
     return (

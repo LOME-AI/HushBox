@@ -53,6 +53,12 @@
   --chart-5: #8b5cf6;
 
   --radius: 0.5rem;
+
+  /* Single source of truth for the app header height (chat header, sidebar
+     header, settings/usage page headers). Rem-based so every header scales
+     together with the root font size (e.g. the accessibility text-size control
+     and the embedded demo's reduced root font). */
+  --app-header-height: 3.3125rem;
 }
 
 .dark {

@@ -143,7 +143,7 @@ describe('ChatHeader', () => {
     );
     const header = screen.getByTestId('chat-header');
     expect(header).toHaveClass('px-4');
-    expect(header).toHaveClass('min-h-[53px]');
+    expect(header).toHaveClass('min-h-[var(--app-header-height)]');
   });
 
   describe('model selector', () => {

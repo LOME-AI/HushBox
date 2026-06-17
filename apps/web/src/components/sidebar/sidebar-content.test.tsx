@@ -114,7 +114,7 @@ describe('SidebarContent', () => {
 
   it('renders NewChatButton', () => {
     render(<SidebarContent conversations={mockConversations} />);
-    expect(screen.getByRole('button', { name: /new chat/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /new chat/i })).toBeInTheDocument();
   });
 
   it('renders Search chats input when sidebar is open', () => {

@@ -8,6 +8,20 @@ import tailwindcss from '@tailwindcss/vite';
 const vitePort = process.env['HB_VITE_PORT'] ?? '5173';
 const astroPort = process.env['HB_ASTRO_PORT'];
 
+// Paths the marketing dev server hands off to the Vite app: SPA routes the real
+// app owns (auth, chat) plus `/demo`, the embedded product-demo SPA. Production
+// uses the generated `_headers` instead of this dev-only redirect.
+const SPA_REDIRECT_PATHS = new Set([
+  '/login',
+  '/login/',
+  '/signup',
+  '/signup/',
+  '/chat',
+  '/chat/',
+  '/demo',
+  '/demo/',
+]);
+
 export default defineConfig({
   site: 'https://hushbox.ai',
   integrations: [mdx(), react(), sitemap()],
@@ -47,14 +61,7 @@ export default defineConfig({
         configureServer(server) {
           server.middlewares.use((req, res, next) => {
             const url = req.url?.split('?')[0] ?? '';
-            if (
-              url === '/login' ||
-              url === '/login/' ||
-              url === '/signup' ||
-              url === '/signup/' ||
-              url === '/chat' ||
-              url === '/chat/'
-            ) {
+            if (SPA_REDIRECT_PATHS.has(url)) {
               res.writeHead(302, { Location: `http://localhost:${vitePort}${url}` });
               res.end();
               return;

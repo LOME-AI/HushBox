@@ -11,6 +11,20 @@
       name="description"
       content="One interface for every AI model. Chat with GPT, Claude, Gemini, and more. End-to-end encrypted. No subscriptions."
     />
+    <!-- Paint the theme background before app CSS loads so there is no white
+         flash (notably in dark mode / inside the marketing demo iframe). Values
+         mirror the --background token in packages/config/tailwind/index.css. -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        background-color: #faf9f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background-color: #1a1816;
+        }
+      }
+    </style>
     <link
       rel="preload"
       href="/fonts/merriweather-latin.woff2"

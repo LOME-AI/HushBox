@@ -157,11 +157,11 @@ describe('SidebarPanel', () => {
   });
 
   describe('header', () => {
-    it('uses min-h-[53px] to grow with content (parity with PageHeader)', () => {
+    it('uses the shared app-header-height token to grow with content (parity with PageHeader)', () => {
       render(<SidebarPanel {...defaultProps} testId="panel" />);
       const header = screen.getByTestId('panel-header');
-      expect(header).toHaveClass('min-h-[53px]');
-      expect(header.className).not.toMatch(/\bh-\[53px\]\b/);
+      expect(header).toHaveClass('min-h-[var(--app-header-height)]');
+      expect(header.className).not.toMatch(/\b[hm][a-z-]*-\[53px\]\b/);
     });
 
     it('has py-2 vertical padding (parity with PageHeader)', () => {

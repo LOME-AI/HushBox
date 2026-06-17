@@ -32,7 +32,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MARKETING_ROUTES } from '../packages/shared/src/routes.js';
+import { MARKETING_ROUTES, ROUTES } from '../packages/shared/src/routes.js';
 import { isMainModule } from './lib/is-main.js';
 import { runMain } from './lib/run-main.js';
 import type { Dirent } from 'node:fs';
@@ -150,6 +150,32 @@ function buildSpaHeaders(
   ];
 }
 
+/**
+ * Frame headers for the `/demo` route(s), which host the interactive product
+ * demo — the real SPA running in "demo mode" — inside a same-origin <iframe>
+ * embedded on the marketing `/welcome` page. The strict SPA policy
+ * (`frame-ancestors 'none'` + `X-Frame-Options: DENY`) blocks ALL framing,
+ * including same-origin, so the demo route relaxes both to same-origin only:
+ * cross-origin framing stays denied. Every other directive is inherited from
+ * the SPA policy unchanged.
+ */
+function buildDemoHeaders(
+  spaHeaders: readonly { name: string; value: string }[]
+): readonly { name: string; value: string }[] {
+  return spaHeaders.map((header) => {
+    if (header.name === 'Content-Security-Policy') {
+      return {
+        name: header.name,
+        value: header.value.replace("frame-ancestors 'none'", "frame-ancestors 'self'"),
+      };
+    }
+    if (header.name === 'X-Frame-Options') {
+      return { name: header.name, value: 'SAMEORIGIN' };
+    }
+    return header;
+  });
+}
+
 interface ApiOrigin {
   /** HTTP origin (e.g. `https://api.hushbox.ai`, `http://localhost:8787`). */
   readonly http: string;
@@ -242,6 +268,9 @@ const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do no
 #    builds (the port is slot-offset for worktrees; see scripts/worktree.ts); prod builds
 #    skip it since the *.r2.cloudflarestorage.com wildcard already covers prod reads.
 #  - frame-ancestors 'none': belt-and-suspenders with X-Frame-Options: DENY.
+#    Exception: /demo and /demo/* relax to frame-ancestors 'self' + X-Frame-Options
+#    SAMEORIGIN so the marketing /welcome page can embed the demo SPA in a
+#    same-origin iframe. Cross-origin framing stays denied. See buildDemoHeaders.
 #  - base-uri 'self', form-action 'self': close the usual base-tag and form-hijack avenues.
 #  - font-src 'self' data:: locally hosted fonts plus inline data: glyphs.
 `;
@@ -277,6 +306,15 @@ export async function generateHeaders(
   // `/*` last, its hashless CSP would append after the per-path block and the
   // browser's intersection of the two policies blocks every inline script.
   const blocks: string[] = [formatSpaBlock(spaHeaders)];
+  // The interactive product demo runs the SPA in an <iframe> on the
+  // same-origin marketing /welcome page; /demo + /demo/* relax the strict
+  // frame headers to same-origin only. Emitted right after `/*` so their
+  // unsets strip the strict values before re-setting the relaxed ones.
+  const demoHeaders = buildDemoHeaders(spaHeaders);
+  blocks.push(
+    formatDemoBlock(ROUTES.DEMO, spaHeaders, demoHeaders),
+    formatDemoBlock(`${ROUTES.DEMO}/*`, spaHeaders, demoHeaders)
+  );
   for (const page of pages) {
     const html = await fs.readFile(page.htmlFile, 'utf8');
     const csp = computePageCsp(html);
@@ -403,6 +441,30 @@ function formatMarketingBlock(
         ? inlineHashesIntoSpaCsp(header.value, csp)
         : header.value;
     lines.push(`  ${header.name}: ${value}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * Override block for the `/demo` route(s). The `/*` block (emitted first)
+ * already set the strict frame headers, and Cloudflare appends rather than
+ * replaces — so unset each SPA header before re-setting the relaxed demo
+ * variant. Without the unset, the response carries two CSPs and the browser
+ * intersects them back to `frame-ancestors 'none'`, re-blocking the iframe.
+ * Mirrors `formatMarketingBlock`'s unset-then-set discipline; no per-page
+ * script hashes (the demo serves the SPA's hashless index.html).
+ */
+function formatDemoBlock(
+  urlPath: string,
+  spaHeaders: readonly { name: string; value: string }[],
+  demoHeaders: readonly { name: string; value: string }[]
+): string {
+  const lines: string[] = [urlPath];
+  for (const header of spaHeaders) {
+    lines.push(`  ! ${header.name}`);
+  }
+  for (const header of demoHeaders) {
+    lines.push(`  ${header.name}: ${header.value}`);
   }
   return `${lines.join('\n')}\n`;
 }

@@ -8,6 +8,25 @@
 
 @import '@hushbox/ui/accessibility/styles';
 
+/*
+ * Durable in-page anchor offset. `--header-height` is set live by
+ * LandingHeader from the fixed header's measured height, so any
+ * `section[id]` jump target clears the header instead of landing under it
+ * (or, with a stale magic-number offset, too far down). Smooth by default;
+ * the accessibility motion toggle forces instant.
+ */
+html {
+  scroll-behavior: smooth;
+}
+
+html.reduced-motion {
+  scroll-behavior: auto;
+}
+
+:where(section[id]) {
+  scroll-margin-top: calc(var(--header-height, 4.5rem) + 1rem);
+}
+
 .prose-blog {
   @apply text-foreground leading-relaxed;
 }

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MARKETING_ROUTES } from '../packages/shared/src/routes.js';
+import { MARKETING_ROUTES, ROUTES } from '../packages/shared/src/routes.js';
 import {
   generateHeaders,
   computePageCsp,
@@ -125,8 +125,9 @@ describe('generateHeaders', () => {
     const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
 
     expect(result.pagesProcessed).toBe(MARKETING_ROUTES.length);
-    // Each marketing page emits two blocks (`/route` + `/route/`), plus the SPA `/*` fallback.
-    expect(result.blocksEmitted).toBe(MARKETING_ROUTES.length * 2 + 1);
+    // Each marketing page emits two blocks (`/route` + `/route/`), plus the SPA
+    // `/*` fallback and the two `/demo` + `/demo/*` iframe-override blocks.
+    expect(result.blocksEmitted).toBe(MARKETING_ROUTES.length * 2 + 3);
     const content = await fs.readFile(result.outputPath, 'utf8');
     for (const route of MARKETING_ROUTES) {
       expect(content).toMatch(new RegExp(`^${route}$`, 'm'));
@@ -550,6 +551,67 @@ describe('generateHeaders', () => {
       if (originalEnv === undefined) delete process.env['VITE_API_URL'];
       else process.env['VITE_API_URL'] = originalEnv;
     }
+  });
+});
+
+describe('generateHeaders — /demo iframe override', () => {
+  it('emits /demo and /demo/* override blocks', async () => {
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
+    const content = await fs.readFile(result.outputPath, 'utf8');
+    expect(content).toMatch(/^\/demo$/m);
+    expect(content).toMatch(/^\/demo\/\*$/m);
+  });
+
+  it('relaxes /demo (+ subpaths) to same-origin framing, single-valued', async () => {
+    // The marketing /welcome page embeds the demo SPA in a same-origin iframe;
+    // the strict SPA frame-ancestors 'none' + X-Frame-Options DENY would block
+    // it. The override must resolve to ONE relaxed CSP (not two intersected
+    // back to 'none') under Cloudflare rule semantics.
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
+    const rules = parseHeadersFile(await fs.readFile(result.outputPath, 'utf8'));
+
+    for (const route of [ROUTES.DEMO, `${ROUTES.DEMO}/chat/abc`]) {
+      const headers = matchHeaders(rules, route);
+      const csp = headers['Content-Security-Policy'];
+      expect(Array.isArray(csp), `${route} must resolve to one CSP`).toBe(false);
+      expect(csp).toContain("frame-ancestors 'self'");
+      expect(csp).not.toContain("frame-ancestors 'none'");
+      const xfo = headers['X-Frame-Options'];
+      expect(Array.isArray(xfo), `${route} must resolve to one X-Frame-Options`).toBe(false);
+      expect(xfo).toBe('SAMEORIGIN');
+    }
+  });
+
+  it('keeps cross-origin framing denied on /demo (self, not wildcard)', async () => {
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
+    const rules = parseHeadersFile(await fs.readFile(result.outputPath, 'utf8'));
+    const csp = matchHeaders(rules, ROUTES.DEMO)['Content-Security-Policy'];
+    expect(csp).not.toContain('frame-ancestors *');
+    expect(csp).not.toContain('frame-ancestors https:');
+  });
+
+  it('leaves ordinary SPA routes fully frame-blocked (regression guard)', async () => {
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
+    const rules = parseHeadersFile(await fs.readFile(result.outputPath, 'utf8'));
+    const headers = matchHeaders(rules, ROUTES.CHAT);
+    expect(headers['Content-Security-Policy']).toContain("frame-ancestors 'none'");
+    expect(headers['X-Frame-Options']).toBe('DENY');
+  });
+
+  it('preserves the rest of the SPA policy on /demo (only frame controls relaxed)', async () => {
+    await seedAllMarketingRoutes(path.join(repoRoot, 'apps/web/dist'));
+    const result = await generateHeaders({ repoRoot, apiUrl: 'https://api.hushbox.ai' });
+    const rules = parseHeadersFile(await fs.readFile(result.outputPath, 'utf8'));
+    const csp = matchHeaders(rules, ROUTES.DEMO)['Content-Security-Policy'];
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain(
+      "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://secure.myhelcim.com"
+    );
+    expect(csp).not.toContain('sha256-');
   });
 });
 

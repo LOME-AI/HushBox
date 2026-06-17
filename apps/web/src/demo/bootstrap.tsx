@@ -1,0 +1,84 @@
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { RouterProvider, createRouter, createMemoryHistory } from '@tanstack/react-router';
+import { ROUTES } from '@hushbox/shared';
+import { routeTree } from '@/routeTree.gen';
+import { queryClient } from '@/providers/query-provider';
+import { chatKeys } from '@/hooks/chat';
+import { installFetchShim } from './mock-backend/fetch-shim';
+import { installWebSocketShim, emitDemoRealtimeEvent } from './mock-backend/ws-shim';
+import { DemoBackendStore } from './mock-backend/store';
+import { DEMO_BOOT_ID } from './mock-backend/fixtures';
+import { seedDemoSession } from './seed-session';
+import { startDirector } from './director';
+import { installGuardrails } from './guardrails';
+import { installComposerCues } from './composer-cues';
+
+/**
+ * Boots the REAL app in "demo mode": installs the network shim + a seeded
+ * session BEFORE any provider mounts (StabilityProvider fires auth/balance on
+ * mount), then renders the real route tree under a MEMORY-history router so the
+ * iframe's document URL stays `/demo` — reload-safe, and the sidebar's
+ * `/chat/$id` links navigate in memory instead of the address bar.
+ *
+ * Loaded as a lazy chunk only on the `/demo` path, so none of this (or the
+ * fixtures) ships to real users.
+ */
+export function mountDemo(rootElement: Element): void {
+  // The demo lives in a small iframe; shrink the root font (the same lever the
+  // accessibility text-size control pulls — everything is rem-based) so the UI
+  // isn't squished. 80% of the app's normal size fits the embed comfortably.
+  document.documentElement.style.fontSize = '80%';
+
+  const session = seedDemoSession();
+  const store = new DemoBackendStore(session.accountPublicKey);
+  installFetchShim(store);
+  // Group conversations open a real WebSocket; the fake keeps it permanently
+  // "ready" with no server and no reconnect churn (HMR sockets pass through).
+  installWebSocketShim();
+
+  // Boot onto the new-chat screen; the director auto-opens the first conversation
+  // (and every later one) by routing back through this welcome screen first.
+  const router = createRouter({
+    routeTree,
+    context: { queryClient },
+    history: createMemoryHistory({ initialEntries: [ROUTES.CHAT] }),
+  });
+
+  createRoot(rootElement).render(
+    <StrictMode>
+      <RouterProvider router={router} />
+    </StrictMode>
+  );
+
+  // Tell the embedding page the demo has painted, so it can fade the iframe in
+  // instead of flashing white during load (see AppDemo.astro). The payload is a
+  // bare signal with no data, and the parent is cross-origin in dev (marketing
+  // and web app run on different ports), so a wildcard target is correct here.
+  // Deferred two frames so the reveal happens AFTER the app's first real paint —
+  // `render()` only schedules the commit, so pinging synchronously would reveal a
+  // still-blank iframe (the lingering white flash). `globalThis.requestAnimationFrame`
+  // is a one-shot paint gate, not an animation loop.
+  const signalReady = (): void => {
+    // eslint-disable-next-line sonarjs/post-message -- non-sensitive ready ping; parent cross-origin in dev
+    globalThis.parent.postMessage({ type: 'hb-demo-ready' }, '*');
+  };
+  globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(signalReady));
+
+  startDirector(
+    {
+      navigate: (path) => {
+        router.history.push(path);
+      },
+    },
+    store,
+    (conversationId) => {
+      void queryClient.invalidateQueries({ queryKey: chatKeys.conversation(conversationId) });
+    },
+    { emitRealtime: emitDemoRealtimeEvent, bootConversationId: DEMO_BOOT_ID }
+  );
+  installGuardrails();
+  // Signal the composer isn't a live input: sign-up placeholder + locked
+  // modality icons (the director still drives it; these cues are visual only).
+  installComposerCues();
+}

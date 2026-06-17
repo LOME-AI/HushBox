@@ -11,6 +11,7 @@ import {
 import { buttonVariants, ScrollReveal, DataGrid, FeeBreakdown, CostPieChart } from '@hushbox/ui';
 import { LANDING_CIPHER_MESSAGES } from '@hushbox/shared/cipher-messages';
 import PageHero from '../components/PageHero.astro';
+import AppDemo from '../components/AppDemo.astro';
 import { EncryptionDemo } from '../components/encryption-demo';
 import LandingLayout from '../layouts/LandingLayout.astro';
 import LandingHeader from '../components/LandingHeader.astro';
@@ -97,10 +98,7 @@ function iconSvg(lucideIcon: string): string {
     </p>
     <div class="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
       <a href={ROUTES.CHAT} class={buttonVariants({ size: 'lg' })}> Try HushBox Free </a>
-      <a
-        href="#pillars"
-        class={`scroll-to-pillars ${buttonVariants({ variant: 'ghost', size: 'lg' })}`}
-      >
+      <a href="#demo" class={buttonVariants({ variant: 'ghost', size: 'lg' })}>
         See How It Works &rarr;
       </a>
     </div>
@@ -109,9 +107,9 @@ function iconSvg(lucideIcon: string): string {
     <Fragment slot="below">
       <a
         id="scroll-arrow"
-        href="#pillars"
+        href="#demo"
         aria-label="Scroll to learn more"
-        class="scroll-arrow scroll-to-pillars absolute bottom-16 left-1/2 -translate-x-1/2 cursor-pointer"
+        class="scroll-arrow absolute bottom-16 left-1/2 -translate-x-1/2 cursor-pointer"
       >
         <svg class="text-primary h-16 w-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"
@@ -130,23 +128,15 @@ function iconSvg(lucideIcon: string): string {
             { passive: true }
           );
         })();
-        (function () {
-          var links = document.querySelectorAll('.scroll-to-pillars');
-          links.forEach(function (link) {
-            link.addEventListener('click', function (e) {
-              var target = document.getElementById('pillars');
-              if (!target) return;
-              e.preventDefault();
-              var offset = target.getBoundingClientRect().top + window.scrollY - 60;
-              window.scrollTo({ top: offset, behavior: 'smooth' });
-            });
-          });
-        })();
       </script>
     </Fragment>
   </PageHero>
 
-  <section id="pillars" class="py-12">
+  <section id="demo" class="py-9">
+    <AppDemo />
+  </section>
+
+  <section id="pillars" class="py-9">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
         <div class="grid gap-6 md:grid-cols-3">
@@ -167,7 +157,7 @@ function iconSvg(lucideIcon: string): string {
     </div>
   </section>
 
-  <section id="how-it-works" class="py-12">
+  <section id="how-it-works" class="py-9">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
         <h2 class="text-center text-3xl font-bold tracking-tight sm:text-4xl">
@@ -203,7 +193,7 @@ function iconSvg(lucideIcon: string): string {
 
   {
     costData.monthlyCost > 0 && (
-      <section class="py-12">
+      <section class="py-9">
         <div class="mx-auto max-w-5xl px-6">
           <ScrollReveal client:visible>
             <h2 class="text-center text-3xl font-bold tracking-tight sm:text-4xl">
@@ -232,7 +222,7 @@ function iconSvg(lucideIcon: string): string {
     )
   }
 
-  <section class="py-12">
+  <section class="py-9">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
         <h2 class="text-center text-3xl font-bold tracking-tight sm:text-4xl">How we compare</h2>
@@ -249,7 +239,7 @@ function iconSvg(lucideIcon: string): string {
     </div>
   </section>
 
-  <section class="py-12">
+  <section class="py-9">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
         <h2 class="text-center text-3xl font-bold tracking-tight sm:text-4xl">
@@ -278,7 +268,7 @@ function iconSvg(lucideIcon: string): string {
     </div>
   </section>
 
-  <section class="py-12">
+  <section class="py-9">
     <div class="mx-auto max-w-5xl px-6">
       <ScrollReveal client:visible>
         <h2 class="text-center text-3xl font-bold tracking-tight sm:text-4xl">
@@ -292,7 +282,7 @@ function iconSvg(lucideIcon: string): string {
     </div>
   </section>
 
-  <section class="py-12">
+  <section class="py-9">
     <div class="mx-auto max-w-3xl px-6 text-center">
       <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Ready to chat privately?</h2>
       <div class="mt-8">

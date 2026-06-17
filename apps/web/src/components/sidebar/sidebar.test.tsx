@@ -256,7 +256,7 @@ describe('Sidebar', () => {
 
     it('renders NewChatButton', () => {
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(screen.getByRole('button', { name: /new chat/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /new chat/i })).toBeInTheDocument();
     });
 
     it('renders Search chats input', () => {
@@ -354,7 +354,7 @@ describe('Sidebar', () => {
       mockConversationsHook();
 
       render(<Sidebar />, { wrapper: createWrapper() });
-      expect(screen.getByRole('button', { name: /new chat/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /new chat/i })).toBeInTheDocument();
     });
 
     it('shows signup message when session is null', () => {

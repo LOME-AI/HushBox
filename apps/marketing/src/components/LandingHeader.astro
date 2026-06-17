@@ -133,4 +133,15 @@ function formatStars(count: number): string {
       });
     }
   })();
+  // Publish the live fixed-header height so anchor targets can offset by it
+  // (see scroll-margin-top in global.css). Re-measured on resize.
+  (function () {
+    var header = document.querySelector('header');
+    if (!header) return;
+    var publish = function () {
+      document.documentElement.style.setProperty('--header-height', header.offsetHeight + 'px');
+    };
+    publish();
+    window.addEventListener('resize', publish, { passive: true });
+  })();
 </script>
