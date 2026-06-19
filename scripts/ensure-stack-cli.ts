@@ -276,7 +276,7 @@ async function main(): Promise<void> {
   loadDotenv({ path: path.join(REPO_ROOT, '.env.development'), override: true });
   loadDotenv({ path: path.join(REPO_ROOT, '.env.scripts'), override: true });
 
-  if (args.envMode === Mode.E2E) {
+  if ((args.envMode as Mode) === Mode.E2E) {
     await reclaimE2eWebserverPorts();
   }
 

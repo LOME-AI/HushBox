@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TEST_IDS } from '@hushbox/shared';
-import { SettingsPage } from './settings';
+import { SettingsPage } from './-settings-page';
 
 // vi.hoisted values are available inside vi.mock factories (hoisted above imports)
 const { mockChangePassword, mockUseAuthStore, useAuthStoreMock, mockAuthStoreState } = vi.hoisted(

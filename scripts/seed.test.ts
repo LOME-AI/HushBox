@@ -593,6 +593,30 @@ describe('seed script', () => {
     it('seeds all entities without throwing', async () => {
       await expect(seed()).resolves.not.toThrow();
     });
+
+    it('refuses to run against a non-local DATABASE_URL', async () => {
+      process.env['DATABASE_URL'] = 'postgres://user:pass@db.prod.neon.tech/hushbox';
+
+      await expect(seed()).rejects.toThrow(/refus|local/i);
+    });
+
+    it('proceeds against a 127.0.0.1 DATABASE_URL', async () => {
+      process.env['DATABASE_URL'] = 'postgres://postgres:postgres@127.0.0.1:4444/hushbox';
+
+      await expect(seed()).resolves.not.toThrow();
+    });
+
+    it('proceeds against a bracketed IPv6 loopback DATABASE_URL', async () => {
+      process.env['DATABASE_URL'] = 'postgres://postgres:postgres@[::1]:5432/hushbox';
+
+      await expect(seed()).resolves.not.toThrow();
+    });
+
+    it('refuses to run against an unparseable DATABASE_URL', async () => {
+      process.env['DATABASE_URL'] = 'not a valid url';
+
+      await expect(seed()).rejects.toThrow(/refus|local/i);
+    });
   });
 
   describe('generatePersonaData', () => {

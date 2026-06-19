@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { createFileRoute, redirect, Link, Outlet } from '@tanstack/react-router';
+import { Link, Outlet } from '@tanstack/react-router';
+import { Logo } from '@hushbox/ui';
 import { ROUTES, TEST_IDS } from '@hushbox/shared';
-import { CipherWall, Logo } from '@hushbox/ui';
+import { CipherWall } from '@hushbox/ui';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
-import { authClient } from '@/lib/auth';
 
 const AUTH_CIPHER_MESSAGES: readonly string[] = [
   'Encrypted By Default',
@@ -24,18 +24,7 @@ const AUTH_CIPHER_MESSAGES: readonly string[] = [
   'Built For Your Workflow',
 ];
 
-export const Route = createFileRoute('/_auth')({
-  beforeLoad: async () => {
-    const session = await authClient.getSession();
-    if (session.data) {
-      // eslint-disable-next-line @typescript-eslint/only-throw-error -- TanStack Router redirect is designed to be thrown
-      throw redirect({ to: ROUTES.CHAT });
-    }
-  },
-  component: AuthLayout,
-});
-
-function AuthLayout(): React.JSX.Element {
+export function AuthLayout(): React.JSX.Element {
   return (
     <div data-testid={TEST_IDS.authLayout} className="bg-background flex min-h-dvh">
       <div className="relative flex flex-1 flex-col justify-center px-8 pt-14 pb-8 lg:px-16 lg:pt-0 lg:pb-0">

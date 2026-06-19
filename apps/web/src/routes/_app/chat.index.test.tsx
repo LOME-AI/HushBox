@@ -136,7 +136,7 @@ vi.mock('framer-motion', async () => {
 });
 
 // Import after mocks
-import { ChatIndex } from './chat.index';
+import { ChatIndex } from './-chat-index';
 
 function createWrapper(): React.FC<{ children: React.ReactNode }> {
   const queryClient = new QueryClient({

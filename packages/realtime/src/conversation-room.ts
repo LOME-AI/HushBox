@@ -1,5 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 
+import { WS_HEARTBEAT_PING_MESSAGE, WS_HEARTBEAT_PONG_MESSAGE } from '@hushbox/shared';
+
 import type { PresenceUpdateEvent } from './events.js';
 
 /** Metadata attached to each WebSocket connection via serializeAttachment */
@@ -27,6 +29,19 @@ interface PresenceMember {
  *   GET /presence                       -- API Worker queries currently-subscribed userIds
  */
 export class ConversationRoom extends DurableObject {
+  constructor(ctx: DurableObjectState, env: unknown) {
+    super(ctx, env as never);
+    // Idle-keepalive heartbeat: the client sends the ping on each heartbeat
+    // tick; the Workers runtime auto-replies with the pong WITHOUT invoking
+    // webSocketMessage (no peer broadcast, no exit from hibernation), so an
+    // idle-but-alive socket never trips the client's half-open timeout.
+    // Register once — registration is passive (no timers), so a room with zero
+    // clients still hibernates.
+    this.ctx.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair(WS_HEARTBEAT_PING_MESSAGE, WS_HEARTBEAT_PONG_MESSAGE)
+    );
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
@@ -118,6 +133,11 @@ export class ConversationRoom extends DurableObject {
    */
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     if (typeof message !== 'string') return;
+
+    // Keepalive pings are answered by the runtime auto-response and never reach
+    // here; this guard ensures one is never broadcast to peers as chat traffic
+    // even if a client sends it outside the auto-response fast path.
+    if (message === WS_HEARTBEAT_PING_MESSAGE) return;
 
     const sockets = this.ctx.getWebSockets();
     for (const socket of sockets) {

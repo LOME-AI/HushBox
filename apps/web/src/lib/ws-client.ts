@@ -1,4 +1,5 @@
 import { parseEvent } from '@hushbox/realtime/events';
+import { WS_HEARTBEAT_PING_MESSAGE, WS_HEARTBEAT_PONG_MESSAGE } from '@hushbox/shared';
 import { getApiUrl } from './api.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
 import { useNetworkStore } from '../stores/network.js';
@@ -34,6 +35,12 @@ function scheduleAfterPaint(callback: () => void): void {
     setTimeout(callback, 0);
   }, 0);
 }
+
+// Idle-keepalive heartbeat. On each tick the client sends the ping; the
+// Durable Object's setWebSocketAutoResponse answers with the pong from the
+// Workers runtime WITHOUT waking the DO or broadcasting to peers. The pong
+// (or any other inbound) clears the pong timeout, so an idle-but-alive socket
+// no longer trips the half-open detector and reconnects on a fixed cadence.
 
 type EventListener<T extends RealtimeEventType> = (
   event: Extract<RealtimeEvent, { type: T }>
@@ -175,6 +182,11 @@ export class ConversationWebSocket {
         this.options.onReadyChange?.(true);
         return;
       }
+      // The heartbeat pong is proof-of-life only (notePongReceived already
+      // cleared the timeout above); never route it as a chat/presence event.
+      if (raw === WS_HEARTBEAT_PONG_MESSAGE) {
+        return;
+      }
 
       const activity = useWebsocketInboundActivityStore.getState();
       activity.startProcessing();
@@ -247,15 +259,20 @@ export class ConversationWebSocket {
    * the OPEN readyState but silently stop delivering data and never fire a
    * `close` event. Without this, the close-driven reconnect path never runs.
    *
-   * On each interval tick we arm a pong timeout. Any inbound message clears
-   * it (see notePongReceived). If the timeout elapses with no inbound traffic,
-   * the socket is presumed dead and force-closed, which routes through the
-   * existing close -> scheduleReconnect machinery. A socket receiving traffic
-   * is never churned because every message resets the timeout.
+   * On each interval tick we send an application-level ping and arm a pong
+   * timeout. The DO's auto-response pong (or any other inbound) clears it (see
+   * notePongReceived). If the timeout elapses with no inbound traffic, the
+   * socket is presumed dead and force-closed, which routes through the existing
+   * close -> scheduleReconnect machinery. A socket receiving traffic is never
+   * churned because every message resets the timeout. The ping is what keeps
+   * an idle-but-alive socket from tripping that timeout every cycle.
    */
   private startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(WS_HEARTBEAT_PING_MESSAGE);
+      }
       this.armPongTimeout();
     }, this.options.heartbeatIntervalMs);
   }

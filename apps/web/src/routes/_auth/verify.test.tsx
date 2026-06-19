@@ -48,7 +48,7 @@ describe('VerifyPage', () => {
       // Promise that never resolves to keep loading state
       () => new Promise(() => {})
     );
-    const { VerifyPage } = await import('./verify');
+    const { VerifyPage } = await import('./-verify-page');
 
     render(<VerifyPage />);
 
@@ -57,7 +57,7 @@ describe('VerifyPage', () => {
 
   it('shows success state on successful verification', async () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({});
-    const { VerifyPage } = await import('./verify');
+    const { VerifyPage } = await import('./-verify-page');
 
     render(<VerifyPage />);
 
@@ -75,7 +75,7 @@ describe('VerifyPage', () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({
       error: { message: 'Invalid or expired token' },
     });
-    const { VerifyPage } = await import('./verify');
+    const { VerifyPage } = await import('./-verify-page');
 
     render(<VerifyPage />);
 
@@ -91,7 +91,7 @@ describe('VerifyPage', () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({
       error: { message: '' },
     });
-    const { VerifyPage } = await import('./verify');
+    const { VerifyPage } = await import('./-verify-page');
 
     render(<VerifyPage />);
 
@@ -105,7 +105,7 @@ describe('VerifyPage', () => {
 
   it('shows error state on network failure', async () => {
     vi.mocked(authClient.verifyEmail).mockRejectedValue(new Error('Network error'));
-    const { VerifyPage } = await import('./verify');
+    const { VerifyPage } = await import('./-verify-page');
 
     render(<VerifyPage />);
 
@@ -126,7 +126,7 @@ describe('VerifyPage idempotency', () => {
 
   it('fires verifyEmail at most once when the effect runs twice for the same token', async () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({});
-    const { VerifyPage } = await import('./verify');
+    const { VerifyPage } = await import('./-verify-page');
 
     const { StrictMode } = await import('react');
     render(
@@ -144,7 +144,7 @@ describe('VerifyPage idempotency', () => {
 
   it('still transitions to the success state when the effect runs twice', async () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({});
-    const { VerifyPage } = await import('./verify');
+    const { VerifyPage } = await import('./-verify-page');
 
     const { StrictMode } = await import('react');
     render(
@@ -167,7 +167,7 @@ describe('VerifyPage without token', () => {
   });
 
   it('shows error when no token provided', async () => {
-    const { VerifyPage } = await import('./verify');
+    const { VerifyPage } = await import('./-verify-page');
 
     render(<VerifyPage />);
 

@@ -104,7 +104,7 @@ describe('SignupPage', () => {
   });
 
   it('renders signup form with all fields', async () => {
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -116,7 +116,7 @@ describe('SignupPage', () => {
   }, 15_000);
 
   it('renders login link', async () => {
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -125,7 +125,7 @@ describe('SignupPage', () => {
 
   it('validates email format', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -140,7 +140,7 @@ describe('SignupPage', () => {
 
   it('validates password minimum length', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -155,7 +155,7 @@ describe('SignupPage', () => {
 
   it('validates passwords match', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -172,7 +172,7 @@ describe('SignupPage', () => {
   it('calls signUp.email with valid data', async () => {
     vi.mocked(signUp.email).mockResolvedValue({});
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -192,7 +192,7 @@ describe('SignupPage', () => {
   it('shows success message on successful signup', async () => {
     vi.mocked(signUp.email).mockResolvedValue({});
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -210,7 +210,7 @@ describe('SignupPage', () => {
       error: { message: 'Email already exists' },
     });
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -231,7 +231,7 @@ describe('SignupPage', () => {
       error: { message: 'Signup failed' },
     });
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -249,7 +249,7 @@ describe('SignupPage', () => {
 
   it('shows success message when username is valid as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -260,7 +260,7 @@ describe('SignupPage', () => {
 
   it('shows success message when email is valid as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -271,7 +271,7 @@ describe('SignupPage', () => {
 
   it('shows error message when email is invalid as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -282,7 +282,7 @@ describe('SignupPage', () => {
 
   it('shows success message when password meets requirements as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -293,7 +293,7 @@ describe('SignupPage', () => {
 
   it('shows error message when password is too short as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -304,7 +304,7 @@ describe('SignupPage', () => {
 
   it('shows success message when confirm password matches as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -316,7 +316,7 @@ describe('SignupPage', () => {
 
   it('shows error message when confirm password does not match as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -328,7 +328,7 @@ describe('SignupPage', () => {
 
   it('Enter on username focuses email field', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -340,7 +340,7 @@ describe('SignupPage', () => {
 
   it('Enter on email focuses password field', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -351,7 +351,7 @@ describe('SignupPage', () => {
   });
 
   it('renders terms acceptance text with links', async () => {
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 
@@ -367,7 +367,7 @@ describe('SignupPage', () => {
   });
 
   it('renders new-password field with new-password autocomplete hint', async () => {
-    const { SignupPage } = await import('./signup');
+    const { SignupPage } = await import('./-signup-page');
 
     render(<SignupPage />);
 

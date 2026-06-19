@@ -1,16 +1,34 @@
-import { render, screen, cleanup } from '@testing-library/react';
+import * as React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { screen, cleanup } from '@testing-library/react';
+import { QueryClient } from '@tanstack/react-query';
+import { TEST_IDS } from '@hushbox/shared';
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './share.c.$conversationId';
 
-const mockDeriveKeysFromLinkSecret = vi.fn();
-const mockFromBase64 = vi.fn<(b64: string) => Uint8Array>();
-const mockToBase64 = vi.fn<(bytes: Uint8Array) => string>();
+const {
+  mockDeriveKeysFromLinkSecret,
+  mockFromBase64,
+  mockToBase64,
+  mockSetLinkGuestAuth,
+  mockClearLinkGuestAuth,
+  mockAuthenticatedChatPage,
+} = vi.hoisted(() => ({
+  mockDeriveKeysFromLinkSecret: vi.fn(),
+  mockFromBase64: vi.fn<(b64: string) => Uint8Array>(),
+  mockToBase64: vi.fn<(bytes: Uint8Array) => string>(),
+  mockSetLinkGuestAuth: vi.fn(),
+  mockClearLinkGuestAuth: vi.fn(),
+  mockAuthenticatedChatPage: vi.fn(),
+}));
 
 vi.mock('@hushbox/crypto', () => ({
   deriveKeysFromLinkSecret: (...args: unknown[]) => mockDeriveKeysFromLinkSecret(...args),
 }));
 
-vi.mock('@hushbox/shared', async () => {
-  const actual = await vi.importActual<typeof import('@hushbox/shared')>('@hushbox/shared');
+// Keep the real @hushbox/shared (TEST_IDS etc.); override only the base64 codecs.
+vi.mock('@hushbox/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/shared')>();
   return {
     ...actual,
     fromBase64: (b64: string) => mockFromBase64(b64),
@@ -18,8 +36,14 @@ vi.mock('@hushbox/shared', async () => {
   };
 });
 
-const mockSetLinkGuestAuth = vi.fn();
-const mockClearLinkGuestAuth = vi.fn();
+// Keep the real router (createFileRoute must run for the route file); mock only useParams.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    useParams: () => ({ conversationId: 'conv-shared' }),
+  };
+});
 
 vi.mock('../lib/link-guest-auth.js', () => ({
   setLinkGuestAuth: (...args: unknown[]) => mockSetLinkGuestAuth(...args),
@@ -27,14 +51,13 @@ vi.mock('../lib/link-guest-auth.js', () => ({
 }));
 
 vi.mock('../components/shared/app-shell.js', () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => (
+  AppShell: ({ children }: { children: React.ReactNode }): React.JSX.Element => (
     <div data-testid="app-shell">{children}</div>
   ),
 }));
 
-const mockAuthenticatedChatPage = vi.fn();
 vi.mock('@/components/chat/page/authenticated-chat-page.js', () => ({
-  AuthenticatedChatPage: (props: Record<string, unknown>) => {
+  AuthenticatedChatPage: (props: Record<string, unknown>): React.JSX.Element => {
     mockAuthenticatedChatPage(props);
     return (
       <div
@@ -46,42 +69,15 @@ vi.mock('@/components/chat/page/authenticated-chat-page.js', () => ({
   },
 }));
 
-const mockInvalidateQueries = vi.fn().mockResolvedValue(null);
-const stableQueryClient = { invalidateQueries: mockInvalidateQueries };
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => stableQueryClient,
-}));
-
-vi.mock('@/hooks/chat/chat.js', () => ({
-  chatKeys: {
-    all: ['chat'] as const,
-    conversations: () => ['chat', 'conversations'] as const,
-    conversation: (id: string) => ['chat', 'conversations', id] as const,
-  },
-}));
-
-vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: () => {
-    const routeObject = {
-      component: undefined as unknown,
-      useParams: () => ({ conversationId: 'conv-shared' }),
-    };
-    return (config: { component: unknown }) => {
-      routeObject.component = config.component;
-      return routeObject;
-    };
-  },
-}));
-
-import { TEST_IDS } from '@hushbox/shared';
-import { SharedConversationPage } from './share.c.$conversationId.js';
-
 const FAKE_PUBLIC_KEY = new Uint8Array(32).fill(42);
 const FAKE_PRIVATE_KEY = new Uint8Array(32).fill(43);
 
-describe('SharedConversationPage', () => {
+describe('/share/c/$conversationId route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockImplementation(() =>
+      Promise.resolve()
+    );
     Object.defineProperty(globalThis, 'location', {
       value: { hash: '#bGluay1zZWNyZXQtYjY0' },
       writable: true,
@@ -96,17 +92,18 @@ describe('SharedConversationPage', () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   it('renders AppShell wrapping AuthenticatedChatPage', () => {
-    render(<SharedConversationPage />);
+    renderRoute(Route);
 
     expect(screen.getByTestId(TEST_IDS.appShell)).toBeInTheDocument();
     expect(screen.getByTestId('authenticated-chat-page')).toBeInTheDocument();
   });
 
   it('passes conversationId to AuthenticatedChatPage', () => {
-    render(<SharedConversationPage />);
+    renderRoute(Route);
 
     expect(screen.getByTestId('authenticated-chat-page')).toHaveAttribute(
       'data-conversation-id',
@@ -115,7 +112,7 @@ describe('SharedConversationPage', () => {
   });
 
   it('passes privateKeyOverride to AuthenticatedChatPage', () => {
-    render(<SharedConversationPage />);
+    renderRoute(Route);
 
     expect(mockAuthenticatedChatPage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -125,20 +122,20 @@ describe('SharedConversationPage', () => {
   });
 
   it('derives keys from the URL hash fragment', () => {
-    render(<SharedConversationPage />);
+    renderRoute(Route);
 
     expect(mockFromBase64).toHaveBeenCalledWith('bGluay1zZWNyZXQtYjY0');
     expect(mockDeriveKeysFromLinkSecret).toHaveBeenCalled();
   });
 
   it('sets link guest auth with the derived public key', () => {
-    render(<SharedConversationPage />);
+    renderRoute(Route);
 
     expect(mockSetLinkGuestAuth).toHaveBeenCalledWith('base64-public-key');
   });
 
   it('clears link guest auth on unmount', () => {
-    const { unmount } = render(<SharedConversationPage />);
+    const { unmount } = renderRoute(Route);
 
     expect(mockClearLinkGuestAuth).not.toHaveBeenCalled();
     unmount();
@@ -146,7 +143,7 @@ describe('SharedConversationPage', () => {
   });
 
   it('passes has-private-key data attribute', () => {
-    render(<SharedConversationPage />);
+    renderRoute(Route);
 
     expect(screen.getByTestId('authenticated-chat-page')).toHaveAttribute(
       'data-has-private-key',
@@ -155,9 +152,9 @@ describe('SharedConversationPage', () => {
   });
 
   it('invalidates all query cache on mount', () => {
-    render(<SharedConversationPage />);
+    renderRoute(Route);
 
-    expect(mockInvalidateQueries).toHaveBeenCalledWith();
+    expect(QueryClient.prototype.invalidateQueries).toHaveBeenCalledWith();
   });
 
   it('renders error state when key derivation fails', () => {
@@ -165,7 +162,7 @@ describe('SharedConversationPage', () => {
       throw new Error('invalid key');
     });
 
-    render(<SharedConversationPage />);
+    renderRoute(Route);
 
     expect(screen.getByTestId(TEST_IDS.sharedConversationError)).toBeInTheDocument();
     expect(screen.queryByTestId('authenticated-chat-page')).not.toBeInTheDocument();

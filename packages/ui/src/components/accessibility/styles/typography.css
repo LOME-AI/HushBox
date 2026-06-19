@@ -1,3 +1,30 @@
+/* Accessibility font faces. Single canonical source: ../fonts/*.woff2. The
+   url() is relative so each app's bundler (Vite for web, Astro for marketing)
+   emits its own hashed copy — no per-app public/ duplicate exists. Family names
+   match the --a11y-font-family value the init script and font-loader set
+   ("<id>"), so `html.a11y-font-override body * { font-family: var(--a11y-font-family) }`
+   below resolves the chosen face both pre-paint and at runtime. font-display:
+   block mirrors the runtime font-loader's FontFace descriptor. */
+@font-face {
+  font-family: 'atkinson';
+  src: url('../fonts/atkinson-hyperlegible.woff2') format('woff2');
+  font-display: block;
+}
+/* OpenDyslexic's intrinsic metrics render ~15% larger than the other a11y fonts
+   at the same point size; size-adjust shrinks it so the user's chosen text-size
+   step stays the visual reference (matches font-loader's sizeAdjust). */
+@font-face {
+  font-family: 'open-dyslexic';
+  src: url('../fonts/open-dyslexic.woff2') format('woff2');
+  font-display: block;
+  size-adjust: 85%;
+}
+@font-face {
+  font-family: 'lexend';
+  src: url('../fonts/lexend.woff2') format('woff2');
+  font-display: block;
+}
+
 /* Root font-size baseline. 106.25% of the browser's default font-size — yields
    17px for the standard 16px browser default, but scales with users who have
    explicitly raised their browser default for accessibility. Px would silently

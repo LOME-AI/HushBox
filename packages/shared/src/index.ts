@@ -1,4 +1,5 @@
 export * from './constants.js';
+export * from './websocket.js';
 export * from './fees.js';
 export * from './routes.js';
 export * from './enums.js';

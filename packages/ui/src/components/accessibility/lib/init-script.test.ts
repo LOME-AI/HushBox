@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -9,18 +9,11 @@ import { A11Y_INIT_SCRIPT } from './init-script';
 const STORAGE_KEY = 'hushbox.a11y.v1';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-// The init script preloads /fonts/a11y/<id>.woff2 from the web app's static
-// root. These must exist (and match the canonical source fonts the runtime
-// font-loader bundles) so the pre-paint preload does not 404.
-const WEB_PUBLIC_A11Y_FONTS = path.resolve(HERE, '../../../../../../apps/web/public/fonts/a11y');
-const CANONICAL_FONTS = path.resolve(HERE, '../fonts');
-
-/** Canonical source filename for each a11y font id (id basename != source basename for atkinson). */
-const FONT_SOURCE_BY_ID: Record<string, string> = {
-  atkinson: 'atkinson-hyperlegible.woff2',
-  'open-dyslexic': 'open-dyslexic.woff2',
-  lexend: 'lexend.woff2',
-};
+// The a11y fonts are now declared by the bundled accessibility CSS (typography.css),
+// emitted from the single canonical woff2 source by each app's bundler. The init
+// script no longer references any absolute /fonts/a11y/ URL — it only toggles the
+// pre-paint class + CSS variable that selects the bundled @font-face family.
+const TYPOGRAPHY_CSS = path.resolve(HERE, '../styles/typography.css');
 
 /** Run the inline init script as if the browser parsed it from <head>. */
 function runInitScript(): void {
@@ -355,47 +348,25 @@ describe('A11Y_INIT_SCRIPT', () => {
     });
   });
 
-  describe('font preload', () => {
-    it.each([['atkinson'], ['open-dyslexic'], ['lexend']] as const)(
-      'injects preload link for non-default font %s',
-      (fontFamily) => {
-        setStoredPrefs({ fontFamily });
-        runInitScript();
-        const link = document.head.querySelector('link[rel="preload"][as="font"]');
-        expect(link).not.toBeNull();
-        expect(link?.getAttribute('href')).toBe(`/fonts/a11y/${fontFamily}.woff2`);
-        expect(link?.getAttribute('type')).toBe('font/woff2');
-        expect(link?.getAttribute('crossorigin')).toBe('anonymous');
-      }
-    );
+  describe('font family selection (pre-paint class + variable, no hardcoded URL)', () => {
+    it('contains no hardcoded /fonts/a11y/ URL (fonts are declared by the bundled CSS)', () => {
+      expect(A11Y_INIT_SCRIPT).not.toContain('/fonts/a11y/');
+    });
 
-    it.each([['atkinson'], ['open-dyslexic'], ['lexend']] as const)(
-      'injects @font-face style for non-default font %s with font-display: block',
-      (fontFamily) => {
-        setStoredPrefs({ fontFamily });
-        runInitScript();
-        const styles = [...document.head.querySelectorAll('style')];
-        const fontFaceStyle = styles.find((s) => s.textContent.includes('@font-face'));
-        expect(fontFaceStyle).toBeDefined();
-        expect(fontFaceStyle?.textContent).toContain(`font-family: '${fontFamily}'`);
-        expect(fontFaceStyle?.textContent).toContain(
-          `url('/fonts/a11y/${fontFamily}.woff2') format('woff2')`
-        );
-        expect(fontFaceStyle?.textContent).toContain('font-display: block');
-      }
-    );
+    it('does not inject any @font-face style (the bundled accessibility CSS owns @font-face)', () => {
+      setStoredPrefs({ fontFamily: 'atkinson' });
+      runInitScript();
+      const fontFaceStyles = [...document.head.querySelectorAll('style')].filter((s) =>
+        s.textContent.includes('@font-face')
+      );
+      expect(fontFaceStyles).toEqual([]);
+    });
 
-    it.each([['atkinson'], ['open-dyslexic'], ['lexend']] as const)(
-      'injects html.a11y-font-override override style for %s',
-      (fontFamily) => {
-        setStoredPrefs({ fontFamily });
-        runInitScript();
-        const styles = [...document.head.querySelectorAll('style')];
-        const overrideStyle = styles.find((s) => s.textContent.includes('html.a11y-font-override'));
-        expect(overrideStyle).toBeDefined();
-        expect(overrideStyle?.textContent).toContain(`font-family: '${fontFamily}'`);
-      }
-    );
+    it('does not inject any font preload link (the bundler emits and references the hashed font)', () => {
+      setStoredPrefs({ fontFamily: 'atkinson' });
+      runInitScript();
+      expect(document.head.querySelector('link[rel="preload"][as="font"]')).toBeNull();
+    });
 
     it.each([['atkinson'], ['open-dyslexic'], ['lexend']] as const)(
       'applies a11y-font-override class for %s',
@@ -406,26 +377,20 @@ describe('A11Y_INIT_SCRIPT', () => {
       }
     );
 
-    it('injects size-adjust: 85% in the @font-face block for open-dyslexic (otherwise it renders enormous)', () => {
-      setStoredPrefs({ fontFamily: 'open-dyslexic' });
-      runInitScript();
-      const styles = [...document.head.querySelectorAll('style')];
-      const fontFaceStyle = styles.find((s) => s.textContent.includes('@font-face'));
-      expect(fontFaceStyle?.textContent).toContain('size-adjust: 85%');
-    });
-
-    it.each([['atkinson'], ['lexend']] as const)(
-      'does not inject size-adjust for %s (only open-dyslexic needs the metric correction)',
+    it.each([['atkinson'], ['open-dyslexic'], ['lexend']] as const)(
+      'sets --a11y-font-family to the bundled @font-face family for %s',
       (fontFamily) => {
         setStoredPrefs({ fontFamily });
         runInitScript();
-        const styles = [...document.head.querySelectorAll('style')];
-        const fontFaceStyle = styles.find((s) => s.textContent.includes('@font-face'));
-        expect(fontFaceStyle?.textContent).not.toContain('size-adjust');
+        // The value must select the same family the bundled @font-face declares so
+        // typography.css's `font-family: var(--a11y-font-family)` resolves pre-paint.
+        expect(document.documentElement.style.getPropertyValue('--a11y-font-family')).toBe(
+          `"${fontFamily}"`
+        );
       }
     );
 
-    it('does not inject any font preload tags when fontFamily is system', () => {
+    it('does not select any a11y font when fontFamily is system', () => {
       setStoredPrefs({ fontFamily: 'system' });
       runInitScript();
       expect(document.head.querySelector('link[rel="preload"][as="font"]')).toBeNull();
@@ -434,11 +399,13 @@ describe('A11Y_INIT_SCRIPT', () => {
       );
       expect(fontFaceStyles).toEqual([]);
       expect(document.documentElement.classList.contains('a11y-font-override')).toBe(false);
+      expect(document.documentElement.style.getPropertyValue('--a11y-font-family')).toBe('');
     });
 
-    it('does not inject font preload when localStorage is empty', () => {
+    it('does not select any a11y font when localStorage is empty', () => {
       runInitScript();
-      expect(document.head.querySelector('link[rel="preload"][as="font"]')).toBeNull();
+      expect(document.documentElement.classList.contains('a11y-font-override')).toBe(false);
+      expect(document.documentElement.style.getPropertyValue('--a11y-font-family')).toBe('');
     });
   });
 
@@ -480,23 +447,65 @@ describe('A11Y_INIT_SCRIPT', () => {
     });
   });
 
-  describe('preloaded font URLs resolve to served assets (no 404)', () => {
+  describe('a11y fonts declared by the bundled accessibility CSS (single canonical source)', () => {
+    const typographyCss = readFileSync(TYPOGRAPHY_CSS, 'utf8');
+
+    /** Relative path (from typography.css) to the canonical woff2 each @font-face must reference. */
+    const FONT_SOURCE_BY_ID: Record<string, string> = {
+      atkinson: 'atkinson-hyperlegible.woff2',
+      'open-dyslexic': 'open-dyslexic.woff2',
+      lexend: 'lexend.woff2',
+    };
+
+    function escapeRegex(value: string): string {
+      return value.replaceAll(/[$()*+.?[\\\]^{|}]/g, String.raw`\$&`);
+    }
+
     it.each([['atkinson'], ['open-dyslexic'], ['lexend']] as const)(
-      'serves /fonts/a11y/%s.woff2 from the web static root',
+      'declares a @font-face for %s using a relative url() to the canonical woff2 (bundler-emitted)',
       (fontFamily) => {
-        const served = path.join(WEB_PUBLIC_A11Y_FONTS, `${fontFamily}.woff2`);
-        expect(existsSync(served)).toBe(true);
+        // Quote-agnostic: Prettier may normalize CSS string quotes. The family must
+        // match the font-loader's --a11y-font-family value ("<id>") and the url must
+        // be the relative path into the canonical fonts dir so Vite/Astro each emit
+        // their own hashed copy — never an absolute /fonts/a11y/ path.
+        const source = escapeRegex(FONT_SOURCE_BY_ID[fontFamily]!);
+        const facePattern = new RegExp(
+          String.raw`@font-face\s*{[^}]*font-family:\s*['"]${fontFamily}['"][^}]*url\(['"]?\.\./fonts/${source}['"]?\)[^}]*}`
+        );
+        expect(typographyCss).toMatch(facePattern);
       }
     );
 
     it.each([['atkinson'], ['open-dyslexic'], ['lexend']] as const)(
-      'serves the canonical %s source bytes (no stale or empty copy)',
+      'gives the %s @font-face font-display: block (matches the runtime font-loader)',
       (fontFamily) => {
-        const served = readFileSync(path.join(WEB_PUBLIC_A11Y_FONTS, `${fontFamily}.woff2`));
-        const canonical = readFileSync(path.join(CANONICAL_FONTS, FONT_SOURCE_BY_ID[fontFamily]!));
-        expect(served.length).toBeGreaterThan(0);
-        expect(served.equals(canonical)).toBe(true);
+        const facePattern = new RegExp(
+          String.raw`@font-face\s*{[^}]*font-family:\s*['"]${fontFamily}['"][^}]*font-display:\s*block[^}]*}`
+        );
+        expect(typographyCss).toMatch(facePattern);
       }
     );
+
+    it('gives the open-dyslexic @font-face size-adjust: 85% (it renders ~15% large otherwise)', () => {
+      const facePattern =
+        /@font-face\s*{[^}]*font-family:\s*['"]open-dyslexic['"][^}]*size-adjust:\s*85%[^}]*}/;
+      expect(typographyCss).toMatch(facePattern);
+    });
+
+    it.each([['atkinson'], ['lexend']] as const)(
+      'does not give the %s @font-face a size-adjust (only open-dyslexic needs it)',
+      (fontFamily) => {
+        const facePattern = new RegExp(
+          String.raw`@font-face\s*{[^}]*font-family:\s*['"]${fontFamily}['"][^}]*}`
+        );
+        const block = facePattern.exec(typographyCss);
+        expect(block).not.toBeNull();
+        expect(block![0]).not.toContain('size-adjust');
+      }
+    );
+
+    it('references no absolute /fonts/a11y/ path anywhere in the bundled CSS', () => {
+      expect(typographyCss).not.toContain('/fonts/a11y/');
+    });
   });
 });

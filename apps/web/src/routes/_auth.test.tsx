@@ -38,7 +38,7 @@ describe('AuthLayout component', () => {
   });
 
   it('renders theme toggle in top-right of form area', async () => {
-    const { AuthLayout } = await import('./_auth');
+    const { AuthLayout } = await import('./-auth-layout');
 
     render(<AuthLayout />);
 
@@ -48,7 +48,7 @@ describe('AuthLayout component', () => {
   });
 
   it('renders logo as a link to /chat in top-left', async () => {
-    const { AuthLayout } = await import('./_auth');
+    const { AuthLayout } = await import('./-auth-layout');
 
     render(<AuthLayout />);
 
@@ -60,7 +60,7 @@ describe('AuthLayout component', () => {
   });
 
   it('positions logo at top-4 left-4 (safe area handled globally by body)', async () => {
-    const { AuthLayout } = await import('./_auth');
+    const { AuthLayout } = await import('./-auth-layout');
     render(<AuthLayout />);
     const logoLink = screen.getByRole('link', { name: /hushbox/i });
     const logoContainer = logoLink.parentElement!;
@@ -68,7 +68,7 @@ describe('AuthLayout component', () => {
   });
 
   it('positions theme toggle at top-4 right-4 (safe area handled globally by body)', async () => {
-    const { AuthLayout } = await import('./_auth');
+    const { AuthLayout } = await import('./-auth-layout');
     render(<AuthLayout />);
     const themeToggle = screen.getByTestId('theme-toggle');
     const toggleContainer = themeToggle.parentElement!;
@@ -76,7 +76,7 @@ describe('AuthLayout component', () => {
   });
 
   it('uses pt-14 for content padding (safe area handled globally by body)', async () => {
-    const { AuthLayout } = await import('./_auth');
+    const { AuthLayout } = await import('./-auth-layout');
     render(<AuthLayout />);
     const layout = screen.getByTestId('auth-layout');
     const formArea = layout.children[0] as HTMLElement;
@@ -84,7 +84,7 @@ describe('AuthLayout component', () => {
   });
 
   it('renders split-screen layout', async () => {
-    const { AuthLayout } = await import('./_auth');
+    const { AuthLayout } = await import('./-auth-layout');
 
     render(<AuthLayout />);
 
@@ -92,7 +92,7 @@ describe('AuthLayout component', () => {
   });
 
   it('renders outlet for child content', async () => {
-    const { AuthLayout } = await import('./_auth');
+    const { AuthLayout } = await import('./-auth-layout');
 
     render(<AuthLayout />);
 
@@ -100,7 +100,7 @@ describe('AuthLayout component', () => {
   });
 
   it('has split-screen flex layout', async () => {
-    const { AuthLayout } = await import('./_auth');
+    const { AuthLayout } = await import('./-auth-layout');
 
     render(<AuthLayout />);
 
@@ -110,7 +110,7 @@ describe('AuthLayout component', () => {
   });
 
   it('renders cipher wall in right column', async () => {
-    const { AuthLayout } = await import('./_auth');
+    const { AuthLayout } = await import('./-auth-layout');
 
     render(<AuthLayout />);
 
@@ -118,7 +118,7 @@ describe('AuthLayout component', () => {
   });
 
   it('allows vertical scrolling when content exceeds viewport', async () => {
-    const { AuthLayout } = await import('./_auth');
+    const { AuthLayout } = await import('./-auth-layout');
 
     render(<AuthLayout />);
 

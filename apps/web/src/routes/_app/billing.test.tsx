@@ -49,7 +49,7 @@ vi.mock('@/components/billing/manage-online-button', () => ({
 }));
 
 // Import after mocks
-import { BillingPage } from './billing';
+import { BillingPage } from './-billing-page';
 
 function createWrapper(): React.FC<{ children: React.ReactNode }> {
   const queryClient = new QueryClient({

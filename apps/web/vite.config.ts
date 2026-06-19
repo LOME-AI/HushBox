@@ -137,6 +137,7 @@ export default defineConfig(({ mode }) => {
       TanStackRouterVite({
         quoteStyle: 'single',
         routeFileIgnorePattern: '.*\\.test\\.tsx?$',
+        autoCodeSplitting: true,
       }),
       react(),
       apiPreconnectPlugin(env['VITE_API_URL']),

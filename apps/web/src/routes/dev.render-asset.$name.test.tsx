@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { mockLogoImport } from '@/test-utils/mocks.js';
-import { RenderAssetPage } from './dev.render-asset.$name';
+import { RenderAssetPage } from './-render-asset-page';
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: Record<string, unknown>) => options,

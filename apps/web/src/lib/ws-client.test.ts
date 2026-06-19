@@ -849,6 +849,64 @@ describe('ConversationWebSocket', () => {
       ws.dispatchEvent('message', { data: '{"type":"ready"}' } as MessageEvent);
     }
 
+    function simulatePong(ws: MockWebSocket): void {
+      ws.dispatchEvent('message', { data: '{"type":"pong"}' } as MessageEvent);
+    }
+
+    it('sends an application-level ping on each heartbeat tick', () => {
+      const client = createClient({ heartbeatIntervalMs: 30_000, pongTimeoutMs: 10_000 });
+      client.connect();
+      const ws = getLastWebSocket();
+      simulateOpen(ws);
+
+      expect(ws.send).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(30_000); // first heartbeat tick
+
+      expect(ws.send).toHaveBeenCalledWith('{"type":"ping"}');
+    });
+
+    it('resets the pong timeout when a pong arrives, preventing reconnect', () => {
+      const client = createClient({
+        heartbeatIntervalMs: 30_000,
+        pongTimeoutMs: 10_000,
+        initialBackoffMs: 1000,
+      });
+      client.connect();
+      const ws = getLastWebSocket();
+      simulateOpen(ws);
+
+      vi.advanceTimersByTime(30_000); // ping sent, pong timeout armed
+      vi.advanceTimersByTime(5000); // mid-window
+      simulatePong(ws); // runtime auto-response pong clears the timeout
+      vi.advanceTimersByTime(5000); // original timeout instant passes
+
+      expect(ws.close).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1000);
+      expect(createdWebSockets).toHaveLength(1);
+    });
+
+    it('does not surface a pong as a chat or presence event', () => {
+      const onEvent = vi.fn();
+      const listener = vi.fn();
+      const client = createClient({
+        onEvent,
+        heartbeatIntervalMs: 30_000,
+        pongTimeoutMs: 10_000,
+      });
+      client.on('presence:update', listener);
+      client.connect();
+      const ws = getLastWebSocket();
+      simulateOpen(ws);
+
+      simulatePong(ws);
+
+      expect(mockParseEvent).not.toHaveBeenCalled();
+      expect(onEvent).not.toHaveBeenCalled();
+      expect(listener).not.toHaveBeenCalled();
+      expect(mockStartProcessing).not.toHaveBeenCalled();
+    });
+
     it('force-closes a half-open socket when no inbound arrives before the pong timeout', () => {
       const client = createClient({ heartbeatIntervalMs: 30_000, pongTimeoutMs: 10_000 });
       client.connect();

@@ -78,7 +78,7 @@ describe('EmailsPage', () => {
     it('shows loading indicator when fetching templates', async () => {
       mockFetchJson.mockReturnValue(new Promise(() => {})); // never resolves
 
-      const { EmailsPage } = await import('./dev.emails');
+      const { EmailsPage } = await import('./-emails-page');
       const Wrapper = createWrapper();
       render(
         <Wrapper>
@@ -94,7 +94,7 @@ describe('EmailsPage', () => {
     it('shows error message when fetch fails', async () => {
       mockFetchJson.mockRejectedValue(new Error('Network error'));
 
-      const { EmailsPage } = await import('./dev.emails');
+      const { EmailsPage } = await import('./-emails-page');
       const Wrapper = createWrapper();
       render(
         <Wrapper>
@@ -112,7 +112,7 @@ describe('EmailsPage', () => {
     it('renders a heading for each template', async () => {
       mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-      const { EmailsPage } = await import('./dev.emails');
+      const { EmailsPage } = await import('./-emails-page');
       const Wrapper = createWrapper();
       render(
         <Wrapper>
@@ -130,7 +130,7 @@ describe('EmailsPage', () => {
     it('renders an iframe for each template', async () => {
       mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-      const { EmailsPage } = await import('./dev.emails');
+      const { EmailsPage } = await import('./-emails-page');
       const Wrapper = createWrapper();
       render(
         <Wrapper>
@@ -147,7 +147,7 @@ describe('EmailsPage', () => {
     it('sets iframe srcDoc to template html', async () => {
       mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-      const { EmailsPage } = await import('./dev.emails');
+      const { EmailsPage } = await import('./-emails-page');
       const Wrapper = createWrapper();
       render(
         <Wrapper>
@@ -166,7 +166,7 @@ describe('EmailsPage', () => {
     it('sandboxes iframes to prevent script execution', async () => {
       mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-      const { EmailsPage } = await import('./dev.emails');
+      const { EmailsPage } = await import('./-emails-page');
       const Wrapper = createWrapper();
       render(
         <Wrapper>
@@ -187,7 +187,7 @@ describe('EmailsPage', () => {
     it('shows empty message when no templates returned', async () => {
       mockFetchJson.mockResolvedValue({ templates: [] });
 
-      const { EmailsPage } = await import('./dev.emails');
+      const { EmailsPage } = await import('./-emails-page');
       const Wrapper = createWrapper();
       render(
         <Wrapper>
@@ -204,7 +204,7 @@ describe('EmailsPage', () => {
   it('renders page title', async () => {
     mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-    const { EmailsPage } = await import('./dev.emails');
+    const { EmailsPage } = await import('./-emails-page');
     const Wrapper = createWrapper();
     render(
       <Wrapper>
@@ -220,7 +220,7 @@ describe('EmailsPage', () => {
   it('shows template count in subtitle', async () => {
     mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-    const { EmailsPage } = await import('./dev.emails');
+    const { EmailsPage } = await import('./-emails-page');
     const Wrapper = createWrapper();
     render(
       <Wrapper>

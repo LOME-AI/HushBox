@@ -61,6 +61,20 @@ export function createBaseConfig(tsconfigRootDir) {
         'unused-imports': unusedImports,
         import: importPlugin,
       },
+      settings: {
+        // import/* rules (notably import/no-cycle) need a resolver that
+        // understands the codebase's `.js`-suffixed ESM relative imports
+        // (`./foo.js` -> `foo.tsx`). Without one, resolution silently
+        // traverses nothing and the cycle guard catches no cycles.
+        // `alwaysTryTypes` lets `.d.ts` declarations resolve too; `project`
+        // is scoped to the linting package's own tsconfig via tsconfigRootDir.
+        'import/resolver': {
+          typescript: {
+            alwaysTryTypes: true,
+            project: tsconfigRootDir,
+          },
+        },
+      },
       rules: {
         // Import ordering — enforces the project convention from CODE-RULES.md:
         //   1. External dependencies

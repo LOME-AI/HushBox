@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useNavigate } from '@tanstack/react-router';
 import { signIn, resetPasswordViaRecovery } from '@/lib/auth';
-import { LoginPage } from './login';
+import { LoginPage } from './-login-page';
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: vi.fn(() => vi.fn()),

@@ -7,7 +7,7 @@ import {
   ASSET_DEFINITIONS,
   SCREENSHOT_DEFINITIONS,
   RESOLUTION_DEFINITIONS,
-} from './dev.assets';
+} from './-assets-page';
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: Record<string, unknown>) => options,

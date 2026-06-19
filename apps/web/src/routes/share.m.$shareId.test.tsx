@@ -51,18 +51,18 @@ vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => {
     const routeObject = {
       component: undefined as unknown,
-      useParams: () => ({ shareId: 'share-from-route' }),
     };
     return (config: { component: unknown }) => {
       routeObject.component = config.component;
       return routeObject;
     };
   },
+  useParams: () => ({ shareId: 'share-from-route' }),
 }));
 
 import { TEST_IDS } from '@hushbox/shared';
 import { useSharedMessage } from '@/hooks/chat/use-shared-message.js';
-import { SharedMessagePage } from './share.m.$shareId.js';
+import { SharedMessagePage } from './-shared-message-page.js';
 import type { ContentKey } from '@hushbox/crypto';
 
 const mockUseSharedMessage = vi.mocked(useSharedMessage);

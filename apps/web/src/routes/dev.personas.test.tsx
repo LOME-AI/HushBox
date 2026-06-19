@@ -112,7 +112,7 @@ describe('PersonasPage', () => {
         error: null,
       });
 
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       expect(screen.getByText(/loading personas/i)).toBeInTheDocument();
@@ -128,7 +128,7 @@ describe('PersonasPage', () => {
         error: new Error('Failed to fetch dev personas'),
       });
 
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       expect(screen.getByText(/failed to load personas/i)).toBeInTheDocument();
@@ -138,7 +138,7 @@ describe('PersonasPage', () => {
   describe('personas display', () => {
     it('renders a card for each persona', async () => {
       const { displayUsername } = await import('@hushbox/shared');
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       for (const persona of mockPersonas) {
@@ -148,7 +148,7 @@ describe('PersonasPage', () => {
     });
 
     it('renders avatar with first letter of name', async () => {
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       expect(screen.getByText('A')).toBeInTheDocument(); // Alice
@@ -157,7 +157,7 @@ describe('PersonasPage', () => {
     });
 
     it('shows verified badge for verified personas', async () => {
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       // Alice and Bob are verified, Charlie is not
@@ -168,7 +168,7 @@ describe('PersonasPage', () => {
     });
 
     it('has data-persona attribute with persona id on each card', async () => {
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       for (const persona of mockPersonas) {
@@ -183,7 +183,7 @@ describe('PersonasPage', () => {
 
   describe('stats display', () => {
     it('displays conversation count for each persona', async () => {
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
@@ -191,7 +191,7 @@ describe('PersonasPage', () => {
     });
 
     it('displays message count for each persona', async () => {
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
@@ -199,7 +199,7 @@ describe('PersonasPage', () => {
     });
 
     it('displays project count for each persona', async () => {
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
@@ -207,7 +207,7 @@ describe('PersonasPage', () => {
     });
 
     it('displays credits for each persona', async () => {
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       const creditElements = screen.getAllByText('$0.00');
@@ -231,7 +231,7 @@ describe('PersonasPage', () => {
         error: null,
       });
 
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
@@ -245,7 +245,7 @@ describe('PersonasPage', () => {
     it('calls signOutAndClearCache before signIn.email on click', async () => {
       vi.mocked(signIn.email).mockResolvedValue({});
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
 
       render(<PersonasPage />);
 
@@ -268,7 +268,7 @@ describe('PersonasPage', () => {
     it('navigates to /chat on successful login', async () => {
       vi.mocked(signIn.email).mockResolvedValue({});
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
 
       render(<PersonasPage />);
 
@@ -284,7 +284,7 @@ describe('PersonasPage', () => {
         error: { message: 'Email not verified' },
       });
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
 
       render(<PersonasPage />);
 
@@ -299,7 +299,7 @@ describe('PersonasPage', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(signIn.email).mockRejectedValue(new Error('Network error'));
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
 
       render(<PersonasPage />);
 
@@ -317,7 +317,7 @@ describe('PersonasPage', () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(signIn.email).mockRejectedValue(new Error('Network error'));
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
 
       render(<PersonasPage />);
 
@@ -340,7 +340,7 @@ describe('PersonasPage', () => {
       vi.mocked(signIn.email).mockReturnValue(signInPromise as ReturnType<typeof signIn.email>);
 
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
 
       render(<PersonasPage />);
 
@@ -370,7 +370,7 @@ describe('PersonasPage', () => {
       vi.mocked(signIn.email).mockReturnValue(signInPromise as ReturnType<typeof signIn.email>);
 
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
 
       render(<PersonasPage />);
 
@@ -389,7 +389,7 @@ describe('PersonasPage', () => {
   });
 
   it('renders header with title', async () => {
-    const { PersonasPage } = await import('./dev.personas');
+    const { PersonasPage } = await import('./-personas-page');
 
     render(<PersonasPage />);
 
@@ -400,7 +400,7 @@ describe('PersonasPage', () => {
     it('calls useDevPersonas with dev type by default', async () => {
       mockUseSearch.mockReturnValue({});
 
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       expect(mockUseDevPersonas).toHaveBeenCalledWith('dev');
@@ -409,7 +409,7 @@ describe('PersonasPage', () => {
     it('calls useDevPersonas with test type when ?type=test', async () => {
       mockUseSearch.mockReturnValue({ type: 'test' });
 
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       expect(mockUseDevPersonas).toHaveBeenCalledWith('test');
@@ -418,7 +418,7 @@ describe('PersonasPage', () => {
     it('shows Test Personas title when type=test', async () => {
       mockUseSearch.mockReturnValue({ type: 'test' });
 
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       expect(screen.getByRole('heading', { name: /test personas/i })).toBeInTheDocument();
@@ -427,7 +427,7 @@ describe('PersonasPage', () => {
     it('defaults to dev type for invalid type values', async () => {
       mockUseSearch.mockReturnValue({ type: 'invalid' });
 
-      const { PersonasPage } = await import('./dev.personas');
+      const { PersonasPage } = await import('./-personas-page');
       render(<PersonasPage />);
 
       expect(mockUseDevPersonas).toHaveBeenCalledWith('dev');
@@ -442,7 +442,7 @@ describe('PersonasPage', () => {
       error: null,
     });
 
-    const { PersonasPage } = await import('./dev.personas');
+    const { PersonasPage } = await import('./-personas-page');
     render(<PersonasPage />);
 
     expect(screen.getByText(/no personas found/i)).toBeInTheDocument();

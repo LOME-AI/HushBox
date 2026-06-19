@@ -49,3 +49,24 @@ export function renderWithProviders(ui: React.ReactElement): RenderWithProviders
 
   return Object.assign(render(ui, { wrapper: AllProviders }), { queryClient });
 }
+
+interface RouteWithComponent {
+  options?: { component?: React.ComponentType };
+  component?: React.ComponentType;
+}
+
+/**
+ * Render a route's component obtained from the `Route` itself, through the real
+ * provider stack. The component is read from `Route.options.component` (a real
+ * `createFileRoute(...)` result) with a fallback to `Route.component` (the
+ * shape some tests' `createFileRoute` mock returns). Tests import `Route` from
+ * the route file rather than the component symbol, so route components never
+ * need to be exported.
+ */
+export function renderRoute(route: RouteWithComponent): RenderWithProvidersResult {
+  const Component = route.options?.component ?? route.component;
+  if (!Component) {
+    throw new Error('renderRoute: the provided Route has no component');
+  }
+  return renderWithProviders(<Component />);
+}

@@ -31,7 +31,7 @@ function createMockWebSocket(meta?: ConnectionMeta): MockWebSocket {
 }
 
 function createMockCtx(): {
-  ctx: { acceptWebSocket: Mock; getWebSockets: Mock };
+  ctx: { acceptWebSocket: Mock; getWebSockets: Mock; setWebSocketAutoResponse: Mock };
   sockets: MockWebSocket[];
 } {
   const sockets: MockWebSocket[] = [];
@@ -41,6 +41,7 @@ function createMockCtx(): {
         sockets.push(ws);
       }),
       getWebSockets: vi.fn(() => [...sockets]),
+      setWebSocketAutoResponse: vi.fn(),
     },
     sockets,
   };
@@ -56,6 +57,18 @@ vi.mock('cloudflare:workers', () => ({
     }
   },
 }));
+
+// Mirrors the Workers-runtime global. The DO constructor builds one of these to
+// register the idle-keepalive ping/pong auto-response pair.
+vi.stubGlobal(
+  'WebSocketRequestResponsePair',
+  class WebSocketRequestResponsePair {
+    constructor(
+      readonly request: string,
+      readonly response: string
+    ) {}
+  }
+);
 
 let mockPairClient: MockWebSocket;
 let mockPairServer: MockWebSocket;
@@ -538,6 +551,39 @@ describe('ConversationRoom', () => {
 
       expect(deadReceiver.close).toHaveBeenCalledWith(1011, 'Send failed');
       expect(aliveReceiver.send).toHaveBeenCalledWith(message);
+    });
+  });
+
+  describe('idle keepalive auto-response', () => {
+    it('registers a ping->pong auto-response pair on construction', () => {
+      const { ctx } = createMockCtx();
+
+      const room = new ConversationRoom(ctx as never, {} as never);
+
+      expect(room).toBeInstanceOf(ConversationRoom);
+      expect(ctx.setWebSocketAutoResponse).toHaveBeenCalledTimes(1);
+      const pair = ctx.setWebSocketAutoResponse.mock.calls[0]?.[0] as {
+        request: string;
+        response: string;
+      };
+      expect(pair.request).toBe(JSON.stringify({ type: 'ping' }));
+      expect(pair.response).toBe(JSON.stringify({ type: 'pong' }));
+    });
+
+    it('does not broadcast the keepalive ping to peers if it reaches webSocketMessage', () => {
+      // Defense-in-depth: the runtime auto-responds to the exact ping without
+      // invoking webSocketMessage, so a ping should never hit the broadcast
+      // path. If it ever does, it must not be forwarded to other sockets.
+      const { ctx, sockets } = createMockCtx();
+      const sender = createMockWebSocket();
+      const peer = createMockWebSocket();
+      sockets.push(sender, peer);
+
+      const room = new ConversationRoom(ctx as never, {} as never);
+      room.webSocketMessage(sender as never, JSON.stringify({ type: 'ping' }));
+
+      expect(peer.send).not.toHaveBeenCalled();
+      expect(sender.send).not.toHaveBeenCalled();
     });
   });
 

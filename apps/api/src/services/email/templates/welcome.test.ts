@@ -15,6 +15,12 @@ describe('welcomeEmail', () => {
       expect(result.html).toContain('Welcome to HushBox');
     });
 
+    it('uses the canonical product tagline', () => {
+      const result = welcomeEmail({});
+
+      expect(result.html).toContain('One interface. Every feature. Private.');
+    });
+
     it('contains user name when provided', () => {
       const result = welcomeEmail({ userName: 'Alice' });
 
@@ -98,6 +104,12 @@ describe('welcomeEmail', () => {
       const result = welcomeEmail({});
 
       expect(result.text).toContain('Welcome to HushBox');
+    });
+
+    it('uses the canonical product tagline', () => {
+      const result = welcomeEmail({});
+
+      expect(result.text).toContain('One interface. Every feature. Private.');
     });
 
     it('contains user name when provided', () => {

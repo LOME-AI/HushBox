@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import type { Model } from '@hushbox/shared';
 
@@ -10,7 +11,12 @@ export function usePremiumModelClick(
   models: Model[],
   isAuthenticated: boolean
 ): (modelId: string) => void {
-  const { openSignupModal, openPaymentModal } = useUIModalsStore();
+  const { openSignupModal, openPaymentModal } = useUIModalsStore(
+    useShallow((s) => ({
+      openSignupModal: s.openSignupModal,
+      openPaymentModal: s.openPaymentModal,
+    }))
+  );
 
   return useCallback(
     (modelId: string) => {
