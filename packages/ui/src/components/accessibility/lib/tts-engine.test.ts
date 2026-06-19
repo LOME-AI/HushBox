@@ -6,6 +6,7 @@ import {
   getTtsService,
   _resetTtsServiceForTesting,
   _setWorkerFactoryForTesting,
+  _setLoadTimeoutMsForTesting,
   type TtsVoice,
 } from './tts-engine';
 
@@ -17,6 +18,14 @@ class FakeWorker extends EventTarget {
 
   send(msg: WorkerOutbound, _transfer: Transferable[] = []): void {
     this.dispatchEvent(new MessageEvent('message', { data: msg }));
+  }
+
+  crash(message = 'worker crashed'): void {
+    this.dispatchEvent(new ErrorEvent('error', { message }));
+  }
+
+  sendMessageError(): void {
+    this.dispatchEvent(new MessageEvent('messageerror'));
   }
 }
 
@@ -234,6 +243,7 @@ describe('WorkerKokoroTtsService', () => {
   afterEach(() => {
     _resetTtsServiceForTesting();
     _setWorkerFactoryForTesting(null);
+    _setLoadTimeoutMsForTesting(null);
     if (OriginalAudioContext === undefined) {
       delete (globalThis as { AudioContext?: typeof AudioContext }).AudioContext;
     } else {
@@ -1008,5 +1018,59 @@ describe('WorkerKokoroTtsService', () => {
     for (const worker of workersAtReset) {
       expect(worker.terminate).toHaveBeenCalled();
     }
+  });
+
+  it('load() rejects when a worker emits an error event before loadDone', async () => {
+    const service = getTtsService();
+    const loadPromise = service.load('af_heart');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    createdWorkers[1]!.crash('worker died during load');
+    await expect(loadPromise).rejects.toThrow('worker died during load');
+    expect(service.isLoaded()).toBe(false);
+  });
+
+  it('load() rejects when a worker emits a messageerror event before loadDone', async () => {
+    const service = getTtsService();
+    const loadPromise = service.load('af_heart');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    createdWorkers[0]!.sendMessageError();
+    await expect(loadPromise).rejects.toThrow();
+    expect(service.isLoaded()).toBe(false);
+  });
+
+  it('load() rejects when no worker responds before the load timeout elapses', async () => {
+    _setLoadTimeoutMsForTesting(20);
+    const service = getTtsService();
+    const loadPromise = service.load('af_heart');
+    await expect(loadPromise).rejects.toThrow(/timed out|timeout/i);
+    expect(service.isLoaded()).toBe(false);
+    _setLoadTimeoutMsForTesting(null);
+  });
+
+  it('a worker error rejects its in-flight speak and the pool recovers for new work', async () => {
+    const service = getTtsService();
+    const loadPromise_ = service.load('af_heart');
+    await completeLoad();
+    await loadPromise_;
+
+    const crashedWorker = createdWorkers[0]!;
+    const speakPromise = service.speak('on crashing worker', 'af_heart');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(countInboundOfType(crashedWorker, 'speak')).toBe(1);
+
+    crashedWorker.crash('inference worker exploded');
+    await expect(speakPromise).rejects.toThrow(/exploded|crash|fail/i);
+
+    // The pool must accept new work. A respawned slot 0 is fresh; the new
+    // speak should be dispatchable across the recovered pool.
+    const workerCountBefore = createdWorkers.length;
+    const recovered = service.speak('after crash', 'af_heart');
+    // eslint-disable-next-line promise/prefer-await-to-then -- fire-and-forget
+    recovered.catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const dispatched = createdWorkers.reduce((sum, w) => sum + countInboundOfType(w, 'speak'), 0);
+    // Original speak (1) + the new speak (1) dispatched somewhere in the pool.
+    expect(dispatched).toBe(2);
+    expect(createdWorkers.length).toBeGreaterThanOrEqual(workerCountBefore);
   });
 });

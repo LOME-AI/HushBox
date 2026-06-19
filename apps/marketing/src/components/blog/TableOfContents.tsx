@@ -82,7 +82,7 @@ function TableOfContents({ headings }: Readonly<TableOfContentsProps>): React.JS
                 heading.depth === 3 && 'pl-3',
                 activeId === heading.slug
                   ? 'text-brand-red border-brand-red border-l-2 pl-2'
-                  : 'text-foreground-muted hover:text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
               )}
             >
               {heading.text}

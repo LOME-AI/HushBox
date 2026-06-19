@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { cn } from '@hushbox/ui';
 import { HamburgerButton } from '@/components/sidebar/hamburger-button';
-import { useHeaderLayout } from '@/hooks/use-header-layout';
+import { useHeaderLayout } from '@/hooks/ui/use-header-layout';
 
 type HeaderRows = 1 | 2 | 3;
 

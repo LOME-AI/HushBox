@@ -9,19 +9,17 @@
  * clicks that guardrails lets through, and types via the native value setter,
  * neither of which these visual-only rules block.
  */
+import { MODALITY_ARIA_LABELS } from '@hushbox/shared';
+
 export const DEMO_COMPOSER_PLACEHOLDER = 'This is a live demo, sign up to start your own chats';
 
 /**
- * Exact aria-labels of the composer's modality-switch icons (mirrors
- * `MODALITY_ICONS` in prompt-input). Matched exactly — a prefix like
- * `"Switch to "` would also catch the header's "Switch to dark mode" toggle.
+ * Exact aria-labels of the composer's modality-switch icons, sourced from the
+ * shared registry the prompt-input renders from. Matched exactly — a prefix
+ * like `"Switch to "` would also catch the header's "Switch to dark mode"
+ * toggle.
  */
-export const MODALITY_SWITCH_LABELS: readonly string[] = [
-  'Switch to text',
-  'Switch to image generation',
-  'Switch to video generation',
-  'Switch to audio generation',
-];
+export const MODALITY_SWITCH_LABELS: readonly string[] = Object.values(MODALITY_ARIA_LABELS);
 
 /** CSS/`closest()` selector matching any modality-switch icon. */
 export const MODALITY_SWITCH_SELECTOR = MODALITY_SWITCH_LABELS.map(

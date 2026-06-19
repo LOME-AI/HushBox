@@ -66,7 +66,7 @@ vi.mock('@/components/shared/form-input', () => ({
   ),
 }));
 
-vi.mock('@/components/auth/AuthPasswordInput', () => ({
+vi.mock('@/components/auth/auth-password-input', () => ({
   AuthPasswordInput: ({
     label,
     id,
@@ -88,13 +88,13 @@ vi.mock('@/components/auth/AuthPasswordInput', () => ({
   ),
 }));
 
-vi.mock('@/components/auth/AuthButton', () => ({
+vi.mock('@/components/auth/auth-button', () => ({
   AuthButton: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{children}</button>
   ),
 }));
 
-vi.mock('@/components/auth/PasswordStrength', () => ({
+vi.mock('@/components/auth/password-strength', () => ({
   PasswordStrength: () => <div data-testid="password-strength" />,
 }));
 
@@ -364,5 +364,13 @@ describe('SignupPage', () => {
     const privacyLink = screen.getByRole('link', { name: /privacy policy/i });
     expect(privacyLink).toHaveAttribute('href', '/privacy');
     expect(privacyLink).toHaveAttribute('target', '_blank');
+  });
+
+  it('renders new-password field with new-password autocomplete hint', async () => {
+    const { SignupPage } = await import('./signup');
+
+    render(<SignupPage />);
+
+    expect(screen.getByLabelText(/^password$/i)).toHaveAttribute('autocomplete', 'new-password');
   });
 });

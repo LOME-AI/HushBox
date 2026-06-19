@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { TEST_IDS } from '@hushbox/shared';
-import { Logo, resolveImageSrc as resolveImageSource } from './logo';
+import { Logo, resolveImageSrc as resolveImageSource, LOGO_FALLBACK_SRC } from './logo';
 
 describe('Logo', () => {
   it('renders the HushBox logo image', () => {
@@ -57,6 +57,22 @@ describe('Logo', () => {
     render(<Logo />);
     const container = screen.getByTestId(TEST_IDS.logo);
     expect(container).toHaveAttribute('data-no-invert', '');
+  });
+
+  it('never renders an empty src, even when the asset import is unresolvable', async () => {
+    vi.resetModules();
+    vi.doMock('../assets/HushBoxLogo.png', () => ({ default: undefined }));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { Logo: FreshLogo } = await import('./logo');
+
+    render(<FreshLogo />);
+    const img = screen.getByAltText('HushBox Logo');
+    expect(img.getAttribute('src')).not.toBe('');
+    expect(img).toHaveAttribute('src', LOGO_FALLBACK_SRC);
+
+    warnSpy.mockRestore();
+    vi.doUnmock('../assets/HushBoxLogo.png');
+    vi.resetModules();
   });
 });
 

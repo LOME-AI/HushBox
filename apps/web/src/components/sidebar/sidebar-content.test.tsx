@@ -53,7 +53,7 @@ vi.mock('@hushbox/ui', async (importOriginal) => {
   };
 });
 
-vi.mock('@/hooks/chat', () => ({
+vi.mock('@/hooks/chat/chat', () => ({
   useDeleteConversation: () => ({
     mutate: vi.fn(),
     isPending: false,
@@ -70,7 +70,7 @@ vi.mock('@/lib/auth', () => ({
     selector({ user: { id: 'user-1' } }),
 }));
 
-vi.mock('@/hooks/use-conversation-members', () => ({
+vi.mock('@/hooks/realtime/use-conversation-members', () => ({
   useAcceptMembership: () => ({
     mutate: vi.fn(),
     isPending: false,
@@ -92,6 +92,16 @@ vi.mock('@/hooks/use-conversation-members', () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
+}));
+
+// ItemRow renders exactly once per ChatItem body execution, so this counter
+// mirrors how many times ChatItem rows render across the whole list.
+const chatItemRenderSpy = vi.fn();
+vi.mock('@/components/shared/item-row', () => ({
+  ItemRow: ({ children }: Readonly<{ children: React.ReactNode }>) => {
+    chatItemRenderSpy();
+    return <div>{children}</div>;
+  },
 }));
 
 describe('SidebarContent', () => {
@@ -255,6 +265,42 @@ describe('SidebarContent', () => {
       render(<SidebarContent conversations={mockConversations} />);
       expect(screen.getByText('Recent Chats')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /invites/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('search re-render', () => {
+    const searchableConvs = [
+      {
+        id: 'conv-a',
+        title: 'Alpha chat',
+        currentEpoch: 1,
+        updatedAt: new Date().toISOString(),
+        privilege: 'owner' as const,
+        muted: false,
+        pinned: false,
+      },
+      {
+        id: 'conv-b',
+        title: 'Beta chat',
+        currentEpoch: 1,
+        updatedAt: new Date().toISOString(),
+        privilege: 'owner' as const,
+        muted: false,
+        pinned: false,
+      },
+    ];
+
+    it('does not re-render rows that stay in the filtered list on a keystroke', async () => {
+      const { default: userEvent } = await import('@testing-library/user-event');
+      render(<SidebarContent conversations={searchableConvs} />);
+
+      const rendersAfterMount = chatItemRenderSpy.mock.calls.length;
+      expect(rendersAfterMount).toBe(searchableConvs.length);
+
+      // "chat" is a substring of both titles, so both rows stay mounted.
+      await userEvent.type(screen.getByRole('textbox'), 'chat');
+
+      expect(chatItemRenderSpy.mock.calls.length).toBe(rendersAfterMount);
     });
   });
 

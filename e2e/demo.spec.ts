@@ -52,6 +52,13 @@ test.describe('interactive demo (/demo)', () => {
     // renders once the blob URL resolves, so its presence proves the decrypt
     // succeeded against the fake backend.
     await conversations.nth(CONVERSATION.image).click();
+    // The shim emits synthetic `model:media:start` frames, so the real
+    // optimistic UI shows the "Generating image…" placeholder during the
+    // generation pause before the bytes land — proving the media-generation UX
+    // (not just a generic loader) runs against the fake backend.
+    await expect(page.getByRole('status', { name: /Generating image/ })).toBeVisible({
+      timeout: TIMEOUTS.STREAM,
+    });
     await expect(page.getByRole('button', { name: 'Open image in lightbox' })).toBeVisible({
       timeout: TIMEOUTS.MEDIA_DECODE,
     });
@@ -59,7 +66,7 @@ test.describe('interactive demo (/demo)', () => {
     // An encrypted MP4 clip decrypts the same way into a real <video>; its
     // fullscreen affordance likewise only renders after the blob URL resolves.
     await conversations.nth(CONVERSATION.video).click();
-    await expect(page.getByRole('button', { name: 'Open video in fullscreen' })).toBeVisible({
+    await expect(page.getByRole('button', { name: 'Expand video to fullscreen' })).toBeVisible({
       timeout: TIMEOUTS.MEDIA_DECODE,
     });
   });

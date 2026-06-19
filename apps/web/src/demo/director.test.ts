@@ -1,10 +1,18 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { typeText, isComposerTarget, installHumanInputBlock } from './director';
-import { TEST_IDS } from '@hushbox/shared';
+import { typeText, isComposerTarget, installHumanInputBlock, isStreaming } from './director';
+import { TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
 
 function makeComposer(): HTMLTextAreaElement {
   const el = document.createElement('textarea');
   el.dataset['testid'] = TEST_IDS.promptInput;
+  document.body.append(el);
+  return el;
+}
+
+function makeMessageList(streamingCount: number): HTMLDivElement {
+  const el = document.createElement('div');
+  el.dataset['testid'] = TEST_IDS.messageList;
+  el.setAttribute(TEST_SIGNALS.streamingCount, String(streamingCount));
   document.body.append(el);
   return el;
 }
@@ -44,6 +52,22 @@ describe('isComposerTarget', () => {
     expect(isComposerTarget(el)).toBe(true);
     expect(isComposerTarget(outside)).toBe(false);
     expect(isComposerTarget(null)).toBe(false);
+  });
+});
+
+describe('isStreaming', () => {
+  it('reports streaming from the app-emitted data-streaming-count signal', () => {
+    makeMessageList(2);
+    expect(isStreaming()).toBe(true);
+  });
+
+  it('reports not streaming when the count is zero', () => {
+    makeMessageList(0);
+    expect(isStreaming()).toBe(false);
+  });
+
+  it('reports not streaming when no message list is mounted', () => {
+    expect(isStreaming()).toBe(false);
   });
 });
 

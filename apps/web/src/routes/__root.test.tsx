@@ -13,6 +13,7 @@ vi.mock('@tanstack/react-router', () => ({
     }),
   Navigate: () => null,
   useNavigate: vi.fn(() => vi.fn()),
+  useRouter: () => ({ subscribe: vi.fn(() => vi.fn()) }),
 }));
 
 vi.mock('@/providers/query-provider', () => ({
@@ -88,5 +89,14 @@ describe('root route', () => {
     render(<Component />);
 
     expect(screen.getByTestId(TEST_IDS.upgradeRequiredModal)).toBeInTheDocument();
+  });
+
+  it('renders the route announcer live region', async () => {
+    const module_ = await import('./__root');
+    const route = module_.Route as unknown as { component: React.ComponentType };
+    const Component = route.component;
+    render(<Component />);
+
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
   });
 });

@@ -3,11 +3,11 @@ import { useMemo } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { AlertTriangle } from 'lucide-react';
 import { TEST_IDS } from '@hushbox/shared';
+import { MarkdownRenderer } from '@/components/chat/message/markdown-renderer.js';
+import { MessageBody } from '@/components/chat/message/message-body.js';
+import { useSharedMessage, type SharedContentItem } from '@/hooks/chat/use-shared-message.js';
 import { AppShell } from '../components/shared/app-shell.js';
-import { MarkdownRenderer } from '../components/chat/markdown-renderer.js';
-import { MessageBody } from '../components/chat/message-body.js';
-import { useSharedMessage, type SharedContentItem } from '../hooks/use-shared-message.js';
-import type { RenderableMedia } from '../components/chat/media-content-item.js';
+import type { RenderableMedia } from '@/components/chat/media/media-content-item.js';
 
 export const Route = createFileRoute('/share/m/$shareId')({
   component: SharedMessagePage,

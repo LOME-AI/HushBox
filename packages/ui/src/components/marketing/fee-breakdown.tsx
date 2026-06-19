@@ -107,7 +107,7 @@ export function FeeBreakdown({
       testId: TEST_IDS.categoryPlatformFee,
       pctTestId: TEST_IDS.categoryPlatformFeePct,
       approximateLabel: `~${String(platformFeeRounded)}%`,
-      colorClass: 'text-[#ec4755]',
+      colorClass: 'text-brand-red',
       items: platformFeeItems,
     });
   }

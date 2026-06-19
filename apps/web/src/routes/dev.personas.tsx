@@ -5,7 +5,7 @@ import { DEV_PASSWORD, displayUsername, ROUTES, TEST_ID_BUILDERS } from '@hushbo
 import { toast } from '@hushbox/ui';
 import { signIn, signOutAndClearCache } from '@/lib/auth';
 import { env } from '@/lib/env';
-import { useDevPersonas, type PersonaType } from '@/hooks/dev-personas';
+import { useDevPersonas, type PersonaType } from '@/hooks/models/dev-personas';
 import type { DevPersona } from '@hushbox/shared';
 
 function getApiUrl(): string {

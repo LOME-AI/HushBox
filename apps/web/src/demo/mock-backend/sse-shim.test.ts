@@ -44,6 +44,47 @@ describe('buildSseTurnFrames', () => {
     const tokenFrames = frames.filter((f) => f.startsWith('event: token'));
     expect(tokenFrames).toHaveLength(10);
   });
+
+  it('emits model:media:start and model:media:progress for a media turn', () => {
+    const frames = buildSseTurnFrames({
+      userMessageId: 'u1',
+      modelId: 'black-forest-labs/flux-1.1-pro',
+      assistantMessageId: 'a1',
+      content: '',
+      media: { mediaType: 'image', mimeType: 'image/jpeg' },
+    });
+
+    const onModelMediaStart = vi.fn();
+    const onModelMediaProgress = vi.fn();
+    const parser = createSSEParser({ onModelMediaStart, onModelMediaProgress });
+    for (const f of frames) parser.processChunk(f);
+
+    expect(onModelMediaStart).toHaveBeenCalledWith({
+      modelId: 'black-forest-labs/flux-1.1-pro',
+      assistantMessageId: 'a1',
+      mediaType: 'image',
+      mimeType: 'image/jpeg',
+    });
+    expect(onModelMediaProgress).toHaveBeenCalled();
+    const [progress] = onModelMediaProgress.mock.calls.at(-1) ?? [];
+    expect(progress).toMatchObject({
+      modelId: 'black-forest-labs/flux-1.1-pro',
+      assistantMessageId: 'a1',
+    });
+    expect(progress.percent).toBeGreaterThan(0);
+    expect(progress.percent).toBeLessThanOrEqual(95);
+  });
+
+  it('omits media frames for a text turn', () => {
+    const frames = buildSseTurnFrames({
+      userMessageId: 'u1',
+      modelId: 'm',
+      assistantMessageId: 'a1',
+      content: 'plain text reply',
+    });
+    expect(frames.some((f) => f.startsWith('event: model:media:start'))).toBe(false);
+    expect(frames.some((f) => f.startsWith('event: model:media:progress'))).toBe(false);
+  });
 });
 
 describe('createSseStream', () => {

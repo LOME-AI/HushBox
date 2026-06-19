@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { toBase64 } from '@hushbox/shared';
 
-vi.mock('@/lib/api', () => ({
-  getApiUrl: () => 'http://localhost:8787',
-}));
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>();
+  return {
+    ...actual,
+    getApiUrl: () => 'http://localhost:8787',
+  };
+});
 
 import {
   persistExportKey,
@@ -190,6 +194,23 @@ describe('auth-client', () => {
       expect(result.kek).toBeInstanceOf(Uint8Array);
       expect(result.kek).toEqual(testExportKey);
     });
+
+    it('returns null when stored auth is malformed JSON', () => {
+      localStorage.setItem(STORAGE_KEY, 'not-valid-json');
+
+      const result = getStoredAuth();
+
+      expect(result).toBeNull();
+    });
+
+    it('clears the corrupt blob from storage when stored auth is malformed', () => {
+      localStorage.setItem(STORAGE_KEY, 'not-valid-json');
+
+      getStoredAuth();
+
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
   });
 
   describe('restoreSession', () => {
@@ -206,6 +227,8 @@ describe('auth-client', () => {
 
       const mockResponse = {
         ok: true,
+        status: 200,
+        headers: new Headers(),
         json: vi.fn().mockResolvedValue({
           user: {
             id: testUserId,
@@ -224,9 +247,48 @@ describe('auth-client', () => {
 
       await restoreSession();
 
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8787/api/auth/me', {
-        credentials: 'include',
-      });
+      const meCall = mockFetch.mock.calls.find(([input]) =>
+        String(typeof input === 'object' && input ? (input as Request).url : input).includes(
+          '/api/auth/me'
+        )
+      );
+      expect(meCall).toBeDefined();
+    });
+
+    it('routes the /me request through the typed client (sends platform header)', async () => {
+      const data = { kek: toBase64(testExportKey), userId: testUserId };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+      const mockResponse = {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: vi.fn().mockResolvedValue({
+          user: {
+            id: testUserId,
+            email: 'test@example.com',
+            username: 'test',
+            emailVerified: true,
+            totpEnabled: false,
+            hasAcknowledgedPhrase: true,
+          },
+          passwordWrappedPrivateKey: toBase64(testPrivateKey),
+          publicKey: toBase64(new Uint8Array([1, 2, 3])),
+        }),
+      };
+      mockFetch.mockResolvedValue(mockResponse as unknown as Response);
+      mockUnwrapAccountKey.mockReturnValue(testPrivateKey);
+
+      await restoreSession();
+
+      const meCall = mockFetch.mock.calls.find(([input]) =>
+        String(typeof input === 'object' && input ? (input as Request).url : input).includes(
+          '/api/auth/me'
+        )
+      );
+      if (!meCall) throw new Error('Expected /me request');
+      const headers = new Headers(meCall[1]?.headers);
+      expect(headers.get('X-HushBox-Platform')).not.toBeNull();
     });
 
     it('returns privateKey and userId on success', async () => {
@@ -235,6 +297,8 @@ describe('auth-client', () => {
 
       const mockResponse = {
         ok: true,
+        status: 200,
+        headers: new Headers(),
         json: vi.fn().mockResolvedValue({
           user: {
             id: testUserId,
@@ -266,6 +330,8 @@ describe('auth-client', () => {
       const wrappedKey = new Uint8Array([100, 101, 102]);
       const mockResponse = {
         ok: true,
+        status: 200,
+        headers: new Headers(),
         json: vi.fn().mockResolvedValue({
           user: {
             id: testUserId,
@@ -294,6 +360,7 @@ describe('auth-client', () => {
       const mockResponse = {
         ok: false,
         status: 401,
+        headers: new Headers(),
       };
       mockFetch.mockResolvedValue(mockResponse as unknown as Response);
 
@@ -310,6 +377,7 @@ describe('auth-client', () => {
       const mockResponse = {
         ok: false,
         status: 403,
+        headers: new Headers(),
       };
       mockFetch.mockResolvedValue(mockResponse as unknown as Response);
 
@@ -326,6 +394,7 @@ describe('auth-client', () => {
       const mockResponse = {
         ok: false,
         status: 500,
+        headers: new Headers(),
       };
       mockFetch.mockResolvedValue(mockResponse as unknown as Response);
 
@@ -342,6 +411,7 @@ describe('auth-client', () => {
       const mockResponse = {
         ok: false,
         status: 503,
+        headers: new Headers(),
       };
       mockFetch.mockResolvedValue(mockResponse as unknown as Response);
 
@@ -357,6 +427,8 @@ describe('auth-client', () => {
 
       const mockResponse = {
         ok: true,
+        status: 200,
+        headers: new Headers(),
         json: vi.fn().mockResolvedValue({
           user: {
             id: testUserId,
@@ -399,6 +471,8 @@ describe('auth-client', () => {
 
       const mockResponse = {
         ok: true,
+        status: 200,
+        headers: new Headers(),
         json: vi.fn().mockResolvedValue({
           user: {
             id: testUserId,
@@ -429,6 +503,8 @@ describe('auth-client', () => {
 
       const mockResponse = {
         ok: true,
+        status: 200,
+        headers: new Headers(),
         json: vi.fn().mockResolvedValue({
           user: {
             id: testUserId,
@@ -459,6 +535,8 @@ describe('auth-client', () => {
 
       const mockResponse = {
         ok: true,
+        status: 200,
+        headers: new Headers(),
         json: vi.fn().mockResolvedValue({
           user: {
             id: testUserId,

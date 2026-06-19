@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useSession, initAuth } from '@/lib/auth';
 import { hasStoredAuth } from '@/lib/auth-client';
-import { useBalance } from '@/hooks/billing';
+import { useBalance } from '@/hooks/billing/billing';
 
 interface StabilityState {
   /** True when session query has completed initial load */
@@ -30,7 +30,9 @@ export function StabilityProvider({
   // Fire balance query optimistically if stored auth exists (sync localStorage check).
   // This runs in parallel with initAuth()'s /api/auth/me call instead of waiting for it.
   const likelyAuthenticated = React.useMemo(() => hasStoredAuth(), []);
-  const { data: balanceData } = useBalance({ enabled: likelyAuthenticated });
+  const { data: balanceData, isError: isBalanceError } = useBalance({
+    enabled: likelyAuthenticated,
+  });
 
   const isAuthenticated = Boolean(session?.user);
 
@@ -38,8 +40,11 @@ export function StabilityProvider({
 
   // Balance is stable when:
   // - User is trial (no balance to load), OR
-  // - User is authenticated AND we have balance data (cached or fresh)
-  const isBalanceStable = !isAuthenticated || Boolean(balanceData);
+  // - User is authenticated AND the balance query has settled — either with
+  //   data (cached or fresh) or with a terminal error. A terminal error must
+  //   still count as settled; otherwise a failed balance fetch pins the native
+  //   splash (use-splash-screen) forever.
+  const isBalanceStable = !isAuthenticated || Boolean(balanceData) || isBalanceError;
 
   const isAppStable = isAuthStable && isBalanceStable;
 

@@ -1,6 +1,7 @@
 import { unwrapAccountKeyWithPassword as cryptoUnwrapAccountKey } from '@hushbox/crypto';
 import { toBase64, fromBase64 } from '@hushbox/shared';
-import { getApiUrl } from '@/lib/api';
+import { ApiError } from '@/lib/api';
+import { client, fetchJson } from '@/lib/api-client';
 
 export const STORAGE_KEY = 'hushbox_auth_kek';
 
@@ -66,6 +67,10 @@ export function persistExportKey(
  *
  * Checks localStorage first (persisted sessions), then sessionStorage.
  * Returns null if no auth data is found.
+ *
+ * A malformed or legacy blob (unparseable JSON, bad base64) is treated as
+ * logged-out: the corrupt entry is evicted and null is returned. Throwing here
+ * would brick boot, since doInitAuth() calls this before its try/finally.
  */
 export function getStoredAuth(): RestoredAuth | null {
   const stored = localStorage.getItem(STORAGE_KEY) ?? sessionStorage.getItem(STORAGE_KEY);
@@ -73,11 +78,16 @@ export function getStoredAuth(): RestoredAuth | null {
     return null;
   }
 
-  const data = JSON.parse(stored) as StoredAuth;
-  return {
-    kek: fromBase64(data.kek),
-    userId: data.userId,
-  };
+  try {
+    const data = JSON.parse(stored) as StoredAuth;
+    return {
+      kek: fromBase64(data.kek),
+      userId: data.userId,
+    };
+  } catch {
+    clearStoredAuth();
+    return null;
+  }
 }
 
 /**
@@ -126,53 +136,44 @@ export async function restoreSession(): Promise<RestoredSession | null> {
     return null;
   }
 
+  let data: MeResponse;
   try {
-    const response = await fetch(`${getApiUrl()}/api/auth/me`, {
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      // Only clear stored auth on definitive auth failures (session invalid/forbidden).
-      // Transient errors (500, 503, network) should NOT destroy the user's stored
-      // encryption key — allow retry on next page load.
-      if (response.status === 401 || response.status === 403) {
-        clearStoredAuth();
-      }
-      return null;
-    }
-
-    const data = (await response.json()) as MeResponse;
-
-    // Page was refreshed during 2FA — password is gone, can't continue
-    if (data.pending2FA) {
+    data = await fetchJson<MeResponse>(client.api.auth.me.$get());
+  } catch (error) {
+    // Only clear stored auth on definitive auth failures (session invalid/forbidden).
+    // Transient errors (500, 503, network) should NOT destroy the user's stored
+    // encryption key — allow retry on next page load.
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
       clearStoredAuth();
-      return null;
     }
+    return null;
+  }
 
-    if (!data.passwordWrappedPrivateKey) {
-      clearStoredAuth();
-      return null;
-    }
+  // Page was refreshed during 2FA — password is gone, can't continue
+  if (data.pending2FA) {
+    clearStoredAuth();
+    return null;
+  }
 
+  if (!data.passwordWrappedPrivateKey) {
+    clearStoredAuth();
+    return null;
+  }
+
+  try {
     const wrappedKey = fromBase64(data.passwordWrappedPrivateKey);
+    const privateKey = unwrapImpl(storedAuth.kek, wrappedKey);
 
-    try {
-      const privateKey = unwrapImpl(storedAuth.kek, wrappedKey);
-
-      return {
-        privateKey,
-        userId: storedAuth.userId,
-        user: data.user,
-        customInstructionsEncrypted: data.customInstructionsEncrypted ?? null,
-      };
-    } catch {
-      // Stored export key is corrupted or wrong — clear it
-      clearStoredAuth();
-      return null;
-    }
+    return {
+      privateKey,
+      userId: storedAuth.userId,
+      user: data.user,
+      customInstructionsEncrypted: data.customInstructionsEncrypted ?? null,
+    };
   } catch {
-    // Network errors / timeouts — don't destroy stored auth.
-    // The user can retry on next page load.
+    // Stored export key is corrupted or wrong (or the wrapped key is
+    // unparseable) — clear it so the next load starts logged-out.
+    clearStoredAuth();
     return null;
   }
 }

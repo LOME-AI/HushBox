@@ -97,6 +97,10 @@ describe('resolveDemoRoute', () => {
     }));
     if (media.kind !== 'stream') throw new Error('expected stream');
     expect(media.leadDelayMs).toBe(5000);
+    // The media turn announces generation so the optimistic UI shows the
+    // "Generating image…" placeholder rather than the generic text indicator.
+    expect(media.frames.some((f) => f.startsWith('event: model:media:start'))).toBe(true);
+    expect(text.frames.some((f) => f.startsWith('event: model:media:start'))).toBe(false);
   });
 
   it('404s a stream POST without a userMessage', () => {

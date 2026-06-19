@@ -10,6 +10,7 @@ import { CapacitorProvider } from '@/capacitor';
 import { UpgradeRequiredModal } from '@/components/shared/upgrade-required-modal';
 import { OfflineOverlay } from '@/components/shared/offline-overlay';
 import { SettledIndicator } from '@/components/shared/settled-indicator';
+import { RouteAnnouncer } from '@/components/shared/route-announcer';
 import { useTouchOverrideStore } from '@/stores/touch-override';
 import { installTtsDomObserver } from '@/lib/tts-dom-observer';
 import type { RouterContext } from '@/router';
@@ -22,6 +23,7 @@ function AppShell(): React.JSX.Element {
   const { isAppStable } = useStability();
   return (
     <CapacitorProvider isAppStable={isAppStable}>
+      <RouteAnnouncer />
       <Outlet />
       <Toaster />
       <SettledIndicator />

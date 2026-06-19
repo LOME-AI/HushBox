@@ -505,12 +505,11 @@ export function renderFrame(input: Readonly<RenderFrameInput>): void {
     const baseAlpha = getCellOpacity(cell, isInLogo);
     const alpha = cell.state === 'readable' ? baseAlpha : baseAlpha * cipherOpacity;
 
-    ctx.save();
     ctx.globalAlpha = alpha;
     ctx.fillStyle = color;
     ctx.fillText(ch, c * CELL_WIDTH, r * CELL_HEIGHT + FONT_SIZE);
-    ctx.restore();
   }
+  ctx.globalAlpha = 1;
 }
 
 interface FrozenPlacement {

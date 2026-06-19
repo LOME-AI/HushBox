@@ -33,7 +33,7 @@ vi.mock('../components/shared/app-shell.js', () => ({
 }));
 
 const mockAuthenticatedChatPage = vi.fn();
-vi.mock('../components/chat/authenticated-chat-page.js', () => ({
+vi.mock('@/components/chat/page/authenticated-chat-page.js', () => ({
   AuthenticatedChatPage: (props: Record<string, unknown>) => {
     mockAuthenticatedChatPage(props);
     return (
@@ -52,7 +52,7 @@ vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => stableQueryClient,
 }));
 
-vi.mock('../hooks/chat.js', () => ({
+vi.mock('@/hooks/chat/chat.js', () => ({
   chatKeys: {
     all: ['chat'] as const,
     conversations: () => ['chat', 'conversations'] as const,

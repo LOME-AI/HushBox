@@ -65,6 +65,7 @@ export const A11Y_INIT_SCRIPT: string = String.raw`
 
     add('a11y-letter-spacing-loose', s.letterSpacing === '0.05');
     add('a11y-letter-spacing-loosest', s.letterSpacing === '0.12');
+    add('a11y-line-height-tight', s.lineHeight === '1.0');
     add('a11y-line-height-tall', s.lineHeight === '1.5');
     add('a11y-line-height-double', s.lineHeight === '2.0');
     add('a11y-para-spacing-double', s.paragraphSpacing === '2');

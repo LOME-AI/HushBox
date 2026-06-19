@@ -31,7 +31,7 @@ export function ProgressBar({ done, total, className }: ProgressBarProps): React
           style={{ width: `${String(percent)}%` }}
         />
       </div>
-      <div className="text-foreground-muted flex items-center justify-between text-xs font-medium">
+      <div className="text-muted-foreground flex items-center justify-between text-xs font-medium">
         <span className="font-mono tabular-nums">
           {done} of {total} done
         </span>

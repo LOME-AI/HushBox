@@ -104,4 +104,53 @@ describe('useDeepLinks', () => {
 
     expect(onDeepLink).toHaveBeenCalledWith('/');
   });
+
+  it('falls back to root for a malformed URL without throwing', async () => {
+    const { isNative } = await import('../platform.js');
+    vi.mocked(isNative).mockReturnValue(true);
+
+    const onDeepLink = vi.fn();
+    const { useDeepLinks } = await import('./use-deep-links.js');
+
+    renderHook(() => {
+      useDeepLinks(onDeepLink);
+    });
+
+    expect(() => {
+      capturedCallback!({ url: 'not a url' });
+    }).not.toThrow();
+    expect(onDeepLink).toHaveBeenCalledWith('/');
+  });
+
+  it('falls back to root for a non-allowlisted path', async () => {
+    const { isNative } = await import('../platform.js');
+    vi.mocked(isNative).mockReturnValue(true);
+
+    const onDeepLink = vi.fn();
+    const { useDeepLinks } = await import('./use-deep-links.js');
+
+    renderHook(() => {
+      useDeepLinks(onDeepLink);
+    });
+
+    capturedCallback!({ url: 'hushbox://app/verify?token=attacker' });
+
+    expect(onDeepLink).toHaveBeenCalledWith('/');
+  });
+
+  it('falls back to root for a protocol-relative URL', async () => {
+    const { isNative } = await import('../platform.js');
+    vi.mocked(isNative).mockReturnValue(true);
+
+    const onDeepLink = vi.fn();
+    const { useDeepLinks } = await import('./use-deep-links.js');
+
+    renderHook(() => {
+      useDeepLinks(onDeepLink);
+    });
+
+    capturedCallback!({ url: '//evil.com/chat/123' });
+
+    expect(onDeepLink).toHaveBeenCalledWith('/');
+  });
 });

@@ -41,7 +41,7 @@
     "e2e:ui": "pnpm ensure-stack --env-mode e2e && tsx scripts/with-env.ts playwright test e2e/ui/ --project=chromium",
     "e2e:mobile": "pnpm ensure-stack --env-mode e2e && tsx scripts/with-env.ts playwright test e2e/mobile/ --project=iphone-15",
     "e2e:api": "pnpm ensure-stack --env-mode e2e && tsx scripts/with-env.ts playwright test e2e/api/ --project=chromium",
-    "clean": "tsx scripts/clean.ts",
+    "clean": "pnpm dev:clean && tsx scripts/clean.ts",
     "prepare": "husky",
     "docker:cleanup": "tsx scripts/with-env.ts tsx scripts/docker-cleanup.ts",
     "db:up": "tsx scripts/with-env.ts docker compose up -d --wait postgres neon-proxy redis serverless-redis-http minio && tsx scripts/with-env.ts docker compose up -d minio-setup",

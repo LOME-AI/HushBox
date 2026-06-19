@@ -29,6 +29,29 @@ vi.mock('@/components/shared/error-boundary', () => ({
   ),
 }));
 
+const mountSpy = vi.fn();
+
+function MockAuthenticatedChatPage({
+  routeConversationId,
+  initialForkId,
+}: Readonly<{
+  routeConversationId: string;
+  initialForkId?: string | undefined;
+}>): React.JSX.Element {
+  React.useEffect(() => {
+    mountSpy();
+  }, []);
+  return (
+    <div
+      data-testid="authenticated-chat"
+      data-conv-id={routeConversationId}
+      data-fork-id={initialForkId ?? ''}
+    >
+      chat page
+    </div>
+  );
+}
+
 const authenticatedChatPageMock = vi.fn(
   ({
     routeConversationId,
@@ -37,17 +60,14 @@ const authenticatedChatPageMock = vi.fn(
     routeConversationId: string;
     initialForkId?: string | undefined;
   }) => (
-    <div
-      data-testid="authenticated-chat"
-      data-conv-id={routeConversationId}
-      data-fork-id={initialForkId ?? ''}
-    >
-      chat page
-    </div>
+    <MockAuthenticatedChatPage
+      routeConversationId={routeConversationId}
+      initialForkId={initialForkId}
+    />
   )
 );
 
-vi.mock('@/components/chat/authenticated-chat-page', () => ({
+vi.mock('@/components/chat/page/authenticated-chat-page', () => ({
   AuthenticatedChatPage: (props: {
     routeConversationId: string;
     initialForkId?: string | undefined;
@@ -63,10 +83,10 @@ const mockKeyChainOptions = {
   queryFn: vi.fn(),
   staleTime: 3_600_000,
 };
-vi.mock('@/hooks/chat', () => ({
+vi.mock('@/hooks/chat/chat', () => ({
   conversationQueryOptions: vi.fn(() => mockConversationOptions),
 }));
-vi.mock('@/hooks/keys', () => ({
+vi.mock('@/hooks/crypto/keys', () => ({
   keyChainQueryOptions: vi.fn(() => mockKeyChainOptions),
 }));
 
@@ -232,5 +252,23 @@ describe('chat.$id component', () => {
       routeConversationId: 'conv-abc',
       initialForkId: undefined,
     });
+  });
+
+  it('remounts the chat subtree when the conversation id changes', async () => {
+    // Keying by the conversation id forces a fresh mount on navigation between
+    // conversations, so per-conversation hook state cannot bleed across.
+    useSearchMock.mockReturnValue({ fork: undefined });
+    useParamsMock.mockReturnValue({ id: 'conv-a' });
+
+    const { Route } = await import('./chat.$id');
+    const routeConfig = Route as unknown as RouteConfig;
+
+    const { rerender } = render(<routeConfig.component />);
+    expect(mountSpy).toHaveBeenCalledTimes(1);
+
+    useParamsMock.mockReturnValue({ id: 'conv-b' });
+    rerender(<routeConfig.component />);
+
+    expect(mountSpy).toHaveBeenCalledTimes(2);
   });
 });

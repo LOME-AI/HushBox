@@ -71,7 +71,9 @@ describe('helcim-mock', () => {
       expect(cardTokenEl.value).toMatch(/^mock-token-/);
       expect(customerCodeEl.value).toMatch(/^mock-customer-/);
       expect(cardTypeEl.value).toBe('Visa');
-      expect(cardF4L4El.value).toContain('9990');
+      // The loader derives the displayed last-four via cardF4L4.slice(-4), so the
+      // final four characters must be the card's actual last four digits.
+      expect(cardF4L4El.value.slice(-4)).toBe(MOCK_TEST_CARDS.SUCCESS.lastFour);
     });
 
     it('populates failure response for decline CVV', () => {

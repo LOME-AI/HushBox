@@ -7,6 +7,14 @@ interface LogoProps {
   className?: string;
 }
 
+/**
+ * Transparent 1x1 GIF used when the logo asset import can't be resolved to a
+ * URL. Renders nothing visible while keeping the `<img src>` non-empty, which
+ * avoids a broken-image icon and an empty-src refetch of the current page.
+ */
+const LOGO_FALLBACK_SRC =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
 /** Resolves a bundler image import to a URL string. Handles Vite (string) and Astro SSR ({ src }). */
 function resolveImageSource(imported: unknown): string {
   if (typeof imported === 'string') return imported;
@@ -18,7 +26,7 @@ function resolveImageSource(imported: unknown): string {
 }
 
 function Logo({ className }: Readonly<LogoProps>): React.JSX.Element {
-  const imageSource = resolveImageSource(logoUrl);
+  const imageSource = resolveImageSource(logoUrl) || LOGO_FALLBACK_SRC;
 
   return (
     <div
@@ -35,4 +43,4 @@ function Logo({ className }: Readonly<LogoProps>): React.JSX.Element {
   );
 }
 
-export { Logo, resolveImageSource as resolveImageSrc, type LogoProps };
+export { Logo, resolveImageSource as resolveImageSrc, LOGO_FALLBACK_SRC, type LogoProps };

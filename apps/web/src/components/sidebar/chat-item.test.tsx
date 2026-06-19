@@ -64,7 +64,7 @@ vi.mock('@/lib/epoch-key-cache', () => ({
   processKeyChain: vi.fn(),
 }));
 
-vi.mock('@/hooks/keys', () => ({
+vi.mock('@/hooks/crypto/keys', () => ({
   keyChainQueryOptions: vi.fn((conversationId: string) => ({
     queryKey: ['keys', conversationId],
     queryFn: () => Promise.resolve({}),
@@ -75,7 +75,7 @@ vi.mock('@/hooks/keys', () => ({
 const mockDeleteMutate = vi.fn();
 const mockUpdateMutate = vi.fn();
 
-vi.mock('@/hooks/chat', () => ({
+vi.mock('@/hooks/chat/chat', () => ({
   useDeleteConversation: () => ({
     mutate: mockDeleteMutate,
     isPending: false,
@@ -90,7 +90,7 @@ vi.mock('@/hooks/chat', () => ({
 const mockLeaveMutateAsync = vi.fn(() => Promise.resolve());
 const mockMuteMutate = vi.fn();
 const mockPinMutate = vi.fn();
-vi.mock('@/hooks/use-conversation-members', () => ({
+vi.mock('@/hooks/realtime/use-conversation-members', () => ({
   useLeaveConversation: () => ({
     mutateAsync: mockLeaveMutateAsync,
     isPending: false,

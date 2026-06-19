@@ -2,11 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { TEST_IDS } from '@hushbox/shared';
 
-vi.mock('@/hooks/use-is-settled', () => ({
+vi.mock('@/hooks/ui/use-is-settled', () => ({
   useIsSettled: vi.fn(),
 }));
 
-import { useIsSettled } from '@/hooks/use-is-settled';
+import { useIsSettled } from '@/hooks/ui/use-is-settled';
 import { SettledIndicator } from './settled-indicator.js';
 
 const mockedUseIsSettled = vi.mocked(useIsSettled);

@@ -70,6 +70,11 @@ html.a11y-letter-spacing-loosest body span {
   letter-spacing: 0.12em;
 }
 
+html.a11y-line-height-tight p,
+html.a11y-line-height-tight li,
+html.a11y-line-height-tight td {
+  line-height: 1.25 !important;
+}
 html.a11y-line-height-tall p,
 html.a11y-line-height-tall li,
 html.a11y-line-height-tall td {

@@ -5,6 +5,12 @@
  * as authoritative, so the same id is reused in `model:done`.
  */
 
+/** Media-generation attributes for a turn whose reply is an image/video. */
+export interface SseTurnMedia {
+  readonly mediaType: 'image' | 'video';
+  readonly mimeType: string;
+}
+
 export interface SseTurnParams {
   readonly userMessageId: string;
   readonly modelId: string;
@@ -12,6 +18,8 @@ export interface SseTurnParams {
   readonly content: string;
   /** Characters per `token` frame. */
   readonly chunkSize?: number;
+  /** Present for image/video turns; drives the synthetic generation frames. */
+  readonly media?: SseTurnMedia;
 }
 
 function frame(event: string, data: unknown): string {
@@ -20,11 +28,32 @@ function frame(event: string, data: unknown): string {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Synthetic mid-generation percent (`model:done` is the authoritative 100%). */
+const MEDIA_PROGRESS_PERCENT = 50;
+
 export function buildSseTurnFrames(params: SseTurnParams): string[] {
-  const { userMessageId, modelId, assistantMessageId, content, chunkSize = 18 } = params;
+  const { userMessageId, modelId, assistantMessageId, content, chunkSize = 18, media } = params;
   const frames: string[] = [
     frame('start', { userMessageId, models: [{ modelId, assistantMessageId }] }),
   ];
+  // A media turn announces generation (so the placeholder reads "Generating
+  // image…" with the right shape) and ticks one progress frame before the
+  // asset lands, mirroring the real server's pre-gateway media events.
+  if (media !== undefined) {
+    frames.push(
+      frame('model:media:start', {
+        modelId,
+        assistantMessageId,
+        mediaType: media.mediaType,
+        mimeType: media.mimeType,
+      }),
+      frame('model:media:progress', {
+        modelId,
+        assistantMessageId,
+        percent: MEDIA_PROGRESS_PERCENT,
+      })
+    );
+  }
   for (let index = 0; index < content.length; index += chunkSize) {
     frames.push(frame('token', { modelId, content: content.slice(index, index + chunkSize) }));
   }

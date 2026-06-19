@@ -8,7 +8,7 @@ vi.mock('@/components/sidebar/hamburger-button', () => ({
 }));
 
 const mockRows = vi.fn<() => 1 | 2 | 3>(() => 1);
-vi.mock('@/hooks/use-header-layout', () => ({
+vi.mock('@/hooks/ui/use-header-layout', () => ({
   useHeaderLayout: (): 1 | 2 | 3 => mockRows(),
 }));
 

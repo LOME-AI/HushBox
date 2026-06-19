@@ -40,7 +40,7 @@ export function StatusSection({
           <span aria-hidden="true" className={`size-2.5 rounded-full ${STATUS_DOT[status]}`} />
           {STATUS_LABELS[status]}
         </h2>
-        <span className="text-foreground-muted font-mono text-xs tabular-nums">
+        <span className="text-muted-foreground font-mono text-xs tabular-nums">
           {projects.length} {projects.length === 1 ? 'item' : 'items'}
         </span>
       </div>

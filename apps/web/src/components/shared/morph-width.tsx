@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { useMeasuredSize } from '@/hooks/use-measured-size';
+import { useMeasuredSize } from '@/hooks/ui/use-measured-size';
 
 interface MorphWidthProps {
   children: React.ReactNode;

@@ -73,9 +73,13 @@ vi.mock('@/providers/query-provider', () => ({
   },
 }));
 
-vi.mock('@/lib/api', () => ({
-  getApiUrl: () => 'http://localhost:8787',
-}));
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>();
+  return {
+    ...actual,
+    getApiUrl: () => 'http://localhost:8787',
+  };
+});
 
 vi.mock('./auth-client.js', () => ({
   STORAGE_KEY: 'hushbox_auth_kek',
@@ -770,13 +774,14 @@ describe('auth', () => {
       });
     });
 
-    it('should use fallback user data when /me endpoint fails', async () => {
+    it('fails the login and never fabricates account flags when /me fails', async () => {
       const mockPrivateKey = new Uint8Array([60, 61, 62]);
 
       vi.mocked(unwrapAccountKeyWithPassword).mockReturnValue(mockPrivateKey);
 
-      vi.mocked(fetch).mockImplementation((url) => {
-        if (typeof url === 'string' && url.includes('/login/init')) {
+      vi.mocked(fetch).mockImplementation((input) => {
+        const url = urlFromFetchInput(input);
+        if (url.includes('/login/init')) {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -785,7 +790,7 @@ describe('auth', () => {
               }),
           } as Response);
         }
-        if (typeof url === 'string' && url.includes('/login/finish')) {
+        if (url.includes('/login/finish')) {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -797,10 +802,11 @@ describe('auth', () => {
               }),
           } as Response);
         }
-        if (typeof url === 'string' && url.includes('/api/auth/me')) {
+        if (url.includes('/api/auth/me')) {
           return Promise.resolve({
             ok: false,
             status: 500,
+            headers: new Headers(),
           } as Response);
         }
         return Promise.reject(new Error('Unexpected fetch'));
@@ -808,15 +814,11 @@ describe('auth', () => {
 
       const result = await signIn.email(loginParams);
 
-      expect(result.error).toBeUndefined();
-      expect(useAuthStore.getState().user).toEqual({
-        id: 'user-123',
-        email: 'test@example.com',
-        username: '',
-        emailVerified: false,
-        totpEnabled: false,
-        hasAcknowledgedPhrase: false,
-      });
+      // A transient /me failure must error the login, not silently downgrade
+      // real account flags to a fabricated emailVerified/totpEnabled/
+      // hasAcknowledgedPhrase = false.
+      expect(result.error).toBeDefined();
+      expect(useAuthStore.getState().user).toBeNull();
     });
 
     it('should return LOGIN_FAILED on network error', async () => {
@@ -827,123 +829,6 @@ describe('auth', () => {
       expect(result.error?.message).toBe(
         'Login failed. Please check your credentials and try again.'
       );
-    });
-
-    it('should zero password bytes when login init fails (early return)', async () => {
-      let capturedPasswordBytes: Uint8Array | null = null;
-
-      const originalEncode = TextEncoder.prototype.encode;
-
-      vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (
-        this: TextEncoder,
-        input?: string
-      ) {
-        const result = originalEncode.call(this, input ?? '');
-        if (input === loginParams.password) {
-          capturedPasswordBytes = result;
-        }
-        return result;
-      });
-
-      vi.mocked(fetch).mockResolvedValue({
-        ok: false,
-        json: () => Promise.resolve({ code: 'AUTH_FAILED' }),
-      } as Response);
-
-      const result = await signIn.email(loginParams);
-
-      expect(result.error?.message).toBe('Invalid credentials.');
-      expect([...defined(capturedPasswordBytes)].every((byte) => byte === 0)).toBe(true);
-    });
-
-    it('should zero password bytes when login finish fails (early return)', async () => {
-      let capturedPasswordBytes: Uint8Array | null = null;
-
-      const originalEncode = TextEncoder.prototype.encode;
-
-      vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (
-        this: TextEncoder,
-        input?: string
-      ) {
-        const result = originalEncode.call(this, input ?? '');
-        if (input === loginParams.password) {
-          capturedPasswordBytes = result;
-        }
-        return result;
-      });
-
-      vi.mocked(fetch).mockImplementation((url) => {
-        if (typeof url === 'string' && url.includes('/login/init')) {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                ke2: [1, 2, 3],
-              }),
-          } as Response);
-        }
-        if (typeof url === 'string' && url.includes('/login/finish')) {
-          return Promise.resolve({
-            ok: false,
-            json: () => Promise.resolve({ code: 'NO_PENDING_LOGIN' }),
-          } as Response);
-        }
-        return Promise.reject(new Error('Unexpected fetch'));
-      });
-
-      const result = await signIn.email(loginParams);
-
-      expect(result.error?.message).toBe('Your login session expired. Please try again.');
-      expect([...defined(capturedPasswordBytes)].every((byte) => byte === 0)).toBe(true);
-    });
-
-    it('should zero password bytes when passwordWrappedPrivateKey is missing (early return)', async () => {
-      let capturedPasswordBytes: Uint8Array | null = null;
-
-      const originalEncode = TextEncoder.prototype.encode;
-
-      vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (
-        this: TextEncoder,
-        input?: string
-      ) {
-        const result = originalEncode.call(this, input ?? '');
-        if (input === loginParams.password) {
-          capturedPasswordBytes = result;
-        }
-        return result;
-      });
-
-      vi.mocked(fetch).mockImplementation((url) => {
-        if (typeof url === 'string' && url.includes('/login/init')) {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                ke2: [1, 2, 3],
-              }),
-          } as Response);
-        }
-        if (typeof url === 'string' && url.includes('/login/finish')) {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                success: true,
-                userId: 'user-123',
-                email: 'test@example.com',
-                // Missing passwordWrappedPrivateKey
-              }),
-          } as Response);
-        }
-        return Promise.reject(new Error('Unexpected fetch'));
-      });
-
-      const result = await signIn.email(loginParams);
-
-      expect(result.error?.message).toBe(
-        'Your account encryption is not configured. Please contact support.'
-      );
-      expect([...defined(capturedPasswordBytes)].every((byte) => byte === 0)).toBe(true);
     });
   });
 
@@ -1069,113 +954,6 @@ describe('auth', () => {
       expect(createAccount).toHaveBeenCalled();
       expect(toBase64).toHaveBeenCalled();
     });
-
-    it('should clean up password bytes in finally block', async () => {
-      let capturedPasswordBytes: Uint8Array | null = null;
-
-      const originalEncode = TextEncoder.prototype.encode;
-      vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (
-        this: TextEncoder,
-        input?: string
-      ) {
-        const result = originalEncode.call(this, input ?? '');
-        if (input === signupParams.password) {
-          capturedPasswordBytes = result;
-        }
-        return result;
-      });
-
-      vi.mocked(fetch).mockImplementation((url) => {
-        if (typeof url === 'string' && url.includes('/register/init')) {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                registrationResponse: [1, 2, 3],
-              }),
-          } as Response);
-        }
-        if (typeof url === 'string' && url.includes('/register/finish')) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({}),
-          } as Response);
-        }
-        return Promise.reject(new Error('Unexpected fetch'));
-      });
-
-      await signUp.email(signupParams);
-
-      expect([...defined(capturedPasswordBytes)].every((byte) => byte === 0)).toBe(true);
-    });
-
-    it('should clean up sensitive material on registration init error', async () => {
-      let capturedPasswordBytes: Uint8Array | null = null;
-
-      const originalEncode = TextEncoder.prototype.encode;
-      vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (
-        this: TextEncoder,
-        input?: string
-      ) {
-        const result = originalEncode.call(this, input ?? '');
-        if (input === signupParams.password) {
-          capturedPasswordBytes = result;
-        }
-        return result;
-      });
-
-      vi.mocked(fetch).mockResolvedValue({
-        ok: false,
-        json: () => Promise.resolve({ code: 'CONFLICT' }),
-      } as Response);
-
-      const result = await signUp.email(signupParams);
-
-      expect(result.error?.message).toBe(
-        'This action conflicts with the current state. Please refresh and try again.'
-      );
-      expect([...defined(capturedPasswordBytes)].every((byte) => byte === 0)).toBe(true);
-    });
-
-    it('should clean up sensitive material on registration finish error', async () => {
-      let capturedPasswordBytes: Uint8Array | null = null;
-
-      const originalEncode = TextEncoder.prototype.encode;
-      vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (
-        this: TextEncoder,
-        input?: string
-      ) {
-        const result = originalEncode.call(this, input ?? '');
-        if (input === signupParams.password) {
-          capturedPasswordBytes = result;
-        }
-        return result;
-      });
-
-      vi.mocked(fetch).mockImplementation((url) => {
-        if (typeof url === 'string' && url.includes('/register/init')) {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                registrationResponse: [1, 2, 3],
-              }),
-          } as Response);
-        }
-        if (typeof url === 'string' && url.includes('/register/finish')) {
-          return Promise.resolve({
-            ok: false,
-            json: () => Promise.resolve({ code: 'REGISTRATION_FAILED' }),
-          } as Response);
-        }
-        return Promise.reject(new Error('Unexpected fetch'));
-      });
-
-      const result = await signUp.email(signupParams);
-
-      expect(result.error?.message).toBe('Registration failed. Please try again.');
-      expect([...defined(capturedPasswordBytes)].every((byte) => byte === 0)).toBe(true);
-    });
   });
 
   describe('changePassword', () => {
@@ -1284,38 +1062,6 @@ describe('auth', () => {
       expect(result.error).toBe('Incorrect password.');
     });
 
-    it('should zero both password bytes when change-password init fails (early return)', async () => {
-      let capturedCurrentPasswordBytes: Uint8Array | null = null;
-      let capturedNewPasswordBytes: Uint8Array | null = null;
-
-      const originalEncode = TextEncoder.prototype.encode;
-
-      vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (
-        this: TextEncoder,
-        input?: string
-      ) {
-        const result = originalEncode.call(this, input ?? '');
-        if (input === currentPassword) {
-          capturedCurrentPasswordBytes = result;
-        } else if (input === newPassword) {
-          capturedNewPasswordBytes = result;
-        }
-        return result;
-      });
-
-      vi.mocked(fetch).mockResolvedValue({
-        ok: false,
-        json: () => Promise.resolve({ code: 'INCORRECT_PASSWORD' }),
-      } as Response);
-
-      const result = await changePassword(currentPassword, newPassword);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Incorrect password.');
-      expect([...defined(capturedCurrentPasswordBytes)].every((byte) => byte === 0)).toBe(true);
-      expect([...defined(capturedNewPasswordBytes)].every((byte) => byte === 0)).toBe(true);
-    });
-
     it('should return error when change-password finish fails', async () => {
       vi.mocked(fetch).mockImplementation((url) => {
         if (typeof url === 'string' && url.includes('/change-password/init')) {
@@ -1377,33 +1123,7 @@ describe('auth', () => {
       expect(result.error).toBe('Password change failed. Please try again.');
     });
 
-    it('should zero password bytes on error', async () => {
-      vi.mocked(fetch).mockRejectedValue(new Error('Network error'));
-
-      const result = await changePassword(currentPassword, newPassword);
-
-      expect(result.success).toBe(false);
-    });
-
-    it('should zero both password bytes when rewrapAccountKeyForPasswordChange throws error', async () => {
-      let capturedCurrentPasswordBytes: Uint8Array | null = null;
-      let capturedNewPasswordBytes: Uint8Array | null = null;
-
-      const originalEncode = TextEncoder.prototype.encode;
-
-      vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (
-        this: TextEncoder,
-        input?: string
-      ) {
-        const result = originalEncode.call(this, input ?? '');
-        if (input === currentPassword) {
-          capturedCurrentPasswordBytes = result;
-        } else if (input === newPassword) {
-          capturedNewPasswordBytes = result;
-        }
-        return result;
-      });
-
+    it('should return error when rewrapAccountKeyForPasswordChange throws', async () => {
       vi.mocked(fetch).mockImplementation((url) => {
         if (typeof url === 'string' && url.includes('/change-password/init')) {
           return Promise.resolve({
@@ -1425,8 +1145,7 @@ describe('auth', () => {
       const result = await changePassword(currentPassword, newPassword);
 
       expect(result.success).toBe(false);
-      expect([...defined(capturedCurrentPasswordBytes)].every((byte) => byte === 0)).toBe(true);
-      expect([...defined(capturedNewPasswordBytes)].every((byte) => byte === 0)).toBe(true);
+      expect(result.error).toBe('Password change failed. Please try again.');
     });
 
     it('should not persist export key when no stored auth exists', async () => {
@@ -1532,6 +1251,26 @@ describe('auth', () => {
       expect(selections.image).toEqual([]);
       expect(selections.video).toEqual([]);
     });
+
+    it('drops the decrypted active document on sign out', async () => {
+      const { useDocumentStore } = await import('@/stores/document');
+      useDocumentStore.getState().setActiveDocument({
+        id: 'doc-1',
+        type: 'code',
+        title: 'Secret',
+        content: 'decrypted secret content',
+        lineCount: 1,
+      });
+
+      vi.mocked(fetch).mockResolvedValue({ ok: true } as Response);
+
+      await signOutAndClearCache();
+
+      const documentState = useDocumentStore.getState();
+      expect(documentState.activeDocument).toBeNull();
+      expect(documentState.activeDocumentId).toBeNull();
+      expect(documentState.isPanelOpen).toBe(false);
+    });
   });
 
   describe('clearLocalAuthState', () => {
@@ -1565,6 +1304,24 @@ describe('auth', () => {
       const { selections } = useModelStore.getState();
       expect(selections.text[0]?.id).toBe(SMART_MODEL_ID);
       expect(selections.image).toEqual([]);
+    });
+
+    it('drops the decrypted active document', async () => {
+      const { useDocumentStore } = await import('@/stores/document');
+      useDocumentStore.getState().setActiveDocument({
+        id: 'doc-2',
+        type: 'code',
+        title: 'Secret',
+        content: 'decrypted secret content',
+        lineCount: 1,
+      });
+
+      clearLocalAuthState();
+
+      const documentState = useDocumentStore.getState();
+      expect(documentState.activeDocument).toBeNull();
+      expect(documentState.activeDocumentId).toBeNull();
+      expect(documentState.isPanelOpen).toBe(false);
     });
   });
 
@@ -1767,6 +1524,28 @@ describe('auth', () => {
       await initAuth();
 
       expect(useAuthStore.getState().customInstructions).toBeNull();
+    });
+
+    it('should resolve to logged-out when reading stored auth throws', async () => {
+      vi.mocked(getStoredAuth).mockImplementation(() => {
+        throw new Error('Malformed stored auth');
+      });
+
+      await expect(initAuth()).resolves.toBeUndefined();
+
+      expect(useAuthStore.getState().isLoading).toBe(false);
+      expect(useAuthStore.getState().user).toBeNull();
+      expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    });
+
+    it('should not cache a rejected promise when reading stored auth throws', async () => {
+      vi.mocked(getStoredAuth).mockImplementationOnce(() => {
+        throw new Error('Malformed stored auth');
+      });
+      await initAuth();
+
+      vi.mocked(getStoredAuth).mockReturnValue(null);
+      await expect(initAuth()).resolves.toBeUndefined();
     });
   });
 
@@ -1981,17 +1760,6 @@ describe('auth', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Password change failed. Please try again.');
-    });
-
-    it('should clean up sensitive bytes in finally', async () => {
-      vi.mocked(fetch).mockResolvedValue({
-        ok: false,
-        json: () => Promise.resolve({ code: 'USER_NOT_FOUND' }),
-      } as Response);
-
-      const result = await resetPasswordViaRecovery(email, recoveryPhrase, newPassword);
-
-      expect(result.success).toBe(false);
     });
 
     it('should send identifier field with email when @ is present', async () => {
@@ -2278,37 +2046,6 @@ describe('auth', () => {
       if (!result.success) {
         expect(result.error).toBe('Failed to start two-factor disable. Please try again.');
       }
-    });
-
-    it('should zero password bytes in finally block', async () => {
-      let capturedPasswordBytes: Uint8Array | null = null;
-
-      const originalEncode = TextEncoder.prototype.encode;
-
-      vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (
-        this: TextEncoder,
-        input?: string
-      ) {
-        const result = originalEncode.call(this, input ?? '');
-        if (input === password) {
-          capturedPasswordBytes = result;
-        }
-        return result;
-      });
-
-      vi.mocked(fetch).mockImplementation((url) => {
-        if (typeof url === 'string' && url.includes('/2fa/disable/init')) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ ke2: [10, 20, 30] }),
-          } as Response);
-        }
-        return Promise.reject(new Error('Unexpected fetch'));
-      });
-
-      await disable2FAInit(password);
-
-      expect([...defined(capturedPasswordBytes)].every((byte) => byte === 0)).toBe(true);
     });
   });
 

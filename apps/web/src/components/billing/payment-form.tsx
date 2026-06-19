@@ -2,25 +2,26 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { DollarSign, CreditCard, Lock, MapPin, User, Home } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button, ModalActions, OverlayContent, OverlayHeader } from '@hushbox/ui';
-import { TEST_IDS } from '@hushbox/shared';
+import { TEST_IDS, friendlyErrorMessage } from '@hushbox/shared';
 import { FormInput } from '@/components/shared/form-input';
 import { DevOnly } from '@/components/shared/dev-only';
+import { getErrorBody } from '@/lib/api';
 import { env } from '@/lib/env';
+import { useFormEnterNav } from '@/hooks/ui/use-form-enter-nav.js';
+import {
+  useCreatePayment,
+  useProcessPayment,
+  usePaymentStatus,
+  billingKeys,
+} from '@/hooks/billing/billing.js';
+import { usePaymentForm } from '@/hooks/billing/use-payment-form.js';
 import { HelcimLogo } from './helcim-logo.js';
-import { useFormEnterNav } from '../../hooks/use-form-enter-nav.js';
 import {
   loadHelcimScript,
   readHelcimResult,
   type HelcimTokenResult,
 } from '../../lib/helcim-loader.js';
 import { MOCK_TEST_CARDS } from '../../lib/helcim-mock.js';
-import {
-  useCreatePayment,
-  useProcessPayment,
-  usePaymentStatus,
-  billingKeys,
-} from '../../hooks/billing.js';
-import { usePaymentForm } from '../../hooks/use-payment-form.js';
 import { MIN_DEPOSIT_AMOUNT, MAX_DEPOSIT_AMOUNT } from '../../lib/payment-validation.js';
 
 declare global {
@@ -32,6 +33,11 @@ declare global {
 
 type PaymentState = 'idle' | 'processing' | 'success' | 'error';
 
+// Max time to wait for the asynchronous webhook to confirm a 'processing'
+// payment before telling the user to check their balance. A charged user must
+// always get a resolution even if the webhook never arrives.
+const POLLING_TIMEOUT_MS = 60_000;
+
 interface PaymentStatusCallbacks {
   onConfirmed: (newBalance: string) => void;
   onFailed: (errorMessage?: string | null) => void;
@@ -41,6 +47,15 @@ interface PaymentStatusResult {
   status: string;
   newBalance?: string;
   errorMessage?: string | null | undefined;
+}
+
+// Resolves a thrown payment error into a user-facing reason. ApiError carries
+// a machine-readable code (e.g. PAYMENT_DECLINED) which friendlyErrorMessage
+// maps to copy; unknown/non-ApiError errors fall back to the generic message.
+function resolvePaymentErrorMessage(error: unknown): string {
+  const code = getErrorBody(error)?.code;
+  // friendlyErrorMessage returns its generic fallback for unknown/empty codes.
+  return friendlyErrorMessage(code ?? '');
 }
 
 function handlePaymentStatusUpdate(
@@ -106,14 +121,9 @@ function PaymentErrorCard({
       <OverlayHeader title="Payment Failed" description="We couldn't process your payment" />
       <div className="py-4 text-center">
         <p className="text-destructive">
-          Something went wrong. Please try again or contact support.
+          {errorMessage ?? 'Something went wrong. Please try again or contact support.'}
         </p>
       </div>
-      <DevOnly>
-        <p className="text-muted-foreground text-center text-sm">
-          {errorMessage ?? 'An unexpected error occurred'}
-        </p>
-      </DevOnly>
       {onCancel ? (
         <ModalActions
           cancel={{
@@ -369,7 +379,6 @@ export function PaymentForm({
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(false);
-  const [pollingStartTime, setPollingStartTime] = useState<number | null>(null);
   const observerRef = useRef<MutationObserver | null>(null);
   const paymentIdRef = useRef<string | null>(null);
   const expectingTokenizationRef = useRef(false);
@@ -386,31 +395,33 @@ export function PaymentForm({
     refetchInterval: isPolling ? 2000 : false,
   });
 
-  const POLLING_TIMEOUT_MS = 60_000;
-
   const stopPolling = useCallback((errorMsg?: string): void => {
     setIsPolling(false);
-    setPollingStartTime(null);
     if (errorMsg) {
       setPaymentState('error');
       setErrorMessage(errorMsg);
     }
   }, []);
 
+  // The timeout is driven by a real timer rather than a poll-data dependency:
+  // React Query's structural sharing keeps `paymentStatus` referentially stable
+  // while the webhook stays 'processing', so a data-keyed effect would never
+  // re-run to notice the deadline. Keyed on `isPolling` so it fires once polling
+  // starts and is cleared the moment polling settles or the form unmounts.
   useEffect(() => {
     if (!isPolling) return;
 
-    if (!pollingStartTime) {
-      setPollingStartTime(Date.now());
-    }
-
-    const startTime = pollingStartTime ?? Date.now();
-    if (Date.now() - startTime > POLLING_TIMEOUT_MS) {
+    const timer = setTimeout(() => {
       stopPolling('Payment confirmation timed out. Please check your balance.');
-      return;
-    }
+    }, POLLING_TIMEOUT_MS);
 
-    if (!paymentStatus) return;
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [isPolling, stopPolling]);
+
+  useEffect(() => {
+    if (!isPolling || !paymentStatus) return;
 
     const handled = handlePaymentStatusUpdate(paymentStatus, {
       onConfirmed: (newBalance) => {
@@ -428,7 +439,7 @@ export function PaymentForm({
     if (handled) {
       void queryClient.invalidateQueries({ queryKey: billingKeys.transactions() });
     }
-  }, [paymentStatus, isPolling, pollingStartTime, onSuccess, queryClient, stopPolling]);
+  }, [paymentStatus, isPolling, onSuccess, queryClient, stopPolling]);
 
   const handleTokenizationResult = useCallback(
     async (result: HelcimTokenResult): Promise<void> => {
@@ -464,7 +475,7 @@ export function PaymentForm({
         }
       } catch (error) {
         setPaymentState('error');
-        setErrorMessage(error instanceof Error ? error.message : 'Payment failed');
+        setErrorMessage(resolvePaymentErrorMessage(error));
       }
     },
     [processPayment, onSuccess]
@@ -609,7 +620,7 @@ export function PaymentForm({
     } catch (error) {
       expectingTokenizationRef.current = false;
       setPaymentState('error');
-      setErrorMessage(error instanceof Error ? error.message : 'Payment failed');
+      setErrorMessage(resolvePaymentErrorMessage(error));
     }
   };
 
@@ -621,7 +632,6 @@ export function PaymentForm({
     setPaymentId(null);
     setErrorMessage(null);
     setIsPolling(false);
-    setPollingStartTime(null);
   };
 
   if (paymentState === 'success') {

@@ -13,7 +13,7 @@ vi.mock('@/lib/auth', () => ({
   initAuth: vi.fn().mockImplementation(() => Promise.resolve()),
 }));
 
-vi.mock('@/hooks/billing', () => ({
+vi.mock('@/hooks/billing/billing', () => ({
   useBalance: vi.fn(),
 }));
 
@@ -22,7 +22,7 @@ vi.mock('@/lib/auth-client', () => ({
 }));
 
 import { useSession, initAuth } from '@/lib/auth';
-import { useBalance } from '@/hooks/billing';
+import { useBalance } from '@/hooks/billing/billing';
 import { hasStoredAuth } from '@/lib/auth-client';
 import type { ReactNode } from 'react';
 
@@ -203,6 +203,7 @@ describe('useStability', () => {
       mockedUseBalance.mockReturnValue({
         data: undefined,
         isPending: true,
+        isError: false,
       } as unknown as ReturnType<typeof useBalance>);
 
       const { result } = renderHook(() => useStability(), {
@@ -246,6 +247,25 @@ describe('useStability', () => {
 
       expect(result.current.isBalanceStable).toBe(true);
     });
+
+    it('returns true for authenticated users when balance query terminally errors', () => {
+      // A terminal balance error (5xx/408/429 after retries) must not pin the
+      // splash forever — a settled-with-error query counts as stable.
+      mockedUseSession.mockReturnValue({
+        data: { user: { id: 'user-123' } },
+        isPending: false,
+      } as unknown as ReturnType<typeof useSession>);
+      mockedUseBalance.mockReturnValue({
+        data: undefined,
+        isError: true,
+      } as unknown as ReturnType<typeof useBalance>);
+
+      const { result } = renderHook(() => useStability(), {
+        wrapper: createWrapper(),
+      });
+
+      expect(result.current.isBalanceStable).toBe(true);
+    });
   });
 
   describe('isAppStable', () => {
@@ -274,6 +294,7 @@ describe('useStability', () => {
       mockedUseBalance.mockReturnValue({
         data: undefined,
         isPending: true,
+        isError: false,
       } as unknown as ReturnType<typeof useBalance>);
 
       const { result } = renderHook(() => useStability(), {
@@ -308,6 +329,23 @@ describe('useStability', () => {
       mockedUseBalance.mockReturnValue({
         data: { balance: '10.00' },
         isPending: false,
+      } as unknown as ReturnType<typeof useBalance>);
+
+      const { result } = renderHook(() => useStability(), {
+        wrapper: createWrapper(),
+      });
+
+      expect(result.current.isAppStable).toBe(true);
+    });
+
+    it('returns true when balance query terminally errors (splash can hide)', () => {
+      mockedUseSession.mockReturnValue({
+        data: { user: { id: 'user-123' } },
+        isPending: false,
+      } as unknown as ReturnType<typeof useSession>);
+      mockedUseBalance.mockReturnValue({
+        data: undefined,
+        isError: true,
       } as unknown as ReturnType<typeof useBalance>);
 
       const { result } = renderHook(() => useStability(), {

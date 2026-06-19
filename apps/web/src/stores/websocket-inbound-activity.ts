@@ -1,19 +1,7 @@
-import { create } from 'zustand';
+import { createCounterStore } from './create-counter-store.js';
 
-interface WebsocketInboundActivityState {
-  pendingInbound: number;
-  startProcessing: () => void;
-  endProcessing: () => void;
-}
-
-export const useWebsocketInboundActivityStore = create<WebsocketInboundActivityState>()((set) => ({
-  pendingInbound: 0,
-
-  startProcessing: () => {
-    set((state) => ({ pendingInbound: state.pendingInbound + 1 }));
-  },
-
-  endProcessing: () => {
-    set((state) => ({ pendingInbound: Math.max(0, state.pendingInbound - 1) }));
-  },
-}));
+export const useWebsocketInboundActivityStore = createCounterStore({
+  count: 'pendingInbound',
+  increment: 'startProcessing',
+  decrement: 'endProcessing',
+});

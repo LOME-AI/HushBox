@@ -2,12 +2,14 @@
 interface Props {
   title: string;
   description: string;
+  as?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 }
 
-const { title, description } = Astro.props;
+const { title, description, as = 'h3' } = Astro.props;
+const Heading = as;
 ---
 
 <div class="border-border bg-muted/30 rounded-lg border-2 p-6">
-  <h4 class="font-semibold">{title}</h4>
+  <Heading class="font-semibold">{title}</Heading>
   <p class="text-foreground mt-2 text-sm leading-relaxed">{description}</p>
 </div>

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AuthPasswordInput } from '@/components/auth/AuthPasswordInput';
+import { AuthPasswordInput } from '@/components/auth/auth-password-input';
 import { validatePassword, validateConfirmPassword } from '@/lib/validation';
 
 interface PasswordFieldProps {
@@ -10,6 +10,7 @@ interface PasswordFieldProps {
   touched: boolean;
   markTouched: () => void;
   showStrength?: boolean;
+  autoComplete?: React.ComponentProps<'input'>['autoComplete'];
 }
 
 export function PasswordField({
@@ -20,12 +21,14 @@ export function PasswordField({
   touched,
   markTouched,
   showStrength,
+  autoComplete,
 }: Readonly<PasswordFieldProps>): React.JSX.Element {
   const validation = touched ? validatePassword(password) : { isValid: false };
   return (
     <AuthPasswordInput
       id={id}
       label={label}
+      autoComplete={autoComplete}
       value={password}
       onChange={(e) => {
         setPassword(e.target.value);
@@ -65,6 +68,7 @@ export function ConfirmPasswordField({
     <AuthPasswordInput
       id={id}
       label={label}
+      autoComplete="new-password"
       value={confirmPassword}
       onChange={(e) => {
         setConfirmPassword(e.target.value);

@@ -1,34 +1,19 @@
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { TEST_IDS } from '@hushbox/shared';
-
-vi.mock('@hushbox/crypto', () => {
-  const encoder = new TextEncoder();
-  return {
-    generateKeyPair: vi.fn(() => ({
-      publicKey: new Uint8Array(32).fill(0xaa),
-      privateKey: new Uint8Array(32).fill(0xbb),
-    })),
-    encryptTextForEpoch: vi.fn((_, plaintext: string) => {
-      const bytes = encoder.encode(plaintext);
-      const result = new Uint8Array(bytes.length + 49);
-      result[0] = 0x01;
-      result.set(new Uint8Array(32).fill(0xcc), 1);
-      result.set(bytes, 33);
-      result.set(new Uint8Array(16).fill(0xdd), 33 + bytes.length);
-      return result;
-    }),
-  };
-});
 
 import { EncryptionDemo } from './encryption-demo';
 
-describe('EncryptionDemo', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index++) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
 
+describe('EncryptionDemo', () => {
   it('has data-slot attribute', () => {
     render(<EncryptionDemo data-testid="demo" />);
     expect(screen.getByTestId('demo')).toHaveAttribute('data-slot', 'encryption-demo');
@@ -119,13 +104,38 @@ describe('EncryptionDemo', () => {
     expect(screen.getByTestId('demo')).toHaveClass('custom-class');
   });
 
-  it('calls encryptTextForEpoch with generated key', async () => {
-    const { encryptTextForEpoch } = await import('@hushbox/crypto');
+  it('produces a real ECIES ciphertext longer than the plaintext', async () => {
     const user = userEvent.setup();
     render(<EncryptionDemo />);
 
     await user.click(screen.getByRole('button', { name: /show what's stored/i }));
 
-    expect(encryptTextForEpoch).toHaveBeenCalledWith(expect.any(Uint8Array), 'This is private.');
+    const hex = screen.getByTestId(TEST_IDS.cipherOutput).textContent;
+    expect(hex).toMatch(/^[0-9a-f]+$/);
+
+    const bytes = hexToBytes(hex);
+    const plaintextByteLength = new TextEncoder().encode('This is private.').length;
+    // Real ECIES wraps the plaintext with an ephemeral X25519 pubkey, nonce,
+    // and Poly1305 tag — at least 49 bytes of overhead. Asserting the blob runs
+    // well past the plaintext length proves genuine encryption rather than the
+    // old static mock, without pinning the exact internal framing byte count.
+    expect(bytes.length).toBeGreaterThanOrEqual(plaintextByteLength + 49);
+  });
+
+  it('produces a distinct ciphertext on each mount (fresh ephemeral key)', async () => {
+    const user = userEvent.setup();
+
+    const first = render(<EncryptionDemo />);
+    await user.click(screen.getByRole('button', { name: /show what's stored/i }));
+    const firstHex = screen.getByTestId(TEST_IDS.cipherOutput).textContent;
+    first.unmount();
+
+    render(<EncryptionDemo />);
+    await user.click(screen.getByRole('button', { name: /show what's stored/i }));
+    const secondHex = screen.getByTestId(TEST_IDS.cipherOutput).textContent;
+
+    // Real ECIES draws a fresh ephemeral keypair + nonce per encryption, so the
+    // same plaintext encrypts to different bytes. A static mock would collide.
+    expect(secondHex).not.toBe(firstHex);
   });
 });

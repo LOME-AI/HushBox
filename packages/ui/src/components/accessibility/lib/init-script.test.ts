@@ -1,9 +1,26 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ACCESSIBILITY_PREFERENCES_DEFAULTS } from '@hushbox/shared';
 import type { AccessibilityPreferences } from '@hushbox/shared';
 import { A11Y_INIT_SCRIPT } from './init-script';
 
 const STORAGE_KEY = 'hushbox.a11y.v1';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+// The init script preloads /fonts/a11y/<id>.woff2 from the web app's static
+// root. These must exist (and match the canonical source fonts the runtime
+// font-loader bundles) so the pre-paint preload does not 404.
+const WEB_PUBLIC_A11Y_FONTS = path.resolve(HERE, '../../../../../../apps/web/public/fonts/a11y');
+const CANONICAL_FONTS = path.resolve(HERE, '../fonts');
+
+/** Canonical source filename for each a11y font id (id basename != source basename for atkinson). */
+const FONT_SOURCE_BY_ID: Record<string, string> = {
+  atkinson: 'atkinson-hyperlegible.woff2',
+  'open-dyslexic': 'open-dyslexic.woff2',
+  lexend: 'lexend.woff2',
+};
 
 /** Run the inline init script as if the browser parsed it from <head>. */
 function runInitScript(): void {
@@ -208,9 +225,10 @@ describe('A11Y_INIT_SCRIPT', () => {
       expect(document.documentElement.classList.contains('a11y-line-height-double')).toBe(true);
     });
 
-    it('lineHeight 1.0 applies neither tall nor double', () => {
+    it('lineHeight 1.0 applies a11y-line-height-tight (not tall or double)', () => {
       setStoredPrefs({ lineHeight: '1.0' });
       runInitScript();
+      expect(document.documentElement.classList.contains('a11y-line-height-tight')).toBe(true);
       expect(document.documentElement.classList.contains('a11y-line-height-tall')).toBe(false);
       expect(document.documentElement.classList.contains('a11y-line-height-double')).toBe(false);
     });
@@ -460,5 +478,25 @@ describe('A11Y_INIT_SCRIPT', () => {
       expect(a11yClasses()).toEqual(expected);
       expect(document.documentElement.classList.contains('reduced-motion')).toBe(true);
     });
+  });
+
+  describe('preloaded font URLs resolve to served assets (no 404)', () => {
+    it.each([['atkinson'], ['open-dyslexic'], ['lexend']] as const)(
+      'serves /fonts/a11y/%s.woff2 from the web static root',
+      (fontFamily) => {
+        const served = path.join(WEB_PUBLIC_A11Y_FONTS, `${fontFamily}.woff2`);
+        expect(existsSync(served)).toBe(true);
+      }
+    );
+
+    it.each([['atkinson'], ['open-dyslexic'], ['lexend']] as const)(
+      'serves the canonical %s source bytes (no stale or empty copy)',
+      (fontFamily) => {
+        const served = readFileSync(path.join(WEB_PUBLIC_A11Y_FONTS, `${fontFamily}.woff2`));
+        const canonical = readFileSync(path.join(CANONICAL_FONTS, FONT_SOURCE_BY_ID[fontFamily]!));
+        expect(served.length).toBeGreaterThan(0);
+        expect(served.equals(canonical)).toBe(true);
+      }
+    );
   });
 });

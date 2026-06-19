@@ -1000,16 +1000,42 @@ describe('renderFrame', () => {
     foregroundMuted: '#888888',
   };
 
+  interface DrawnCell {
+    char: string;
+    x: number;
+    y: number;
+    alpha: number;
+    fillStyle: CanvasRenderingContext2D['fillStyle'];
+  }
+
+  interface RecordingCtx {
+    ctx: CanvasRenderingContext2D;
+    drawn: DrawnCell[];
+  }
+
   function mockCtx(): CanvasRenderingContext2D {
-    return {
+    return recordingCtx().ctx;
+  }
+
+  /**
+   * Records the alpha/fillStyle in effect at each fillText, because the
+   * renderer resets globalAlpha after the loop — reading the ctx's final
+   * globalAlpha no longer reflects the alpha any individual cell drew with.
+   */
+  function recordingCtx(): RecordingCtx {
+    const drawn: DrawnCell[] = [];
+    const ctx = {
       clearRect: vi.fn(),
-      fillText: vi.fn(),
       save: vi.fn(),
       restore: vi.fn(),
       fillStyle: '',
       globalAlpha: 1,
       font: '',
+      fillText: vi.fn((char: string, x: number, y: number) => {
+        drawn.push({ char, x, y, alpha: ctx.globalAlpha, fillStyle: ctx.fillStyle });
+      }),
     } as unknown as CanvasRenderingContext2D;
+    return { ctx, drawn };
   }
 
   beforeEach(() => {
@@ -1084,7 +1110,7 @@ describe('renderFrame', () => {
   });
 
   it('uses 0.8 opacity for cipher cells', () => {
-    const ctx = mockCtx();
+    const { ctx, drawn } = recordingCtx();
     const state = makeGrid(1, 1);
     renderFrame({
       ctx,
@@ -1096,7 +1122,7 @@ describe('renderFrame', () => {
       cipherOpacity: 1,
     });
 
-    expect(ctx.globalAlpha).toBe(0.8);
+    expect(drawn[0]!.alpha).toBe(0.8);
   });
 
   it('boosts opacity for cells inside logo mask', () => {
@@ -1145,7 +1171,7 @@ describe('renderFrame', () => {
   });
 
   it('applies cipherOpacity to cipher cells', () => {
-    const ctx = mockCtx();
+    const { ctx, drawn } = recordingCtx();
     const state = makeGrid(1, 1);
     renderFrame({
       ctx,
@@ -1157,11 +1183,11 @@ describe('renderFrame', () => {
       cipherOpacity: 0.5,
     });
 
-    expect(ctx.globalAlpha).toBeCloseTo(0.4);
+    expect(drawn[0]!.alpha).toBeCloseTo(0.4);
   });
 
   it('does not apply cipherOpacity to readable cells', () => {
-    const ctx = mockCtx();
+    const { ctx, drawn } = recordingCtx();
     const state = makeGrid(1, 1);
     state.cells[0]!.state = 'readable';
     state.cells[0]!.targetChar = 'H';
@@ -1177,11 +1203,11 @@ describe('renderFrame', () => {
       cipherOpacity: 0.5,
     });
 
-    expect(ctx.globalAlpha).toBeCloseTo(1);
+    expect(drawn[0]!.alpha).toBeCloseTo(1);
   });
 
   it('applies cipherOpacity to decrypting cells', () => {
-    const ctx = mockCtx();
+    const { ctx, drawn } = recordingCtx();
     const state = makeGrid(1, 1);
     state.cells[0]!.state = 'decrypting';
     state.cells[0]!.progress = 0.5;
@@ -1197,11 +1223,11 @@ describe('renderFrame', () => {
       cipherOpacity: 0.5,
     });
 
-    expect(ctx.globalAlpha).toBeCloseTo(0.45);
+    expect(drawn[0]!.alpha).toBeCloseTo(0.45);
   });
 
   it('applies cipherOpacity to encrypting cells', () => {
-    const ctx = mockCtx();
+    const { ctx, drawn } = recordingCtx();
     const state = makeGrid(1, 1);
     state.cells[0]!.state = 'encrypting';
     state.cells[0]!.progress = 0.5;
@@ -1217,11 +1243,11 @@ describe('renderFrame', () => {
       cipherOpacity: 0.5,
     });
 
-    expect(ctx.globalAlpha).toBeCloseTo(0.45);
+    expect(drawn[0]!.alpha).toBeCloseTo(0.45);
   });
 
   it('treats cipherOpacity of 1 as no change', () => {
-    const ctx = mockCtx();
+    const { ctx, drawn } = recordingCtx();
     const state = makeGrid(1, 1);
     renderFrame({
       ctx,
@@ -1233,7 +1259,64 @@ describe('renderFrame', () => {
       cipherOpacity: 1,
     });
 
-    expect(ctx.globalAlpha).toBeCloseTo(0.8);
+    expect(drawn[0]!.alpha).toBeCloseTo(0.8);
+  });
+
+  it('does not save/restore per cell', () => {
+    const ctx = mockCtx();
+    const state = makeGrid(5, 3);
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 400,
+      height: 300,
+      logoMask: null,
+      cipherOpacity: 1,
+    });
+
+    expect(ctx.save).not.toHaveBeenCalled();
+    expect(ctx.restore).not.toHaveBeenCalled();
+  });
+
+  it('resets globalAlpha to 1 after the loop', () => {
+    const ctx = mockCtx();
+    const state = makeGrid(1, 1);
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 100,
+      height: 100,
+      logoMask: null,
+      cipherOpacity: 0.5,
+    });
+
+    expect(ctx.globalAlpha).toBe(1);
+  });
+
+  it('draws each cell with its own alpha and fillStyle despite no per-cell save/restore', () => {
+    const { ctx, drawn } = recordingCtx();
+    const state = makeGrid(2, 1);
+    state.cells[0]!.state = 'cipher';
+    state.cells[1]!.state = 'readable';
+    state.cells[1]!.targetChar = 'H';
+    state.cells[1]!.progress = 1;
+
+    renderFrame({
+      ctx,
+      state,
+      colors: themeColors,
+      width: 200,
+      height: 100,
+      logoMask: null,
+      cipherOpacity: 1,
+    });
+
+    expect(drawn[0]!.alpha).toBe(0.8);
+    expect(drawn[0]!.fillStyle).toBe(themeColors.foreground);
+    expect(drawn[1]!.alpha).toBe(1);
+    expect(drawn[1]!.fillStyle).toBe(themeColors.brandRed);
   });
 });
 

@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
 
-vi.mock('@/hooks/chat', () => ({
+vi.mock('@/hooks/chat/chat', () => ({
   useDecryptedConversations: vi.fn(),
   useDeleteConversation: () => ({
     mutate: vi.fn(),
@@ -24,7 +24,7 @@ vi.mock('@/hooks/chat', () => ({
   },
 }));
 
-import { useDecryptedConversations } from '@/hooks/chat';
+import { useDecryptedConversations } from '@/hooks/chat/chat';
 
 const mockUseDecryptedConversations = vi.mocked(useDecryptedConversations);
 
@@ -41,7 +41,7 @@ function mockConversationsHook(
   });
 }
 
-vi.mock('@/hooks/use-conversation-members', () => ({
+vi.mock('@/hooks/realtime/use-conversation-members', () => ({
   useAcceptMembership: () => ({
     mutate: vi.fn(),
     isPending: false,
@@ -94,26 +94,33 @@ import type { ReactNode } from 'react';
 
 const mockUseSession = vi.mocked(useSession);
 
+const useParamsMock = vi.fn<() => { id: string | undefined }>(() => ({ id: undefined }));
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
   useLocation: () => ({ pathname: '/' }),
   Link: ({
     children,
     to,
+    params,
     className,
   }: {
     children: React.ReactNode;
     to: string;
+    params?: { id: string };
     className?: string;
   }) => (
-    <a href={to} className={className}>
+    <a
+      href={params ? to.replace('$id', params.id) : to}
+      className={className}
+      data-testid="chat-link"
+    >
       {children}
     </a>
   ),
-  useParams: () => ({ conversationId: undefined }),
+  useParams: () => useParamsMock(),
 }));
 
-vi.mock('@/hooks/use-stable-balance', () => ({
+vi.mock('@/hooks/billing/use-stable-balance', () => ({
   useStableBalance: () => ({
     displayBalance: '10.00',
     isStable: true,
@@ -171,6 +178,7 @@ const testConv = {
 describe('Sidebar', () => {
   beforeEach(() => {
     useUIStore.setState({ sidebarOpen: true });
+    useParamsMock.mockReturnValue({ id: undefined });
     mockUseSession.mockReturnValue({
       data: {
         user: {
@@ -409,6 +417,45 @@ describe('Sidebar', () => {
 
       const cachedData = queryClient.getQueryData(['chat', 'conversations']);
       expect(cachedData).toBeUndefined();
+    });
+  });
+
+  describe('active conversation highlight', () => {
+    const conversations = [
+      { ...testConv, id: 'conv-1', title: 'First Chat' },
+      { ...testConv, id: 'conv-2', title: 'Second Chat' },
+    ];
+
+    it('highlights the row matching the router-derived conversation id', () => {
+      useParamsMock.mockReturnValue({ id: 'conv-2' });
+      mockConversationsHook({ data: conversations });
+
+      render(<Sidebar />, { wrapper: createWrapper() });
+
+      const activeRow = screen
+        .getByText('Second Chat')
+        .closest('[data-testid="chat-link"]')?.parentElement;
+      const inactiveRow = screen
+        .getByText('First Chat')
+        .closest('[data-testid="chat-link"]')?.parentElement;
+      expect(activeRow).toHaveClass('bg-sidebar-border');
+      expect(inactiveRow).not.toHaveClass('bg-sidebar-border');
+    });
+
+    it('highlights no row when not on a conversation route', () => {
+      useParamsMock.mockReturnValue({ id: undefined });
+      mockConversationsHook({ data: conversations });
+
+      render(<Sidebar />, { wrapper: createWrapper() });
+
+      const firstRow = screen
+        .getByText('First Chat')
+        .closest('[data-testid="chat-link"]')?.parentElement;
+      const secondRow = screen
+        .getByText('Second Chat')
+        .closest('[data-testid="chat-link"]')?.parentElement;
+      expect(firstRow).not.toHaveClass('bg-sidebar-border');
+      expect(secondRow).not.toHaveClass('bg-sidebar-border');
     });
   });
 });

@@ -1,19 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { TEST_IDS } from '@hushbox/shared';
+import { TEST_IDS, friendlyErrorMessage } from '@hushbox/shared';
+import { renderWithProviders } from '@/test-utils/render';
 import * as envModule from '@/lib/env';
+import { ApiError } from '@/lib/api';
 import { PaymentForm } from './payment-form';
 import * as helcimLoader from '../../lib/helcim-loader';
-import * as billingHooks from '../../hooks/billing';
+import * as billingHooks from '@/hooks/billing/billing';
+
+// api.ts parses VITE_API_URL at import time via frontendEnvSchema; the test
+// runtime has no Vite env, so override just that schema while keeping the rest
+// of @hushbox/shared (friendlyErrorMessage, TEST_IDS) real.
+vi.mock('@hushbox/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/shared')>();
+  return {
+    ...actual,
+    frontendEnvSchema: { parse: () => ({ VITE_API_URL: 'http://localhost:8787' }) },
+  };
+});
 
 vi.mock('../../lib/helcim-loader', () => ({
   loadHelcimScript: vi.fn(),
   readHelcimResult: vi.fn(),
 }));
 
-vi.mock('../../hooks/billing', () => ({
+vi.mock('@/hooks/billing/billing', () => ({
   useCreatePayment: vi.fn(),
   useProcessPayment: vi.fn(),
   usePaymentStatus: vi.fn(),
@@ -59,20 +71,6 @@ vi.mock('@/components/shared/form-input', () => ({
   ),
 }));
 
-function createQueryClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-}
-
-function renderWithProviders(ui: React.ReactElement): ReturnType<typeof render> {
-  const queryClient = createQueryClient();
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
-}
-
 async function fillValidCardDetails(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   await user.type(screen.getByLabelText(/card number/i), '4111111111111111');
   await user.type(screen.getByLabelText(/expiry/i), '1230');
@@ -80,6 +78,53 @@ async function fillValidCardDetails(user: ReturnType<typeof userEvent.setup>): P
   await user.type(screen.getByLabelText(/name on card/i), 'Test User');
   await user.type(screen.getByLabelText(/billing address/i), '123 Test Street');
   await user.type(screen.getByLabelText(/zip/i), '12345');
+}
+
+// userEvent deadlocks under fake timers (it awaits its own setTimeout), so the
+// timeout tests drive the form synchronously via fireEvent + act and flush
+// pending microtasks between steps.
+async function flushMicrotasks(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+function setFieldById(id: string, value: string): void {
+  const el = document.querySelector(`#${id}`);
+  if (!el) throw new Error(`field #${id} not found`);
+  fireEvent.change(el, { target: { value } });
+}
+
+function submitPaymentForm(): HTMLFormElement {
+  const formEl = document.querySelector<HTMLFormElement>('#helcimForm');
+  if (!formEl) throw new Error('payment form not found');
+  return formEl;
+}
+
+function fillValidCardDetailsById(): void {
+  setFieldById('amount-input', '50');
+  setFieldById('cardNumber', '4111111111111111');
+  setFieldById('cardExpiryDate', '12/30');
+  setFieldById('cardCVV', '123');
+  setFieldById('cardHolderName', 'Test User');
+  setFieldById('cardHolderAddress', '123 Test Street');
+  setFieldById('cardHolderPostalCode', '12345');
+}
+
+function helcimProcessSuccess(): () => void {
+  return vi.fn(() => {
+    const setVal = (id: string, val: string): void => {
+      const el = document.querySelector<HTMLInputElement>(`#${id}`);
+      if (el) el.value = val;
+    };
+    setVal('response', '1');
+    setVal('cardToken', 'tok_abc');
+    setVal('customerCode', 'cust_abc');
+    const results = document.querySelector('#helcimResults');
+    if (results) results.append(document.createElement('span'));
+  });
 }
 
 describe('PaymentForm', () => {
@@ -1300,71 +1345,139 @@ describe('PaymentForm', () => {
       );
     });
 
-    it('moves to error when polling exceeds timeout', async () => {
-      // DevOnly renders error message only in isLocalDev — required to assert
-      // on the timeout copy.
-      vi.mocked(envModule).env = {
-        isDev: true,
-        isLocalDev: true,
-        isDevServer: true,
-        isProduction: false,
-        isCI: false,
-        isE2E: false,
-        requiresRealServices: false,
-      };
+    it('moves to error when the webhook never confirms before the timeout', async () => {
+      vi.useFakeTimers();
+      try {
+        mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+        mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
 
-      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
-      mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+        vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+          success: true,
+          cardToken: 'tok_abc',
+          customerCode: 'cust_abc',
+        });
+        // Webhook never confirms: status stays undefined forever.
+        vi.mocked(billingHooks.usePaymentStatus).mockReturnValue({
+          data: undefined,
+        } as ReturnType<typeof billingHooks.usePaymentStatus>);
 
-      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
-        success: true,
-        cardToken: 'tok_abc',
-        customerCode: 'cust_abc',
-      });
-      vi.mocked(billingHooks.usePaymentStatus).mockReturnValue({
-        data: undefined,
-      } as ReturnType<typeof billingHooks.usePaymentStatus>);
+        globalThis.helcimProcess = helcimProcessSuccess();
+        renderWithProviders(<PaymentForm />);
+        await flushMicrotasks();
 
-      // The polling effect uses Date.now twice: once to seed pollingStartTime,
-      // and again to compute elapsed time. Stub Date.now to advance by 120s on
-      // each subsequent call so elapsed > POLLING_TIMEOUT_MS (60s).
-      const realDateNow = Date.now.bind(Date);
-      const t0 = realDateNow();
-      let advance = 0;
-      const dateSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
-        advance += 1;
-        return t0 + advance * 120_000;
-      });
+        fillValidCardDetailsById();
+        await act(async () => {
+          fireEvent.submit(submitPaymentForm());
+          await Promise.resolve();
+        });
+        await flushMicrotasks();
 
-      const user = userEvent.setup();
-      renderWithProviders(<PaymentForm />);
+        // Polling has begun; before the timeout no error card is shown.
+        const calls = vi.mocked(billingHooks.usePaymentStatus).mock.calls;
+        expect(calls.some((c) => c[1]?.enabled === true)).toBe(true);
+        expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument();
 
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
-      });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000);
+        });
+        await flushMicrotasks();
 
-      await user.type(screen.getByLabelText(/amount/i), '50');
-      await fillValidCardDetails(user);
-
-      globalThis.helcimProcess = vi.fn(() => {
-        const setVal = (id: string, val: string): void => {
-          const el = document.querySelector<HTMLInputElement>(`#${id}`);
-          if (el) el.value = val;
-        };
-        setVal('response', '1');
-        setVal('cardToken', 'tok_abc');
-        setVal('customerCode', 'cust_abc');
-        const results = document.querySelector('#helcimResults');
-        if (results) results.append(document.createElement('span'));
-      });
-
-      await user.click(screen.getByRole('button', { name: /purchase/i }));
-
-      await waitFor(() => {
         expect(screen.getByText(/timed out/i)).toBeInTheDocument();
-      });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 
-      dateSpy.mockRestore();
+    it('reaches success when the webhook confirms before the timeout', async () => {
+      vi.useFakeTimers();
+      try {
+        const onSuccess = vi.fn();
+        mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+        mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+
+        vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+          success: true,
+          cardToken: 'tok_abc',
+          customerCode: 'cust_abc',
+        });
+        vi.mocked(billingHooks.usePaymentStatus).mockImplementation((_id, options) => {
+          if (options?.enabled) {
+            return {
+              data: { status: 'completed', newBalance: '99.00' },
+            } as ReturnType<typeof billingHooks.usePaymentStatus>;
+          }
+          return { data: undefined } as ReturnType<typeof billingHooks.usePaymentStatus>;
+        });
+
+        globalThis.helcimProcess = helcimProcessSuccess();
+        renderWithProviders(<PaymentForm onSuccess={onSuccess} />);
+        await flushMicrotasks();
+
+        fillValidCardDetailsById();
+        await act(async () => {
+          fireEvent.submit(submitPaymentForm());
+          await Promise.resolve();
+        });
+        await flushMicrotasks();
+
+        expect(screen.getByText(/payment successful/i)).toBeInTheDocument();
+        expect(onSuccess).toHaveBeenCalledWith('99.00');
+
+        // Advancing past the timeout must NOT flip a settled payment to error.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000);
+        });
+        await flushMicrotasks();
+        expect(screen.getByText(/payment successful/i)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('clears the timeout on unmount without a late state update', async () => {
+      vi.useFakeTimers();
+      try {
+        mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+        mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+
+        vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+          success: true,
+          cardToken: 'tok_abc',
+          customerCode: 'cust_abc',
+        });
+        vi.mocked(billingHooks.usePaymentStatus).mockReturnValue({
+          data: undefined,
+        } as ReturnType<typeof billingHooks.usePaymentStatus>);
+
+        globalThis.helcimProcess = helcimProcessSuccess();
+        const { unmount } = renderWithProviders(<PaymentForm />);
+        await flushMicrotasks();
+
+        fillValidCardDetailsById();
+        await act(async () => {
+          fireEvent.submit(submitPaymentForm());
+          await Promise.resolve();
+        });
+        await flushMicrotasks();
+
+        const calls = vi.mocked(billingHooks.usePaymentStatus).mock.calls;
+        expect(calls.some((c) => c[1]?.enabled === true)).toBe(true);
+
+        const errorSpy = vi.spyOn(console, 'error');
+        unmount();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(60_000);
+        });
+
+        expect(
+          errorSpy.mock.calls.some((call) =>
+            String(call[0]).includes('state update on an unmounted')
+          )
+        ).toBe(false);
+        errorSpy.mockRestore();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -1636,18 +1749,9 @@ describe('PaymentForm', () => {
   });
 
   describe('PaymentErrorCard error message default', () => {
-    it('renders fallback dev error copy when errorMessage is null', async () => {
-      // Force isLocalDev so DevOnly renders, then trigger error with no message.
-      vi.mocked(envModule).env = {
-        isDev: true,
-        isLocalDev: true,
-        isDevServer: true,
-        isProduction: false,
-        isCI: false,
-        isE2E: false,
-        requiresRealServices: false,
-      };
-
+    it('renders the generic fallback copy in production when no reason is available', async () => {
+      // beforeEach leaves isLocalDev: false (production). With no errorMessage,
+      // the error card must still show the generic fallback to the user.
       mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
       mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
 
@@ -1692,7 +1796,7 @@ describe('PaymentForm', () => {
       await user.click(screen.getByRole('button', { name: /purchase/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/an unexpected error occurred/i)).toBeInTheDocument();
+        expect(screen.getByText(/please try again or contact support/i)).toBeInTheDocument();
       });
     });
   });
@@ -1849,6 +1953,114 @@ describe('PaymentForm', () => {
 
       expect(screen.queryByText(/payment successful/i)).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('error reason visible in production', () => {
+    // beforeEach sets isLocalDev: false, so these run in production mode where
+    // DevOnly content is hidden. The real reason must still surface.
+    it('shows declined reason from ApiError code in production', async () => {
+      mockCreatePayment.mutateAsync.mockRejectedValue(new ApiError('PAYMENT_DECLINED', 400));
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(friendlyErrorMessage('PAYMENT_DECLINED'))).toBeInTheDocument();
+      });
+    });
+
+    it('shows expired reason from ApiError code in production', async () => {
+      mockCreatePayment.mutateAsync.mockRejectedValue(new ApiError('PAYMENT_EXPIRED', 400));
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(friendlyErrorMessage('PAYMENT_EXPIRED'))).toBeInTheDocument();
+      });
+    });
+
+    it('shows generic fallback for an unknown error code', async () => {
+      mockCreatePayment.mutateAsync.mockRejectedValue(new ApiError('SOMETHING_WEIRD', 500));
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(friendlyErrorMessage('SOMETHING_WEIRD'))).toBeInTheDocument();
+      });
+    });
+
+    it('shows the polled failed free-text reason in production', async () => {
+      mockCreatePayment.mutateAsync.mockResolvedValue({ paymentId: 'pay_123' });
+      mockProcessPayment.mutateAsync.mockResolvedValue({ status: 'processing' });
+
+      vi.mocked(helcimLoader.readHelcimResult).mockReturnValue({
+        success: true,
+        cardToken: 'tok_abc',
+        customerCode: 'cust_abc',
+      });
+      vi.mocked(billingHooks.usePaymentStatus).mockImplementation((_id, options) => {
+        if (options?.enabled) {
+          return {
+            data: { status: 'failed', errorMessage: 'Insufficient funds reported by bank' },
+          } as ReturnType<typeof billingHooks.usePaymentStatus>;
+        }
+        return { data: undefined } as ReturnType<typeof billingHooks.usePaymentStatus>;
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(<PaymentForm />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /purchase/i })).not.toBeDisabled();
+      });
+
+      await user.type(screen.getByLabelText(/amount/i), '50');
+      await fillValidCardDetails(user);
+
+      globalThis.helcimProcess = vi.fn(() => {
+        const setVal = (id: string, val: string): void => {
+          const el = document.querySelector<HTMLInputElement>(`#${id}`);
+          if (el) el.value = val;
+        };
+        setVal('response', '1');
+        setVal('cardToken', 'tok_abc');
+        setVal('customerCode', 'cust_abc');
+        const results = document.querySelector('#helcimResults');
+        if (results) results.append(document.createElement('span'));
+      });
+
+      await user.click(screen.getByRole('button', { name: /purchase/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Insufficient funds reported by bank')).toBeInTheDocument();
+      });
     });
   });
 });

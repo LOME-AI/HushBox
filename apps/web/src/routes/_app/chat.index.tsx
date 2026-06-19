@@ -1,20 +1,21 @@
 import * as React from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
+import { useShallow } from 'zustand/react/shallow';
 import { ROUTES, TEST_IDS, type FundingSource } from '@hushbox/shared';
-import { ChatWelcome } from '@/components/chat/chat-welcome';
+import { ChatWelcome } from '@/components/chat/page/chat-welcome';
 import { SignupModal } from '@/components/auth/signup-modal';
 import { PaymentModal } from '@/components/billing/payment-modal';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
-import { useStableSession } from '@/hooks/use-stable-session';
+import { useStableSession } from '@/hooks/auth/use-stable-session';
 import { useStability } from '@/providers/stability-provider';
 import { usePendingChatStore } from '@/stores/pending-chat';
 import { useTrialChatStore } from '@/stores/trial-chat';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useChatErrorStore } from '@/stores/chat-error';
-import { useModels } from '@/hooks/models';
-import { usePremiumModelClick } from '@/hooks/use-premium-model-click';
-import { billingKeys, useBalance } from '@/hooks/billing';
+import { useModels } from '@/hooks/models/models';
+import { usePremiumModelClick } from '@/hooks/models/use-premium-model-click';
+import { billingKeys, useBalance } from '@/hooks/billing/billing';
 
 export const Route = createFileRoute('/_app/chat/')({
   component: ChatIndexWithErrorBoundary,
@@ -41,7 +42,15 @@ export function ChatIndex(): React.JSX.Element {
     premiumModelName,
     setSignupModalOpen,
     setPaymentModalOpen,
-  } = useUIModalsStore();
+  } = useUIModalsStore(
+    useShallow((s) => ({
+      signupModalOpen: s.signupModalOpen,
+      paymentModalOpen: s.paymentModalOpen,
+      premiumModelName: s.premiumModelName,
+      setSignupModalOpen: s.setSignupModalOpen,
+      setPaymentModalOpen: s.setPaymentModalOpen,
+    }))
+  );
 
   const { data: modelsData } = useModels();
   const models = modelsData?.models ?? [];

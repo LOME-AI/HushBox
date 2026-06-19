@@ -15,7 +15,7 @@
  * (trusted composer events are blocked); any real interaction halts the script.
  */
 import { shouldReduceMotion } from '@hushbox/ui';
-import { ROUTES, TEST_IDS } from '@hushbox/shared';
+import { MODALITY_ARIA_LABELS, ROUTES, TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
 import type { DemoModality } from './mock-backend/fixtures';
 
 const INTRO_DELAY_MS = 600;
@@ -37,22 +37,13 @@ const COMPOSER_SELECTOR = `[data-testid="${TEST_IDS.promptInput}"]`;
 const SEND_SELECTOR = `[data-testid="${TEST_IDS.sendButton}"]`;
 const WELCOME_SELECTOR = `[data-testid="${TEST_IDS.chatWelcome}"]`;
 const CHAT_LINK_SELECTOR = `[data-testid="${TEST_IDS.chatLink}"]`;
-// During streaming the send button shows the lucide "Square" (stop) icon, which
-// renders a <rect>; the idle "Send" icon is path-only. Its presence is the
-// stream-in-progress signal.
-const STREAMING_SELECTOR = `${SEND_SELECTOR} rect`;
+const MESSAGE_LIST_SELECTOR = `[data-testid="${TEST_IDS.messageList}"]`;
 const BLOCKED_INPUT_EVENTS: (keyof DocumentEventMap)[] = [
   'keydown',
   'beforeinput',
   'paste',
   'drop',
 ];
-
-const MODALITY_LABEL: Record<DemoModality, string> = {
-  text: 'Switch to text',
-  image: 'Switch to image generation',
-  video: 'Switch to video generation',
-};
 
 /** A replayed group transcript message's `message:new` fields. */
 interface GroupMessageEvent {
@@ -187,13 +178,22 @@ function clickSend(): void {
 /** Switch the composer to a modality by clicking its real icon (untrusted → passes the user lock). */
 function switchModality(modality: DemoModality): void {
   const button = document.querySelector<HTMLButtonElement>(
-    `[aria-label="${MODALITY_LABEL[modality]}"]`
+    `[aria-label="${MODALITY_ARIA_LABELS[modality]}"]`
   );
   if (button && !button.disabled) button.click();
 }
 
-function isStreaming(): boolean {
-  return document.querySelector(STREAMING_SELECTOR) !== null;
+/**
+ * True while a reply is in flight, read from the app-emitted
+ * `data-streaming-count` signal on the message list (the count of messages the
+ * client is still streaming/persisting). Gating on this app state rather than
+ * the send button's stop-icon geometry keeps the director decoupled from the
+ * icon library's internal SVG markup.
+ */
+export function isStreaming(): boolean {
+  const list = document.querySelector(MESSAGE_LIST_SELECTOR);
+  const count = Number(list?.getAttribute(TEST_SIGNALS.streamingCount) ?? '0');
+  return Number.isFinite(count) && count > 0;
 }
 
 /** Wait for the in-flight streamed reply to finish (the stop icon disappears), then settle. */

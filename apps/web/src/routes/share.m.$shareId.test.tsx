@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../hooks/use-shared-message.js', () => ({
+vi.mock('@/hooks/chat/use-shared-message.js', () => ({
   useSharedMessage: vi.fn(),
 }));
 
@@ -14,11 +14,11 @@ vi.mock('../components/shared/app-shell.js', () => ({
 // ChatLayout is mocked for safety: this page does not use it, but if a stale
 // reference slips through we want the test to fail on the assertion, not on a
 // cascade of env-parsing side effects from the real ChatLayout tree.
-vi.mock('../components/chat/chat-layout.js', () => ({
+vi.mock('@/components/chat/layout/chat-layout.js', () => ({
   ChatLayout: () => <div data-testid="chat-layout-should-not-render" />,
 }));
 
-vi.mock('../components/chat/markdown-renderer.js', () => ({
+vi.mock('@/components/chat/message/markdown-renderer.js', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => (
     <div data-testid="markdown-renderer">{content}</div>
   ),
@@ -27,7 +27,7 @@ vi.mock('../components/chat/markdown-renderer.js', () => ({
 // The share page renders media through the same MediaContentItem the chat uses
 // (via MessageBody → MessageMediaList). Mock the leaf to avoid the fetch +
 // decrypt chain; MessageBody / MessageMediaList render for real.
-vi.mock('../components/chat/media-content-item.js', () => ({
+vi.mock('@/components/chat/media/media-content-item.js', () => ({
   MediaContentItem: ({
     item,
   }: {
@@ -61,7 +61,7 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 import { TEST_IDS } from '@hushbox/shared';
-import { useSharedMessage } from '../hooks/use-shared-message.js';
+import { useSharedMessage } from '@/hooks/chat/use-shared-message.js';
 import { SharedMessagePage } from './share.m.$shareId.js';
 import type { ContentKey } from '@hushbox/crypto';
 

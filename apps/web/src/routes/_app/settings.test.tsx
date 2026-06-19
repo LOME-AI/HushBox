@@ -60,16 +60,16 @@ vi.mock('@/lib/auth', () => ({
   disable2FAFinish: (...args: unknown[]) => mockDisable2FAFinish(...args),
 }));
 
-vi.mock('@/hooks/billing', () => ({
+vi.mock('@/hooks/billing/billing', () => ({
   useBalance: vi.fn(() => ({ data: undefined, isLoading: false })),
 }));
 
-vi.mock('@/hooks/useDeleteAccount', () => ({
+vi.mock('@/hooks/auth/use-delete-account', () => ({
   useDeleteAccountInit: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
   useDeleteAccountFinish: vi.fn(() => ({ mutateAsync: vi.fn(), isPending: false })),
 }));
 
-vi.mock('@/hooks/auth-mutations', () => ({
+vi.mock('@/hooks/auth/auth-mutations', () => ({
   useChangePassword: vi.fn(() => ({
     mutateAsync: async (variables: {
       currentPassword: string;
@@ -99,7 +99,7 @@ vi.mock('@hushbox/ui', async (importOriginal) => {
   };
 });
 
-vi.mock('@/components/settings/CustomInstructionsModal', () => ({
+vi.mock('@/components/settings/custom-instructions-modal', () => ({
   CustomInstructionsModal: ({
     open,
     onSuccess,
@@ -115,7 +115,7 @@ vi.mock('@/components/settings/CustomInstructionsModal', () => ({
     ) : null,
 }));
 
-vi.mock('@/components/settings/DeleteAccountModal', () => ({
+vi.mock('@/components/settings/delete-account-modal', () => ({
   DeleteAccountModal: ({ open }: { open: boolean; onOpenChange: (open: boolean) => void }) =>
     open ? <div data-testid="delete-account-modal-stub">Delete account flow</div> : null,
 }));

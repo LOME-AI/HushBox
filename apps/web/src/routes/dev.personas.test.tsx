@@ -57,7 +57,7 @@ interface MockDevPersonasReturn {
 }
 
 const mockUseDevPersonas = vi.fn<(type?: 'dev' | 'test') => MockDevPersonasReturn>();
-vi.mock('@/hooks/dev-personas', () => ({
+vi.mock('@/hooks/models/dev-personas', () => ({
   useDevPersonas: (type?: 'dev' | 'test'): MockDevPersonasReturn => mockUseDevPersonas(type),
 }));
 

@@ -112,7 +112,7 @@ function resolveChatStream(
         kind: 'stream',
         frames: buildSseTurnFrames(turn),
         delayMs: STREAM_FRAME_DELAY_MS,
-        leadDelayMs: turn.isMedia ? MEDIA_GENERATION_DELAY_MS : 0,
+        leadDelayMs: turn.media === undefined ? 0 : MEDIA_GENERATION_DELAY_MS,
       };
 }
 
@@ -139,7 +139,7 @@ function resolveRegenerate(
         kind: 'stream',
         frames: buildSseTurnFrames(turn),
         delayMs: STREAM_FRAME_DELAY_MS,
-        leadDelayMs: turn.isMedia ? MEDIA_GENERATION_DELAY_MS : 0,
+        leadDelayMs: turn.media === undefined ? 0 : MEDIA_GENERATION_DELAY_MS,
       };
 }
 

@@ -96,18 +96,7 @@ export { CipherWall } from './components/cipher-wall';
 export { useCipherWall, readThemeColors } from './components/cipher-wall';
 export type { CipherWallOptions, ThemeColors, CipherWallState } from './components/cipher-wall';
 
-export { Hero, type HeroProps } from './components/marketing/hero';
-export { ContentSection, type ContentSectionProps } from './components/marketing/content-section';
-export { Callout, type CalloutProps } from './components/marketing/callout';
 export { Accordion, type AccordionProps } from './components/marketing/accordion';
-export { StepFlow, type StepFlowProps, type Step } from './components/marketing/step-flow';
-export { DataGrid, type DataGridProps, type DataGridRow } from './components/marketing/data-grid';
-export { ScrollReveal, type ScrollRevealProps } from './components/marketing/scroll-reveal';
-export {
-  SectionNav,
-  type SectionNavProps,
-  type NavSection,
-} from './components/marketing/section-nav';
 export { FeeBreakdown, type FeeBreakdownProps } from './components/marketing/fee-breakdown';
 export { CostPieChart, type CostPieChartProps } from './components/marketing/cost-pie-chart';
 

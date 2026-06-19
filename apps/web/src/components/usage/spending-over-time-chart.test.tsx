@@ -2,17 +2,31 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { TEST_IDS } from '@hushbox/shared';
 import { SpendingOverTimeChart } from './spending-over-time-chart';
+import { formatPeriodLabel } from './chart-utilities';
 import type { SpendingOverTimeResponse } from '@hushbox/shared';
+
+vi.mock('./chart-utilities', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./chart-utilities')>();
+  return { ...actual, formatPeriodLabel: vi.fn(actual.formatPeriodLabel) };
+});
 
 // Recharts ResponsiveContainer needs a real width/height to render children.
 // In jsdom there is no layout engine, so we mock it to pass dimensions through.
+// AreaChart is captured as a passthrough so we can assert the accessibilityLayer
+// prop is forwarded (recharts only emits the focusable surface with real layout).
+const areaChartProps: unknown[] = [];
 vi.mock('recharts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('recharts')>();
+  const ActualAreaChart = actual.AreaChart;
   return {
     ...actual,
     ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
       <div style={{ width: 800, height: 300 }}>{children}</div>
     ),
+    AreaChart: (props: React.ComponentProps<typeof ActualAreaChart>) => {
+      areaChartProps.push(props);
+      return <ActualAreaChart {...props} />;
+    },
   };
 });
 
@@ -99,6 +113,12 @@ describe('SpendingOverTimeChart', () => {
       expect(screen.getByTestId(TEST_IDS.spendingOverTimeChart)).toBeInTheDocument();
     });
 
+    it('formats period labels via the shared UTC-aware formatter', () => {
+      render(<SpendingOverTimeChart data={SAMPLE_DATA} isLoading={false} />);
+      expect(formatPeriodLabel).toHaveBeenCalledWith('2025-01-01');
+      expect(formatPeriodLabel).toHaveBeenCalledWith('2025-01-02');
+    });
+
     it('handles multiple models across periods', () => {
       const multi = makeData([
         { period: '2025-01-01', model: 'GPT-4', totalCost: '1.00', count: 1 },
@@ -107,6 +127,31 @@ describe('SpendingOverTimeChart', () => {
       ]);
       render(<SpendingOverTimeChart data={multi} isLoading={false} />);
       expect(screen.getByTestId(TEST_IDS.spendingOverTimeChart)).toBeInTheDocument();
+    });
+  });
+
+  describe('accessibility', () => {
+    it('exposes the chart as an image region with an accessible name', () => {
+      render(<SpendingOverTimeChart data={SAMPLE_DATA} isLoading={false} />);
+      expect(screen.getByRole('img', { name: /Spending Over Time/i })).toBeInTheDocument();
+    });
+
+    it('renders a data-table alternative listing each period and model cost', () => {
+      render(<SpendingOverTimeChart data={SAMPLE_DATA} isLoading={false} />);
+      const table = screen.getByRole('table', { hidden: true });
+      expect(table.closest('.sr-only')).not.toBeNull();
+      const headers = screen
+        .getAllByRole('columnheader', { hidden: true })
+        .map((h) => h.textContent);
+      expect(headers).toContain('GPT-4');
+      expect(headers).toContain('Claude');
+      expect(screen.getByRole('cell', { name: '$1.5000', hidden: true })).toBeInTheDocument();
+    });
+
+    it('enables the recharts accessibility layer for keyboard reachability', () => {
+      areaChartProps.length = 0;
+      render(<SpendingOverTimeChart data={SAMPLE_DATA} isLoading={false} />);
+      expect(areaChartProps.at(0)).toMatchObject({ accessibilityLayer: true });
     });
   });
 });

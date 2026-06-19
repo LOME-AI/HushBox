@@ -152,6 +152,7 @@ describe('applySettings', () => {
 
   describe('lineHeight', () => {
     it.each([
+      ['1.0', 'a11y-line-height-tight'],
       ['1.5', 'a11y-line-height-tall'],
       ['2.0', 'a11y-line-height-double'],
     ] as const)('applies %s as %s', (value, className) => {
@@ -160,11 +161,11 @@ describe('applySettings', () => {
       expect(root.classList.contains(className)).toBe(true);
     });
 
-    it('skips class when lineHeight is 1.0', () => {
+    it('applies only a11y-line-height-tight when lineHeight is 1.0 (not tall or double)', () => {
       const root = createRoot();
       applySettings(makePrefs({ lineHeight: '1.0' }), root);
       const lhClasses = classes(root).filter((c) => c.startsWith('a11y-line-height-'));
-      expect(lhClasses).toEqual([]);
+      expect(lhClasses).toEqual(['a11y-line-height-tight']);
     });
   });
 

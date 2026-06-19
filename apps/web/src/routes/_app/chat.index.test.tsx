@@ -20,7 +20,7 @@ vi.mock('@tanstack/react-router', async () => {
   };
 });
 
-vi.mock('@/hooks/use-stable-session', () => ({
+vi.mock('@/hooks/auth/use-stable-session', () => ({
   useStableSession: mockUseStableSession,
 }));
 
@@ -28,7 +28,7 @@ vi.mock('@/providers/stability-provider', () => ({
   useStability: mockUseStability,
 }));
 
-vi.mock('@/hooks/billing', () => ({
+vi.mock('@/hooks/billing/billing', () => ({
   useBalance: mockUseBalance,
   billingKeys: {
     balance: () => ['balance'],
@@ -70,8 +70,8 @@ vi.mock('@/stores/model', async (importOriginal) => {
   return { ...actual, useModelStore: vi.fn(selectorFromState(state)) };
 });
 
-vi.mock('@/hooks/models', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/hooks/models')>();
+vi.mock('@/hooks/models/models', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/models/models')>();
   return {
     ...actual,
     useModels: vi.fn(() => ({
@@ -96,7 +96,7 @@ vi.mock('@/hooks/models', async (importOriginal) => {
   };
 });
 
-vi.mock('@/hooks/use-prompt-budget', () => ({
+vi.mock('@/hooks/billing/use-prompt-budget', () => ({
   usePromptBudget: (input: { value: string }) => ({
     fundingSource: 'personal_balance',
     notifications: [],

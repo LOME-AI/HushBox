@@ -49,6 +49,8 @@ export interface ConversationWebSocketOptions {
   onReadyChange?: (ready: boolean) => void;
   initialBackoffMs?: number;
   maxBackoffMs?: number;
+  heartbeatIntervalMs?: number;
+  pongTimeoutMs?: number;
 }
 
 interface ResolvedOptions {
@@ -58,12 +60,16 @@ interface ResolvedOptions {
   onReadyChange?: (ready: boolean) => void;
   initialBackoffMs: number;
   maxBackoffMs: number;
+  heartbeatIntervalMs: number;
+  pongTimeoutMs: number;
 }
 
 export class ConversationWebSocket {
   private ws: WebSocket | null = null;
   private options: ResolvedOptions;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private pongTimer: ReturnType<typeof setTimeout> | null = null;
   private currentBackoff: number;
   private intentionalClose = false;
   private shouldBeConnected = false;
@@ -75,6 +81,8 @@ export class ConversationWebSocket {
     this.options = {
       initialBackoffMs: 1000,
       maxBackoffMs: 30_000,
+      heartbeatIntervalMs: 30_000,
+      pongTimeoutMs: 10_000,
       ...options,
     };
     this.currentBackoff = this.options.initialBackoffMs;
@@ -95,6 +103,7 @@ export class ConversationWebSocket {
     this.intentionalClose = true;
     this.shouldBeConnected = false;
     this.clearReconnectTimer();
+    this.stopHeartbeat();
     this.unsubscribeFromNetwork();
     if (this.ws) {
       if (this.ws.readyState === WebSocket.OPEN) {
@@ -147,11 +156,17 @@ export class ConversationWebSocket {
         return;
       }
       this.currentBackoff = this.options.initialBackoffMs;
+      this.startHeartbeat();
       this.options.onConnectionChange?.(true);
     });
 
     socket.addEventListener('message', (messageEvent: MessageEvent): void => {
       if (this.ws !== socket) return;
+
+      // Any inbound message proves the socket is alive (the server has no
+      // dedicated pong responder; it relays peer traffic and emits ready /
+      // presence signals). Treat all of them as the heartbeat's pong.
+      this.notePongReceived();
 
       // Handle connection-level signals before parsing as realtime events
       const raw = String(messageEvent.data);
@@ -186,6 +201,7 @@ export class ConversationWebSocket {
       if (this.ws !== socket) return;
       this.ws = null;
       this._ready = false;
+      this.stopHeartbeat();
       this.options.onConnectionChange?.(false);
       this.options.onReadyChange?.(false);
       if (!this.intentionalClose) {
@@ -223,6 +239,52 @@ export class ConversationWebSocket {
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+  }
+
+  /**
+   * Detects half-open sockets (mobile sleep, network handoff) that stay in
+   * the OPEN readyState but silently stop delivering data and never fire a
+   * `close` event. Without this, the close-driven reconnect path never runs.
+   *
+   * On each interval tick we arm a pong timeout. Any inbound message clears
+   * it (see notePongReceived). If the timeout elapses with no inbound traffic,
+   * the socket is presumed dead and force-closed, which routes through the
+   * existing close -> scheduleReconnect machinery. A socket receiving traffic
+   * is never churned because every message resets the timeout.
+   */
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      this.armPongTimeout();
+    }, this.options.heartbeatIntervalMs);
+  }
+
+  private armPongTimeout(): void {
+    if (this.pongTimer !== null) return;
+    this.pongTimer = setTimeout(() => {
+      this.pongTimer = null;
+      // Half-open: no proof-of-life within the window. Force-close so the
+      // close handler tears down state and schedules a reconnect.
+      this.ws?.close(4000, 'Heartbeat timeout');
+    }, this.options.pongTimeoutMs);
+  }
+
+  private notePongReceived(): void {
+    if (this.pongTimer !== null) {
+      clearTimeout(this.pongTimer);
+      this.pongTimer = null;
+    }
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.pongTimer !== null) {
+      clearTimeout(this.pongTimer);
+      this.pongTimer = null;
     }
   }
 

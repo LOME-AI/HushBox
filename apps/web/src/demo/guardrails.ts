@@ -91,7 +91,7 @@ interface Nudge {
 function createNudge(): Nudge {
   const el = document.createElement('div');
   el.className =
-    'fixed bottom-4 left-1/2 z-[100] -translate-x-1/2 rounded-full bg-foreground px-4 py-2 text-sm text-background opacity-0 shadow-lg transition-opacity duration-200 pointer-events-none';
+    'z-overlay fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-foreground px-4 py-2 text-sm text-background opacity-0 shadow-lg transition-opacity duration-200 pointer-events-none';
   el.setAttribute('role', 'status');
   el.dataset['testid'] = 'demo-signup-nudge';
   let timer: ReturnType<typeof setTimeout> | undefined;

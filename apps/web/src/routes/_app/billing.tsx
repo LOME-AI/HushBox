@@ -4,7 +4,7 @@ import { requireAuth } from '@/lib/auth';
 import { PageHeader } from '@/components/shared/page-header';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { BillingContent } from '@/components/billing/billing-content';
-import { balanceQueryOptions } from '@/hooks/billing';
+import { balanceQueryOptions } from '@/hooks/billing/billing';
 
 export const Route = createFileRoute('/_app/billing')({
   beforeLoad: async () => {

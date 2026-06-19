@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { TEST_IDS } from '@hushbox/shared';
 
 import { cn } from '../lib/utilities';
@@ -18,6 +18,10 @@ const SIMPLE_INPUT_FOCUS_CLASSES =
 
 const SIMPLE_INPUT_ERROR_CLASSES =
   'aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive';
+
+function resolveInputId(id: string | undefined, generatedId: string): string {
+  return id ?? generatedId;
+}
 
 function getLabelClassName(hasIcon: boolean, isActive: boolean): string {
   const positionClass = hasIcon ? 'left-10' : 'left-3';
@@ -42,6 +46,7 @@ function getEnhancedInputClassName(
     'h-auto w-full appearance-none rounded-lg border-2 bg-transparent text-sm shadow-none',
     'border-border-strong focus:border-primary focus-visible:ring-0 focus-visible:outline-none',
     'transition-colors',
+    SIMPLE_INPUT_ERROR_CLASSES,
     paddingLeft,
     paddingY,
     paddingRight,
@@ -62,6 +67,8 @@ function Input({
   ...props
 }: Readonly<InputProps>): React.JSX.Element {
   const [focused, setFocused] = useState(false);
+  const generatedId = useId();
+  const inputId = resolveInputId(id, generatedId);
   const hasValue = value !== undefined && String(value).length > 0;
   const isActive = focused || hasValue;
   const hasLabel = !!label;
@@ -85,6 +92,8 @@ function Input({
         type={type}
         id={id}
         value={value}
+        onFocus={onFocus}
+        onBlur={onBlur}
         data-slot="input"
         className={cn(
           SIMPLE_INPUT_BASE_CLASSES,
@@ -100,7 +109,7 @@ function Input({
   return (
     <div className="relative">
       {hasLabel && (
-        <label htmlFor={id} className={getLabelClassName(hasIcon, isActive)}>
+        <label htmlFor={inputId} className={getLabelClassName(hasIcon, isActive)}>
           {label}
         </label>
       )}
@@ -116,7 +125,7 @@ function Input({
 
       <input
         type={type}
-        id={id}
+        id={inputId}
         value={value}
         onFocus={handleFocus}
         onBlur={handleBlur}

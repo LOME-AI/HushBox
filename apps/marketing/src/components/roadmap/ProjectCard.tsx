@@ -31,7 +31,7 @@ export function ProjectCard({ project, tasks, activeTypes }: ProjectCardProps): 
       <h3 className="text-foreground text-base font-semibold">{project.title}</h3>
       <ProgressBar done={progress.done} total={progress.total} />
       {hidden !== null && (
-        <p className="text-foreground-muted text-xs italic">
+        <p className="text-muted-foreground text-xs italic">
           {hidden.count} {pluralize(hidden.type, hidden.count)} hidden by filter
         </p>
       )}

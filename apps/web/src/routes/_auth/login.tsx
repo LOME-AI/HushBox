@@ -4,12 +4,12 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { ROUTES } from '@hushbox/shared';
 import { InlineFormError } from '@hushbox/ui';
 import { signIn, resetPasswordViaRecovery } from '@/lib/auth';
-import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
+import { useFormEnterNav } from '@/hooks/ui/use-form-enter-nav';
 import { CheckboxField } from '@/components/shared/checkbox-field';
 import { IdentifierInput } from '@/components/auth/identifier-input';
-import { AuthButton } from '@/components/auth/AuthButton';
+import { AuthButton } from '@/components/auth/auth-button';
 import { PasswordField, ConfirmPasswordField } from '@/components/auth/password-field';
-import { TwoFactorInput } from '@/components/auth/TwoFactorInput';
+import { TwoFactorInput } from '@/components/auth/two-factor-input';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
 import { CheckYourEmail } from '@/components/auth/check-your-email';
 import {
@@ -482,6 +482,7 @@ export function LoginPage(): React.JSX.Element {
         <PasswordField
           id="password"
           label="Password"
+          autoComplete="current-password"
           password={password}
           setPassword={setPassword}
           touched={touched.password}

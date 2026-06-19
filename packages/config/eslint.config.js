@@ -68,6 +68,16 @@ export function createBaseConfig(tsconfigRootDir) {
         //   3. Relative imports
         //   4. Type imports last (complements consistent-type-imports below)
         // Most violations auto-fix with `eslint --fix`.
+        // Circular dependency guard. A cycle means two modules can't be loaded,
+        // tested, or reasoned about independently, and produces order-dependent
+        // initialization bugs (a re-exported binding can read as `undefined` if
+        // it's touched before the other half of the cycle finishes evaluating).
+        // `maxDepth: Infinity` catches indirect cycles, not just direct A↔B.
+        // `ignoreExternal` stops traversal into node_modules: cycles through
+        // third-party deps aren't ours to fix, and walking them parses
+        // un-parseable generated files (e.g. lucide-static's bundled ESM).
+        'import/no-cycle': ['error', { maxDepth: Number.POSITIVE_INFINITY, ignoreExternal: true }],
+
         'import/order': [
           'error',
           {

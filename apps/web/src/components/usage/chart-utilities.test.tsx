@@ -1,3 +1,7 @@
+// Set a timezone west of UTC so a UTC-midnight date string formatted in local
+// time would render the previous day. Must run before any Date/Intl usage.
+process.env['TZ'] = 'America/New_York';
+
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { TEST_IDS } from '@hushbox/shared';
@@ -6,6 +10,7 @@ import {
   formatTokenCount,
   formatDollarTick,
   formatDollarTooltip,
+  formatPeriodLabel,
   DEFAULT_CHART_MARGIN,
   DEFAULT_AXIS_PROPS,
   UsageChartCard,
@@ -75,6 +80,17 @@ describe('formatDollarTooltip', () => {
 
   it('formats zero', () => {
     expect(formatDollarTooltip(0)).toBe('$0.0000');
+  });
+});
+
+describe('formatPeriodLabel', () => {
+  it('renders a YYYY-MM-DD period in UTC, not the previous day in local time', () => {
+    expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe('America/New_York');
+    expect(formatPeriodLabel('2025-01-01')).toBe('Jan 1');
+  });
+
+  it('formats a full ISO timestamp in UTC', () => {
+    expect(formatPeriodLabel('2025-03-15T02:00:00.000Z')).toBe('Mar 15');
   });
 });
 
@@ -192,5 +208,101 @@ describe('UsageChartCard', () => {
     );
     expect(screen.getByTestId(TEST_IDS.skeletonBlock)).toBeInTheDocument();
     expect(screen.queryByText('No usage data for this period')).not.toBeInTheDocument();
+  });
+
+  it('exposes the chart region as an image whose accessible name includes the summary', () => {
+    render(
+      <UsageChartCard
+        title="Test Chart"
+        testId="test-chart"
+        isLoading={false}
+        isEmpty={false}
+        chartConfig={defaultConfig}
+        ariaLabel="A summary of the chart"
+      >
+        <div>chart content</div>
+      </UsageChartCard>
+    );
+    expect(
+      screen.getByRole('img', { name: 'Test Chart A summary of the chart' })
+    ).toBeInTheDocument();
+  });
+
+  it('ties the chart region to its title via aria-labelledby', () => {
+    render(
+      <UsageChartCard
+        title="My Title"
+        testId="test-chart"
+        isLoading={false}
+        isEmpty={false}
+        chartConfig={defaultConfig}
+        ariaLabel="A summary of the chart"
+      >
+        <div>chart content</div>
+      </UsageChartCard>
+    );
+    const region = screen.getByRole('img', { name: 'My Title A summary of the chart' });
+    const labelledBy = region.getAttribute('aria-labelledby') ?? '';
+    const titleRef = labelledBy.split(' ')[0] ?? '';
+    expect(document.querySelector(`#${titleRef}`)).toHaveTextContent('My Title');
+  });
+
+  it('renders a visually-hidden data-table alternative for assistive tech', () => {
+    render(
+      <UsageChartCard
+        title="Test Chart"
+        testId="test-chart"
+        isLoading={false}
+        isEmpty={false}
+        chartConfig={defaultConfig}
+        ariaLabel="A summary of the chart"
+        dataTable={
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Jan 1</td>
+                <td>$1.00</td>
+              </tr>
+            </tbody>
+          </table>
+        }
+      >
+        <div>chart content</div>
+      </UsageChartCard>
+    );
+    const table = screen.getByRole('table', { hidden: true });
+    expect(table).toBeInTheDocument();
+    expect(table.closest('.sr-only')).not.toBeNull();
+  });
+
+  it('does not render the data-table alternative while loading', () => {
+    render(
+      <UsageChartCard
+        title="Test Chart"
+        testId="test-chart"
+        isLoading={true}
+        isEmpty={false}
+        chartConfig={defaultConfig}
+        ariaLabel="A summary of the chart"
+        dataTable={
+          <table data-testid="dt">
+            <thead>
+              <tr>
+                <th scope="col">Header</th>
+              </tr>
+            </thead>
+          </table>
+        }
+      >
+        <div>chart content</div>
+      </UsageChartCard>
+    );
+    expect(screen.queryByTestId('dt')).not.toBeInTheDocument();
   });
 });

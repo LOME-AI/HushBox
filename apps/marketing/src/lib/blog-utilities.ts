@@ -22,7 +22,7 @@ export interface PostLike {
 }
 
 export function getReadingTime(content: string): number {
-  const wordCount = content.split(/\s+/).length;
+  const wordCount = content.split(/\s+/).filter(Boolean).length;
   return Math.max(1, Math.round(wordCount / WORDS_PER_MINUTE));
 }
 

@@ -17,17 +17,17 @@ import { encryptTextForEpoch, getPublicKeyFromPrivate } from '@hushbox/crypto';
 import { toBase64, ROUTES, TEST_IDS, type ConversationListItem } from '@hushbox/shared';
 import { ItemRow } from '@/components/shared/item-row';
 import { useUIStore } from '@/stores/ui';
-import { useDeleteConversation, useUpdateConversation, DECRYPTING_TITLE } from '@/hooks/chat';
+import { useDeleteConversation, useUpdateConversation, DECRYPTING_TITLE } from '@/hooks/chat/chat';
 import {
   useLeaveConversation,
   useMuteConversation,
   usePinConversation,
-} from '@/hooks/use-conversation-members';
-import { keyChainQueryOptions } from '@/hooks/keys';
+} from '@/hooks/realtime/use-conversation-members';
+import { keyChainQueryOptions } from '@/hooks/crypto/keys';
 import { useAuthStore } from '@/lib/auth';
 import { getEpochKey, processKeyChain } from '@/lib/epoch-key-cache';
 import { leaveConversation } from '@/lib/leave-conversation';
-import { LeaveConfirmationModal } from '@/components/chat/leave-confirmation-modal';
+import { LeaveConfirmationModal } from '@/components/chat/member/leave-confirmation-modal';
 import { DeleteConversationDialog } from './delete-conversation-dialog';
 import { RenameConversationDialog } from './rename-conversation-dialog';
 
@@ -134,7 +134,10 @@ function ChatItemMenuContent({
   );
 }
 
-export function ChatItem({
+// Memoized so a sidebar-search keystroke (which recreates the filtered array
+// but keeps each conversation object reference stable) doesn't re-render every
+// row. Shallow prop comparison suffices given the stable references.
+export const ChatItem = React.memo(function ChatItem({
   conversation,
   isActive = false,
 }: Readonly<ChatItemProps>): React.JSX.Element {
@@ -296,4 +299,4 @@ export function ChatItem({
       />
     </>
   );
-}
+});

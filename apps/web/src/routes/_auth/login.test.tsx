@@ -78,7 +78,7 @@ vi.mock('@/components/shared/form-input', () => ({
   ),
 }));
 
-vi.mock('@/components/auth/AuthPasswordInput', () => ({
+vi.mock('@/components/auth/auth-password-input', () => ({
   AuthPasswordInput: ({
     label,
     id,
@@ -103,13 +103,13 @@ vi.mock('@/components/auth/AuthPasswordInput', () => ({
   ),
 }));
 
-vi.mock('@/components/auth/AuthButton', () => ({
+vi.mock('@/components/auth/auth-button', () => ({
   AuthButton: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{children}</button>
   ),
 }));
 
-vi.mock('@/components/auth/TwoFactorInput', () => ({
+vi.mock('@/components/auth/two-factor-input', () => ({
   TwoFactorInput: ({
     open,
     onVerify,
@@ -740,5 +740,11 @@ describe('LoginPage', () => {
         .find((el) => el.textContent === 'Password reset failed. Please try again.');
       expect(errorAlert).toBeInTheDocument();
     });
+  });
+
+  it('renders password field with current-password autocomplete hint', () => {
+    render(<LoginPage />);
+
+    expect(screen.getByLabelText('Password')).toHaveAttribute('autocomplete', 'current-password');
   });
 });

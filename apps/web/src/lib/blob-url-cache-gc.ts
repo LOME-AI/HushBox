@@ -1,4 +1,4 @@
-import { blobCacheKeys } from '@/hooks/use-decrypt-blob';
+import { blobCacheKeys } from '@/lib/query-keys/blob-cache-keys';
 import type { QueryClient } from '@tanstack/react-query';
 
 /**

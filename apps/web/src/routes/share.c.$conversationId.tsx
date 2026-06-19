@@ -4,8 +4,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
 import { deriveKeysFromLinkSecret } from '@hushbox/crypto';
 import { fromBase64, toBase64, TEST_IDS } from '@hushbox/shared';
+import { AuthenticatedChatPage } from '@/components/chat/page/authenticated-chat-page.js';
 import { AppShell } from '../components/shared/app-shell.js';
-import { AuthenticatedChatPage } from '../components/chat/authenticated-chat-page.js';
 import { setLinkGuestAuth, clearLinkGuestAuth } from '../lib/link-guest-auth.js';
 
 export const Route = createFileRoute('/share/c/$conversationId')({

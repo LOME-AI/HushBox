@@ -260,6 +260,21 @@ describe('DemoBackendStore', () => {
     expect(store.recordSendTurn('nope', { id: 'x', content: 'hi' }, 'm')).toBeUndefined();
   });
 
+  it('recordSendTurn reports media attributes for an image turn', () => {
+    const turn = store.recordSendTurn('demo-image', { id: 'u1', content: 'go' }, 'm');
+    expect(turn?.media).toEqual({ mediaType: 'image', mimeType: DEMO_SCENE_IMAGE.mimeType });
+  });
+
+  it('recordSendTurn reports media attributes for a video turn', () => {
+    const turn = store.recordSendTurn('demo-video', { id: 'u1', content: 'go' }, 'm');
+    expect(turn?.media).toEqual({ mediaType: 'video', mimeType: DEMO_GENERATED_VIDEO.mimeType });
+  });
+
+  it('recordSendTurn omits media attributes for a text turn', () => {
+    const turn = store.recordSendTurn('demo-smart-model', { id: 'u1', content: 'hi' }, 'm');
+    expect(turn?.media).toBeUndefined();
+  });
+
   it('recordRegenerateTurn swaps the AI reply for a fresh clone under the same user message', () => {
     const id = 'demo-smart-model';
     store.recordSendTurn(id, { id: 'u1', content: 'hi' }, 'm');
@@ -304,6 +319,19 @@ describe('DemoBackendStore', () => {
     const lastRow = decryptMessageTexts(store, account, id).at(-1);
     expect(lastRow?.senderType).toBe('ai');
     expect(lastRow?.text).toBe(turn.content);
+  });
+
+  it('recordRegenerateTurn reports media attributes when regenerating a media reply', () => {
+    store.recordSendTurn('demo-image', { id: 'u1', content: 'go' }, 'm');
+    const userMessage = store
+      .getConversation('demo-image')
+      ?.messages.find((m) => m.senderType === 'user');
+    if (userMessage === undefined) throw new Error('no user message');
+    const turn = store.recordRegenerateTurn({
+      conversationId: 'demo-image',
+      targetMessageId: userMessage.id,
+    });
+    expect(turn?.media).toEqual({ mediaType: 'image', mimeType: DEMO_SCENE_IMAGE.mimeType });
   });
 
   it('recordRegenerateTurn returns undefined for an unknown conversation or message', () => {

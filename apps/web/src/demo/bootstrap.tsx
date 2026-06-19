@@ -4,7 +4,7 @@ import { RouterProvider, createRouter, createMemoryHistory } from '@tanstack/rea
 import { ROUTES } from '@hushbox/shared';
 import { routeTree } from '@/routeTree.gen';
 import { queryClient } from '@/providers/query-provider';
-import { chatKeys } from '@/hooks/chat';
+import { chatKeys } from '@/hooks/chat/chat';
 import { installFetchShim } from './mock-backend/fetch-shim';
 import { installWebSocketShim, emitDemoRealtimeEvent } from './mock-backend/ws-shim';
 import { DemoBackendStore } from './mock-backend/store';
@@ -24,7 +24,32 @@ import { installComposerCues } from './composer-cues';
  * Loaded as a lazy chunk only on the `/demo` path, so none of this (or the
  * fixtures) ships to real users.
  */
+/**
+ * Static, dependency-free fallback shown inside the iframe if `mountDemo`
+ * throws (seed/shim/render failure). Replaces a blank or half-mounted iframe
+ * with a real way out: a top-level link into the live app. Plain DOM so it
+ * renders even when the React/router boot is what failed.
+ */
+export function renderDemoFallback(rootElement: Element): void {
+  const link = document.createElement('a');
+  link.href = ROUTES.CHAT;
+  link.target = '_top';
+  link.textContent = 'Open HushBox';
+  link.className = 'flex h-full w-full items-center justify-center text-sm font-medium underline';
+  rootElement.replaceChildren(link);
+}
+
 export function mountDemo(rootElement: Element): void {
+  try {
+    bootDemo(rootElement);
+  } catch {
+    // A broken demo must never strand the visitor on a blank iframe; offer a
+    // direct link into the live app instead.
+    renderDemoFallback(rootElement);
+  }
+}
+
+function bootDemo(rootElement: Element): void {
   // The demo lives in a small iframe; shrink the root font (the same lever the
   // accessibility text-size control pulls — everything is rem-based) so the UI
   // isn't squished. 80% of the app's normal size fits the embed comfortably.

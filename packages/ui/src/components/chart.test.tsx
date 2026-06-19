@@ -188,6 +188,25 @@ describe('ChartTooltipContent', () => {
     });
   });
 
+  describe('nameKey', () => {
+    it('resolves the config label from name when nameKey is set, ignoring dataKey', () => {
+      renderTooltip({
+        nameKey: 'name',
+        payload: [{ name: 'revenue', dataKey: 'value', value: 10, color: 'red' }],
+      });
+      expect(screen.getByText('Revenue')).toBeInTheDocument();
+      expect(screen.queryByText('value')).not.toBeInTheDocument();
+    });
+
+    it('still renders the value when nameKey resolves the label', () => {
+      renderTooltip({
+        nameKey: 'name',
+        payload: [{ name: 'revenue', dataKey: 'value', value: 10, color: 'red' }],
+      });
+      expect(screen.getByText('10')).toBeInTheDocument();
+    });
+  });
+
   describe('indicators', () => {
     it('renders dot indicators by default', () => {
       const { container } = renderTooltip();

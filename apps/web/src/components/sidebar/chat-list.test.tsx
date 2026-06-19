@@ -33,7 +33,7 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));
 
-vi.mock('@/hooks/use-conversation-members', () => ({
+vi.mock('@/hooks/realtime/use-conversation-members', () => ({
   useLeaveConversation: () => ({
     mutate: vi.fn(),
     isPending: false,
@@ -48,7 +48,7 @@ vi.mock('@/hooks/use-conversation-members', () => ({
   }),
 }));
 
-vi.mock('@/hooks/chat', () => ({
+vi.mock('@/hooks/chat/chat', () => ({
   useDeleteConversation: () => ({
     mutate: vi.fn(),
     isPending: false,

@@ -1,0 +1,120 @@
+import * as React from 'react';
+import { Plus, X } from 'lucide-react';
+import { Button, Tooltip, TooltipTrigger, TooltipContent } from '@hushbox/ui';
+import { shortenModelName, TEST_IDS } from '@hushbox/shared';
+import { getModelColor } from '@/lib/model-color';
+import { ModelInfoPanel } from '@/components/chat/model-selector/model-info-panel';
+import type { Model } from '@hushbox/shared';
+
+interface ComparisonBarProps {
+  models: Model[];
+  selectedModels: { id: string; name: string }[];
+  onRemoveModel: (modelId: string) => void;
+  /**
+   * When provided, renders a trailing "+ Add" chip that opens the picker in
+   * multi mode pre-set to the current modality. Omit to hide the chip.
+   */
+  onAddClick?: () => void;
+}
+
+function ModelPill({
+  model,
+  fullModel,
+  onRemove,
+}: Readonly<{
+  model: { id: string; name: string };
+  fullModel: Model | undefined;
+  onRemove: () => void;
+}>): React.JSX.Element {
+  const color = getModelColor(model.id);
+  const shortName = shortenModelName(model.name);
+
+  return (
+    <div
+      style={
+        {
+          '--pill-bg': color.bg,
+          '--pill-fg': color.fg,
+          '--pill-bg-dark': color.bgDark,
+          '--pill-fg-dark': color.fgDark,
+        } as React.CSSProperties
+      }
+      className="flex items-center gap-1 rounded-full bg-[var(--pill-bg)] px-3 py-1 text-sm text-[var(--pill-fg)] dark:bg-[var(--pill-bg-dark)] dark:text-[var(--pill-fg-dark)]"
+    >
+      {fullModel ? (
+        <Tooltip>
+          {/* Focusable button trigger so keyboard users can open the
+              model-info tooltip; a bare span trigger is unreachable by tab. */}
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Model details for ${model.name}`}
+              className="whitespace-nowrap"
+            >
+              {shortName}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent
+            className="bg-popover text-popover-foreground [&>svg]:fill-popover [&>svg]:bg-popover w-64 rounded-lg border p-4 shadow-lg"
+            sideOffset={8}
+          >
+            <ModelInfoPanel model={fullModel} compact />
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <span className="whitespace-nowrap">{shortName}</span>
+      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-4 w-4 shrink-0 p-0"
+        onClick={onRemove}
+        aria-label={`Remove ${model.name}`}
+      >
+        <X className="h-3 w-3" />
+      </Button>
+    </div>
+  );
+}
+
+export function ComparisonBar({
+  models,
+  selectedModels,
+  onRemoveModel,
+  onAddClick,
+}: Readonly<ComparisonBarProps>): React.JSX.Element | null {
+  if (selectedModels.length <= 1) {
+    return null;
+  }
+
+  return (
+    <div
+      data-testid={TEST_IDS.selectedModelsBar}
+      data-chrome=""
+      className="border-border-strong flex items-center gap-2 overflow-x-auto border-b px-4 py-2"
+    >
+      {selectedModels.map((model) => (
+        <ModelPill
+          key={model.id}
+          model={model}
+          fullModel={models.find((m) => m.id === model.id)}
+          onRemove={() => {
+            onRemoveModel(model.id);
+          }}
+        />
+      ))}
+      {onAddClick && (
+        <button
+          type="button"
+          data-testid={TEST_IDS.comparisonBarAddButton}
+          onClick={onAddClick}
+          aria-label="Add another model"
+          className="border-border-strong text-muted-foreground hover:bg-muted/50 hover:text-foreground flex shrink-0 items-center gap-1 rounded-full border border-dashed px-3 py-1 text-sm transition-colors"
+        >
+          <Plus className="h-3 w-3" />
+          <span>Add</span>
+        </button>
+      )}
+    </div>
+  );
+}

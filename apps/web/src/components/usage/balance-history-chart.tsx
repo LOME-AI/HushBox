@@ -8,6 +8,7 @@ import {
   DEFAULT_AXIS_PROPS,
   formatDollarTick,
   formatDollarTooltip,
+  formatPeriodLabel,
 } from './chart-utilities';
 import type { ChartConfig } from '@hushbox/ui';
 
@@ -30,13 +31,30 @@ export function BalanceHistoryChart({
   const chartData = React.useMemo(() => {
     if (!data?.data.length) return [];
     return data.data.map((point) => ({
-      date: new Date(point.createdAt).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-      }),
+      date: formatPeriodLabel(point.createdAt),
       balanceAfter: Number.parseFloat(point.balanceAfter),
     }));
   }, [data]);
+
+  const dataTable = (
+    <table>
+      <caption>Account balance over time, in US dollars</caption>
+      <thead>
+        <tr>
+          <th scope="col">Date</th>
+          <th scope="col">Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {chartData.map((row) => (
+          <tr key={row.date}>
+            <th scope="row">{row.date}</th>
+            <td>{formatDollarTooltip(row.balanceAfter)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 
   return (
     <UsageChartCard
@@ -46,8 +64,10 @@ export function BalanceHistoryChart({
       isEmpty={chartData.length === 0}
       emptyMessage="No balance history"
       chartConfig={chartConfig}
+      ariaLabel={`Account balance across ${String(chartData.length)} point${chartData.length === 1 ? '' : 's'}.`}
+      dataTable={dataTable}
     >
-      <AreaChart data={chartData} margin={DEFAULT_CHART_MARGIN}>
+      <AreaChart data={chartData} margin={DEFAULT_CHART_MARGIN} accessibilityLayer>
         <XAxis dataKey="date" {...DEFAULT_AXIS_PROPS} />
         <YAxis {...DEFAULT_AXIS_PROPS} tickFormatter={formatDollarTick} />
         <Tooltip content={<ChartTooltipContent valueFormatter={formatDollarTooltip} />} />

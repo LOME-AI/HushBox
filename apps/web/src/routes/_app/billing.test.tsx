@@ -26,11 +26,11 @@ vi.mock('@/lib/auth', () => ({
   requireAuth: vi.fn().mockImplementation(() => Promise.resolve()),
 }));
 
-vi.mock('@/hooks/use-stable-balance', () => ({
+vi.mock('@/hooks/billing/use-stable-balance', () => ({
   useStableBalance: mockUseStableBalance,
 }));
 
-vi.mock('@/hooks/billing', () => ({
+vi.mock('@/hooks/billing/billing', () => ({
   useTransactions: mockUseTransactions,
 }));
 

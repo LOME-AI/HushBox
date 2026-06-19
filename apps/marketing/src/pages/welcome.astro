@@ -8,8 +8,10 @@ import {
   TOTAL_FEE_RATE,
   formatFeePercent,
 } from '@hushbox/shared';
-import { buttonVariants, ScrollReveal, DataGrid, FeeBreakdown, CostPieChart } from '@hushbox/ui';
+import { buttonVariants, FeeBreakdown, CostPieChart } from '@hushbox/ui';
 import { LANDING_CIPHER_MESSAGES } from '@hushbox/shared/cipher-messages';
+import { ScrollReveal } from '../components/ui/scroll-reveal';
+import { DataGrid } from '../components/ui/data-grid';
 import PageHero from '../components/PageHero.astro';
 import AppDemo from '../components/AppDemo.astro';
 import { EncryptionDemo } from '../components/encryption-demo';
@@ -141,14 +143,17 @@ function iconSvg(lucideIcon: string): string {
       <ScrollReveal client:visible>
         <div class="grid gap-6 md:grid-cols-3">
           <PillarCard
+            as="h2"
             title="Privacy"
             description="Your conversations stay yours. We work exclusively with AI providers that guarantee zero data retention. Privacy isn't a feature. It's the foundation."
           />
           <PillarCard
+            as="h2"
             title="Innovation"
             description="You shouldn't have to choose between powerful and principled. We build everything you need, as fast as you need it. We ship fast and we don't stop."
           />
           <PillarCard
+            as="h2"
             title="Transparency"
             description={`Every single line of code is open source. Our pricing is public. A ${formatFeePercent(TOTAL_FEE_RATE)} fee, broken down to the penny. No subscriptions. You only pay for what you use. You don't have to trust our promises. You can read our code.`}
           />
@@ -165,18 +170,22 @@ function iconSvg(lucideIcon: string): string {
         </h2>
         <div class="mt-12 grid gap-6 sm:grid-cols-2">
           <TrustCard
+            as="h3"
             title="Your Messages, Your Key"
             description="Only your devices can read your conversations. Without your password, your data is inaccessible. Even to us."
           />
           <TrustCard
+            as="h3"
             title="Zero-Knowledge Password"
             description="Your password never leaves your device. We use OPAQUE, the state of the art in password security. We couldn't see it if we tried."
           />
           <TrustCard
+            as="h3"
             title="Zero Data Retention"
             description="We work exclusively with AI providers that guarantee zero data retention. Your messages are processed and forgotten. Never stored. Never trained on."
           />
           <TrustCard
+            as="h3"
             title="Anonymous"
             description="AI providers see HushBox. They don't see you. Your identity is never attached to your conversations."
           />
@@ -275,8 +284,8 @@ function iconSvg(lucideIcon: string): string {
           Transparent pricing
         </h2>
         <div class="mx-auto mt-12 grid max-w-2xl items-center gap-8 sm:grid-cols-2">
-          <FeeBreakdown client:load depositAmount={10} />
-          <CostPieChart client:load depositAmount={10} />
+          <FeeBreakdown client:visible depositAmount={10} />
+          <CostPieChart client:visible depositAmount={10} />
         </div>
       </ScrollReveal>
     </div>

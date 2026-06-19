@@ -1,5 +1,5 @@
 import { TEST_IDS } from '@hushbox/shared';
-import { useIsSettled } from '@/hooks/use-is-settled';
+import { useIsSettled } from '@/hooks/ui/use-is-settled';
 
 export function SettledIndicator(): React.JSX.Element {
   const settled = useIsSettled();

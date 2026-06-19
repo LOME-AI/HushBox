@@ -25,6 +25,7 @@ import {
   type DemoParticipant,
   type DemoTurn,
 } from './fixtures';
+import type { SseTurnMedia } from './sse-shim';
 import type { KeyChainResponse } from '@/lib/epoch-key-cache';
 import type {
   ConversationListItem,
@@ -49,8 +50,12 @@ export interface SendTurn {
   readonly modelId: string;
   readonly assistantMessageId: string;
   readonly content: string;
-  /** Reply contains generated media (image/video) → stream a generation pause. */
-  readonly isMedia: boolean;
+  /**
+   * Present when the reply is generated media (image/video): drives the
+   * shim's synthetic `model:media:start`/`progress` frames and the generation
+   * pause. Undefined for text replies.
+   */
+  readonly media?: SseTurnMedia;
 }
 
 /** The `message:new` event fields for a replayed group transcript message. */
@@ -116,6 +121,23 @@ const SOLO_MEMBER: DemoMember = {
 /** The concatenated text of a message's text content (media items contribute nothing). */
 function textOf(content: readonly DemoContent[]): string {
   return content.map((item) => (item.type === 'text' ? item.text : '')).join('');
+}
+
+/** Media attributes of a scripted turn's first media item, or undefined for a text-only turn. */
+function mediaOf(content: readonly DemoContent[]): SseTurnMedia | undefined {
+  const item = content.find((c): c is Exclude<DemoContent, { type: 'text' }> => c.type !== 'text');
+  return item === undefined ? undefined : { mediaType: item.type, mimeType: item.asset.mimeType };
+}
+
+/** Media attributes of a wire message's first media content item, or undefined for text-only. */
+function mediaOfContentItems(items: readonly ContentItemResponse[]): SseTurnMedia | undefined {
+  const item = items.find(
+    (c): c is ContentItemResponse & { contentType: 'image' | 'video' } =>
+      c.contentType === 'image' || c.contentType === 'video'
+  );
+  return item === undefined
+    ? undefined
+    : { mediaType: item.contentType, mimeType: item.mimeType ?? 'application/octet-stream' };
 }
 
 /** The model id to attribute a regenerated reply to: the request's, else the replaced one's. */
@@ -400,12 +422,13 @@ export class DemoBackendStore {
     });
     built.response.conversation.nextSequence = messages.length;
 
+    const media = mediaOf(turn.ai);
     return {
       userMessageId: userMessage.id,
       modelId: turn.modelName ?? 'demo-model',
       assistantMessageId,
       content: aiText,
-      isMedia: turn.ai.some((item) => item.type !== 'text'),
+      ...(media === undefined ? {} : { media }),
     };
   }
 
@@ -453,12 +476,13 @@ export class DemoBackendStore {
 
     const content = this.aiText.get(original.id) ?? '';
     this.aiText.set(assistantMessageId, content);
+    const media = mediaOfContentItems(original.contentItems);
     return {
       userMessageId: original.parentMessageId ?? request.targetMessageId,
       modelId: regenerateModelId(request.models, original),
       assistantMessageId,
       content,
-      isMedia: original.contentItems.some((item) => item.contentType !== 'text'),
+      ...(media === undefined ? {} : { media }),
     };
   }
 

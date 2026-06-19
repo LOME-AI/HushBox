@@ -46,12 +46,14 @@ describe('accessibility styles bundle', () => {
     expect(existsSync(resolved)).toBe(true);
   });
 
-  it('contrast.css overrides background, foreground, border, and muted-foreground for high-contrast mode', () => {
+  it('contrast.css overrides background, foreground, border, and muted text for high-contrast mode', () => {
     const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
     expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--background:\s*#ffffff/);
     expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--foreground:\s*#000000/);
     expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--border:\s*#000000/);
-    expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--muted-foreground:\s*#1a1a1a/);
+    // The real muted token is --foreground-muted; --muted-foreground was a dead
+    // alias (0 consumers) and overriding it never changed any rendered text.
+    expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--foreground-muted:\s*#1a1a1a/);
   });
 
   it('contrast.css applies saturation to body, never html (avoids stacking-context bug)', () => {
@@ -67,10 +69,10 @@ describe('accessibility styles bundle', () => {
     expect(contents).toMatch(/--foreground:\s*#000000\s*!important/);
   });
 
-  it('contrast-increased darkens foreground and border (not just muted-foreground)', () => {
+  it('contrast-increased darkens foreground and border (not just muted text)', () => {
     const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
     // Stronger contrast must visibly change actual text/border colors, not only
-    // the rarely-rendered muted-foreground variable.
+    // the muted text variable.
     expect(contents).toMatch(/html\.a11y-contrast-increased\s*{[^}]*--foreground:\s*#000000/);
     expect(contents).toMatch(/html\.a11y-contrast-increased\s*{[^}]*--border:/);
   });
@@ -123,6 +125,17 @@ describe('accessibility styles bundle', () => {
     expect(contents).toMatch(
       /@media\s*\(\s*width\s*<\s*48rem\s*\)\s*{[\s\S]*?html\.a11y-font-scale-88\s*{\s*font-size:\s*87\.5%/
     );
+  });
+
+  it('typography.css tightens line-height below the Normal default for the Tight tier', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    // "Tight" must visibly differ from "Normal". Normal (the schema default,
+    // lineHeight "1.5") maps to a11y-line-height-tall at line-height: 1.5, so
+    // Tight must use a value strictly below 1.5 — otherwise the option is a no-op.
+    const match =
+      /html\.a11y-line-height-tight[^{]*{[^}]*line-height:\s*([\d.]+)\s*!important/.exec(contents);
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBeLessThan(1.5);
   });
 
   it('typography.css scopes paragraph spacing to non-trailing paragraphs', () => {

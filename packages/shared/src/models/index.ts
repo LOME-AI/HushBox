@@ -1,4 +1,5 @@
 export type { RawModel, ProcessedModels, Modality } from './types.js';
+export { MODALITY_ARIA_LABELS } from './modality-labels.js';
 export { fetchModels, clearModelCache, toRawModel, publicModelEntrySchema } from './fetch.js';
 export { processModels, pickValueTextModel, PROVIDER_MAP } from './process-models.js';
 export { isPremiumModel, PREMIUM_PRICE_PERCENTILE, PREMIUM_RECENCY_MS } from './premium-check.js';

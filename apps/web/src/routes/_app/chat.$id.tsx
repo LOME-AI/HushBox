@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { requireAuth } from '@/lib/auth';
-import { AuthenticatedChatPage } from '@/components/chat/authenticated-chat-page';
+import { AuthenticatedChatPage } from '@/components/chat/page/authenticated-chat-page';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
-import { conversationQueryOptions } from '@/hooks/chat';
-import { keyChainQueryOptions } from '@/hooks/keys';
+import { conversationQueryOptions } from '@/hooks/chat/chat';
+import { keyChainQueryOptions } from '@/hooks/crypto/keys';
 
 export interface ChatSearch {
   fork: string | undefined;
@@ -42,5 +42,10 @@ function AuthenticatedChat(): React.JSX.Element {
   const { id } = Route.useParams();
   const { fork } = Route.useSearch();
 
-  return <AuthenticatedChatPage routeConversationId={id} initialForkId={fork} />;
+  // Key by the route conversation id so navigating between conversations
+  // remounts the chat subtree, resetting all per-conversation hook state
+  // (typing, presence, phantoms, forks) instead of bleeding it across.
+  // `id` is `'new'` for the entire create flow — constant until the post-stream
+  // navigation — so the create→real first stream is never remounted mid-flight.
+  return <AuthenticatedChatPage key={id} routeConversationId={id} initialForkId={fork} />;
 }

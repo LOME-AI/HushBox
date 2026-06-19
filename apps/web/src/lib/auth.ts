@@ -25,9 +25,10 @@ import {
 
 import { queryClient } from '@/providers/query-provider';
 import { getApiUrl } from '@/lib/api';
-import { client } from '@/lib/api-client';
+import { client, fetchJson } from '@/lib/api-client';
 import { clearEpochKeyCache } from '@/lib/epoch-key-cache';
 import { useModelStore } from '@/stores/model';
+import { useDocumentStore } from '@/stores/document';
 import {
   STORAGE_KEY,
   persistExportKey,
@@ -160,18 +161,17 @@ async function finalizeLoginWithKey(
   persistExportKey(exportKey, userId, keepSignedIn);
   useAuthStore.getState().setPrivateKey(accountPrivateKey);
 
-  const meResponse = await fetch(`${getApiUrl()}/api/auth/me`, {
-    credentials: 'include',
-  });
-  if (meResponse.ok) {
-    const meData = (await meResponse.json()) as MeResponse;
-    useAuthStore.getState().setUser(meData.user);
-    useAuthStore
-      .getState()
-      .setCustomInstructions(
-        decryptCustomInstructions(accountPrivateKey, meData.customInstructionsEncrypted)
-      );
-  }
+  // Throws (via fetchJson) on any non-2xx /me response. The caller treats that
+  // as a failed login rather than synthesizing account flags: a transient /me
+  // failure must never downgrade a verified user's emailVerified/totpEnabled/
+  // hasAcknowledgedPhrase to false.
+  const meData = await fetchJson<MeResponse>(client.api.auth.me.$get());
+  useAuthStore.getState().setUser(meData.user);
+  useAuthStore
+    .getState()
+    .setCustomInstructions(
+      decryptCustomInstructions(accountPrivateKey, meData.customInstructionsEncrypted)
+    );
 }
 
 function createTOTPVerifier(
@@ -224,7 +224,6 @@ async function signInEmail(options: {
 }): Promise<SignInEmailResult> {
   const { identifier: rawIdentifier, password, keepSignedIn = false } = options;
   const identifier = normalizeIdentifier(rawIdentifier);
-  const passwordBytes = new TextEncoder().encode(password);
 
   try {
     const client = createOpaqueClient();
@@ -286,22 +285,9 @@ async function signInEmail(options: {
       keepSignedIn
     );
 
-    if (!useAuthStore.getState().user) {
-      useAuthStore.getState().setUser({
-        id: finishData.userId,
-        email: finishData.email ?? '',
-        username: '',
-        emailVerified: false,
-        totpEnabled: false,
-        hasAcknowledgedPhrase: false,
-      });
-    }
-
     return {};
   } catch {
     return { error: { message: friendlyErrorMessage('LOGIN_FAILED') } };
-  } finally {
-    passwordBytes.fill(0);
   }
 }
 
@@ -316,7 +302,6 @@ async function signUpEmail(options: {
 }): Promise<SignUpEmailResult> {
   const { username, email, password } = options;
   const normalizedUsername = normalizeUsername(username);
-  const passwordBytes = new TextEncoder().encode(password);
 
   try {
     const client = createOpaqueClient();
@@ -374,8 +359,6 @@ async function signUpEmail(options: {
     return {};
   } catch {
     return { error: { message: friendlyErrorMessage('REGISTRATION_FAILED') } };
-  } finally {
-    passwordBytes.fill(0);
   }
 }
 
@@ -397,9 +380,6 @@ export async function changePassword(
   currentPassword: string,
   newPassword: string
 ): Promise<ChangePasswordResult> {
-  const currentPasswordBytes = new TextEncoder().encode(currentPassword);
-  const newPasswordBytes = new TextEncoder().encode(newPassword);
-
   try {
     const loginClient = createOpaqueClient();
     const { ke1 } = await startLogin(loginClient, currentPassword);
@@ -469,9 +449,6 @@ export async function changePassword(
     return { success: true };
   } catch {
     return { success: false, error: friendlyErrorMessage('CHANGE_PASSWORD_FAILED') };
-  } finally {
-    currentPasswordBytes.fill(0);
-    newPasswordBytes.fill(0);
   }
 }
 
@@ -482,7 +459,6 @@ export async function resetPasswordViaRecovery(
 ): Promise<ResetPasswordViaRecoveryResult> {
   const identifier = normalizeIdentifier(rawIdentifier);
   let accountPrivateKey: Uint8Array | null = null;
-  let newPasswordBytes: Uint8Array | null = null;
 
   try {
     const getKeyResponse = await fetch(`${getApiUrl()}/api/auth/recovery/get-wrapped-key`, {
@@ -536,7 +512,6 @@ export async function resetPasswordViaRecovery(
       newExportKey
     );
 
-    newPasswordBytes = new TextEncoder().encode(newPassword);
     const finishResponse = await fetch(`${getApiUrl()}/api/auth/recovery/reset/finish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -560,8 +535,9 @@ export async function resetPasswordViaRecovery(
       error: friendlyErrorMessage('CHANGE_PASSWORD_FAILED'),
     };
   } finally {
+    // Recovered account private key is real key material this buffer is the
+    // only handle to; zero it after use so it can't linger in memory.
     if (accountPrivateKey) accountPrivateKey.fill(0);
-    if (newPasswordBytes) newPasswordBytes.fill(0);
   }
 }
 
@@ -570,7 +546,6 @@ export async function disable2FAInit(
 ): Promise<
   { success: true; ke3: number[]; disable2FASessionId: string } | { success: false; error: string }
 > {
-  const passwordBytes = new TextEncoder().encode(password);
   try {
     const client = createOpaqueClient();
     const { ke1 } = await startLogin(client, password);
@@ -594,8 +569,6 @@ export async function disable2FAInit(
     return { success: true, ke3: loginResult.ke3, disable2FASessionId };
   } catch {
     return { success: false, error: friendlyErrorMessage('DISABLE_2FA_INIT_FAILED') };
-  } finally {
-    passwordBytes.fill(0);
   }
 }
 
@@ -630,6 +603,8 @@ export function clearLocalAuthState(): void {
   // Force text modality active so the trial page never lands on a non-text
   // modality (which would disable every icon for trial users).
   useModelStore.getState().resetForUnauthenticated();
+  // Drop decrypted document content from memory so it can't outlive the session.
+  useDocumentStore.getState().closePanel();
   queryClient.clear();
   initPromise = null;
 }
@@ -703,13 +678,15 @@ export function initAuth(): Promise<void> {
 async function doInitAuth(): Promise<void> {
   useAuthStore.getState().setLoading(true);
 
-  const storedAuth = getStoredAuth();
-  if (!storedAuth) {
-    useAuthStore.getState().setLoading(false);
-    return;
-  }
-
   try {
+    // Read storage inside the try so a malformed/legacy blob settles to
+    // logged-out instead of bricking boot with a stuck spinner and a poisoned
+    // cached initPromise.
+    const storedAuth = getStoredAuth();
+    if (!storedAuth) {
+      return;
+    }
+
     const restored = await restoreSession();
     if (!restored) {
       // Reset singleton so next initAuth() call retries.

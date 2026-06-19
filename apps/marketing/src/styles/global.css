@@ -76,7 +76,7 @@ html.reduced-motion {
 }
 
 .prose-blog :where(figcaption):not(:where([class~='not-prose'] *)) {
-  @apply text-foreground-muted mt-2 text-center text-sm;
+  @apply text-muted-foreground mt-2 text-center text-sm;
 }
 
 .prose-blog :where(ul):not(:where([class~='not-prose'] *)) {
