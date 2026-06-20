@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { screen, waitFor } from '@testing-library/react';
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './chat.index';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
 const { mockUseStableSession, mockNavigate, mockUseBalance, mockUseStability } = vi.hoisted(() => ({
@@ -11,12 +12,12 @@ const { mockUseStableSession, mockNavigate, mockUseBalance, mockUseStability } =
   mockUseStability: vi.fn(),
 }));
 
-vi.mock('@tanstack/react-router', async () => {
-  const actual = await vi.importActual('@tanstack/react-router');
+// Keep the real router (createFileRoute must run for the route file); override only useNavigate.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
   return {
     ...actual,
     useNavigate: () => mockNavigate,
-    createFileRoute: () => () => ({ component: () => null }),
   };
 });
 
@@ -24,8 +25,11 @@ vi.mock('@/hooks/auth/use-stable-session', () => ({
   useStableSession: mockUseStableSession,
 }));
 
+// Override the global stability mock (test-setup) so each test controls useStability,
+// while keeping a pass-through StabilityProvider for the real render harness.
 vi.mock('@/providers/stability-provider', () => ({
   useStability: mockUseStability,
+  StabilityProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock('@/hooks/billing/billing', () => ({
@@ -110,7 +114,10 @@ vi.mock('@/hooks/billing/use-prompt-budget', () => ({
   }),
 }));
 
-vi.mock('framer-motion', async () => {
+// Keep the real framer-motion (MotionProvider in the render harness needs
+// MotionConfig/useReducedMotion); override only the animated primitives ChatWelcome uses.
+vi.mock('framer-motion', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('framer-motion')>();
   const react = await import('react');
 
   const createMotionComponent = (tag: string) => {
@@ -126,6 +133,7 @@ vi.mock('framer-motion', async () => {
   };
 
   return {
+    ...actual,
     motion: {
       span: createMotionComponent('span'),
       div: createMotionComponent('div'),
@@ -134,23 +142,6 @@ vi.mock('framer-motion', async () => {
     AnimatePresence,
   };
 });
-
-// Import after mocks
-import { ChatIndex } from './-chat-index';
-
-function createWrapper(): React.FC<{ children: React.ReactNode }> {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-    },
-  });
-
-  return function Wrapper({ children }) {
-    return React.createElement(QueryClientProvider, { client: queryClient }, children);
-  };
-}
 
 // Mock crypto.randomUUID for consistent test behavior
 const mockUUID = '12345678-1234-1234-1234-123456789abc';
@@ -177,7 +168,7 @@ describe('ChatIndex', () => {
       isPending: true,
     });
 
-    render(<ChatIndex />, { wrapper: createWrapper() });
+    renderRoute(Route);
 
     expect(screen.getByTestId('chat-welcome')).toHaveAttribute('data-loading', 'true');
   });
@@ -193,7 +184,7 @@ describe('ChatIndex', () => {
       isPending: false,
     });
 
-    render(<ChatIndex />, { wrapper: createWrapper() });
+    renderRoute(Route);
 
     await waitFor(() => {
       expect(screen.getByTestId('chat-welcome')).toHaveAttribute('data-loading', 'false');
@@ -208,7 +199,9 @@ describe('ChatIndex', () => {
       isPending: true,
     });
 
-    const { rerender } = render(<ChatIndex />, { wrapper: createWrapper() });
+    const { rerender } = renderRoute(Route);
+    const RouteComponent = Route.options.component;
+    if (!RouteComponent) throw new Error('Route has no component');
 
     mockUseStableSession.mockReturnValue({
       session: {
@@ -220,7 +213,7 @@ describe('ChatIndex', () => {
       isPending: false,
     });
 
-    rerender(<ChatIndex />);
+    rerender(<RouteComponent />);
 
     // Greeting should be stable (computed only after session loaded)
     await waitFor(() => {
@@ -242,7 +235,7 @@ describe('ChatIndex', () => {
         isPending: false,
       });
 
-      render(<ChatIndex />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       const textarea = screen.getByRole('textbox');
       const userEventModule = await import('@testing-library/user-event');
@@ -271,7 +264,7 @@ describe('ChatIndex', () => {
       });
       mockUseBalance.mockReturnValue({ data: { balance: '0.00' } });
 
-      render(<ChatIndex />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       // SignupModal should be in the DOM (but closed)
       // The modal is rendered but with open={false}
@@ -291,7 +284,7 @@ describe('ChatIndex', () => {
       });
       mockUseBalance.mockReturnValue({ data: { balance: '0.00' } });
 
-      render(<ChatIndex />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       // PaymentModal component should be in the DOM (but closed)
       // The modal only renders when open=true, so it won't be there initially
@@ -308,7 +301,7 @@ describe('ChatIndex', () => {
         isPending: false,
       });
 
-      render(<ChatIndex />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       expect(mockClearAll).toHaveBeenCalled();
     });
@@ -324,7 +317,7 @@ describe('ChatIndex', () => {
         isPending: false,
       });
 
-      render(<ChatIndex />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       mockClearAll.mockClear();
 

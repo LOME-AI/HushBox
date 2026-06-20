@@ -1382,6 +1382,86 @@ describe('e2e-debug', () => {
     });
   });
 
+  describe('run status and global errors', () => {
+    const abortedReport = (): PlaywrightReport => ({
+      suites: [],
+      config: {},
+      stats: { duration: 66_000 },
+      status: 'failed',
+      errors: [
+        "Error: ENOTEMPTY: directory not empty, rmdir 'test-results/chat-image-generation-firefox'",
+      ],
+    });
+
+    it('generateDebugReport propagates run status and global errors', () => {
+      const result = generateDebugReport(abortedReport());
+
+      expect(result.status).toBe('failed');
+      expect(result.globalErrors).toEqual([
+        "Error: ENOTEMPTY: directory not empty, rmdir 'test-results/chat-image-generation-firefox'",
+      ]);
+      expect(result.summary.failed).toBe(0);
+    });
+
+    it('generateDebugReport omits status and globalErrors for a clean run', () => {
+      const result = generateDebugReport({ suites: [], config: {}, stats: { duration: 1000 } });
+
+      expect(result.status).toBeUndefined();
+      expect(result.globalErrors).toBeUndefined();
+    });
+
+    it('generateMarkdownReport shows FAILED when the run aborted with zero failed tests', () => {
+      const md = generateMarkdownReport(generateDebugReport(abortedReport()));
+
+      expect(md).toContain('**Result:** FAILED');
+      expect(md).toContain('## Global Errors');
+      expect(md).toContain('ENOTEMPTY');
+    });
+
+    it('generateMarkdownReport stays PASSED and omits the section for a clean run', () => {
+      const md = generateMarkdownReport(
+        generateDebugReport({
+          suites: [],
+          config: {},
+          stats: { duration: 1000 },
+          status: 'passed',
+        })
+      );
+
+      expect(md).toContain('**Result:** PASSED');
+      expect(md).not.toContain('## Global Errors');
+    });
+
+    it('generateMarkdownReport shows FAILED on an interrupted run with no test failures', () => {
+      const md = generateMarkdownReport(
+        generateDebugReport({
+          suites: [],
+          config: {},
+          stats: { duration: 1000 },
+          status: 'interrupted',
+        })
+      );
+
+      expect(md).toContain('**Result:** FAILED');
+    });
+
+    it('generateJsonReport includes status and globalErrors when present', () => {
+      const json = generateJsonReport(generateDebugReport(abortedReport()));
+
+      expect(json.status).toBe('failed');
+      expect(json.globalErrors).toHaveLength(1);
+    });
+
+    it('generateJsonReport omits status and globalErrors for a clean run', () => {
+      const json = generateJsonReport(
+        generateDebugReport({ suites: [], config: {}, stats: { duration: 1000 } })
+      );
+
+      expect(json.status).toBeUndefined();
+      expect(json.globalErrors).toBeUndefined();
+    });
+  });
+
   describe('serializeTestForJson', () => {
     const baseArtifacts = {
       trace: 'trace.zip',

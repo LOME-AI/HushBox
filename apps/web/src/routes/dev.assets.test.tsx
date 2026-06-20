@@ -1,18 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TEST_ID_BUILDERS } from '@hushbox/shared';
-import {
-  AssetsPage,
-  ASSET_DEFINITIONS,
-  SCREENSHOT_DEFINITIONS,
-  RESOLUTION_DEFINITIONS,
-} from './-assets-page';
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './dev.assets';
 
-vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: () => (options: Record<string, unknown>) => options,
-  redirect: (options: Record<string, unknown>) => options,
-}));
+// Mirrors the route file's inlined definitions (the source of truth). Kept in
+// the test so assertions on counts and dimensions survive without the route
+// file exporting these values (code-splitting guardrail).
+const ASSET_DEFINITIONS = [
+  { name: 'icon-only', label: 'App Icon', width: 1024, height: 1024 },
+  { name: 'icon-background', label: 'Icon Background', width: 1024, height: 1024 },
+  { name: 'icon-foreground', label: 'Icon Foreground', width: 1024, height: 1024 },
+  { name: 'splash-dark', label: 'Splash (Dark)', width: 2732, height: 2732 },
+  { name: 'splash', label: 'Splash (Light)', width: 2732, height: 2732 },
+] as const;
+
+const SCREENSHOT_DEFINITIONS = [
+  { name: 'chat', label: 'Chat' },
+  { name: 'model-picker', label: 'Model Picker' },
+  { name: 'group-chat', label: 'Group Chat' },
+  { name: 'document-code', label: 'Document (Code)' },
+  { name: 'document-mermaid', label: 'Document (Mermaid)' },
+  { name: 'privacy', label: 'Privacy' },
+] as const;
+
+const RESOLUTION_DEFINITIONS = [
+  { name: 'apple-phone', label: 'Apple iPhone (6.9")', width: 1320, height: 2868 },
+  { name: 'apple-tablet', label: 'Apple iPad (13")', width: 2064, height: 2752 },
+  { name: 'google-phone', label: 'Google Phone', width: 1080, height: 1920 },
+  { name: 'google-tablet', label: 'Google Tablet', width: 1200, height: 1920 },
+] as const;
 
 describe('AssetsPage', () => {
   beforeEach(() => {
@@ -20,31 +38,31 @@ describe('AssetsPage', () => {
   });
 
   it('renders the page title', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     expect(screen.getByText('Native Assets')).toBeInTheDocument();
   });
 
   it('renders the asset count', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     expect(screen.getByText(`${String(ASSET_DEFINITIONS.length)} assets`)).toBeInTheDocument();
   });
 
   it('renders a card for each asset definition', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const asset of ASSET_DEFINITIONS) {
       expect(screen.getByTestId(TEST_ID_BUILDERS.assetCard(asset.name))).toBeInTheDocument();
     }
   });
 
   it('shows asset labels', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const asset of ASSET_DEFINITIONS) {
       expect(screen.getByText(asset.label)).toBeInTheDocument();
     }
   });
 
   it('shows asset dimensions inside each card', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const asset of ASSET_DEFINITIONS) {
       const card = screen.getByTestId(TEST_ID_BUILDERS.assetCard(asset.name));
       expect(card).toHaveTextContent(`${String(asset.width)} × ${String(asset.height)}`);
@@ -52,7 +70,7 @@ describe('AssetsPage', () => {
   });
 
   it('renders preview images from generated PNGs', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const asset of ASSET_DEFINITIONS) {
       const img = screen.getByTestId(TEST_ID_BUILDERS.assetPreview(asset.name));
       expect(img.tagName).toBe('IMG');
@@ -61,7 +79,7 @@ describe('AssetsPage', () => {
   });
 
   it('renders "Open component" links to render routes for each asset', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const asset of ASSET_DEFINITIONS) {
       const link = screen.getByTestId(TEST_ID_BUILDERS.assetLink(asset.name));
       expect(link).toHaveAttribute('href', `/dev/render-asset/${asset.name}`);
@@ -70,7 +88,7 @@ describe('AssetsPage', () => {
   });
 
   it('renders "Open image" buttons for each asset', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const asset of ASSET_DEFINITIONS) {
       const card = screen.getByTestId(TEST_ID_BUILDERS.assetCard(asset.name));
       const button = card.querySelector(
@@ -102,7 +120,7 @@ describe('AssetsPage', () => {
   });
 
   it('renders the Store Screenshots heading', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     expect(screen.getByText('Store Screenshots')).toBeInTheDocument();
   });
 
@@ -115,14 +133,14 @@ describe('AssetsPage', () => {
   });
 
   it('renders resolution group headings', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const resolution of RESOLUTION_DEFINITIONS) {
       expect(screen.getByText(resolution.label)).toBeInTheDocument();
     }
   });
 
   it('renders screenshot cards for each resolution and screenshot', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const resolution of RESOLUTION_DEFINITIONS) {
       for (const screenshot of SCREENSHOT_DEFINITIONS) {
         expect(
@@ -133,7 +151,7 @@ describe('AssetsPage', () => {
   });
 
   it('renders screenshot images with correct src paths', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const resolution of RESOLUTION_DEFINITIONS) {
       for (const screenshot of SCREENSHOT_DEFINITIONS) {
         const card = screen.getByTestId(
@@ -150,7 +168,7 @@ describe('AssetsPage', () => {
   });
 
   it('shows resolution dimensions in each group', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const resolution of RESOLUTION_DEFINITIONS) {
       const group = screen.getByTestId(TEST_ID_BUILDERS.resolutionGroup(resolution.name));
       expect(group).toHaveTextContent(`${String(resolution.width)} × ${String(resolution.height)}`);
@@ -158,7 +176,7 @@ describe('AssetsPage', () => {
   });
 
   it('renders "Open image" buttons for each screenshot card', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     for (const resolution of RESOLUTION_DEFINITIONS) {
       for (const screenshot of SCREENSHOT_DEFINITIONS) {
         const card = screen.getByTestId(
@@ -175,8 +193,8 @@ describe('AssetsPage', () => {
 
   it('opens image preview dialog when asset "Open image" is clicked', async () => {
     const user = userEvent.setup();
-    render(<AssetsPage />);
-    const firstAsset = ASSET_DEFINITIONS[0]!;
+    renderRoute(Route);
+    const firstAsset = ASSET_DEFINITIONS[0];
     const button = screen.getByTestId(TEST_ID_BUILDERS.assetOpenImage(firstAsset.name));
     await user.click(button);
     const dialog = screen.getByRole('dialog');
@@ -188,9 +206,9 @@ describe('AssetsPage', () => {
 
   it('opens image preview dialog when screenshot "Open image" is clicked', async () => {
     const user = userEvent.setup();
-    render(<AssetsPage />);
-    const firstResolution = RESOLUTION_DEFINITIONS[0]!;
-    const firstScreenshot = SCREENSHOT_DEFINITIONS[0]!;
+    renderRoute(Route);
+    const firstResolution = RESOLUTION_DEFINITIONS[0];
+    const firstScreenshot = SCREENSHOT_DEFINITIONS[0];
     const button = screen.getByTestId(
       TEST_ID_BUILDERS.screenshotOpenImage(firstResolution.name, firstScreenshot.name)
     );
@@ -207,8 +225,8 @@ describe('AssetsPage', () => {
 
   it('shows image label in the dialog title', async () => {
     const user = userEvent.setup();
-    render(<AssetsPage />);
-    const firstAsset = ASSET_DEFINITIONS[0]!;
+    renderRoute(Route);
+    const firstAsset = ASSET_DEFINITIONS[0];
     const button = screen.getByTestId(TEST_ID_BUILDERS.assetOpenImage(firstAsset.name));
     await user.click(button);
     const dialog = screen.getByRole('dialog');
@@ -216,7 +234,7 @@ describe('AssetsPage', () => {
   });
 
   it('does not show image preview dialog initially', () => {
-    render(<AssetsPage />);
+    renderRoute(Route);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

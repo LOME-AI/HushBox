@@ -45,7 +45,7 @@ export default [
     //   - auth.ts / auth-client.ts: legacy OPAQUE flows, migrate one at a time
     //     via the auth-mutations.ts pattern (changePassword done first)
     //   - two-factor-setup.tsx / recovery-phrase-modal.tsx: same legacy migration path
-    //   - -personas-page.tsx: dev-only feature
+    //   - dev.personas.tsx: dev-only feature
     files: ['src/**/*.{ts,tsx}'],
     ignores: [
       'src/lib/api-client.ts',
@@ -56,7 +56,7 @@ export default [
       'src/hooks/crypto/use-decrypt-blob.ts',
       'src/components/auth/two-factor-setup.tsx',
       'src/components/auth/recovery-phrase-modal.tsx',
-      'src/routes/-personas-page.tsx',
+      'src/routes/dev.personas.tsx',
       '**/*.test.ts',
       '**/*.test.tsx',
     ],

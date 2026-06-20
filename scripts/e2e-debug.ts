@@ -92,12 +92,21 @@ export interface PlaywrightSuite {
   suites?: PlaywrightSuite[];
 }
 
+// Overall run outcome from Playwright's FullResult. Anything other than
+// 'passed' means the run did not complete cleanly, even when no individual test
+// is counted as failed (e.g. an aborted output-dir cleanup or a Ctrl+C).
+export type RunStatus = 'passed' | 'failed' | 'timedout' | 'interrupted';
+
 export interface PlaywrightReport {
   suites: PlaywrightSuite[];
   config: Record<string, unknown>;
   stats: {
     duration: number;
   };
+  status?: RunStatus;
+  // Run-level errors reported via reporter.onError — global setup throwing, a
+  // webServer crash, or output-dir cleanup failing before any test runs.
+  errors?: string[];
 }
 
 export interface PassedTest {
@@ -161,6 +170,10 @@ export interface DebugReport {
   failed: FailedTest[];
   /** Resource time-series + log-scan, attached by the reporter when sampled. */
   resources?: ResourceReport;
+  /** Overall run outcome; present when the reporter forwards it. */
+  status?: RunStatus;
+  /** Run-level errors not tied to any single test. */
+  globalErrors?: string[];
 }
 
 export interface JsonTestEntry {
@@ -199,6 +212,8 @@ export interface JsonResources {
 export interface JsonReport {
   timestamp: string;
   summary: DebugReportSummary;
+  status?: RunStatus;
+  globalErrors?: string[];
   failed: JsonTestEntry[];
   flaky: JsonTestEntry[];
   passed: JsonPassedEntry[];
@@ -415,6 +430,7 @@ export function generateDebugReport(report: PlaywrightReport): DebugReport {
   }
 
   const categorized = categorizeTests(allTests);
+  const globalErrors = report.errors ?? [];
 
   return {
     summary: {
@@ -427,6 +443,8 @@ export function generateDebugReport(report: PlaywrightReport): DebugReport {
     passed: categorized.passed,
     flaky: categorized.flaky,
     failed: categorized.failed,
+    ...(report.status !== undefined && { status: report.status }),
+    ...(globalErrors.length > 0 && { globalErrors }),
   };
 }
 
@@ -454,8 +472,18 @@ export function renderSteps(steps: PlaywrightStep[], depth = 0): string {
 
 const MAX_ERROR_LENGTH = 2000;
 
-function renderHeader(summary: DebugReportSummary): string[] {
-  const status = summary.failed > 0 ? 'FAILED' : 'PASSED';
+// A run is a failure when any test failed, the run carries a non-passed status
+// (aborted/timed-out/interrupted), or a run-level error was reported. The last
+// two matter when zero tests ran: a global abort must never render as PASSED.
+export function isRunFailed(report: DebugReport): boolean {
+  if (report.summary.failed > 0) return true;
+  if ((report.globalErrors ?? []).length > 0) return true;
+  return report.status !== undefined && report.status !== 'passed';
+}
+
+function renderHeader(report: DebugReport): string[] {
+  const { summary } = report;
+  const status = isRunFailed(report) ? 'FAILED' : 'PASSED';
   return [
     '# E2E Test Report',
     '',
@@ -463,6 +491,24 @@ function renderHeader(summary: DebugReportSummary): string[] {
     `**Duration:** ${formatDuration(summary.duration)}`,
     `**Result:** ${status} (${String(summary.passed)} passed, ${String(summary.flaky)} flaky, ${String(summary.failed)} failed)`,
   ];
+}
+
+export function renderGlobalErrors(report: DebugReport): string[] {
+  const errors = report.globalErrors ?? [];
+  if (errors.length === 0) return [];
+
+  const lines = [
+    '',
+    '---',
+    '',
+    '## Global Errors',
+    '',
+    'Run-level errors not tied to a single test (global setup, a webServer, or output-directory cleanup). The run did not complete normally.',
+  ];
+  for (const error of errors) {
+    lines.push('', '```', stripAnsi(error), '```');
+  }
+  return lines;
 }
 
 export function renderResourceSection(resources?: ResourceReport): string[] {
@@ -632,7 +678,8 @@ function renderPassedTests(passed: PassedTest[]): string[] {
 
 export function generateMarkdownReport(report: DebugReport): string {
   const lines: string[] = [
-    ...renderHeader(report.summary),
+    ...renderHeader(report),
+    ...renderGlobalErrors(report),
     ...renderResourceSection(report.resources),
     ...renderFailedTests(report.failed),
     ...renderFlakyTests(report.flaky),
@@ -672,6 +719,9 @@ export function generateJsonReport(report: DebugReport): JsonReport {
   return {
     timestamp: new Date().toISOString(),
     summary: report.summary,
+    ...(report.status !== undefined && { status: report.status }),
+    ...(report.globalErrors &&
+      report.globalErrors.length > 0 && { globalErrors: report.globalErrors }),
     failed: report.failed.map((test) => serializeTestForJson(test)),
     flaky: report.flaky.map((test) => serializeTestForJson(test)),
     passed: report.passed.map((test) => ({

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { FullResult, Suite } from '@playwright/test/reporter';
@@ -456,6 +456,33 @@ describe('e2e-reporter', () => {
         '2026-03-21T12:00:00.000Z'
       );
     });
+
+    it('forwards run status and global errors', () => {
+      const rootSuite = createStubSuite({ title: '', type: 'root', suites: [] });
+
+      const result = buildPlaywrightReport(
+        rootSuite as unknown as Parameters<typeof buildPlaywrightReport>[0],
+        { status: 'failed', startTime: new Date(), duration: 66_000 },
+        ["Error: ENOTEMPTY: directory not empty, rmdir 'test-results/x'"]
+      );
+
+      expect(result.status).toBe('failed');
+      expect(result.errors).toEqual([
+        "Error: ENOTEMPTY: directory not empty, rmdir 'test-results/x'",
+      ]);
+    });
+
+    it('omits errors when none are given and tolerates a missing root suite', () => {
+      const result = buildPlaywrightReport(undefined, {
+        status: 'passed',
+        startTime: new Date(),
+        duration: 1000,
+      });
+
+      expect(result.status).toBe('passed');
+      expect(result.errors).toBeUndefined();
+      expect(result.suites).toEqual([]);
+    });
   });
 });
 
@@ -623,6 +650,73 @@ describe('E2EReportWriter (interrupt handling)', () => {
         (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('Failed test details')
       )
     ).toBe(true);
+  });
+
+  const testError = (fields: {
+    message?: string;
+    stack?: string;
+  }): Parameters<E2EReportWriter['onError']>[0] =>
+    fields as Parameters<E2EReportWriter['onError']>[0];
+
+  const readWrittenReport = (): { md: string; json: Record<string, unknown> } => {
+    const base = reportBase();
+    const dir = path.join(base, readdirSync(base)[0]!);
+    return {
+      md: readFileSync(path.join(dir, 'REPORT.md'), 'utf8'),
+      json: JSON.parse(readFileSync(path.join(dir, 'report.json'), 'utf8')) as Record<
+        string,
+        unknown
+      >,
+    };
+  };
+
+  it('reports FAILED with a Global Errors section, preferring the error stack', () => {
+    const reporter = new E2EReportWriter();
+    reporter.onBegin({}, rootSuiteStub());
+    reporter.onError(
+      testError({
+        stack: "Error: ENOTEMPTY: directory not empty, rmdir 'test-results/x'\n    at clearOutput",
+      })
+    );
+    reporter.onEnd(fullResult('failed'));
+
+    const { md, json } = readWrittenReport();
+    expect(md).toContain('**Result:** FAILED');
+    expect(md).toContain('## Global Errors');
+    expect(md).toContain('at clearOutput');
+    expect(json['status']).toBe('failed');
+    expect(json['globalErrors']).toHaveLength(1);
+  });
+
+  it('falls back to the error message when there is no stack', () => {
+    const reporter = new E2EReportWriter();
+    reporter.onBegin({}, rootSuiteStub());
+    reporter.onError(testError({ message: 'Error: ENOTEMPTY: directory not empty' }));
+    reporter.onEnd(fullResult('failed'));
+
+    expect(readWrittenReport().md).toContain('ENOTEMPTY');
+  });
+
+  it('falls back to a placeholder when the error has neither stack nor message', () => {
+    const reporter = new E2EReportWriter();
+    reporter.onBegin({}, rootSuiteStub());
+    reporter.onError(testError({}));
+    reporter.onEnd(fullResult('failed'));
+
+    expect(readWrittenReport().md).toContain('Unknown global error');
+  });
+
+  it('still writes a FAILED report when a global error aborts before onBegin', () => {
+    const reporter = new E2EReportWriter();
+    // No onBegin: Playwright's output-dir cleanup can abort the run before the
+    // report-begin task fires. The global error must still surface.
+    reporter.onError(testError({ message: 'Error: ENOTEMPTY: directory not empty' }));
+    reporter.onEnd(fullResult('failed'));
+
+    expect(existsSync(reportBase())).toBe(true);
+    const { md } = readWrittenReport();
+    expect(md).toContain('**Result:** FAILED');
+    expect(md).toContain('ENOTEMPTY');
   });
 
   it('prints to stdio', () => {

@@ -1,15 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import * as React from 'react';
+import { screen, waitFor } from '@testing-library/react';
 import { TEST_ID_BUILDERS } from '@hushbox/shared';
-
-vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: vi.fn(() => vi.fn()),
-  redirect: vi.fn((options: { to: string }) => {
-    throw new Error(`Redirect to ${options.to}`);
-  }),
-}));
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './dev.emails';
 
 vi.mock('@/lib/env', () => ({
   env: {
@@ -60,31 +53,16 @@ const mockTemplates: EmailTemplate[] = [
   },
 ];
 
-function createWrapper(): React.FC<{ children: React.ReactNode }> {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return function Wrapper({ children }: { children: React.ReactNode }): React.JSX.Element {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
-  };
-}
-
 describe('EmailsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   describe('loading state', () => {
-    it('shows loading indicator when fetching templates', async () => {
+    it('shows loading indicator when fetching templates', () => {
       mockFetchJson.mockReturnValue(new Promise(() => {})); // never resolves
 
-      const { EmailsPage } = await import('./-emails-page');
-      const Wrapper = createWrapper();
-      render(
-        <Wrapper>
-          <EmailsPage />
-        </Wrapper>
-      );
+      renderRoute(Route);
 
       expect(screen.getByText(/loading email templates/i)).toBeInTheDocument();
     });
@@ -94,13 +72,7 @@ describe('EmailsPage', () => {
     it('shows error message when fetch fails', async () => {
       mockFetchJson.mockRejectedValue(new Error('Network error'));
 
-      const { EmailsPage } = await import('./-emails-page');
-      const Wrapper = createWrapper();
-      render(
-        <Wrapper>
-          <EmailsPage />
-        </Wrapper>
-      );
+      renderRoute(Route);
 
       await waitFor(() => {
         expect(screen.getByText(/failed to load email templates/i)).toBeInTheDocument();
@@ -112,13 +84,7 @@ describe('EmailsPage', () => {
     it('renders a heading for each template', async () => {
       mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-      const { EmailsPage } = await import('./-emails-page');
-      const Wrapper = createWrapper();
-      render(
-        <Wrapper>
-          <EmailsPage />
-        </Wrapper>
-      );
+      renderRoute(Route);
 
       await waitFor(() => {
         for (const template of mockTemplates) {
@@ -130,13 +96,7 @@ describe('EmailsPage', () => {
     it('renders an iframe for each template', async () => {
       mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-      const { EmailsPage } = await import('./-emails-page');
-      const Wrapper = createWrapper();
-      render(
-        <Wrapper>
-          <EmailsPage />
-        </Wrapper>
-      );
+      renderRoute(Route);
 
       await waitFor(() => {
         const iframes = screen.getAllByTitle(/email template preview/i);
@@ -147,13 +107,7 @@ describe('EmailsPage', () => {
     it('sets iframe srcDoc to template html', async () => {
       mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-      const { EmailsPage } = await import('./-emails-page');
-      const Wrapper = createWrapper();
-      render(
-        <Wrapper>
-          <EmailsPage />
-        </Wrapper>
-      );
+      renderRoute(Route);
 
       await waitFor(() => {
         for (const template of mockTemplates) {
@@ -166,13 +120,7 @@ describe('EmailsPage', () => {
     it('sandboxes iframes to prevent script execution', async () => {
       mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-      const { EmailsPage } = await import('./-emails-page');
-      const Wrapper = createWrapper();
-      render(
-        <Wrapper>
-          <EmailsPage />
-        </Wrapper>
-      );
+      renderRoute(Route);
 
       await waitFor(() => {
         const iframes = screen.getAllByTitle(/email template preview/i);
@@ -187,13 +135,7 @@ describe('EmailsPage', () => {
     it('shows empty message when no templates returned', async () => {
       mockFetchJson.mockResolvedValue({ templates: [] });
 
-      const { EmailsPage } = await import('./-emails-page');
-      const Wrapper = createWrapper();
-      render(
-        <Wrapper>
-          <EmailsPage />
-        </Wrapper>
-      );
+      renderRoute(Route);
 
       await waitFor(() => {
         expect(screen.getByText(/no email templates found/i)).toBeInTheDocument();
@@ -204,13 +146,7 @@ describe('EmailsPage', () => {
   it('renders page title', async () => {
     mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-    const { EmailsPage } = await import('./-emails-page');
-    const Wrapper = createWrapper();
-    render(
-      <Wrapper>
-        <EmailsPage />
-      </Wrapper>
-    );
+    renderRoute(Route);
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /email templates/i })).toBeInTheDocument();
@@ -220,13 +156,7 @@ describe('EmailsPage', () => {
   it('shows template count in subtitle', async () => {
     mockFetchJson.mockResolvedValue({ templates: mockTemplates });
 
-    const { EmailsPage } = await import('./-emails-page');
-    const Wrapper = createWrapper();
-    render(
-      <Wrapper>
-        <EmailsPage />
-      </Wrapper>
-    );
+    renderRoute(Route);
 
     await waitFor(() => {
       expect(screen.getByText(/3 templates/i)).toBeInTheDocument();

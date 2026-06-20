@@ -1,12 +1,18 @@
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as React from 'react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { screen, cleanup } from '@testing-library/react';
+import { TEST_IDS } from '@hushbox/shared';
+import { renderRoute } from '@/test-utils/render';
+import { useSharedMessage } from '@/hooks/chat/use-shared-message.js';
+import { Route } from './share.m.$shareId';
+import type { ContentKey } from '@hushbox/crypto';
 
 vi.mock('@/hooks/chat/use-shared-message.js', () => ({
   useSharedMessage: vi.fn(),
 }));
 
 vi.mock('../components/shared/app-shell.js', () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => (
+  AppShell: ({ children }: { children: React.ReactNode }): React.JSX.Element => (
     <div data-testid="app-shell">{children}</div>
   ),
 }));
@@ -15,11 +21,11 @@ vi.mock('../components/shared/app-shell.js', () => ({
 // reference slips through we want the test to fail on the assertion, not on a
 // cascade of env-parsing side effects from the real ChatLayout tree.
 vi.mock('@/components/chat/layout/chat-layout.js', () => ({
-  ChatLayout: () => <div data-testid="chat-layout-should-not-render" />,
+  ChatLayout: (): React.JSX.Element => <div data-testid="chat-layout-should-not-render" />,
 }));
 
 vi.mock('@/components/chat/message/markdown-renderer.js', () => ({
-  MarkdownRenderer: ({ content }: { content: string }) => (
+  MarkdownRenderer: ({ content }: { content: string }): React.JSX.Element => (
     <div data-testid="markdown-renderer">{content}</div>
   ),
 }));
@@ -36,7 +42,7 @@ vi.mock('@/components/chat/media/media-content-item.js', () => ({
       contentType: string;
       downloadUrl?: string;
     };
-  }) => (
+  }): React.JSX.Element => (
     <div
       data-testid={`shared-media-${item.contentItemId}`}
       data-content-type={item.contentType}
@@ -47,23 +53,14 @@ vi.mock('@/components/chat/media/media-content-item.js', () => ({
   ),
 }));
 
-vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: () => {
-    const routeObject = {
-      component: undefined as unknown,
-    };
-    return (config: { component: unknown }) => {
-      routeObject.component = config.component;
-      return routeObject;
-    };
-  },
-  useParams: () => ({ shareId: 'share-from-route' }),
-}));
-
-import { TEST_IDS } from '@hushbox/shared';
-import { useSharedMessage } from '@/hooks/chat/use-shared-message.js';
-import { SharedMessagePage } from './-shared-message-page.js';
-import type { ContentKey } from '@hushbox/crypto';
+// Keep the real router (createFileRoute must run for the route file); mock only useParams.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    useParams: () => ({ shareId: 'share-from-route' }),
+  };
+});
 
 const mockUseSharedMessage = vi.mocked(useSharedMessage);
 
@@ -78,13 +75,18 @@ function mockData(overrides: Partial<SharedMessageData> = {}): SharedMessageData
   };
 }
 
-describe('SharedMessagePage', () => {
+describe('/share/m/$shareId route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.defineProperty(globalThis, 'location', {
       value: { hash: '#c2hhcmUta2V5LWI2NA' },
       writable: true,
     });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
   });
 
   it('renders loading state when data is loading', () => {
@@ -94,7 +96,7 @@ describe('SharedMessagePage', () => {
       isError: false,
     } as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     expect(screen.getByTestId(TEST_IDS.sharedMessageLoading)).toBeInTheDocument();
   });
@@ -106,7 +108,7 @@ describe('SharedMessagePage', () => {
       isError: false,
     } as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     const loading = screen.getByTestId(TEST_IDS.sharedMessageLoading);
     expect(loading).toHaveAttribute('role', 'status');
@@ -120,7 +122,7 @@ describe('SharedMessagePage', () => {
       isError: true,
     } as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     expect(screen.getByTestId(TEST_IDS.appShell)).toBeInTheDocument();
     expect(screen.getByTestId(TEST_IDS.sharedMessageError)).toBeInTheDocument();
@@ -133,7 +135,7 @@ describe('SharedMessagePage', () => {
       isError: true,
     } as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     expect(screen.getByTestId(TEST_IDS.sharedMessageError)).toHaveAttribute('role', 'alert');
   });
@@ -145,7 +147,7 @@ describe('SharedMessagePage', () => {
       isError: true,
     } as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     const errorContainer = screen.getByTestId(TEST_IDS.sharedMessageError);
     const icon = errorContainer.querySelector('svg');
@@ -159,7 +161,7 @@ describe('SharedMessagePage', () => {
       isError: true,
     } as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     expect(screen.getByText('Unable to access message')).toBeInTheDocument();
     expect(screen.getByText('This share link may be invalid or expired.')).toBeInTheDocument();
@@ -172,7 +174,7 @@ describe('SharedMessagePage', () => {
       isError: false,
     } as unknown as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     expect(screen.getByTestId(TEST_IDS.appShell)).toBeInTheDocument();
     expect(screen.getByTestId(TEST_IDS.sharedMessageContent)).toBeInTheDocument();
@@ -190,7 +192,7 @@ describe('SharedMessagePage', () => {
       isError: false,
     } as unknown as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     const renderers = screen.getAllByTestId(TEST_IDS.markdownRenderer);
     expect(renderers).toHaveLength(2);
@@ -234,7 +236,7 @@ describe('SharedMessagePage', () => {
       isError: false,
     } as unknown as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     const img = screen.getByTestId('shared-media-img-1');
     expect(img).toHaveAttribute('data-content-type', 'image');
@@ -268,7 +270,7 @@ describe('SharedMessagePage', () => {
       isError: false,
     } as unknown as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     // Text blocks render in position order, then the media tile — text-then-media
     // like a chat assistant message (not interleaved by raw position).
@@ -289,7 +291,7 @@ describe('SharedMessagePage', () => {
       isError: false,
     } as ReturnType<typeof useSharedMessage>);
 
-    render(<SharedMessagePage />);
+    renderRoute(Route);
 
     expect(mockUseSharedMessage).toHaveBeenCalledWith('share-from-route', 'c2hhcmUta2V5LWI2NA');
   });

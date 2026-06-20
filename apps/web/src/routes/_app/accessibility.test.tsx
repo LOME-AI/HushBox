@@ -1,67 +1,35 @@
 import * as React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
-
-vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: () => (options: Record<string, unknown>) => options,
-}));
-
-vi.mock('@hushbox/ui/accessibility', () => ({
-  AccessibilityPanel: (): React.JSX.Element => (
-    <section data-testid="accessibility-panel-mock">Panel</section>
-  ),
-}));
-
-vi.mock('@/components/shared/page-header', () => ({
-  PageHeader: ({
-    title,
-    right,
-  }: {
-    title?: string;
-    right?: React.ReactNode;
-  }): React.JSX.Element => (
-    <header data-testid="page-header-mock">
-      <span data-testid="page-header-title">{title}</span>
-      <span data-testid="page-header-right">{right}</span>
-    </header>
-  ),
-}));
-
-vi.mock('@/components/shared/theme-toggle', () => ({
-  ThemeToggle: (): React.JSX.Element => <button data-testid="theme-toggle-mock">Theme</button>,
-}));
-
+import { describe, it, expect, vi } from 'vitest';
+import { screen } from '@testing-library/react';
+import { renderRoute } from '@/test-utils/render';
 import { Route } from './accessibility';
 
-interface RouteShape {
-  component: React.ComponentType;
-}
+// renderRoute renders through the real provider stack, which pulls A11yProvider
+// and MotionProvider from this module — so keep the actual exports and override
+// only AccessibilityPanel (whose internals are out of scope for this route).
+vi.mock('@hushbox/ui/accessibility', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui/accessibility')>();
+  return {
+    ...actual,
+    AccessibilityPanel: (): React.JSX.Element => (
+      <section data-testid="accessibility-panel-mock">Panel</section>
+    ),
+  };
+});
 
 describe('/accessibility route', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('exports a Route with a component', () => {
-    expect((Route as unknown as RouteShape).component).toBeDefined();
-  });
-
   it('renders the PageHeader with title "Accessibility"', () => {
-    const Component = (Route as unknown as RouteShape).component;
-    render(<Component />);
-    expect(screen.getByTestId('page-header-mock')).toBeInTheDocument();
-    expect(screen.getByTestId('page-header-title').textContent).toBe('Accessibility');
+    renderRoute(Route);
+    expect(screen.getByText('Accessibility')).toBeInTheDocument();
   });
 
   it('renders the ThemeToggle in the header right slot', () => {
-    const Component = (Route as unknown as RouteShape).component;
-    render(<Component />);
-    expect(screen.getByTestId('theme-toggle-mock')).toBeInTheDocument();
+    renderRoute(Route);
+    expect(screen.getByTestId('theme-toggle')).toBeInTheDocument();
   });
 
   it('renders the AccessibilityPanel below the header', () => {
-    const Component = (Route as unknown as RouteShape).component;
-    render(<Component />);
+    renderRoute(Route);
     expect(screen.getByTestId('accessibility-panel-mock')).toBeInTheDocument();
   });
 });

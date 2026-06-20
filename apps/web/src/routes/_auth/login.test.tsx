@@ -1,112 +1,34 @@
+import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useNavigate } from '@tanstack/react-router';
+import { TEST_IDS } from '@hushbox/shared';
 import { signIn, resetPasswordViaRecovery } from '@/lib/auth';
-import { LoginPage } from './-login-page';
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './login';
 
-vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: vi.fn(() => vi.fn()),
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
-    <a href={to}>{children}</a>
-  ),
-  useNavigate: vi.fn(() => vi.fn()),
-}));
+// Keep the real router (createFileRoute must run for the route file); mock only
+// the navigation/link the page touches.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    Link: ({ children, to }: { children: React.ReactNode; to: string }): React.JSX.Element => (
+      <a href={to}>{children}</a>
+    ),
+    useNavigate: vi.fn(() => vi.fn()),
+  };
+});
 
 vi.mock('@/lib/auth', () => ({
   signIn: {
     email: vi.fn(),
   },
   resetPasswordViaRecovery: vi.fn(),
-}));
-
-vi.mock('@hushbox/ui', () => ({
-  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
-  Input: ({
-    label,
-    id,
-    ...props
-  }: { label?: string; id?: string } & React.InputHTMLAttributes<HTMLInputElement>) => (
-    <div>
-      {label && <label htmlFor={id}>{label}</label>}
-      <input id={id} {...props} />
-    </div>
-  ),
-  InlineFormError: ({ error, errorKey }: { error: string | null; errorKey: number }) =>
-    error === null ? null : (
-      <p key={errorKey} role="alert">
-        {error}
-      </p>
-    ),
-  Checkbox: ({
-    id,
-    checked,
-    onCheckedChange,
-  }: {
-    id?: string;
-    checked?: boolean;
-    onCheckedChange?: (checked: boolean) => void;
-  }) => (
-    <input
-      type="checkbox"
-      id={id}
-      checked={checked}
-      onChange={(e: React.ChangeEvent<HTMLInputElement>) => onCheckedChange?.(e.target.checked)}
-    />
-  ),
-}));
-
-vi.mock('@/components/shared/form-input', () => ({
-  FormInput: ({
-    label,
-    id,
-    error,
-    success,
-    ...props
-  }: {
-    label: string;
-    id?: string;
-    error?: string;
-    success?: string;
-  } & React.InputHTMLAttributes<HTMLInputElement>) => (
-    <div>
-      <label htmlFor={id}>{label}</label>
-      <input id={id} {...props} />
-      {error && <span role="alert">{error}</span>}
-      {success && id && <span data-testid={`${id}-success`}>{success}</span>}
-    </div>
-  ),
-}));
-
-vi.mock('@/components/auth/auth-password-input', () => ({
-  AuthPasswordInput: ({
-    label,
-    id,
-    error,
-    success,
-    showStrength,
-    ...props
-  }: {
-    label: string;
-    id?: string;
-    error?: string;
-    success?: string;
-    showStrength?: boolean;
-  } & React.InputHTMLAttributes<HTMLInputElement>) => (
-    <div>
-      <label htmlFor={id}>{label}</label>
-      <input type="password" id={id} {...props} />
-      {error && <span role="alert">{error}</span>}
-      {success && id && <span data-testid={`${id}-success`}>{success}</span>}
-      {showStrength && id && <span data-testid={`${id}-strength`}>strength</span>}
-    </div>
-  ),
-}));
-
-vi.mock('@/components/auth/auth-button', () => ({
-  AuthButton: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button {...props}>{children}</button>
-  ),
+  authClient: {
+    resendVerification: vi.fn(),
+  },
 }));
 
 vi.mock('@/components/auth/two-factor-input', () => ({
@@ -119,7 +41,7 @@ vi.mock('@/components/auth/two-factor-input', () => ({
     onOpenChange: (open: boolean) => void;
     onSuccess: () => void;
     onVerify: (code: string) => Promise<{ success: boolean; error?: string }>;
-  }) =>
+  }): React.JSX.Element | null =>
     open ? (
       <div data-testid="two-factor-modal">
         <button
@@ -143,26 +65,26 @@ describe('LoginPage', () => {
   });
 
   it('renders login form with identifier and password fields', () => {
-    render(<LoginPage />);
+    renderRoute(Route);
 
     expect(screen.getByLabelText(/email or username/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /log in/i })).toBeInTheDocument();
   });
 
   it('renders signup link', () => {
-    render(<LoginPage />);
+    renderRoute(Route);
 
     expect(screen.getByRole('link', { name: /sign up/i })).toHaveAttribute('href', '/signup');
   });
 
   it('validates identifier format on submit', async () => {
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     // Hyphens invalid in both email and username
     await user.type(screen.getByLabelText(/email or username/i), 'invalid-input');
-    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     expect(signIn.email).not.toHaveBeenCalled();
@@ -170,7 +92,7 @@ describe('LoginPage', () => {
 
   it('validates required fields on submit', async () => {
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
@@ -180,10 +102,10 @@ describe('LoginPage', () => {
   it('calls signIn.email with valid credentials', async () => {
     vi.mocked(signIn.email).mockResolvedValue({});
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'test@example.com');
-    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     expect(signIn.email).toHaveBeenCalledWith({
@@ -196,10 +118,10 @@ describe('LoginPage', () => {
   it('calls signIn.email with valid username', async () => {
     vi.mocked(signIn.email).mockResolvedValue({});
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'alice');
-    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     expect(signIn.email).toHaveBeenCalledWith({
@@ -214,10 +136,10 @@ describe('LoginPage', () => {
       error: { message: 'Invalid credentials' },
     });
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'test@example.com');
-    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     const errorAlert = screen
@@ -231,10 +153,10 @@ describe('LoginPage', () => {
       error: { message: 'Authentication failed' },
     });
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'test@example.com');
-    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     const errorAlert = screen
@@ -245,16 +167,16 @@ describe('LoginPage', () => {
 
   it('shows success message when identifier is valid as user types', async () => {
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'test@example.com');
 
-    expect(screen.getByTestId('identifier-success')).toHaveTextContent('Valid');
+    expect(screen.getByText('Valid')).toBeInTheDocument();
   });
 
   it('shows error message when identifier is invalid as user types', async () => {
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'a');
 
@@ -268,10 +190,10 @@ describe('LoginPage', () => {
       verifyTOTP: mockVerifyTOTP,
     });
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'test@example.com');
-    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     expect(screen.getByTestId('two-factor-modal')).toBeInTheDocument();
@@ -287,10 +209,10 @@ describe('LoginPage', () => {
       verifyTOTP: mockVerifyTOTP,
     });
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'test@example.com');
-    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
     await user.click(screen.getByTestId('verify-2fa-btn'));
 
@@ -301,17 +223,17 @@ describe('LoginPage', () => {
   it('does not show 2FA modal for normal login', async () => {
     vi.mocked(signIn.email).mockResolvedValue({});
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'test@example.com');
-    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     expect(screen.queryByTestId('two-factor-modal')).not.toBeInTheDocument();
   });
 
   it('shows "Keep me signed in" checkbox unchecked by default', () => {
-    render(<LoginPage />);
+    renderRoute(Route);
 
     const checkbox = screen.getByLabelText(/keep me signed in/i);
     expect(checkbox).toBeInTheDocument();
@@ -321,10 +243,10 @@ describe('LoginPage', () => {
   it('passes keepSignedIn=false to signIn.email when checkbox is unchecked', async () => {
     vi.mocked(signIn.email).mockResolvedValue({});
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'test@example.com');
-    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     expect(signIn.email).toHaveBeenCalledWith({
@@ -337,10 +259,10 @@ describe('LoginPage', () => {
   it('passes keepSignedIn=true to signIn.email when checkbox is checked', async () => {
     vi.mocked(signIn.email).mockResolvedValue({});
     const user = userEvent.setup();
-    render(<LoginPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email or username/i), 'test@example.com');
-    await user.type(screen.getByLabelText(/password/i), 'password123');
+    await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByLabelText(/keep me signed in/i));
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
@@ -354,22 +276,22 @@ describe('LoginPage', () => {
   describe('Enter key navigation', () => {
     it('Enter on identifier field focuses password field', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       const identifier = screen.getByLabelText(/email or username/i);
       await user.click(identifier);
       await user.keyboard('{Enter}');
 
-      expect(screen.getByLabelText(/password/i)).toHaveFocus();
+      expect(screen.getByLabelText('Password')).toHaveFocus();
     });
 
     it('Enter on password field submits the login form', async () => {
       vi.mocked(signIn.email).mockResolvedValue({});
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.type(screen.getByLabelText(/email or username/i), 'test@example.com');
-      await user.type(screen.getByLabelText(/password/i), 'password123');
+      await user.type(screen.getByLabelText('Password'), 'password123');
       await user.keyboard('{Enter}');
 
       expect(signIn.email).toHaveBeenCalledWith({
@@ -382,14 +304,14 @@ describe('LoginPage', () => {
 
   describe('Password Recovery Flow', () => {
     it('shows "Forgot password?" link on login page', () => {
-      render(<LoginPage />);
+      renderRoute(Route);
 
       expect(screen.getByRole('button', { name: /forgot password/i })).toBeInTheDocument();
     });
 
     it('clicking "Forgot password?" shows recovery phrase form', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
 
@@ -402,7 +324,7 @@ describe('LoginPage', () => {
 
     it('"Back to login" link returns to login form', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       expect(screen.getByText(/reset password/i)).toBeInTheDocument();
@@ -415,7 +337,7 @@ describe('LoginPage', () => {
 
     it('pre-fills email from login form when switching to recovery mode', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
@@ -425,7 +347,7 @@ describe('LoginPage', () => {
 
     it('submitting recovery phrase shows new password form', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -443,7 +365,7 @@ describe('LoginPage', () => {
     it('shows success message after successful password reset', async () => {
       vi.mocked(resetPasswordViaRecovery).mockResolvedValue({ success: true });
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -475,7 +397,7 @@ describe('LoginPage', () => {
         error: 'Invalid recovery phrase',
       });
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -497,7 +419,7 @@ describe('LoginPage', () => {
 
     it('does not submit when password is too short', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -520,7 +442,7 @@ describe('LoginPage', () => {
 
     it('does not submit when passwords do not match', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -543,7 +465,7 @@ describe('LoginPage', () => {
 
     it('shows strength indicator on new password field', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -553,12 +475,12 @@ describe('LoginPage', () => {
       );
       await user.click(screen.getByRole('button', { name: /next/i }));
 
-      expect(screen.getByTestId('new-password-strength')).toBeInTheDocument();
+      expect(screen.getByTestId(TEST_IDS.strengthIndicator)).toBeInTheDocument();
     });
 
     it('"Back to recovery" link on Create New Password returns to recovery phrase form', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -580,7 +502,7 @@ describe('LoginPage', () => {
 
     it('"Back to login" button on recovery phrase form has pointer cursor', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
 
@@ -591,7 +513,7 @@ describe('LoginPage', () => {
     describe('Recovery Phrase Form Validation', () => {
       it('blocks Next when email is empty', async () => {
         const user = userEvent.setup();
-        render(<LoginPage />);
+        renderRoute(Route);
 
         await user.click(screen.getByRole('button', { name: /forgot password/i }));
         await user.type(
@@ -609,7 +531,7 @@ describe('LoginPage', () => {
 
       it('shows recovery phrase validation error when clicking Next with invalid phrase', async () => {
         const user = userEvent.setup();
-        render(<LoginPage />);
+        renderRoute(Route);
 
         await user.click(screen.getByRole('button', { name: /forgot password/i }));
         await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -629,7 +551,7 @@ describe('LoginPage', () => {
 
       it('proceeds to new password form with valid email and valid 12-word phrase', async () => {
         const user = userEvent.setup();
-        render(<LoginPage />);
+        renderRoute(Route);
 
         await user.click(screen.getByRole('button', { name: /forgot password/i }));
         await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -645,7 +567,7 @@ describe('LoginPage', () => {
 
       it('shows success message when valid 12-word phrase is entered', async () => {
         const user = userEvent.setup();
-        render(<LoginPage />);
+        renderRoute(Route);
 
         await user.click(screen.getByRole('button', { name: /forgot password/i }));
         await user.type(
@@ -659,7 +581,7 @@ describe('LoginPage', () => {
 
     it('Enter on new password field focuses confirm password field', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -679,7 +601,7 @@ describe('LoginPage', () => {
     it('Enter on confirm password submits recovery password reset', async () => {
       vi.mocked(resetPasswordViaRecovery).mockResolvedValue({ success: true });
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -702,7 +624,7 @@ describe('LoginPage', () => {
 
     it('Enter on email field in recovery phrase form advances to new password step', async () => {
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -721,7 +643,7 @@ describe('LoginPage', () => {
     it('shows error message when resetPasswordViaRecovery throws', async () => {
       vi.mocked(resetPasswordViaRecovery).mockRejectedValue(new Error('Network error'));
       const user = userEvent.setup();
-      render(<LoginPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /forgot password/i }));
       await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -743,7 +665,7 @@ describe('LoginPage', () => {
   });
 
   it('renders password field with current-password autocomplete hint', () => {
-    render(<LoginPage />);
+    renderRoute(Route);
 
     expect(screen.getByLabelText('Password')).toHaveAttribute('autocomplete', 'current-password');
   });

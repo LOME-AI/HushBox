@@ -45,6 +45,8 @@ coverage/
 # Playwright
 playwright-report/
 test-results/
+# e2e-clean.ts renames a wedged output dir aside as test-results.purge-<n> before each run
+test-results.purge-*/
 e2e/.auth/
 e2e/report/
 

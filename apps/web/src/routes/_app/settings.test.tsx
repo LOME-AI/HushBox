@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TEST_IDS } from '@hushbox/shared';
-import { SettingsPage } from './-settings-page';
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './settings';
 
 // vi.hoisted values are available inside vi.mock factories (hoisted above imports)
 const { mockChangePassword, mockUseAuthStore, useAuthStoreMock, mockAuthStoreState } = vi.hoisted(
@@ -202,32 +203,32 @@ describe('SettingsPage', () => {
 
   describe('rendering', () => {
     it('renders page with Settings title', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByTestId('page-header-title')).toHaveTextContent('Settings');
     });
 
     it('shows security section with manage authentication description', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Security')).toBeInTheDocument();
       expect(screen.getByText('Manage authentication')).toBeInTheDocument();
     });
 
     it('shows change password option', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Change Password')).toBeInTheDocument();
     });
 
     it('shows two-factor authentication option', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Two-Factor Authentication')).toBeInTheDocument();
     });
 
     it('shows recovery phrase option with description', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Recovery Phrase')).toBeInTheDocument();
       expect(screen.getByText('Protect from forgetting your password')).toBeInTheDocument();
@@ -235,14 +236,14 @@ describe('SettingsPage', () => {
 
     it('shows "Add an extra layer of security" when 2FA is disabled', () => {
       setMockUser({ totpEnabled: false });
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Add an extra layer of security')).toBeInTheDocument();
     });
 
     it('shows "Manage your authentication security" when 2FA is enabled', () => {
       setMockUser({ totpEnabled: true });
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Manage your authentication security')).toBeInTheDocument();
     });
@@ -250,7 +251,7 @@ describe('SettingsPage', () => {
 
   describe('legal card', () => {
     it('renders legal card with title and description', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Legal')).toBeInTheDocument();
       expect(screen.getByText('Terms and policies')).toBeInTheDocument();
@@ -258,7 +259,7 @@ describe('SettingsPage', () => {
 
     it('renders Terms of Service button that opens external page', async () => {
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       const termsButton = screen.getByRole('button', { name: /terms of service/i });
       await user.click(termsButton);
@@ -268,7 +269,7 @@ describe('SettingsPage', () => {
 
     it('renders Privacy Policy button that opens external page', async () => {
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       const privacyButton = screen.getByRole('button', { name: /privacy policy/i });
       await user.click(privacyButton);
@@ -277,7 +278,7 @@ describe('SettingsPage', () => {
     });
 
     it('renders effective date', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText(/Effective:/)).toBeInTheDocument();
     });
@@ -285,7 +286,7 @@ describe('SettingsPage', () => {
 
   describe('account card', () => {
     it('renders account card with brand-colored title', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Account')).toBeInTheDocument();
       expect(screen.getByText('Your account information')).toBeInTheDocument();
@@ -293,21 +294,21 @@ describe('SettingsPage', () => {
 
     it('displays user email', () => {
       setMockUser({ email: 'user@hushbox.ai' });
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('user@hushbox.ai')).toBeInTheDocument();
     });
 
     it('shows Verified badge when email is verified', () => {
       setMockUser({ emailVerified: true });
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Verified')).toBeInTheDocument();
     });
 
     it('shows Not verified badge when email is not verified', () => {
       setMockUser({ emailVerified: false });
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Not verified')).toBeInTheDocument();
     });
@@ -316,7 +317,7 @@ describe('SettingsPage', () => {
   describe('status badges', () => {
     it('shows Enabled badge when 2FA is enabled', () => {
       setMockUser({ totpEnabled: true });
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       const badges = screen.getAllByText('Enabled');
       expect(badges.length).toBeGreaterThanOrEqual(1);
@@ -324,7 +325,7 @@ describe('SettingsPage', () => {
 
     it('shows Disabled badge when 2FA is disabled', () => {
       setMockUser({ totpEnabled: false });
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       const badges = screen.getAllByText('Disabled');
       expect(badges.length).toBeGreaterThanOrEqual(1);
@@ -332,7 +333,7 @@ describe('SettingsPage', () => {
 
     it('shows Enabled badge for recovery phrase when acknowledged', () => {
       setMockUser({ hasAcknowledgedPhrase: true });
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       const badges = screen.getAllByText('Enabled');
       expect(badges.length).toBeGreaterThanOrEqual(1);
@@ -340,7 +341,7 @@ describe('SettingsPage', () => {
 
     it('shows Disabled badge for recovery phrase when not acknowledged', () => {
       setMockUser({ hasAcknowledgedPhrase: false });
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       const badges = screen.getAllByText('Disabled');
       expect(badges.length).toBeGreaterThanOrEqual(1);
@@ -350,7 +351,7 @@ describe('SettingsPage', () => {
   describe('change password modal', () => {
     it('opens change password modal when button is clicked', async () => {
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /change password.*update/i }));
 
@@ -363,7 +364,7 @@ describe('SettingsPage', () => {
   describe('two-factor authentication modal', () => {
     it('opens 2FA setup modal when button is clicked', async () => {
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*extra/i }));
 
@@ -389,7 +390,7 @@ describe('SettingsPage', () => {
         });
 
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*extra/i }));
 
@@ -423,7 +424,7 @@ describe('SettingsPage', () => {
     it('opens 2FA disable modal when button is clicked and 2FA is enabled', async () => {
       setMockUser({ totpEnabled: true });
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*manage/i }));
 
@@ -435,7 +436,7 @@ describe('SettingsPage', () => {
     it('updates user state with totpEnabled false after 2FA disable success', async () => {
       setMockUser({ totpEnabled: true });
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /two-factor authentication.*manage/i }));
 
@@ -465,14 +466,14 @@ describe('SettingsPage', () => {
 
   describe('preferences card', () => {
     it('renders Preferences card with title and description', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Preferences')).toBeInTheDocument();
       expect(screen.getByText('Customize how AI responds to you')).toBeInTheDocument();
     });
 
     it('renders Custom Instructions setting item', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Custom Instructions')).toBeInTheDocument();
       expect(
@@ -488,7 +489,7 @@ describe('SettingsPage', () => {
         })
       );
 
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Active')).toBeInTheDocument();
     });
@@ -501,14 +502,14 @@ describe('SettingsPage', () => {
         })
       );
 
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       expect(screen.getByText('Not set')).toBeInTheDocument();
     });
 
     it('opens custom instructions modal when clicked', async () => {
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /custom instructions.*tell the ai/i }));
 
@@ -520,7 +521,7 @@ describe('SettingsPage', () => {
 
   describe('danger zone', () => {
     it('renders the Danger zone card with destructive styling', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
       expect(screen.getByText('Danger zone')).toBeInTheDocument();
       expect(
         screen.getByText(/permanently delete your account and all associated data/i)
@@ -528,7 +529,7 @@ describe('SettingsPage', () => {
     });
 
     it('renders a Delete account button under the Danger zone card', () => {
-      render(<SettingsPage />);
+      renderRoute(Route);
       expect(screen.getByTestId(TEST_IDS.deleteAccountTrigger)).toBeInTheDocument();
       expect(screen.getByTestId(TEST_IDS.deleteAccountTrigger)).toHaveTextContent(
         /^Delete Account$/
@@ -537,7 +538,7 @@ describe('SettingsPage', () => {
 
     it('opens the DeleteAccountModal when the Delete account button is clicked', async () => {
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
       expect(screen.queryByTestId('delete-account-modal-stub')).not.toBeInTheDocument();
 
       await user.click(screen.getByTestId(TEST_IDS.deleteAccountTrigger));
@@ -552,7 +553,7 @@ describe('SettingsPage', () => {
     it('opens recovery phrase modal directly when user has no phrase', async () => {
       setMockUser({ hasAcknowledgedPhrase: false });
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /recovery phrase.*protect/i }));
 
@@ -564,7 +565,7 @@ describe('SettingsPage', () => {
     it('shows confirmation modal when user already has a phrase', async () => {
       setMockUser({ hasAcknowledgedPhrase: true });
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /recovery phrase.*protect/i }));
 
@@ -581,7 +582,7 @@ describe('SettingsPage', () => {
     it('closes confirmation modal when Cancel is clicked', async () => {
       setMockUser({ hasAcknowledgedPhrase: true });
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /recovery phrase.*protect/i }));
 
@@ -615,7 +616,7 @@ describe('SettingsPage', () => {
 
       setMockUser({ hasAcknowledgedPhrase: false });
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /recovery phrase.*protect/i }));
 
@@ -653,7 +654,7 @@ describe('SettingsPage', () => {
     it('opens recovery phrase modal when Generate New is clicked', async () => {
       setMockUser({ hasAcknowledgedPhrase: true });
       const user = userEvent.setup();
-      render(<SettingsPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByRole('button', { name: /recovery phrase.*protect/i }));
 

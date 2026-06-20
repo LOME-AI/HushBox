@@ -1,28 +1,35 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { useSearch } from '@tanstack/react-router';
 import { toast } from '@hushbox/ui';
 import { authClient } from '@/lib/auth';
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './verify';
 
-const mockNavigate = vi.fn();
-
-vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: vi.fn(() => vi.fn()),
-  useSearch: vi.fn(() => ({ token: 'test-token' })),
-  useNavigate: vi.fn(() => mockNavigate),
-  Link: ({ children, ...props }: { children: React.ReactNode; to: string; className?: string }) => (
-    <a href={props.to} className={props.className}>
-      {children}
-    </a>
-  ),
-}));
-
-vi.mock('@hushbox/shared', () => ({
-  ROUTES: {
-    LOGIN: '/login',
-  },
-}));
+// Keep the real router (createFileRoute must run for the route file); mock only
+// the navigation/link/search hooks the page touches.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    useSearch: vi.fn(() => ({ token: 'test-token' })),
+    useNavigate: vi.fn(() => vi.fn()),
+    Link: ({
+      children,
+      to,
+      className,
+    }: {
+      children: React.ReactNode;
+      to: string;
+      className?: string;
+    }): React.JSX.Element => (
+      <a href={to} className={className}>
+        {children}
+      </a>
+    ),
+  };
+});
 
 vi.mock('@/lib/auth', () => ({
   authClient: {
@@ -30,12 +37,17 @@ vi.mock('@/lib/auth', () => ({
   },
 }));
 
-vi.mock('@hushbox/ui', () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-}));
+// Keep the real @hushbox/ui (providers depend on it); override only `toast`.
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    toast: {
+      success: vi.fn(),
+      error: vi.fn(),
+    },
+  };
+});
 
 describe('VerifyPage', () => {
   beforeEach(() => {
@@ -43,23 +55,21 @@ describe('VerifyPage', () => {
     vi.mocked(useSearch).mockReturnValue({ token: 'test-token' });
   });
 
-  it('shows loading state initially', async () => {
+  it('shows loading state initially', () => {
     vi.mocked(authClient.verifyEmail).mockImplementation(
       // Promise that never resolves to keep loading state
       () => new Promise(() => {})
     );
-    const { VerifyPage } = await import('./-verify-page');
 
-    render(<VerifyPage />);
+    renderRoute(Route);
 
     expect(screen.getByText(/verifying/i)).toBeInTheDocument();
   });
 
   it('shows success state on successful verification', async () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({});
-    const { VerifyPage } = await import('./-verify-page');
 
-    render(<VerifyPage />);
+    renderRoute(Route);
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /email verified/i })).toBeInTheDocument();
@@ -75,9 +85,8 @@ describe('VerifyPage', () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({
       error: { message: 'Invalid or expired token' },
     });
-    const { VerifyPage } = await import('./-verify-page');
 
-    render(<VerifyPage />);
+    renderRoute(Route);
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /verification failed/i })).toBeInTheDocument();
@@ -91,9 +100,8 @@ describe('VerifyPage', () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({
       error: { message: '' },
     });
-    const { VerifyPage } = await import('./-verify-page');
 
-    render(<VerifyPage />);
+    renderRoute(Route);
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /verification failed/i })).toBeInTheDocument();
@@ -105,9 +113,8 @@ describe('VerifyPage', () => {
 
   it('shows error state on network failure', async () => {
     vi.mocked(authClient.verifyEmail).mockRejectedValue(new Error('Network error'));
-    const { VerifyPage } = await import('./-verify-page');
 
-    render(<VerifyPage />);
+    renderRoute(Route);
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /verification failed/i })).toBeInTheDocument();
@@ -126,12 +133,13 @@ describe('VerifyPage idempotency', () => {
 
   it('fires verifyEmail at most once when the effect runs twice for the same token', async () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({});
-    const { VerifyPage } = await import('./-verify-page');
 
+    const Component = Route.options.component!;
     const { StrictMode } = await import('react');
-    render(
+    const { renderWithProviders } = await import('@/test-utils/render');
+    renderWithProviders(
       <StrictMode>
-        <VerifyPage />
+        <Component />
       </StrictMode>
     );
 
@@ -144,12 +152,13 @@ describe('VerifyPage idempotency', () => {
 
   it('still transitions to the success state when the effect runs twice', async () => {
     vi.mocked(authClient.verifyEmail).mockResolvedValue({});
-    const { VerifyPage } = await import('./-verify-page');
 
+    const Component = Route.options.component!;
     const { StrictMode } = await import('react');
-    render(
+    const { renderWithProviders } = await import('@/test-utils/render');
+    renderWithProviders(
       <StrictMode>
-        <VerifyPage />
+        <Component />
       </StrictMode>
     );
 
@@ -166,10 +175,8 @@ describe('VerifyPage without token', () => {
     vi.mocked(useSearch).mockReturnValue({ token: undefined });
   });
 
-  it('shows error when no token provided', async () => {
-    const { VerifyPage } = await import('./-verify-page');
-
-    render(<VerifyPage />);
+  it('shows error when no token provided', () => {
+    renderRoute(Route);
 
     expect(screen.getByText(/no verification token/i)).toBeInTheDocument();
   });
