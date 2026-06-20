@@ -122,13 +122,15 @@ function navigateIfActive(
   activeRef: React.RefObject<boolean>,
   navigate: ReturnType<typeof useNavigate>,
   route: string,
-  params?: Record<string, string>
+  options?: { params?: Record<string, string>; state?: { fromCreate?: boolean } }
 ): void {
   if (activeRef.current) {
+    const { params, state } = options ?? {};
     void navigate({
       to: route,
       ...(params && { params }),
       ...(params && { replace: true }),
+      ...(state && { state }),
     });
   }
 }
@@ -754,7 +756,13 @@ export function useAuthenticatedChat({
           queryClient.setQueryData(chatKeys.conversation(realId), fullData);
           clearPendingMessage();
           setRealConversationId(realId);
-          navigateIfActive(activeRef, navigate, ROUTES.CHAT_ID, { id: realId });
+          // Mark this as the create→real hop so the chat route keeps its key
+          // stable and does not remount (which would drop optimistic-only state
+          // like failed-model error tiles). See resolveChatPageKey.
+          navigateIfActive(activeRef, navigate, ROUTES.CHAT_ID, {
+            params: { id: realId },
+            state: { fromCreate: true },
+          });
           return;
         }
 
@@ -880,7 +888,13 @@ export function useAuthenticatedChat({
           })
         );
       }
-      navigateIfActive(activeRef, navigate, ROUTES.CHAT_ID, { id: realId });
+      // Mark this as the create→real hop so the chat route keeps its key
+      // stable and does not remount (which would drop optimistic-only state
+      // like failed-model error tiles). See resolveChatPageKey.
+      navigateIfActive(activeRef, navigate, ROUTES.CHAT_ID, {
+        params: { id: realId },
+        state: { fromCreate: true },
+      });
     };
 
     void createConversationAndStream();

@@ -4,11 +4,23 @@ import { screen } from '@testing-library/react';
 import { renderRoute } from '@/test-utils/render';
 import { Route } from './chat.$id';
 
-const { mockRequireAuth, authenticatedChatPageMock, mountSpy } = vi.hoisted(() => ({
-  mockRequireAuth: vi.fn(),
-  authenticatedChatPageMock: vi.fn(),
-  mountSpy: vi.fn(),
-}));
+const { mockRequireAuth, authenticatedChatPageMock, mountSpy, mockUseLocation } = vi.hoisted(
+  () => ({
+    mockRequireAuth: vi.fn(),
+    authenticatedChatPageMock: vi.fn(),
+    mountSpy: vi.fn(),
+    mockUseLocation: vi.fn(() => ({ state: {} })),
+  })
+);
+
+// The chat route reads the create→real history marker via the standalone
+// `useLocation` hook, but `renderRoute` has no real router for it to read from —
+// stub it. Spread the rest so `createFileRoute` (which builds `Route`) stays
+// real and its `useParams`/`useSearch` remain spyable.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return { ...actual, useLocation: (...args: unknown[]) => mockUseLocation(...args) };
+});
 
 // `Route.useParams`/`Route.useSearch` call the router's bundled internals (not
 // the module's standalone hook exports), so importActual+override does not reach
@@ -18,6 +30,9 @@ function setParams(params: { id: string }): void {
 }
 function setSearch(search: { fork: string | undefined }): void {
   vi.spyOn(Route, 'useSearch').mockReturnValue(search);
+}
+function setLocationState(state: { fromCreate?: boolean }): void {
+  mockUseLocation.mockReturnValue({ state });
 }
 
 vi.mock('@/lib/auth', () => ({
@@ -193,6 +208,7 @@ describe('chat.$id component', () => {
     vi.restoreAllMocks();
     mountSpy.mockClear();
     authenticatedChatPageMock.mockClear();
+    setLocationState({});
   });
 
   it('renders AuthenticatedChatPage inside an ErrorBoundary, forwarding params', () => {
@@ -233,6 +249,47 @@ describe('chat.$id component', () => {
     expect(mountSpy).toHaveBeenCalledTimes(1);
 
     paramsSpy.mockReturnValue({ id: 'conv-b' });
+    const Component = Route.options.component as React.ComponentType;
+    rerender(<Component />);
+
+    expect(mountSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('does NOT remount across the create→real hop (new → realId with marker)', () => {
+    // The post-stream `/chat/new` → `/chat/<realId>` navigation is the same
+    // just-created conversation getting its id. Remounting there would discard
+    // optimistic-only state (failed-model error tiles have no DB row), so the
+    // key is held stable when the navigation carries the `fromCreate` marker.
+    setSearch({ fork: undefined });
+    const paramsSpy = vi.spyOn(Route, 'useParams').mockReturnValue({ id: 'new' });
+
+    const { rerender } = renderRoute(Route);
+    expect(mountSpy).toHaveBeenCalledTimes(1);
+
+    paramsSpy.mockReturnValue({ id: 'real-1' });
+    setLocationState({ fromCreate: true });
+    const Component = Route.options.component as React.ComponentType;
+    rerender(<Component />);
+
+    expect(mountSpy).toHaveBeenCalledTimes(1);
+    expect(authenticatedChatPageMock).toHaveBeenLastCalledWith({
+      routeConversationId: 'real-1',
+      initialForkId: undefined,
+    });
+  });
+
+  it('remounts on a new → existing switch with no create marker', () => {
+    // A user leaving a fresh /chat/new to open an existing conversation is a
+    // genuine switch and must remount, since the hook only initialises its
+    // per-conversation state at mount.
+    setSearch({ fork: undefined });
+    const paramsSpy = vi.spyOn(Route, 'useParams').mockReturnValue({ id: 'new' });
+
+    const { rerender } = renderRoute(Route);
+    expect(mountSpy).toHaveBeenCalledTimes(1);
+
+    paramsSpy.mockReturnValue({ id: 'existing-1' });
+    setLocationState({});
     const Component = Route.options.component as React.ComponentType;
     rerender(<Component />);
 

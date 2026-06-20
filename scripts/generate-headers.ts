@@ -247,8 +247,8 @@ const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do no
 # Directive notes
 #  - default-src 'self': fall-through deny for anything not enumerated below.
 #  - script-src: 'self' + 'wasm-unsafe-eval' + 'unsafe-eval' + secure.myhelcim.com plus
-#    per-page SHA-256 hashes on marketing routes. SPA route stays without inline-script
-#    hashes since it serves no inline scripts. 'wasm-unsafe-eval' is required by
+#    per-page SHA-256 hashes on marketing routes, plus the SPA shell's own inline-script
+#    hashes on the /* block (inherited by the /demo blocks). 'wasm-unsafe-eval' is required by
 #    hash-wasm/argon2id, called from packages/crypto's key-derivation during signup,
 #    recovery-phrase verify, and password change. Without it, WebAssembly.compile is
 #    blocked and signUpEmail's catch swallows the failure silently. secure.myhelcim.com
@@ -290,7 +290,6 @@ export async function generateHeaders(
   const apiOrigin = deriveApiOrigin(apiUrl);
   const minioApiPort = options.minioApiPort ?? process.env['HB_MINIO_API_PORT'];
   const localR2Origin = deriveLocalR2Origin(apiOrigin, minioApiPort);
-  const spaHeaders = buildSpaHeaders(apiOrigin, localR2Origin);
 
   await assertDirectory(distributionDir);
   const pages = await findMarketingPages(distributionDir);
@@ -300,6 +299,17 @@ export async function generateHeaders(
         `Did the marketing build run before this script?`
     );
   }
+
+  // The SPA shell (dist/index.html) ships its own pre-paint inline scripts
+  // (theme-flash + a11y-init); the /* block — and the /demo blocks derived from
+  // it — must carry their SHA-256 hashes or the strict hashless script-src
+  // blocks them on every SPA route. Folded in after the marketing-page
+  // validation above so a missing/broken build fails on the clearer
+  // dist/marketing errors first.
+  const spaHeaders = await inlineSpaShellHashes(
+    distributionDir,
+    buildSpaHeaders(apiOrigin, localR2Origin)
+  );
 
   // `/*` first: Cloudflare applies rules top-to-bottom, and a per-path
   // `! Content-Security-Policy` only deletes a CSP an earlier rule set. With
@@ -421,6 +431,37 @@ export function computePageCsp(html: string): PageCsp {
     }
   }
   return { scriptHashes };
+}
+
+/**
+ * Fold the SPA shell's inline-script SHA-256 hashes into the `/*` CSP. The shell
+ * (dist/index.html) serves theme-flash + a11y-init inline scripts that must run
+ * before first paint; without their hashes the strict script-src blocks them on
+ * every SPA route. Returns headers unchanged when the shell has no inline
+ * scripts. The /demo blocks derive from the returned headers and inherit them.
+ */
+async function inlineSpaShellHashes(
+  distributionDir: string,
+  headers: readonly { name: string; value: string }[]
+): Promise<readonly { name: string; value: string }[]> {
+  const shellPath = path.join(distributionDir, 'index.html');
+  let shellHtml: string;
+  try {
+    shellHtml = await fs.readFile(shellPath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(
+        `SPA shell not found at ${shellPath}. The web build must emit index.html before headers are generated.`
+      );
+    }
+    throw error;
+  }
+  const csp = computePageCsp(shellHtml);
+  return headers.map((header) =>
+    header.name === 'Content-Security-Policy'
+      ? { name: header.name, value: inlineHashesIntoSpaCsp(header.value, csp) }
+      : header
+  );
 }
 
 function formatMarketingBlock(

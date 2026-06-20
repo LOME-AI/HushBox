@@ -475,7 +475,7 @@ const MAX_ERROR_LENGTH = 2000;
 // A run is a failure when any test failed, the run carries a non-passed status
 // (aborted/timed-out/interrupted), or a run-level error was reported. The last
 // two matter when zero tests ran: a global abort must never render as PASSED.
-export function isRunFailed(report: DebugReport): boolean {
+function isRunFailed(report: DebugReport): boolean {
   if (report.summary.failed > 0) return true;
   if ((report.globalErrors ?? []).length > 0) return true;
   return report.status !== undefined && report.status !== 'passed';

@@ -13,6 +13,7 @@ import {
   buildRerunCommand,
   generateMarkdownReport,
   generateJsonReport,
+  renderGlobalErrors,
   renderResourceSection,
   renderSteps,
   serializeTestForJson,
@@ -1379,6 +1380,34 @@ describe('e2e-debug', () => {
       const md = generateMarkdownReport(report);
 
       expect(md).toContain('**Duration:** 2m 34s');
+    });
+  });
+
+  describe('renderGlobalErrors', () => {
+    const reportWith = (globalErrors?: string[]): DebugReport => ({
+      summary: { total: 0, passed: 0, flaky: 0, failed: 0, duration: 0 },
+      passed: [],
+      flaky: [],
+      failed: [],
+      ...(globalErrors && { globalErrors }),
+    });
+
+    it('returns no lines when there are no global errors', () => {
+      expect(renderGlobalErrors(reportWith())).toEqual([]);
+    });
+
+    it('renders a section containing the error text', () => {
+      const lines = renderGlobalErrors(reportWith(['Error: ENOTEMPTY: directory not empty']));
+
+      expect(lines).toContain('## Global Errors');
+      expect(lines).toContain('Error: ENOTEMPTY: directory not empty');
+    });
+
+    it('strips ANSI colour codes from the error text', () => {
+      const esc = String.fromCodePoint(27);
+      const lines = renderGlobalErrors(reportWith([`${esc}[31mboom${esc}[0m`]));
+
+      expect(lines).toContain('boom');
     });
   });
 

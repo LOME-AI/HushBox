@@ -1,10 +1,11 @@
 import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useLocation } from '@tanstack/react-router';
 import { requireAuth } from '@/lib/auth';
 import { AuthenticatedChatPage } from '@/components/chat/page/authenticated-chat-page';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
 import { conversationQueryOptions } from '@/hooks/chat/chat';
 import { keyChainQueryOptions } from '@/hooks/crypto/keys';
+import { resolveChatPageKey } from '@/lib/chat/auth-chat-helpers';
 
 export interface ChatSearch {
   fork: string | undefined;
@@ -41,11 +42,19 @@ function AuthenticatedChatWithErrorBoundary(): React.JSX.Element {
 function AuthenticatedChat(): React.JSX.Element {
   const { id } = Route.useParams();
   const { fork } = Route.useSearch();
+  const { state } = useLocation();
 
-  // Key by the route conversation id so navigating between conversations
-  // remounts the chat subtree, resetting all per-conversation hook state
-  // (typing, presence, phantoms, forks) instead of bleeding it across.
-  // `id` is `'new'` for the entire create flow — constant until the post-stream
-  // navigation — so the create→real first stream is never remounted mid-flight.
-  return <AuthenticatedChatPage key={id} routeConversationId={id} initialForkId={fork} />;
+  // Key by the conversation id so switching conversations remounts the chat
+  // subtree, resetting all per-conversation state (typing, presence, phantoms,
+  // forks). The one exception is the create→real hop: after the first message
+  // the hook navigates `/chat/new` → `/chat/<realId>` (marked `fromCreate`) for
+  // the SAME just-created conversation. Remounting there would discard
+  // optimistic-only state with no DB row — notably failed-model error tiles —
+  // so the key is held stable across exactly that transition. Adjust-state-in-
+  // render keeps it concurrent-safe (no effect, no render-time ref mutation).
+  const [keyState, setKeyState] = React.useState({ prevId: id, key: id });
+  const next = resolveChatPageKey(keyState, id, state.fromCreate === true);
+  if (next !== keyState) setKeyState(next);
+
+  return <AuthenticatedChatPage key={next.key} routeConversationId={id} initialForkId={fork} />;
 }

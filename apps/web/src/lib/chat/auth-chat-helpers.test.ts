@@ -29,6 +29,7 @@ import {
   deriveMessagesReady,
   computeDisplayTitle,
   extractDoneMediaItems,
+  resolveChatPageKey,
   DECRYPTING_TITLE,
 } from './auth-chat-helpers';
 
@@ -432,5 +433,45 @@ describe('extractDoneMediaItems', () => {
         downloadUrl: 'https://x/y',
       },
     ]);
+  });
+});
+
+describe('resolveChatPageKey', () => {
+  it('keeps the same state when the id is unchanged', () => {
+    const previous = { prevId: 'conv-a', key: 'conv-a' };
+    expect(resolveChatPageKey(previous, 'conv-a', false)).toBe(previous);
+  });
+
+  it('holds the key stable across the create→real hop (new→realId with marker)', () => {
+    const previous = { prevId: 'new', key: 'new' };
+    expect(resolveChatPageKey(previous, 'real-1', true)).toEqual({ prevId: 'real-1', key: 'new' });
+  });
+
+  it('remounts (key = id) on a new→existing user switch (no create marker)', () => {
+    const previous = { prevId: 'new', key: 'new' };
+    expect(resolveChatPageKey(previous, 'existing-1', false)).toEqual({
+      prevId: 'existing-1',
+      key: 'existing-1',
+    });
+  });
+
+  it('remounts on an existing→existing switch regardless of the marker', () => {
+    const previous = { prevId: 'conv-a', key: 'conv-a' };
+    expect(resolveChatPageKey(previous, 'conv-b', true)).toEqual({
+      prevId: 'conv-b',
+      key: 'conv-b',
+    });
+  });
+
+  it('remounts when leaving a conversation to start a new chat', () => {
+    const previous = { prevId: 'conv-a', key: 'conv-a' };
+    expect(resolveChatPageKey(previous, 'new', false)).toEqual({ prevId: 'new', key: 'new' });
+  });
+
+  it('after a create→real hop, a later switch still remounts (key follows the new id)', () => {
+    const created = resolveChatPageKey({ prevId: 'new', key: 'new' }, 'real-1', true);
+    expect(created.key).toBe('new');
+    const switched = resolveChatPageKey(created, 'real-2', false);
+    expect(switched).toEqual({ prevId: 'real-2', key: 'real-2' });
   });
 });

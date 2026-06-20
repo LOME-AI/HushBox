@@ -321,3 +321,30 @@ export function deriveMessagesReady(
 ): boolean {
   return !isCreateMode && !isConversationLoading && !isDecryptionPending;
 }
+
+export interface ChatPageKeyState {
+  readonly prevId: string;
+  readonly key: string;
+}
+
+/**
+ * Resolve the React `key` for the chat page. The page is keyed so a genuine
+ * conversation switch remounts the subtree, resetting all per-conversation
+ * state (typing, presence, phantoms, forks). The one exception is the
+ * create→real hop: after the first message the hook navigates `/chat/new` →
+ * `/chat/<realId>` for the SAME just-created conversation. Remounting there
+ * would destroy optimistic-only state that has no DB row to restore it —
+ * notably failed-model error tiles — so the key is held stable across exactly
+ * that transition. `fromCreate` is a history-state marker the hook sets ONLY on
+ * that navigation, which distinguishes it from a user switching away from a new
+ * chat to an existing conversation (which must still remount).
+ */
+export function resolveChatPageKey(
+  previous: ChatPageKeyState,
+  id: string,
+  fromCreate: boolean
+): ChatPageKeyState {
+  if (id === previous.prevId) return previous;
+  const createToReal = previous.prevId === 'new' && fromCreate;
+  return { prevId: id, key: createToReal ? previous.key : id };
+}

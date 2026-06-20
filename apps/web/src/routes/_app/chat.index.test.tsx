@@ -122,7 +122,30 @@ vi.mock('framer-motion', async (importOriginal) => {
 
   const createMotionComponent = (tag: string) => {
     return react.forwardRef(
-      ({ children, ...props }: { children?: React.ReactNode }, ref: React.Ref<HTMLElement>) => {
+      (
+        {
+          children,
+          // Strip framer-motion-only props so they are not forwarded to the DOM
+          // element, which would make React warn about non-boolean attributes.
+          initial: _initial,
+          animate: _animate,
+          exit: _exit,
+          transition: _transition,
+          variants: _variants,
+          whileHover: _whileHover,
+          whileTap: _whileTap,
+          whileFocus: _whileFocus,
+          whileInView: _whileInView,
+          whileDrag: _whileDrag,
+          layout: _layout,
+          layoutId: _layoutId,
+          drag: _drag,
+          dragConstraints: _dragConstraints,
+          onAnimationComplete: _onAnimationComplete,
+          ...props
+        }: Record<string, unknown> & { children?: React.ReactNode },
+        ref: React.Ref<HTMLElement>
+      ) => {
         return react.createElement(tag, { ...props, ref }, children);
       }
     );
