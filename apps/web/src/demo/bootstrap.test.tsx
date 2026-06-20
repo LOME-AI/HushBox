@@ -36,6 +36,7 @@ vi.mock('./mock-backend/store', () => ({ DemoBackendStore: vi.fn() }));
 vi.mock('./director', () => ({ startDirector: vi.fn() }));
 vi.mock('./guardrails', () => ({ installGuardrails: vi.fn() }));
 vi.mock('./composer-cues', () => ({ installComposerCues: vi.fn() }));
+vi.mock('./focus-scroll-guard', () => ({ installFocusScrollGuard: vi.fn() }));
 
 afterEach(() => {
   vi.clearAllMocks();

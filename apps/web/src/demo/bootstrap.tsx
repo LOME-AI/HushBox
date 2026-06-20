@@ -13,6 +13,7 @@ import { seedDemoSession } from './seed-session';
 import { startDirector } from './director';
 import { installGuardrails } from './guardrails';
 import { installComposerCues } from './composer-cues';
+import { installFocusScrollGuard } from './focus-scroll-guard';
 
 /**
  * Boots the REAL app in "demo mode": installs the network shim + a seeded
@@ -61,6 +62,10 @@ function bootDemo(rootElement: Element): void {
   // Group conversations open a real WebSocket; the fake keeps it permanently
   // "ready" with no server and no reconnect churn (HMR sockets pass through).
   installWebSocketShim();
+  // The app focuses the composer on every turn; a bare focus() scrolls the
+  // focused element into view across the iframe boundary, dragging the
+  // embedding /welcome page. Force preventScroll in the demo realm.
+  installFocusScrollGuard();
 
   // Boot onto the new-chat screen; the director auto-opens the first conversation
   // (and every later one) by routing back through this welcome screen first.
