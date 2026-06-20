@@ -843,7 +843,9 @@ describe('MessageList', () => {
       // Simulate user scrolling on the scroller, then Virtuoso reports
       // the user is no longer at the bottom.
       scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
-      atBottomStateChange(false);
+      act(() => {
+        atBottomStateChange(false);
+      });
 
       // Even if Virtuoso reports isAtBottom=true (e.g. smooth scroll animation),
       // followOutput should respect the breakaway state.
@@ -861,12 +863,16 @@ describe('MessageList', () => {
       const scroller = screen.getByTestId('virtuoso-mock');
 
       scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
-      atBottomStateChange(false);
+      act(() => {
+        atBottomStateChange(false);
+      });
       expect(followOutput(true)).toBe(false);
 
       // Whether followOutput catches up or the user scrolled back, the
       // atBottom=true notification should re-engage auto-follow.
-      atBottomStateChange(true);
+      act(() => {
+        atBottomStateChange(true);
+      });
       expect(followOutput(true)).toBe(true);
     });
 
@@ -882,7 +888,9 @@ describe('MessageList', () => {
         atBottom: boolean
       ) => void;
 
-      atBottomStateChange(false);
+      act(() => {
+        atBottomStateChange(false);
+      });
       expect(followOutput(true)).toBe(true);
     });
 
@@ -897,7 +905,9 @@ describe('MessageList', () => {
       const scroller = screen.getByTestId('virtuoso-mock');
 
       scroller.dispatchEvent(new TouchEvent('touchmove', { bubbles: true }));
-      atBottomStateChange(false);
+      act(() => {
+        atBottomStateChange(false);
+      });
 
       expect(followOutput(true)).toBe(false);
     });
@@ -915,7 +925,9 @@ describe('MessageList', () => {
         const scroller = screen.getByTestId('virtuoso-mock');
 
         scroller.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
-        atBottomStateChange(false);
+        act(() => {
+          atBottomStateChange(false);
+        });
 
         expect(followOutput(true)).toBe(false);
       }
@@ -932,7 +944,9 @@ describe('MessageList', () => {
       const scroller = screen.getByTestId('virtuoso-mock');
 
       scroller.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
-      atBottomStateChange(false);
+      act(() => {
+        atBottomStateChange(false);
+      });
 
       expect(followOutput(true)).toBe(true);
     });
@@ -949,17 +963,23 @@ describe('MessageList', () => {
 
       // First user input then immediate atBottom(false) sticks.
       scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
-      atBottomStateChange(false);
+      act(() => {
+        atBottomStateChange(false);
+      });
       expect(followOutput(true)).toBe(false);
 
       // Re-engage at bottom.
-      atBottomStateChange(true);
+      act(() => {
+        atBottomStateChange(true);
+      });
       expect(followOutput(true)).toBe(true);
 
       // Decay window passes — a later content-growth-only atBottom(false)
       // must NOT mark scrolled-away.
       vi.advanceTimersByTime(500);
-      atBottomStateChange(false);
+      act(() => {
+        atBottomStateChange(false);
+      });
       expect(followOutput(true)).toBe(true);
     });
 
@@ -983,7 +1003,9 @@ describe('MessageList', () => {
       const scroller = screen.getByTestId('virtuoso-mock');
 
       scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
-      atBottomStateChange(false);
+      act(() => {
+        atBottomStateChange(false);
+      });
       expect(followOutput(true)).toBe(false);
 
       ref.current?.resetScrollBreakaway();

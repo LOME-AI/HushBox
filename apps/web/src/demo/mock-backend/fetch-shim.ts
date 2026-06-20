@@ -235,7 +235,10 @@ export function installFetchShim(store: DemoBackendStore): () => void {
         });
       }
       case 'bytes': {
-        return new Response(route.body, {
+        // Copy into a fresh ArrayBuffer-backed Uint8Array: the stored bytes are
+        // typed `Uint8Array<ArrayBufferLike>`, which `BodyInit` rejects (it
+        // excludes SharedArrayBuffer-backed views); the copy is `Uint8Array<ArrayBuffer>`.
+        return new Response(new Uint8Array(route.body), {
           status: 200,
           headers: { 'Content-Type': route.contentType },
         });

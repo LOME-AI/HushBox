@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import * as React from 'react';
 import { setEpochKey, clearEpochKeyCache } from '@/lib/epoch-key-cache';
 import { AuthenticatedChatPage } from '@/components/chat/page/authenticated-chat-page';
 import type { Message } from '@/lib/api';
@@ -9,9 +10,19 @@ const mockNavigate = vi.fn();
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
-  Navigate: ({ to }: { to: string }) => {
-    mockNavigate(to);
-    return <div data-testid="navigate" data-to={to} />;
+  // Models TanStack's <Navigate>: it guards re-navigation by comparing its props
+  // object by reference, so it fires once for a stable element but re-fires when
+  // an inline element hands it fresh props each render. This lets a test detect
+  // the render-loop regression that a value-only stub would hide.
+  Navigate: (props: { to: string }) => {
+    const previousPropsRef = React.useRef<object | null>(null);
+    React.useLayoutEffect(() => {
+      if (previousPropsRef.current !== props) {
+        mockNavigate(props.to);
+        previousPropsRef.current = props;
+      }
+    });
+    return <div data-testid="navigate" data-to={props.to} />;
   },
 }));
 
@@ -820,8 +831,6 @@ describe('AuthenticatedChatPage', () => {
           to: '/chat/$id',
           params: { id: 'conv-123' },
           replace: true,
-          // create→real hop carries the fromCreate marker so the chat route
-          // keeps its key stable and does not remount (see resolveChatPageKey).
           state: { fromCreate: true },
         });
       });
@@ -920,11 +929,25 @@ describe('AuthenticatedChatPage', () => {
 
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
-      // Redirects to the chat list. The element is referentially stable (hoisted
-      // REDIRECT_TO_CHAT) so the real <Navigate> fires once instead of looping on
-      // every render — that loop-prevention is verified by the group/leave and
-      // inbox-decline E2E specs, since jsdom's <Navigate> mock can't model it.
       expect(screen.getByTestId('navigate')).toHaveAttribute('data-to', '/chat');
+    });
+
+    it('fires the redirect only once across re-renders (stable element, no loop)', () => {
+      setupMocks({
+        conversationData: undefined,
+        isConversationLoading: false,
+      });
+
+      const { rerender } = render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+      rerender(<AuthenticatedChatPage routeConversationId="conv-456" />);
+      rerender(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      // The hoisted REDIRECT_TO_CHAT element keeps a stable props identity, so the
+      // real <Navigate> navigates exactly once instead of re-firing on every
+      // commit — the "Maximum update depth exceeded" loop on a 404 conversation.
+      // An inline <Navigate> hands fresh props each render and would fire 3x here.
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/chat');
     });
 
     it('submits new message with optimistic update', async () => {
