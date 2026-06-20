@@ -1,6 +1,19 @@
 import { test, expect } from '@playwright/test';
 import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { TIMEOUTS } from './config/timeouts.js';
+import { openMobileSidebarIfNeeded } from './helpers/auth.js';
+import type { Page } from '@playwright/test';
+
+/**
+ * Opens the requested demo conversation. The demo runs the real app shell, so on
+ * mobile viewports the conversation list lives in a sidebar Sheet that starts
+ * closed and re-closes after every navigation — it must be reopened before each
+ * switch. On desktop the sidebar is always rendered, so this is a no-op.
+ */
+async function selectDemoConversation(page: Page, index: number): Promise<void> {
+  await openMobileSidebarIfNeeded(page);
+  await page.getByTestId(TEST_IDS.chatLink).nth(index).click();
+}
 
 /**
  * Smoke test for the interactive product demo (`/demo`). Guards the whole demo
@@ -15,43 +28,42 @@ test.describe('interactive demo (/demo)', () => {
   }) => {
     await page.goto(ROUTES.DEMO);
 
-    // Real app shell: the sidebar lists the fixture conversations.
-    await expect(page.getByTestId(TEST_IDS.chatLink).first()).toBeVisible();
-
-    // The director opens the first conversation through the new-chat welcome
-    // screen (types the prompt there, fakes the send), then streams the reply and
-    // a follow-up through the real token-by-token path. Wider budget covers the
-    // welcome lead-in + two paced turns.
+    // The director auto-opens the first conversation through the new-chat welcome
+    // screen and streams the reply + a follow-up through the real token-by-token
+    // path. Assert this BEFORE any sidebar interaction: a trusted pointer tap
+    // (e.g. opening the mobile sidebar) aborts the director's in-flight playback
+    // (see demo/director.ts), so the welcome stream must be awaited first. The
+    // wider budget covers the welcome lead-in + two paced turns.
     await expect(page.getByText('decrypted just long enough')).toBeVisible({
       timeout: TIMEOUTS.STREAM_CLEAR,
     });
 
     // Switching conversations works and the iframe document URL stays /demo
-    // (memory-history router — reload-safe).
-    await page.getByTestId(TEST_IDS.chatLink).nth(1).click();
+    // (memory-history router — reload-safe). selectDemoConversation opens the
+    // mobile sidebar as needed, which also proves the sidebar lists the fixtures.
+    await selectDemoConversation(page, 1);
     await expect(page).toHaveURL(new RegExp(`${ROUTES.DEMO}$`));
 
     // Unsupported control (group member management) → sign-up nudge, no nav.
-    await page.getByTestId(TEST_IDS.chatLink).first().click();
+    await selectDemoConversation(page, 0);
     await page.getByTestId(TEST_IDS.newMemberButton).click();
     await expect(page.getByText('Create a free account to invite people')).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`${ROUTES.DEMO}$`));
   });
 
-  // The demo's sidebar renders as a collapsed icon rail, so conversation tiles
-  // carry no title text to filter on — they're selected positionally, in the
-  // listed order: 0 welcome, 1 smart-model, 2 code/math, 3 image, 4 video, 5 group.
+  // Conversation tiles carry no stable title text to filter on, so they're
+  // selected positionally, in the listed order: 0 welcome, 1 smart-model,
+  // 2 code/math, 3 image, 4 video, 5 group.
   const CONVERSATION = { codeMath: 2, image: 3, video: 4, group: 5 } as const;
 
   test('decrypts generated image and video media from ciphertext', async ({ page }) => {
     await page.goto(ROUTES.DEMO);
-    const conversations = page.getByTestId(TEST_IDS.chatLink);
 
     // The AI image is served as ciphertext (a data: URL), fetched, and decrypted
     // in-browser through the real media path — the lightbox affordance only
     // renders once the blob URL resolves, so its presence proves the decrypt
     // succeeded against the fake backend.
-    await conversations.nth(CONVERSATION.image).click();
+    await selectDemoConversation(page, CONVERSATION.image);
     // The shim emits synthetic `model:media:start` frames, so the real
     // optimistic UI shows the "Generating image…" placeholder during the
     // generation pause before the bytes land — proving the media-generation UX
@@ -65,7 +77,7 @@ test.describe('interactive demo (/demo)', () => {
 
     // An encrypted MP4 clip decrypts the same way into a real <video>; its
     // fullscreen affordance likewise only renders after the blob URL resolves.
-    await conversations.nth(CONVERSATION.video).click();
+    await selectDemoConversation(page, CONVERSATION.video);
     await expect(page.getByRole('button', { name: 'Expand video to fullscreen' })).toBeVisible({
       timeout: TIMEOUTS.MEDIA_DECODE,
     });
@@ -79,7 +91,7 @@ test.describe('interactive demo (/demo)', () => {
     // Open the image conversation: the director auto-switches to image modality
     // and renders the generated image (its lightbox proves the run finished and
     // image is the active modality, so its own icon is omitted).
-    await page.getByTestId(TEST_IDS.chatLink).nth(CONVERSATION.image).click();
+    await selectDemoConversation(page, CONVERSATION.image);
     await expect(page.getByRole('button', { name: 'Open image in lightbox' })).toBeVisible({
       timeout: TIMEOUTS.MEDIA_DECODE,
     });
@@ -102,7 +114,7 @@ test.describe('interactive demo (/demo)', () => {
     // transcript live: each message is appended and broadcast as `message:new`
     // over the fake socket, which the real refetch path renders, decrypted under
     // the shared epoch with per-sender labels (group mode).
-    await page.getByTestId(TEST_IDS.chatLink).nth(CONVERSATION.group).click();
+    await selectDemoConversation(page, CONVERSATION.group);
     await expect(
       page.getByText('Every message here is end-to-end encrypted, even in a group like this one.')
     ).toBeVisible({ timeout: TIMEOUTS.STREAM_CLEAR });
@@ -111,7 +123,7 @@ test.describe('interactive demo (/demo)', () => {
 
   test('regenerate re-streams a reply in place without breaking the thread', async ({ page }) => {
     await page.goto(ROUTES.DEMO);
-    await page.getByTestId(TEST_IDS.chatLink).nth(CONVERSATION.codeMath).click();
+    await selectDemoConversation(page, CONVERSATION.codeMath);
 
     const reply = page.getByText('Binary search halves the range');
     await expect(reply).toBeVisible({ timeout: TIMEOUTS.STREAM_CLEAR });

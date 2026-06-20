@@ -98,4 +98,42 @@ describe('BalanceHistoryChart', () => {
       expect(areaChartProps.at(0)).toMatchObject({ accessibilityLayer: true });
     });
   });
+
+  describe('multiple ledger entries on the same calendar day', () => {
+    it('renders without a duplicate React key warning', () => {
+      // The balance-history endpoint returns raw, ungrouped ledger entries, so
+      // several can fall on one calendar day. Keying the sr-only table rows on
+      // the formatted "Mon D" label collapses same-day entries to one key,
+      // which makes React log "Encountered two children with the same key" —
+      // and the E2E console-error gate treats that as a failure.
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(vi.fn());
+
+      render(
+        <BalanceHistoryChart
+          data={makeData([
+            {
+              createdAt: '2025-01-01T08:00:00Z',
+              balanceAfter: '5.00',
+              entryType: 'usage_charge',
+              amount: '-1.00',
+            },
+            {
+              createdAt: '2025-01-01T20:00:00Z',
+              balanceAfter: '4.00',
+              entryType: 'usage_charge',
+              amount: '-1.00',
+            },
+          ])}
+          isLoading={false}
+        />
+      );
+
+      const sawDuplicateKeyWarning = consoleError.mock.calls.some((args) =>
+        args.some((argument) => typeof argument === 'string' && argument.includes('same key'))
+      );
+      consoleError.mockRestore();
+
+      expect(sawDuplicateKeyWarning).toBe(false);
+    });
+  });
 });

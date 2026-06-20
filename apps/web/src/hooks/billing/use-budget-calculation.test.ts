@@ -222,6 +222,30 @@ describe('useBudgetCalculation', () => {
       // This prevents the "Low Balance" notification flash
       expect(result.current.maxOutputTokens).toBeGreaterThan(LOW_BALANCE_OUTPUT_TOKEN_THRESHOLD);
     });
+
+    it('does not loop when the balance query returns a fresh data object every render', () => {
+      // Access-revoked flows (leave/remove/decline) repeatedly invalidate the
+      // balance query, so `useBalance().data` is a new object reference on each
+      // render even when the values are identical. The synchronous tier flush
+      // must compare tier values, not the `tierInfo` reference — a reference
+      // compare setStates on every render once a re-render starts, and React
+      // throws "Maximum update depth exceeded".
+      mockUseBalance.mockImplementation(
+        () =>
+          ({
+            data: { balance: '10.00000000', freeAllowanceCents: 500 },
+            isPending: false,
+          }) as UseQueryResult<GetBalanceResponse>
+      );
+
+      const { rerender } = renderHook(() => useBudgetCalculation(defaultInput));
+
+      // A re-render (e.g. triggered by a balance refetch) must not ignite an
+      // unbounded render loop just because the data reference changed.
+      expect(() => {
+        rerender();
+      }).not.toThrow();
+    });
   });
 
   describe('debouncing', () => {

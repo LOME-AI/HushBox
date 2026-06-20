@@ -68,12 +68,18 @@ export function useBudgetCalculation(
   const [debouncedResult, setDebouncedResult] =
     React.useState<BudgetCalculationResult>(computeResult);
 
-  // Synchronously flush result when tier changes (e.g., balance loaded).
-  // Prevents flash of stale "Low Balance" notification when StableContent
-  // renders before the debounced effect fires.
-  const [previousTierInfo, setPreviousTierInfo] = React.useState(tierInfo);
-  if (previousTierInfo !== tierInfo) {
-    setPreviousTierInfo(tierInfo);
+  // Synchronously flush result when the tier's *values* change (e.g. balance
+  // loaded). Prevents flash of stale "Low Balance" notification when
+  // StableContent renders before the debounced effect fires.
+  //
+  // Compared by value, not by `tierInfo` reference: the balance query can hand
+  // back a fresh `tierInfo` object with identical values on every render (e.g.
+  // access-revoked flows repeatedly invalidate the balance), and a reference
+  // compare would setState every render → "Maximum update depth exceeded".
+  const tierKey = `${tierInfo.tier}:${String(tierInfo.balanceCents)}:${String(tierInfo.freeAllowanceCents)}`;
+  const [previousTierKey, setPreviousTierKey] = React.useState(tierKey);
+  if (previousTierKey !== tierKey) {
+    setPreviousTierKey(tierKey);
     setDebouncedResult(computeResult());
   }
 

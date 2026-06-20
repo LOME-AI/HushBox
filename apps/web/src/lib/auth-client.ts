@@ -1,7 +1,8 @@
 import { unwrapAccountKeyWithPassword as cryptoUnwrapAccountKey } from '@hushbox/crypto';
 import { toBase64, fromBase64 } from '@hushbox/shared';
 import { ApiError } from '@/lib/api';
-import { client, fetchJson } from '@/lib/api-client';
+import { queryClient } from '@/providers/query-provider';
+import { meQueryOptions } from './auth-queries.js';
 
 export const STORAGE_KEY = 'hushbox_auth_kek';
 
@@ -138,7 +139,10 @@ export async function restoreSession(): Promise<RestoredSession | null> {
 
   let data: MeResponse;
   try {
-    data = await fetchJson<MeResponse>(client.api.auth.me.$get());
+    // Routed through the query client so /me inherits the app-wide retry policy
+    // (transient network/5xx blips are retried). 401/403 are not retryable, so
+    // they fall through to the definitive-failure handling below.
+    data = await queryClient.fetchQuery(meQueryOptions());
   } catch (error) {
     // Only clear stored auth on definitive auth failures (session invalid/forbidden).
     // Transient errors (500, 503, network) should NOT destroy the user's stored

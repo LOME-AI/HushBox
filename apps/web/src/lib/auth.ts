@@ -25,7 +25,7 @@ import {
 
 import { queryClient } from '@/providers/query-provider';
 import { getApiUrl } from '@/lib/api';
-import { client, fetchJson } from '@/lib/api-client';
+import { client } from '@/lib/api-client';
 import { clearEpochKeyCache } from '@/lib/epoch-key-cache';
 import { useModelStore } from '@/stores/model';
 import { useDocumentStore } from '@/stores/document';
@@ -35,8 +35,8 @@ import {
   getStoredAuth,
   clearStoredAuth,
   restoreSession,
-  type MeResponse,
 } from './auth-client.js';
+import { meQueryOptions } from './auth-queries.js';
 import { getLinkGuestAuth } from './link-guest-auth.js';
 
 function extractErrorCode(body: unknown): string | undefined {
@@ -161,11 +161,12 @@ async function finalizeLoginWithKey(
   persistExportKey(exportKey, userId, keepSignedIn);
   useAuthStore.getState().setPrivateKey(accountPrivateKey);
 
-  // Throws (via fetchJson) on any non-2xx /me response. The caller treats that
-  // as a failed login rather than synthesizing account flags: a transient /me
-  // failure must never downgrade a verified user's emailVerified/totpEnabled/
-  // hasAcknowledgedPhrase to false.
-  const meData = await fetchJson<MeResponse>(client.api.auth.me.$get());
+  // Routed through the query client so /me inherits the app-wide retry policy.
+  // Throws on any non-2xx /me response once retries are exhausted. The caller
+  // treats that as a failed login rather than synthesizing account flags: a
+  // transient /me failure must never downgrade a verified user's
+  // emailVerified/totpEnabled/hasAcknowledgedPhrase to false.
+  const meData = await queryClient.fetchQuery(meQueryOptions());
   useAuthStore.getState().setUser(meData.user);
   useAuthStore
     .getState()

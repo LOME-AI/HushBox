@@ -94,7 +94,7 @@ describe('DemoBackendStore', () => {
     expect(aiItem?.modelName).toBe('openai/gpt-4o');
   });
 
-  it('streams an encrypted image whose data: URL decrypts to the original asset', () => {
+  it('serves an encrypted image via a same-origin blob URL that decrypts to the original asset', () => {
     store.recordSendTurn('demo-image', { id: 'u1', content: 'go' }, 'm');
     const conversation = store.getConversation('demo-image');
     if (conversation === undefined) throw new Error('no conversation');
@@ -110,7 +110,9 @@ describe('DemoBackendStore', () => {
 
     const presign = store.getMediaDownloadUrl(mediaItem.id);
     if (presign === undefined) throw new Error('no presign');
-    expect(presign.downloadUrl.startsWith('data:application/octet-stream;base64,')).toBe(true);
+    // A same-origin path, NOT a data: URL — so the demo CSP `connect-src 'self'`
+    // permits the real useDecryptBlob fetch (the shim serves the ciphertext bytes).
+    expect(presign.downloadUrl).toBe(`/api/media/${mediaItem.id}/blob`);
 
     const keyChain = store.getKeyChain('demo-image');
     if (keyChain === undefined) throw new Error('no keychain');
@@ -121,14 +123,13 @@ describe('DemoBackendStore', () => {
       epochKey,
       fromBase64(aiMessage.wrappedContentKey) as WrappedContentKey
     );
-    // Decode the data: URL exactly as the browser would (standard base64).
-    const ciphertextB64 = presign.downloadUrl.split(',')[1] ?? '';
-    const ciphertext = Uint8Array.from(atob(ciphertextB64), (ch) => ch.codePointAt(0) ?? 0);
+    const ciphertext = store.getMediaBytes(mediaItem.id);
+    if (ciphertext === undefined) throw new Error('no ciphertext');
     const plaintext = decryptBinaryWithContentKey(contentKey, ciphertext);
     expect(toBase64(plaintext)).toBe(toBase64(DEMO_SCENE_IMAGE.bytes));
   });
 
-  it('streams a video content item with duration whose data: URL decrypts to the clip', () => {
+  it('serves a video content item with duration via a same-origin blob URL that decrypts to the clip', () => {
     store.recordSendTurn('demo-video', { id: 'u1', content: 'go' }, 'm');
     const conversation = store.getConversation('demo-video');
     if (conversation === undefined) throw new Error('no conversation');
@@ -144,6 +145,8 @@ describe('DemoBackendStore', () => {
 
     const presign = store.getMediaDownloadUrl(mediaItem.id);
     if (presign === undefined) throw new Error('no presign');
+    expect(presign.downloadUrl).toBe(`/api/media/${mediaItem.id}/blob`);
+
     const keyChain = store.getKeyChain('demo-video');
     if (keyChain === undefined) throw new Error('no keychain');
     processKeyChain('demo-video', keyChain, account.privateKey);
@@ -153,8 +156,8 @@ describe('DemoBackendStore', () => {
       epochKey,
       fromBase64(aiMessage.wrappedContentKey) as WrappedContentKey
     );
-    const ciphertextB64 = presign.downloadUrl.split(',')[1] ?? '';
-    const ciphertext = Uint8Array.from(atob(ciphertextB64), (ch) => ch.codePointAt(0) ?? 0);
+    const ciphertext = store.getMediaBytes(mediaItem.id);
+    if (ciphertext === undefined) throw new Error('no ciphertext');
     const plaintext = decryptBinaryWithContentKey(contentKey, ciphertext);
     expect(toBase64(plaintext)).toBe(toBase64(DEMO_GENERATED_VIDEO.bytes));
   });

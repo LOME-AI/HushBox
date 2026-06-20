@@ -157,16 +157,6 @@ function toWireMember(participant: DemoParticipant): DemoMember {
   };
 }
 
-/**
- * Standard (RFC 4648) base64 for `data:` URLs. `toBase64` from shared is the
- * URL-safe variant (`-`/`_`, unpadded), which a `data:;base64,` URL rejects as
- * an invalid URL — the browser decoder only accepts the standard alphabet.
- */
-function toStandardBase64(bytes: Uint8Array): string {
-  const binary = Array.from(bytes, (byte) => String.fromCodePoint(byte)).join('');
-  return btoa(binary);
-}
-
 export class DemoBackendStore {
   private readonly built = new Map<string, BuiltConversation>();
   private readonly order: string[] = [];
@@ -237,18 +227,24 @@ export class DemoBackendStore {
   }
 
   /**
-   * Serve a presigned GET URL for an encrypted media item as a `data:` URL of
-   * the ciphertext. The real `useDecryptBlob` fetches it (passthrough), then
-   * symmetric-decrypts with the message content key — so the demo decrypts
-   * genuine bytes rather than reading plaintext.
+   * Presigned GET URL for an encrypted media item, as a same-origin path the
+   * fetch-shim serves (see {@link getMediaBytes}). A same-origin URL — not a
+   * `data:` URL — is required so the demo CSP `connect-src 'self'` permits the
+   * real `useDecryptBlob` fetch, which then symmetric-decrypts the genuine
+   * ciphertext with the message content key (the demo decrypts real bytes
+   * rather than reading plaintext).
    */
   getMediaDownloadUrl(contentItemId: string): DemoMediaDownloadUrl | undefined {
-    const ciphertext = this.media.get(contentItemId);
-    if (ciphertext === undefined) return undefined;
+    if (!this.media.has(contentItemId)) return undefined;
     return {
-      downloadUrl: `data:application/octet-stream;base64,${toStandardBase64(ciphertext)}`,
+      downloadUrl: `/api/media/${contentItemId}/blob`,
       expiresAt: isoAt(MEDIA_DOWNLOAD_URL_TTL_SECONDS / 60),
     };
+  }
+
+  /** Ciphertext bytes for a media content item, served by the shim's blob route. */
+  getMediaBytes(contentItemId: string): Uint8Array | undefined {
+    return this.media.get(contentItemId);
   }
 
   /**

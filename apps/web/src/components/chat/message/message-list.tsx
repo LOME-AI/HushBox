@@ -163,6 +163,12 @@ const MessageListInner = forwardRef<MessageListHandle, MessageListProps>(functio
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const userScrolledAwayRef = useRef(false);
   const [isVirtuosoScrolling, setIsVirtuosoScrolling] = useState(false);
+  // Whether the list is pinned within Virtuoso's `atBottomThreshold` of the
+  // bottom. Exposed as `data-at-bottom` so E2E auto-scroll assertions gate on
+  // the app's own settled-at-bottom state instead of reading raw scroll pixels
+  // at an instant the post-stream layout (e.g. code-block highlight) is still
+  // growing. Starts true: the list mounts pinned at LAST.
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   // Sticky-with-decay flag set by wheel/touchmove/keydown listeners attached
   // to the Virtuoso scroller. True while the user is actively scrolling or
@@ -334,6 +340,7 @@ const MessageListInner = forwardRef<MessageListHandle, MessageListProps>(functio
   }, []);
 
   const handleAtBottomStateChange = useCallback((atBottom: boolean): void => {
+    setIsAtBottom(atBottom);
     if (!atBottom && userScrolledRef.current) {
       // Only flag scrolled-away when the user is actively scrolling. A
       // bare `!atBottom` would also fire during streaming when content
@@ -499,6 +506,7 @@ const MessageListInner = forwardRef<MessageListHandle, MessageListProps>(functio
       data-decrypted-count={decryptedCount}
       data-rows-count={rows.length}
       data-virtuoso-scrolling={String(isVirtuosoScrolling)}
+      data-at-bottom={String(isAtBottom)}
       data-messages-ready={String(messagesReady)}
       className="h-full min-h-0 flex-1"
     >

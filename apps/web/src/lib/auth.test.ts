@@ -64,12 +64,16 @@ vi.mock('zustand/react/shallow', async () => {
   return actual;
 });
 
-const { mockQueryClientClear } = vi.hoisted(() => ({
+const { mockQueryClientClear, mockQueryClientFetchQuery } = vi.hoisted(() => ({
   mockQueryClientClear: vi.fn(),
+  // Delegate to the queryFn so /me still hits the (mocked) fetch; retry behavior
+  // itself is covered in auth-client.test.ts against a real QueryClient.
+  mockQueryClientFetchQuery: vi.fn((options: { queryFn: () => unknown }) => options.queryFn()),
 }));
 vi.mock('@/providers/query-provider', () => ({
   queryClient: {
     clear: mockQueryClientClear,
+    fetchQuery: mockQueryClientFetchQuery,
   },
 }));
 

@@ -97,6 +97,17 @@ export class ChatPage {
   }
 
   /**
+   * Assert the message list is pinned at the bottom (auto-scroll settled). Gates
+   * on the app's `data-at-bottom` signal, which flips false while post-stream
+   * layout (code-block highlight, controls bar) grows and back to true once
+   * auto-scroll re-pins — so this verifies the final settled state rather than a
+   * one-shot pixel read taken mid-layout.
+   */
+  async waitForAtBottom(timeout: number = TIMEOUTS.SCROLL_STABLE): Promise<void> {
+    await expect(this.messageList).toHaveAttribute(TEST_SIGNALS.atBottom, 'true', { timeout });
+  }
+
+  /**
    * Wait for a conversation page to load. Use instead of waitForAppStable on
    * conversation pages. Waits for the message list to mount, for either a
    * message-item or the empty state to render, and for every message to

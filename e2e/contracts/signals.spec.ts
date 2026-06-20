@@ -68,6 +68,7 @@ test.describe('State-signal contract', () => {
     await expect(list).toHaveAttribute(TEST_SIGNALS.costCount);
     await expect(list).toHaveAttribute(TEST_SIGNALS.rowsCount);
     await expect(list).toHaveAttribute(TEST_SIGNALS.virtuosoScrolling);
+    await expect(list).toHaveAttribute(TEST_SIGNALS.atBottom);
 
     // Per-message identity/role on the rendered message items.
     const firstMessage = list.locator(`[${TEST_SIGNALS.messageId}]`).first();

@@ -19,7 +19,7 @@ const { mockRequireAuth, authenticatedChatPageMock, mountSpy, mockUseLocation } 
 // real and its `useParams`/`useSearch` remain spyable.
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-router')>();
-  return { ...actual, useLocation: (...args: unknown[]) => mockUseLocation(...args) };
+  return { ...actual, useLocation: () => mockUseLocation() };
 });
 
 // `Route.useParams`/`Route.useSearch` call the router's bundled internals (not

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import * as React from 'react';
 import type { VirtuosoHandle } from 'react-virtuoso';
 
@@ -180,6 +180,23 @@ describe('MessageList', () => {
     render(<MessageList messages={messages} />);
     const container = screen.getByTestId('message-list');
     expect(container).toHaveAttribute('data-decrypted-count', '3');
+  });
+
+  it('exposes data-at-bottom reflecting Virtuoso atBottomStateChange', () => {
+    render(<MessageList messages={messages} />);
+    const container = screen.getByTestId('message-list');
+    // Pinned at the latest message on mount (initialTopMostItemIndex="LAST").
+    expect(container).toHaveAttribute('data-at-bottom', 'true');
+
+    act(() => {
+      (capturedVirtuosoProps['atBottomStateChange'] as (atBottom: boolean) => void)(false);
+    });
+    expect(container).toHaveAttribute('data-at-bottom', 'false');
+
+    act(() => {
+      (capturedVirtuosoProps['atBottomStateChange'] as (atBottom: boolean) => void)(true);
+    });
+    expect(container).toHaveAttribute('data-at-bottom', 'true');
   });
 
   it('excludes messages with a decryption-failure fallback content from data-decrypted-count', () => {

@@ -36,6 +36,9 @@ export const TEST_SIGNALS = {
   streamingCount: 'data-streaming-count',
   streamsCompleted: 'data-streams-completed',
   virtuosoScrolling: 'data-virtuoso-scrolling',
+  // Whether the message list is pinned at the bottom (within Virtuoso's
+  // atBottomThreshold). Lets auto-scroll specs gate on settled-at-bottom state.
+  atBottom: 'data-at-bottom',
 
   // Per-message identity/role, used to locate and count rendered messages.
   // Emitted: apps/web/src/components/chat/message-item.tsx

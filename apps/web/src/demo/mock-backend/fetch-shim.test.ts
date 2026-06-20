@@ -71,6 +71,24 @@ describe('resolveDemoRoute', () => {
     });
   });
 
+  it('serves media ciphertext bytes for a known blob url and 404s an unknown one', () => {
+    store.recordSendTurn('demo-image', { id: 'u1', content: 'go' }, 'm');
+    const aiMessage = store
+      .getConversation('demo-image')
+      ?.messages.find((m) => m.senderType === 'ai');
+    const mediaItem = aiMessage?.contentItems.find((item) => item.contentType === 'image');
+    if (mediaItem === undefined) throw new Error('no media item');
+
+    const route = resolveDemoRoute(store, 'GET', `/api/media/${mediaItem.id}/blob`, noBody);
+    if (route.kind !== 'bytes') throw new Error('expected bytes');
+    expect(route.body).toEqual(store.getMediaBytes(mediaItem.id));
+    expect(route.contentType).toBe('application/octet-stream');
+
+    expect(resolveDemoRoute(store, 'GET', '/api/media/nope/blob', noBody)).toEqual({
+      kind: 'notFound',
+    });
+  });
+
   it('streams a reply for POST /api/chat/:id/stream', () => {
     const route = resolveDemoRoute(store, 'POST', `/api/chat/${KNOWN_ID}/stream`, () => ({
       userMessage: { id: 'u1', content: 'hi' },

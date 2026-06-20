@@ -3,6 +3,7 @@ import { isMobileWidth, TEST_IDS } from '@hushbox/shared';
 import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 import { requireEnv } from './env.js';
+import { waitForAppStable } from './page-signals.js';
 import type { Page, APIRequestContext } from '@playwright/test';
 
 const API_BASE = requireEnv('VITE_API_URL');
@@ -63,6 +64,11 @@ export async function loginViaUI(
 
   await page.getByRole('button', { name: 'Log in' }).click();
   await page.waitForURL('/chat', { timeout: TIMEOUTS.ROUTE });
+  // Login fires a non-awaited client navigation to /chat; waitForURL resolves on
+  // URL commit, not when that navigation settles. Wait for the landing page's
+  // stability signal so a caller's next hard navigation (reload/goto) can't race
+  // and cancel the still-in-flight redirect.
+  await waitForAppStable(page);
 }
 
 /**
@@ -154,7 +160,7 @@ export async function getAcceptableTOTPCode(
  * Opens the main sidebar Sheet on mobile if it's not already visible.
  * On desktop viewports this is a no-op (sidebar is always rendered).
  */
-async function openMobileSidebarIfNeeded(page: Page): Promise<void> {
+export async function openMobileSidebarIfNeeded(page: Page): Promise<void> {
   const viewport = page.viewportSize();
   if (viewport === null || !isMobileWidth(viewport.width)) return;
 

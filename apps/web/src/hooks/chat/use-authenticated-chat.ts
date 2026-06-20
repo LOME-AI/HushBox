@@ -135,6 +135,24 @@ function navigateIfActive(
   }
 }
 
+/**
+ * Navigate from the `/chat/new` create flow to the real conversation once it
+ * exists. The `fromCreate` history marker tells the chat route to hold its React
+ * key stable across this hop so the just-created conversation is not remounted —
+ * which would drop optimistic-only state (e.g. failed-model error tiles that
+ * have no DB row). See resolveChatPageKey.
+ */
+function navigateToCreatedConversation(
+  activeRef: React.RefObject<boolean>,
+  navigate: ReturnType<typeof useNavigate>,
+  realId: string
+): void {
+  navigateIfActive(activeRef, navigate, ROUTES.CHAT_ID, {
+    params: { id: realId },
+    state: { fromCreate: true },
+  });
+}
+
 interface ApplyPruneInput {
   allMsgs: Message[];
   targetMessageId: string;
@@ -756,13 +774,7 @@ export function useAuthenticatedChat({
           queryClient.setQueryData(chatKeys.conversation(realId), fullData);
           clearPendingMessage();
           setRealConversationId(realId);
-          // Mark this as the create→real hop so the chat route keeps its key
-          // stable and does not remount (which would drop optimistic-only state
-          // like failed-model error tiles). See resolveChatPageKey.
-          navigateIfActive(activeRef, navigate, ROUTES.CHAT_ID, {
-            params: { id: realId },
-            state: { fromCreate: true },
-          });
+          navigateToCreatedConversation(activeRef, navigate, realId);
           return;
         }
 
@@ -888,13 +900,7 @@ export function useAuthenticatedChat({
           })
         );
       }
-      // Mark this as the create→real hop so the chat route keeps its key
-      // stable and does not remount (which would drop optimistic-only state
-      // like failed-model error tiles). See resolveChatPageKey.
-      navigateIfActive(activeRef, navigate, ROUTES.CHAT_ID, {
-        params: { id: realId },
-        state: { fromCreate: true },
-      });
+      navigateToCreatedConversation(activeRef, navigate, realId);
     };
 
     void createConversationAndStream();

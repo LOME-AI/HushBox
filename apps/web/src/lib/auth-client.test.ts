@@ -9,6 +9,23 @@ vi.mock('@/lib/api', async (importOriginal) => {
   };
 });
 
+// restoreSession routes /me through the shared query client so it inherits the
+// app-wide retry policy. Use a real QueryClient wired to the production retry
+// predicate (with a zero delay to keep tests fast) so retry behavior is
+// exercised for real rather than stubbed away.
+vi.mock('@/providers/query-provider', async () => {
+  const { QueryClient } = await import('@tanstack/react-query');
+  const { shouldRetry } = await import('@/lib/retry');
+  return {
+    queryClient: new QueryClient({
+      defaultOptions: {
+        queries: { retry: shouldRetry, retryDelay: () => 0, staleTime: 0, gcTime: 0 },
+      },
+    }),
+  };
+});
+
+import { queryClient } from '@/providers/query-provider';
 import {
   persistExportKey,
   restoreSession,
@@ -64,6 +81,7 @@ describe('auth-client', () => {
     mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
     setUnwrapImpl(mockUnwrapAccountKey);
+    queryClient.clear();
   });
 
   afterEach(() => {
@@ -419,6 +437,42 @@ describe('auth-client', () => {
 
       expect(result).toBeNull();
       expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull();
+    });
+
+    it('retries a transient /me failure and restores the session', async () => {
+      const data = { kek: toBase64(testExportKey), userId: testUserId };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+      const successResponse = {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: vi.fn().mockResolvedValue({
+          user: {
+            id: testUserId,
+            email: 'test@example.com',
+            username: 'test',
+            emailVerified: true,
+            totpEnabled: false,
+            hasAcknowledgedPhrase: true,
+          },
+          passwordWrappedPrivateKey: toBase64(testPrivateKey),
+          publicKey: toBase64(new Uint8Array([1, 2, 3])),
+        }),
+      };
+      // First /me is dropped (navigation/network blip surfaces as a TypeError);
+      // the app-wide retry policy re-attempts and the second call succeeds.
+      mockFetch
+        .mockRejectedValueOnce(new TypeError('Load failed'))
+        .mockResolvedValueOnce(successResponse as unknown as Response);
+      mockUnwrapAccountKey.mockReturnValue(testPrivateKey);
+
+      const result = await restoreSession();
+
+      expect(result).not.toBeNull();
+      expect(result?.userId).toBe(testUserId);
+      expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
     it('clears storage and returns null when unwrap fails', async () => {

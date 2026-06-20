@@ -46,8 +46,12 @@ export function BalanceHistoryChart({
         </tr>
       </thead>
       <tbody>
-        {chartData.map((row) => (
-          <tr key={row.date}>
+        {/* Ledger entries are ungrouped and carry no unique id, and several can
+            share a calendar day (and even a timestamp), so the formatted date is
+            not a unique key. The list is a static, read-only projection that is
+            replaced wholesale on refetch, so the row index is a safe stable key. */}
+        {chartData.map((row, index) => (
+          <tr key={index}>
             <th scope="row">{row.date}</th>
             <td>{formatDollarTooltip(row.balanceAfter)}</td>
           </tr>

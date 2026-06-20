@@ -15,6 +15,7 @@ import type { DemoBackendStore } from './store';
 export type DemoRouteResult =
   | { kind: 'json'; body: unknown; status?: number }
   | { kind: 'stream'; frames: string[]; delayMs: number; leadDelayMs: number }
+  | { kind: 'bytes'; body: Uint8Array; contentType: string }
   | { kind: 'passthrough' }
   | { kind: 'notFound' };
 
@@ -28,6 +29,7 @@ const KEYS_RE = /^\/api\/keys\/([^/]+)$/;
 const MEMBERS_RE = /^\/api\/members\/([^/]+)$/;
 const LINKS_RE = /^\/api\/links\/([^/]+)$/;
 const MEDIA_DOWNLOAD_RE = /^\/api\/media\/([^/]+)\/download-url$/;
+const MEDIA_BLOB_RE = /^\/api\/media\/([^/]+)\/blob$/;
 const CHAT_STREAM_RE = /^\/api\/chat\/([^/]+)\/stream$/;
 const CHAT_REGEN_RE = /^\/api\/chat\/([^/]+)\/regenerate$/;
 
@@ -64,6 +66,13 @@ function resolveGetParameter(store: DemoBackendStore, pathname: string): DemoRou
   if (linksId !== null) return { kind: 'json', body: store.getLinks(linksId) };
   const mediaId = parameter(MEDIA_DOWNLOAD_RE, pathname);
   if (mediaId !== null) return jsonOr404(store.getMediaDownloadUrl(mediaId));
+  const blobId = parameter(MEDIA_BLOB_RE, pathname);
+  if (blobId !== null) {
+    const bytes = store.getMediaBytes(blobId);
+    return bytes === undefined
+      ? { kind: 'notFound' }
+      : { kind: 'bytes', body: bytes, contentType: 'application/octet-stream' };
+  }
   return null;
 }
 
@@ -223,6 +232,12 @@ export function installFetchShim(store: DemoBackendStore): () => void {
         return new Response(createSseStream(route.frames, route.delayMs, route.leadDelayMs), {
           status: 200,
           headers: { 'Content-Type': 'text/event-stream' },
+        });
+      }
+      case 'bytes': {
+        return new Response(route.body, {
+          status: 200,
+          headers: { 'Content-Type': route.contentType },
         });
       }
     }

@@ -12,29 +12,23 @@ test.describe('Auto-scroll During Streaming', () => {
     const message = 'Echo long response test';
     await chatPage.sendFollowUpMessage(message);
     await chatPage.waitForAIResponse(message);
-
-    const pos1 = await chatPage.getScrollPosition();
-    expect(pos1.scrollHeight - pos1.scrollTop - pos1.clientHeight).toBeLessThanOrEqual(100);
+    // Gate on the app's settled-at-bottom signal, not a one-shot pixel read: the
+    // reply's code block highlights (Shiki) and grows a controls bar after the
+    // stream completes, and auto-scroll re-pins once that settles. data-at-bottom
+    // reflects that final state deterministically (no mid-layout flake).
+    await chatPage.waitForAtBottom();
 
     const followUp = 'Second message to verify auto-scroll stays on';
     await chatPage.sendFollowUpMessage(followUp);
     await chatPage.waitForAIResponse(followUp);
-
-    const finalPos1 = await chatPage.getScrollPosition();
-    expect(
-      finalPos1.scrollHeight - finalPos1.scrollTop - finalPos1.clientHeight
-    ).toBeLessThanOrEqual(100);
+    await chatPage.waitForAtBottom();
 
     await chatPage.scrollToTop();
 
     const message2 = 'Hello after scroll up';
     await chatPage.sendFollowUpMessage(message2);
     await chatPage.waitForAIResponse(message2);
-
-    const afterPos = await chatPage.getScrollPosition();
-    expect(afterPos.scrollHeight - afterPos.scrollTop - afterPos.clientHeight).toBeLessThanOrEqual(
-      100
-    );
+    await chatPage.waitForAtBottom();
   });
 
   test('single scroll during streaming breaks away from bottom', async ({

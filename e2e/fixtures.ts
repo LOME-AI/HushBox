@@ -367,6 +367,12 @@ const DEFAULT_API_ALLOW: RegExp[] = [
   /NETWORK_FAILED .* — net::ERR_ABORTED/,
   /NETWORK_FAILED .* — NS_BINDING_ABORTED/,
   /NETWORK_FAILED .* — Load request cancelled/,
+  // A workerd/wrangler worker restart under host saturation answers an in-flight
+  // request (including a CORS preflight OPTIONS) with a bare 503 — the runtime
+  // envelope, not an app response. Reads go through the app-wide query retry
+  // policy and recover, but the failed preflight is still logged. Scoped to 503
+  // so a genuine app/CORS 4xx still fails. See E2E-RULES 2.10 (surface, not fail).
+  /NETWORK_FAILED .* — Preflight response is not successful\. Status code: 503/,
 ];
 
 /**
@@ -399,6 +405,11 @@ const DEFAULT_CONSOLE_ALLOW: RegExp[] = [
   /\[UNCAUGHT\] (https?:)?\/\/?(localhost|127\.0\.0\.1|0\.0\.0\.0)[:/].*due to access control checks\.?/,
   /Viewport argument key "interactive-widget" not recognized and ignored\./,
   /\[astro-island\] Error hydrating .*TypeError: Importing a module script failed/,
+  // Browser-logged counterpart of the saturation 503 preflight above (both the
+  // pageerror and the "Failed to load resource" line). The query layer retries
+  // and recovers; only the console log remains. Scoped to 503 so a real CORS
+  // failure or app 4xx still fails the test.
+  /Preflight response is not successful\. Status code: 503/,
 ];
 
 function filterUnexpected(captured: string[], allowed: RegExp[]): string[] {

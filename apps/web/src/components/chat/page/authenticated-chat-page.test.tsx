@@ -760,6 +760,9 @@ describe('AuthenticatedChatPage', () => {
           to: '/chat/$id',
           params: { id: 'conv-123' },
           replace: true,
+          // create→real hop carries the fromCreate marker so the chat route
+          // keeps its key stable and does not remount (see resolveChatPageKey).
+          state: { fromCreate: true },
         });
       });
     });
@@ -817,6 +820,9 @@ describe('AuthenticatedChatPage', () => {
           to: '/chat/$id',
           params: { id: 'conv-123' },
           replace: true,
+          // create→real hop carries the fromCreate marker so the chat route
+          // keeps its key stable and does not remount (see resolveChatPageKey).
+          state: { fromCreate: true },
         });
       });
     });
@@ -914,6 +920,10 @@ describe('AuthenticatedChatPage', () => {
 
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
+      // Redirects to the chat list. The element is referentially stable (hoisted
+      // REDIRECT_TO_CHAT) so the real <Navigate> fires once instead of looping on
+      // every render — that loop-prevention is verified by the group/leave and
+      // inbox-decline E2E specs, since jsdom's <Navigate> mock can't model it.
       expect(screen.getByTestId('navigate')).toHaveAttribute('data-to', '/chat');
     });
 

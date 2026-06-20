@@ -23,6 +23,13 @@ interface AuthenticatedChatPageProps {
 // eslint-disable-next-line @typescript-eslint/no-empty-function -- Required for disabled submit handler
 const NOOP = (): void => {};
 
+// Hoisted so the element — and the props object TanStack's <Navigate> reads — is
+// referentially stable across renders. <Navigate> guards re-navigation by
+// comparing its props by reference; an inline <Navigate> allocates fresh props
+// every render, re-firing navigate on every commit during the async redirect
+// window → "Maximum update depth exceeded" on a 404/access-revoked conversation.
+const REDIRECT_TO_CHAT = <Navigate to={ROUTES.CHAT} />;
+
 function buildPhantomMessages(
   remotePhantoms:
     | Map<string, import('@/hooks/realtime/use-remote-streaming').PhantomMessage>
@@ -388,7 +395,7 @@ export function AuthenticatedChatPage({
         </div>
       );
     }
-    return <Navigate to={ROUTES.CHAT} />;
+    return REDIRECT_TO_CHAT;
   }
 
   if (chat.renderState.type === 'loading') {
