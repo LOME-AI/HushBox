@@ -1,5 +1,4 @@
-import { isRetryableStatus, backoffCeilingMs } from '@hushbox/shared';
-import { expect } from './expect.js';
+import { retryOnTransientStatus } from '@hushbox/shared';
 import { TIMEOUTS } from '../config/timeouts.js';
 import type { APIRequestContext, APIResponse } from '@playwright/test';
 
@@ -10,38 +9,21 @@ type PostOptions = Parameters<APIRequestContext['post']>[1];
  *
  * Under host saturation a workerd/wrangler restart answers an in-flight request
  * with a bare 5xx (the runtime envelope — "worker restarted mid-request" — not
- * an app response). Browser reads already recover via the app-wide query-retry
- * policy; this gives direct setup POSTs the same recovery, reusing the shared
- * `isRetryableStatus` classification so a genuine app 4xx returns immediately
- * (it is terminal) while a transient 5xx is re-issued.
- *
- * The retry is budget-bounded by {@link TIMEOUTS.API_SETUP} rather than a fixed
- * attempt count: `expect.poll` is the only sanctioned wait primitive (no
- * wall-clock sleeps in E2E), and its intervals follow the shared backoff
- * schedule. Returns the terminal response; the caller asserts `.ok()`.
+ * an app response). The runtime auto-retries only idempotent GET/HEAD, so a
+ * setup POST surfaces the 5xx; this re-issues it via the shared
+ * `retryOnTransientStatus` loop, which returns immediately on a terminal status
+ * (so a genuine app 4xx is not retried) and otherwise backs off until the POST
+ * settles or the {@link TIMEOUTS.API_SETUP} budget elapses. The caller asserts
+ * `.ok()` on the returned response.
  */
-export async function postWithRetry(
+export function postWithRetry(
   request: APIRequestContext,
   url: string,
   options?: PostOptions
 ): Promise<APIResponse> {
-  let response: APIResponse | undefined;
-  await expect
-    .poll(
-      async () => {
-        response = await request.post(url, options);
-        return isRetryableStatus(response.status());
-      },
-      {
-        timeout: TIMEOUTS.API_SETUP,
-        intervals: [backoffCeilingMs(0), backoffCeilingMs(1), backoffCeilingMs(2)],
-      }
-    )
-    .toBe(false);
-  // `expect.poll` only resolves once the callback ran and returned false, so
-  // `response` is always assigned; fail fast rather than assert it away.
-  if (response === undefined) {
-    throw new Error('postWithRetry: expect.poll resolved before issuing a request');
-  }
-  return response;
+  return retryOnTransientStatus(
+    () => request.post(url, options),
+    (response) => response.status(),
+    { timeoutMs: TIMEOUTS.API_SETUP }
+  );
 }

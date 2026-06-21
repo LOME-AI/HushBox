@@ -586,10 +586,10 @@ async function zeroLowBalanceWallets(
 ): Promise<void> {
   // Zero both wallets so the user is on the free tier with no allowance —
   // every preflight cost trips `insufficient_free_allowance` denial.
-  await requestContext.post('/api/dev/wallet-balance', {
+  await postWithRetry(requestContext, '/api/dev/wallet-balance', {
     data: { email, walletType: 'purchased', balance: '0.00000000' },
   });
-  await requestContext.post('/api/dev/wallet-balance', {
+  await postWithRetry(requestContext, '/api/dev/wallet-balance', {
     data: { email, walletType: 'free_tier', balance: '0.00000000' },
   });
 }
@@ -810,7 +810,7 @@ export const test = base.extend<CustomFixtures>({
     const projectName = testInfo.project.name;
     const aliceEmail = `test-alice-${projectName}@test.hushbox.ai`;
     const bobEmail = `test-bob-${projectName}@test.hushbox.ai`;
-    const response = await authenticatedRequest.post('/api/dev/group-chat', {
+    const response = await postWithRetry(authenticatedRequest, '/api/dev/group-chat', {
       data: {
         ownerEmail: aliceEmail,
         memberEmails: [bobEmail],
@@ -979,7 +979,7 @@ export const test = base.extend<CustomFixtures>({
       testInfo
     );
 
-    await requestContext.post('/api/dev/wallet-balance', {
+    await postWithRetry(requestContext, '/api/dev/wallet-balance', {
       data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.00000000' },
     });
     await requestContext.dispose();
