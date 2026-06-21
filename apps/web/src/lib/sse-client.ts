@@ -19,7 +19,12 @@ import {
   STREAM_TIMEOUT_MS,
   ERROR_CODE_STREAM_TIMEOUT,
 } from '@hushbox/shared';
-import type { StageDonePayload, StageErrorPayload, StageStartPayload } from '@hushbox/shared';
+import type {
+  DoneEventDataParsed,
+  StageDonePayload,
+  StageErrorPayload,
+  StageStartPayload,
+} from '@hushbox/shared';
 
 export interface SSELineResult {
   type: 'event' | 'data';
@@ -49,62 +54,12 @@ export function parseSSELine(line: string): SSELineResult | null {
 }
 
 /**
- * A single content item delivered in the SSE done event. Mirrors the
- * server-side shape in `apps/api/src/lib/stream-handler.ts`.
+ * Done-event types are inferred from the shared Zod schemas
+ * (`doneEventDataSchema` and friends) — the single source of truth for the
+ * wire shape. Trial chat emits `done` with `{}`, so every top-level field on
+ * {@link DoneEventData} is OPTIONAL; consumers must guard before dereferencing.
  */
-export interface DoneContentItem {
-  id: string;
-  contentType: 'text' | 'image' | 'audio' | 'video';
-  position: number;
-  /** Base64-encoded symmetric ciphertext under the message content key. Text items only. */
-  encryptedBlob?: string | null;
-  storageKey?: string | null;
-  /**
-   * Presigned GET URL for media items, attached server-side after R2 upload
-   * (mirrors `apps/api/src/lib/stream-handler.ts` `DoneContentItem.downloadUrl`).
-   * When present, the client uses this URL directly instead of refetching one,
-   * saving a round-trip immediately after generation.
-   */
-  downloadUrl?: string;
-  mimeType?: string | null;
-  sizeBytes?: number | null;
-  width?: number | null;
-  height?: number | null;
-  durationMs?: number | null;
-  modelName: string | null;
-  cost: string | null;
-  isSmartModel: boolean;
-}
-
-/**
- * Wrap-once envelope for a single persisted message delivered in the SSE done
- * event. Clients unwrap `wrappedContentKey` once with the epoch private key
- * and decrypt every content item with the resulting content key.
- */
-export interface DoneMessageEnvelope {
-  wrappedContentKey: string;
-  contentItems: DoneContentItem[];
-}
-
-export interface DoneModelEntry extends DoneMessageEnvelope {
-  modelId: string;
-  assistantMessageId: string;
-  aiSequence: number;
-  cost: string;
-}
-
-export interface DoneEventData {
-  userMessageId: string;
-  assistantMessageId: string;
-  userSequence: number;
-  aiSequence: number;
-  epochNumber: number;
-  cost: string;
-  /** Envelope for the user message itself (sender_type='user'). */
-  userEnvelope?: DoneMessageEnvelope;
-  /** Per-model envelopes + metadata, one entry per selected assistant message. */
-  models?: DoneModelEntry[];
-}
+export type DoneEventData = DoneEventDataParsed;
 
 export interface ModelTokenData {
   modelId: string;
@@ -295,7 +250,7 @@ function createEventHandlers(handlers: SSEHandlers): Record<string, EventHandler
         logParseFailure('done', data, parsed.error);
         return;
       }
-      handlers.onDone?.(parsed.data as DoneEventData);
+      handlers.onDone?.(parsed.data);
     },
   };
 }

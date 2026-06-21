@@ -13,7 +13,10 @@
  *
  * Handles:
  * - Sentence boundaries on `.`, `!`, `?` followed by whitespace or end-of-stream
- * - Common abbreviations (Mr., Mrs., Ms., Dr., Prof., e.g., i.e., etc., vs., St.)
+ * - Common abbreviations (Mr., Mrs., Ms., Dr., Prof., e.g., i.e., etc., vs., St.,
+ *   U.S., a.m., p.m., Ph.D.)
+ * - Leading ordered-list / bullet markers (`1.`, `2)`, `-`, `*`) — their trailing
+ *   `.`/`)` is not a sentence boundary, so the bare ordinal is never spoken alone
  * - Fenced code blocks across feed() calls
  * - Multi-sentence batches in a single feed() call
  * - Markdown cleanup at emission time
@@ -21,8 +24,19 @@
 
 import { normalizeForSpeech } from './text-normalizer';
 
-const ABBREVIATION_PATTERN =
+// Single-token abbreviations (the boundary `.` is their only/trailing dot) plus
+// multi-dot forms (U.S., a.m., p.m., Ph.D.) whose final `.` is the candidate
+// boundary; the lookbehind slice in findSentenceEnd ends at that final dot.
+const SINGLE_DOT_ABBREVIATIONS =
   /\b(?:Mr|Mrs|Ms|Dr|Prof|St|vs|e\.g|i\.e|etc|Sr|Jr|Inc|Ltd|Co|Corp)\.\s*$/i;
+const MULTI_DOT_ABBREVIATIONS = /(?:U\.S|[ap]\.m|Ph\.D)\.\s*$/i;
+function isAbbreviation(before: string): boolean {
+  return SINGLE_DOT_ABBREVIATIONS.test(before) || MULTI_DOT_ABBREVIATIONS.test(before);
+}
+
+// Leading list markers at line start: ordered (`1.`, `2)`) or bullet (`-`, `*`, `+`).
+// The trailing `.`/`)` of an ordered marker must not register as a sentence end.
+const ORDERED_LIST_MARKER = /(?:^|\n)[ \t]*\d+[.)]$/;
 
 interface StripStep {
   readonly out: string;
@@ -61,15 +75,36 @@ export class SentenceChunker {
 
   private findSentenceEnd(): number {
     for (let index = 0; index < this.buffer.length; index++) {
-      const ch = this.buffer.charAt(index);
-      if (ch !== '.' && ch !== '!' && ch !== '?') continue;
-      const next = this.buffer.charAt(index + 1);
-      if (next !== '' && !/\s/.test(next)) continue;
-      const before = this.buffer.slice(Math.max(0, index - 10), index + 1);
-      if (ABBREVIATION_PATTERN.test(before)) continue;
-      return index;
+      if (this.isSentenceBoundary(index)) return index;
     }
     return -1;
+  }
+
+  /**
+   * True when the char at `index` ends a sentence: it is `.`/`!`/`?` followed
+   * by whitespace or end-of-stream, and is not the trailing dot of an
+   * abbreviation or a leading ordered-list marker.
+   */
+  private isSentenceBoundary(index: number): boolean {
+    const ch = this.buffer.charAt(index);
+    if (ch !== '.' && ch !== '!' && ch !== '?') return false;
+    const next = this.buffer.charAt(index + 1);
+    if (next !== '' && !/\s/.test(next)) return false;
+    const before = this.buffer.slice(Math.max(0, index - 10), index + 1);
+    if (isAbbreviation(before)) return false;
+    return !this.isOrderedListMarker(index);
+  }
+
+  /**
+   * True when the candidate boundary `.` is the dot of a leading ordered-list
+   * marker (e.g. `1.` at the start of a line). Scans back to the line start so
+   * arbitrarily-long ordinals and preceding text are handled, not just the
+   * fixed lookbehind window used for abbreviations.
+   */
+  private isOrderedListMarker(index: number): boolean {
+    const lineStart = this.buffer.lastIndexOf('\n', index) + 1;
+    const lineHead = this.buffer.slice(lineStart, index + 1);
+    return ORDERED_LIST_MARKER.test(lineHead);
   }
 
   /**

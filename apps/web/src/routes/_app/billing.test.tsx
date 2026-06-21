@@ -1,24 +1,22 @@
-import * as React from 'react';
+import { screen, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TEST_IDS } from '@hushbox/shared';
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './billing';
 
 // Mock dependencies using vi.hoisted for values referenced in vi.mock factory
-const { mockUseStableBalance, mockUseTransactions, mockUseStability, mockIsPaymentDisabled } =
-  vi.hoisted(() => ({
-    mockUseStableBalance: vi.fn(),
-    mockUseTransactions: vi.fn(),
-    mockUseStability: vi.fn(),
-    mockIsPaymentDisabled: vi.fn(() => false),
-  }));
+const { mockUseStableBalance, mockUseTransactions, mockIsPaymentDisabled } = vi.hoisted(() => ({
+  mockUseStableBalance: vi.fn(),
+  mockUseTransactions: vi.fn(),
+  mockIsPaymentDisabled: vi.fn(() => false),
+}));
 
-vi.mock('@tanstack/react-router', async () => {
-  const actual = await vi.importActual('@tanstack/react-router');
+// Keep the real router (createFileRoute must run for the route file); override only useNavigate.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
   return {
     ...actual,
     useNavigate: () => vi.fn(),
-    createFileRoute: () => () => ({ component: () => null }),
   };
 });
 
@@ -26,21 +24,24 @@ vi.mock('@/lib/auth', () => ({
   requireAuth: vi.fn().mockImplementation(() => Promise.resolve()),
 }));
 
-vi.mock('@/hooks/use-stable-balance', () => ({
+vi.mock('@/hooks/billing/use-stable-balance', () => ({
   useStableBalance: mockUseStableBalance,
 }));
 
-vi.mock('@/hooks/billing', () => ({
+vi.mock('@/hooks/billing/billing', () => ({
   useTransactions: mockUseTransactions,
+  balanceQueryOptions: vi.fn(() => ({ queryKey: ['balance'], queryFn: vi.fn() })),
 }));
 
-vi.mock('@/providers/stability-provider', () => ({
-  useStability: mockUseStability,
-}));
-
-vi.mock('@/capacitor/platform', () => ({
-  isPaymentDisabled: mockIsPaymentDisabled,
-}));
+// Keep the real platform helpers (ThemeProvider's useStatusBar needs isNative);
+// override only isPaymentDisabled.
+vi.mock('@/capacitor/platform', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/capacitor/platform')>();
+  return {
+    ...actual,
+    isPaymentDisabled: mockIsPaymentDisabled,
+  };
+});
 
 vi.mock('@/components/billing/manage-online-button', () => ({
   ManageOnlineButton: () => (
@@ -48,31 +49,9 @@ vi.mock('@/components/billing/manage-online-button', () => ({
   ),
 }));
 
-// Import after mocks
-import { BillingPage } from './billing';
-
-function createWrapper(): React.FC<{ children: React.ReactNode }> {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-    },
-  });
-
-  return function Wrapper({ children }) {
-    return React.createElement(QueryClientProvider, { client: queryClient }, children);
-  };
-}
-
 describe('BillingPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseStability.mockReturnValue({
-      isAuthStable: true,
-      isBalanceStable: true,
-      isAppStable: true,
-    });
   });
 
   describe('balance display', () => {
@@ -87,7 +66,7 @@ describe('BillingPage', () => {
         isLoading: false,
       });
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       expect(screen.getByTestId(TEST_IDS.balanceDisplay)).toHaveTextContent('$25.1235');
     });
@@ -105,7 +84,7 @@ describe('BillingPage', () => {
         isLoading: true,
       });
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       const skeletonRows = screen.getAllByTestId(TEST_IDS.transactionSkeletonRow);
       expect(skeletonRows).toHaveLength(5);
@@ -130,7 +109,7 @@ describe('BillingPage', () => {
         isLoading: true,
       });
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       const skeletonRows = screen.getAllByTestId(TEST_IDS.transactionSkeletonRow);
 
@@ -163,7 +142,7 @@ describe('BillingPage', () => {
         isLoading: false,
       });
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       expect(screen.getByText('Deposit of $10.00')).toBeInTheDocument();
       expect(screen.getByText('+$10.00')).toBeInTheDocument();
@@ -182,7 +161,7 @@ describe('BillingPage', () => {
         isLoading: true,
       });
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       const container = screen.getByTestId(TEST_IDS.transactionListContainer);
       expect(container.className).toMatch(/h-\[/); // Should have fixed height class
@@ -211,7 +190,7 @@ describe('BillingPage', () => {
         isLoading: false,
       });
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       const container = screen.getByTestId(TEST_IDS.transactionListContainer);
       expect(container.className).toMatch(/h-\[/); // Should have fixed height class
@@ -240,7 +219,7 @@ describe('BillingPage', () => {
         isLoading: false,
       });
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       const nextButton = screen.getByRole('button', { name: /next/i });
       expect(nextButton).toBeDisabled();
@@ -267,7 +246,7 @@ describe('BillingPage', () => {
         isLoading: false,
       });
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       const nextButton = screen.getByRole('button', { name: /next/i });
       expect(nextButton).not.toBeDisabled();
@@ -290,7 +269,7 @@ describe('BillingPage', () => {
     it('shows Add Credits button when payments are enabled', () => {
       mockIsPaymentDisabled.mockReturnValue(false);
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       expect(screen.getByRole('button', { name: /add credits/i })).toBeInTheDocument();
       expect(screen.queryByTestId(TEST_IDS.manageOnlineButton)).not.toBeInTheDocument();
@@ -299,7 +278,7 @@ describe('BillingPage', () => {
     it('shows Manage Balance Online button when payments are disabled', () => {
       mockIsPaymentDisabled.mockReturnValue(true);
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       expect(screen.getByTestId(TEST_IDS.manageOnlineButton)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /add credits/i })).not.toBeInTheDocument();
@@ -308,7 +287,7 @@ describe('BillingPage', () => {
     it('hides PaymentModal when payments are disabled', () => {
       mockIsPaymentDisabled.mockReturnValue(true);
 
-      render(<BillingPage />, { wrapper: createWrapper() });
+      renderRoute(Route);
 
       expect(screen.queryByTestId(TEST_IDS.paymentModal)).not.toBeInTheDocument();
     });

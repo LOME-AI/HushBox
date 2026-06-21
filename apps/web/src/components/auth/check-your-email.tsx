@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Mail } from 'lucide-react';
 import { TEST_IDS } from '@hushbox/shared';
 import { authClient } from '@/lib/auth';
-import { AuthButton } from '@/components/auth/AuthButton';
+import { AuthButton } from '@/components/auth/auth-button';
 
 const COOLDOWN_SECONDS = 60;
 

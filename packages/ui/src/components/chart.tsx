@@ -81,12 +81,20 @@ const INDICATOR_SIZES: Record<IndicatorType, { width: number; height: number }> 
   dashed: { width: 8, height: 8 },
 };
 
-function resolvePayloadKey(item: TooltipPayloadItem): string {
+// When nameKey is set (e.g. pie charts whose dataKey is the numeric series and
+// whose config is keyed by slice names), resolve the config key from name first.
+// Without nameKey, dataKey-first keeps cartesian charts resolving correctly.
+function resolvePayloadKey(item: TooltipPayloadItem, nameKey?: string): string {
+  if (nameKey) {
+    const fromNameKey = item.payload?.[nameKey];
+    if (typeof fromNameKey === 'string' && fromNameKey !== '') return fromNameKey;
+    return item.name ?? item.dataKey ?? '';
+  }
   return item.dataKey ?? item.name ?? '';
 }
 
-function resolvePayloadColor(item: TooltipPayloadItem): string {
-  const key = resolvePayloadKey(item);
+function resolvePayloadColor(item: TooltipPayloadItem, nameKey?: string): string {
+  const key = resolvePayloadKey(item, nameKey);
   return item.color ?? `var(--color-${key})`;
 }
 
@@ -161,7 +169,7 @@ function TooltipItem({
   return (
     <div className="flex items-center gap-2">
       {!hideIndicator && <TooltipIndicator color={color} indicator={indicator} />}
-      <div className="text-foreground-muted flex flex-1 justify-between gap-4">
+      <div className="text-muted-foreground flex flex-1 justify-between gap-4">
         <span>{itemLabel}</span>
         <span className="text-foreground font-mono font-medium tabular-nums">{value}</span>
       </div>
@@ -179,6 +187,7 @@ interface ChartTooltipContentProps {
   hideIndicator?: boolean;
   hideZeroValues?: boolean;
   indicator?: IndicatorType;
+  nameKey?: string;
 }
 
 /**
@@ -195,6 +204,7 @@ export function ChartTooltipContent({
   hideIndicator = false,
   hideZeroValues = false,
   indicator = 'dot',
+  nameKey,
 }: Readonly<ChartTooltipContentProps>): React.JSX.Element | null {
   const { config } = useChart();
 
@@ -206,15 +216,15 @@ export function ChartTooltipContent({
   return (
     <div className="bg-background-paper border-border grid min-w-[8rem] items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl">
       {!hideLabel && formattedLabel && (
-        <div className="text-foreground-muted font-medium">{formattedLabel}</div>
+        <div className="text-muted-foreground font-medium">{formattedLabel}</div>
       )}
       <div className="grid gap-1.5">
         {visiblePayload.map((item) => (
           <TooltipItem
-            key={resolvePayloadKey(item)}
-            itemKey={resolvePayloadKey(item)}
+            key={resolvePayloadKey(item, nameKey)}
+            itemKey={resolvePayloadKey(item, nameKey)}
             config={config}
-            color={resolvePayloadColor(item)}
+            color={resolvePayloadColor(item, nameKey)}
             value={resolvePayloadValue(item, valueFormatter)}
             indicator={indicator}
             hideIndicator={hideIndicator}
@@ -259,7 +269,7 @@ export function ChartLegendContent({
           <div key={key} className="flex items-center gap-1.5">
             {/* eslint-disable-next-line no-restricted-syntax -- Recharts library API requires inline color style for series colors */}
             <div className="h-2 w-2 shrink-0 rounded-[2px]" style={{ backgroundColor: color }} />
-            <span className="text-foreground-muted text-xs">{label}</span>
+            <span className="text-muted-foreground text-xs">{label}</span>
           </div>
         );
       })}

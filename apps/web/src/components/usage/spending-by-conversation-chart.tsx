@@ -57,6 +57,26 @@ export function SpendingByConversationChart({
     return { chartData: rows, chartConfig: config };
   }, [data, conversationTitles]);
 
+  const dataTable = (
+    <table>
+      <caption>Spending by conversation, in US dollars</caption>
+      <thead>
+        <tr>
+          <th scope="col">Conversation</th>
+          <th scope="col">Spent</th>
+        </tr>
+      </thead>
+      <tbody>
+        {chartData.map((row) => (
+          <tr key={row.conversationId}>
+            <th scope="row">{row.name}</th>
+            <td>{`$${row.value.toFixed(4)}`}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
   return (
     <UsageChartCard
       title="Top Conversations"
@@ -65,6 +85,8 @@ export function SpendingByConversationChart({
       isEmpty={chartData.length === 0}
       emptyMessage="No conversation data"
       chartConfig={chartConfig}
+      ariaLabel={`Spending split across ${String(chartData.length)} top conversation${chartData.length === 1 ? '' : 's'}.`}
+      dataTable={dataTable}
     >
       <PieChart>
         <Pie
@@ -85,7 +107,12 @@ export function SpendingByConversationChart({
           ))}
         </Pie>
         <Tooltip
-          content={<ChartTooltipContent valueFormatter={(v) => `$${Number(v).toFixed(4)}`} />}
+          content={
+            <ChartTooltipContent
+              nameKey="name"
+              valueFormatter={(v) => `$${Number(v).toFixed(4)}`}
+            />
+          }
         />
         <Legend content={<ChartLegendContent />} />
       </PieChart>

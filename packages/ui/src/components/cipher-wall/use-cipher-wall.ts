@@ -10,6 +10,7 @@ import {
   CELL_WIDTH,
   CELL_HEIGHT,
 } from './cipher-wall-engine';
+import { useAnimationFrame } from '../../hooks/use-animation-frame';
 import type { CipherWallState, ThemeColors } from './cipher-wall-engine';
 
 const DPR_CAP = 2;
@@ -49,7 +50,7 @@ export function useCipherWall(
   const canvasRef = externalCanvasRef ?? internalCanvasRef;
   const stateRef = React.useRef<CipherWallState | null>(null);
   const colorsRef = React.useRef<ThemeColors | null>(null);
-  const rafIdRef = React.useRef<number>(0);
+  const tickRef = React.useRef<((time: number) => void) | null>(null);
   const logoMaskRef = React.useRef<boolean[][] | null>(null);
 
   const messages = options.messages;
@@ -143,12 +144,13 @@ export function useCipherWall(
     seedInitialReveals(state);
     stateRef.current = state;
 
+    // Initial paint. Under reduced motion the rAF loop never runs, so this is
+    // the only frame ever drawn; it doubles as the first frame otherwise.
+    tryRender();
+
     let lastTime = 0;
 
-    function animate(time: number): void {
-      // eslint-disable-next-line no-restricted-globals -- intentional raw rAF for canvas render loop; respects motion via internal flag
-      rafIdRef.current = requestAnimationFrame(animate);
-
+    tickRef.current = (time: number): void => {
       // Poll dimensions each frame
       if (parent) {
         const w = parent.clientWidth;
@@ -171,10 +173,7 @@ export function useCipherWall(
         updateState(stateRef.current, Math.min(delta, 0.1));
       }
       tryRender();
-    }
-
-    // eslint-disable-next-line no-restricted-globals -- intentional raw rAF for canvas render loop; respects motion via internal flag
-    rafIdRef.current = requestAnimationFrame(animate);
+    };
 
     const mutationObserver = new MutationObserver(() => {
       colorsRef.current = readThemeColors();
@@ -185,10 +184,17 @@ export function useCipherWall(
     });
 
     return () => {
-      cancelAnimationFrame(rafIdRef.current);
+      tickRef.current = null;
       mutationObserver.disconnect();
     };
   }, [frozen, messages, themeOverride, cipherOpacity]);
+
+  useAnimationFrame(
+    (time) => {
+      tickRef.current?.(time);
+    },
+    { paused: frozen }
+  );
 
   React.useEffect(() => {
     if (stateRef.current) {

@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/readme/banner-dark.gif">
-  <img alt="HushBox. One interface. Every AI model. Private." src=".github/readme/banner-light.gif" width="100%">
+  <img alt="HushBox. One interface. Every feature. Private." src=".github/readme/banner-light.gif" width="100%">
 </picture>
 
 <br>

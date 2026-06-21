@@ -1,4 +1,8 @@
-import { ContentSection, Callout, Accordion, ScrollReveal, SectionNav } from '@hushbox/ui';
+import { Accordion } from '@hushbox/ui';
+import { ContentSection } from './ui/content-section';
+import { Callout } from './ui/callout';
+import { ScrollReveal } from './ui/scroll-reveal';
+import { SectionNav } from './ui/section-nav';
 import type { LegalSection, LegalDocumentMeta } from '@hushbox/shared/legal';
 
 interface LegalDocumentProps {
@@ -26,9 +30,9 @@ export function LegalDocument({
                 {section.simplyPut}
               </Callout>
               <Accordion trigger="Full details">
-                <ul className="text-foreground-muted list-disc space-y-2 pl-5 text-sm">
-                  {section.points.map((point) => (
-                    <li key={point}>{point}</li>
+                <ul className="text-muted-foreground list-disc space-y-2 pl-5 text-sm">
+                  {section.points.map((point, pointIndex) => (
+                    <li key={`${section.id}-${String(pointIndex)}`}>{point}</li>
                   ))}
                 </ul>
               </Accordion>
@@ -38,7 +42,7 @@ export function LegalDocument({
         ))}
       </div>
 
-      <footer className="text-foreground-muted pt-6 text-sm">
+      <footer className="text-muted-foreground pt-6 text-sm">
         <p>
           Questions? Contact us at{' '}
           <a

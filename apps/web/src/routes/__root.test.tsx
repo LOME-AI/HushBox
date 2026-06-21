@@ -2,18 +2,25 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import * as React from 'react';
 import { TEST_IDS } from '@hushbox/shared';
+import { Route } from './__root';
 
-vi.mock('@tanstack/react-router', () => ({
-  Outlet: () => <div data-testid="outlet" />,
-  createRootRouteWithContext:
-    () =>
-    (options: { component: React.ComponentType; notFoundComponent: React.ComponentType }) => ({
-      component: options.component,
-      notFoundComponent: options.notFoundComponent,
-    }),
-  Navigate: () => null,
-  useNavigate: vi.fn(() => vi.fn()),
-}));
+// __root uses createRootRouteWithContext (the root route is always eager, so the
+// code-splitting guardrail exempts it). Keep the real router so the route object
+// is genuine, and source RootComponent from Route.options.component — but the
+// component still renders Outlet/Navigate/useRouter, which need router context
+// renderRoute/render does not provide, so those are stubbed here. The full
+// provider tree is likewise stubbed to pass-throughs: this test asserts the
+// shell's always-on regions render, not the providers' internals.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    Outlet: () => <div data-testid="outlet" />,
+    Navigate: () => null,
+    useNavigate: vi.fn(() => vi.fn()),
+    useRouter: () => ({ subscribe: vi.fn(() => vi.fn()) }),
+  };
+});
 
 vi.mock('@/providers/query-provider', () => ({
   QueryProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -72,21 +79,23 @@ vi.mock('@/stores/touch-override', () => ({
 }));
 
 describe('root route', () => {
-  it('renders OfflineOverlay', async () => {
-    const module_ = await import('./__root');
-    const route = module_.Route as unknown as { component: React.ComponentType };
-    const Component = route.component;
-    render(<Component />);
+  const RootComponent = Route.options.component as React.ComponentType;
+
+  it('renders OfflineOverlay', () => {
+    render(<RootComponent />);
 
     expect(screen.getByTestId(TEST_IDS.offlineOverlay)).toBeInTheDocument();
   });
 
-  it('renders UpgradeRequiredModal', async () => {
-    const module_ = await import('./__root');
-    const route = module_.Route as unknown as { component: React.ComponentType };
-    const Component = route.component;
-    render(<Component />);
+  it('renders UpgradeRequiredModal', () => {
+    render(<RootComponent />);
 
     expect(screen.getByTestId(TEST_IDS.upgradeRequiredModal)).toBeInTheDocument();
+  });
+
+  it('renders the route announcer live region', () => {
+    render(<RootComponent />);
+
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
   });
 });

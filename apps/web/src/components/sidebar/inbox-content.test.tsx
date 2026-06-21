@@ -7,7 +7,7 @@ import { InboxContent } from './inbox-content';
 const mockAcceptMutate = vi.fn();
 const mockDeclineMutateAsync = vi.fn(() => Promise.resolve());
 
-vi.mock('@/hooks/use-conversation-members', () => ({
+vi.mock('@/hooks/realtime/use-conversation-members', () => ({
   useAcceptMembership: () => ({
     mutate: mockAcceptMutate,
     isPending: false,

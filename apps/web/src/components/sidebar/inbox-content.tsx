@@ -2,8 +2,11 @@ import * as React from 'react';
 import { Check, X } from 'lucide-react';
 import { IconButton } from '@hushbox/ui';
 import { TEST_IDS } from '@hushbox/shared';
-import { useAcceptMembership, useDeclineInvitation } from '@/hooks/use-conversation-members';
-import { LeaveConfirmationModal } from '@/components/chat/leave-confirmation-modal';
+import {
+  useAcceptMembership,
+  useDeclineInvitation,
+} from '@/hooks/realtime/use-conversation-members';
+import { LeaveConfirmationModal } from '@/components/chat/member/leave-confirmation-modal';
 
 interface InboxConversation {
   id: string;

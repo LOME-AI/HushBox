@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { TrialChatPage } from '@/components/chat/trial-chat-page';
+import { TrialChatPage } from '@/components/chat/page/trial-chat-page';
 import { ErrorBoundary } from '@/components/shared/error-boundary';
 
 export const Route = createFileRoute('/_app/chat/trial')({

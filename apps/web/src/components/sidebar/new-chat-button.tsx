@@ -13,7 +13,13 @@ export function NewChatButton(): React.JSX.Element {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
   const setMobileSidebarOpen = useUIStore((state) => state.setMobileSidebarOpen);
 
-  const handleClick = (): void => {
+  const handleClick = (event: React.MouseEvent): void => {
+    // Let modified clicks (cmd/ctrl/shift) and non-primary buttons fall through
+    // to the anchor's href so the browser opens /chat in a new tab/window.
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
     if (isMobile && pathname === ROUTES.CHAT) {
       setMobileSidebarOpen(false);
       return;
@@ -25,6 +31,7 @@ export function NewChatButton(): React.JSX.Element {
     <SidebarActionButton
       icon={<Plus data-testid={TEST_IDS.plusIcon} className="h-4 w-4" aria-hidden="true" />}
       label="New Chat"
+      href={ROUTES.CHAT}
       onClick={handleClick}
       collapsed={!sidebarOpen}
     />

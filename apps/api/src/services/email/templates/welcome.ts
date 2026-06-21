@@ -35,7 +35,7 @@ export const welcomeEmail = defineEmailTemplate({
       {{greeting}}
     </p>
     <p style="margin: 0 0 16px 0; color: ${COLORS.textSecondary}; font-size: 16px; line-height: 1.5;">
-      One interface. Every AI model. Private.
+      One interface. Every feature. Private.
     </p>
 
     <h2 style="margin: 0 0 8px 0; color: ${COLORS.textPrimary}; font-size: 18px; font-weight: 600;">
@@ -70,7 +70,7 @@ Welcome to HushBox
 
 {{greeting}}
 
-One interface. Every AI model. Private.
+One interface. Every feature. Private.
 
 How Billing Works
 -----------------

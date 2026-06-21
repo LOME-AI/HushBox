@@ -132,7 +132,7 @@ function SidebarPanels({
 
 interface SidebarContentProps {
   conversations: Conversation[];
-  activeConversationId?: string;
+  activeConversationId?: string | undefined;
   /** Whether the user is authenticated */
   isAuthenticated?: boolean;
   onLoadMore?: (() => void) | undefined;

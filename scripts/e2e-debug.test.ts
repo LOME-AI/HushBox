@@ -13,6 +13,7 @@ import {
   buildRerunCommand,
   generateMarkdownReport,
   generateJsonReport,
+  renderGlobalErrors,
   renderResourceSection,
   renderSteps,
   serializeTestForJson,
@@ -1379,6 +1380,114 @@ describe('e2e-debug', () => {
       const md = generateMarkdownReport(report);
 
       expect(md).toContain('**Duration:** 2m 34s');
+    });
+  });
+
+  describe('renderGlobalErrors', () => {
+    const reportWith = (globalErrors?: string[]): DebugReport => ({
+      summary: { total: 0, passed: 0, flaky: 0, failed: 0, duration: 0 },
+      passed: [],
+      flaky: [],
+      failed: [],
+      ...(globalErrors && { globalErrors }),
+    });
+
+    it('returns no lines when there are no global errors', () => {
+      expect(renderGlobalErrors(reportWith())).toEqual([]);
+    });
+
+    it('renders a section containing the error text', () => {
+      const lines = renderGlobalErrors(reportWith(['Error: ENOTEMPTY: directory not empty']));
+
+      expect(lines).toContain('## Global Errors');
+      expect(lines).toContain('Error: ENOTEMPTY: directory not empty');
+    });
+
+    it('strips ANSI colour codes from the error text', () => {
+      const esc = String.fromCodePoint(27);
+      const lines = renderGlobalErrors(reportWith([`${esc}[31mboom${esc}[0m`]));
+
+      expect(lines).toContain('boom');
+    });
+  });
+
+  describe('run status and global errors', () => {
+    const abortedReport = (): PlaywrightReport => ({
+      suites: [],
+      config: {},
+      stats: { duration: 66_000 },
+      status: 'failed',
+      errors: [
+        "Error: ENOTEMPTY: directory not empty, rmdir 'test-results/chat-image-generation-firefox'",
+      ],
+    });
+
+    it('generateDebugReport propagates run status and global errors', () => {
+      const result = generateDebugReport(abortedReport());
+
+      expect(result.status).toBe('failed');
+      expect(result.globalErrors).toEqual([
+        "Error: ENOTEMPTY: directory not empty, rmdir 'test-results/chat-image-generation-firefox'",
+      ]);
+      expect(result.summary.failed).toBe(0);
+    });
+
+    it('generateDebugReport omits status and globalErrors for a clean run', () => {
+      const result = generateDebugReport({ suites: [], config: {}, stats: { duration: 1000 } });
+
+      expect(result.status).toBeUndefined();
+      expect(result.globalErrors).toBeUndefined();
+    });
+
+    it('generateMarkdownReport shows FAILED when the run aborted with zero failed tests', () => {
+      const md = generateMarkdownReport(generateDebugReport(abortedReport()));
+
+      expect(md).toContain('**Result:** FAILED');
+      expect(md).toContain('## Global Errors');
+      expect(md).toContain('ENOTEMPTY');
+    });
+
+    it('generateMarkdownReport stays PASSED and omits the section for a clean run', () => {
+      const md = generateMarkdownReport(
+        generateDebugReport({
+          suites: [],
+          config: {},
+          stats: { duration: 1000 },
+          status: 'passed',
+        })
+      );
+
+      expect(md).toContain('**Result:** PASSED');
+      expect(md).not.toContain('## Global Errors');
+    });
+
+    it('generateMarkdownReport shows FAILED on an interrupted run with no test failures', () => {
+      const md = generateMarkdownReport(
+        generateDebugReport({
+          suites: [],
+          config: {},
+          stats: { duration: 1000 },
+          status: 'interrupted',
+        })
+      );
+
+      expect(md).toContain('**Result:** FAILED');
+    });
+
+    it('generateJsonReport includes status and globalErrors when present', () => {
+      const json = generateJsonReport(generateDebugReport(abortedReport()));
+
+      expect(json.status).toBe('failed');
+      expect(json.globalErrors).toHaveLength(1);
+    });
+
+    it('generateJsonReport omits status and globalErrors for a clean run', () => {
+      const json = generateJsonReport(
+        generateDebugReport({ suites: [], config: {}, stats: { duration: 1000 } })
+      );
+
+      expect(json.status).toBeUndefined();
+      expect(json.globalErrors).toBeUndefined();
     });
   });
 

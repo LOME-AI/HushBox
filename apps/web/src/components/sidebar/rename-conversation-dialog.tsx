@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Input, useAsyncAction } from '@hushbox/ui';
 import { TEST_IDS } from '@hushbox/shared';
-import { useFormEnterNav } from '../../hooks/use-form-enter-nav.js';
+import { useFormEnterNav } from '@/hooks/ui/use-form-enter-nav.js';
 import { ActionModal } from '../shared/action-modal.js';
 
 interface RenameConversationDialogProps {

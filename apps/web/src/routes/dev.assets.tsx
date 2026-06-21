@@ -4,6 +4,16 @@ import { ROUTES, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@hushbox/ui';
 import { env } from '@/lib/env';
 
+export const Route = createFileRoute('/dev/assets')({
+  beforeLoad: () => {
+    if (!env.isDev) {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      throw redirect({ to: ROUTES.LOGIN });
+    }
+  },
+  component: AssetsPage,
+});
+
 interface AssetDefinition {
   name: string;
   label: string;
@@ -12,7 +22,7 @@ interface AssetDefinition {
 }
 
 // Asset names must match ASSET_MAP in dev.render-asset.$name.tsx
-export const ASSET_DEFINITIONS: readonly AssetDefinition[] = [
+const ASSET_DEFINITIONS: readonly AssetDefinition[] = [
   { name: 'icon-only', label: 'App Icon', width: 1024, height: 1024 },
   { name: 'icon-background', label: 'Icon Background', width: 1024, height: 1024 },
   { name: 'icon-foreground', label: 'Icon Foreground', width: 1024, height: 1024 },
@@ -32,7 +42,7 @@ interface ResolutionDefinition {
   height: number;
 }
 
-export const SCREENSHOT_DEFINITIONS: readonly ScreenshotDefinition[] = [
+const SCREENSHOT_DEFINITIONS: readonly ScreenshotDefinition[] = [
   { name: 'chat', label: 'Chat' },
   { name: 'model-picker', label: 'Model Picker' },
   { name: 'group-chat', label: 'Group Chat' },
@@ -41,7 +51,7 @@ export const SCREENSHOT_DEFINITIONS: readonly ScreenshotDefinition[] = [
   { name: 'privacy', label: 'Privacy' },
 ] as const;
 
-export const RESOLUTION_DEFINITIONS: readonly ResolutionDefinition[] = [
+const RESOLUTION_DEFINITIONS: readonly ResolutionDefinition[] = [
   { name: 'apple-phone', label: 'Apple iPhone (6.9")', width: 1320, height: 2868 },
   { name: 'apple-tablet', label: 'Apple iPad (13")', width: 2064, height: 2752 },
   { name: 'google-phone', label: 'Google Phone', width: 1080, height: 1920 },
@@ -53,17 +63,7 @@ interface PreviewImage {
   label: string;
 }
 
-export const Route = createFileRoute('/dev/assets')({
-  beforeLoad: () => {
-    if (!env.isDev) {
-      // eslint-disable-next-line @typescript-eslint/only-throw-error
-      throw redirect({ to: ROUTES.LOGIN });
-    }
-  },
-  component: AssetsPage,
-});
-
-export function AssetsPage(): React.JSX.Element {
+function AssetsPage(): React.JSX.Element {
   const [previewImage, setPreviewImage] = React.useState<PreviewImage | null>(null);
 
   return (

@@ -117,6 +117,71 @@ describe('SidebarActionButton', () => {
     expect(shineDiv).toHaveClass('pointer-events-none', 'absolute', 'inset-0');
   });
 
+  describe('href', () => {
+    it('renders an anchor pointing to href when provided', () => {
+      render(
+        <SidebarActionButton
+          icon={<span>+</span>}
+          label="New Chat"
+          onClick={vi.fn()}
+          href="/chat"
+        />
+      );
+
+      const link = screen.getByRole('link', { name: 'New Chat' });
+      expect(link).toHaveAttribute('href', '/chat');
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('keeps gradient and clip-path styling on the anchor', () => {
+      render(
+        <SidebarActionButton
+          icon={<span>+</span>}
+          label="New Chat"
+          onClick={vi.fn()}
+          href="/chat"
+        />
+      );
+
+      const link = screen.getByRole('link');
+      expect(link).toHaveClass('bg-gradient-to-r', 'w-full');
+      expect(link.style.clipPath).toBe('polygon(0 0, 100% 0, 95% 100%, 0 100%)');
+    });
+
+    it('calls onClick when the anchor is clicked', async () => {
+      const onClick = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <SidebarActionButton
+          icon={<span>+</span>}
+          label="New Chat"
+          onClick={onClick}
+          href="/chat"
+        />
+      );
+
+      await user.click(screen.getByRole('link'));
+
+      expect(onClick).toHaveBeenCalledOnce();
+    });
+
+    it('renders an icon-only anchor when collapsed', () => {
+      render(
+        <SidebarActionButton
+          icon={<span>+</span>}
+          label="New Chat"
+          onClick={vi.fn()}
+          href="/chat"
+          collapsed={true}
+        />
+      );
+
+      const link = screen.getByRole('link');
+      expect(link).toHaveClass('h-9', 'w-9');
+      expect(screen.queryByText('New Chat')).not.toBeInTheDocument();
+    });
+  });
+
   describe('focus ring', () => {
     it('uses project-default focus-visible:ring-ring/50 in expanded mode', () => {
       render(<SidebarActionButton icon={<span>+</span>} label="Action" onClick={vi.fn()} />);

@@ -22,6 +22,10 @@ describe('getExtensionFromMime', () => {
     expect(getExtensionFromMime('video/mp4')).toBe('mp4');
   });
 
+  it('maps video/mpeg to mpeg (not the mp3 audio extension)', () => {
+    expect(getExtensionFromMime('video/mpeg')).toBe('mpeg');
+  });
+
   it('maps audio/mpeg to mp3', () => {
     expect(getExtensionFromMime('audio/mpeg')).toBe('mp3');
   });

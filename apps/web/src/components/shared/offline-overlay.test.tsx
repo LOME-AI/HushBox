@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { TEST_IDS } from '@hushbox/shared';
 import { useNetworkStore } from '@/stores/network';
@@ -7,6 +7,13 @@ import { OfflineOverlay } from './offline-overlay';
 describe('OfflineOverlay', () => {
   beforeEach(() => {
     useNetworkStore.setState({ isOffline: false });
+    const root = document.createElement('div');
+    root.id = 'root';
+    document.body.append(root);
+  });
+
+  afterEach(() => {
+    document.querySelector('#root')?.remove();
   });
 
   it('does not render when online', () => {
@@ -53,5 +60,54 @@ describe('OfflineOverlay', () => {
     rerender(<OfflineOverlay />);
 
     expect(screen.queryByTestId(TEST_IDS.offlineOverlay)).not.toBeInTheDocument();
+  });
+
+  it('announces the offline state via a polite live status region', () => {
+    useNetworkStore.setState({ isOffline: true });
+
+    render(<OfflineOverlay />);
+
+    const overlay = screen.getByTestId(TEST_IDS.offlineOverlay);
+    expect(overlay).toHaveAttribute('role', 'status');
+    expect(overlay).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('uses the top overlay z-index level so it sits above modals', () => {
+    useNetworkStore.setState({ isOffline: true });
+
+    render(<OfflineOverlay />);
+
+    expect(screen.getByTestId(TEST_IDS.offlineOverlay)).toHaveClass('z-overlay');
+  });
+
+  it('makes the application root inert while offline', () => {
+    useNetworkStore.setState({ isOffline: true });
+
+    render(<OfflineOverlay />);
+
+    expect(document.querySelector('#root')).toHaveAttribute('inert');
+  });
+
+  it('restores interactivity to the application root when back online', () => {
+    useNetworkStore.setState({ isOffline: true });
+
+    const { rerender } = render(<OfflineOverlay />);
+    expect(document.querySelector('#root')).toHaveAttribute('inert');
+
+    act(() => {
+      useNetworkStore.setState({ isOffline: false });
+    });
+    rerender(<OfflineOverlay />);
+
+    expect(document.querySelector('#root')).not.toHaveAttribute('inert');
+  });
+
+  it('renders outside the application root so portaled dialogs cannot cover it', () => {
+    useNetworkStore.setState({ isOffline: true });
+
+    render(<OfflineOverlay />);
+
+    const overlay = screen.getByTestId(TEST_IDS.offlineOverlay);
+    expect(document.querySelector('#root')?.contains(overlay)).toBe(false);
   });
 });

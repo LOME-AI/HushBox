@@ -53,6 +53,12 @@
   --chart-5: #8b5cf6;
 
   --radius: 0.5rem;
+
+  /* Single source of truth for the app header height (chat header, sidebar
+     header, settings/usage page headers). Rem-based so every header scales
+     together with the root font size (e.g. the accessibility text-size control
+     and the embedded demo's reduced root font). */
+  --app-header-height: 3.3125rem;
 }
 
 .dark {
@@ -154,6 +160,9 @@
   --color-destructive: var(--error);
   --color-destructive-foreground: #ffffff;
   --color-muted: var(--background-subtle);
+  /* Canonical muted-text utility is `text-muted-foreground` (resolves here to
+     var(--foreground-muted)). The accessibility contrast tiers override
+     --foreground-muted, so this alias is what makes those tiers affect muted text. */
   --color-muted-foreground: var(--foreground-muted);
   --color-card: var(--background-paper);
   --color-card-foreground: var(--foreground);
@@ -255,6 +264,29 @@
 @utility wrap-anywhere {
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+/* Semantic z-index scale. Single source of truth for overlay stacking order so
+   portaled surfaces layer predictably instead of all sharing a flat band.
+   Ascending: popovers/menus and modals share the base overlay band (they live in
+   separate portal stacking contexts and never need to outrank each other), toasts
+   sit above modals, and the offline overlay sits on top of everything so a lost
+   connection is never hidden behind a dialog. Values leave headroom below the
+   view-transition layer (z-index: 9999) used by the theme-toggle animation. */
+@utility z-popover {
+  z-index: 50;
+}
+
+@utility z-modal {
+  z-index: 50;
+}
+
+@utility z-toast {
+  z-index: 60;
+}
+
+@utility z-overlay {
+  z-index: 70;
 }
 
 @keyframes shine {

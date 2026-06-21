@@ -42,6 +42,13 @@ describe('getReadingTime', () => {
     const words = Array.from({ length: 1000 }, () => 'word').join(' ');
     expect(getReadingTime(words)).toBe(5);
   });
+
+  it('does not count leading or trailing whitespace as words', () => {
+    // 298 words sits just below the 1.5-minute rounding boundary; two spurious
+    // empty tokens from leading/trailing whitespace would push it over to 2.
+    const words = Array.from({ length: 298 }, () => 'word').join(' ');
+    expect(getReadingTime(`  \n${words}\n  `)).toBe(getReadingTime(words));
+  });
 });
 
 describe('getAllTags', () => {

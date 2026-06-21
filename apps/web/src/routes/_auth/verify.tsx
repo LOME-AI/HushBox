@@ -5,13 +5,13 @@ import { toast } from '@hushbox/ui';
 import { ROUTES } from '@hushbox/shared';
 import { authClient } from '@/lib/auth';
 
-type VerifyState = 'loading' | 'success' | 'error';
-
 export const Route = createFileRoute('/_auth/verify')({
   component: VerifyPage,
 });
 
-export function VerifyPage(): React.JSX.Element {
+type VerifyState = 'loading' | 'success' | 'error';
+
+function VerifyPage(): React.JSX.Element {
   const search = useSearch({ from: '/_auth/verify' });
   const [state, setState] = useState<VerifyState>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');

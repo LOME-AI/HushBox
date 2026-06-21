@@ -11,8 +11,8 @@ import {
   CostPieChart,
 } from '@hushbox/ui';
 import { TEST_IDS } from '@hushbox/shared';
-import { useStableBalance } from '@/hooks/use-stable-balance';
-import { useTransactions } from '@/hooks/billing';
+import { useStableBalance } from '@/hooks/billing/use-stable-balance';
+import { useTransactions } from '@/hooks/billing/billing';
 import { formatBalance } from '@/lib/format';
 import { PaymentModal } from '@/components/billing/payment-modal';
 import { PageBody } from '@/components/shared/page-body';
@@ -139,7 +139,7 @@ function BalanceCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-[#ec4755]">Current Balance</CardTitle>
+        <CardTitle className="text-brand-red">Current Balance</CardTitle>
         <CardDescription>Your available credits for AI model usage</CardDescription>
       </CardHeader>
       <CardContent>
@@ -203,7 +203,7 @@ export function BillingContent({ billingOnly }: { billingOnly?: boolean } = {}):
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-[#ec4755]">Purchase History</CardTitle>
+            <CardTitle className="text-brand-red">Purchase History</CardTitle>
             <CardDescription>Your credit purchases</CardDescription>
           </CardHeader>
           <CardContent>

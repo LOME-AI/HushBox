@@ -26,10 +26,10 @@ const formattedDate = formatPostDate(date, 'short');
     {title}
   </h3>
 
-  <p class="text-foreground-muted mt-2 line-clamp-2 text-sm">{description}</p>
+  <p class="text-muted-foreground mt-2 line-clamp-2 text-sm">{description}</p>
 
   <div class="mt-auto pt-4">
-    <div class="text-foreground-muted flex items-center gap-2 text-xs">
+    <div class="text-muted-foreground flex items-center gap-2 text-xs">
       <span>{author}</span>
       <span aria-hidden="true">&middot;</span>
       <time datetime={date.toISOString()}>{formattedDate}</time>

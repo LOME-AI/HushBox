@@ -1,19 +1,7 @@
-import { create } from 'zustand';
+import { createCounterStore } from './create-counter-store.js';
 
-interface StreamingActivityState {
-  activeStreams: number;
-  startStream: () => void;
-  endStream: () => void;
-}
-
-export const useStreamingActivityStore = create<StreamingActivityState>()((set) => ({
-  activeStreams: 0,
-
-  startStream: () => {
-    set((state) => ({ activeStreams: state.activeStreams + 1 }));
-  },
-
-  endStream: () => {
-    set((state) => ({ activeStreams: Math.max(0, state.activeStreams - 1) }));
-  },
-}));
+export const useStreamingActivityStore = createCounterStore({
+  count: 'activeStreams',
+  increment: 'startStream',
+  decrement: 'endStream',
+});

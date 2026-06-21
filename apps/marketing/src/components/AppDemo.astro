@@ -1,0 +1,141 @@
+---
+import { ROUTES } from '@hushbox/shared/routes';
+
+// Interactive product demo: the real app running in "demo mode", embedded as a
+// same-origin <iframe>. The iframe is injected only when the section scrolls
+// into view (keeps first paint light), and visibility is posted to it so the
+// typing director only animates while on screen. It stays transparent until the
+// demo posts `hb-demo-ready` (or its load event fires), so there's no white
+// flash — the slot's `bg-background` shows through meanwhile. `src="/demo"`
+// resolves same-origin in production; in dev the marketing server 302-redirects
+// /demo to the web app (see the spa-redirect plugin in astro.config.mjs).
+//
+// Rendered as plain section content — `welcome.astro` owns the `<section id="demo">`
+// wrapper and padding, so the demo is "just another slot" like every other section.
+---
+
+<div class="mx-auto max-w-5xl px-6">
+  <h2 class="text-center text-3xl font-bold tracking-tight sm:text-4xl">See it in action</h2>
+
+  <div
+    id="app-demo-frame"
+    class="border-border bg-card mx-auto mt-8 overflow-hidden rounded-xl border shadow-2xl"
+    data-demo-src="/demo"
+  >
+    <div class="border-border bg-muted flex items-center gap-2 border-b px-4 py-2">
+      <span class="bg-foreground/20 h-3 w-3 rounded-full"></span>
+      <span class="bg-foreground/20 h-3 w-3 rounded-full"></span>
+      <span class="bg-foreground/20 h-3 w-3 rounded-full"></span>
+      <a
+        href={ROUTES.CHAT}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-muted-foreground hover:text-foreground bg-background/60 ml-2 inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1 text-xs transition-colors"
+      >
+        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+          ></path>
+        </svg>
+        hushbox.ai
+      </a>
+      <button
+        id="app-demo-replay"
+        type="button"
+        aria-label="Replay the demo"
+        class="text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+      >
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          ></path>
+        </svg>
+      </button>
+      <a
+        href={ROUTES.CHAT}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Open HushBox in a new tab"
+        class="text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+        </svg>
+      </a>
+    </div>
+    <div id="app-demo-slot" class="bg-background aspect-video min-h-[min(85dvh,40rem)] w-full">
+    </div>
+  </div>
+</div>
+
+<script>
+  const container = document.getElementById('app-demo-frame');
+  const slot = document.getElementById('app-demo-slot');
+  const replayButton = document.getElementById('app-demo-replay');
+  const src = container?.getAttribute('data-demo-src');
+  if (container && slot && src) {
+    let iframe: HTMLIFrameElement | null = null;
+
+    const reveal = (): void => {
+      if (iframe) iframe.style.opacity = '1';
+    };
+
+    const mount = (): void => {
+      if (iframe) return;
+      iframe = document.createElement('iframe');
+      iframe.src = src;
+      iframe.title = 'HushBox interactive demo';
+      // `bg-background` on the element itself means any unpainted moment shows
+      // the theme background, never white, even before the app's first paint.
+      iframe.className =
+        'bg-background h-full w-full border-0 opacity-0 transition-opacity duration-500';
+      iframe.setAttribute('loading', 'lazy');
+      // Fallback reveal in case the ready signal is missed.
+      iframe.addEventListener('load', () => {
+        window.setTimeout(reveal, 500);
+      });
+      slot.appendChild(iframe);
+    };
+
+    const remount = (): void => {
+      if (iframe) {
+        iframe.remove();
+        iframe = null;
+      }
+      mount();
+    };
+
+    const postVisibility = (visible: boolean): void => {
+      iframe?.contentWindow?.postMessage({ type: 'hb-demo-visibility', visible }, '*');
+    };
+
+    // Primary reveal: the demo paints its first frame, then posts ready.
+    window.addEventListener('message', (event: MessageEvent) => {
+      const data = event.data as { type?: string } | null;
+      if (data?.type === 'hb-demo-ready') reveal();
+    });
+
+    replayButton?.addEventListener('click', remount);
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) mount();
+          postVisibility(entry.isIntersecting);
+        }
+      },
+      { threshold: 0.2 }
+    );
+    observer.observe(container);
+  }
+</script>

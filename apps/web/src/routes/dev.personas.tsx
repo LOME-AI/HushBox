@@ -1,16 +1,12 @@
 import * as React from 'react';
 import { useState } from 'react';
-import { createFileRoute, useNavigate, redirect, useSearch } from '@tanstack/react-router';
+import { createFileRoute, redirect, useNavigate, useSearch } from '@tanstack/react-router';
 import { DEV_PASSWORD, displayUsername, ROUTES, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { toast } from '@hushbox/ui';
-import { signIn, signOutAndClearCache } from '@/lib/auth';
 import { env } from '@/lib/env';
-import { useDevPersonas, type PersonaType } from '@/hooks/dev-personas';
+import { signIn, signOutAndClearCache } from '@/lib/auth';
+import { useDevPersonas, type PersonaType } from '@/hooks/models/dev-personas';
 import type { DevPersona } from '@hushbox/shared';
-
-function getApiUrl(): string {
-  return import.meta.env['VITE_API_URL'] as string;
-}
 
 export interface PersonasSearch {
   type: string | undefined;
@@ -29,6 +25,10 @@ export const Route = createFileRoute('/dev/personas')({
   component: PersonasPage,
 });
 
+function getApiUrl(): string {
+  return import.meta.env['VITE_API_URL'] as string;
+}
+
 function pluralize(count: number, singular: string, plural: string): string {
   return count === 1 ? `${String(count)} ${singular}` : `${String(count)} ${plural}`;
 }
@@ -40,7 +40,7 @@ function getPersonaType(typeParameter: string | undefined): PersonaType {
   return 'dev';
 }
 
-export function PersonasPage(): React.JSX.Element {
+function PersonasPage(): React.JSX.Element {
   const navigate = useNavigate();
   const { type: typeParameter } = useSearch({ from: '/dev/personas' });
   const personaType = getPersonaType(typeParameter);

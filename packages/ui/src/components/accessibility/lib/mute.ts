@@ -3,20 +3,27 @@
  *
  * - Mutes every existing `<audio>` and `<video>` in the document.
  * - A `MutationObserver` mutes media inserted after install.
- * - Cancels any in-flight TTS via the `onMute` callback (the TTS service owns
- *   its own AudioContext and is the only known source of WebAudio output in
- *   this app).
+ *
+ * TTS read-aloud is intentionally exempt: "Mute all sounds" does NOT stop it.
+ * The TTS service owns its own AudioContext, so muting media elements never
+ * affects it, and the provider invokes this without the `onMute` callback by
+ * design — toggling mute never interrupts speech the user started.
  *
  * Returns a cleanup function that disconnects the observer and restores each
  * tracked element to its original `muted` value.
  *
  * Note: there is no global API to enumerate every `AudioContext` on the page,
- * so generic AudioContext suspension is intentionally out of scope for v1.
- * The TTS engine has its own context and is stopped via `onMute`.
+ * so generic AudioContext suspension is out of scope. The `onMute` parameter
+ * is reserved for a future opt-in to cancel in-flight TTS but is currently
+ * left unwired.
  */
 
 interface InstallMutePauserOptions {
-  /** Optional callback to cancel in-flight TTS speech. */
+  /**
+   * Optional callback to cancel in-flight TTS speech. Reserved by design and
+   * intentionally left unwired by the provider: TTS read-aloud is exempt from
+   * "Mute all sounds" so toggling mute never interrupts speech the user started.
+   */
   onMute?: () => void;
 }
 

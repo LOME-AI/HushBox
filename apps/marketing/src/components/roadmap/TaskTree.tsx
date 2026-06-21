@@ -49,7 +49,7 @@ function TaskRow({ node }: { readonly node: RoadmapNode }): React.JSX.Element {
       data-type={node.type ?? undefined}
       className={cn(
         'flex items-center gap-2 text-sm',
-        isSubtask && 'border-border text-foreground-muted ml-5 border-l pl-3'
+        isSubtask && 'border-border text-muted-foreground ml-5 border-l pl-3'
       )}
     >
       <StatusGlyph status={node.status} />

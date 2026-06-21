@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { PRIVACY_POLICY_META, PRIVACY_SECTIONS } from '@hushbox/shared/legal';
-import { DataGrid, StepFlow } from '@hushbox/ui';
+import { DataGrid } from './ui/data-grid';
+import { StepFlow } from './ui/step-flow';
 import { LegalDocument } from './LegalDocument';
 import { EncryptionDemo } from './encryption-demo';
 

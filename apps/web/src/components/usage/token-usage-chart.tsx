@@ -7,6 +7,7 @@ import {
   formatTokenCount,
   DEFAULT_CHART_MARGIN,
   DEFAULT_AXIS_PROPS,
+  formatPeriodLabel,
 } from './chart-utilities';
 import type { ChartConfig } from '@hushbox/ui';
 
@@ -28,15 +29,36 @@ export function TokenUsageChart({
   const chartData = React.useMemo(() => {
     if (!data?.data.length) return [];
     return data.data.map((point) => ({
-      period: new Date(point.period).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-      }),
+      period: formatPeriodLabel(point.period),
       inputTokens: point.inputTokens,
       outputTokens: point.outputTokens,
       cachedTokens: point.cachedTokens,
     }));
   }, [data]);
+
+  const dataTable = (
+    <table>
+      <caption>Token usage by period</caption>
+      <thead>
+        <tr>
+          <th scope="col">Period</th>
+          <th scope="col">Input</th>
+          <th scope="col">Output</th>
+          <th scope="col">Cached</th>
+        </tr>
+      </thead>
+      <tbody>
+        {chartData.map((row) => (
+          <tr key={row.period}>
+            <th scope="row">{row.period}</th>
+            <td>{formatTokenCount(row.inputTokens)}</td>
+            <td>{formatTokenCount(row.outputTokens)}</td>
+            <td>{formatTokenCount(row.cachedTokens)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 
   return (
     <UsageChartCard
@@ -45,8 +67,10 @@ export function TokenUsageChart({
       isLoading={isLoading}
       isEmpty={chartData.length === 0}
       chartConfig={chartConfig}
+      ariaLabel={`Input, output, and cached token counts across ${String(chartData.length)} period${chartData.length === 1 ? '' : 's'}.`}
+      dataTable={dataTable}
     >
-      <BarChart data={chartData} margin={DEFAULT_CHART_MARGIN}>
+      <BarChart data={chartData} margin={DEFAULT_CHART_MARGIN} accessibilityLayer>
         <XAxis dataKey="period" {...DEFAULT_AXIS_PROPS} />
         <YAxis {...DEFAULT_AXIS_PROPS} tickFormatter={formatTokenCount} />
         <Tooltip

@@ -161,6 +161,39 @@ describe('SentenceChunker.feed', () => {
     expect(chunker.feed('Visit example.com today. ')).toEqual(['Visit example.com today.']);
   });
 
+  it('does not speak the bare ordinal markers of a numbered list', () => {
+    const chunker = new SentenceChunker();
+    const emitted = [...chunker.feed('1. First item\n2. Second item\n')];
+    const tail = chunker.flush();
+    if (tail !== null) emitted.push(tail);
+    // The ordinals (`1.`, `2.`) must never surface as their own chunk, which is
+    // what the chunker would speak as a bare "one"/"two". Item text is kept.
+    expect(emitted).not.toContain('1.');
+    expect(emitted).not.toContain('2.');
+    expect(emitted.join('\n')).toBe('First item\nSecond item');
+  });
+
+  it('does not split on the U.S. abbreviation', () => {
+    const chunker = new SentenceChunker();
+    expect(chunker.feed('I live in the U.S. now and work here. ')).toEqual([
+      'I live in the U.S. now and work here.',
+    ]);
+  });
+
+  it('does not split on the a.m. and p.m. abbreviations', () => {
+    const chunker = new SentenceChunker();
+    expect(chunker.feed('We meet at 9 a.m. and leave by 5 p.m. today. ')).toEqual([
+      'We meet at 9 a.m. and leave by 5 p.m. today.',
+    ]);
+  });
+
+  it('does not split on the Ph.D. abbreviation', () => {
+    const chunker = new SentenceChunker();
+    expect(chunker.feed('She earned a Ph.D. in physics last year. ')).toEqual([
+      'She earned a Ph.D. in physics last year.',
+    ]);
+  });
+
   it('toggles code-fence state across multiple feed() calls', () => {
     const chunker = new SentenceChunker();
     expect(chunker.feed('Before. ```code')).toEqual(['Before.']);

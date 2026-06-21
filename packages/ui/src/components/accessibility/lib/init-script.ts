@@ -65,6 +65,7 @@ export const A11Y_INIT_SCRIPT: string = String.raw`
 
     add('a11y-letter-spacing-loose', s.letterSpacing === '0.05');
     add('a11y-letter-spacing-loosest', s.letterSpacing === '0.12');
+    add('a11y-line-height-tight', s.lineHeight === '1.0');
     add('a11y-line-height-tall', s.lineHeight === '1.5');
     add('a11y-line-height-double', s.lineHeight === '2.0');
     add('a11y-para-spacing-double', s.paragraphSpacing === '2');
@@ -79,31 +80,17 @@ export const A11Y_INIT_SCRIPT: string = String.raw`
     if (s.focusWidth) html.style.setProperty('--a11y-focus-width', s.focusWidth + 'px');
     if (s.focusColor) html.style.setProperty('--a11y-focus-color', s.focusColor);
 
+    // The @font-face rules live in the bundled accessibility CSS, emitted from a
+    // single canonical woff2 source by each app's bundler. Pre-paint we only
+    // toggle the class + set --a11y-font-family so typography.css's
+    // font-family: var(--a11y-font-family) rule resolves the chosen family
+    // before first paint. We deliberately drop the font-file preload head-start
+    // here; the SETTING no longer flashes, only the (minor) file fetch is no
+    // longer warmed by an inline link rel=preload.
     var validFonts = { atkinson: 1, 'open-dyslexic': 1, lexend: 1 };
     if (s.fontFamily && validFonts[s.fontFamily]) {
-      var fontId = s.fontFamily;
-      var fontUrl = '/fonts/a11y/' + fontId + '.woff2';
       add('a11y-font-override', true);
-
-      var link = document.createElement('link');
-      link.setAttribute('rel', 'preload');
-      link.setAttribute('as', 'font');
-      link.setAttribute('type', 'font/woff2');
-      link.setAttribute('crossorigin', 'anonymous');
-      link.setAttribute('href', fontUrl);
-      document.head.appendChild(link);
-
-      // OpenDyslexic's intrinsic metrics render ~15% larger than the other
-      // a11y fonts at the same point size; shrink it via the @font-face
-      // size-adjust descriptor so it visually matches when applied.
-      var sizeAdjust = fontId === 'open-dyslexic' ? " size-adjust: 85%;" : "";
-      var faceStyle = document.createElement('style');
-      faceStyle.textContent = "@font-face { font-family: '" + fontId + "'; src: url('" + fontUrl + "') format('woff2'); font-display: block;" + sizeAdjust + " }";
-      document.head.appendChild(faceStyle);
-
-      var overrideStyle = document.createElement('style');
-      overrideStyle.textContent = "html.a11y-font-override body * { font-family: '" + fontId + "', system-ui, sans-serif !important; }";
-      document.head.appendChild(overrideStyle);
+      html.style.setProperty('--a11y-font-family', '"' + s.fontFamily + '"');
     }
   } catch (e) {
   }

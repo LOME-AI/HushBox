@@ -6,18 +6,18 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, Button } fro
 import { PRIVACY_POLICY_META } from '@hushbox/shared/legal';
 import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { requireAuth, useAuthStore } from '@/lib/auth';
-import { useChangePassword } from '@/hooks/auth-mutations';
+import { useChangePassword } from '@/hooks/auth/auth-mutations';
 import { openExternalPage } from '@/capacitor';
 import { PageHeader } from '@/components/shared/page-header';
 import { PageBody } from '@/components/shared/page-body';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
-import { ChangePasswordModal } from '@/components/auth/ChangePasswordModal';
-import { TwoFactorSetup } from '@/components/auth/TwoFactorSetup';
-import { DisableTwoFactorModal } from '@/components/auth/DisableTwoFactorModal';
-import { RecoveryPhraseModal } from '@/components/auth/RecoveryPhraseModal';
-import { RegenerateConfirmModal } from '@/components/auth/RegenerateConfirmModal';
-import { CustomInstructionsModal } from '@/components/settings/CustomInstructionsModal';
-import { DeleteAccountModal } from '@/components/settings/DeleteAccountModal';
+import { ChangePasswordModal } from '@/components/auth/change-password-modal';
+import { TwoFactorSetup } from '@/components/auth/two-factor-setup';
+import { DisableTwoFactorModal } from '@/components/auth/disable-two-factor-modal';
+import { RecoveryPhraseModal } from '@/components/auth/recovery-phrase-modal';
+import { RegenerateConfirmModal } from '@/components/auth/regenerate-confirm-modal';
+import { CustomInstructionsModal } from '@/components/settings/custom-instructions-modal';
+import { DeleteAccountModal } from '@/components/settings/delete-account-modal';
 
 export const Route = createFileRoute('/_app/settings')({
   beforeLoad: async () => {
@@ -140,7 +140,7 @@ function TwoFactorSettingSection({
   );
 }
 
-export function SettingsPage(): React.JSX.Element {
+function SettingsPage(): React.JSX.Element {
   const user = useAuthStore((s) => s.user);
   const customInstructions = useAuthStore((s) => s.customInstructions);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -202,7 +202,7 @@ export function SettingsPage(): React.JSX.Element {
       <PageBody testId="settings-content" className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-[#ec4755]">Account</CardTitle>
+            <CardTitle className="text-brand-red">Account</CardTitle>
             <CardDescription>Your account information</CardDescription>
           </CardHeader>
           <CardContent>
@@ -219,7 +219,7 @@ export function SettingsPage(): React.JSX.Element {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-[#ec4755]">Preferences</CardTitle>
+            <CardTitle className="text-brand-red">Preferences</CardTitle>
             <CardDescription>Customize how AI responds to you</CardDescription>
           </CardHeader>
           <CardContent>
@@ -243,7 +243,7 @@ export function SettingsPage(): React.JSX.Element {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-[#ec4755]">Security</CardTitle>
+            <CardTitle className="text-brand-red">Security</CardTitle>
             <CardDescription>Manage authentication</CardDescription>
           </CardHeader>
           <CardContent className="space-y-1">
@@ -274,7 +274,7 @@ export function SettingsPage(): React.JSX.Element {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-[#ec4755]">Legal</CardTitle>
+            <CardTitle className="text-brand-red">Legal</CardTitle>
             <CardDescription>Terms and policies</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

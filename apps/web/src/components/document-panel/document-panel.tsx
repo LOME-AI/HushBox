@@ -4,8 +4,8 @@ import { Streamdown } from 'streamdown';
 import { code } from '@streamdown/code';
 import { TEST_IDS } from '@hushbox/shared';
 import { Button, cn, useIsMobile } from '@hushbox/ui';
+import { MermaidDiagram } from '@/components/chat/message/mermaid-diagram';
 import { useDocumentStore } from '../../stores/document';
-import { MermaidDiagram } from '../chat/mermaid-diagram';
 import { getFileExtension } from '../../lib/document-parser';
 import type { Document } from '../../lib/document-parser';
 

@@ -139,6 +139,24 @@ describe('createSSEParser', () => {
     expect(mocks.onDone).toHaveBeenCalled();
   });
 
+  it('surfaces the trial done:{} payload with optional fields undefined', () => {
+    const { handlers, mocks } = createMockHandlers();
+    const parser = createSSEParser(handlers);
+
+    parser.processChunk('event: done\n');
+    parser.processChunk('data: {}\n\n');
+
+    expect(mocks.onDone).toHaveBeenCalledTimes(1);
+    const payload = mocks.onDone.mock.calls[0]?.[0] as {
+      models?: unknown;
+      epochNumber?: unknown;
+      cost?: unknown;
+    };
+    expect(payload.models).toBeUndefined();
+    expect(payload.epochNumber).toBeUndefined();
+    expect(payload.cost).toBeUndefined();
+  });
+
   it('calls onStageStart when stage:start event is received', () => {
     const { handlers, mocks } = createMockHandlers();
     const parser = createSSEParser(handlers);

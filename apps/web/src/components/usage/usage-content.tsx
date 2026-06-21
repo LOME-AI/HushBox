@@ -8,8 +8,8 @@ import {
   useSpendingByConversation,
   useBalanceHistory,
   useUsageModels,
-} from '@/hooks/usage';
-import { useDecryptedConversations } from '@/hooks/chat';
+} from '@/hooks/billing/usage';
+import { useDecryptedConversations } from '@/hooks/chat/chat';
 import { PageBody } from '@/components/shared/page-body';
 import { UsageFilters, type DateRangePreset } from './usage-filters';
 import { UsageKpiCards } from './usage-kpi-cards';

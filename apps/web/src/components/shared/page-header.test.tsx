@@ -8,7 +8,7 @@ vi.mock('@/components/sidebar/hamburger-button', () => ({
 }));
 
 const mockRows = vi.fn<() => 1 | 2 | 3>(() => 1);
-vi.mock('@/hooks/use-header-layout', () => ({
+vi.mock('@/hooks/ui/use-header-layout', () => ({
   useHeaderLayout: (): 1 | 2 | 3 => mockRows(),
 }));
 
@@ -98,10 +98,10 @@ describe('PageHeader', () => {
       expect(grid).toHaveClass('grid', 'items-center', 'content-center');
     });
 
-    it('has minimum height matching sidebar header', () => {
+    it('has minimum height matching sidebar header (shared rem token)', () => {
       render(<PageHeader />);
       const header = screen.getByTestId('page-header');
-      expect(header).toHaveClass('min-h-[53px]', 'shrink-0');
+      expect(header).toHaveClass('min-h-[var(--app-header-height)]', 'shrink-0');
     });
 
     it('has symmetric vertical padding', () => {

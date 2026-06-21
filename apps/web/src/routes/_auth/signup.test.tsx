@@ -1,18 +1,29 @@
+import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { signUp } from '@/lib/auth';
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './signup';
 
-vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: vi.fn(() => vi.fn()),
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
-    <a href={to}>{children}</a>
-  ),
-}));
+// Keep the real router (createFileRoute must run for the route file); mock only
+// the Link the page renders.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    Link: ({ children, to }: { children: React.ReactNode; to: string }): React.JSX.Element => (
+      <a href={to}>{children}</a>
+    ),
+  };
+});
 
 vi.mock('@/lib/auth', () => ({
   signUp: {
     email: vi.fn(),
+  },
+  authClient: {
+    resendVerification: vi.fn(),
   },
 }));
 
@@ -24,89 +35,13 @@ vi.mock('@/capacitor/browser', () => ({
   openExternalPage: vi.fn(),
 }));
 
-vi.mock('@hushbox/ui', () => ({
-  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
-  Input: ({
-    label,
-    id,
-    ...props
-  }: { label?: string; id?: string } & React.InputHTMLAttributes<HTMLInputElement>) => (
-    <div>
-      {label && <label htmlFor={id}>{label}</label>}
-      <input id={id} {...props} />
-    </div>
-  ),
-  InlineFormError: ({ error, errorKey }: { error: string | null; errorKey: number }) =>
-    error === null ? null : (
-      <p key={errorKey} role="alert">
-        {error}
-      </p>
-    ),
-}));
-
-vi.mock('@/components/shared/form-input', () => ({
-  FormInput: ({
-    label,
-    id,
-    error,
-    success,
-    ...props
-  }: {
-    label: string;
-    id?: string;
-    error?: string;
-    success?: string;
-  } & React.InputHTMLAttributes<HTMLInputElement>) => (
-    <div>
-      <label htmlFor={id}>{label}</label>
-      <input id={id} {...props} />
-      {error && <span role="alert">{error}</span>}
-      {success && id && <span data-testid={`${id}-success`}>{success}</span>}
-    </div>
-  ),
-}));
-
-vi.mock('@/components/auth/AuthPasswordInput', () => ({
-  AuthPasswordInput: ({
-    label,
-    id,
-    error,
-    success,
-    ...props
-  }: {
-    label: string;
-    id?: string;
-    error?: string;
-    success?: string;
-  } & React.InputHTMLAttributes<HTMLInputElement>) => (
-    <div>
-      <label htmlFor={id}>{label}</label>
-      <input type="password" id={id} {...props} />
-      {error && <span role="alert">{error}</span>}
-      {success && id && <span data-testid={`${id}-success`}>{success}</span>}
-    </div>
-  ),
-}));
-
-vi.mock('@/components/auth/AuthButton', () => ({
-  AuthButton: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button {...props}>{children}</button>
-  ),
-}));
-
-vi.mock('@/components/auth/PasswordStrength', () => ({
-  PasswordStrength: () => <div data-testid="password-strength" />,
-}));
-
 describe('SignupPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('renders signup form with all fields', async () => {
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+  it('renders signup form with all fields', () => {
+    renderRoute(Route);
 
     expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
@@ -115,19 +50,15 @@ describe('SignupPage', () => {
     expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
   }, 15_000);
 
-  it('renders login link', async () => {
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+  it('renders login link', () => {
+    renderRoute(Route);
 
     expect(screen.getByRole('link', { name: /log in/i })).toHaveAttribute('href', '/login');
   });
 
   it('validates email format', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'invalid-email');
@@ -140,9 +71,7 @@ describe('SignupPage', () => {
 
   it('validates password minimum length', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -155,9 +84,7 @@ describe('SignupPage', () => {
 
   it('validates passwords match', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -172,9 +99,7 @@ describe('SignupPage', () => {
   it('calls signUp.email with valid data', async () => {
     vi.mocked(signUp.email).mockResolvedValue({});
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -192,9 +117,7 @@ describe('SignupPage', () => {
   it('shows success message on successful signup', async () => {
     vi.mocked(signUp.email).mockResolvedValue({});
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -210,9 +133,7 @@ describe('SignupPage', () => {
       error: { message: 'Email already exists' },
     });
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -231,9 +152,7 @@ describe('SignupPage', () => {
       error: { message: 'Signup failed' },
     });
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/username/i), 'test_user');
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
@@ -249,31 +168,25 @@ describe('SignupPage', () => {
 
   it('shows success message when username is valid as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/username/i), 'test_user');
 
-    expect(screen.getByTestId('username-success')).toHaveTextContent('Looks good!');
+    expect(screen.getByText('Looks good!')).toBeInTheDocument();
   });
 
   it('shows success message when email is valid as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email/i), 'test@example.com');
 
-    expect(screen.getByTestId('email-success')).toHaveTextContent('Valid email');
+    expect(screen.getByText('Valid email')).toBeInTheDocument();
   });
 
   it('shows error message when email is invalid as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/email/i), 'invalid');
 
@@ -282,20 +195,16 @@ describe('SignupPage', () => {
 
   it('shows success message when password meets requirements as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/^password$/i), 'password123');
 
-    expect(screen.getByTestId('password-success')).toHaveTextContent('Password meets requirements');
+    expect(screen.getByText('Password meets requirements')).toBeInTheDocument();
   });
 
   it('shows error message when password is too short as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/^password$/i), 'short');
 
@@ -304,21 +213,17 @@ describe('SignupPage', () => {
 
   it('shows success message when confirm password matches as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/^password$/i), 'password123');
     await user.type(screen.getByLabelText(/confirm password/i), 'password123');
 
-    expect(screen.getByTestId('confirmPassword-success')).toHaveTextContent('Passwords match');
+    expect(screen.getByText('Passwords match')).toBeInTheDocument();
   });
 
   it('shows error message when confirm password does not match as user types', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.type(screen.getByLabelText(/^password$/i), 'password123');
     await user.type(screen.getByLabelText(/confirm password/i), 'different');
@@ -328,9 +233,7 @@ describe('SignupPage', () => {
 
   it('Enter on username focuses email field', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.click(screen.getByLabelText(/username/i));
     await user.keyboard('{Enter}');
@@ -340,9 +243,7 @@ describe('SignupPage', () => {
 
   it('Enter on email focuses password field', async () => {
     const user = userEvent.setup();
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+    renderRoute(Route);
 
     await user.click(screen.getByLabelText(/email/i));
     await user.keyboard('{Enter}');
@@ -350,10 +251,8 @@ describe('SignupPage', () => {
     expect(screen.getByLabelText(/^password$/i)).toHaveFocus();
   });
 
-  it('renders terms acceptance text with links', async () => {
-    const { SignupPage } = await import('./signup');
-
-    render(<SignupPage />);
+  it('renders terms acceptance text with links', () => {
+    renderRoute(Route);
 
     expect(screen.getByText(/by creating an account, you agree to our/i)).toBeInTheDocument();
 
@@ -364,5 +263,11 @@ describe('SignupPage', () => {
     const privacyLink = screen.getByRole('link', { name: /privacy policy/i });
     expect(privacyLink).toHaveAttribute('href', '/privacy');
     expect(privacyLink).toHaveAttribute('target', '_blank');
+  });
+
+  it('renders new-password field with new-password autocomplete hint', () => {
+    renderRoute(Route);
+
+    expect(screen.getByLabelText(/^password$/i)).toHaveAttribute('autocomplete', 'new-password');
   });
 });

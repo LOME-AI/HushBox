@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useParams } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
 import { deriveKeysFromLinkSecret } from '@hushbox/crypto';
 import { fromBase64, toBase64, TEST_IDS } from '@hushbox/shared';
+import { AuthenticatedChatPage } from '@/components/chat/page/authenticated-chat-page.js';
 import { AppShell } from '../components/shared/app-shell.js';
-import { AuthenticatedChatPage } from '../components/chat/authenticated-chat-page.js';
 import { setLinkGuestAuth, clearLinkGuestAuth } from '../lib/link-guest-auth.js';
 
 export const Route = createFileRoute('/share/c/$conversationId')({
@@ -16,7 +16,7 @@ export const Route = createFileRoute('/share/c/$conversationId')({
 // (same path, different fragment) does NOT trigger a TanStack Router re-render,
 // so we listen for hashchange events to detect link switches and remount
 // the inner component via key={hash}.
-export function SharedConversationPage(): React.JSX.Element {
+function SharedConversationPage(): React.JSX.Element {
   const [hash, setHash] = React.useState(globalThis.location.hash);
 
   React.useEffect(() => {
@@ -33,7 +33,7 @@ export function SharedConversationPage(): React.JSX.Element {
 }
 
 function SharedConversationPageInner(): React.JSX.Element {
-  const { conversationId } = Route.useParams();
+  const { conversationId } = useParams({ from: '/share/c/$conversationId' });
   const [linkReady, setLinkReady] = React.useState(false);
   const queryClient = useQueryClient();
 

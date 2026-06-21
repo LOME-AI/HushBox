@@ -1,11 +1,11 @@
 import * as React from 'react';
-import { Link, useLocation } from '@tanstack/react-router';
+import { Link, useLocation, useParams } from '@tanstack/react-router';
 import { Lock } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Logo, SidebarPanel, useIsMobile } from '@hushbox/ui';
 import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { useUIStore } from '@/stores/ui';
-import { useDecryptedConversations, chatKeys } from '@/hooks/chat';
+import { useDecryptedConversations, chatKeys } from '@/hooks/chat/chat';
 import { useSession } from '@/lib/auth';
 import { SidebarContent } from './sidebar-content';
 import { SidebarFooter } from './sidebar-footer';
@@ -53,6 +53,10 @@ export function Sidebar(): React.JSX.Element {
       queryClient.removeQueries({ queryKey: chatKeys.conversations() });
     }
   }, [isAuthenticated, isSessionPending, queryClient]);
+
+  // The sidebar renders on every route, so read the `$id` param non-strictly:
+  // it resolves to the open conversation on `/chat/$id` and to undefined elsewhere.
+  const { id: activeConversationId } = useParams({ strict: false });
 
   const { pathname } = useLocation();
   const previousPathnameRef = React.useRef(pathname);
@@ -102,6 +106,7 @@ export function Sidebar(): React.JSX.Element {
     return (
       <SidebarContent
         conversations={isAuthenticated ? (conversations ?? []) : []}
+        activeConversationId={activeConversationId}
         isAuthenticated={isAuthenticated}
         onLoadMore={fetchNextPage}
         hasMore={hasNextPage}

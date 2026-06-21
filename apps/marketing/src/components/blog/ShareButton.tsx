@@ -22,7 +22,7 @@ function ShareButton(): React.JSX.Element {
       onClick={(): void => {
         void handleCopy();
       }}
-      className="text-foreground-muted hover:text-foreground inline-flex shrink-0 items-center gap-2 text-sm whitespace-nowrap transition-colors"
+      className="text-muted-foreground hover:text-foreground inline-flex shrink-0 items-center gap-2 text-sm whitespace-nowrap transition-colors"
     >
       {copied ? (
         <>

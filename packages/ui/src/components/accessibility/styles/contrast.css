@@ -7,35 +7,35 @@ html.a11y-contrast-high {
   --background: #ffffff !important;
   --foreground: #000000 !important;
   --border: #000000 !important;
-  --muted-foreground: #1a1a1a !important;
+  --foreground-muted: #1a1a1a !important;
 }
 html.a11y-contrast-high.dark {
   --background: #000000 !important;
   --foreground: #ffffff !important;
   --border: #ffffff !important;
-  --muted-foreground: #f0f0f0 !important;
+  --foreground-muted: #f0f0f0 !important;
 }
 
 html.a11y-contrast-low {
   --foreground: #4a4a4a !important;
-  --muted-foreground: #6b6b6b !important;
+  --foreground-muted: #6b6b6b !important;
   --border: #ececec !important;
 }
 html.a11y-contrast-low.dark {
   --foreground: #b0b0b0 !important;
-  --muted-foreground: #909090 !important;
+  --foreground-muted: #909090 !important;
   --border: #2a2a2a !important;
 }
 
 html.a11y-contrast-increased {
   --foreground: #000000 !important;
   --border: #4a4a4a !important;
-  --muted-foreground: #2a2a2a !important;
+  --foreground-muted: #2a2a2a !important;
 }
 html.a11y-contrast-increased.dark {
   --foreground: #ffffff !important;
   --border: #b8b8b8 !important;
-  --muted-foreground: #e0e0e0 !important;
+  --foreground-muted: #e0e0e0 !important;
 }
 
 /* Saturation modes — apply to body, NOT html (avoids stacking-context bug breaking position:fixed portals) */

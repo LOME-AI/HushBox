@@ -1,26 +1,37 @@
+import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { mockLogoImport } from '@/test-utils/mocks.js';
-import { RenderAssetPage } from './dev.render-asset.$name';
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './dev.render-asset.$name';
 
-vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: () => (options: Record<string, unknown>) => options,
-  redirect: (options: Record<string, unknown>) => options,
-  useParams: vi.fn(),
+const { mockUseParams } = vi.hoisted(() => ({
+  mockUseParams: vi.fn<() => { name: string }>(),
 }));
+
+// Keep the real router (createFileRoute must run for the route file); mock only useParams.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    useParams: () => mockUseParams(),
+  };
+});
 
 mockLogoImport();
 
-vi.mock('@hushbox/ui', () => ({
-  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
-  CipherWall: (props: Record<string, unknown>) => (
-    <canvas data-testid={TEST_IDS.cipherWall} data-props={JSON.stringify(props)} />
-  ),
-}));
-
-const { useParams } = await import('@tanstack/react-router');
-const mockedUseParams = vi.mocked(useParams);
+// Keep the real @hushbox/ui (renderRoute needs its providers); CipherWall uses
+// the Canvas API, unavailable in jsdom, so override only that export.
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    CipherWall: (props: Record<string, unknown>): React.JSX.Element => (
+      <canvas data-testid={TEST_IDS.cipherWall} data-props={JSON.stringify(props)} />
+    ),
+  };
+});
 
 describe('RenderAssetPage', () => {
   beforeEach(() => {
@@ -28,51 +39,51 @@ describe('RenderAssetPage', () => {
   });
 
   it('renders app-icon component when name is "icon-only"', () => {
-    mockedUseParams.mockReturnValue({ name: 'icon-only' });
-    render(<RenderAssetPage />);
+    mockUseParams.mockReturnValue({ name: 'icon-only' });
+    renderRoute(Route);
     expect(screen.getByTestId(TEST_IDS.appIcon)).toBeInTheDocument();
   });
 
   it('renders icon-background component when name is "icon-background"', () => {
-    mockedUseParams.mockReturnValue({ name: 'icon-background' });
-    render(<RenderAssetPage />);
+    mockUseParams.mockReturnValue({ name: 'icon-background' });
+    renderRoute(Route);
     expect(screen.getByTestId(TEST_IDS.iconBackground)).toBeInTheDocument();
   });
 
   it('renders icon-foreground component when name is "icon-foreground"', () => {
-    mockedUseParams.mockReturnValue({ name: 'icon-foreground' });
-    render(<RenderAssetPage />);
+    mockUseParams.mockReturnValue({ name: 'icon-foreground' });
+    renderRoute(Route);
     expect(screen.getByTestId(TEST_IDS.iconForeground)).toBeInTheDocument();
   });
 
   it('renders splash-dark component when name is "splash-dark"', () => {
-    mockedUseParams.mockReturnValue({ name: 'splash-dark' });
-    render(<RenderAssetPage />);
+    mockUseParams.mockReturnValue({ name: 'splash-dark' });
+    renderRoute(Route);
     expect(screen.getByTestId(TEST_ID_BUILDERS.splash('dark'))).toBeInTheDocument();
   });
 
   it('renders splash-light component when name is "splash"', () => {
-    mockedUseParams.mockReturnValue({ name: 'splash' });
-    render(<RenderAssetPage />);
+    mockUseParams.mockReturnValue({ name: 'splash' });
+    renderRoute(Route);
     expect(screen.getByTestId(TEST_ID_BUILDERS.splash('light'))).toBeInTheDocument();
   });
 
   it('renders error message for unknown asset name', () => {
-    mockedUseParams.mockReturnValue({ name: 'nonexistent' });
-    render(<RenderAssetPage />);
+    mockUseParams.mockReturnValue({ name: 'nonexistent' });
+    renderRoute(Route);
     expect(screen.getByText(/unknown asset/i)).toBeInTheDocument();
   });
 
   it('renders with no margin or padding on the wrapper', () => {
-    mockedUseParams.mockReturnValue({ name: 'icon-only' });
-    render(<RenderAssetPage />);
+    mockUseParams.mockReturnValue({ name: 'icon-only' });
+    renderRoute(Route);
     const wrapper = screen.getByTestId(TEST_IDS.renderAssetWrapper);
     expect(wrapper).toHaveClass('m-0', 'p-0');
   });
 
   it('hides overflow on wrapper so Playwright captures exact dimensions', () => {
-    mockedUseParams.mockReturnValue({ name: 'splash-dark' });
-    render(<RenderAssetPage />);
+    mockUseParams.mockReturnValue({ name: 'splash-dark' });
+    renderRoute(Route);
     const wrapper = screen.getByTestId(TEST_IDS.renderAssetWrapper);
     expect(wrapper).toHaveClass('overflow-hidden');
   });

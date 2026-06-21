@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { createFileRoute, redirect, useParams } from '@tanstack/react-router';
 import { ROUTES, TEST_IDS } from '@hushbox/shared';
-import { env } from '@/lib/env';
 import {
   AppIcon,
   IconBackground,
@@ -9,15 +8,7 @@ import {
   SplashDark,
   SplashLight,
 } from '@/components/native-assets';
-
-// Asset names must match ASSET_DEFINITIONS in dev.assets.tsx
-const ASSET_MAP: Record<string, React.ComponentType> = {
-  'icon-only': AppIcon,
-  'icon-background': IconBackground,
-  'icon-foreground': IconForeground,
-  'splash-dark': SplashDark,
-  splash: SplashLight,
-};
+import { env } from '@/lib/env';
 
 export const Route = createFileRoute('/dev/render-asset/$name')({
   beforeLoad: () => {
@@ -29,7 +20,16 @@ export const Route = createFileRoute('/dev/render-asset/$name')({
   component: RenderAssetPage,
 });
 
-export function RenderAssetPage(): React.JSX.Element {
+// Asset names must match ASSET_DEFINITIONS in dev.assets.tsx
+const ASSET_MAP: Record<string, React.ComponentType> = {
+  'icon-only': AppIcon,
+  'icon-background': IconBackground,
+  'icon-foreground': IconForeground,
+  'splash-dark': SplashDark,
+  splash: SplashLight,
+};
+
+function RenderAssetPage(): React.JSX.Element {
   const { name } = useParams({ from: '/dev/render-asset/$name' });
   const AssetComponent = ASSET_MAP[name];
 

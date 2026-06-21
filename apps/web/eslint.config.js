@@ -44,18 +44,18 @@ export default [
     //   - use-decrypt-blob.ts: direct R2 download URL, not an API endpoint
     //   - auth.ts / auth-client.ts: legacy OPAQUE flows, migrate one at a time
     //     via the auth-mutations.ts pattern (changePassword done first)
-    //   - TwoFactorSetup.tsx / RecoveryPhraseModal.tsx: same legacy migration path
-    //   - dev/personas.tsx: dev-only feature
+    //   - two-factor-setup.tsx / recovery-phrase-modal.tsx: same legacy migration path
+    //   - dev.personas.tsx: dev-only feature
     files: ['src/**/*.{ts,tsx}'],
     ignores: [
       'src/lib/api-client.ts',
       'src/lib/sse-client.ts',
       'src/lib/auth.ts',
       'src/lib/auth-client.ts',
-      'src/hooks/use-chat-stream.ts',
-      'src/hooks/use-decrypt-blob.ts',
-      'src/components/auth/TwoFactorSetup.tsx',
-      'src/components/auth/RecoveryPhraseModal.tsx',
+      'src/hooks/chat/use-chat-stream.ts',
+      'src/hooks/crypto/use-decrypt-blob.ts',
+      'src/components/auth/two-factor-setup.tsx',
+      'src/components/auth/recovery-phrase-modal.tsx',
       'src/routes/dev.personas.tsx',
       '**/*.test.ts',
       '**/*.test.tsx',

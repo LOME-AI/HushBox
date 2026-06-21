@@ -99,6 +99,20 @@ describe('Input', () => {
     expect(screen.getByRole('textbox')).toBeRequired();
   });
 
+  it('fires onFocus and onBlur on a simple input', async () => {
+    const user = userEvent.setup();
+    const onFocus = vi.fn();
+    const onBlur = vi.fn();
+    render(<Input onFocus={onFocus} onBlur={onBlur} />);
+
+    const input = screen.getByRole('textbox');
+    await user.click(input);
+    expect(onFocus).toHaveBeenCalled();
+
+    await user.tab();
+    expect(onBlur).toHaveBeenCalled();
+  });
+
   describe('enhanced input with label and suffix', () => {
     it('renders suffix element', () => {
       render(<Input suffix={<span>icon</span>} />);
@@ -127,6 +141,38 @@ describe('Input', () => {
     it('renders label element', () => {
       render(<Input label="Email" id="email" value="" onChange={vi.fn()} />);
       expect(screen.getByText('Email')).toBeInTheDocument();
+    });
+
+    it('applies error styling when aria-invalid is set', () => {
+      render(<Input label="Email" aria-invalid value="" onChange={vi.fn()} />);
+      expect(screen.getByRole('textbox')).toHaveClass('aria-invalid:border-destructive');
+    });
+
+    it('associates the floating label with the input when no id is provided', () => {
+      render(<Input label="Email" value="" onChange={vi.fn()} />);
+      expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    });
+
+    it('fires onFocus and onBlur on an enhanced input', async () => {
+      const user = userEvent.setup();
+      const onFocus = vi.fn();
+      const onBlur = vi.fn();
+      render(<Input label="Email" value="" onChange={vi.fn()} onFocus={onFocus} onBlur={onBlur} />);
+
+      const input = screen.getByRole('textbox');
+      await user.click(input);
+      expect(onFocus).toHaveBeenCalled();
+
+      await user.tab();
+      expect(onBlur).toHaveBeenCalled();
+    });
+
+    it('raises the label while the enhanced input is focused with no value', async () => {
+      const user = userEvent.setup();
+      render(<Input label="Email" value="" onChange={vi.fn()} />);
+
+      await user.click(screen.getByRole('textbox'));
+      expect(screen.getByText('Email')).toHaveClass('top-2');
     });
   });
 });

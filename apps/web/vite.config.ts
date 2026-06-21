@@ -125,6 +125,11 @@ function sharedFaviconPlugin(): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, envDir, 'VITE_');
 
+  const vitePort = Number(process.env['HB_VITE_PORT']);
+  if (!Number.isFinite(vitePort) || vitePort <= 0) {
+    throw new Error('HB_VITE_PORT is not set — run pnpm generate:env first');
+  }
+
   return {
     envDir,
     plugins: [
@@ -132,6 +137,7 @@ export default defineConfig(({ mode }) => {
       TanStackRouterVite({
         quoteStyle: 'single',
         routeFileIgnorePattern: '.*\\.test\\.tsx?$',
+        autoCodeSplitting: true,
       }),
       react(),
       apiPreconnectPlugin(env['VITE_API_URL']),
@@ -167,7 +173,8 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
     },
     server: {
-      port: Number(process.env['HB_VITE_PORT']!),
+      port: vitePort,
+      strictPort: true,
       proxy: {
         '/api/ws': {
           target: env['VITE_API_URL']!,

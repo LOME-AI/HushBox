@@ -29,6 +29,17 @@ export function formatTokenCount(value: number): string {
   return String(value);
 }
 
+// Formats a chart period/date string as a short "Mon D" axis label.
+// Forces UTC so a date-only string ('YYYY-MM-DD'), which Date parses as UTC
+// midnight, is not shifted to the previous day for users west of UTC.
+export function formatPeriodLabel(value: string): string {
+  return new Date(value).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 export const DEFAULT_CHART_MARGIN = { top: 4, right: 4, left: 0, bottom: 0 } as const;
 
 export const DEFAULT_AXIS_PROPS = {
@@ -52,6 +63,10 @@ interface UsageChartCardProps {
   isEmpty: boolean;
   emptyMessage?: string;
   chartConfig: ChartConfig;
+  // One-sentence summary read by screen readers as the chart region's accessible name.
+  ariaLabel?: string;
+  // Visually-hidden text alternative (typically a <table>) so chart data is perceivable to AT.
+  dataTable?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -62,26 +77,48 @@ export function UsageChartCard({
   isEmpty,
   emptyMessage = 'No usage data for this period',
   chartConfig,
+  ariaLabel,
+  dataTable,
   children,
 }: Readonly<UsageChartCardProps>): React.JSX.Element {
+  const titleId = React.useId();
+  const summaryId = React.useId();
+  // aria-labelledby overrides aria-label, so the chart's accessible name is built
+  // by referencing the visible title plus a visually-hidden summary in order.
+  const labelledBy = ariaLabel ? `${titleId} ${summaryId}` : titleId;
   return (
     <Card data-testid={testId}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <CardTitle id={titleId} className="text-sm font-medium">
+          {title}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading && <ChartSkeleton />}
         {!isLoading && isEmpty && (
-          <div className="text-foreground-muted flex h-[300px] items-center justify-center text-sm">
+          <div className="text-muted-foreground flex h-[300px] items-center justify-center text-sm">
             {emptyMessage}
           </div>
         )}
         {!isLoading && !isEmpty && (
-          <ChartContainer config={chartConfig} className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              {children}
-            </ResponsiveContainer>
-          </ChartContainer>
+          <>
+            {ariaLabel && (
+              <span id={summaryId} className="sr-only">
+                {ariaLabel}
+              </span>
+            )}
+            {dataTable && <div className="sr-only">{dataTable}</div>}
+            <ChartContainer
+              config={chartConfig}
+              className="h-[300px] w-full"
+              role="img"
+              aria-labelledby={labelledBy}
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                {children}
+              </ResponsiveContainer>
+            </ChartContainer>
+          </>
         )}
       </CardContent>
     </Card>

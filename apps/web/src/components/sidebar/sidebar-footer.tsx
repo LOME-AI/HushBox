@@ -25,7 +25,7 @@ import { ExternalPageLink } from '@/components/shared/external-page-link';
 import { useUIStore } from '@/stores/ui';
 import { useTouchOverrideStore } from '@/stores/touch-override';
 import { useSession, signOutAndClearCache } from '@/lib/auth';
-import { useStableBalance } from '@/hooks/use-stable-balance';
+import { useStableBalance } from '@/hooks/billing/use-stable-balance';
 import { buildDrizzleStudioUrl } from '@/lib/routes';
 import { formatBalance } from '@/lib/format';
 import { DevOnly } from '@/components/shared/dev-only';

@@ -28,6 +28,7 @@ import type {
   FullResult,
   Suite,
   TestCase,
+  TestError,
   TestResult,
   TestStep,
 } from '@playwright/test/reporter';
@@ -88,11 +89,17 @@ function mapSuite(suite: Suite): PlaywrightSuite {
   };
 }
 
-export function buildPlaywrightReport(rootSuite: Suite, result: FullResult): PlaywrightReport {
+export function buildPlaywrightReport(
+  rootSuite: Suite | undefined,
+  result: FullResult,
+  globalErrors: string[] = []
+): PlaywrightReport {
   return {
-    suites: rootSuite.suites.map((s) => mapSuite(s)),
+    suites: rootSuite ? rootSuite.suites.map((s) => mapSuite(s)) : [],
     config: {},
     stats: { duration: result.duration },
+    status: result.status,
+    ...(globalErrors.length > 0 && { errors: globalErrors }),
   };
 }
 
@@ -100,6 +107,9 @@ export default class E2EReportWriter implements Reporter {
   private rootSuite: Suite | undefined;
   private written = false;
   private startMs = 0;
+  // Run-level errors collected via onError. Kept so flush() can mark an aborted
+  // run as FAILED even when no individual test failed (or no test ran at all).
+  private readonly globalErrors: string[] = [];
   private readonly sampler: ResourceSampler = createResourceSampler();
 
   // Bound once so the same reference can be added and removed as a SIGINT listener.
@@ -129,16 +139,27 @@ export default class E2EReportWriter implements Reporter {
     process.once('SIGINT', this.onInterrupt);
   }
 
+  onError(error: TestError): void {
+    // Global errors (global setup throwing, a webServer crash, output-dir
+    // cleanup failing before any test runs) arrive here, never as a test
+    // result. Capture them so the report reflects the abort instead of a
+    // misleading "0 failed → PASSED".
+    this.globalErrors.push(error.stack ?? error.message ?? 'Unknown global error');
+  }
+
   onEnd(result: FullResult): void {
     process.removeListener('SIGINT', this.onInterrupt);
     this.flush(result);
   }
 
   private flush(result: FullResult): void {
-    if (this.written || !this.rootSuite) return;
+    if (this.written) return;
+    // A run that aborted before onBegin has no rootSuite; still emit a report
+    // when there are global errors so the failure is visible rather than silent.
+    if (!this.rootSuite && this.globalErrors.length === 0) return;
     this.written = true;
 
-    const report = buildPlaywrightReport(this.rootSuite, result);
+    const report = buildPlaywrightReport(this.rootSuite, result, this.globalErrors);
     const debugReport = generateDebugReport(report);
 
     // Attach resource time-series + a log scan for resource-exhaustion symptoms
@@ -165,12 +186,17 @@ export default class E2EReportWriter implements Reporter {
     const relativePath = path.relative(process.cwd(), timestampedDir);
 
     const { summary } = debugReport;
+    const globalErrorNote =
+      this.globalErrors.length > 0 ? `, ${String(this.globalErrors.length)} global error(s)` : '';
     console.log(
-      `\nE2E report (source of truth for debugging): ${relativePath}/REPORT.md (${String(summary.failed)} failed, ${String(summary.flaky)} flaky, ${String(summary.passed)} passed)`
+      `\nE2E report (source of truth for debugging): ${relativePath}/REPORT.md (${String(summary.failed)} failed, ${String(summary.flaky)} flaky, ${String(summary.passed)} passed${globalErrorNote})`
     );
     console.log(`  Structured data: ${relativePath}/report.json`);
     if (summary.failed > 0) {
       console.log(`  Failed test details: ${relativePath}/failed/`);
+    }
+    if (this.globalErrors.length > 0) {
+      console.log(`  Global errors (run aborted): ${relativePath}/REPORT.md`);
     }
     console.log(formatResourceStdout(resources));
     console.log();

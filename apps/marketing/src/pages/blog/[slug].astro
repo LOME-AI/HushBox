@@ -51,7 +51,7 @@ const initials = post.data.author
   <main class="mx-auto w-full max-w-5xl flex-1 px-6 pt-24 pb-12">
     <a
       href="/blog"
-      class="text-foreground-muted hover:text-foreground inline-flex items-center gap-1 text-sm transition-colors"
+      class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm transition-colors"
     >
       &larr; Back to Blog
     </a>
@@ -69,7 +69,7 @@ const initials = post.data.author
         </div>
         <div>
           <div class="text-foreground text-sm font-medium">{post.data.author}</div>
-          <div class="text-foreground-muted text-xs">
+          <div class="text-muted-foreground text-xs">
             <time datetime={post.data.date.toISOString()}>{formattedDate}</time>
             <span aria-hidden="true"> &middot; </span>
             <span>{readingTime} min read</span>

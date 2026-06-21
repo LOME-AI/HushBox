@@ -13,7 +13,7 @@ import { FOOTER_LINKS } from '@hushbox/shared/routes';
           {index > 0 && <span class="bg-border h-4 w-0.5 rounded-full" aria-hidden="true" />}
           <a
             href={link.href}
-            class="text-foreground-muted hover:text-foreground text-sm transition-colors"
+            class="text-muted-foreground hover:text-foreground text-sm transition-colors"
           >
             {link.label}
           </a>
@@ -21,7 +21,7 @@ import { FOOTER_LINKS } from '@hushbox/shared/routes';
       ))
     }
   </nav>
-  <p class="text-foreground-muted pb-8 text-center text-xs">
+  <p class="text-muted-foreground pb-8 text-center text-xs">
     &copy; {new Date().getFullYear()} LOME-AI LLC. All rights reserved.
   </p>
 </footer>

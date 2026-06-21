@@ -54,9 +54,9 @@ function KpiCard({
           <KpiSkeleton />
         ) : (
           <div className="flex flex-col gap-1.5">
-            <div className="text-foreground-muted">{icon}</div>
+            <div className="text-muted-foreground">{icon}</div>
             <div>
-              <p className="text-foreground-muted text-xs">{label}</p>
+              <p className="text-muted-foreground text-xs">{label}</p>
               <p
                 className="text-foreground text-xl font-semibold tabular-nums"
                 data-testid={TEST_ID_BUILDERS.kpiValue(testId)}

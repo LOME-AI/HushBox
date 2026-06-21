@@ -8,14 +8,14 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import { useUIStore } from '@/stores/ui';
-import { useModelValidation } from '@/hooks/use-model-validation';
+import { useModelValidation } from '@/hooks/models/use-model-validation';
 import { AppShell } from './app-shell';
 
-vi.mock('@/hooks/use-model-validation', () => ({
+vi.mock('@/hooks/models/use-model-validation', () => ({
   useModelValidation: vi.fn(),
 }));
 
-vi.mock('@/hooks/chat', () => ({
+vi.mock('@/hooks/chat/chat', () => ({
   useDecryptedConversations: vi.fn(() => ({
     data: [],
     isLoading: false,
@@ -50,7 +50,7 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ conversationId: undefined }),
 }));
 
-vi.mock('@/hooks/use-stable-balance', () => ({
+vi.mock('@/hooks/billing/use-stable-balance', () => ({
   useStableBalance: () => ({
     displayBalance: '10.00',
     isStable: true,
@@ -184,5 +184,42 @@ describe('AppShell', () => {
     );
 
     expect(useModelValidation).toHaveBeenCalled();
+  });
+
+  it('renders a skip-to-content link as the first focusable element', () => {
+    render(
+      <AppShell>
+        <div>Content</div>
+      </AppShell>,
+      { wrapper: createWrapper() }
+    );
+
+    const shell = screen.getByTestId(TEST_IDS.appShell);
+    const focusables = shell.querySelectorAll('a, button, input, [tabindex]');
+    expect(focusables[0]).toBe(screen.getByRole('link', { name: /skip to content/i }));
+  });
+
+  it('points the skip link at the main content region', () => {
+    render(
+      <AppShell>
+        <div>Content</div>
+      </AppShell>,
+      { wrapper: createWrapper() }
+    );
+
+    expect(screen.getByRole('link', { name: /skip to content/i })).toHaveAttribute('href', '#main');
+  });
+
+  it('gives main a focusable target for the skip link', () => {
+    render(
+      <AppShell>
+        <div>Content</div>
+      </AppShell>,
+      { wrapper: createWrapper() }
+    );
+
+    const main = screen.getByRole('main');
+    expect(main).toHaveAttribute('id', 'main');
+    expect(main).toHaveAttribute('tabindex', '-1');
   });
 });

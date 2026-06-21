@@ -5,16 +5,6 @@ import { ROUTES, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { env } from '@/lib/env';
 import { client, fetchJson } from '@/lib/api-client';
 
-interface EmailTemplate {
-  name: string;
-  label: string;
-  html: string;
-}
-
-interface EmailsResponse {
-  templates: EmailTemplate[];
-}
-
 export const Route = createFileRoute('/dev/emails')({
   beforeLoad: () => {
     if (!env.isDev) {
@@ -25,7 +15,17 @@ export const Route = createFileRoute('/dev/emails')({
   component: EmailsPage,
 });
 
-export function EmailsPage(): React.JSX.Element {
+interface EmailTemplate {
+  name: string;
+  label: string;
+  html: string;
+}
+
+interface EmailsResponse {
+  templates: EmailTemplate[];
+}
+
+function EmailsPage(): React.JSX.Element {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dev-emails'],
     queryFn: (): Promise<EmailsResponse> => fetchJson<EmailsResponse>(client.api.dev.emails.$get()),

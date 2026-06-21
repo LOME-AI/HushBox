@@ -55,6 +55,7 @@ function mockHelcimProcess(): void {
 
   const token = `mock-token-${crypto.randomUUID()}`;
   const customerCode = `mock-customer-${crypto.randomUUID()}`;
+  const firstFour = cardNumber.slice(0, 4);
   const lastFour = cardNumber.slice(-4);
 
   setElementValue('response', '1');
@@ -62,7 +63,9 @@ function mockHelcimProcess(): void {
   setElementValue('cardToken', token);
   setElementValue('customerCode', customerCode);
   setElementValue('cardType', 'Visa');
-  setElementValue('cardF4L4', `****${lastFour}9990`);
+  // Helcim's cardF4L4 is the first four followed by the last four digits; the
+  // loader reads the displayed last-four via `.slice(-4)`.
+  setElementValue('cardF4L4', `${firstFour}${lastFour}`);
 }
 
 export function installMockHelcim(): void {

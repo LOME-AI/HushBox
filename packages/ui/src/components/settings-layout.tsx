@@ -58,7 +58,7 @@ export function SettingsLayout({
                   'focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
                   isActive
                     ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground-muted hover:bg-accent/50 hover:text-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                 )}
               >
                 {item.icon}
@@ -100,7 +100,7 @@ export function SettingsLayout({
                       'focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
                       isActive
                         ? 'bg-accent text-accent-foreground'
-                        : 'text-foreground-muted hover:bg-accent/50 hover:text-foreground'
+                        : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                     )}
                   >
                     {item.icon}

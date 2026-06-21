@@ -10,6 +10,9 @@ export function getExtensionFromMime(mimeType: string): string {
   if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
   if (mimeType.includes('webp')) return 'webp';
   if (mimeType.includes('mp4')) return 'mp4';
+  // `video/mpeg` is an MPEG video, not MP3 audio — only the audio MPEG profile
+  // is the MP3 file format. Check the video case before the audio fallthrough.
+  if (mimeType.includes('video/mpeg')) return 'mpeg';
   if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'mp3';
   if (mimeType.includes('wav')) return 'wav';
   return 'bin';

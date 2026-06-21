@@ -61,6 +61,20 @@ export function createBaseConfig(tsconfigRootDir) {
         'unused-imports': unusedImports,
         import: importPlugin,
       },
+      settings: {
+        // import/* rules (notably import/no-cycle) need a resolver that
+        // understands the codebase's `.js`-suffixed ESM relative imports
+        // (`./foo.js` -> `foo.tsx`). Without one, resolution silently
+        // traverses nothing and the cycle guard catches no cycles.
+        // `alwaysTryTypes` lets `.d.ts` declarations resolve too; `project`
+        // is scoped to the linting package's own tsconfig via tsconfigRootDir.
+        'import/resolver': {
+          typescript: {
+            alwaysTryTypes: true,
+            project: tsconfigRootDir,
+          },
+        },
+      },
       rules: {
         // Import ordering — enforces the project convention from CODE-RULES.md:
         //   1. External dependencies
@@ -68,6 +82,16 @@ export function createBaseConfig(tsconfigRootDir) {
         //   3. Relative imports
         //   4. Type imports last (complements consistent-type-imports below)
         // Most violations auto-fix with `eslint --fix`.
+        // Circular dependency guard. A cycle means two modules can't be loaded,
+        // tested, or reasoned about independently, and produces order-dependent
+        // initialization bugs (a re-exported binding can read as `undefined` if
+        // it's touched before the other half of the cycle finishes evaluating).
+        // `maxDepth: Infinity` catches indirect cycles, not just direct A↔B.
+        // `ignoreExternal` stops traversal into node_modules: cycles through
+        // third-party deps aren't ours to fix, and walking them parses
+        // un-parseable generated files (e.g. lucide-static's bundled ESM).
+        'import/no-cycle': ['error', { maxDepth: Number.POSITIVE_INFINITY, ignoreExternal: true }],
+
         'import/order': [
           'error',
           {

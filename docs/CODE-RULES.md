@@ -227,8 +227,9 @@ Tag chrome wrappers (sidebar, header, footer, panels surrounding main content) w
 
 ### Naming
 
-- Components: `PascalCase.tsx`
-- Utilities: `camelCase.ts`
+- Filenames: `kebab-case` (e.g. `two-factor-setup.tsx`, `use-delete-account.ts`)
+- Component symbols: `PascalCase` (the export name, not the filename)
+- Hook/utility symbols: `camelCase`
 - Constants: `SCREAMING_SNAKE_CASE`
 - Types: `PascalCase`
 - Tests: `*.test.ts`

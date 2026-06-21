@@ -201,12 +201,31 @@ describe('CapacitorProvider', () => {
       )
     );
 
+    const validId = '0190b5d3-1f4c-7c3a-9e2b-1a2b3c4d5e6f';
     const callbacks = vi.mocked(usePushNotifications).mock.calls[0]![0]!;
-    callbacks.onNotificationTap!({ conversationId: 'conv-456' });
+    callbacks.onNotificationTap!({ conversationId: validId });
 
     expect(mockNavigate).toHaveBeenCalledWith({
-      to: '/chat/conv-456',
+      to: `/chat/${validId}`,
     });
+  });
+
+  it('onNotificationTap ignores a malformed conversationId', async () => {
+    const { usePushNotifications } = await import('./hooks/use-push-notifications.js');
+    const { CapacitorProvider } = await import('./provider.js');
+
+    render(
+      React.createElement(
+        CapacitorProvider,
+        { isAppStable: true },
+        React.createElement('div', null, 'test')
+      )
+    );
+
+    const callbacks = vi.mocked(usePushNotifications).mock.calls[0]![0]!;
+    callbacks.onNotificationTap!({ conversationId: '../../verify?token=x' });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('onNotificationTap ignores tap without conversationId', async () => {

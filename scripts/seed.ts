@@ -1883,6 +1883,28 @@ function logUpsertResult(entityName: string, result: UpsertResult | { total: num
   );
 }
 
+// `new URL('postgres://[::1]:5432/db').hostname` returns the bracketed form
+// `[::1]`, so the bracketed literal — not the bare `::1` — is what the allowlist
+// check sees for an IPv6-loopback dev DB.
+const LOCAL_DATABASE_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
+
+/**
+ * The seed only ever targets a local development database (the Neon proxy on
+ * localhost). Hardcoded dev credentials and destructive upserts make running it
+ * against any remote host unacceptable, so the host allowlist is the safety
+ * boundary: anything not in {@link LOCAL_DATABASE_HOSTS} is treated as remote.
+ */
+function isLocalDatabaseUrl(databaseUrl: string): boolean {
+  let host: string;
+  try {
+    host = new URL(databaseUrl).hostname;
+  } catch {
+    // An unparseable URL is not provably local — fail closed.
+    return false;
+  }
+  return LOCAL_DATABASE_HOSTS.has(host);
+}
+
 export async function seed(): Promise<void> {
   if (!process.env['DATABASE_URL']) {
     const envPath = path.resolve(process.cwd(), '.env.development');
@@ -1892,6 +1914,13 @@ export async function seed(): Promise<void> {
   const databaseUrl = process.env['DATABASE_URL'];
   if (!databaseUrl) {
     throw new Error('DATABASE_URL is required');
+  }
+
+  if (!isLocalDatabaseUrl(databaseUrl)) {
+    throw new Error(
+      'Refusing to seed: DATABASE_URL does not point at a local database. ' +
+        'The seed is local-development only and must never run against a remote (production) database.'
+    );
   }
 
   const db = createDb({

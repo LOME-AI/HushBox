@@ -26,6 +26,7 @@ function buildToggles(prefs: AccessibilityPreferences): ClassToggle[] {
     ['a11y-letter-spacing-loose', prefs.letterSpacing === '0.05'],
     ['a11y-letter-spacing-loosest', prefs.letterSpacing === '0.12'],
 
+    ['a11y-line-height-tight', prefs.lineHeight === '1.0'],
     ['a11y-line-height-tall', prefs.lineHeight === '1.5'],
     ['a11y-line-height-double', prefs.lineHeight === '2.0'],
 

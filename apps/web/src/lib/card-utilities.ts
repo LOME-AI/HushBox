@@ -89,7 +89,7 @@ export function validateExpiry(expiry: string): string | null {
 
 export function validateCvv(cvv: string): string | null {
   if (cvv.length === 0) return 'CVV is required';
-  if (cvv.length < 3) return 'CVV must be 3-4 digits';
+  if (cvv.length < 3 || cvv.length > 4) return 'CVV must be 3-4 digits';
   if (!/^\d+$/.test(cvv)) return 'CVV must contain only digits';
   return null;
 }

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Outlet, createFileRoute } from '@tanstack/react-router';
 import { AppShell } from '@/components/shared/app-shell';
-import { useAccessibilitySync } from '@/hooks/use-accessibility-sync';
+import { useAccessibilitySync } from '@/hooks/auth/use-accessibility-sync';
 
 export const Route = createFileRoute('/_app')({
   component: AppLayout,

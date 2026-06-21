@@ -4,10 +4,10 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { Mail, User } from 'lucide-react';
 import { ROUTES } from '@hushbox/shared';
 import { InlineFormError } from '@hushbox/ui';
-import { useFormEnterNav } from '@/hooks/use-form-enter-nav';
+import { useFormEnterNav } from '@/hooks/ui/use-form-enter-nav';
 import { signUp } from '@/lib/auth';
 import { FormInput } from '@/components/shared/form-input';
-import { AuthButton } from '@/components/auth/AuthButton';
+import { AuthButton } from '@/components/auth/auth-button';
 import { PasswordField, ConfirmPasswordField } from '@/components/auth/password-field';
 import { AuthFeatureList } from '@/components/auth/auth-feature-list';
 import { CheckYourEmail } from '@/components/auth/check-your-email';
@@ -23,7 +23,7 @@ export const Route = createFileRoute('/_auth/signup')({
   component: SignupPage,
 });
 
-export function SignupPage(): React.JSX.Element {
+function SignupPage(): React.JSX.Element {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -128,6 +128,7 @@ export function SignupPage(): React.JSX.Element {
         <PasswordField
           id="password"
           label="Password"
+          autoComplete="new-password"
           password={password}
           setPassword={setPassword}
           touched={touched.password}

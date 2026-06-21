@@ -82,6 +82,21 @@ export function _setWorkerFactoryForTesting(factory: WorkerFactory | null): void
   workerFactoryOverride = factory;
 }
 
+/**
+ * Ceiling for how long load() waits for the whole pool to finish loadDone +
+ * warmupDone before failing fast. A worker that hangs (network stall, WASM
+ * compile wedge) must surface an error rather than leave load() pending
+ * forever and the pool permanently busy.
+ */
+export const DEFAULT_LOAD_TIMEOUT_MS = 120_000;
+
+let loadTimeoutMsOverride: number | null = null;
+
+/** Test-only: shorten (or restore with null) the load() timeout. */
+export function _setLoadTimeoutMsForTesting(ms: number | null): void {
+  loadTimeoutMsOverride = ms;
+}
+
 function defaultWorkerFactory(): Worker {
   // Vite bundles workers referenced via `new URL(..., import.meta.url)` as
   // a separate chunk. `type: 'module'` matches the worker's ES module
@@ -95,6 +110,22 @@ class CancelledError extends Error {
   constructor() {
     super('TTS speak was cancelled');
     this.name = 'CancelledError';
+  }
+}
+
+/** Thrown to a slot's outstanding load/speak when its worker crashes. */
+class WorkerCrashError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkerCrashError';
+  }
+}
+
+/** Thrown when load() does not complete before the load timeout elapses. */
+class LoadTimeoutError extends Error {
+  constructor() {
+    super('TTS model load timed out');
+    this.name = 'LoadTimeoutError';
   }
 }
 
@@ -141,6 +172,8 @@ class WorkerKokoroTtsService implements TtsService {
   private loaded = false;
   private pendingLoad: PendingLoad | null = null;
   private loadPromise: Promise<void> | null = null;
+  /** Fail-fast timer for the in-flight load(); cleared the moment it settles. */
+  private loadTimer: ReturnType<typeof setTimeout> | null = null;
   /**
    * One entry per in-flight preloadVoice warmup (separate from load-lifecycle
    * warmups which live on `pendingLoad.warmupRequestIdBySlot`). Keyed by the
@@ -200,6 +233,13 @@ class WorkerKokoroTtsService implements TtsService {
       };
     });
 
+    const timeoutMs = loadTimeoutMsOverride ?? DEFAULT_LOAD_TIMEOUT_MS;
+    this.loadTimer = setTimeout(() => {
+      if (this.pendingLoad === null) return;
+      this.tearDownWorkers();
+      this.rejectLoad(new LoadTimeoutError());
+    }, timeoutMs);
+
     for (const [slotIndex, slot] of this.workers.entries()) {
       const reqId = loadRequestIdBySlot[slotIndex];
       if (reqId === undefined) continue;
@@ -207,6 +247,37 @@ class WorkerKokoroTtsService implements TtsService {
     }
 
     return this.loadPromise;
+  }
+
+  /** Resolve the in-flight load(), mark loaded, and clear the fail-fast timer. */
+  private resolveLoad(pending: PendingLoad): void {
+    this.clearLoadTimer();
+    this.pendingLoad = null;
+    this.loaded = true;
+    pending.resolve();
+  }
+
+  /** Reject the in-flight load() and clear the fail-fast timer and promise. */
+  private rejectLoad(error: Error): void {
+    const pending = this.pendingLoad;
+    if (pending === null) return;
+    this.clearLoadTimer();
+    this.pendingLoad = null;
+    this.loadPromise = null;
+    pending.reject(error);
+  }
+
+  private clearLoadTimer(): void {
+    if (this.loadTimer !== null) {
+      clearTimeout(this.loadTimer);
+      this.loadTimer = null;
+    }
+  }
+
+  /** Terminate and drop every worker so a failed load leaves no zombie pool. */
+  private tearDownWorkers(): void {
+    for (const slot of this.workers) slot.worker.terminate();
+    this.workers = [];
   }
 
   preloadVoice(voice: TtsVoice): Promise<void> {
@@ -345,6 +416,7 @@ class WorkerKokoroTtsService implements TtsService {
   }
 
   terminate(): void {
+    this.clearLoadTimer();
     for (const slot of this.workers) slot.worker.terminate();
     this.workers = [];
     this.loaded = false;
@@ -364,7 +436,42 @@ class WorkerKokoroTtsService implements TtsService {
       if (!isWorkerOutbound(data)) return;
       this.handleWorkerMessage(slotIndex, slot, data);
     });
+    // A worker that throws (uncaught error) or fails to deserialize a message
+    // never replies to its load/speak, hanging those promises forever and
+    // leaving the slot permanently busy. Surface the failure and respawn.
+    worker.addEventListener('error', (event: Event) => {
+      const message = event instanceof ErrorEvent ? event.message : 'TTS worker error';
+      this.onWorkerError(slotIndex, slot, message);
+    });
+    worker.addEventListener('messageerror', () => {
+      this.onWorkerError(slotIndex, slot, 'TTS worker message deserialization failed');
+    });
     return slot;
+  }
+
+  private onWorkerError(slotIndex: number, slot: WorkerSlot, message: string): void {
+    const error = new WorkerCrashError(message);
+    // Fail-fast a load in progress: a partial pool is meaningless.
+    this.rejectLoad(error);
+    this.rejectSpeaksForSlot(slotIndex, error);
+    // Respawn so the pool recovers: the dead worker is replaced by a fresh
+    // idle slot eligible for the next queued sentence.
+    if (this.workers[slotIndex] === slot) {
+      slot.worker.terminate();
+      this.workers[slotIndex] = this.spawnWorkerForSlot(slotIndex);
+    }
+    this.dispatchPending();
+  }
+
+  private rejectSpeaksForSlot(slotIndex: number, error: Error): void {
+    for (const [requestId, mappedSlot] of this.speakSlotByRequestId) {
+      if (mappedSlot !== slotIndex) continue;
+      this.speakSlotByRequestId.delete(requestId);
+      const speak = this.pendingSpeaks.get(requestId);
+      if (speak === undefined) continue;
+      this.pendingSpeaks.delete(requestId);
+      speak.rejectAudio(error);
+    }
   }
 
   private postToSlot(slot: WorkerSlot, msg: WorkerInbound): void {
@@ -465,9 +572,7 @@ class WorkerKokoroTtsService implements TtsService {
     // Fail-fast: a partial pool is meaningless. Reject the load() promise
     // and clear pendingLoad so subsequent stale messages from other slots
     // are ignored.
-    this.pendingLoad = null;
-    this.loadPromise = null;
-    pending.reject(new Error(message));
+    this.rejectLoad(new Error(message));
   }
 
   private onWarmupSettled(slotIndex: number, requestId: string, errorMessage: string | null): void {
@@ -491,9 +596,7 @@ class WorkerKokoroTtsService implements TtsService {
     if (pending.warmupSettledBySlot[slotIndex]) return;
     pending.warmupSettledBySlot[slotIndex] = true;
     if (pending.loadDoneBySlot.every(Boolean) && pending.warmupSettledBySlot.every(Boolean)) {
-      this.pendingLoad = null;
-      this.loaded = true;
-      pending.resolve();
+      this.resolveLoad(pending);
     }
   }
 

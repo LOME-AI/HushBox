@@ -1,31 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { DEV_PASSWORD, TEST_ID_BUILDERS } from '@hushbox/shared';
+import { DEV_PASSWORD, displayUsername, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { toast } from '@hushbox/ui';
 import { signIn } from '@/lib/auth';
+import { renderRoute } from '@/test-utils/render';
+import { Route } from './dev.personas';
 import type { DevPersona } from '@hushbox/shared';
 
-class RedirectError extends Error {
-  to: string;
-  isRedirect: boolean;
-  constructor(to: string) {
-    super(`Redirect to ${to}`);
-    this.to = to;
-    this.isRedirect = true;
-  }
-}
-
-const mockNavigate = vi.fn();
-const mockUseSearch = vi.fn<() => { type?: string }>();
-vi.mock('@tanstack/react-router', () => ({
-  createFileRoute: vi.fn(() => vi.fn()),
-  useNavigate: vi.fn(() => mockNavigate),
-  redirect: vi.fn((options: { to: string }) => {
-    throw new RedirectError(options.to);
-  }),
-  useSearch: (): { type?: string } => mockUseSearch(),
+const { mockNavigate, mockUseSearch, mockToastError } = vi.hoisted(() => ({
+  mockNavigate: vi.fn(),
+  mockUseSearch: vi.fn<() => { type?: string }>(),
+  mockToastError: vi.fn(),
 }));
+
+// Keep the real router (createFileRoute must run for the route file); mock only
+// the navigation/search hooks the component uses.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+    useSearch: (): { type?: string } => mockUseSearch(),
+  };
+});
 
 const { mockSignOutAndClearCache } = vi.hoisted(() => ({
   mockSignOutAndClearCache: vi.fn().mockResolvedValue({}),
@@ -38,12 +36,16 @@ vi.mock('@/lib/auth', () => ({
   signOutAndClearCache: mockSignOutAndClearCache,
 }));
 
-vi.mock('@hushbox/ui', () => ({
-  toast: {
-    error: vi.fn(),
-  },
-  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
-}));
+// Keep the real @hushbox/ui (renderRoute needs its providers); override toast.
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    toast: {
+      error: mockToastError,
+    },
+  };
+});
 
 vi.mock('@/lib/env', () => ({
   env: { isDev: true },
@@ -57,7 +59,7 @@ interface MockDevPersonasReturn {
 }
 
 const mockUseDevPersonas = vi.fn<(type?: 'dev' | 'test') => MockDevPersonasReturn>();
-vi.mock('@/hooks/dev-personas', () => ({
+vi.mock('@/hooks/models/dev-personas', () => ({
   useDevPersonas: (type?: 'dev' | 'test'): MockDevPersonasReturn => mockUseDevPersonas(type),
 }));
 
@@ -104,7 +106,7 @@ describe('PersonasPage', () => {
   });
 
   describe('loading state', () => {
-    it('shows loading indicator when fetching personas', async () => {
+    it('shows loading indicator when fetching personas', () => {
       mockUseDevPersonas.mockReturnValue({
         data: undefined,
         isLoading: true,
@@ -112,15 +114,14 @@ describe('PersonasPage', () => {
         error: null,
       });
 
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       expect(screen.getByText(/loading personas/i)).toBeInTheDocument();
     });
   });
 
   describe('error state', () => {
-    it('shows error message when fetch fails', async () => {
+    it('shows error message when fetch fails', () => {
       mockUseDevPersonas.mockReturnValue({
         data: undefined,
         isLoading: false,
@@ -128,18 +129,15 @@ describe('PersonasPage', () => {
         error: new Error('Failed to fetch dev personas'),
       });
 
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       expect(screen.getByText(/failed to load personas/i)).toBeInTheDocument();
     });
   });
 
   describe('personas display', () => {
-    it('renders a card for each persona', async () => {
-      const { displayUsername } = await import('@hushbox/shared');
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+    it('renders a card for each persona', () => {
+      renderRoute(Route);
 
       for (const persona of mockPersonas) {
         expect(screen.getByText(displayUsername(persona.username))).toBeInTheDocument();
@@ -147,18 +145,16 @@ describe('PersonasPage', () => {
       }
     });
 
-    it('renders avatar with first letter of name', async () => {
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+    it('renders avatar with first letter of name', () => {
+      renderRoute(Route);
 
       expect(screen.getByText('A')).toBeInTheDocument(); // Alice
       expect(screen.getByText('B')).toBeInTheDocument(); // Bob
       expect(screen.getByText('C')).toBeInTheDocument(); // Charlie
     });
 
-    it('shows verified badge for verified personas', async () => {
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+    it('shows verified badge for verified personas', () => {
+      renderRoute(Route);
 
       // Alice and Bob are verified, Charlie is not
       const verifiedBadges = screen.getAllByText('Verified');
@@ -167,9 +163,8 @@ describe('PersonasPage', () => {
       expect(screen.getByText('Unverified')).toBeInTheDocument();
     });
 
-    it('has data-persona attribute with persona id on each card', async () => {
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+    it('has data-persona attribute with persona id on each card', () => {
+      renderRoute(Route);
 
       for (const persona of mockPersonas) {
         const emailPrefix = persona.email.split('@')[0] ?? '';
@@ -182,39 +177,35 @@ describe('PersonasPage', () => {
   });
 
   describe('stats display', () => {
-    it('displays conversation count for each persona', async () => {
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+    it('displays conversation count for each persona', () => {
+      renderRoute(Route);
 
       const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
       expect(aliceCard).toHaveTextContent('3 conversations');
     });
 
-    it('displays message count for each persona', async () => {
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+    it('displays message count for each persona', () => {
+      renderRoute(Route);
 
       const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
       expect(aliceCard).toHaveTextContent('12 messages');
     });
 
-    it('displays project count for each persona', async () => {
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+    it('displays project count for each persona', () => {
+      renderRoute(Route);
 
       const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
       expect(aliceCard).toHaveTextContent('2 projects');
     });
 
-    it('displays credits for each persona', async () => {
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+    it('displays credits for each persona', () => {
+      renderRoute(Route);
 
       const creditElements = screen.getAllByText('$0.00');
       expect(creditElements).toHaveLength(mockPersonas.length);
     });
 
-    it('uses singular form for count of 1', async () => {
+    it('uses singular form for count of 1', () => {
       const persona = mockPersonas[0];
       if (!persona) throw new Error('Test data missing');
       mockUseDevPersonas.mockReturnValue({
@@ -231,8 +222,7 @@ describe('PersonasPage', () => {
         error: null,
       });
 
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       const aliceCard = screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice'));
       expect(aliceCard).toHaveTextContent('1 conversation');
@@ -245,9 +235,8 @@ describe('PersonasPage', () => {
     it('calls signOutAndClearCache before signIn.email on click', async () => {
       vi.mocked(signIn.email).mockResolvedValue({});
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
 
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
@@ -268,9 +257,8 @@ describe('PersonasPage', () => {
     it('navigates to /chat on successful login', async () => {
       vi.mocked(signIn.email).mockResolvedValue({});
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
 
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
@@ -284,9 +272,8 @@ describe('PersonasPage', () => {
         error: { message: 'Email not verified' },
       });
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
 
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('charlie')));
 
@@ -299,9 +286,8 @@ describe('PersonasPage', () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(signIn.email).mockRejectedValue(new Error('Network error'));
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
 
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
@@ -317,9 +303,8 @@ describe('PersonasPage', () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(signIn.email).mockRejectedValue(new Error('Network error'));
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
 
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
@@ -340,9 +325,8 @@ describe('PersonasPage', () => {
       vi.mocked(signIn.email).mockReturnValue(signInPromise as ReturnType<typeof signIn.email>);
 
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
 
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
@@ -370,9 +354,8 @@ describe('PersonasPage', () => {
       vi.mocked(signIn.email).mockReturnValue(signInPromise as ReturnType<typeof signIn.email>);
 
       const user = userEvent.setup();
-      const { PersonasPage } = await import('./dev.personas');
 
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       await user.click(screen.getByTestId(TEST_ID_BUILDERS.personaCard('alice')));
 
@@ -388,53 +371,47 @@ describe('PersonasPage', () => {
     });
   });
 
-  it('renders header with title', async () => {
-    const { PersonasPage } = await import('./dev.personas');
-
-    render(<PersonasPage />);
+  it('renders header with title', () => {
+    renderRoute(Route);
 
     expect(screen.getByRole('heading', { name: /developer personas/i })).toBeInTheDocument();
   });
 
   describe('type query param', () => {
-    it('calls useDevPersonas with dev type by default', async () => {
+    it('calls useDevPersonas with dev type by default', () => {
       mockUseSearch.mockReturnValue({});
 
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       expect(mockUseDevPersonas).toHaveBeenCalledWith('dev');
     });
 
-    it('calls useDevPersonas with test type when ?type=test', async () => {
+    it('calls useDevPersonas with test type when ?type=test', () => {
       mockUseSearch.mockReturnValue({ type: 'test' });
 
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       expect(mockUseDevPersonas).toHaveBeenCalledWith('test');
     });
 
-    it('shows Test Personas title when type=test', async () => {
+    it('shows Test Personas title when type=test', () => {
       mockUseSearch.mockReturnValue({ type: 'test' });
 
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       expect(screen.getByRole('heading', { name: /test personas/i })).toBeInTheDocument();
     });
 
-    it('defaults to dev type for invalid type values', async () => {
+    it('defaults to dev type for invalid type values', () => {
       mockUseSearch.mockReturnValue({ type: 'invalid' });
 
-      const { PersonasPage } = await import('./dev.personas');
-      render(<PersonasPage />);
+      renderRoute(Route);
 
       expect(mockUseDevPersonas).toHaveBeenCalledWith('dev');
     });
   });
 
-  it('shows empty state when no personas', async () => {
+  it('shows empty state when no personas', () => {
     mockUseDevPersonas.mockReturnValue({
       data: { personas: [] },
       isLoading: false,
@@ -442,8 +419,7 @@ describe('PersonasPage', () => {
       error: null,
     });
 
-    const { PersonasPage } = await import('./dev.personas');
-    render(<PersonasPage />);
+    renderRoute(Route);
 
     expect(screen.getByText(/no personas found/i)).toBeInTheDocument();
   });

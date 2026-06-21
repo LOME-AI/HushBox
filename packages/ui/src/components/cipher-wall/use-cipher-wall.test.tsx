@@ -6,6 +6,7 @@ import { EXCLUSION_STRIDE } from './cipher-wall-engine';
 import { useCipherWall, readThemeColors } from './use-cipher-wall';
 import type { CipherWallOptions } from './use-cipher-wall';
 import type { ThemeColors } from './cipher-wall-engine';
+import { useA11yStore } from '../accessibility/store';
 
 const TEST_MESSAGES_FOR_HOOK: readonly string[] = ['Test One', 'Test Two', 'Test Three'];
 
@@ -158,6 +159,43 @@ describe('useCipherWall', () => {
     const { unmount } = render(<TestCanvas />);
     unmount();
     expect(mutationDisconnected).toBe(true);
+  });
+});
+
+describe('useCipherWall reduced motion', () => {
+  beforeEach(() => {
+    mutationCallbacks = [];
+    mutationObserveArgs = [];
+    mutationDisconnected = false;
+
+    vi.stubGlobal('MutationObserver', MockMutationObserver);
+    setupRAF();
+    setupGetComputedStyle();
+
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => mockCtx) as never;
+
+    useA11yStore.getState().update({ stopAnimations: true });
+  });
+
+  afterEach(() => {
+    useA11yStore.getState().update({ stopAnimations: false });
+    globalThis.requestAnimationFrame = originalRAF;
+    globalThis.cancelAnimationFrame = originalCAF;
+    globalThis.getComputedStyle = originalGetComputedStyle;
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
+    vi.restoreAllMocks();
+  });
+
+  it('does not start the animation loop when motion is reduced', () => {
+    render(<TestCanvas />);
+    expect(globalThis.requestAnimationFrame).not.toHaveBeenCalled();
+  });
+
+  it('renders a single static frame when motion is reduced', () => {
+    const renderSpy = vi.spyOn(engine, 'renderFrame');
+    render(<TestCanvas />);
+    expect(renderSpy).toHaveBeenCalledTimes(1);
+    renderSpy.mockRestore();
   });
 });
 

@@ -15,6 +15,11 @@ interface CapacitorProviderProps {
   isAppStable: boolean;
 }
 
+// Conversation ids are server-generated UUIDs (uuidv7). Push payloads are
+// untrusted, so the id is validated against this shape before it is
+// interpolated into a navigation path — blocking traversal/token injection.
+const CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Thin shell that activates all Capacitor hooks.
  *
@@ -48,7 +53,7 @@ export function CapacitorProvider({
   const handleNotificationTap = useCallback(
     (data: Record<string, string>) => {
       const conversationId = data['conversationId'];
-      if (conversationId) {
+      if (conversationId && CONVERSATION_ID_PATTERN.test(conversationId)) {
         void navigate({ to: `/chat/${conversationId}` });
       }
     },

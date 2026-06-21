@@ -1,0 +1,92 @@
+import * as React from 'react';
+import { cn } from '@hushbox/ui';
+import { useIntersectionVisibility } from './use-intersection-visibility';
+
+interface DataGridRow {
+  label: string;
+  values: string[];
+}
+
+interface DataGridProps extends React.ComponentProps<'div'> {
+  columns: string[];
+  rows: DataGridRow[];
+  highlightColumn?: number;
+  animated?: boolean;
+}
+
+function DataGrid({
+  columns,
+  rows,
+  highlightColumn,
+  animated = false,
+  className,
+  ...props
+}: Readonly<DataGridProps>): React.JSX.Element {
+  const { containerRef, visible } = useIntersectionVisibility(animated);
+
+  return (
+    <div
+      ref={containerRef}
+      data-slot="data-grid"
+      {...(highlightColumn !== undefined && {
+        'data-highlight-column': String(highlightColumn),
+      })}
+      {...(animated && { 'data-animated': '' })}
+      {...(animated && { 'data-visible': String(visible) })}
+      className={cn('border-border overflow-hidden rounded-lg border-2', className)}
+      {...props}
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              {columns.map((col, colIndex) => (
+                <th
+                  key={col}
+                  className={cn(
+                    'border-b px-4 py-2 text-left font-semibold',
+                    highlightColumn !== undefined &&
+                      colIndex === highlightColumn &&
+                      'bg-primary/10 text-primary'
+                  )}
+                >
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr
+                key={row.label}
+                {...(animated && {
+                  style: { '--row-delay': `${String(rowIndex * 100)}ms` } as React.CSSProperties,
+                })}
+              >
+                <td className="border-b px-4 py-2 font-medium">{row.label}</td>
+                {row.values.map((value, valueIndex) => {
+                  const colIndex = valueIndex + 1;
+                  const isHighlighted =
+                    highlightColumn !== undefined && colIndex === highlightColumn;
+                  return (
+                    <td
+                      key={valueIndex}
+                      className={cn(
+                        'border-b px-4 py-2',
+                        isHighlighted && 'bg-primary/10 text-primary font-semibold'
+                      )}
+                    >
+                      {value}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export { DataGrid, type DataGridProps, type DataGridRow };

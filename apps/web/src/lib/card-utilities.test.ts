@@ -187,6 +187,10 @@ describe('validateCvv', () => {
     expect(validateCvv('12')).toBe('CVV must be 3-4 digits');
   });
 
+  it('returns error for CVV longer than 4 digits', () => {
+    expect(validateCvv('12345')).toBe('CVV must be 3-4 digits');
+  });
+
   it('returns error for non-numeric CVV', () => {
     expect(validateCvv('12a')).toBe('CVV must contain only digits');
   });

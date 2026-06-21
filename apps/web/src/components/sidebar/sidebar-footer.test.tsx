@@ -52,7 +52,7 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
 }));
 
-vi.mock('@/hooks/use-stable-balance', () => ({
+vi.mock('@/hooks/billing/use-stable-balance', () => ({
   useStableBalance: mockUseStableBalance,
 }));
 

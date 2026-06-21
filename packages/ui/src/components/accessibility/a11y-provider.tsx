@@ -50,6 +50,10 @@ export function A11yProvider({ children }: Readonly<A11yProviderProps>): React.J
 
   React.useEffect(() => {
     if (!prefs.muteSounds) return;
+    // TTS read-aloud is intentionally exempt from "Mute all sounds": muting only
+    // silences <audio>/<video> media. The mute pauser's `onMute` hook (which would
+    // cancel in-flight TTS) is deliberately left unwired by design, so toggling
+    // mute never interrupts speech the user explicitly started.
     return installMutePauser();
   }, [prefs.muteSounds]);
 

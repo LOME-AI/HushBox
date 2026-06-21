@@ -9,6 +9,7 @@ import {
   DEFAULT_AXIS_PROPS,
   formatDollarTick,
   formatDollarTooltip,
+  formatPeriodLabel,
 } from './chart-utilities';
 import type { ChartConfig } from '@hushbox/ui';
 
@@ -51,10 +52,7 @@ export function SpendingOverTimeChart({
       .toSorted(([a], [b]) => a.localeCompare(b))
       .map(([period, values]) => {
         const row: Record<string, number | string> = {
-          period: new Date(period).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-          }),
+          period: formatPeriodLabel(period),
         };
         let total = 0;
         for (const model of modelsList) {
@@ -69,6 +67,32 @@ export function SpendingOverTimeChart({
     return { chartData: rows, models: modelsList, chartConfig: config };
   }, [data]);
 
+  const dataTable = (
+    <table>
+      <caption>Spending over time by model, in US dollars</caption>
+      <thead>
+        <tr>
+          <th scope="col">Period</th>
+          {models.map((model) => (
+            <th scope="col" key={model}>
+              {model}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {chartData.map((row) => (
+          <tr key={String(row['period'])}>
+            <th scope="row">{String(row['period'])}</th>
+            {models.map((model) => (
+              <td key={model}>{formatDollarTooltip(Number(row[model]))}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
   return (
     <UsageChartCard
       title="Spending Over Time"
@@ -76,8 +100,10 @@ export function SpendingOverTimeChart({
       isLoading={isLoading}
       isEmpty={chartData.length === 0}
       chartConfig={chartConfig}
+      ariaLabel={`Spending over time across ${String(models.length)} model${models.length === 1 ? '' : 's'} over ${String(chartData.length)} period${chartData.length === 1 ? '' : 's'}.`}
+      dataTable={dataTable}
     >
-      <AreaChart data={chartData} margin={DEFAULT_CHART_MARGIN}>
+      <AreaChart data={chartData} margin={DEFAULT_CHART_MARGIN} accessibilityLayer>
         <XAxis dataKey="period" {...DEFAULT_AXIS_PROPS} />
         <YAxis {...DEFAULT_AXIS_PROPS} tickFormatter={formatDollarTick} />
         <Tooltip

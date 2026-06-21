@@ -17,6 +17,7 @@ import { installDevOnlyTracking, readMeta, markClean, type SqlExecutor } from '.
 import { touchHeartbeat, ensureDaemonRunning } from './lib/idle-killer.js';
 import { generateEnvFiles } from './generate-env.js';
 import { cleanupOrphanedProjects } from './docker-cleanup.js';
+import { killPorts, resolvePorts } from './kill-ports.js';
 import { isMainModule } from './lib/is-main.js';
 import { runMain } from './lib/run-main.js';
 import { ensureStack, type EnsureStackDeps, type EnsureStackOptions } from './ensure-stack.js';
@@ -240,6 +241,22 @@ function buildOptions(args: { pristine: boolean; wipe: boolean }): EnsureStackOp
   };
 }
 
+/**
+ * Playwright serves the E2E webServers (HB_PREVIEW_PORT, HB_API_PORT) and
+ * spawns each detached in its own process group, reaping them only on a clean
+ * shutdown. An interrupted run (Ctrl+C, a killed session) orphans them to init
+ * still bound to their ports; because playwright.config sets
+ * reuseExistingServer:false, the next run then aborts at "port already in use"
+ * before a single test executes. Reclaiming the ports here lets an interrupted
+ * run self-heal on the next invocation. E2E-only: dev/test share the same
+ * ensure-stack entry but must not have servers torn out from under them.
+ */
+const E2E_WEBSERVER_PORT_ENVS = ['HB_PREVIEW_PORT', 'HB_API_PORT'] as const;
+
+async function reclaimE2eWebserverPorts(): Promise<void> {
+  await killPorts(resolvePorts(E2E_WEBSERVER_PORT_ENVS));
+}
+
 async function main(): Promise<void> {
   const args = parseCliArgs(process.argv.slice(2));
 
@@ -258,6 +275,10 @@ async function main(): Promise<void> {
   generateEnvFiles(REPO_ROOT, args.envMode);
   loadDotenv({ path: path.join(REPO_ROOT, '.env.development'), override: true });
   loadDotenv({ path: path.join(REPO_ROOT, '.env.scripts'), override: true });
+
+  if ((args.envMode as Mode) === Mode.E2E) {
+    await reclaimE2eWebserverPorts();
+  }
 
   const options = buildOptions(args);
   const deps = buildDeps(args.envMode);

@@ -1,8 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { act } from 'react';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { BlogSearch } from './BlogSearch';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { BlogSearch, type BlogIndexEntry } from './BlogSearch';
 
 const ALL_TAGS: readonly string[] = ['ai-models', 'privacy', 'security'];
 const TAG_COUNTS: Readonly<Record<string, number>> = {
@@ -10,6 +10,36 @@ const TAG_COUNTS: Readonly<Record<string, number>> = {
   privacy: 3,
   security: 2,
 };
+
+const INDEX: readonly BlogIndexEntry[] = [
+  {
+    slug: 'encrypted-by-default',
+    title: 'Encrypted By Default',
+    description: 'How we encrypt.',
+    tags: ['privacy'],
+  },
+  {
+    slug: 'pick-any-model',
+    title: 'Pick Any Model',
+    description: 'Switch models mid-thread.',
+    tags: ['ai-models'],
+  },
+  {
+    slug: 'zero-knowledge-auth',
+    title: 'Zero Knowledge Auth',
+    description: 'OPAQUE explained.',
+    tags: ['security'],
+  },
+];
+
+function stubIndexFetch(entries: readonly BlogIndexEntry[] = INDEX): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      json: (): Promise<readonly BlogIndexEntry[]> => Promise.resolve(entries),
+    })
+  );
+}
 
 function mountBlogCards(cards: readonly { id: string; tags: readonly string[] }[]): HTMLDivElement {
   const container = document.createElement('div');
@@ -32,6 +62,10 @@ function setUrl(search: string): void {
 beforeEach(() => {
   document.body.innerHTML = '';
   globalThis.history.replaceState({}, '', '/blog');
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('BlogSearch tag chips', () => {
@@ -177,5 +211,97 @@ describe('BlogSearch "Posts tagged" line', () => {
     const line = await screen.findByText(/Posts tagged:/);
     expect(line).toHaveTextContent('1 post');
     expect(line).not.toHaveTextContent('1 posts');
+  });
+});
+
+describe('BlogSearch combobox accessibility', () => {
+  it('exposes the input as a combobox controlling a labelled listbox', async () => {
+    stubIndexFetch();
+    const user = userEvent.setup();
+    render(<BlogSearch allTags={[...ALL_TAGS]} tagCounts={TAG_COUNTS} />);
+
+    const combobox = screen.getByRole('combobox', { name: /search articles/i });
+    expect(combobox).toHaveAttribute('aria-expanded', 'false');
+
+    await user.type(combobox, 'model');
+
+    const listbox = await screen.findByRole('listbox');
+    expect(combobox).toHaveAttribute('aria-expanded', 'true');
+    expect(combobox).toHaveAttribute('aria-controls', listbox.id);
+    expect(within(listbox).getAllByRole('option')).toHaveLength(1);
+  });
+
+  it('moves the active option down with ArrowDown and up with ArrowUp', async () => {
+    stubIndexFetch();
+    const user = userEvent.setup();
+    render(<BlogSearch allTags={[...ALL_TAGS]} tagCounts={TAG_COUNTS} />);
+
+    const combobox = screen.getByRole('combobox', { name: /search articles/i });
+    await user.type(combobox, 'a');
+    await screen.findByRole('listbox');
+
+    const options = screen.getAllByRole('option');
+    expect(options.length).toBeGreaterThan(1);
+
+    await user.keyboard('{ArrowDown}');
+    expect(combobox).toHaveAttribute('aria-activedescendant', options[0].id);
+    expect(options[0]).toHaveAttribute('aria-selected', 'true');
+
+    await user.keyboard('{ArrowDown}');
+    expect(combobox).toHaveAttribute('aria-activedescendant', options[1].id);
+
+    await user.keyboard('{ArrowUp}');
+    expect(combobox).toHaveAttribute('aria-activedescendant', options[0].id);
+    expect(options[0]).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('navigates to the active option href when Enter is pressed', async () => {
+    stubIndexFetch();
+    const assign = vi.fn();
+    vi.stubGlobal('location', { assign, search: '', pathname: '/blog' });
+    const user = userEvent.setup();
+    render(<BlogSearch allTags={[...ALL_TAGS]} tagCounts={TAG_COUNTS} />);
+
+    const combobox = screen.getByRole('combobox', { name: /search articles/i });
+    await user.type(combobox, 'model');
+    await screen.findByRole('listbox');
+
+    await user.keyboard('{ArrowDown}');
+    await user.keyboard('{Enter}');
+
+    expect(assign).toHaveBeenCalledWith('/blog/pick-any-model');
+  });
+
+  it('dismisses the listbox when Escape is pressed', async () => {
+    stubIndexFetch();
+    const user = userEvent.setup();
+    render(<BlogSearch allTags={[...ALL_TAGS]} tagCounts={TAG_COUNTS} />);
+
+    const combobox = screen.getByRole('combobox', { name: /search articles/i });
+    await user.type(combobox, 'model');
+    await screen.findByRole('listbox');
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+    expect(combobox).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('announces the result count in a polite live region', async () => {
+    stubIndexFetch();
+    const user = userEvent.setup();
+    render(<BlogSearch allTags={[...ALL_TAGS]} tagCounts={TAG_COUNTS} />);
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveAttribute('aria-live', 'polite');
+
+    await user.type(screen.getByRole('combobox', { name: /search articles/i }), 'model');
+    await screen.findByRole('listbox');
+
+    await waitFor(() => {
+      expect(status).toHaveTextContent('1 result');
+    });
   });
 });

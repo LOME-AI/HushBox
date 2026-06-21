@@ -32,7 +32,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MARKETING_ROUTES } from '../packages/shared/src/routes.js';
+import { MARKETING_ROUTES, ROUTES } from '../packages/shared/src/routes.js';
 import { isMainModule } from './lib/is-main.js';
 import { runMain } from './lib/run-main.js';
 import type { Dirent } from 'node:fs';
@@ -150,6 +150,32 @@ function buildSpaHeaders(
   ];
 }
 
+/**
+ * Frame headers for the `/demo` route(s), which host the interactive product
+ * demo — the real SPA running in "demo mode" — inside a same-origin <iframe>
+ * embedded on the marketing `/welcome` page. The strict SPA policy
+ * (`frame-ancestors 'none'` + `X-Frame-Options: DENY`) blocks ALL framing,
+ * including same-origin, so the demo route relaxes both to same-origin only:
+ * cross-origin framing stays denied. Every other directive is inherited from
+ * the SPA policy unchanged.
+ */
+function buildDemoHeaders(
+  spaHeaders: readonly { name: string; value: string }[]
+): readonly { name: string; value: string }[] {
+  return spaHeaders.map((header) => {
+    if (header.name === 'Content-Security-Policy') {
+      return {
+        name: header.name,
+        value: header.value.replace("frame-ancestors 'none'", "frame-ancestors 'self'"),
+      };
+    }
+    if (header.name === 'X-Frame-Options') {
+      return { name: header.name, value: 'SAMEORIGIN' };
+    }
+    return header;
+  });
+}
+
 interface ApiOrigin {
   /** HTTP origin (e.g. `https://api.hushbox.ai`, `http://localhost:8787`). */
   readonly http: string;
@@ -221,8 +247,8 @@ const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do no
 # Directive notes
 #  - default-src 'self': fall-through deny for anything not enumerated below.
 #  - script-src: 'self' + 'wasm-unsafe-eval' + 'unsafe-eval' + secure.myhelcim.com plus
-#    per-page SHA-256 hashes on marketing routes. SPA route stays without inline-script
-#    hashes since it serves no inline scripts. 'wasm-unsafe-eval' is required by
+#    per-page SHA-256 hashes on marketing routes, plus the SPA shell's own inline-script
+#    hashes on the /* block (inherited by the /demo blocks). 'wasm-unsafe-eval' is required by
 #    hash-wasm/argon2id, called from packages/crypto's key-derivation during signup,
 #    recovery-phrase verify, and password change. Without it, WebAssembly.compile is
 #    blocked and signUpEmail's catch swallows the failure silently. secure.myhelcim.com
@@ -242,6 +268,9 @@ const FILE_BANNER = `# Auto-generated from scripts/generate-headers.ts — do no
 #    builds (the port is slot-offset for worktrees; see scripts/worktree.ts); prod builds
 #    skip it since the *.r2.cloudflarestorage.com wildcard already covers prod reads.
 #  - frame-ancestors 'none': belt-and-suspenders with X-Frame-Options: DENY.
+#    Exception: /demo and /demo/* relax to frame-ancestors 'self' + X-Frame-Options
+#    SAMEORIGIN so the marketing /welcome page can embed the demo SPA in a
+#    same-origin iframe. Cross-origin framing stays denied. See buildDemoHeaders.
 #  - base-uri 'self', form-action 'self': close the usual base-tag and form-hijack avenues.
 #  - font-src 'self' data:: locally hosted fonts plus inline data: glyphs.
 `;
@@ -261,7 +290,6 @@ export async function generateHeaders(
   const apiOrigin = deriveApiOrigin(apiUrl);
   const minioApiPort = options.minioApiPort ?? process.env['HB_MINIO_API_PORT'];
   const localR2Origin = deriveLocalR2Origin(apiOrigin, minioApiPort);
-  const spaHeaders = buildSpaHeaders(apiOrigin, localR2Origin);
 
   await assertDirectory(distributionDir);
   const pages = await findMarketingPages(distributionDir);
@@ -272,11 +300,31 @@ export async function generateHeaders(
     );
   }
 
+  // The SPA shell (dist/index.html) ships its own pre-paint inline scripts
+  // (theme-flash + a11y-init); the /* block — and the /demo blocks derived from
+  // it — must carry their SHA-256 hashes or the strict hashless script-src
+  // blocks them on every SPA route. Folded in after the marketing-page
+  // validation above so a missing/broken build fails on the clearer
+  // dist/marketing errors first.
+  const spaHeaders = await inlineSpaShellHashes(
+    distributionDir,
+    buildSpaHeaders(apiOrigin, localR2Origin)
+  );
+
   // `/*` first: Cloudflare applies rules top-to-bottom, and a per-path
   // `! Content-Security-Policy` only deletes a CSP an earlier rule set. With
   // `/*` last, its hashless CSP would append after the per-path block and the
   // browser's intersection of the two policies blocks every inline script.
   const blocks: string[] = [formatSpaBlock(spaHeaders)];
+  // The interactive product demo runs the SPA in an <iframe> on the
+  // same-origin marketing /welcome page; /demo + /demo/* relax the strict
+  // frame headers to same-origin only. Emitted right after `/*` so their
+  // unsets strip the strict values before re-setting the relaxed ones.
+  const demoHeaders = buildDemoHeaders(spaHeaders);
+  blocks.push(
+    formatDemoBlock(ROUTES.DEMO, spaHeaders, demoHeaders),
+    formatDemoBlock(`${ROUTES.DEMO}/*`, spaHeaders, demoHeaders)
+  );
   for (const page of pages) {
     const html = await fs.readFile(page.htmlFile, 'utf8');
     const csp = computePageCsp(html);
@@ -385,6 +433,37 @@ export function computePageCsp(html: string): PageCsp {
   return { scriptHashes };
 }
 
+/**
+ * Fold the SPA shell's inline-script SHA-256 hashes into the `/*` CSP. The shell
+ * (dist/index.html) serves theme-flash + a11y-init inline scripts that must run
+ * before first paint; without their hashes the strict script-src blocks them on
+ * every SPA route. Returns headers unchanged when the shell has no inline
+ * scripts. The /demo blocks derive from the returned headers and inherit them.
+ */
+async function inlineSpaShellHashes(
+  distributionDir: string,
+  headers: readonly { name: string; value: string }[]
+): Promise<readonly { name: string; value: string }[]> {
+  const shellPath = path.join(distributionDir, 'index.html');
+  let shellHtml: string;
+  try {
+    shellHtml = await fs.readFile(shellPath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(
+        `SPA shell not found at ${shellPath}. The web build must emit index.html before headers are generated.`
+      );
+    }
+    throw error;
+  }
+  const csp = computePageCsp(shellHtml);
+  return headers.map((header) =>
+    header.name === 'Content-Security-Policy'
+      ? { name: header.name, value: inlineHashesIntoSpaCsp(header.value, csp) }
+      : header
+  );
+}
+
 function formatMarketingBlock(
   urlPath: string,
   csp: PageCsp,
@@ -403,6 +482,30 @@ function formatMarketingBlock(
         ? inlineHashesIntoSpaCsp(header.value, csp)
         : header.value;
     lines.push(`  ${header.name}: ${value}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * Override block for the `/demo` route(s). The `/*` block (emitted first)
+ * already set the strict frame headers, and Cloudflare appends rather than
+ * replaces — so unset each SPA header before re-setting the relaxed demo
+ * variant. Without the unset, the response carries two CSPs and the browser
+ * intersects them back to `frame-ancestors 'none'`, re-blocking the iframe.
+ * Mirrors `formatMarketingBlock`'s unset-then-set discipline; no per-page
+ * script hashes (the demo serves the SPA's hashless index.html).
+ */
+function formatDemoBlock(
+  urlPath: string,
+  spaHeaders: readonly { name: string; value: string }[],
+  demoHeaders: readonly { name: string; value: string }[]
+): string {
+  const lines: string[] = [urlPath];
+  for (const header of spaHeaders) {
+    lines.push(`  ! ${header.name}`);
+  }
+  for (const header of demoHeaders) {
+    lines.push(`  ${header.name}: ${header.value}`);
   }
   return `${lines.join('\n')}\n`;
 }

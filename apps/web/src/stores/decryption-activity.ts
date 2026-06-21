@@ -1,19 +1,7 @@
-import { create } from 'zustand';
+import { createCounterStore } from './create-counter-store.js';
 
-interface DecryptionActivityState {
-  pendingDecryptions: number;
-  markPending: () => void;
-  markComplete: () => void;
-}
-
-export const useDecryptionActivityStore = create<DecryptionActivityState>()((set) => ({
-  pendingDecryptions: 0,
-
-  markPending: () => {
-    set((state) => ({ pendingDecryptions: state.pendingDecryptions + 1 }));
-  },
-
-  markComplete: () => {
-    set((state) => ({ pendingDecryptions: Math.max(0, state.pendingDecryptions - 1) }));
-  },
-}));
+export const useDecryptionActivityStore = createCounterStore({
+  count: 'pendingDecryptions',
+  increment: 'markPending',
+  decrement: 'markComplete',
+});
