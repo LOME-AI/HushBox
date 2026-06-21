@@ -123,6 +123,13 @@ export interface MessageListHandle extends VirtuosoHandle {
 
 const FOOTER_HEIGHT = '10dvh';
 
+// Force-mount roughly a viewport of rows on the first frame so Virtuoso renders
+// content even when its percentage-height scroller measures 0px before the flex
+// chain lays out — a WebKit first-paint stall that otherwise leaves the chat log
+// empty until a ResizeObserver fires. Real heights are measured immediately
+// after, so this only seeds the initial render.
+const INITIAL_RENDER_COUNT = 10;
+
 const Footer = (): React.JSX.Element => (
   <div style={{ height: FOOTER_HEIGHT }} aria-hidden="true" />
 );
@@ -515,6 +522,7 @@ const MessageListInner = forwardRef<MessageListHandle, MessageListProps>(functio
         scrollerRef={handleScrollerRef}
         data={rows}
         initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
+        initialItemCount={Math.min(rows.length, INITIAL_RENDER_COUNT)}
         computeItemKey={computeItemKey}
         isScrolling={handleIsScrolling}
         followOutput={followOutput}

@@ -291,3 +291,16 @@ html.reduced-motion .animate-shake {
   transition-duration: 0s !important;
   animation-duration: 0s !important;
 }
+
+/* Demo (autoplaying showcase, no keyboard or screen-reader user). RouteAnnouncer
+   moves focus to each route's heading (`#main h1`, falling back to `#main`) on
+   every programmatic navigation; with no pointer modality the browser paints its
+   :focus-visible ring on that heading, which reads as a border around the
+   greeting. Drop the ring for the route-announce targets only — interactive
+   controls keep their focus styles, and the a11y strong-focus override (which
+   uses !important) still wins for anyone who enables it. The [data-demo]
+   attribute is set on <html> by the demo bootstrap. */
+[data-demo] #main:focus,
+[data-demo] #main h1[tabindex]:focus {
+  outline: none;
+}

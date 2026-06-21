@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Navigate } from '@tanstack/react-router';
+import { Navigate, useNavigate } from '@tanstack/react-router';
 import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { ChatLayout } from '@/components/chat/layout/chat-layout';
 import { useAuthenticatedChat } from '@/hooks/chat/use-authenticated-chat';
@@ -80,40 +80,75 @@ function combineWithPhantoms(baseMessages: Message[], phantoms: Message[]): Mess
   return [...baseMessages, ...phantoms];
 }
 
-function syncForkToUrl(activeForkId: string | null): void {
-  const url = new URL(globalThis.location.href);
-  if (activeForkId) {
-    url.searchParams.set('fork', activeForkId);
-  } else {
-    url.searchParams.delete('fork');
-  }
-  if (url.href !== globalThis.location.href) {
-    globalThis.history.replaceState(null, '', url.toString());
-  }
-}
-
-function useForkUrlSync(activeForkId: string | null): void {
-  React.useEffect(() => {
-    syncForkToUrl(activeForkId);
-  }, [activeForkId]);
-}
-
-function useInitialFork(initialForkId: string | undefined): void {
-  const initializedRef = React.useRef(false);
-  React.useEffect(() => {
-    if (!initializedRef.current && initialForkId) {
-      initializedRef.current = true;
-      useForkStore.getState().setActiveFork(initialForkId);
-    }
-  }, [initialForkId]);
-}
-
 interface ForkItem {
   id: string;
   conversationId: string;
   name: string;
   tipMessageId: string | null;
   createdAt: string;
+}
+
+interface ForkUrlStateArgs {
+  routeConversationId: string;
+  initialForkId: string | undefined;
+  activeForkId: string | null;
+  forksList: ForkItem[];
+  setActiveFork: (id: string | null) => void;
+}
+
+// Owns the active fork ↔ URL relationship. The `?fork=` search param is the
+// source of truth on load (so deep links and page reloads restore the right
+// fork); the store carries it for the rest of the session.
+function useForkUrlState({
+  routeConversationId,
+  initialForkId,
+  activeForkId,
+  forksList,
+  setActiveFork,
+}: ForkUrlStateArgs): void {
+  const navigate = useNavigate();
+  const initializedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    // The one-time URL seed must win over the Main fallback: returning here keeps
+    // the fallback from selecting Main during the window before the store
+    // reflects the seed — the reload/deep-link regression where Fork 1 flipped
+    // back to Main.
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      if (initialForkId) {
+        setActiveFork(initialForkId);
+        return;
+      }
+    }
+    // Fallback: forks exist but nothing is selected (no `?fork=` on load, or the
+    // active fork was just deleted) → default to Main (earliest createdAt).
+    if (activeForkId === null && forksList.length >= 2) {
+      const sorted = forksList.toSorted(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      if (sorted[0]) {
+        setActiveFork(sorted[0].id);
+      }
+    }
+  }, [initialForkId, activeForkId, forksList, setActiveFork]);
+
+  React.useEffect(() => {
+    // Mirror the active fork into the URL through the router. A raw
+    // history.replaceState races TanStack Router's own search parsing and strips
+    // the param mid-load, so the route stays the single writer. Only ever write a
+    // concrete fork id (never clear) so the seed above is never undone while the
+    // store is still null on load.
+    if (!initializedRef.current || activeForkId === null || activeForkId === initialForkId) {
+      return;
+    }
+    void navigate({
+      to: ROUTES.CHAT_ID,
+      params: { id: routeConversationId },
+      search: { fork: activeForkId },
+      replace: true,
+    });
+  }, [routeConversationId, initialForkId, activeForkId, navigate]);
 }
 
 interface ForkManagement {
@@ -274,8 +309,6 @@ export function AuthenticatedChatPage({
 
   const { activeForkId, setActiveFork } = useForkStore();
 
-  useInitialFork(initialForkId);
-
   const chat = useAuthenticatedChat({ routeConversationId, activeForkId, privateKeyOverride });
   const conversationId = resolveConversationId(routeConversationId, chat.realConversationId);
   const groupChat = useGroupChat(
@@ -289,20 +322,7 @@ export function AuthenticatedChatPage({
   const { data: forks } = useForks(forksQueryId);
   const forksList = React.useMemo(() => forks ?? [], [forks]);
 
-  // When forks exist but activeForkId is null, auto-set to the Main fork
-  // (earliest createdAt). The store is the single source of truth — once set,
-  // all downstream hooks use activeForkId directly.
-  React.useEffect(() => {
-    if (activeForkId !== null || forksList.length < 2) return;
-    const sorted = forksList.toSorted(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-    if (sorted[0]) {
-      setActiveFork(sorted[0].id);
-    }
-  }, [activeForkId, forksList, setActiveFork]);
-
-  useForkUrlSync(activeForkId);
+  useForkUrlState({ routeConversationId, initialForkId, activeForkId, forksList, setActiveFork });
 
   const fm = useForkManagement(conversationId, forksList, activeForkId, setActiveFork);
 

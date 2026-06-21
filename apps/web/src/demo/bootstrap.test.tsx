@@ -41,6 +41,8 @@ vi.mock('./focus-scroll-guard', () => ({ installFocusScrollGuard: vi.fn() }));
 afterEach(() => {
   vi.clearAllMocks();
   document.body.innerHTML = '';
+  delete document.documentElement.dataset['demo'];
+  document.documentElement.style.fontSize = '';
 });
 
 describe('renderDemoFallback', () => {
@@ -54,6 +56,19 @@ describe('renderDemoFallback', () => {
     const link = root.querySelector('a');
     expect(link?.textContent).toContain('Open HushBox');
     expect(link?.getAttribute('href')).toBe(ROUTES.CHAT);
+  });
+});
+
+describe('mountDemo success', () => {
+  it('marks the document for demo-scoped styles', async () => {
+    seedDemoSession.mockReturnValue({ accountPublicKey: 'demo-key' });
+    const { mountDemo } = await import('./bootstrap');
+    const root = document.createElement('div');
+    document.body.append(root);
+
+    mountDemo(root);
+
+    expect(document.documentElement.dataset['demo']).toBe('');
   });
 });
 

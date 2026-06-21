@@ -55,6 +55,9 @@ function bootDemo(rootElement: Element): void {
   // accessibility text-size control pulls — everything is rem-based) so the UI
   // isn't squished. 80% of the app's normal size fits the embed comfortably.
   document.documentElement.style.fontSize = '80%';
+  // Gate demo-only CSS overrides (see app.css `[data-demo]`). Mirrors the
+  // `[data-e2e]` marker pattern in main.tsx.
+  document.documentElement.dataset['demo'] = '';
 
   const session = seedDemoSession();
   const store = new DemoBackendStore(session.accountPublicKey);

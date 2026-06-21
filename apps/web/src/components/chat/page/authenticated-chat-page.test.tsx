@@ -288,10 +288,20 @@ vi.mock('@/hooks/chat/chat', () => ({
   DECRYPTING_TITLE: 'Decrypting...',
 }));
 
+let mockForksData: {
+  id: string;
+  conversationId: string;
+  name: string;
+  tipMessageId: string | null;
+  createdAt: string;
+}[] = [];
+
+const mockDeleteForkMutate = vi.fn();
+
 vi.mock('@/hooks/chat/forks', () => ({
-  useForks: () => ({ data: [], isLoading: false }),
+  useForks: () => ({ data: mockForksData, isLoading: false }),
   useCreateFork: () => ({ mutate: vi.fn() }),
-  useDeleteFork: () => ({ mutate: vi.fn() }),
+  useDeleteFork: () => ({ mutate: mockDeleteForkMutate }),
   useRenameFork: () => ({ mutate: vi.fn() }),
 }));
 
@@ -551,6 +561,7 @@ describe('AuthenticatedChatPage', () => {
     streamingMessageIdsRef.current = new Set<string>();
     mockChatErrorState.errorsByFork = {};
     mockActiveForkId = null;
+    mockForksData = [];
     mockAuthPrivateKey = mockPrivateKey;
     mockUseGroupChat.mockImplementation((conversationId: string | null) => {
       if (!conversationId) return;
@@ -1877,6 +1888,93 @@ describe('AuthenticatedChatPage', () => {
 
       expect(mockSetActiveFork).not.toHaveBeenCalled();
     });
+
+    it('does not auto-select Main over an explicit initialForkId when forks are loaded', () => {
+      mockForksData = [
+        {
+          id: 'main-fork',
+          conversationId: 'conv-456',
+          name: 'Main',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'fork-1',
+          conversationId: 'conv-456',
+          name: 'Fork 1',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:01.000Z',
+        },
+      ];
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" initialForkId="fork-1" />);
+
+      // The URL fork is the source of truth on load; the Main fallback must not
+      // clobber it (the reload/URL-deep-link regression).
+      expect(mockSetActiveFork).toHaveBeenCalledWith('fork-1');
+      expect(mockSetActiveFork).not.toHaveBeenCalledWith('main-fork');
+    });
+
+    it('auto-selects the earliest-created (Main) fork when no initialForkId and multiple forks exist', () => {
+      mockForksData = [
+        {
+          id: 'fork-1',
+          conversationId: 'conv-456',
+          name: 'Fork 1',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:05.000Z',
+        },
+        {
+          id: 'main-fork',
+          conversationId: 'conv-456',
+          name: 'Main',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      ];
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      expect(mockSetActiveFork).toHaveBeenCalledWith('main-fork');
+    });
+
+    it('writes the active fork to the URL through the router when it is not yet in the URL', () => {
+      mockActiveForkId = 'fork-2';
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" initialForkId="fork-1" />);
+
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: '/chat/$id',
+        params: { id: 'conv-456' },
+        search: { fork: 'fork-2' },
+        replace: true,
+      });
+    });
+
+    it('does not clear the fork param through the router while the store is still null on load', () => {
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" initialForkId="fork-1" />);
+
+      expect(mockNavigate).not.toHaveBeenCalledWith(
+        expect.objectContaining({ search: { fork: undefined } })
+      );
+    });
   });
 
   describe('fork rename modal', () => {
@@ -1911,6 +2009,42 @@ describe('AuthenticatedChatPage', () => {
       await user.click(screen.getByTestId('trigger-fork-delete'));
 
       expect(screen.getByTestId('delete-fork-dialog')).toBeInTheDocument();
+    });
+
+    it('clears the active fork when the deleted fork was active so Main is re-selected', async () => {
+      const user = userEvent.setup();
+      mockActiveForkId = 'fork-1';
+      mockForksData = [
+        {
+          id: 'main-fork',
+          conversationId: 'conv-456',
+          name: 'Main',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'fork-1',
+          conversationId: 'conv-456',
+          name: 'Fork 1',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:01.000Z',
+        },
+      ];
+      // Resolve the delete optimistically so onSuccess runs; the fallback effect
+      // then re-selects Main from the refetched fork list.
+      mockDeleteForkMutate.mockImplementation(
+        (_variables: unknown, options?: { onSuccess?: () => void }) => options?.onSuccess?.()
+      );
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+      await user.click(screen.getByTestId('trigger-fork-delete'));
+      await user.click(screen.getByTestId('confirm-delete'));
+
+      expect(mockSetActiveFork).toHaveBeenCalledWith(null);
     });
   });
 

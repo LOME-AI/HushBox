@@ -495,6 +495,16 @@ describe('MessageList', () => {
         align: 'end',
       });
     });
+
+    it('mounts Virtuoso with initialItemCount so rows render before the scroller is measured', () => {
+      // Guards the WebKit zero-height first-paint stall: with a percentage-height
+      // scroller that measures 0 on the first frame, Virtuoso renders no rows
+      // unless initialItemCount force-mounts them. Clamped to the row count.
+      render(<MessageList messages={messages} />);
+      const rows = capturedVirtuosoProps['data'] as unknown[];
+      expect(rows.length).toBeGreaterThan(0);
+      expect(capturedVirtuosoProps['initialItemCount']).toBe(Math.min(rows.length, 10));
+    });
   });
 
   describe('conversationKey transitions (no-flash refactor)', () => {
