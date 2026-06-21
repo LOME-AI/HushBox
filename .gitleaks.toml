@@ -15,3 +15,13 @@ regexes = [
 [[allowlists]]
 description = "Deterministic dev-only seed-crypto cache committed for fast CI seeding (see .gitignore). Files contain OPAQUE/ECIES output for fixed dev personas + dev password + dev OPAQUE_MASTER_SECRET — high entropy but not secret."
 paths = ['''^scripts/\.cache/seed-crypto/.*\.json$''']
+
+[[allowlists]]
+description = "Two high-entropy base64 chunks of bundled demo media (public-domain JPEG + H.264 video) that trip generic-api-key. Inert media bytes, not credentials. AND-condition pins them to the exact lines in the media-assets file."
+condition = "AND"
+paths = ['''^apps/web/src/demo/mock-backend/media-assets\.ts$''']
+regexTarget = "line"
+regexes = [
+  '''i1gwcsCKBF8\+Y9mZ5ieauOESgvBOfELDcCe3LJD4IZxYu6PG8lTfE/aBV\+zv30PSLB4RdTP3Ay3jZ7NL8q5e8JFnjnpypwff6M75grKEYw4g''',
+  '''TuOG03vU0byXTXCVeT01pvRyDbbHTfgH9LTNmK8yf9Q93/JNi1Kx1/q8WFUBR2s5cTqtpOaTTcxgxb2svXe70wiLa/yYU1zF1j9J2cKEydD3''',
+]
