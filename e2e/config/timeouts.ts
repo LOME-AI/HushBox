@@ -36,6 +36,13 @@ export const TIMEOUTS = {
   SCROLL_STABLE: 5000,
   /** An inbound webhook has been received and processed. */
   WEBHOOK: 30_000,
+  /**
+   * A dev/setup endpoint POST has returned a terminal (non-transient) response.
+   * Bounds the retry budget for `postWithRetry`: under host saturation a
+   * workerd/wrangler restart answers an in-flight request with a bare 5xx, and
+   * the POST is re-issued until it settles or this budget elapses.
+   */
+  API_SETUP: 15_000,
   /** A single web-first assertion. */
   ASSERT: 10_000,
   /** A fast, near-immediate expectation. */

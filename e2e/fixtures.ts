@@ -18,6 +18,7 @@ import { ChatPage } from './pages';
 import { TIMEOUTS } from './config/timeouts.js';
 import { requireEnv } from './helpers/env.js';
 import { clearUsageRateLimits } from './helpers/auth.js';
+import { postWithRetry } from './helpers/api-retry.js';
 import {
   buildStorageInitScript,
   type RawStorageState,
@@ -987,7 +988,7 @@ export const test = base.extend<CustomFixtures>({
   testConversation: async ({ authenticatedPage, authenticatedRequest }, use, testInfo) => {
     const testMessage = `Fixture setup ${String(Date.now())}`;
     const aliceEmail = `test-alice-${testInfo.project.name}@test.hushbox.ai`;
-    const response = await authenticatedRequest.post('/api/dev/conversation', {
+    const response = await postWithRetry(authenticatedRequest, '/api/dev/conversation', {
       data: {
         ownerEmail: aliceEmail,
         messages: [
