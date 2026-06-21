@@ -285,6 +285,13 @@ Never fix bugs without a test.
 
 ---
 
+## Credentials
+
+Agents never touch production credentials; CI uses its own restricted secrets. Real-API
+questions are answered by the founder and recorded as dated facts.
+
+---
+
 ## Decisions
 
 ### Cannot Decide

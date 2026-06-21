@@ -69,12 +69,15 @@
 
 ### Idempotency
 
-- Every operation safe to retry
-- Use unique constraints and upsert
-- Check completion before external calls
-- Content-addressable keys for storage
-- Never use check-then-act. Two queries (check if done, then do it) are vulnerable to race conditions
-- Use atomic conditional updates: `UPDATE ... WHERE condition_not_met` inside a transaction, and check rows affected
+- Every operation safe to retry; every mutating route requires `Idempotency-Key` (five
+  declared exemption classes, each backed by an internal wrapper)
+- Every mutation passes through one of the five `idempotent.*` wrappers (`byKey`,
+  `byUpsert`, `byTransition`, `byEventId`, `byExternalPreClaim`); `runMutation` accepts
+  only `Idempotent<T>`
+- Never check-then-act: atomic conditional updates (`UPDATE … WHERE expected_state`),
+  assert rows affected; on 0 rows, read the actual state — already-done is a no-op,
+  illegal-state is a defect
+- Storage keys are uuid, never content-addressed
 
 ### Direct Resource Access
 
@@ -104,6 +107,78 @@
 - Handle cold starts gracefully
 - No persistent in-memory state
 - State lives in database or Redis only
+
+---
+
+## Backend Doctrine
+
+The backend's binding rules, grouped by principle. Mechanisms are described in
+`ARCHITECTURE.md`; these are the constraints on code you write.
+
+### Money & Settlement
+
+- Nothing commits mid-run; all money and content commit in the one `settle()` transaction,
+  entered only with the branded `SettlementTx` handle
+- The ledger is double-entry: signed legs per `transactionId` summing to zero — violating
+  writes must fail at commit
+- Money is nano-USD `bigint`; serialize as `NanoUSD` strings at JSON boundaries; never
+  `Number()`-coerce money; intermediate markup math in `numeric`
+- Round half-even, once, inside `settle()`
+- Settlement is never balance-guarded — admission is the only gate; negative balances are
+  legal states
+- Money is never Redis-only; holds and snapshots are advisory, the ledger is truth
+- Budgets and allowances are period-keyed rows written at settlement — never reset jobs
+
+### Jobs & Async
+
+- Every must-happen async task is a `jobs` row inserted in the caller's transaction,
+  registered with a payload schema and a mandatory idempotency class
+- Cron hosts only pollers, retention deletes, and read-only auditors — never delivery
+- No message queues, no DLQs; dead jobs are rows, redriven explicitly
+
+### Crash Recovery
+
+- Recovery is in-mechanism: leases, TTLs, and lazy checks; read paths never depend on a
+  purge or cleaner having run
+- Auditors detect and page; repair is explicit redrive; never add a backup mechanism or a
+  silent self-healing sweep
+- Retry and timeout policies only; no in-isolate circuit breakers
+
+### Boundaries
+
+- One writer per table; cross-slice writes only through published barrel APIs inside the
+  orchestrator's transaction
+- Slice code references only its own slice's schema objects
+- Routes hold no business logic and never import repositories; domain imports only its
+  slice's ports
+
+### Telemetry
+
+- Log only through the typed `SafeLogFields` logger; `msg` accepts compile-time literals
+  only
+- Never logged, anywhere: message content, prompts, outputs, keys, ciphertext, PII,
+  request/response bodies
+- Errors carry codes, never content; domain code returns `Result`, adapters translate
+  throws at ports, an exception reaching a route is a defect (500 + Sentry)
+- No client-side error/analytics SDKs
+- Every metric names its watcher (auditor, dashboard, or alert) or doesn't ship
+
+### Registries
+
+- Env vars exist only as `env.config` registry entries (per-mode values, Zod, no fallbacks)
+- Redis keys exist only as typed key-registry entries (schema + TTL + buildKey)
+- Model capability gaps are filled only via `modelOverrides` rows — never code
+
+### Crypto
+
+- Every blob is versioned; AAD binds the full location tuple including `senderId`
+- Keys are branded types; wraps are domain-separated; nonces are fresh per chunk
+- Decompression aborts mid-stream at an absolute byte cap
+
+### Changing the Architecture
+
+- Before adopting an excluded service or reversing a deliberate limit, consult
+  `ARCHITECTURE.md` — the re-entry conditions are the decision
 
 ---
 
@@ -182,6 +257,10 @@ Tag chrome wrappers (sidebar, header, footer, panels surrounding main content) w
 - Unit tests for all business logic
 - Integration tests for database and API operations
 - E2E tests for critical user flows
+- Integration-first: tests run against real local infra; mocks exist only at true external
+  seams (gateway, payments, email, push) — never for internal slices
+- CI's hot path is 100% cassette hits for AI calls — zero charged real calls; a cassette
+  miss is a failure, not a recording (recording happens out-of-band)
 - Tests must not depend on execution order
 - No hardcoded dates (use time mocking)
 - Test behavior, not implementation
