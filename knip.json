@@ -56,7 +56,7 @@
     "tailwindcss",
     "tw-animate-css"
   ],
-  "ignoreBinaries": ["maestro", "adb", "cap", "wrangler", "drizzle-kit"],
+  "ignoreBinaries": ["maestro", "adb", "cap", "wrangler", "drizzle-kit", "tar"],
   "ignoreExportsUsedInFile": true,
   "playwright": {
     "config": [

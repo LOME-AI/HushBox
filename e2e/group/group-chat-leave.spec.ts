@@ -45,7 +45,11 @@ test.describe('Group Chat Leave', () => {
     });
 
     await test.step('navigating back to conversation redirects', async () => {
-      await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'domcontentloaded' });
+      // `commit`, not `domcontentloaded`: the access guard client-redirects a
+      // non-member to /chat, which interrupts a longer wait ("interrupted by
+      // another navigation"). Resolving at commit lands before the redirect; the
+      // assertion below is what proves Bob was bounced.
+      await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' });
       // Should redirect away since Bob is no longer a member
       await expect(testBobPage).not.toHaveURL(new RegExp(groupConversation.id), {
         timeout: TIMEOUTS.ROUTE,
@@ -89,8 +93,10 @@ test.describe('Group Chat Leave', () => {
     });
 
     await test.step('conversation no longer accessible', async () => {
+      // `commit` so the post-destroy redirect to /chat can't interrupt the
+      // navigation wait; the assertion below proves the conversation is gone.
       await authenticatedPage.goto(`/chat/${groupConversation.id}`, {
-        waitUntil: 'domcontentloaded',
+        waitUntil: 'commit',
       });
       await expect(authenticatedPage).not.toHaveURL(new RegExp(groupConversation.id), {
         timeout: TIMEOUTS.ROUTE,
@@ -134,8 +140,10 @@ test.describe('Group Chat Leave', () => {
     // Leaving the active conversation redirects to /chat.
     await expect(testBobPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
 
-    // The leaving user can no longer open the conversation.
-    await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'domcontentloaded' });
+    // The leaving user can no longer open the conversation. `commit` lands
+    // before the non-member redirect to /chat that would otherwise interrupt the
+    // navigation wait; the assertion below proves Bob was bounced.
+    await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' });
     await expect(testBobPage).not.toHaveURL(new RegExp(groupConversation.id), {
       timeout: TIMEOUTS.ROUTE,
     });

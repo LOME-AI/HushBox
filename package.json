@@ -44,6 +44,8 @@
     "e2e:api": "pnpm e2e:prepare && tsx scripts/with-env.ts playwright test e2e/api/ --project=chromium",
     "clean": "pnpm dev:clean && tsx scripts/clean.ts",
     "prepare": "husky",
+    "postinstall": "tsx scripts/ensure-gitleaks.ts",
+    "gitleaks": "tsx scripts/gitleaks.ts",
     "docker:cleanup": "tsx scripts/with-env.ts tsx scripts/docker-cleanup.ts",
     "db:up": "tsx scripts/with-env.ts docker compose up -d --wait postgres neon-proxy redis serverless-redis-http minio && tsx scripts/with-env.ts docker compose up -d minio-setup",
     "db:down": "tsx scripts/with-env.ts docker compose down",
