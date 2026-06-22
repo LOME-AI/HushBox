@@ -131,14 +131,16 @@ export function ChatWelcome({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading]); // Intentionally exclude isAuthenticated - we only want to compute once after loading
 
-  // Auto-focus input when page finishes loading (desktop only)
-  // Skip on mobile to avoid triggering keyboard unexpectedly
-  const previousIsLoadingRef = React.useRef(isLoading);
+  // Auto-focus the prompt input once the page is ready (desktop only; skip on
+  // mobile to avoid opening the keyboard). Fires on the first ready render —
+  // including a warm load that is ready immediately, where the prior
+  // transition-only effect never focused. Guarded so a later re-render can't
+  // steal focus the user has moved elsewhere.
+  const hasFocusedRef = React.useRef(false);
   React.useEffect(() => {
-    if (previousIsLoadingRef.current && !isLoading && !isMobile) {
-      promptInputRef.current?.focus();
-    }
-    previousIsLoadingRef.current = isLoading;
+    if (hasFocusedRef.current || isLoading || isMobile) return;
+    hasFocusedRef.current = true;
+    promptInputRef.current?.focus();
   }, [isLoading, isMobile]);
 
   const handleSubmit = (fundingSource: FundingSource): void => {

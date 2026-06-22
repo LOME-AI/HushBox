@@ -142,6 +142,16 @@ vi.mock('@/components/chat/layout/chat-layout', () => ({
             Trigger Fork Delete
           </button>
         )}
+        {props.onFork && (
+          <button
+            data-testid="trigger-fork"
+            onClick={() => {
+              props.onFork?.('msg-1');
+            }}
+          >
+            Trigger Fork
+          </button>
+        )}
       </div>
     );
   },
@@ -297,10 +307,11 @@ let mockForksData: {
 }[] = [];
 
 const mockDeleteForkMutate = vi.fn();
+const mockCreateForkMutate = vi.fn();
 
 vi.mock('@/hooks/chat/forks', () => ({
   useForks: () => ({ data: mockForksData, isLoading: false }),
-  useCreateFork: () => ({ mutate: vi.fn() }),
+  useCreateFork: () => ({ mutate: mockCreateForkMutate }),
   useDeleteFork: () => ({ mutate: mockDeleteForkMutate }),
   useRenameFork: () => ({ mutate: vi.fn() }),
 }));
@@ -796,6 +807,27 @@ describe('AuthenticatedChatPage', () => {
       render(<AuthenticatedChatPage routeConversationId="new" />);
 
       expect(mockCreateConversationMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('navigates to the real conversation before the first stream resolves', async () => {
+      // The URL must reflect the created conversation as soon as its row exists,
+      // not after the stream settles — otherwise a slow stream parks the page at
+      // /chat/new. creationStartedRef prevents a re-fire when isCreateMode flips.
+      setupSuccessfulCreation();
+      // Hold the stream open so it never resolves during the assertion.
+      mockStartStream.mockImplementation(() => new Promise(() => {}));
+
+      setupMocks({ pendingMessage: 'Hello AI' });
+      render(<AuthenticatedChatPage routeConversationId="new" />);
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith({
+          to: '/chat/$id',
+          params: { id: 'conv-123' },
+          replace: true,
+          state: { fromCreate: true },
+        });
+      });
     });
 
     it('does not abort the first stream during the create→real transition', async () => {
@@ -2015,6 +2047,99 @@ describe('AuthenticatedChatPage', () => {
         search: { fork: undefined },
         replace: true,
       });
+    });
+  });
+
+  describe('fork active-state seeding (race regression)', () => {
+    it('keeps the deep-link seed when forks finish loading on a later render', () => {
+      // Tick 1: store still null, no forks yet — the seed fires setActiveFork(fork-1).
+      // The mock setActiveFork does NOT update mockActiveForkId, so on the next
+      // render the store still reads null. When the forks query then resolves to
+      // >= 2 forks, the Main fallback must NOT run — the URL seed wins until the
+      // store reflects it. The buggy code latches initializedRef on tick 1 and
+      // falls through to setActiveFork('main-fork') on the rerender.
+      mockActiveForkId = null;
+      mockForksData = [];
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      const { rerender } = render(
+        <AuthenticatedChatPage routeConversationId="conv-456" initialForkId="fork-1" />
+      );
+
+      mockForksData = [
+        {
+          id: 'main-fork',
+          conversationId: 'conv-456',
+          name: 'Main',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'fork-1',
+          conversationId: 'conv-456',
+          name: 'Fork 1',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:01.000Z',
+        },
+      ];
+      rerender(<AuthenticatedChatPage routeConversationId="conv-456" initialForkId="fork-1" />);
+
+      expect(mockSetActiveFork).toHaveBeenCalledWith('fork-1');
+      expect(mockSetActiveFork).not.toHaveBeenCalledWith('main-fork');
+    });
+
+    it('selects the earliest-created fork on a plain load with no fork seed', () => {
+      mockActiveForkId = null;
+      mockForksData = [
+        {
+          id: 'main-fork',
+          conversationId: 'conv-456',
+          name: 'Main',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'fork-1',
+          conversationId: 'conv-456',
+          name: 'Fork 1',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:01.000Z',
+        },
+      ];
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      expect(mockSetActiveFork).toHaveBeenCalledWith('main-fork');
+    });
+
+    it('claims the new fork active before the create mutation resolves', async () => {
+      // In-session create: the new fork must be claimed synchronously, before the
+      // mutation resolves, so the forks query refetching to >= 2 forks never finds
+      // activeForkId still null (which the Main fallback would fill, clobbering the
+      // new fork). The buggy code sets the active fork only in onSuccess, which the
+      // captured vi.fn never invokes.
+      mockActiveForkId = null;
+      mockForksData = [];
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      const user = userEvent.setup();
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      await user.click(screen.getByTestId('trigger-fork'));
+
+      const mutateArgument = mockCreateForkMutate.mock.calls[0]?.[0] as { id: string };
+      expect(mockCreateForkMutate).toHaveBeenCalled();
+      expect(mockSetActiveFork).toHaveBeenCalledWith(mutateArgument.id);
     });
   });
 

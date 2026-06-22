@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 
-const ASSETLINKS_PATH = path.join(import.meta.dirname, 'assetlinks.json');
+// Validates the deployed asset served from public/.well-known/.
+const ASSETLINKS_PATH = path.join(import.meta.dirname, '../../public/.well-known/assetlinks.json');
 
 interface AssetLink {
   relation: string[];

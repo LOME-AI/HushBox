@@ -786,6 +786,26 @@ export function useAuthenticatedChat({
         clearPendingMessage();
         setRealConversationId(realId);
 
+        // Navigate to the real conversation as soon as its row exists, before
+        // the stream settles — otherwise a slow stream parks the page at
+        // /chat/new. Seed the conversation cache first so chrome (title,
+        // members) is populated and the early route flip doesn't flash; local
+        // (optimistic) messages bridge the message list until the post-stream
+        // refetch lands (computeRenderState keeps showing them through the
+        // decrypt). The component key holds across this hop (fromCreate) and
+        // creationStartedRef stops the create effect from re-firing when
+        // isCreateMode flips false.
+        queryClient.setQueryData(chatKeys.conversation(realId), {
+          conversation: response.conversation,
+          messages: [],
+          forks: [],
+          accepted: true,
+          invitedByUsername: null,
+          callerId: callerId ?? '',
+          privilege: 'owner',
+        });
+        navigateToCreatedConversation(activeRef, navigate, realId);
+
         await executeStreamAndFinalize(
           realId,
           pendingMessage,
@@ -900,7 +920,6 @@ export function useAuthenticatedChat({
           })
         );
       }
-      navigateToCreatedConversation(activeRef, navigate, realId);
     };
 
     void createConversationAndStream();

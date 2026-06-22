@@ -107,7 +107,7 @@ function useForkUrlState({
   setActiveFork,
 }: ForkUrlStateArgs): void {
   const navigate = useNavigate();
-  const initializedRef = React.useRef(false);
+  const seedResolvedRef = React.useRef(false);
   // Whether a fork has been active at any point this session. Distinguishes the
   // pre-seed load window (never activated → a deep-linked `?fork=` must survive)
   // from a fork that was selected and then deleted (activated → its now-stale
@@ -130,16 +130,20 @@ function useForkUrlState({
   );
 
   React.useEffect(() => {
-    // The one-time URL seed must win over the Main fallback: returning here keeps
-    // the fallback from selecting Main during the window before the store
-    // reflects the seed — the reload/deep-link regression where Fork 1 flipped
-    // back to Main.
-    if (!initializedRef.current) {
-      initializedRef.current = true;
-      if (initialForkId) {
+    // Seed the active fork from the URL `?fork=` param, and keep the Main fallback
+    // from running until that seed has taken hold in the store. Latching on the
+    // first render raced the store update: a re-render arriving before
+    // setActiveFork was reflected fell through to the fallback and clobbered the
+    // deep-linked fork with Main.
+    if (!seedResolvedRef.current) {
+      if (initialForkId && activeForkId === null) {
         setActiveFork(initialForkId);
         return;
       }
+      // The store now holds a value (the seed took, or a real selection already
+      // existed), or there was nothing to seed — either way the fallback is
+      // unblocked from here on.
+      seedResolvedRef.current = true;
     }
     // Fallback: forks exist but nothing is selected (no `?fork=` on load, or the
     // active fork was just deleted) → default to Main (earliest createdAt).
@@ -155,7 +159,7 @@ function useForkUrlState({
 
   React.useEffect(() => {
     // Mirror the active fork into the URL. The route stays the single writer.
-    if (!initializedRef.current) {
+    if (!seedResolvedRef.current) {
       return;
     }
     if (activeForkId !== null) {
@@ -255,16 +259,22 @@ function useForkManagement(
     (messageId: string): void => {
       if (!conversationId) return;
       const forkId = crypto.randomUUID();
+      const previousForkId = activeForkId;
+      // Claim the new fork as active immediately. Setting it only in onSuccess
+      // left a window where the forks query refetched to >= 2 forks but
+      // activeForkId was still null, which the Main fallback filled — clobbering
+      // the just-created fork. Revert if creation fails.
+      setActiveFork(forkId);
       createFork.mutate(
         { id: forkId, conversationId, fromMessageId: messageId },
         {
-          onSuccess: () => {
-            setActiveFork(forkId);
+          onError: () => {
+            setActiveFork(previousForkId);
           },
         }
       );
     },
-    [conversationId, createFork, setActiveFork]
+    [conversationId, createFork, setActiveFork, activeForkId]
   );
 
   return {

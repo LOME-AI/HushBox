@@ -6,6 +6,17 @@ import userEvent from '@testing-library/user-event';
 import { ChatWelcome } from '@/components/chat/page/chat-welcome';
 import type { PromptBudgetResult } from '@/hooks/billing/use-prompt-budget';
 
+// Controllable isMobile for the auto-focus effect (desktop-only behavior).
+const isMobileRef = { current: false };
+
+vi.mock('@hushbox/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@hushbox/ui')>();
+  return {
+    ...actual,
+    useIsMobile: (): boolean => isMobileRef.current,
+  };
+});
+
 vi.mock('@/lib/api', () => ({
   getApiUrl: vi.fn(() => 'http://localhost:8787'),
   ApiError: class ApiError extends Error {
@@ -171,6 +182,7 @@ describe('ChatWelcome', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetModelStoreStub();
+    isMobileRef.current = false;
   });
 
   it('renders the chat welcome container', () => {
@@ -404,6 +416,54 @@ describe('ChatWelcome', () => {
       await user.click(screen.getByTestId('comparison-bar-add-button'));
 
       expect(modelStoreStubRef.current.setPickerMode).toHaveBeenCalledWith('text', 'multi');
+    });
+  });
+
+  describe('prompt input auto-focus', () => {
+    it('focuses the prompt input on a warm mount that is ready immediately', () => {
+      render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} isLoading={false} />, {
+        wrapper: createWrapper(),
+      });
+
+      expect(screen.getByRole('textbox')).toHaveFocus();
+    });
+
+    it('focuses the prompt input after the loading-to-ready transition', () => {
+      const { rerender } = render(
+        <ChatWelcome onSend={mockOnSend} isAuthenticated={false} isLoading={true} />,
+        { wrapper: createWrapper() }
+      );
+
+      rerender(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} isLoading={false} />);
+
+      expect(screen.getByRole('textbox')).toHaveFocus();
+    });
+
+    it('does not focus the prompt input on mobile', () => {
+      isMobileRef.current = true;
+
+      render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} isLoading={false} />, {
+        wrapper: createWrapper(),
+      });
+
+      expect(screen.getByRole('textbox')).not.toHaveFocus();
+    });
+
+    it('focuses the prompt input at most once and does not steal focus on later re-renders', () => {
+      const focusSpy = vi.spyOn(HTMLTextAreaElement.prototype, 'focus');
+
+      const { rerender } = render(
+        <ChatWelcome onSend={mockOnSend} isAuthenticated={false} isLoading={false} />,
+        { wrapper: createWrapper() }
+      );
+
+      expect(focusSpy).toHaveBeenCalledTimes(1);
+
+      rerender(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} isLoading={false} />);
+
+      expect(focusSpy).toHaveBeenCalledTimes(1);
+
+      focusSpy.mockRestore();
     });
   });
 });

@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 
-const AASA_PATH = path.join(import.meta.dirname, 'apple-app-site-association');
+// Validates the deployed asset served from public/.well-known/.
+const AASA_PATH = path.join(
+  import.meta.dirname,
+  '../../public/.well-known/apple-app-site-association'
+);
 
 interface AASADetail {
   appIDs: string[];

@@ -122,6 +122,18 @@ describe('computeRenderState', () => {
     });
   });
 
+  it('returns ready when decryption is pending but local messages exist', () => {
+    // create→real window: the optimistic turn is still on screen, so the
+    // post-stream refetch decrypting must not flash the placeholder over it.
+    expect(
+      computeRenderState({
+        ...baseRenderParams(),
+        isDecryptionPending: true,
+        localMessagesLength: 1,
+      })
+    ).toEqual({ type: 'ready' });
+  });
+
   it('returns ready once everything is loaded', () => {
     expect(computeRenderState(baseRenderParams())).toEqual({ type: 'ready' });
   });
