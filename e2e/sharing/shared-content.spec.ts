@@ -4,6 +4,7 @@ import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { createInviteLink } from '../helpers/invite-link.js';
 import { createMessageShareUrl } from '../helpers/share-message.js';
 import { requireEnv } from '../helpers/env.js';
+import { postWithRetry } from '../helpers/api-retry.js';
 import { expectVideoDecoded } from '../helpers/webkit-media-decode.js';
 import { imagesOnPage, videosOnPage } from '../helpers/page-signals.js';
 import { TIMEOUTS } from '../config/timeouts.js';
@@ -387,9 +388,13 @@ test.describe('Shared Content', () => {
 
     await authenticatedPage.keyboard.press('Escape');
 
-    const revoke = await authenticatedPage.request.post(`${apiUrl}/api/dev/revoke-message-share`, {
-      data: { shareId },
-    });
+    const revoke = await postWithRetry(
+      authenticatedPage.request,
+      `${apiUrl}/api/dev/revoke-message-share`,
+      {
+        data: { shareId },
+      }
+    );
     expect(revoke.ok()).toBe(true);
 
     const recipient = await createPage();

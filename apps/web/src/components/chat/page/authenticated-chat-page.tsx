@@ -108,6 +108,26 @@ function useForkUrlState({
 }: ForkUrlStateArgs): void {
   const navigate = useNavigate();
   const initializedRef = React.useRef(false);
+  // Whether a fork has been active at any point this session. Distinguishes the
+  // pre-seed load window (never activated → a deep-linked `?fork=` must survive)
+  // from a fork that was selected and then deleted (activated → its now-stale
+  // param must be cleared).
+  const hasActivatedForkRef = React.useRef(false);
+
+  // Route the fork search param through the router (the single writer); a raw
+  // history.replaceState races TanStack Router's own search parsing. Called with
+  // no argument clears the param.
+  const replaceForkSearch = React.useCallback(
+    (fork?: string): void => {
+      void navigate({
+        to: ROUTES.CHAT_ID,
+        params: { id: routeConversationId },
+        search: { fork },
+        replace: true,
+      });
+    },
+    [navigate, routeConversationId]
+  );
 
   React.useEffect(() => {
     // The one-time URL seed must win over the Main fallback: returning here keeps
@@ -134,21 +154,28 @@ function useForkUrlState({
   }, [initialForkId, activeForkId, forksList, setActiveFork]);
 
   React.useEffect(() => {
-    // Mirror the active fork into the URL through the router. A raw
-    // history.replaceState races TanStack Router's own search parsing and strips
-    // the param mid-load, so the route stays the single writer. Only ever write a
-    // concrete fork id (never clear) so the seed above is never undone while the
-    // store is still null on load.
-    if (!initializedRef.current || activeForkId === null || activeForkId === initialForkId) {
+    // Mirror the active fork into the URL. The route stays the single writer.
+    if (!initializedRef.current) {
       return;
     }
-    void navigate({
-      to: ROUTES.CHAT_ID,
-      params: { id: routeConversationId },
-      search: { fork: activeForkId },
-      replace: true,
-    });
-  }, [routeConversationId, initialForkId, activeForkId, navigate]);
+    if (activeForkId !== null) {
+      hasActivatedForkRef.current = true;
+      // Already reflected by the URL the page loaded with — nothing to write.
+      if (activeForkId === initialForkId) {
+        return;
+      }
+      replaceForkSearch(activeForkId);
+      return;
+    }
+    // No active fork. Never clear during the pre-seed load window — that would
+    // strip a deep-linked `?fork=` before the seed reads it. Only clear once a
+    // fork has actually been active and then went away (last fork deleted →
+    // conversation reverted to linear), leaving a stale param behind.
+    if (!hasActivatedForkRef.current) {
+      return;
+    }
+    replaceForkSearch();
+  }, [initialForkId, activeForkId, replaceForkSearch]);
 }
 
 interface ForkManagement {

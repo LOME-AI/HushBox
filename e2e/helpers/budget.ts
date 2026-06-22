@@ -1,4 +1,5 @@
 import { requireEnv } from './env.js';
+import { postWithRetry } from './api-retry.js';
 import type { APIRequestContext } from '@playwright/test';
 
 const API_BASE = requireEnv('VITE_API_URL');
@@ -154,7 +155,7 @@ export async function setWalletBalance(
   walletType: 'purchased' | 'free_tier',
   balance: string
 ): Promise<void> {
-  const response = await request.post(`${API_BASE}/api/dev/wallet-balance`, {
+  const response = await postWithRetry(request, `${API_BASE}/api/dev/wallet-balance`, {
     data: { email, walletType, balance },
   });
   if (!response.ok()) {

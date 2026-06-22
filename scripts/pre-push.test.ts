@@ -1,18 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('execa', () => ({ execa: vi.fn() }));
+vi.mock('./lib/gitleaks.js', () => ({
+  ensureGitleaks: vi.fn((): Promise<string> => Promise.resolve('/cache/gitleaks/8.24.3/gitleaks')),
+}));
 
 import { execa } from 'execa';
+import { ensureGitleaks } from './lib/gitleaks.js';
 import {
   PARALLEL_TASKS,
   TEST_TASK,
   runParallel,
   runSequential,
   main,
+  parsePushReferences,
+  computeLogOptionsString,
+  buildGitleaksTask,
   type Task,
 } from './pre-push.js';
 
 const mockExeca = vi.mocked(execa);
+const mockEnsure = vi.mocked(ensureGitleaks);
 
 interface FakeProcess extends Promise<void> {
   exitCode: number | null;
@@ -218,10 +226,139 @@ describe('pre-push', () => {
     });
   });
 
+  describe('parsePushRefs', () => {
+    it('returns an empty array for empty stdin', () => {
+      expect(parsePushReferences('')).toEqual([]);
+    });
+
+    it('ignores blank lines and surrounding whitespace', () => {
+      expect(parsePushReferences('\n  \n')).toEqual([]);
+    });
+
+    it('parses a single push ref line', () => {
+      expect(parsePushReferences('refs/heads/main abc refs/heads/main def')).toEqual([
+        {
+          localRef: 'refs/heads/main',
+          localSha: 'abc',
+          remoteRef: 'refs/heads/main',
+          remoteSha: 'def',
+        },
+      ]);
+    });
+
+    it('parses multiple push ref lines', () => {
+      const references = parsePushReferences(
+        'refs/heads/a 111 refs/heads/a 222\nrefs/heads/b 333 refs/heads/b 444'
+      );
+      expect(references).toHaveLength(2);
+      expect(references[1]!.localSha).toBe('333');
+    });
+  });
+
+  describe('computeLogOptsString', () => {
+    const ZERO = '0'.repeat(40);
+
+    it('returns a remote..local range for an updated branch', () => {
+      expect(
+        computeLogOptionsString([
+          {
+            localRef: 'refs/heads/main',
+            localSha: 'newsha',
+            remoteRef: 'refs/heads/main',
+            remoteSha: 'oldsha',
+          },
+        ])
+      ).toBe('oldsha..newsha');
+    });
+
+    it('scans commits not already on a remote for a new branch', () => {
+      expect(
+        computeLogOptionsString([
+          {
+            localRef: 'refs/heads/feat',
+            localSha: 'newsha',
+            remoteRef: 'refs/heads/feat',
+            remoteSha: ZERO,
+          },
+        ])
+      ).toBe('newsha --not --remotes');
+    });
+
+    it('skips branch deletions', () => {
+      expect(
+        computeLogOptionsString([
+          { localRef: '', localSha: ZERO, remoteRef: 'refs/heads/gone', remoteSha: 'oldsha' },
+        ])
+      ).toBeNull();
+    });
+
+    it('joins multiple ranges into one log-opts string', () => {
+      expect(
+        computeLogOptionsString([
+          { localRef: 'refs/heads/a', localSha: 'a2', remoteRef: 'refs/heads/a', remoteSha: 'a1' },
+          { localRef: 'refs/heads/b', localSha: 'b2', remoteRef: 'refs/heads/b', remoteSha: ZERO },
+        ])
+      ).toBe('a1..a2 b2 --not --remotes');
+    });
+  });
+
+  describe('buildGitleaksTask', () => {
+    const ZERO = '0'.repeat(40);
+
+    it('scans the last commit when run from a TTY', async () => {
+      const task = await buildGitleaksTask('', true);
+      expect(task).toEqual({
+        name: 'gitleaks',
+        command: '/cache/gitleaks/8.24.3/gitleaks',
+        args: ['git', '--redact', '--no-banner', '--log-opts=-1'],
+      });
+      expect(mockEnsure).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to the last commit when stdin is empty', async () => {
+      const task = await buildGitleaksTask('', false);
+      expect(task!.args).toContain('--log-opts=-1');
+    });
+
+    it('scans the pushed range from stdin', async () => {
+      const task = await buildGitleaksTask('refs/heads/main newsha refs/heads/main oldsha', false);
+      expect(task!.args).toContain('--log-opts=oldsha..newsha');
+    });
+
+    it('returns null and does not resolve the binary when only deletions are pushed', async () => {
+      const task = await buildGitleaksTask(`refs/heads/gone ${ZERO} refs/heads/gone oldsha`, false);
+      expect(task).toBeNull();
+      expect(mockEnsure).not.toHaveBeenCalled();
+    });
+  });
+
   describe('main', () => {
-    it('runs all parallel tasks then test on success', async () => {
+    it('runs parallel checks plus gitleaks, then test on success', async () => {
       const procs = captureProcs();
-      const promise = main();
+      const promise = main('', true);
+      await waitForExecaCalls(5);
+      for (let index = 0; index < 5; index++) {
+        procs[index]!._resolve();
+      }
+      await waitForExecaCalls(6);
+      procs[5]!._resolve();
+      await expect(promise).resolves.toBeUndefined();
+      expect(mockExeca).toHaveBeenCalledTimes(6);
+      expect(mockExeca).toHaveBeenCalledWith(
+        '/cache/gitleaks/8.24.3/gitleaks',
+        ['git', '--redact', '--no-banner', '--log-opts=-1'],
+        expect.objectContaining({ stdio: 'inherit' })
+      );
+      expect(mockExeca).toHaveBeenLastCalledWith(
+        'pnpm',
+        ['test'],
+        expect.objectContaining({ stdio: 'inherit' })
+      );
+    });
+
+    it('omits the gitleaks task when only deletions are pushed', async () => {
+      const procs = captureProcs();
+      const promise = main(`refs/heads/gone ${'0'.repeat(40)} refs/heads/gone oldsha`, false);
       await waitForExecaCalls(4);
       for (let index = 0; index < 4; index++) {
         procs[index]!._resolve();
@@ -230,20 +367,14 @@ describe('pre-push', () => {
       procs[4]!._resolve();
       await expect(promise).resolves.toBeUndefined();
       expect(mockExeca).toHaveBeenCalledTimes(5);
-      expect(mockExeca).toHaveBeenLastCalledWith(
-        'pnpm',
-        ['test'],
-        expect.objectContaining({ stdio: 'inherit' })
-      );
     });
 
     it('does not run test when a parallel task fails', async () => {
       const procs = captureProcs();
-      const promise = main();
-      await waitForExecaCalls(4);
+      const promise = main('', true);
+      await waitForExecaCalls(5);
       procs[0]!._reject(new Error('lint failed'));
       await expect(promise).rejects.toThrow('lint failed');
-      expect(mockExeca).toHaveBeenCalledTimes(4);
       expect(mockExeca).not.toHaveBeenCalledWith(
         'pnpm',
         ['test'],

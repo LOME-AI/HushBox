@@ -1975,6 +1975,47 @@ describe('AuthenticatedChatPage', () => {
         expect.objectContaining({ search: { fork: undefined } })
       );
     });
+
+    it('clears the fork param when the last fork is deleted', () => {
+      mockActiveForkId = 'fork-1';
+      mockForksData = [
+        {
+          id: 'fork-1',
+          conversationId: 'conv-456',
+          name: 'Fork 1',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:05.000Z',
+        },
+        {
+          id: 'main-fork',
+          conversationId: 'conv-456',
+          name: 'Main',
+          tipMessageId: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      ];
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [],
+      });
+
+      const { rerender } = render(
+        <AuthenticatedChatPage routeConversationId="conv-456" initialForkId="fork-1" />
+      );
+      mockNavigate.mockClear();
+
+      // Delete the last fork: the store empties and the conversation has no forks.
+      mockActiveForkId = null;
+      mockForksData = [];
+      rerender(<AuthenticatedChatPage routeConversationId="conv-456" initialForkId="fork-1" />);
+
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: '/chat/$id',
+        params: { id: 'conv-456' },
+        search: { fork: undefined },
+        replace: true,
+      });
+    });
   });
 
   describe('fork rename modal', () => {

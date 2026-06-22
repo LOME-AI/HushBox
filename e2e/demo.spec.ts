@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { TIMEOUTS } from './config/timeouts.js';
 import { openMobileSidebarIfNeeded } from './helpers/auth.js';
+import { MemberSidebarPage } from './pages/index.js';
 import type { Page } from '@playwright/test';
 
 /**
@@ -44,8 +45,28 @@ test.describe('interactive demo (/demo)', () => {
     await selectDemoConversation(page, 1);
     await expect(page).toHaveURL(new RegExp(`${ROUTES.DEMO}$`));
 
+    // Let the director finish playing this conversation before switching again.
+    // On mobile the sidebar is a Sheet that re-closes on every navigation, so a
+    // switch issued while the director is still streaming (and navigating)
+    // re-closes the Sheet mid-click and detaches the chat-link. The final
+    // streamed reply means the director is idle, so the next sidebar open holds.
+    await expect(page.getByText('never a lock-in')).toBeVisible({
+      timeout: TIMEOUTS.STREAM_CLEAR,
+    });
+
     // Unsupported control (group member management) → sign-up nudge, no nav.
     await selectDemoConversation(page, 0);
+    // Wait for the welcome conversation to finish re-opening: its final streamed
+    // reply means the director has stopped navigating (all of its navigation
+    // happens before the first reply), so the member sidebar's mobile Sheet
+    // won't be torn down mid-interaction.
+    await expect(page.getByText('decrypted just long enough')).toBeVisible({
+      timeout: TIMEOUTS.STREAM_CLEAR,
+    });
+    // newMemberButton lives in the member sidebar. On mobile that's a Sheet
+    // closed by default (desktop shows it as an always-present rail), so open it
+    // via the facepile before reaching for the add-member control.
+    await new MemberSidebarPage(page).openViaFacepile();
     await page.getByTestId(TEST_IDS.newMemberButton).click();
     await expect(page.getByText('Create a free account to invite people')).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`${ROUTES.DEMO}$`));

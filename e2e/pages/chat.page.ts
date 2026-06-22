@@ -102,8 +102,13 @@ export class ChatPage {
    * layout (code-block highlight, controls bar) grows and back to true once
    * auto-scroll re-pins — so this verifies the final settled state rather than a
    * one-shot pixel read taken mid-layout.
+   *
+   * Budgeted at ASSERT, not SCROLL_STABLE: the re-pin waits on an async layout
+   * pass (Shiki highlighting a code block, then a controls bar mounting) whose
+   * ResizeObserver lands late on WebKit when the host is saturated — wider than
+   * a bare scroll-settle so a loaded machine still observes the final pin.
    */
-  async waitForAtBottom(timeout: number = TIMEOUTS.SCROLL_STABLE): Promise<void> {
+  async waitForAtBottom(timeout: number = TIMEOUTS.ASSERT): Promise<void> {
     await expect(this.messageList).toHaveAttribute(TEST_SIGNALS.atBottom, 'true', { timeout });
   }
 

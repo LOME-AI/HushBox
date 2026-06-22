@@ -18,6 +18,7 @@ import { ChatPage } from './pages';
 import { TIMEOUTS } from './config/timeouts.js';
 import { requireEnv } from './helpers/env.js';
 import { clearUsageRateLimits } from './helpers/auth.js';
+import { postWithRetry } from './helpers/api-retry.js';
 import {
   buildStorageInitScript,
   type RawStorageState,
@@ -585,10 +586,10 @@ async function zeroLowBalanceWallets(
 ): Promise<void> {
   // Zero both wallets so the user is on the free tier with no allowance —
   // every preflight cost trips `insufficient_free_allowance` denial.
-  await requestContext.post('/api/dev/wallet-balance', {
+  await postWithRetry(requestContext, '/api/dev/wallet-balance', {
     data: { email, walletType: 'purchased', balance: '0.00000000' },
   });
-  await requestContext.post('/api/dev/wallet-balance', {
+  await postWithRetry(requestContext, '/api/dev/wallet-balance', {
     data: { email, walletType: 'free_tier', balance: '0.00000000' },
   });
 }
@@ -809,7 +810,7 @@ export const test = base.extend<CustomFixtures>({
     const projectName = testInfo.project.name;
     const aliceEmail = `test-alice-${projectName}@test.hushbox.ai`;
     const bobEmail = `test-bob-${projectName}@test.hushbox.ai`;
-    const response = await authenticatedRequest.post('/api/dev/group-chat', {
+    const response = await postWithRetry(authenticatedRequest, '/api/dev/group-chat', {
       data: {
         ownerEmail: aliceEmail,
         memberEmails: [bobEmail],
@@ -978,7 +979,7 @@ export const test = base.extend<CustomFixtures>({
       testInfo
     );
 
-    await requestContext.post('/api/dev/wallet-balance', {
+    await postWithRetry(requestContext, '/api/dev/wallet-balance', {
       data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.00000000' },
     });
     await requestContext.dispose();
@@ -987,7 +988,7 @@ export const test = base.extend<CustomFixtures>({
   testConversation: async ({ authenticatedPage, authenticatedRequest }, use, testInfo) => {
     const testMessage = `Fixture setup ${String(Date.now())}`;
     const aliceEmail = `test-alice-${testInfo.project.name}@test.hushbox.ai`;
-    const response = await authenticatedRequest.post('/api/dev/conversation', {
+    const response = await postWithRetry(authenticatedRequest, '/api/dev/conversation', {
       data: {
         ownerEmail: aliceEmail,
         messages: [

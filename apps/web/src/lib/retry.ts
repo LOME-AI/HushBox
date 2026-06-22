@@ -1,8 +1,12 @@
+import { isRetryableStatus, backoffCeilingMs } from '@hushbox/shared';
 import { ApiError } from './api.js';
 
 /**
  * App-wide client retry policy for transient failures, shared by TanStack
- * Query's `defaultOptions` for both queries and mutations.
+ * Query's `defaultOptions` for both queries and mutations. The transient-status
+ * classification and backoff schedule live in `@hushbox/shared` (so the E2E
+ * harness applies the same rules); this module adapts them to the browser error
+ * model (thrown `ApiError`/`TypeError`) and TanStack's predicate signatures.
  *
  * Retries are only safe because the API is idempotent: conversation creation
  * upserts on a client-generated id, forks dedupe by id, billing by
@@ -11,10 +15,6 @@ import { ApiError } from './api.js';
  * duplicating it. Keep that guarantee in mind before widening what retries.
  */
 
-/** First-retry backoff ceiling; doubles each subsequent attempt up to {@link MAX_DELAY_MS}. */
-const BASE_DELAY_MS = 500;
-/** Upper bound on a single backoff interval. */
-const MAX_DELAY_MS = 10_000;
 /** Upper bound on a server-provided `Retry-After`, so a hostile/huge value can't stall the UI. */
 const RETRY_AFTER_CAP_MS = 30_000;
 /** Retry attempts after the initial failure (0-based failureCount < MAX_RETRIES). 2 → 3 total tries. */
@@ -31,9 +31,7 @@ export const MAX_RETRIES = 2;
  */
 export function isRetryableError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') return false;
-  if (error instanceof ApiError) {
-    return error.status === 408 || error.status === 429 || error.status >= 500;
-  }
+  if (error instanceof ApiError) return isRetryableStatus(error.status);
   return error instanceof TypeError;
 }
 
@@ -85,7 +83,6 @@ export function computeRetryDelay(failureCount: number, error: unknown): number 
   if (error instanceof ApiError && error.retryAfterMs != null) {
     return Math.min(error.retryAfterMs, RETRY_AFTER_CAP_MS);
   }
-  const ceiling = Math.min(BASE_DELAY_MS * 2 ** failureCount, MAX_DELAY_MS);
   // eslint-disable-next-line sonarjs/pseudo-random -- retry jitter is timing, not security-sensitive
-  return Math.random() * ceiling;
+  return Math.random() * backoffCeilingMs(failureCount);
 }

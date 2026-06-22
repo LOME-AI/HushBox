@@ -19,6 +19,7 @@ export * from './utils/date.js';
 export * from './utils/username.js';
 export * from './schemas/username.js';
 export * from './random.js';
+export * from './retry.js';
 export * from './text-encoder.js';
 export * from './utils/privileges.js';
 export * from './utils/base64.js';

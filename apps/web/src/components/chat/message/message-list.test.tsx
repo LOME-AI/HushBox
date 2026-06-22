@@ -496,14 +496,14 @@ describe('MessageList', () => {
       });
     });
 
-    it('mounts Virtuoso with initialItemCount so rows render before the scroller is measured', () => {
-      // Guards the WebKit zero-height first-paint stall: with a percentage-height
-      // scroller that measures 0 on the first frame, Virtuoso renders no rows
-      // unless initialItemCount force-mounts them. Clamped to the row count.
+    it('mounts Virtuoso with initialItemCount of 1 so a row renders before the scroller is measured', () => {
+      // Seeds the first paint against the WebKit zero-height stall (scroller
+      // measures 0 before the flex chain resolves, so Virtuoso would render no
+      // rows). Pinned at 1: the seed renders forward from the `LAST` anchor, so
+      // any higher count overruns `data` and crashes computeItemKey — the real
+      // behavior is covered in message-list.initial-paint.test.tsx.
       render(<MessageList messages={messages} />);
-      const rows = capturedVirtuosoProps['data'] as unknown[];
-      expect(rows.length).toBeGreaterThan(0);
-      expect(capturedVirtuosoProps['initialItemCount']).toBe(Math.min(rows.length, 10));
+      expect(capturedVirtuosoProps['initialItemCount']).toBe(1);
     });
   });
 
