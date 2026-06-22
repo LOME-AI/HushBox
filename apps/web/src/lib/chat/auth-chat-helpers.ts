@@ -73,6 +73,13 @@ export function computeRenderState(params: ComputeRenderStateParams): RenderStat
   // API returned messages but decryption hasn't completed yet (key chain loading).
   // Stay in loading state to show "Decrypting..." instead of a blank page.
   if (params.isDecryptionPending) {
+    // As with the loading branch above: during the create→real window the
+    // optimistic turn is still on screen, so keep showing it rather than
+    // flashing the "Decrypting..." placeholder while the post-stream refetch
+    // decrypts the just-persisted messages.
+    if (localMessagesLength > 0) {
+      return { type: 'ready' };
+    }
     return { type: 'loading', title: DECRYPTING_TITLE };
   }
 
