@@ -122,11 +122,13 @@ function sharedFaviconPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, envDir, 'VITE_');
 
+  // The port only feeds the dev server; `vite build` never reads `server.port`.
+  // Guard `serve` only, so the CI build job needs no generated env.
   const vitePort = Number(process.env['HB_VITE_PORT']);
-  if (!Number.isFinite(vitePort) || vitePort <= 0) {
+  if (command === 'serve' && (!Number.isFinite(vitePort) || vitePort <= 0)) {
     throw new Error('HB_VITE_PORT is not set — run pnpm generate:env first');
   }
 
