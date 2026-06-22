@@ -34,15 +34,21 @@ function AuthFormHeader({
   title,
   subtitle,
   subtitleClassName = 'text-primary text-lg font-medium',
+  subtitleReading = false,
 }: Readonly<{
   title: string;
   subtitle: string;
   subtitleClassName?: string;
+  // Marks the subtitle as a reading surface (serif). Only the brand tagline opts
+  // in; functional subtitles ("Enter your new password") stay on the sans chrome default.
+  subtitleReading?: boolean;
 }>): React.JSX.Element {
   return (
     <div className="mb-5 text-center">
       <h1 className="text-foreground mb-2 text-3xl font-bold">{title}</h1>
-      <p className={subtitleClassName}>{subtitle}</p>
+      <p className={subtitleClassName} data-reading={subtitleReading ? '' : undefined}>
+        {subtitle}
+      </p>
     </div>
   );
 }
@@ -460,7 +466,11 @@ function LoginPage(): React.JSX.Element {
 
   return (
     <div>
-      <AuthFormHeader title="Welcome back" subtitle="One interface. Every feature. Private." />
+      <AuthFormHeader
+        title="Welcome back"
+        subtitle="One interface. Every feature. Private."
+        subtitleReading
+      />
 
       <form
         ref={loginFormRef}

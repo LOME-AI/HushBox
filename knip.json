@@ -50,11 +50,16 @@
       "ignoreDependencies": ["zod"]
     }
   },
+  "ignore": [".claude/**"],
   "ignoreDependencies": [
     "eslint-formatter-summary",
     "github-markdown-css",
     "tailwindcss",
-    "tw-animate-css"
+    "tw-animate-css",
+    "css-select",
+    "css-tree",
+    "domutils",
+    "htmlparser2"
   ],
   "ignoreBinaries": ["maestro", "adb", "cap", "wrangler", "drizzle-kit", "tar"],
   "ignoreExportsUsedInFile": true,

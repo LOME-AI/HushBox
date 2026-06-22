@@ -121,8 +121,12 @@
 }
 
 @theme inline {
-  --font-sans: 'Merriweather';
-  --font-mono: 'JetBrains Mono';
+  /* Sans is the global default (UI chrome); serif is opt-in for reading
+     surfaces; mono for code. See the cascade rule in @layer base below and the
+     Reading-versus-Chrome Rule in docs/DESIGN.md. */
+  --font-sans: 'Hanken Grotesk', system-ui, sans-serif;
+  --font-serif: 'Merriweather', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
   /* Brand */
   --color-brand-red: var(--brand-red);
@@ -203,6 +207,7 @@
     padding-top: env(safe-area-inset-top, 0px) !important;
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: var(--font-sans);
     font-feature-settings:
       'rlig' 1,
       'calt' 1;
@@ -215,6 +220,25 @@
   h5,
   h6 {
     color: var(--color-brand-red);
+    font-family: var(--font-serif);
+  }
+
+  /* Reading-versus-Chrome typography. Sans (on body) is the default for all UI
+     chrome, including portaled overlays. Reading surfaces opt into the editorial
+     serif via the data-reading attribute (the twin of data-chrome); headings are
+     always serif. Code is always mono, even inside a reading region, because the
+     element rule matches directly and inheritance has no specificity. Native form
+     controls inherit sans via Tailwind preflight's `font-family: inherit`. See the
+     Reading-versus-Chrome Rule in docs/DESIGN.md. */
+  [data-reading] {
+    font-family: var(--font-serif);
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
   }
 }
 

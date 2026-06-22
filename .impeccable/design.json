@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "title": "Design System: HushBox",
+  "extensions": {
+    "colorMeta": {
+      "brand-red": {
+        "role": "primary",
+        "displayName": "Signal Red",
+        "canonical": "#ec4755",
+        "tonalRamp": ["#5e0e16", "#8f1622", "#c01e2e", "#d93d4a", "#ec4755", "#f3717b", "#f87171", "#f9a3aa", "#fde8ea"]
+      },
+      "neutral-warm": {
+        "role": "neutral",
+        "displayName": "Warm Paper to Ink",
+        "canonical": "#b5b1a8",
+        "tonalRamp": ["#141311", "#1a1816", "#252320", "#2a2725", "#2d2b28", "#3d3a36", "#4a4743", "#525252", "#8f8b81", "#9a9894", "#b5b1a8", "#d1cfc9", "#eae8e3", "#e5e2db", "#f5f4f0", "#faf5ed", "#faf9f6", "#f2f1ef"]
+      }
+    },
+    "roundedMeta": {
+      "sm": "4px",
+      "md": "6px",
+      "lg": "8px",
+      "xl": "12px",
+      "full": "9999px"
+    }
+  }
+}

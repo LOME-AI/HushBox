@@ -79,6 +79,16 @@ describe('MessageBody', () => {
     );
   });
 
+  it('marks the bubble as a reading surface so message text renders in the serif', () => {
+    const { container } = render(
+      <MessageBody variant="assistant" media={[]} contentKey={key} ariaPrefix="Generated" />
+    );
+
+    // data-reading is the twin of data-chrome: it flips the subtree to the serif
+    // reading font. One tag here covers chat (MessageItem) and the public share view.
+    expect(container.firstElementChild).toHaveAttribute('data-reading');
+  });
+
   it('renders the text region (children) before the media list', () => {
     render(
       <MessageBody variant="assistant" media={[media('a')]} contentKey={key} ariaPrefix="Generated">
