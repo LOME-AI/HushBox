@@ -276,9 +276,59 @@ export class ChatPage {
       .catch(() => false);
     if (appeared) return;
 
-    // Slow path: scroll to find it with the remaining time budget.
+    // Slow path: the row is mounted but clipped/virtualized out of view. Reveal
+    // it by parking each Virtuoso row and re-checking the text locator.
     const remaining = Math.max(TIMEOUTS.QUICK, timeout - happyWait);
-    await this.scrollUntilLocatorVisible(locator, text, remaining);
+    await this.revealByRowScan(locator, remaining);
+  }
+
+  /**
+   * Reveal a clipped/virtualized row: walk Virtuoso's rows bottom→top, parking
+   * each via the imperative `scrollMessageIntoView` backdoor, until `check`
+   * passes. `scrollMessageIntoView` resolves only once the row is measured and
+   * painted, so this reveals a clipped row deterministically regardless of host
+   * load (no wall-clock scroll loop). Re-anchors every poll iteration because a
+   * row can re-virtualize between the scroll and the check. On timeout, surfaces
+   * Playwright's rich locator error against `locator` instead of `expect.poll`'s
+   * opaque boolean mismatch (the poll already consumed the budget, so the
+   * re-assertion needs only a short window).
+   */
+  private async revealByRowScan(
+    locator: Locator,
+    timeout: number,
+    check?: () => Promise<boolean>
+  ): Promise<void> {
+    const matches =
+      check ??
+      (async (): Promise<boolean> => {
+        try {
+          return await locator.isVisible();
+        } catch {
+          return false;
+        }
+      });
+    try {
+      await expect
+        .poll(
+          async () => {
+            const rowsCount = Number(await this.messageList.getAttribute(TEST_SIGNALS.rowsCount));
+            if (!Number.isFinite(rowsCount) || rowsCount <= 0) return false;
+            for (let index = rowsCount - 1; index >= 0; index--) {
+              try {
+                await this.scrollMessageIntoView(index);
+              } catch {
+                return false;
+              }
+              if (await matches()) return true;
+            }
+            return false;
+          },
+          { timeout }
+        )
+        .toBe(true);
+    } catch {
+      await expect(locator).toBeVisible({ timeout: TIMEOUTS.QUICK });
+    }
   }
 
   /**
@@ -364,47 +414,6 @@ export class ChatPage {
     return seen;
   }
 
-  /**
-   * Scroll to find `locator`, auto-detecting direction from the current
-   * scroll position. If the first direction exhausts, tries the opposite.
-   */
-  private async scrollUntilLocatorVisible(
-    locator: Locator,
-    text: string,
-    timeout: number
-  ): Promise<void> {
-    const start = Date.now();
-    const { scrollTop, scrollHeight, clientHeight } = await this.getScrollPosition();
-
-    // Auto-detect: if we're in the upper half, missing message is likely
-    // below. If we're in the lower half, it's likely above.
-    const maxScroll = Math.max(1, scrollHeight - clientHeight);
-    const relativePos = scrollTop / maxScroll;
-    const firstDir: 1 | -1 = relativePos < 0.5 ? 1 : -1;
-
-    if (await this.scanDirection(locator, firstDir, Math.floor(timeout / 2))) return;
-
-    const remaining = Math.max(1000, timeout - (Date.now() - start));
-    const secondDir: 1 | -1 = firstDir === 1 ? -1 : 1;
-    if (await this.scanDirection(locator, secondDir, remaining)) return;
-
-    throw new Error(
-      `assertMessageVisible: no message matching "${text}" found after scrolling both directions`
-    );
-  }
-
-  private async scanDirection(locator: Locator, dir: 1 | -1, timeout: number): Promise<boolean> {
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-      if (await locator.isVisible().catch(() => false)) return true;
-      const atEdge = dir === 1 ? await this.isAtScrollBottom() : await this.isAtScrollTop();
-      if (atEdge) return false;
-      await this.scrollByViewportFraction(0.8 * dir);
-      await this.waitForScrollStable();
-    }
-    return false;
-  }
-
   private async scrollByViewportFraction(frac: number): Promise<void> {
     await this.viewport.evaluate((el, f) => {
       el.scrollTop += el.clientHeight * f;
@@ -414,11 +423,6 @@ export class ChatPage {
   private async isAtScrollBottom(): Promise<boolean> {
     const { scrollTop, scrollHeight, clientHeight } = await this.getScrollPosition();
     return scrollTop + clientHeight >= scrollHeight - 10;
-  }
-
-  private async isAtScrollTop(): Promise<boolean> {
-    const { scrollTop } = await this.getScrollPosition();
-    return scrollTop <= 10;
   }
 
   async expectNewChatPageVisible(): Promise<void> {
@@ -735,58 +739,33 @@ export class ChatPage {
   ): Promise<void> {
     const media = this.messageList.locator(kind).first();
     const skipVideoDecode = lacksMediaDecode(getBrowserName(this.page));
-    try {
-      await expect
-        .poll(
-          async () => {
-            const rowsCount = Number(await this.messageList.getAttribute(TEST_SIGNALS.rowsCount));
-            if (!Number.isFinite(rowsCount) || rowsCount <= 0) return false;
-            for (let index = rowsCount - 1; index >= 0; index--) {
-              try {
-                await this.scrollMessageIntoView(index);
-              } catch {
-                return false;
-              }
-              if (!(await media.isVisible().catch(() => false))) continue;
-              const decoded = await media
-                .evaluate((el, skipDecode: boolean) => {
-                  if (el instanceof HTMLImageElement) return el.naturalWidth > 0;
-                  if (el instanceof HTMLVideoElement) {
-                    // Mirrors expectMediaLoaded: one-shot `el.load()` nudge
-                    // for WebKitGTK's lazy-metadata-on-blob behavior, sentinel
-                    // prevents repeated cancel/restart cycles. Real corrupt
-                    // bytes still surface via `el.error`. On engines that
-                    // can't decode (Linux WebKit — see
-                    // `../helpers/webkit-media-decode.ts`), pass as soon as
-                    // the element has a non-empty src.
-                    const v = el as HTMLVideoElement & { __pwLoadNudged?: boolean };
-                    if (v.error !== null) return false;
-                    if (skipDecode) return Boolean(v.currentSrc || v.src);
-                    if (v.readyState >= 1) return true;
-                    if (!v.__pwLoadNudged) {
-                      v.__pwLoadNudged = true;
-                      v.load();
-                    }
-                    return false;
-                  }
-                  return false;
-                }, skipVideoDecode)
-                .catch(() => false);
-              if (decoded) return true;
+    await this.revealByRowScan(media, timeout, async () => {
+      if (!(await media.isVisible().catch(() => false))) return false;
+      return media
+        .evaluate((el, skipDecode: boolean) => {
+          if (el instanceof HTMLImageElement) return el.naturalWidth > 0;
+          if (el instanceof HTMLVideoElement) {
+            // Mirrors expectMediaLoaded: one-shot `el.load()` nudge
+            // for WebKitGTK's lazy-metadata-on-blob behavior, sentinel
+            // prevents repeated cancel/restart cycles. Real corrupt
+            // bytes still surface via `el.error`. On engines that
+            // can't decode (Linux WebKit — see
+            // `../helpers/webkit-media-decode.ts`), pass as soon as
+            // the element has a non-empty src.
+            const v = el as HTMLVideoElement & { __pwLoadNudged?: boolean };
+            if (v.error !== null) return false;
+            if (skipDecode) return Boolean(v.currentSrc || v.src);
+            if (v.readyState >= 1) return true;
+            if (!v.__pwLoadNudged) {
+              v.__pwLoadNudged = true;
+              v.load();
             }
             return false;
-          },
-          { timeout }
-        )
-        .toBe(true);
-    } catch {
-      // Surface Playwright's rich locator error (attached/visible state) on
-      // failure instead of `expect.poll`'s opaque boolean mismatch. The poll
-      // above already consumed the real budget, so this re-assertion only needs
-      // a short window to render the rich error against the still-failing
-      // locator.
-      await expect(media).toBeVisible({ timeout: TIMEOUTS.QUICK });
-    }
+          }
+          return false;
+        }, skipVideoDecode)
+        .catch(() => false);
+    });
     await this.expectMediaLoaded(media);
   }
 
@@ -967,7 +946,15 @@ export class ChatPage {
   }
 
   async scrollUp(pixels: number): Promise<void> {
+    // The app disengages auto-follow ("break away from bottom") only on a real
+    // wheel/touchmove/keydown event (message-list markUserScroll); a bare
+    // scrollTop write fires no such event, so the list re-pins to bottom and the
+    // breakaway never registers. Dispatch the wheel event the breakaway listener
+    // keys off (the same gesture the app's own unit tests use), then move the
+    // scroller. markUserScroll does not check isTrusted, so the synthetic event
+    // counts and this stays engine-portable (WebKit mouse-wheel support varies).
     await this.viewport.evaluate((el, px) => {
+      el.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -px }));
       el.scrollTop = Math.max(0, el.scrollTop - px);
     }, pixels);
   }
@@ -1504,6 +1491,12 @@ export class ChatPage {
         timeout,
       });
     }
+    // Token visibility (DOM) runs ahead of the server-side settle: the streamed
+    // text appears before `saveChatTurn` commits. Callers that then read the
+    // conversation via the API (e.g. getMessageCountViaAPI) would race the
+    // commit, so gate on persistence here. Safe from a pre-stream false positive
+    // because the `Echo:` text above proves the stream already ran.
+    await this.waitForStreamComplete(timeout);
   }
 
   /** Get the message content text for an AI response identified by its nametag model name. */

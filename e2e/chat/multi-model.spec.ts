@@ -507,10 +507,15 @@ test.describe('Multi-Model Chat', () => {
         await chatPage.sendNewChatMessage(`Partial failure test ${String(Date.now())}`);
         await chatPage.waitForConversation();
 
-        await chatPage.waitForStreamComplete();
-
         const successResponse = chatPage.messagesByRole('assistant').filter({ hasText: 'Echo:' });
         await expect(successResponse.first()).toBeVisible({ timeout: TIMEOUTS.STREAM });
+
+        // Gate on the server-side settle before the persistence read below: the
+        // success token is visible in the DOM before saveChatTurn commits. The
+        // Echo: wait above proves the stream ran, so waiting for streaming-count
+        // to reach 0 here cannot pass on a pre-stream false positive (the bug
+        // when this ran immediately after navigation).
+        await chatPage.waitForStreamComplete();
 
         // Error renders on an optimistic message after stream ends — opt out of settled
         // to wait for the React re-render without premature failure
