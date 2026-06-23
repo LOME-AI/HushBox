@@ -49,6 +49,8 @@ test-results/
 test-results.purge-*/
 # Playwright MCP scratch output (screenshots, snapshots)
 .playwright-mcp/
+# Chrome DevTools MCP scratch output (screenshots)
+.chrome-devtools-mcp/
 e2e/.auth/
 e2e/report/
 
@@ -94,6 +96,8 @@ apps/web/public/dev-assets/
 # pre-commit when crypto/personas change). Lets CI seed in ~6s on every run.
 !scripts/.cache/
 !scripts/.cache/seed-crypto/
+# Local dev-stack runtime state (heartbeats, deps hashes); per-machine, never committed.
+scripts/.cache/local/
 
 # TanStack Router
 .tanstack/
