@@ -374,6 +374,10 @@ const DEFAULT_API_ALLOW: RegExp[] = [
   // policy and recover, but the failed preflight is still logged. Scoped to 503
   // so a genuine app/CORS 4xx still fails. See E2E-RULES 2.10 (surface, not fail).
   /NETWORK_FAILED .* — Preflight response is not successful\. Status code: 503/,
+  // Firefox's non-preflight counterpart: a GET whose CORS-headerless 503 (the
+  // same saturation runtime envelope) surfaces as NS_ERROR_DOM_BAD_URI. Scoped
+  // to /api/ reads, which the app-wide query retry recovers.
+  /NETWORK_FAILED GET .*\/api\/.* — NS_ERROR_DOM_BAD_URI/,
 ];
 
 /**
@@ -411,6 +415,12 @@ const DEFAULT_CONSOLE_ALLOW: RegExp[] = [
   // and recovers; only the console log remains. Scoped to 503 so a real CORS
   // failure or app 4xx still fails the test.
   /Preflight response is not successful\. Status code: 503/,
+  // Firefox's console counterpart of the saturation 503: a CORS-headerless 503
+  // (and its network-level retry companion) surface as "Cross-Origin Request
+  // Blocked". Scoped to a 503 or the failed-network "(null)" status so a real
+  // CORS failure or app 4xx still fails the test.
+  /Cross-Origin Request Blocked: .* Status code: 503\./,
+  /Cross-Origin Request Blocked: .*CORS request did not succeed\)\. Status code: \(null\)\./,
 ];
 
 function filterUnexpected(captured: string[], allowed: RegExp[]): string[] {

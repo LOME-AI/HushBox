@@ -23,9 +23,7 @@ services:
     environment:
       APPEND_PORT: 'postgres:5432'
       ALLOW_ADDR_REGEX: '.*'
-      # Per-byte traffic logging is pure CPU/IO overhead on an already-saturated
-      # E2E host; off keeps the proxy from shedding connections under load.
-      LOG_TRAFFIC: 'false'
+      LOG_TRAFFIC: 'true'
     ports:
       - '${HB_NEON_PORT:-4444}:80'
     depends_on:

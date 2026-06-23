@@ -76,6 +76,30 @@ describe('RouteAnnouncer', () => {
     expect(document.activeElement).toBe(heading);
   });
 
+  it('does not steal focus from a control the page focused inside the main region', () => {
+    const main = document.createElement('main');
+    main.id = 'main';
+    main.tabIndex = -1;
+    const heading = document.createElement('h1');
+    heading.textContent = 'New chat';
+    const input = document.createElement('textarea');
+    main.append(heading, input);
+    document.body.append(main);
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    render(<RouteAnnouncer />);
+    const onResolved = captureResolvedListener();
+
+    act(() => {
+      onResolved({ toLocation: { pathname: '/chat' } });
+    });
+
+    // The page's deliberate autofocus wins; the announcement still fires.
+    expect(document.activeElement).toBe(input);
+    expect(screen.getByRole('status')).toHaveTextContent('/chat');
+  });
+
   it('falls back to focusing main when there is no heading', () => {
     const main = document.createElement('main');
     main.id = 'main';
