@@ -3,6 +3,7 @@ import { render, screen, act } from '@testing-library/react';
 import * as React from 'react';
 import type { VirtuosoHandle } from 'react-virtuoso';
 import { usePreInferenceActivityStore } from '@/stores/pre-inference-activity';
+import { useStreamCycleActivityStore } from '@/stores/stream-cycle-activity';
 
 // Break the import chain that requires VITE_API_URL at module load time.
 // Without these mocks, frontendEnvSchema.parse() runs in src/lib/api.ts and
@@ -330,10 +331,13 @@ describe('MessageList', () => {
       expect(firstData).not.toBe(secondData);
     });
 
-    it('exposes data-streams-completed starting at 0 when no stream has run', () => {
+    it('exposes data-streams-completed reflecting the stream-cycle store', () => {
+      useStreamCycleActivityStore.setState({ streamsCompleted: 5 });
       render(<MessageList messages={messages} persistingMessageIds={new Set()} />);
-      const container = screen.getByTestId('message-list');
-      expect(container).toHaveAttribute('data-streams-completed', '0');
+      expect(screen.getByTestId('message-list')).toHaveAttribute('data-streams-completed', '5');
+      act(() => {
+        useStreamCycleActivityStore.setState({ streamsCompleted: 0 });
+      });
     });
 
     it('exposes data-pre-inference-stages-seen reflecting the pre-inference store', () => {
@@ -343,45 +347,9 @@ describe('MessageList', () => {
         'data-pre-inference-stages-seen',
         '3'
       );
-      usePreInferenceActivityStore.setState({ preInferenceStagesSeen: 0 });
-    });
-
-    it('increments data-streams-completed when persistingMessageIds transitions from non-empty to empty', () => {
-      const { rerender } = render(
-        <MessageList messages={messages} persistingMessageIds={new Set(['2'])} />
-      );
-      const container = screen.getByTestId('message-list');
-      expect(container).toHaveAttribute('data-streams-completed', '0');
-
-      rerender(<MessageList messages={messages} persistingMessageIds={new Set()} />);
-      expect(container).toHaveAttribute('data-streams-completed', '1');
-    });
-
-    it('does not increment data-streams-completed when persisting set merely shrinks but stays non-empty', () => {
-      const { rerender } = render(
-        <MessageList messages={messages} persistingMessageIds={new Set(['2', '3'])} />
-      );
-      const container = screen.getByTestId('message-list');
-      expect(container).toHaveAttribute('data-streams-completed', '0');
-
-      rerender(<MessageList messages={messages} persistingMessageIds={new Set(['2'])} />);
-      expect(container).toHaveAttribute('data-streams-completed', '0');
-    });
-
-    it('counts each non-empty→empty transition independently across multiple cycles', () => {
-      const { rerender } = render(
-        <MessageList messages={messages} persistingMessageIds={new Set(['2'])} />
-      );
-      const container = screen.getByTestId('message-list');
-
-      rerender(<MessageList messages={messages} persistingMessageIds={new Set()} />);
-      expect(container).toHaveAttribute('data-streams-completed', '1');
-
-      rerender(<MessageList messages={messages} persistingMessageIds={new Set(['3'])} />);
-      expect(container).toHaveAttribute('data-streams-completed', '1');
-
-      rerender(<MessageList messages={messages} persistingMessageIds={new Set()} />);
-      expect(container).toHaveAttribute('data-streams-completed', '2');
+      act(() => {
+        usePreInferenceActivityStore.setState({ preInferenceStagesSeen: 0 });
+      });
     });
 
     // DOM attributes (test signals) read from persistingMessageIds; per-row
@@ -401,7 +369,7 @@ describe('MessageList', () => {
       expect(container).toHaveAttribute('data-streaming-count', '1');
     });
 
-    it('data-streams-completed does NOT increment on streamingMessageIds transitions when persistingMessageIds is unchanged', () => {
+    it('data-streaming-count reflects persistingMessageIds size, not streamingMessageIds', () => {
       const { rerender } = render(
         <MessageList
           messages={messages}
@@ -410,9 +378,10 @@ describe('MessageList', () => {
         />
       );
       const container = screen.getByTestId('message-list');
-      expect(container).toHaveAttribute('data-streams-completed', '0');
+      expect(container).toHaveAttribute('data-streaming-count', '1');
 
-      // Early flip: streamingMessageIds clears, persistingMessageIds stays.
+      // Early flip: streamingMessageIds clears but persistingMessageIds stays —
+      // the count tracks persistence (server-committed), so it stays 1.
       rerender(
         <MessageList
           messages={messages}
@@ -420,7 +389,6 @@ describe('MessageList', () => {
           persistingMessageIds={new Set(['2'])}
         />
       );
-      expect(container).toHaveAttribute('data-streams-completed', '0');
       expect(container).toHaveAttribute('data-streaming-count', '1');
 
       // SSE done arrives: persistingMessageIds clears.
@@ -431,7 +399,6 @@ describe('MessageList', () => {
           persistingMessageIds={new Set()}
         />
       );
-      expect(container).toHaveAttribute('data-streams-completed', '1');
       expect(container).toHaveAttribute('data-streaming-count', '0');
     });
 

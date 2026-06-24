@@ -167,6 +167,21 @@ describe('useGroupChat', () => {
     expect(result.current).toBeUndefined();
   });
 
+  it('drops the websocket when the members query reports access revoked', () => {
+    // Stale members keep `isGroup` true, but a terminal 401 means access is
+    // gone (link revoked / member removed). The socket must be torn down so it
+    // stops retrying a handshake that can never succeed.
+    vi.mocked(useConversationMembers).mockReturnValue({
+      data: { members: mockMembers },
+      error: Object.assign(new Error('unauthorized'), { status: 401 }),
+      isError: true,
+    } as unknown as ReturnType<typeof useConversationMembers>);
+
+    renderHook(() => useGroupChat('conv-1', 'u1'));
+
+    expect(useConversationWebSocket).toHaveBeenCalledWith(null);
+  });
+
   it('returns undefined when callerId is undefined', () => {
     // eslint-disable-next-line unicorn/no-useless-undefined -- callerId is a required positional argument
     const { result } = renderHook(() => useGroupChat('conv-1', undefined));

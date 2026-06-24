@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useChatPageState } from '@/hooks/chat/use-chat-page';
+import { useStreamCycleActivityStore } from '@/stores/stream-cycle-activity';
 
 describe('useChatPageState', () => {
   describe('input state', () => {
@@ -258,6 +259,41 @@ describe('useChatPageState', () => {
       expect(result.current.startStreaming).toBe(initialStartStreaming);
       expect(result.current.stopStreaming).toBe(initialStopStreaming);
       expect(result.current.stopPersisting).toBe(initialStopPersisting);
+    });
+  });
+
+  describe('stream-cycle completion signal', () => {
+    beforeEach(() => {
+      useStreamCycleActivityStore.setState({ streamsCompleted: 0 });
+    });
+
+    it('marks a stream cycle complete when persisting drains to empty', () => {
+      const { result } = renderHook(() => useChatPageState());
+      act(() => {
+        result.current.startStreaming(['m1']);
+      });
+      expect(useStreamCycleActivityStore.getState().streamsCompleted).toBe(0);
+      act(() => {
+        result.current.stopPersisting(['m1']);
+      });
+      expect(useStreamCycleActivityStore.getState().streamsCompleted).toBe(1);
+    });
+
+    it('marks the cycle complete even when start and stop land in one render batch', () => {
+      const { result } = renderHook(() => useChatPageState());
+      act(() => {
+        result.current.startStreaming(['m1']);
+        result.current.stopPersisting(['m1']);
+      });
+      expect(useStreamCycleActivityStore.getState().streamsCompleted).toBe(1);
+    });
+
+    it('does not mark a cycle complete on a stopPersisting with no active stream', () => {
+      const { result } = renderHook(() => useChatPageState());
+      act(() => {
+        result.current.stopPersisting(['m1']);
+      });
+      expect(useStreamCycleActivityStore.getState().streamsCompleted).toBe(0);
     });
   });
 });

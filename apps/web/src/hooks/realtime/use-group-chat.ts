@@ -28,6 +28,11 @@ import type { GroupChatProps } from '@/components/chat/message/types.js';
 
 type RawMember = GroupChatProps['members'][number] & { linkId?: string | null };
 
+/** A terminal access-revoked response (link revoked, member removed, gone). */
+function isAccessRevokedStatus(status: unknown): boolean {
+  return status === 401 || status === 403 || status === 404;
+}
+
 interface MemoPrerequisites {
   conversationId: string;
   callerId: string;
@@ -68,7 +73,15 @@ export function useGroupChat(
   const linksQuery = useConversationLinks(conversationId);
   const allMembers = (membersQuery.data as { members: RawMember[] } | undefined)?.members;
   const isGroup = (allMembers?.length ?? 0) > 1;
-  const ws = useConversationWebSocket(isGroup ? conversationId : null);
+  // Tie the realtime socket to access. TanStack keeps the last members list on
+  // error, so a terminal 401/403/404 (link revoked / member removed) would
+  // otherwise leave `isGroup` true and the socket retrying a handshake that can
+  // never succeed — each failed reconnect logs a browser error. Drop the socket
+  // the moment access is gone; 4xx is terminal (the query layer never retries it).
+  const accessRevoked = isAccessRevokedStatus(
+    (membersQuery.error as { status?: unknown } | null)?.status
+  );
+  const ws = useConversationWebSocket(isGroup && !accessRevoked ? conversationId : null);
   const presenceMap = usePresence(ws);
   useRealtimeSync(ws, conversationId, callerId ?? null);
   const remoteStreamingMessages = useRemoteStreaming(ws, callerId ?? null, localStreamingIdsRef);
