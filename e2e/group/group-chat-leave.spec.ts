@@ -144,11 +144,16 @@ test.describe('Group Chat Leave', () => {
     // redirect to /chat can fire before this navigation commits and interrupt
     // it — that interruption IS the bounce. Swallow only that specific error
     // (rethrow anything else), then assert Bob landed on /chat.
-    await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' }).catch(
-      (error: Error) => {
-        if (!/interrupted by another navigation/i.test(error.message)) throw error;
-      }
-    );
+    await testBobPage
+      .goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' })
+      .catch((error: unknown) => {
+        if (
+          !(error instanceof Error) ||
+          !/interrupted by another navigation/i.test(error.message)
+        ) {
+          throw error;
+        }
+      });
     await expect(testBobPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
   });
 

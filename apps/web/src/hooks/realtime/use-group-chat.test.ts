@@ -167,13 +167,15 @@ describe('useGroupChat', () => {
     expect(result.current).toBeUndefined();
   });
 
-  it('drops the websocket when the members query reports access revoked', () => {
-    // Stale members keep `isGroup` true, but a terminal 401 means access is
-    // gone (link revoked / member removed). The socket must be torn down so it
-    // stops retrying a handshake that can never succeed.
+  it.each([
+    { scenario: 'the invite link is revoked', status: 401 },
+    { scenario: 'the caller is no longer a member', status: 404 },
+  ])('drops the websocket when $scenario ($status)', ({ status }) => {
+    // Stale members keep `isGroup` true, but a terminal 4xx means access is gone.
+    // The socket must be torn down so it stops retrying a doomed handshake.
     vi.mocked(useConversationMembers).mockReturnValue({
       data: { members: mockMembers },
-      error: Object.assign(new Error('unauthorized'), { status: 401 }),
+      error: Object.assign(new Error('access denied'), { status }),
       isError: true,
     } as unknown as ReturnType<typeof useConversationMembers>);
 

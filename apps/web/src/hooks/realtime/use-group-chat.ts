@@ -78,6 +78,8 @@ export function useGroupChat(
   // otherwise leave `isGroup` true and the socket retrying a handshake that can
   // never succeed — each failed reconnect logs a browser error. Drop the socket
   // the moment access is gone; 4xx is terminal (the query layer never retries it).
+  // Keyed on the members query — the canonical access signal for both members
+  // and link guests (both fetch `/api/members/:id`).
   const accessRevoked = isAccessRevokedStatus(
     (membersQuery.error as { status?: unknown } | null)?.status
   );
