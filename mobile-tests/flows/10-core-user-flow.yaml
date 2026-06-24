@@ -24,8 +24,13 @@ env:
     visible: 'Sign up'
     timeout: 45000
 
-# Navigate to login page via deep link (avoids WebView tap issues with sidebar Sheet)
-- openLink: https://hushbox.ai/login
+# /login is not deep-linkable (auth routes fall back to home), so reach it via
+# in-app links: the trial banner's "Sign up", then "Log in" on the signup page.
+- tapOn: 'Sign up'
+- extendedWaitUntil:
+    visible: 'Create your account'
+    timeout: 10000
+- tapOn: 'Log in'
 - extendedWaitUntil:
     visible: 'Welcome back'
     timeout: 10000

@@ -1,5 +1,5 @@
 appId: ai.hushbox.app
-name: Deep links open correct routes
+name: Deep links are gated by the route allowlist
 tags:
   - must
 androidWebViewHierarchy: devtools
@@ -12,16 +12,19 @@ androidWebViewHierarchy: devtools
     visible: 'Sign up'
     timeout: 45000
 
-# Deep link to login page (declared in AndroidManifest.xml)
-- openLink: https://hushbox.ai/login
-- extendedWaitUntil:
-    visible: 'Welcome back'
-    timeout: 10000
-- assertVisible: 'Welcome back'
-
-# Deep link to signup page
-- openLink: https://hushbox.ai/signup
+# Leave home first so the assertion below is non-vacuous: otherwise "deep link
+# did nothing" and "deep link fell back to home" look identical.
+- tapOn: 'Sign up'
 - extendedWaitUntil:
     visible: 'Create your account'
     timeout: 10000
-- assertVisible: 'Create your account'
+
+# /login is not deep-linkable: the handler rejects auth routes and falls back to
+# home, so this must leave signup and land on home, not open the login page.
+- openLink: https://hushbox.ai/login
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 10000
+- assertVisible: 'Sign up'
+- assertNotVisible: 'Welcome back'
+- assertNotVisible: 'Create your account'

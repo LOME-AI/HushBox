@@ -185,6 +185,12 @@ TypeScript everywhere. React 19 + Vite on the frontend, Hono on Cloudflare Worke
 
 ---
 
+## By the Numbers
+
+The entire product is **557,572** lines of source code — every one of them visible in this repository.
+
+---
+
 ## Contributing
 
 See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for setup and guidelines. All contributors must agree to the [Contributor Assignment Agreement](https://gist.github.com/ctf05/24b91cac419a904919d1ad30eb14b9cd).

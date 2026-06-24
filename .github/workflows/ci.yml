@@ -497,7 +497,7 @@ jobs:
 
   # ── Mobile tests (Maestro + Android emulator via Docker) ──
   mobile-test:
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     environment: ci
     needs: [gitleaks]
@@ -535,6 +535,15 @@ jobs:
         with:
           path: ~/.maestro
           key: maestro-cli
+
+      # RAM-back the Gradle build dir: the APK build is I/O-bound. The size cap
+      # stays below free RAM so a runaway build fails with ENOSPC instead of
+      # OOM-killing the emulators.
+      - name: RAM-back the Gradle build dir (tmpfs)
+        run: |
+          mkdir -p apps/web/android/app/build
+          sudo mount -t tmpfs -o size=3g tmpfs apps/web/android/app/build
+          sudo chown "$(id -u):$(id -g)" apps/web/android/app/build
 
       - name: Generate environment files
         run: pnpm generate:env --mode=ciE2E
@@ -603,6 +612,140 @@ jobs:
         run: gh run cancel ${{ github.run_id }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Temporary parallel job: runs the mobile tests on GitHub's hosted runner to
+  # compare emulator speed against the Blacksmith runner above (they differ in KVM
+  # nesting depth). Gates nothing and is continue-on-error, so it never blocks a
+  # PR; remove once the comparison is done.
+  mobile-test-gh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    environment: ci
+    needs: [gitleaks]
+    steps:
+      - uses: actions/checkout@v6
+
+      # ubuntu-latest has ~14 GB free disk; the emulator image alone is ~11 GB.
+      # Drop unused preinstalled SDKs before it is pulled.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc
+          df -h /
+
+      # /dev/kvm is root-owned on GitHub runners; widen perms so the non-root
+      # emulator container can use it.
+      - name: Enable KVM permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Verify KVM acceleration
+        run: |
+          ls -l /dev/kvm || echo "WARNING: /dev/kvm missing"
+          echo "virt extensions: $(grep -c -E '(vmx|svm)' /proc/cpuinfo)"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Mirror the Blacksmith job's caches on GitHub's cache backend.
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-gh-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            turbo-gh-${{ github.ref_name }}-
+            turbo-gh-main-
+      - name: Cache Android SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/Android/Sdk
+          key: android-sdk-gh-android-36-cmdtools-11076708
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-gh-${{ hashFiles('apps/web/android/gradle/wrapper/gradle-wrapper.properties', 'apps/web/android/**/*.gradle') }}
+          restore-keys: |
+            gradle-gh-
+      - name: Cache Maestro CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.maestro
+          key: maestro-cli-gh
+
+      # RAM-back the Gradle build dir: the APK build is I/O-bound. The size cap
+      # stays below free RAM so a runaway build fails with ENOSPC instead of
+      # OOM-killing the emulators.
+      - name: RAM-back the Gradle build dir (tmpfs)
+        run: |
+          mkdir -p apps/web/android/app/build
+          sudo mount -t tmpfs -o size=3g tmpfs apps/web/android/app/build
+          sudo chown "$(id -u):$(id -g)" apps/web/android/app/build
+
+      - name: Generate environment files
+        run: pnpm generate:env --mode=ciE2E
+        # BEGIN GENERATED: e2e-env
+        env:
+          HELCIM_API_TOKEN_SANDBOX: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
+          HELCIM_WEBHOOK_VERIFIER_SANDBOX: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
+          VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+        # END GENERATED: e2e-env
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Start database
+        run: pnpm db:up
+      - name: Run migrations
+        run: pnpm db:migrate
+      - name: Seed test data
+        run: pnpm db:seed
+
+      - name: Run mobile tests
+        run: pnpm mobile:test
+
+      - name: Dump emulator logs
+        if: failure()
+        run: |
+          docker ps -aq --filter "name=hushbox-mobile-emulator-shard-" | while read -r id; do
+            [ -z "$id" ] && continue
+            name=$(docker inspect --format '{{.Name}}' "$id" | sed 's|^/||')
+            docker logs "$id" > "emulator-logs-$name.txt" 2>&1 || true
+            docker inspect "$id" > "emulator-inspect-$name.json" 2>&1 || true
+          done
+
+      - name: Upload results
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: maestro-results-gh
+          path: |
+            maestro-results/
+            emulator-logs-*.txt
+            emulator-inspect-*.json
+          retention-days: 7
 
   # ── Push mobile-emulator image to GHCR (in parallel with deploy) ──
   # Bakes mobile-tests/docker/ into a content-hashed image with an AVD
