@@ -19,6 +19,8 @@ import {
 } from '@/lib/message-actions';
 import { omitUndefined } from '@/lib/optional-props';
 import { env } from '@/lib/env';
+import { usePreInferenceActivityStore } from '@/stores/pre-inference-activity';
+import { useStreamCycleActivityStore } from '@/stores/stream-cycle-activity';
 import { MessageItem } from '@/components/chat/message/message-item';
 import type { Message } from '@/lib/api';
 import type { LinkInfo } from '@/lib/chat-sender';
@@ -191,25 +193,15 @@ const MessageListInner = forwardRef<MessageListHandle, MessageListProps>(functio
   const userScrollDecayTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scrollerElRef = useRef<HTMLElement | null>(null);
 
-  // Monotonic counter of completed stream cycles. Increments whenever
-  // `persistingMessageIds` transitions from non-empty to empty — i.e. every
-  // time a streaming turn finishes AND the server has committed the
-  // resulting messages. Exposed as `data-streams-completed` so E2E tests
-  // can capture a baseline before triggering an action and wait for it to
-  // advance, avoiding races where the stream finishes faster than a
-  // polling assertion can observe `data-streaming-count > 0`. Gating on
-  // persistingMessageIds (not streamingMessageIds) is what makes the
-  // "wait" actually mean "server committed" — see use-chat-page.ts for
-  // why the two sets exist.
-  const currentStreamingCount = persistingMessageIds?.size ?? 0;
-  const [streamsCompleted, setStreamsCompleted] = useState(0);
-  const [previousStreamingCount, setPreviousStreamingCount] = useState(currentStreamingCount);
-  if (previousStreamingCount !== currentStreamingCount) {
-    setPreviousStreamingCount(currentStreamingCount);
-    if (previousStreamingCount > 0 && currentStreamingCount === 0) {
-      setStreamsCompleted((n) => n + 1);
-    }
-  }
+  // Monotonic counter of completed stream cycles, owned by `useChatPageState`
+  // (incremented on the post-commit "persisting drained to empty" transition,
+  // batching-immune — see stream-cycle-activity). Exposed as
+  // `data-streams-completed` so E2E tests can capture a baseline before an
+  // action and wait for it to advance, avoiding races where the stream finishes
+  // faster than a polling assertion can observe `data-streaming-count > 0`.
+  const streamsCompleted = useStreamCycleActivityStore((s) => s.streamsCompleted);
+
+  const preInferenceStagesSeen = usePreInferenceActivityStore((s) => s.preInferenceStagesSeen);
 
   // Reset scroll state when the conversation/fork pair changes. Replaces the
   // parent's `key=` remount, which previously unmounted Virtuoso (and the
@@ -502,6 +494,7 @@ const MessageListInner = forwardRef<MessageListHandle, MessageListProps>(functio
       data-cost-count={costCount}
       data-streaming-count={persistingMessageIds?.size ?? 0}
       data-streams-completed={streamsCompleted}
+      data-pre-inference-stages-seen={preInferenceStagesSeen}
       data-message-count={messages.length}
       data-decrypted-count={decryptedCount}
       data-rows-count={rows.length}

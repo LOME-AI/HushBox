@@ -476,6 +476,30 @@ export class ChatPage {
   }
 
   /**
+   * Read the monotonic pre-inference-stage counter; capture before a Smart Model
+   * send, then `waitForPreInferenceStage(baseline)` to prove the stage ran.
+   */
+  async capturePreInferenceBaseline(): Promise<number> {
+    return Number(
+      (await this.messageList.getAttribute(TEST_SIGNALS.preInferenceStagesSeen)) ?? '0'
+    );
+  }
+
+  /** Wait for at least one pre-inference stage to be observed since `baseline`. */
+  async waitForPreInferenceStage(
+    baseline: number,
+    timeout: number = TIMEOUTS.STREAM
+  ): Promise<void> {
+    await expect
+      .poll(
+        async () =>
+          Number((await this.messageList.getAttribute(TEST_SIGNALS.preInferenceStagesSeen)) ?? '0'),
+        { timeout }
+      )
+      .toBeGreaterThan(baseline);
+  }
+
+  /**
    * Wait for at least one stream cycle to complete since `baseline`. Pair with
    * `captureStreamBaseline()` taken before the action that triggers the stream.
    *
@@ -1153,7 +1177,19 @@ export class ChatPage {
     return this.getActionButton(index, 'Fork');
   }
 
+  /**
+   * Gate a retry/regenerate dispatch on the decrypted message set being ready —
+   * the app no-ops a regenerate whose anchor content isn't decrypted yet, so an
+   * early click would never start a stream.
+   */
+  async waitForMessagesReady(): Promise<void> {
+    await expect(this.messageList).toHaveAttribute(TEST_SIGNALS.messagesReady, 'true', {
+      timeout: TIMEOUTS.CONVERSATION_LOAD,
+    });
+  }
+
   async clickRetry(index: number): Promise<void> {
+    await this.waitForMessagesReady();
     await this.prepareMessage(index);
     await this.getRetryButton(index).click();
   }
@@ -1164,6 +1200,7 @@ export class ChatPage {
   }
 
   async clickRegenerate(index: number): Promise<void> {
+    await this.waitForMessagesReady();
     await this.prepareMessage(index);
     await this.getRegenerateButton(index).click();
   }

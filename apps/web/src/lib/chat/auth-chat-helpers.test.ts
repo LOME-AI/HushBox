@@ -301,8 +301,13 @@ describe('resolveUserContent', () => {
     expect(resolveUserContent('retry', undefined, messages, 'u1')).toBe('msg-u1');
   });
 
-  it('returns empty string when the target is missing', () => {
-    expect(resolveUserContent('retry', undefined, messages, 'missing')).toBe('');
+  it('returns null when the target is missing', () => {
+    expect(resolveUserContent('retry', undefined, messages, 'missing')).toBeNull();
+  });
+
+  it('returns null when the target content is empty (anchor not yet decrypted)', () => {
+    const pending = [{ ...makeMessage('u1'), content: '' }];
+    expect(resolveUserContent('retry', undefined, pending, 'u1')).toBeNull();
   });
 });
 

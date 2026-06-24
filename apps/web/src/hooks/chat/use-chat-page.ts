@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useStreamCycleActivityStore } from '@/stores/stream-cycle-activity';
 
 export interface ChatPageState {
   inputValue: string;
@@ -39,6 +40,21 @@ export function useChatPageState(): ChatPageState {
   const streamingMessageIdsRef = React.useRef<Set<string>>(new Set());
   const [persistingMessageIds, setPersistingMessageIds] = React.useState<Set<string>>(EMPTY_SET);
   const persistingMessageIdsRef = React.useRef<Set<string>>(new Set());
+  // Set synchronously when a stream starts; cleared when the completed-cycle
+  // counter increments. A ref (not state) so the start can't be lost to React
+  // batching — under 0-ms mock streaming the whole cycle can collapse into one
+  // commit, where a render-time observer never sees `persisting.size > 0`.
+  const streamCyclePendingRef = React.useRef(false);
+
+  // Increment `streamsCompleted` once per cycle, in a post-commit effect so the
+  // signal stays coupled to an actual render (a frozen UI never advances it)
+  // while remaining immune to the batching above.
+  React.useEffect(() => {
+    if (streamCyclePendingRef.current && persistingMessageIds.size === 0) {
+      streamCyclePendingRef.current = false;
+      useStreamCycleActivityStore.getState().markStreamCycleComplete();
+    }
+  }, [persistingMessageIds]);
 
   const clearInput = React.useCallback(() => {
     setInputValue('');
@@ -49,6 +65,7 @@ export function useChatPageState(): ChatPageState {
   // another. The refs (read here as the live source of truth, since the
   // callbacks are stable) stay in sync with the rendered sets.
   const startStreaming = React.useCallback((messageIds: string[]) => {
+    if (messageIds.length > 0) streamCyclePendingRef.current = true;
     const streaming = new Set(streamingMessageIdsRef.current);
     const persisting = new Set(persistingMessageIdsRef.current);
     for (const id of messageIds) {

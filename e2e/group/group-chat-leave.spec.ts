@@ -140,13 +140,21 @@ test.describe('Group Chat Leave', () => {
     // Leaving the active conversation redirects to /chat.
     await expect(testBobPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
 
-    // The leaving user can no longer open the conversation. `commit` lands
-    // before the non-member redirect to /chat that would otherwise interrupt the
-    // navigation wait; the assertion below proves Bob was bounced.
-    await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' });
-    await expect(testBobPage).not.toHaveURL(new RegExp(groupConversation.id), {
-      timeout: TIMEOUTS.ROUTE,
-    });
+    // The leaving user can no longer open the conversation. The non-member
+    // redirect to /chat can fire before this navigation commits and interrupt
+    // it — that interruption IS the bounce. Swallow only that specific error
+    // (rethrow anything else), then assert Bob landed on /chat.
+    await testBobPage
+      .goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' })
+      .catch((error: unknown) => {
+        if (
+          !(error instanceof Error) ||
+          !/interrupted by another navigation/i.test(error.message)
+        ) {
+          throw error;
+        }
+      });
+    await expect(testBobPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
   });
 
   test('leave from sidebar of a non-active chat leaves URL unchanged', async ({

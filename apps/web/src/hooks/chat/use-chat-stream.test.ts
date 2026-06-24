@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
+import { usePreInferenceActivityStore } from '@/stores/pre-inference-activity';
 
 // Mock the chat-aloud TTS bridge so use-chat-stream tests don't pull in
 // kokoro-js. Individual tests can override the resolved feeder if needed.
@@ -88,6 +89,7 @@ describe('useChatStream', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useStreamingActivityStore.setState({ activeStreams: 0 });
+    usePreInferenceActivityStore.setState({ preInferenceStagesSeen: 0 });
   });
 
   afterEach(() => {
@@ -138,6 +140,37 @@ describe('useChatStream', () => {
           }),
         })
       );
+    });
+
+    it('increments the pre-inference counter on a stage:start event', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-123","models":[{"modelId":"smart-model","assistantMessageId":"msg-123"}]}',
+        'event: stage:start',
+        'data: {"stageId":"smart-model","assistantMessageId":"msg-123"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current.startStream({
+          conversationId: 'conv-123',
+          models: ['smart-model'],
+          userMessage: { id: 'msg-1', content: 'Hello' },
+          messagesForInference: [{ role: 'user', content: 'Hello' }],
+          fundingSource: 'personal_balance',
+        });
+      });
+
+      expect(usePreInferenceActivityStore.getState().preInferenceStagesSeen).toBe(1);
     });
 
     it('includes webSearchEnabled in request body when provided', async () => {

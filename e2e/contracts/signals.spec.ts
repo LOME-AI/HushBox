@@ -19,7 +19,7 @@ import { TIMEOUTS } from '../config/timeouts.js';
  *   - page-load:   appStable, settled
  *   - conversation: messagesReady, messageCount, decryptedCount, assistantCount,
  *                   costCount, rowsCount, virtuosoScrolling, messageId, role
- *   - stream:      streamingCount, streamsCompleted
+ *   - stream:      streamingCount, streamsCompleted, preInferenceStagesSeen
  *   - websocket:   wsConnected, wsReady
  *   - roadmap:     roadmapReady
  */
@@ -101,6 +101,28 @@ test.describe('State-signal contract', () => {
         timeout: TIMEOUTS.STREAM,
       })
       .toBeGreaterThan(baseline);
+  });
+
+  test('pre-inference signal renders and advances on a Smart Model turn', async ({
+    authenticatedPage,
+    testConversation,
+  }) => {
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.gotoConversation(testConversation.id);
+    await chatPage.waitForConversationLoaded();
+
+    const list = chatPage.messageList;
+
+    // Present on the populated list before any Smart Model turn.
+    await expect(list).toHaveAttribute(TEST_SIGNALS.preInferenceStagesSeen);
+
+    // Monotonic: a Smart Model send runs a pre-inference (classifier) stage,
+    // advancing the counter. Capturing the baseline and asserting an increment
+    // proves the signal tracks the real stage, not a constant.
+    await chatPage.selectSingleModel('smart-model');
+    const baseline = await chatPage.capturePreInferenceBaseline();
+    await chatPage.sendFollowUpMessage(`Signal pre-inference check ${testConversation.id}`);
+    await chatPage.waitForPreInferenceStage(baseline);
   });
 
   test('websocket signals render on a group conversation', async ({

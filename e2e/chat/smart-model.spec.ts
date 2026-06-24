@@ -277,15 +277,15 @@ test.describe('Smart Model', () => {
   });
 
   /**
-   * Lane 9 #8: while the classifier is resolving, the assistant slot must
-   * surface a "Choosing the best model…" thinking indicator. Once the
-   * classifier resolves and the inference response begins streaming, the
-   * indicator must disappear (replaced by the actual streaming content). The
-   * test fires off a normal Smart Model send and races a quick polling
-   * window — the loading indicator needs to be visible briefly, then
-   * disappear within a reasonable timeout once the response arrives.
+   * Lane 9 #8: a Smart Model send runs a pre-inference classifier stage that
+   * picks the model, surfacing a "Choosing the best model…" indicator while it
+   * resolves. The classifier is instant in tests (no wall-clock delay — see
+   * buildMockConfig), so the transient indicator can't be reliably caught
+   * mid-flight; instead we prove the stage ran via the monotonic
+   * `data-pre-inference-stages-seen` signal, then confirm the indicator has
+   * settled (not stuck) and a routed response rendered.
    */
-  test('Smart Model shows "Choosing the best model" loading state then clears it', async ({
+  test('Smart Model send runs its pre-inference classifier stage', async ({
     authenticatedPage,
     testConversation: _testConversation,
   }) => {
@@ -295,21 +295,17 @@ test.describe('Smart Model', () => {
 
     await chatPage.selectSingleModel('smart-model');
 
+    const preInferenceBaseline = await chatPage.capturePreInferenceBaseline();
+
     const prompt = `Smart Model loading ${String(Date.now())}`;
     await chatPage.sendFollowUpMessage(prompt);
 
-    // The "Choosing the best model…" indicator should appear within a short
-    // window (the classifier round-trip starts as soon as the first token
-    // arrives). It is rendered by the ThinkingIndicator with stageLabel.
-    const loadingIndicator = authenticatedPage.getByText('Choosing the best model…');
-    await expect(loadingIndicator).toBeVisible({ timeout: TIMEOUTS.ASSERT });
+    await chatPage.waitForPreInferenceStage(preInferenceBaseline);
 
-    // The indicator must clear once the classifier resolves and the inference
-    // response starts streaming.
-    await expect(loadingIndicator).not.toBeVisible({ timeout: TIMEOUTS.STREAM });
-
-    // Sanity: the assistant message arrived with a real response.
+    // After the turn completes the indicator must have settled, not stuck.
     await chatPage.waitForStreamComplete();
+    await expect(authenticatedPage.getByText('Choosing the best model…')).not.toBeVisible();
+
     const assistant = chatPage.messagesByRole('assistant').last();
     await expect(assistant.getByTestId(TEST_IDS.smartModelChip)).toBeVisible();
   });

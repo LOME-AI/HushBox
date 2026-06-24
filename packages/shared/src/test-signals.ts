@@ -35,6 +35,8 @@ export const TEST_SIGNALS = {
   rowsCount: 'data-rows-count',
   streamingCount: 'data-streaming-count',
   streamsCompleted: 'data-streams-completed',
+  // Monotonic count of pre-inference stages (today the Smart Model classifier).
+  preInferenceStagesSeen: 'data-pre-inference-stages-seen',
   virtuosoScrolling: 'data-virtuoso-scrolling',
   // Whether the message list is pinned at the bottom (within Virtuoso's
   // atBottomThreshold). Lets auto-scroll specs gate on settled-at-bottom state.

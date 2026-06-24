@@ -195,9 +195,11 @@ vi.mock('@hushbox/ui', async (importOriginal) => {
 interface ChatStreamMock {
   isStreaming: boolean;
   startStream: ReturnType<typeof vi.fn>;
+  startRegenerateStream: ReturnType<typeof vi.fn>;
 }
 
 const mockStartStream = vi.fn();
+const mockStartRegenerateStream = vi.fn();
 const mockUseChatStream = vi.fn<() => ChatStreamMock>();
 vi.mock('@/hooks/chat/use-chat-stream', () => {
   class BalanceReservedError extends Error {
@@ -533,6 +535,7 @@ function setupMocks(overrides: SetupMocksOptions = {}): void {
   mockUseChatStream.mockReturnValue({
     isStreaming,
     startStream: mockStartStream,
+    startRegenerateStream: mockStartRegenerateStream,
   });
 
   mockUseCreateConversation.mockReturnValue({
@@ -2226,6 +2229,24 @@ describe('AuthenticatedChatPage', () => {
       render(<AuthenticatedChatPage routeConversationId="conv-456" />);
 
       expect(screen.getByTestId('chat-layout')).toHaveAttribute('data-has-on-regenerate', 'true');
+    });
+
+    it('does not dispatch a regenerate when the anchor content is unavailable', () => {
+      // A user message whose decrypted content is momentarily empty (a realtime
+      // refetch is re-decrypting). Regenerate must not fire: it would POST empty
+      // userMessage.content and the server (min(1)) would reject it.
+      setupMocks({
+        conversationData: { id: 'conv-456', title: 'Test' },
+        messagesData: [
+          { id: 'u1', conversationId: 'conv-456', role: 'user', content: '', createdAt: '' },
+        ],
+      });
+
+      render(<AuthenticatedChatPage routeConversationId="conv-456" />);
+
+      capturedChatLayoutProps?.onRegenerate?.('u1');
+
+      expect(mockStartRegenerateStream).not.toHaveBeenCalled();
     });
 
     it('passes onEdit to ChatLayout', () => {
