@@ -23,6 +23,8 @@
 &nbsp;
 [![Contributing](https://img.shields.io/badge/Contributing-ec4755?style=for-the-badge)](docs/CONTRIBUTING.md)
 
+**401,817** lines written
+
 </div>
 
 ---
@@ -182,12 +184,6 @@ TypeScript everywhere. React 19 + Vite on the frontend, Hono on Cloudflare Worke
 **Local dev:** One command (`pnpm dev`) starts Vite, Wrangler, PostgreSQL, Neon proxy, Redis, and the Serverless Redis HTTP emulator via Docker Compose. All external APIs mocked. No production credentials needed.
 
 </details>
-
----
-
-## By the Numbers
-
-The entire product is **557,572** lines of source code — every one of them visible in this repository.
 
 ---
 

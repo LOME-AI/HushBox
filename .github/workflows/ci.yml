@@ -536,15 +536,6 @@ jobs:
           path: ~/.maestro
           key: maestro-cli
 
-      # RAM-back the Gradle build dir: the APK build is I/O-bound. The size cap
-      # stays below free RAM so a runaway build fails with ENOSPC instead of
-      # OOM-killing the emulators.
-      - name: RAM-back the Gradle build dir (tmpfs)
-        run: |
-          mkdir -p apps/web/android/app/build
-          sudo mount -t tmpfs -o size=3g tmpfs apps/web/android/app/build
-          sudo chown "$(id -u):$(id -g)" apps/web/android/app/build
-
       - name: Generate environment files
         run: pnpm generate:env --mode=ciE2E
         # BEGIN GENERATED: e2e-env
@@ -626,13 +617,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # ubuntu-latest has ~14 GB free disk; the emulator image alone is ~11 GB.
-      # Drop unused preinstalled SDKs before it is pulled.
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc
-          df -h /
-
       # /dev/kvm is root-owned on GitHub runners; widen perms so the non-root
       # emulator container can use it.
       - name: Enable KVM permissions
@@ -684,15 +668,6 @@ jobs:
         with:
           path: ~/.maestro
           key: maestro-cli-gh
-
-      # RAM-back the Gradle build dir: the APK build is I/O-bound. The size cap
-      # stays below free RAM so a runaway build fails with ENOSPC instead of
-      # OOM-killing the emulators.
-      - name: RAM-back the Gradle build dir (tmpfs)
-        run: |
-          mkdir -p apps/web/android/app/build
-          sudo mount -t tmpfs -o size=3g tmpfs apps/web/android/app/build
-          sudo chown "$(id -u):$(id -g)" apps/web/android/app/build
 
       - name: Generate environment files
         run: pnpm generate:env --mode=ciE2E
