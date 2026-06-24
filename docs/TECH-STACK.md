@@ -66,6 +66,7 @@ Our security doesn't depend on hiding how things work. The source code is visibl
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | **React 19**             | UI framework. Largest ecosystem, best Capacitor support, excellent for text-heavy interfaces.                                  |
 | **Vite**                 | Build tool and dev server. Fast HMR, simple config, no SSR complexity for SPA.                                                 |
+| **rolldown-vite**        | Rust-based drop-in for Vite's bundler. Faster builds; applied workspace-wide via a pnpm override.                              |
 | **TanStack Router**      | Routing. Fully type-safe routes, params, and search params. Compile-time errors for invalid routes.                            |
 | **TanStack Query**       | Server state management. Caching, background refetching, request deduplication for all API calls.                              |
 | **Zustand**              | Client state management. Lightweight, minimal boilerplate for UI state not tied to server.                                     |

@@ -143,10 +143,32 @@ function generatePortLines(
  * In development mode, worktree detection applies port offsets so
  * multiple worktrees can run simultaneously without collisions.
  */
-export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Development): void {
-  const missing: string[] = [];
+function resolveWorktree(rootDir: string, mode: EnvMode): WorktreeConfig | null {
   const needsWorktree = (mode as Mode) === Mode.Development || (mode as Mode) === Mode.E2E;
-  const worktree = needsWorktree ? getWorktreeConfig(rootDir) : null;
+  return needsWorktree ? getWorktreeConfig(rootDir) : null;
+}
+
+function writeBackendEnv(rootDir: string, backendLines: string[]): void {
+  const devVariablesContent =
+    ['# Auto-generated - do not edit', '', ...backendLines].join('\n') + '\n';
+  writeFileSync(path.resolve(rootDir, 'apps/api/.dev.vars'), devVariablesContent);
+  console.log('  Generated apps/api/.dev.vars');
+  updateWranglerToml(rootDir);
+  updateWorkflows(rootDir);
+}
+
+export function generateEnvFiles(
+  rootDir: string,
+  mode: EnvMode = Mode.Development,
+  options: { skipBackend?: boolean } = {}
+): void {
+  // skipBackend generates only what a web bundle consumes (.env.development +
+  // .env.scripts), skipping .dev.vars, wrangler, and the workflow rewrite. The
+  // backend secrets are never referenced, so they are not required — used by
+  // `build:e2e`, which builds the frontend and never reads the backend env.
+  const { skipBackend = false } = options;
+  const missing: string[] = [];
+  const worktree = resolveWorktree(rootDir, mode);
 
   const getSecret = (name: string): string => {
     const val = process.env[name];
@@ -171,18 +193,13 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
       })
       .filter((line): line is string => line !== null);
 
-  const backendLines = generateLines(Destination.Backend);
+  const backendLines = skipBackend ? [] : generateLines(Destination.Backend);
   const frontendLines = generateLines(Destination.Frontend);
   const scriptsLines = generateLines(Destination.Scripts);
 
   if (missing.length > 0) {
     throw new Error(`Missing required secrets in process.env: ${missing.join(', ')}`);
   }
-
-  const devVariablesContent =
-    ['# Auto-generated - do not edit', '', ...backendLines].join('\n') + '\n';
-  writeFileSync(path.resolve(rootDir, 'apps/api/.dev.vars'), devVariablesContent);
-  console.log('  Generated apps/api/.dev.vars');
 
   const envDevContent =
     [
@@ -201,9 +218,9 @@ export function generateEnvFiles(rootDir: string, mode: EnvMode = Mode.Developme
   writeFileSync(path.resolve(rootDir, '.env.scripts'), envScriptsContent);
   console.log('  Generated .env.scripts');
 
-  updateWranglerToml(rootDir);
-
-  updateWorkflows(rootDir);
+  if (!skipBackend) {
+    writeBackendEnv(rootDir, backendLines);
+  }
 
   console.log('✓ All environment files generated');
 }
@@ -280,10 +297,16 @@ function replaceSection(content: string, marker: string, newContent: string): st
  * Generate a secrets env section for a given mode.
  * Uses the secret name for BOTH the env var name AND GitHub secret reference.
  */
-function generateSecretsEnv(mode: EnvMode): string {
+function generateSecretsEnv(mode: EnvMode, destinations?: readonly Destination[]): string {
   const lines: string[] = ['env:'];
 
   for (const [, config] of Object.entries(envConfig)) {
+    if (
+      destinations &&
+      !getDestinations(config as VariableConfig, mode).some((d) => destinations.includes(d))
+    ) {
+      continue;
+    }
     const raw = resolveRaw(config as VariableConfig, mode);
     if (raw && isSecret(raw)) {
       lines.push(`  ${raw.name}: \${{ secrets.${raw.name} }}`);
@@ -427,6 +450,7 @@ export function updateWorkflows(rootDir: string): void {
   const sections: Record<string, string> = {
     'vitest-env': generateSecretsEnv(Mode.CiVitest),
     'e2e-env': generateSecretsEnv(Mode.CiE2E),
+    'e2e-build-env': generateSecretsEnv(Mode.CiE2E, [Destination.Frontend, Destination.Scripts]),
     'ops-env': generateOpsEnv(),
     'ops-dispatch-env': generateOpsEnv(OPS_DISPATCH_OMIT_KEYS),
     'deploy-secrets': generateDeploySecrets(),

@@ -370,6 +370,25 @@ local_protocol = "http"
         generateEnvFiles(TEST_DIR_ENV, 'ciE2E');
       }).not.toThrow();
     });
+
+    it('with skipBackend, does not require backend secrets and writes no .dev.vars', () => {
+      delete process.env['HELCIM_API_TOKEN_SANDBOX'];
+      delete process.env['HELCIM_WEBHOOK_VERIFIER_SANDBOX'];
+
+      expect(() => {
+        generateEnvFiles(TEST_DIR_ENV, 'ciE2E', { skipBackend: true });
+      }).not.toThrow();
+
+      expect(existsSync(path.join(TEST_DIR_ENV, 'apps/api/.dev.vars'))).toBe(false);
+    });
+
+    it('with skipBackend, still writes the frontend bundle env (.env.development + .env.scripts)', () => {
+      generateEnvFiles(TEST_DIR_ENV, 'ciE2E', { skipBackend: true });
+
+      const frontend = readFileSync(path.join(TEST_DIR_ENV, '.env.development'), 'utf8');
+      expect(frontend).toContain('VITE_HELCIM_JS_TOKEN');
+      expect(existsSync(path.join(TEST_DIR_ENV, '.env.scripts'))).toBe(true);
+    });
   });
 
   describe('ciVitest mode', () => {
@@ -408,6 +427,23 @@ describe('updateWorkflows', () => {
   const readCiYml = (): string => {
     return readFileSync(path.join(TEST_DIR_CI, '.github/workflows/ci.yml'), 'utf8');
   };
+
+  describe('e2e-build-env section', () => {
+    it('emits frontend secrets only, excluding server secrets', () => {
+      createCiYml(`name: CI
+# BEGIN GENERATED: e2e-build-env
+old
+# END GENERATED: e2e-build-env
+rest`);
+      updateWorkflows(TEST_DIR_CI);
+      const content = readCiYml();
+      expect(content).toContain(
+        'VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}'
+      );
+      expect(content).not.toContain('HELCIM_API_TOKEN_SANDBOX:');
+      expect(content).not.toContain('HELCIM_WEBHOOK_VERIFIER_SANDBOX:');
+    });
+  });
 
   describe('e2e-env section', () => {
     it('generates env block using secret names for e2e secrets', () => {
