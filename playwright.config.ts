@@ -31,7 +31,7 @@ export default defineConfig({
   forbidOnly: isCI,
   retries: isCI ? 2 : 1,
   maxFailures: isCI ? 1 : 0,
-  workers: isCI ? 3 : '45%',
+  workers: isCI ? 6 : '45%',
   timeout: TIMEOUTS.LONG,
   // Backstop so a wedged run can't hang forever. Playwright aborts via its
   // normal shutdown, which group-kills each webServer — so it won't leak orphan
@@ -107,7 +107,7 @@ export default defineConfig({
       // on lower-spec CPUs (Ryzen 5 5500 without iGPU SIGSEGV'd at workers=5
       // / 45% of cores in the firefox project specifically). Capping just
       // the firefox projects keeps other projects at the full global pool.
-      workers: isCI ? 2 : '30%',
+      workers: isCI ? 4 : '30%',
     },
     {
       name: 'setup-webkit',
@@ -173,7 +173,7 @@ export default defineConfig({
       // See setup-firefox above for why firefox is capped below the global
       // worker count. Other projects are unconstrained and can use the
       // remaining slots while firefox tests are throttled.
-      workers: isCI ? 2 : '30%',
+      workers: isCI ? 4 : '30%',
     },
     {
       name: 'webkit',

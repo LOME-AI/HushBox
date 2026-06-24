@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { ERROR_CODE_CONTEXT_LENGTH_EXCEEDED } from '@hushbox/shared';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
+import { usePreInferenceActivityStore } from '@/stores/pre-inference-activity';
 import { getApiUrl } from '@/lib/api';
 import { getTrialToken } from '@/lib/trial-token';
 import { getLinkGuestAuth } from '@/lib/link-guest-auth';
@@ -452,6 +453,7 @@ async function executeStream(
       options?.onModelMediaProgress?.(data);
     },
     onStageStart: (data) => {
+      usePreInferenceActivityStore.getState().markStageSeen();
       options?.onStageStart?.(data);
     },
     onStageDone: (data) => {

@@ -389,6 +389,14 @@ local_protocol = "http"
       expect(frontend).toContain('VITE_HELCIM_JS_TOKEN');
       expect(existsSync(path.join(TEST_DIR_ENV, '.env.scripts'))).toBe(true);
     });
+
+    it('with skipBackend, still requires the frontend secret', () => {
+      delete process.env['VITE_HELCIM_JS_TOKEN_SANDBOX'];
+
+      expect(() => {
+        generateEnvFiles(TEST_DIR_ENV, 'ciE2E', { skipBackend: true });
+      }).toThrow(/Missing required secrets/);
+    });
   });
 
   describe('ciVitest mode', () => {

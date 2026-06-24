@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import * as React from 'react';
 import type { VirtuosoHandle } from 'react-virtuoso';
+import { usePreInferenceActivityStore } from '@/stores/pre-inference-activity';
 
 // Break the import chain that requires VITE_API_URL at module load time.
 // Without these mocks, frontendEnvSchema.parse() runs in src/lib/api.ts and
@@ -333,6 +334,16 @@ describe('MessageList', () => {
       render(<MessageList messages={messages} persistingMessageIds={new Set()} />);
       const container = screen.getByTestId('message-list');
       expect(container).toHaveAttribute('data-streams-completed', '0');
+    });
+
+    it('exposes data-pre-inference-stages-seen reflecting the pre-inference store', () => {
+      usePreInferenceActivityStore.setState({ preInferenceStagesSeen: 3 });
+      render(<MessageList messages={messages} persistingMessageIds={new Set()} />);
+      expect(screen.getByTestId('message-list')).toHaveAttribute(
+        'data-pre-inference-stages-seen',
+        '3'
+      );
+      usePreInferenceActivityStore.setState({ preInferenceStagesSeen: 0 });
     });
 
     it('increments data-streams-completed when persistingMessageIds transitions from non-empty to empty', () => {

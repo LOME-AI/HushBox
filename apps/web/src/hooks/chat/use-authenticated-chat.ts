@@ -1112,13 +1112,19 @@ export function useAuthenticatedChat({
     ) => {
       if (!realConversationId) return;
 
+      const allMsgs = [...forkFilteredDecrypted, ...optimisticMessages];
+
+      // null when the anchor's decrypted content isn't ready (a refetch is
+      // re-decrypting). Bail before any state mutation rather than POST empty
+      // content, which the server rejects (min(1)) as a failed turn.
+      const userContent = resolveUserContent(action, editedContent, allMsgs, targetMessageId);
+      if (userContent === null) return;
+
       // Regenerating on this fork — clear any prior error tile for this fork
       // before kicking off the new request.
       useChatErrorStore.getState().clearError(errorForkKey);
 
       // Build messagesForInference from fork-filtered decrypted messages up to the target
-      const allMsgs = [...forkFilteredDecrypted, ...optimisticMessages];
-
       const messagesForInference = buildMessagesForRegeneration(
         allMsgs,
         targetMessageId,
@@ -1127,7 +1133,6 @@ export function useAuthenticatedChat({
       );
 
       const userMessageId = crypto.randomUUID();
-      const userContent = resolveUserContent(action, editedContent, allMsgs, targetMessageId);
 
       applyPrune({
         allMsgs,

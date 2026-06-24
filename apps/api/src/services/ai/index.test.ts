@@ -123,12 +123,14 @@ describe('buildMockConfig', () => {
     const config = buildMockConfig({}, true);
     expect(config.mediaDelayMs).toBe(LOCAL_DEV_MEDIA_DELAY_MS);
     expect(config.textDelayMs ?? 0).toBeGreaterThan(0);
+    expect(config.classifierDelayMs ?? 0).toBeGreaterThan(0);
   });
 
-  it('zeroes both delays when isDevServer is false (vitest, E2E, CI, production)', () => {
+  it('zeroes all delays when isDevServer is false (vitest, E2E, CI, production)', () => {
     const config = buildMockConfig({}, false);
     expect(config.mediaDelayMs).toBe(0);
     expect(config.textDelayMs).toBe(0);
+    expect(config.classifierDelayMs).toBe(0);
   });
 
   it('lets an explicit mockConfig override win over the dev-server default', () => {

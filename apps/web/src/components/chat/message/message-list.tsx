@@ -19,6 +19,7 @@ import {
 } from '@/lib/message-actions';
 import { omitUndefined } from '@/lib/optional-props';
 import { env } from '@/lib/env';
+import { usePreInferenceActivityStore } from '@/stores/pre-inference-activity';
 import { MessageItem } from '@/components/chat/message/message-item';
 import type { Message } from '@/lib/api';
 import type { LinkInfo } from '@/lib/chat-sender';
@@ -210,6 +211,8 @@ const MessageListInner = forwardRef<MessageListHandle, MessageListProps>(functio
       setStreamsCompleted((n) => n + 1);
     }
   }
+
+  const preInferenceStagesSeen = usePreInferenceActivityStore((s) => s.preInferenceStagesSeen);
 
   // Reset scroll state when the conversation/fork pair changes. Replaces the
   // parent's `key=` remount, which previously unmounted Virtuoso (and the
@@ -502,6 +505,7 @@ const MessageListInner = forwardRef<MessageListHandle, MessageListProps>(functio
       data-cost-count={costCount}
       data-streaming-count={persistingMessageIds?.size ?? 0}
       data-streams-completed={streamsCompleted}
+      data-pre-inference-stages-seen={preInferenceStagesSeen}
       data-message-count={messages.length}
       data-decrypted-count={decryptedCount}
       data-rows-count={rows.length}

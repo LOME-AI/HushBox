@@ -91,9 +91,12 @@ export function resolveUserContent(
   editedContent: string | undefined,
   allMessages: Message[],
   targetMessageId: string
-): string {
+): string | null {
   if (action === 'edit' && editedContent) return editedContent;
-  return allMessages.find((m) => m.id === targetMessageId)?.content ?? '';
+  const content = allMessages.find((m) => m.id === targetMessageId)?.content;
+  // null = anchor content unavailable (missing or empty mid-decryption); callers
+  // must not regenerate then — the server requires non-empty content (min(1)).
+  return content != null && content !== '' ? content : null;
 }
 
 /**

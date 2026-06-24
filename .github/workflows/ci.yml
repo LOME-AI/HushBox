@@ -317,7 +317,7 @@ jobs:
           retention-days: 1
 
   e2e:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 20
     environment: ci
     needs: [gitleaks, e2e-build]
@@ -446,17 +446,17 @@ jobs:
         env:
           HOOKDECK_API_KEY: ${{ secrets.HOOKDECK_API_KEY }}
 
-      # Tag-based gating via Playwright --grep-invert, which composes (AND) with
-      # the project-level grepInvert in playwright.config.ts. CI always drops
-      # @local-only (dev-mode-only tests); every project except chromium also
-      # drops @webhook, so the full-payment flow runs on the chromium runner
-      # alone (Hookdeck + Helcim sandbox are wired there only).
       - name: Download prebuilt e2e web bundle
         uses: actions/download-artifact@v6
         with:
           name: e2e-web-dist
           path: apps/web/dist
 
+      # Tag-based gating via Playwright --grep-invert, which composes (AND) with
+      # the project-level grepInvert in playwright.config.ts. CI always drops
+      # @local-only (dev-mode-only tests); every project except chromium also
+      # drops @webhook, so the full-payment flow runs on the chromium runner
+      # alone (Hookdeck + Helcim sandbox are wired there only).
       - name: Run E2E tests (${{ matrix.project }})
         run: pnpm e2e --project=${{ matrix.project }} --grep-invert "$E2E_GREP_INVERT"
         env:
@@ -491,7 +491,7 @@ jobs:
 
   # ── Mobile tests (Maestro + Android emulator via Docker) ──
   mobile-test:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 20
     environment: ci
     needs: [gitleaks]

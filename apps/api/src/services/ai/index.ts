@@ -67,11 +67,18 @@ export const LOCAL_DEV_MEDIA_DELAY_MS = 3000;
 const LOCAL_DEV_TEXT_DELAY_MS = 60;
 
 /**
- * Assemble the mock client config. The echo typewriter (`textDelayMs`) and the
- * media-generation placeholder (`mediaDelayMs`) are human-facing dev
- * affordances, so they fire only on a real dev server (`isDevServer` — never
- * under vitest, E2E, CI, or production). Per-request `x-mock-*` overrides on
- * `options.mockConfig` win when present.
+ * Pre-inference classifier delay on a real dev server so the "Choosing the best
+ * model…" indicator paints; zero in tests (E2E gates on the stage-count signal).
+ */
+const LOCAL_DEV_CLASSIFIER_DELAY_MS = 1000;
+
+/**
+ * Assemble the mock client config. The echo typewriter (`textDelayMs`), the
+ * media-generation placeholder (`mediaDelayMs`), and the classifier indicator
+ * delay (`classifierDelayMs`) are human-facing dev affordances, so they fire
+ * only on a real dev server (`isDevServer` — never under vitest, E2E, CI, or
+ * production). Per-request `x-mock-*` overrides on `options.mockConfig` win when
+ * present.
  */
 export function buildMockConfig(
   options: AIClientOptions,
@@ -81,6 +88,8 @@ export function buildMockConfig(
     ...options.mockConfig,
     textDelayMs: options.mockConfig?.textDelayMs ?? (isDevServer ? LOCAL_DEV_TEXT_DELAY_MS : 0),
     mediaDelayMs: options.mockConfig?.mediaDelayMs ?? (isDevServer ? LOCAL_DEV_MEDIA_DELAY_MS : 0),
+    classifierDelayMs:
+      options.mockConfig?.classifierDelayMs ?? (isDevServer ? LOCAL_DEV_CLASSIFIER_DELAY_MS : 0),
   };
 }
 

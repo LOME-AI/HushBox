@@ -258,6 +258,7 @@ test.describe('Group Chat Regeneration', () => {
     });
 
     await test.step('hover Alice latest user message and retry', async () => {
+      await chatPage.waitForMessagesReady();
       // Find Alice's latest user message (second to last, before AI response)
       const userMessages = chatPage.messagesByRole('user');
       const lastUserMsg = userMessages.last();
@@ -356,6 +357,7 @@ test.describe('Group Chat Regeneration', () => {
     });
 
     await test.step('hover latest AI message and regenerate', async () => {
+      await chatPage.waitForMessagesReady();
       const aiMessages = chatPage.messagesByRole('assistant');
       const lastAi = aiMessages.last();
       await lastAi.hover();

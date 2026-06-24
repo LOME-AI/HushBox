@@ -3,15 +3,23 @@ name: ${COMPOSE_PROJECT_NAME:-hushbox}
 services:
   postgres:
     image: postgres:18-alpine
-    command: postgres -c max_connections=1000
+    # Ephemeral test/dev DB: data lives in RAM with durability off, rebuilt from
+    # migrations + seed on every `db:up`. fsync and disk writes are pure overhead
+    # here, and dominate the write-heavy test path.
+    command: >-
+      postgres -c max_connections=1000 -c fsync=off
+      -c synchronous_commit=off -c full_page_writes=off
     ports:
       - '${HB_POSTGRES_PORT:-5432}:5432'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: hushbox
-    volumes:
-      - postgres_data:/var/lib/postgresql
+      PGDATA: /pgdata
+    tmpfs:
+      # size caps the RAM ceiling; the seeded test DB uses far less. tmpfs is
+      # lazy, so the cap is a guardrail against a runaway, not a reservation.
+      - /pgdata:size=2g
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
@@ -95,5 +103,4 @@ services:
   # services above.
 
 volumes:
-  postgres_data:
   minio_data:
