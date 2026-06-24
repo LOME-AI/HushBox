@@ -29,7 +29,7 @@ function WelcomeGreeting({
   onTypingComplete,
 }: Readonly<WelcomeGreetingProps>): React.JSX.Element {
   return (
-    <div className="text-center">
+    <div className="text-center" data-reading="">
       <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
         {greeting ? (
           <TypingAnimation

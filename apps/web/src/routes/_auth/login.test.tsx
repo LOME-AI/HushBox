@@ -78,6 +78,14 @@ describe('LoginPage', () => {
     expect(screen.getByRole('link', { name: /sign up/i })).toHaveAttribute('href', '/signup');
   });
 
+  it('marks the brand tagline as a reading surface so it renders in the serif', () => {
+    renderRoute(Route);
+
+    expect(screen.getByText('One interface. Every feature. Private.')).toHaveAttribute(
+      'data-reading'
+    );
+  });
+
   it('validates identifier format on submit', async () => {
     const user = userEvent.setup();
     renderRoute(Route);
@@ -320,6 +328,18 @@ describe('LoginPage', () => {
         screen.getByPlaceholderText(/enter your 12-word recovery phrase/i)
       ).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /next/i })).toBeInTheDocument();
+    });
+
+    it('does not mark the functional reset-password subtitle as a reading surface', async () => {
+      const user = userEvent.setup();
+      renderRoute(Route);
+
+      await user.click(screen.getByRole('button', { name: /forgot password/i }));
+
+      // Only the brand tagline is editorial; functional subtitles stay on the sans chrome default.
+      expect(
+        screen.getByText('Enter your email or username and 12-word recovery phrase')
+      ).not.toHaveAttribute('data-reading');
     });
 
     it('"Back to login" link returns to login form', async () => {

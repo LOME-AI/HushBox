@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./lib/utils": "./src/lib/utilities.ts",
     "./assets/*": "./src/assets/*",
+    "./fonts": "./src/styles/fonts.css",
     "./cipher-wall/engine": "./src/components/cipher-wall/cipher-wall-engine.ts",
     "./cipher-wall/hook": "./src/components/cipher-wall/use-cipher-wall.ts",
     "./accessibility": "./src/components/accessibility/index.ts",

@@ -457,6 +457,12 @@ jobs:
       # @local-only (dev-mode-only tests); every project except chromium also
       # drops @webhook, so the full-payment flow runs on the chromium runner
       # alone (Hookdeck + Helcim sandbox are wired there only).
+      - name: Download prebuilt e2e web bundle
+        uses: actions/download-artifact@v6
+        with:
+          name: e2e-web-dist
+          path: apps/web/dist
+
       - name: Run E2E tests (${{ matrix.project }})
         run: pnpm e2e --project=${{ matrix.project }} --grep-invert "$E2E_GREP_INVERT"
         env:

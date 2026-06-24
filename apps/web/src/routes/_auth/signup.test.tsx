@@ -56,6 +56,14 @@ describe('SignupPage', () => {
     expect(screen.getByRole('link', { name: /log in/i })).toHaveAttribute('href', '/login');
   });
 
+  it('marks the brand tagline as a reading surface so it renders in the serif', () => {
+    renderRoute(Route);
+
+    expect(screen.getByText('One interface. Every feature. Private.')).toHaveAttribute(
+      'data-reading'
+    );
+  });
+
   it('validates email format', async () => {
     const user = userEvent.setup();
     renderRoute(Route);

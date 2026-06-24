@@ -2,6 +2,10 @@
 
 @import '../../../../packages/config/tailwind/index.css';
 
+/* Self-hosted brand fonts, shared with the web app via @hushbox/ui. Marketing
+   previously declared no @font-face and fell back to system fonts. */
+@import '@hushbox/ui/fonts';
+
 @source '../../../../packages/ui/src/components/marketing/**/*.tsx';
 @source '../../../../packages/ui/src/components/cipher-wall/**/*.tsx';
 @source '../../../../packages/ui/src/components/accessibility/**/*.tsx';

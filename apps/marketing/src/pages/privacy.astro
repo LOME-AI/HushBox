@@ -29,7 +29,7 @@ const PRIVACY_CIPHER_MESSAGES: readonly string[] = [
   <main class="flex-1 pt-20">
     <PageHero title={PRIVACY_POLICY_META.title} messages={PRIVACY_CIPHER_MESSAGES} />
 
-    <section class="mx-auto max-w-3xl px-6 pb-12">
+    <section class="mx-auto max-w-3xl px-6 pb-12" data-reading>
       <EffectiveDateRule date={PRIVACY_POLICY_META.effectiveDate} />
       <PrivacyDocument client:visible />
     </section>

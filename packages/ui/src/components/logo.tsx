@@ -36,7 +36,7 @@ function Logo({ className }: Readonly<LogoProps>): React.JSX.Element {
     >
       {/* eslint-disable-next-line no-restricted-syntax -- Logo IS the brand image primitive; must render the raw <img> for the official mark */}
       <img src={imageSource} alt="HushBox Logo" className="h-6 w-6 shrink-0 object-contain" />
-      <span className="text-lg leading-none font-bold">
+      <span className="font-serif text-lg leading-none font-bold">
         Hush<span className="text-brand-red">Box</span>
       </span>
     </div>
