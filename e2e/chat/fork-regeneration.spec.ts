@@ -221,8 +221,12 @@ test.describe('Fork and Regeneration Interaction', () => {
 
     await test.step('verify Main messages intact', async () => {
       await chatPage.expectMessageVisible(msg);
+      // countMessages itself spends up to ASSERT (readiness) + SCROLL_STABLE
+      // (DOM catch-up) per call, so the outer poll budget must exceed that or a
+      // single slow post-delete remount consumes it before any retry. Use the
+      // conversation-load budget so the poll can re-read after the remount.
       await expect
-        .poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.MODAL })
+        .poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.CONVERSATION_LOAD })
         .toBeGreaterThanOrEqual(2);
     });
 

@@ -275,11 +275,52 @@ jobs:
             apps/web/dist-android-direct
 
   # ── E2E tests (Blacksmith 4 vCPU + Docker + Playwright) ──
+  # Builds the merged dev-mode web bundle ONCE; every e2e leg below reuses it
+  # instead of rebuilding it (6 cold builds -> 1). `build:e2e` is the single
+  # build path: it self-generates the ciE2E env, Turbo-builds web + marketing in
+  # parallel, merges marketing into web, and writes _headers. No DB/stack needed
+  # (static build), so this job stays lean.
+  e2e-build:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    environment: ci
+    needs: [gitleaks]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Cache Turbo
+        uses: useblacksmith/cache@v5
+        with:
+          path: .turbo
+          # Separate key from the prod `build` job: the e2e bundle is dev-mode,
+          # a distinct Turbo hash, and must not clobber the prod cache entry.
+          key: turbo-e2e-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            turbo-e2e-${{ github.ref_name }}-
+            turbo-e2e-main-
+
+      - name: Build merged e2e web bundle
+        run: pnpm build:e2e
+        # BEGIN GENERATED: e2e-build-env
+        env:
+          VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+        # END GENERATED: e2e-build-env
+
+      - name: Upload e2e web bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: e2e-web-dist
+          path: apps/web/dist
+          retention-days: 1
+
   e2e:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     environment: ci
-    needs: [gitleaks]
+    needs: [gitleaks, e2e-build]
     strategy:
       fail-fast: true
       matrix:
@@ -410,10 +451,19 @@ jobs:
       # @local-only (dev-mode-only tests); every project except chromium also
       # drops @webhook, so the full-payment flow runs on the chromium runner
       # alone (Hookdeck + Helcim sandbox are wired there only).
+      - name: Download prebuilt e2e web bundle
+        uses: actions/download-artifact@v6
+        with:
+          name: e2e-web-dist
+          path: apps/web/dist
+
       - name: Run E2E tests (${{ matrix.project }})
         run: pnpm e2e --project=${{ matrix.project }} --grep-invert "$E2E_GREP_INVERT"
         env:
           CI: true
+          # The bundle was built once by the e2e-build job and downloaded above;
+          # Playwright's webServer skips build:e2e and serves it via vite preview.
+          HB_E2E_PREBUILT: '1'
           SKIP_WEBHOOK_TESTS: ${{ matrix.project != 'chromium' && 'true' || '' }}
           E2E_GREP_INVERT: ${{ matrix.project == 'chromium' && '@local-only' || '@local-only|@webhook' }}
 

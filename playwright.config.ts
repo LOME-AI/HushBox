@@ -64,11 +64,13 @@ export default defineConfig({
       // same routing as users see. The build is inside the webServer command
       // (not globalSetup) because Playwright spawns webServer in parallel with
       // globalSetup — `vite preview` would race against the build otherwise.
+      //
+      // `build:e2e` is the single web-bundle build path (Turbo-cached + parallel,
+      // self-regenerating its e2e env). When `HB_E2E_PREBUILT` is set the bundle
+      // was already built and downloaded (CI's e2e-build job), so skip straight
+      // to serving it.
       command:
-        `pnpm --filter @hushbox/marketing build --mode development && ` +
-        `pnpm --filter @hushbox/web build --mode development && ` +
-        `tsx scripts/merge-marketing-into-web.ts && ` +
-        `tsx scripts/generate-headers.ts && ` +
+        (process.env['HB_E2E_PREBUILT'] ? '' : 'pnpm build:e2e && ') +
         `pnpm --filter @hushbox/web preview --port ${previewPort}`,
       url: previewUrl,
       reuseExistingServer: false,

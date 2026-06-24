@@ -71,6 +71,14 @@ test.describe('Group Chat Admin', () => {
       await aliceChatPage.sendNewChatMessage(`Solo test ${String(Date.now())}`);
       await aliceChatPage.waitForConversation();
 
+      // Settle the AI turn before the next step navigates away. Otherwise the
+      // 1:1 stream is left in flight and its navigation-abort surfaces a
+      // spurious "Stream failed" console error (and, under load, can crash a
+      // mid-render message tile). The Echo wait proves the stream started, so
+      // waitForStreamComplete cannot pass on a pre-stream false positive.
+      await aliceChatPage.expectAssistantMessageContains('Echo:');
+      await aliceChatPage.waitForStreamComplete();
+
       const senderLabels = aliceChatPage.getSenderLabels();
       await expect(senderLabels).toHaveCount(0);
 

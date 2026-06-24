@@ -1,0 +1,18 @@
+diff --git a/dist/core/build/plugin.js b/dist/core/build/plugin.js
+index 916f46eac403b64d228d09c74aad2725339e1c28..4faf3d82f3cb44a5100ebcf4550e6b250f1a302b 100644
+--- a/dist/core/build/plugin.js
++++ b/dist/core/build/plugin.js
+@@ -36,7 +36,12 @@ function createPluginContainer(options, internals) {
+     async runPostHook(ssrOutputs, clientOutputs) {
+       const mutations = /* @__PURE__ */ new Map();
+       const mutate = (chunk, targets, newCode) => {
+-        chunk.code = newCode;
++        Object.defineProperty(chunk, "code", {
++          value: newCode,
++          writable: true,
++          configurable: true,
++          enumerable: true
++        });
+         mutations.set(chunk.fileName, {
+           targets,
+           code: newCode

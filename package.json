@@ -10,6 +10,8 @@
     "dev:clean": "tsx scripts/with-env.ts tsx scripts/kill-ports.ts HB_VITE_PORT HB_API_PORT HB_IDLE_DAEMON_PORT",
     "dev:restart": "pnpm dev:clean && pnpm dev",
     "build": "turbo build",
+    "build:web": "tsx scripts/build-web-bundle.ts --target=prod",
+    "build:e2e": "tsx scripts/build-web-bundle.ts --target=e2e",
     "lint": "turbo lint",
     "lint:fix": "turbo lint --force --continue -- --fix",
     "format": "prettier --write .",
@@ -144,11 +146,5 @@
     "typescript-eslint": "^8.57.0",
     "vite": "^7.3.1",
     "vitest": "^4.0.18"
-  },
-  "pnpm": {
-    "overrides": {
-      "vite": "^7.3.1",
-      "sharp": "^0.34.5"
-    }
   }
 }
