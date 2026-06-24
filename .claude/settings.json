@@ -35,5 +35,18 @@
       "mcp__linear-server__delete_*",
       "mcp__linear-server__remove_*"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__chrome-devtools__take_screenshot",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/contain-screenshot-output.mjs\""
+          }
+        ]
+      }
+    ]
   }
 }

@@ -6,9 +6,9 @@ export interface Greeting {
 }
 
 const NEW_USER_GREETINGS: Greeting[] = [
-  { title: 'Welcome to HushBox', subtitle: 'Every model. One conversation.' },
+  { title: 'Welcome to HushBox', subtitle: 'One interface. Every feature.' },
   { title: 'First time here?', subtitle: 'Good timing' },
-  { title: 'HushBox', subtitle: 'One interface. Every model.' },
+  { title: 'HushBox', subtitle: 'Private.' },
   { title: 'Welcome in', subtitle: 'Claude, GPT, Gemini—take your pick' },
   { title: "Let's go", subtitle: 'Ask something interesting' },
 ];

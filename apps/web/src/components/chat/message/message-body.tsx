@@ -52,7 +52,10 @@ export function MessageBody({
   className,
 }: Readonly<MessageBodyProps>): React.JSX.Element {
   return (
-    <div className={cn(BUBBLE_VARIANT_CLASS[variant], className)}>
+    // data-reading flips this bubble's subtree to the editorial serif (twin of
+    // data-chrome). One tag covers chat (MessageItem) and the public share view,
+    // which both compose their text region as children here.
+    <div data-reading="" className={cn(BUBBLE_VARIANT_CLASS[variant], className)}>
       {children}
       <MessageMediaList
         media={media}

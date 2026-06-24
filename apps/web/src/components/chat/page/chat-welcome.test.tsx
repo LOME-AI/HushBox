@@ -199,6 +199,15 @@ describe('ChatWelcome', () => {
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
   });
 
+  it('marks the greeting block as a reading surface so it renders in the serif', () => {
+    render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
+      wrapper: createWrapper(),
+    });
+    // The greeting (title + subtitle) is editorial display copy; data-reading on
+    // its container flips the whole block to the serif, not just the h1.
+    expect(screen.getByRole('heading', { level: 1 }).parentElement).toHaveAttribute('data-reading');
+  });
+
   it('renders the prompt input', () => {
     render(<ChatWelcome onSend={mockOnSend} isAuthenticated={false} />, {
       wrapper: createWrapper(),
@@ -361,7 +370,7 @@ describe('ChatWelcome', () => {
     });
 
     expect(screen.queryByText('What should we create?')).not.toBeInTheDocument();
-    expect(screen.getByText('Every model. One conversation.')).toBeInTheDocument();
+    expect(screen.getByText('One interface. Every feature.')).toBeInTheDocument();
   });
 
   it('uses the standard subtitle when active modality is video', () => {
@@ -371,7 +380,7 @@ describe('ChatWelcome', () => {
     });
 
     expect(screen.queryByText('What scene should we make?')).not.toBeInTheDocument();
-    expect(screen.getByText('Every model. One conversation.')).toBeInTheDocument();
+    expect(screen.getByText('One interface. Every feature.')).toBeInTheDocument();
   });
 
   it('uses the standard subtitle when active modality is audio', () => {
@@ -381,7 +390,7 @@ describe('ChatWelcome', () => {
     });
 
     expect(screen.queryByText('What should we listen to?')).not.toBeInTheDocument();
-    expect(screen.getByText('Every model. One conversation.')).toBeInTheDocument();
+    expect(screen.getByText('One interface. Every feature.')).toBeInTheDocument();
   });
 
   it('renders text-modality inspiration label by default', () => {

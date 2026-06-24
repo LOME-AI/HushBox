@@ -27,7 +27,7 @@ const TERMS_CIPHER_MESSAGES: readonly string[] = [
   <main class="flex-1 pt-20">
     <PageHero title={TERMS_OF_SERVICE_META.title} messages={TERMS_CIPHER_MESSAGES} />
 
-    <section class="mx-auto max-w-3xl px-6 pb-12">
+    <section class="mx-auto max-w-3xl px-6 pb-12" data-reading>
       <EffectiveDateRule date={TERMS_OF_SERVICE_META.effectiveDate} />
       <LegalDocument client:visible meta={TERMS_OF_SERVICE_META} sections={TERMS_SECTIONS} />
     </section>

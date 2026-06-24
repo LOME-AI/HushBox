@@ -41,6 +41,14 @@ describe('Logo', () => {
     expect(text).toHaveClass('text-lg', 'font-bold');
   });
 
+  it('renders the wordmark in the serif brand font', () => {
+    render(<Logo />);
+    const text = screen.getByText(/Hush/);
+    // The wordmark is editorial brand display, so it stays serif under the
+    // sans-default cascade instead of inheriting the UI chrome font.
+    expect(text).toHaveClass('font-serif');
+  });
+
   it('has tight line-height on text for vertical alignment', () => {
     render(<Logo />);
     const text = screen.getByText(/Hush/);
