@@ -15,6 +15,7 @@ import {
   WELCOME_CREDIT_CENTS,
 } from '../../packages/shared/src/tiers.js';
 import { withCache } from './cache.js';
+import { countLinesOfCode } from './lines-of-code.js';
 
 /** Average characters per message for marketing calculations */
 const AVERAGE_MESSAGE_CHARS = 200;
@@ -43,6 +44,7 @@ export function getTemplateValues(): Record<string, string> {
 export function collectReadmeInputs(rootDir: string): string[] {
   return [
     path.join(rootDir, 'scripts/readme/generate-readme.ts'),
+    path.join(rootDir, 'scripts/readme/lines-of-code.ts'),
     path.join(rootDir, 'README.template.md'),
     path.join(rootDir, 'packages/shared/src/constants.ts'),
     path.join(rootDir, 'packages/shared/src/fees.ts'),
@@ -68,7 +70,12 @@ export function generateReadme(rootDir: string): void {
     },
     () => {
       let content = readFileSync(templatePath, 'utf8');
-      const values = getTemplateValues();
+      const values = {
+        ...getTemplateValues(),
+        // Counted at generation time from the repo tree, so it tracks the
+        // source rather than a hand-maintained constant.
+        LINES_OF_CODE: countLinesOfCode(rootDir).toLocaleString('en-US'),
+      };
 
       for (const [key, value] of Object.entries(values)) {
         content = content.replaceAll(new RegExp(String.raw`\{\{${key}\}\}`, 'g'), value);

@@ -1,5 +1,5 @@
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
-import { TEST_IDS } from '@hushbox/shared';
+import { TEST_IDS, WEB_SEARCH_STORAGE_KEY } from '@hushbox/shared';
 import { ChatPage } from '../pages';
 import { requireEnv } from '../helpers/env.js';
 import { TIMEOUTS } from '../config/timeouts.js';
@@ -52,6 +52,16 @@ test.describe('Trial Chat', { tag: '@chromium-only' }, () => {
   test.describe('Chat Streaming', () => {
     test('trial user can send message and receive response', async ({ unauthenticatedPage }) => {
       const chatPage = new ChatPage(unauthenticatedPage);
+      // Regression guard: a web-search preference persists across sign-out and the
+      // trial toggle can't clear it. It must not reserve the worst-case search cost
+      // (≈5.75¢, far above the 1¢ trial cap) and gate trial sends with
+      // "This message exceeds the usage limit."
+      await unauthenticatedPage.addInitScript((storageKey) => {
+        globalThis.localStorage.setItem(
+          storageKey,
+          JSON.stringify({ state: { webSearchEnabled: true }, version: 0 })
+        );
+      }, WEB_SEARCH_STORAGE_KEY);
       await chatPage.goto();
       await chatPage.selectNonPremiumModel();
 

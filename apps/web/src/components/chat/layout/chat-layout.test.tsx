@@ -72,11 +72,19 @@ vi.mock('@/stores/model', async (importOriginal) => {
   return { ...actual, useModelStore: store };
 });
 
-vi.mock('@/stores/search', () => ({
-  useSearchStore: () => ({
-    webSearchEnabled: false,
-    toggleWebSearch: vi.fn(),
-  }),
+const { mockWebSearch } = vi.hoisted(() => ({
+  mockWebSearch: {
+    current: { preferred: false, canUse: true, active: false, toggle: (): void => {} } as {
+      preferred: boolean;
+      canUse: boolean;
+      active: boolean;
+      toggle: () => void;
+    },
+  },
+}));
+
+vi.mock('@/hooks/chat/use-web-search', () => ({
+  useWebSearch: () => mockWebSearch.current,
 }));
 
 vi.mock('@/stores/ui-modals', () => ({
@@ -178,6 +186,7 @@ interface MockPromptInputProps {
   onTypingChange?: (isTyping: boolean) => void;
   searchProps?: {
     webSearchEnabled: boolean;
+    canUseWebSearch: boolean;
     onToggleWebSearch: () => void;
   };
   isAuthenticated?: boolean;
@@ -189,6 +198,9 @@ function buildPromptInputDataAttributes(props: MockPromptInputProps): Record<str
   const attributes: Record<string, string> = {};
   if (props.searchProps?.webSearchEnabled !== undefined) {
     attributes['data-web-search-enabled'] = String(props.searchProps.webSearchEnabled);
+  }
+  if (props.searchProps?.canUseWebSearch !== undefined) {
+    attributes['data-can-use-web-search'] = String(props.searchProps.canUseWebSearch);
   }
   if (props.searchProps?.onToggleWebSearch !== undefined) {
     attributes['data-has-toggle-web-search'] = 'true';
@@ -328,6 +340,7 @@ describe('ChatLayout', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockWebSearch.current = { preferred: false, canUse: true, active: false, toggle: vi.fn() };
   });
 
   it('renders the chat header', () => {
@@ -1041,6 +1054,7 @@ describe('ChatLayout', () => {
       expect(input).toHaveAttribute('data-web-search-enabled', 'false');
       expect(input).toHaveAttribute('data-is-authenticated', 'true');
       expect(input).toHaveAttribute('data-has-toggle-web-search', 'true');
+      expect(input).toHaveAttribute('data-can-use-web-search', 'true');
     });
 
     it('passes isAuthenticated=false for unauthenticated users', () => {
@@ -1048,6 +1062,18 @@ describe('ChatLayout', () => {
 
       const input = screen.getByTestId('prompt-input');
       expect(input).toHaveAttribute('data-is-authenticated', 'false');
+    });
+
+    it('marks web search unavailable when the preference persists on but the user cannot use it', () => {
+      // A trial user's stale persisted preference must not present as usable —
+      // the composer forwards the effective state from useWebSearch.
+      mockWebSearch.current = { preferred: true, canUse: false, active: false, toggle: vi.fn() };
+
+      render(<ChatLayout {...defaultProps} isAuthenticated={false} />);
+
+      const input = screen.getByTestId('prompt-input');
+      expect(input).toHaveAttribute('data-can-use-web-search', 'false');
+      expect(input).toHaveAttribute('data-web-search-enabled', 'false');
     });
   });
 

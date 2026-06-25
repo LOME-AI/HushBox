@@ -4,7 +4,7 @@ import { cn, useIsMobile, useVisualViewportHeight } from '@hushbox/ui';
 import { TEST_IDS } from '@hushbox/shared';
 import { getGreeting } from '@/lib/greetings';
 import { useModelStore, type SelectedModelEntry } from '@/stores/model';
-import { useSearchStore } from '@/stores/search';
+import { useWebSearch } from '@/hooks/chat/use-web-search';
 import { useSelectedModelCapabilities } from '@/hooks/models/use-selected-model-capabilities';
 import { useResolveDefaultModel } from '@/hooks/models/use-resolve-default-model';
 import { useStableBalance } from '@/hooks/billing/use-stable-balance';
@@ -85,7 +85,7 @@ export function ChatWelcome({
   const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
   const setActiveModality = useModelStore((state) => state.setActiveModality);
   useResolveDefaultModel(activeModality);
-  const { webSearchEnabled, toggleWebSearch } = useSearchStore();
+  const webSearch = useWebSearch();
   const selectModality = React.useCallback(
     (modality: Modality): void => {
       setActiveModality(modality);
@@ -97,8 +97,9 @@ export function ChatWelcome({
   const searchProps: ChatSearchProps | undefined =
     activeModality === 'text'
       ? {
-          webSearchEnabled,
-          onToggleWebSearch: toggleWebSearch,
+          webSearchEnabled: webSearch.active,
+          canUseWebSearch: webSearch.canUse,
+          onToggleWebSearch: webSearch.toggle,
         }
       : undefined;
 

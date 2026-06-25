@@ -55,7 +55,7 @@ import { useConversation, useMessages, useCreateConversation, chatKeys } from '@
 
 import { usePendingChatStore } from '@/stores/pending-chat';
 import { useModelStore, getPrimaryModel } from '@/stores/model';
-import { useSearchStore } from '@/stores/search';
+import { useWebSearch } from '@/hooks/chat/use-web-search';
 import { useChatErrorStore, createChatError, MAIN_FORK_KEY } from '@/stores/chat-error';
 import { billingKeys } from '@/hooks/billing/billing';
 import {
@@ -394,7 +394,9 @@ export function useAuthenticatedChat({
   const imageConfig = useModelStore((state) => state.imageConfig);
   const videoConfig = useModelStore((state) => state.videoConfig);
   const audioConfig = useModelStore((state) => state.audioConfig);
-  const { webSearchEnabled } = useSearchStore();
+  // Single source of truth for web-search state (see useWebSearch). In the
+  // authenticated chat `active === preferred`, so this is behavior-preserving.
+  const { active: webSearchEnabled } = useWebSearch();
   const { isStreaming, startStream, startRegenerateStream } = useChatStream('authenticated');
   // Scope the error subscription to the currently-active fork (or 'main' for
   // linear / no-fork conversations). Switching forks reads a different slot,

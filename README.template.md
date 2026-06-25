@@ -21,6 +21,8 @@
 &nbsp;
 [![Contributing](https://img.shields.io/badge/Contributing-ec4755?style=for-the-badge)](docs/CONTRIBUTING.md)
 
+**{{LINES_OF_CODE}}** lines of source code
+
 </div>
 
 ---

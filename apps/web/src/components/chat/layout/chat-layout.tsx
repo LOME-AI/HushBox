@@ -31,7 +31,7 @@ import { useKeyboardOffset } from '@/hooks/ui/use-keyboard-offset';
 import { usePremiumModelClick } from '@/hooks/models/use-premium-model-click';
 import { useTierInfo } from '@/hooks/billing/use-tier-info';
 import { useModelStore, getPrimaryModel, type SelectedModelEntry } from '@/stores/model';
-import { useSearchStore } from '@/stores/search';
+import { useWebSearch } from '@/hooks/chat/use-web-search';
 import { useUIModalsStore } from '@/stores/ui-modals';
 import { useSelectedModelCapabilities } from '@/hooks/models/use-selected-model-capabilities';
 import { useResolveDefaultModel } from '@/hooks/models/use-resolve-default-model';
@@ -186,7 +186,7 @@ export function ChatLayout({
   const selectedModels = useModelStore((state) => state.selections[state.activeModality]);
   const setActiveModality = useModelStore((state) => state.setActiveModality);
   useResolveDefaultModel(activeModality);
-  const { webSearchEnabled, toggleWebSearch } = useSearchStore();
+  const webSearch = useWebSearch();
   const selectModality = React.useCallback(
     (modality: Modality): void => {
       setActiveModality(modality);
@@ -199,8 +199,9 @@ export function ChatLayout({
   const searchProps: ChatSearchProps | undefined =
     activeModality === 'text'
       ? {
-          webSearchEnabled,
-          onToggleWebSearch: toggleWebSearch,
+          webSearchEnabled: webSearch.active,
+          canUseWebSearch: webSearch.canUse,
+          onToggleWebSearch: webSearch.toggle,
         }
       : undefined;
   const handleModelSelect = React.useCallback((entries: SelectedModelEntry[]): void => {
