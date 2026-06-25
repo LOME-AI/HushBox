@@ -3,6 +3,7 @@ import { isMobileWidth, TEST_IDS } from '@hushbox/shared';
 import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 import { requireEnv } from './env.js';
+import { deleteWithRetry } from './api-retry.js';
 import { waitForAppStable } from './page-signals.js';
 import type { Page, APIRequestContext } from '@playwright/test';
 
@@ -128,7 +129,7 @@ export function uniqueUsername(prefix: string): string {
  * Call this in beforeEach to prevent rate limit failures across test runs.
  */
 export async function clearAuthRateLimits(request: APIRequestContext): Promise<void> {
-  await request.delete(`${API_BASE}/api/dev/auth-rate-limits`);
+  await deleteWithRetry(request, `${API_BASE}/api/dev/auth-rate-limits`);
 }
 
 /**
@@ -138,7 +139,7 @@ export async function clearAuthRateLimits(request: APIRequestContext): Promise<v
  * limits, which `trial-chat.spec.ts` and friends legitimately exercise.
  */
 export async function clearUsageRateLimits(request: APIRequestContext): Promise<void> {
-  await request.delete(`${API_BASE}/api/dev/usage-rate-limits`);
+  await deleteWithRetry(request, `${API_BASE}/api/dev/usage-rate-limits`);
 }
 
 /**
@@ -152,7 +153,7 @@ export async function getAcceptableTOTPCode(
   email: string,
   secret: string
 ): Promise<string> {
-  await request.delete(`${API_BASE}/api/dev/totp-replay`, { data: { email } });
+  await deleteWithRetry(request, `${API_BASE}/api/dev/totp-replay`, { data: { email } });
   return generateTOTPCode(secret);
 }
 

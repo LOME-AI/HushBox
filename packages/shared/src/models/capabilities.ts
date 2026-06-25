@@ -95,18 +95,18 @@ export const IMAGEN_SAMPLE_SIZE_BY_MODEL = {
  * `gateway.zeroDataRetention` is the belt-and-suspenders ZDR guarantee paired
  * with the catalog filter and `assertZdrModel()` at the stream boundary.
  *
- * `gateway.serviceTier: 'flex'` opts into the Vercel AI Gateway's flex pricing
- * pool (50% off standard). The gateway translates this into whatever
- * per-provider key each provider expects (openai/google `serviceTier`,
- * vertex `sharedRequestType`) and overrides any tier set in the per-provider
- * options. On models that don't expose a flex tier (Anthropic, xAI, Veo, etc.)
- * the field is a documented no-op — the gateway routes at standard, bills at
- * standard, and surfaces the served tier in `providerMetadata.gateway.serviceTier`.
- *
- * The unified field replaced the per-provider form in `@ai-sdk/gateway@3.0.120`.
+ * No `gateway.serviceTier` is sent. A `serviceTier: 'flex'` opt-in was once
+ * applied here universally on the belief it was a no-op for models that don't
+ * expose a flex tier. That belief was wrong: the Vercel AI Gateway HARD-REJECTS
+ * the request for such models (observed in prod: `Flex API is not supported for
+ * model: gemini-2.5-flash-lite`), so the blanket opt-in 500'd every chat with a
+ * non-flex model. Flex would have to be gated per-model against live catalog
+ * `service_tiers` data before it could be sent safely; we don't do that, so it
+ * is off everywhere. The gateway routes and bills at the standard tier, which is
+ * the rate `extractEffectivePerTokenPricing` now estimates against.
  */
 export const ZDR_PROVIDER_OPTIONS = {
-  gateway: { zeroDataRetention: true, serviceTier: 'flex' },
+  gateway: { zeroDataRetention: true },
 } as const;
 
 // ---------------------------------------------------------------------------

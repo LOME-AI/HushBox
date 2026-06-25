@@ -61,6 +61,7 @@ export function TrialChatPage(): React.JSX.Element {
     setRateLimited,
     removeMessagesAfter,
     removeMessage,
+    setMessageStageDone,
   } = useTrialChatStore();
 
   // Trial chats are linear (no forks), so every read/write keys off
@@ -133,6 +134,12 @@ export function TrialChatPage(): React.JSX.Element {
                 appendToTrialMessage(msgId, token);
               }
             },
+            // Smart Model: the classifier resolves a real model mid-stream and
+            // reports it here. Record it so the nametag shows the resolved name
+            // instead of the "smart-model" placeholder, matching the authed flow.
+            onStageDone: (data) => {
+              setMessageStageDone(data.assistantMessageId, data.payload);
+            },
             // Wrapper's finally fires this on error/abort too — single
             // cleanup path for persistingMessageIds regardless of outcome.
             onAllStreamsSettled: () => {
@@ -163,6 +170,7 @@ export function TrialChatPage(): React.JSX.Element {
       state,
       handleStreamError,
       removeMessage,
+      setMessageStageDone,
     ]
   );
 

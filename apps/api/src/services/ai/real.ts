@@ -78,9 +78,8 @@ function imageProviderOptions(
   | (typeof ZDR_PROVIDER_OPTIONS & { google: { sampleImageSize: ImagenSampleSize } }) {
   const sampleImageSize = getImagenSampleSize(modelId);
   if (sampleImageSize === undefined) return ZDR_PROVIDER_OPTIONS;
-  // Imagen 4 needs `google.sampleImageSize` set; the flex-tier opt-in lives
-  // on `gateway.serviceTier` now (3.0.120 consolidation), so no per-provider
-  // serviceTier needs to ride alongside.
+  // Imagen 4 needs `google.sampleImageSize` set; it rides alongside the
+  // gateway ZDR options without disturbing them.
   return {
     ...ZDR_PROVIDER_OPTIONS,
     google: { sampleImageSize },

@@ -426,7 +426,10 @@ describe('fetchModels', () => {
   });
 
   describe('flex pricing extraction', () => {
-    it('prefers service_tiers.flex when present so estimates reflect the price the gateway actually bills', async () => {
+    it('ignores service_tiers.flex and uses standard pricing (flex is no longer requested)', async () => {
+      // We no longer send `serviceTier: 'flex'` on inference calls (the gateway
+      // hard-rejects it for non-flex models), so the gateway bills at standard.
+      // Estimates must track that standard rate, not the flex band.
       mockPublicModels([
         {
           id: 'openai/gpt-5',
@@ -443,8 +446,8 @@ describe('fetchModels', () => {
       ]);
 
       const models = await fetchModels({ publicModelsUrl: 'https://test.example/v1/models' });
-      expect(models[0]?.pricing.prompt).toBe('0.000005');
-      expect(models[0]?.pricing.completion).toBe('0.000015');
+      expect(models[0]?.pricing.prompt).toBe('0.00001');
+      expect(models[0]?.pricing.completion).toBe('0.00003');
     });
 
     it('falls back to standard pricing when service_tiers.flex is absent', async () => {

@@ -123,6 +123,7 @@ function createTestApp(
   options: {
     trialMessageCount?: number;
     redis?: ReturnType<typeof createMockRedis> | ReturnType<typeof createStatefulMockRedis>;
+    aiClient?: ReturnType<typeof createMockAIClient>;
   } = {}
 ) {
   const app = new Hono<AppEnv>();
@@ -141,7 +142,7 @@ function createTestApp(
     } as AppEnv['Bindings'];
     c.set('user', null); // Trial user
     c.set('session', null);
-    c.set('aiClient', createMockAIClient());
+    c.set('aiClient', options.aiClient ?? createMockAIClient());
     c.set('redis', redis as unknown as AppEnv['Variables']['redis']);
     c.set('db', {} as unknown as AppEnv['Variables']['db']);
     await next();
@@ -191,6 +192,151 @@ describe('trial chat routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toBe('text/event-stream');
+    });
+
+    describe('Smart Model', () => {
+      // Two cheap (non-premium) ZDR text models plus one expensive (premium)
+      // one. Ids must be on the text ZDR allowlist or they're filtered out of
+      // the eligible pool. The expensive model lifts the percentile threshold
+      // so both cheap models stay non-premium and reach the trial eligible set,
+      // giving the classifier a real choice to make.
+      const smartModelClassifierCatalog = [
+        {
+          id: 'openai/gpt-4o-mini',
+          name: 'GPT-4o mini',
+          description: 'Cheap model A',
+          context_length: 128_000,
+          pricing: { prompt: '0.0000005', completion: '0.0000005' },
+          supported_parameters: ['temperature'],
+          created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+        {
+          id: 'openai/gpt-5-nano',
+          name: 'GPT-5 nano',
+          description: 'Cheap model B',
+          context_length: 128_000,
+          pricing: { prompt: '0.0000006', completion: '0.0000006' },
+          supported_parameters: ['temperature'],
+          created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60,
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+        {
+          id: 'openai/gpt-5',
+          name: 'GPT-5',
+          description: 'Premium model',
+          context_length: 128_000,
+          pricing: { prompt: '0.00001', completion: '0.00003' },
+          supported_parameters: ['temperature'],
+          created: Math.floor(Date.now() / 1000),
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+        },
+      ];
+
+      it('resolves to the single eligible model and never forwards the virtual id', async () => {
+        vi.useRealTimers();
+        const aiClient = createMockAIClient();
+        const app = createTestApp({ aiClient });
+
+        const res = await app.request('/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Trial-Token': 'test-trial-token',
+            'X-Forwarded-For': '10.10.0.1',
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: 'Hello' }],
+            model: 'smart-model',
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        await res.text();
+
+        const recordedModels = aiClient.getRequestHistory().map((r) => r.model);
+        expect(recordedModels).not.toContain('smart-model');
+        expect(recordedModels).toContain('openai/gpt-4o-mini');
+      });
+
+      it('routes through the classifier and infers with the resolved model', async () => {
+        vi.useRealTimers();
+        clearModelCache();
+        buildFetchMock(fetchMock, smartModelClassifierCatalog);
+        const aiClient = createMockAIClient({
+          classifierResolution: 'openai/gpt-5-nano',
+          classifierDelayMs: 0,
+        });
+        const app = createTestApp({ aiClient });
+
+        const res = await app.request('/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Trial-Token': 'test-trial-token',
+            'X-Forwarded-For': '10.10.0.2',
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: 'Hello' }],
+            model: 'smart-model',
+          }),
+        });
+
+        expect(res.status).toBe(200);
+        await res.text();
+
+        const recordedModels = aiClient.getRequestHistory().map((r) => r.model);
+        expect(recordedModels).not.toContain('smart-model');
+        // Inference ran against the classifier's pick, not the virtual id.
+        expect(recordedModels).toContain('openai/gpt-5-nano');
+      });
+
+      it('returns 402 when no eligible model fits the trial budget', async () => {
+        vi.useRealTimers();
+        clearModelCache();
+        // ZDR text models priced far above the trial cap → all flagged premium /
+        // over-budget → the trial eligible set is empty → resolution returns null.
+        buildFetchMock(fetchMock, [
+          {
+            id: 'openai/gpt-5',
+            name: 'GPT-5',
+            description: 'Expensive',
+            context_length: 128_000,
+            pricing: { prompt: '0.1', completion: '0.1' },
+            supported_parameters: ['temperature'],
+            created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60,
+            architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+          },
+          {
+            id: 'openai/gpt-5.4',
+            name: 'GPT-5.4',
+            description: 'Expensive',
+            context_length: 128_000,
+            pricing: { prompt: '0.1', completion: '0.1' },
+            supported_parameters: ['temperature'],
+            created: Math.floor(Date.now() / 1000) - 400 * 24 * 60 * 60,
+            architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+          },
+        ]);
+        const app = createTestApp();
+
+        const res = await app.request('/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Trial-Token': 'test-trial-token',
+            'X-Forwarded-For': '10.10.0.3',
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: 'Hello' }],
+            model: 'smart-model',
+          }),
+        });
+
+        expect(res.status).toBe(402);
+        const body: ErrorBody = await res.json();
+        expect(body.code).toBe('TRIAL_MESSAGE_TOO_EXPENSIVE');
+      });
     });
 
     it('returns 400 when messages are missing', async () => {

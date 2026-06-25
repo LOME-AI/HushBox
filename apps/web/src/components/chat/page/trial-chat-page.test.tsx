@@ -140,6 +140,7 @@ const mockTrialChatStore = {
   setRateLimited: vi.fn(),
   removeMessagesAfter: vi.fn(),
   removeMessage: vi.fn(),
+  setMessageStageDone: vi.fn(),
 };
 
 interface TrialChatStoreMock {
@@ -153,6 +154,7 @@ interface TrialChatStoreMock {
   setRateLimited: ReturnType<typeof vi.fn>;
   removeMessagesAfter: ReturnType<typeof vi.fn>;
   removeMessage: ReturnType<typeof vi.fn>;
+  setMessageStageDone: ReturnType<typeof vi.fn>;
 }
 
 const mockUseTrialChatStore = vi.fn<() => TrialChatStoreMock>();
@@ -212,6 +214,10 @@ function getSessionData(user: { id: string } | null): { user: { id: string } } |
 interface StreamOptions {
   onToken?: (token: string) => void;
   onStart?: (data: { models: { modelId: string; assistantMessageId: string }[] }) => void;
+  onStageDone?: (data: {
+    assistantMessageId: string;
+    payload: { stageId: string; resolvedModelId: string; resolvedModelName: string };
+  }) => void;
   onAllStreamsSettled?: () => void;
 }
 
@@ -274,6 +280,7 @@ describe('TrialChatPage', () => {
       setRateLimited: mockTrialChatStore.setRateLimited,
       removeMessagesAfter: mockTrialChatStore.removeMessagesAfter,
       removeMessage: mockTrialChatStore.removeMessage,
+      setMessageStageDone: mockTrialChatStore.setMessageStageDone,
     });
 
     mockUseIsMobile.mockReturnValue(config.isMobile);
@@ -421,6 +428,33 @@ describe('TrialChatPage', () => {
         })
       );
       expect(mockStartStreaming).toHaveBeenCalledWith(['assistant-1']);
+    });
+
+    it('handles onStageDone callback by recording the resolved model on the message', async () => {
+      let capturedOnStageDone: StreamOptions['onStageDone'];
+      mockStartStream.mockImplementation((_request: unknown, options?: StreamOptions) => {
+        capturedOnStageDone = options?.onStageDone;
+        return Promise.resolve({ userMessageId: 'user-1', models: [] });
+      });
+
+      setupMocks({ pendingMessage: 'Hello' });
+
+      render(<TrialChatPage />);
+
+      await waitFor(() => {
+        expect(capturedOnStageDone).toBeDefined();
+      });
+
+      const payload = {
+        stageId: 'smart-model',
+        resolvedModelId: 'openai/gpt-4o-mini',
+        resolvedModelName: 'GPT-4o mini',
+      };
+      act(() => {
+        capturedOnStageDone?.({ assistantMessageId: 'assistant-1', payload });
+      });
+
+      expect(mockTrialChatStore.setMessageStageDone).toHaveBeenCalledWith('assistant-1', payload);
     });
 
     it('handles onToken callback', async () => {

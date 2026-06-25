@@ -5,6 +5,13 @@ import { ChatPage, MemberSidebarPage, SidebarPage } from '../pages/index.js';
 import { waitForAppStable } from '../helpers/page-signals.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 
+// Navigating back into a conversation the user just left or destroyed re-mounts
+// realtime before the members refetch marks access revoked, so the socket
+// attempts one handshake the server rejects. The browser logs the rejected
+// upgrade; the app drops the socket once access resolves.
+const WS_HANDSHAKE_REJECTED_AFTER_LEAVE =
+  /WebSocket connection to .* failed: The server did not accept the WebSocket handshake/;
+
 test.describe('Group Chat Leave', () => {
   // Each test is destructive (leaving a conversation), so each gets its own groupConversation fixture
   test('non-owner leave navigates to /chat', async ({ testBobPage, groupConversation }) => {
@@ -17,6 +24,7 @@ test.describe('Group Chat Leave', () => {
     ]);
     expectConsoleErrors(testBobPage, [
       /Failed to load resource: the server responded with a status of 404/,
+      WS_HANDSHAKE_REJECTED_AFTER_LEAVE,
     ]);
     // Verify message visibility BEFORE opening sidebar — on mobile the sidebar
     // is a modal Sheet that covers the chat, making messages invisible.
@@ -46,10 +54,20 @@ test.describe('Group Chat Leave', () => {
 
     await test.step('navigating back to conversation redirects', async () => {
       // `commit`, not `domcontentloaded`: the access guard client-redirects a
-      // non-member to /chat, which interrupts a longer wait ("interrupted by
-      // another navigation"). Resolving at commit lands before the redirect; the
-      // assertion below is what proves Bob was bounced.
-      await testBobPage.goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' });
+      // non-member to /chat. That redirect can fire before this navigation
+      // commits and interrupt it ("interrupted by another navigation") — the
+      // interruption IS the bounce. Swallow only that specific error (rethrow
+      // anything else); the assertion below proves Bob was bounced.
+      await testBobPage
+        .goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' })
+        .catch((error: unknown) => {
+          if (
+            !(error instanceof Error) ||
+            !/interrupted by another navigation/i.test(error.message)
+          ) {
+            throw error;
+          }
+        });
       // Should redirect away since Bob is no longer a member
       await expect(testBobPage).not.toHaveURL(new RegExp(groupConversation.id), {
         timeout: TIMEOUTS.ROUTE,
@@ -71,6 +89,7 @@ test.describe('Group Chat Leave', () => {
     ]);
     expectConsoleErrors(authenticatedPage, [
       /Failed to load resource: the server responded with a status of 404/,
+      WS_HANDSHAKE_REJECTED_AFTER_LEAVE,
     ]);
     const { sidebar } = await setupConversationWithSidebar(authenticatedPage, groupConversation.id);
 
@@ -93,11 +112,21 @@ test.describe('Group Chat Leave', () => {
     });
 
     await test.step('conversation no longer accessible', async () => {
-      // `commit` so the post-destroy redirect to /chat can't interrupt the
-      // navigation wait; the assertion below proves the conversation is gone.
-      await authenticatedPage.goto(`/chat/${groupConversation.id}`, {
-        waitUntil: 'commit',
-      });
+      // The post-destroy redirect to /chat can fire before this `commit`
+      // navigation resolves and interrupt it ("interrupted by another
+      // navigation") — the interruption IS the proof the conversation is gone.
+      // Swallow only that specific error (rethrow anything else); the assertion
+      // below confirms it.
+      await authenticatedPage
+        .goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' })
+        .catch((error: unknown) => {
+          if (
+            !(error instanceof Error) ||
+            !/interrupted by another navigation/i.test(error.message)
+          ) {
+            throw error;
+          }
+        });
       await expect(authenticatedPage).not.toHaveURL(new RegExp(groupConversation.id), {
         timeout: TIMEOUTS.ROUTE,
       });
@@ -117,6 +146,7 @@ test.describe('Group Chat Leave', () => {
     ]);
     expectConsoleErrors(testBobPage, [
       /Failed to load resource: the server responded with a status of 404/,
+      WS_HANDSHAKE_REJECTED_AFTER_LEAVE,
     ]);
     // Sidebar's per-conversation Leave action shares the same rotation code
     // path as the member-sidebar Leave — both go through `leaveConversation()`

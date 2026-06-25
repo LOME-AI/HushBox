@@ -250,28 +250,31 @@ test.describe('Group Chat Regeneration', () => {
     await chatPage.gotoConversation(groupConversation.id);
     await chatPage.waitForConversationLoaded();
 
+    const msg = `Alice new ${String(Date.now())}`;
+
     await test.step('Alice sends new message and waits for AI', async () => {
-      const msg = `Alice new ${String(Date.now())}`;
-      await chatPage.sendFollowUpMessage(msg);
+      // Gate on the stream *cycle* (`data-streams-completed`), which advances
+      // only after the turn streams AND the post-send refetch reconciles the
+      // optimistic tree to the committed one. The load-readiness gate
+      // (`waitForMessagesReady`) stays true through that refetch, so gating on
+      // it let the retry below act on a stale list and send a target the
+      // server's tip-walk rejects (REGENERATION_BLOCKED_BY_OTHER_USER).
+      await chatPage.withStreamCycle(() => chatPage.sendFollowUpMessage(msg));
       await chatPage.waitForAIResponse(msg);
-      await chatPage.waitForStreamComplete();
     });
 
     await test.step('hover Alice latest user message and retry', async () => {
-      await chatPage.waitForMessagesReady();
-      // Find Alice's latest user message (second to last, before AI response)
+      // Alice's latest user message (last in the list, before its AI reply).
       const userMessages = chatPage.messagesByRole('user');
       const lastUserMsg = userMessages.last();
       await lastUserMsg.hover();
 
       const retryButton = lastUserMsg.getByRole('button', { name: 'Retry' });
       await expect(retryButton).toBeVisible();
-      await retryButton.click();
-    });
-
-    await test.step('wait for new AI response', async () => {
-      await chatPage.waitForAIResponse();
-      await chatPage.waitForStreamComplete();
+      // A blocked retry produces no new stream cycle, so this gate fails loudly
+      // — unlike the old `waitForAIResponse()` default matcher, which matched
+      // the prior turn's echo and masked a 403.
+      await chatPage.withStreamCycle(() => retryButton.click());
     });
 
     await test.step('verify earlier seeded messages are untouched', async () => {

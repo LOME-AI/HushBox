@@ -86,31 +86,20 @@ function extractStringPricing(
 }
 
 /**
- * Returns the effective per-token rate for `key` (`'input'` or `'output'`),
- * preferring the gateway's `service_tiers.flex` band when present (50% of
- * standard for every flex-eligible model in the live catalog). Models without
- * flex pricing fall back to the top-level standard rate.
+ * Returns the effective per-token rate for `key` (`'input'` or `'output'`):
+ * the top-level standard rate.
  *
- * Because the chat path opts into flex globally (see ZDR_PROVIDER_OPTIONS),
- * the gateway will route flex-eligible requests to the cheaper pool and bill
- * accordingly — surfacing the same number we estimate here. On flex-pool
- * exhaustion the gateway falls back to standard and bills at standard; that
- * widens the cost-reconciliation window, which `cost-calculator` already
- * handles via the `wasEstimated` path.
+ * The gateway's `service_tiers.flex` band is deliberately ignored. We no longer
+ * send `serviceTier: 'flex'` on inference calls (see ZDR_PROVIDER_OPTIONS — the
+ * gateway hard-rejects flex for models that don't expose it), so every request
+ * routes and bills at standard. Estimating against the flex band (~50% of
+ * standard) while billing at standard would systematically under-reserve, so
+ * the estimate must track the standard rate the gateway actually charges.
  */
 function extractEffectivePerTokenPricing(
   pricing: Record<string, unknown> | undefined,
   key: 'input' | 'output'
 ): string | undefined {
-  if (!pricing) return undefined;
-  const tiers = pricing['service_tiers'];
-  if (tiers !== null && typeof tiers === 'object') {
-    const flex = (tiers as Record<string, unknown>)['flex'];
-    if (flex !== null && typeof flex === 'object') {
-      const value = (flex as Record<string, unknown>)[key];
-      if (typeof value === 'string') return value;
-    }
-  }
   return extractStringPricing(pricing, key);
 }
 

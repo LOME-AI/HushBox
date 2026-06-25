@@ -28,6 +28,35 @@ export function isRetryableStatus(status: number): boolean {
 }
 
 /**
+ * Substrings of the thrown-error messages a transient connection drop produces.
+ * The connection-level twin of {@link isRetryableStatus}'s 5xx: when a
+ * workerd/wrangler worker recycles mid-request under load it may sever the
+ * socket instead of answering, surfacing as a thrown `socket hang up` /
+ * `ECONNRESET` / `fetch failed` rather than a status. Distinct from a real app
+ * error, which rejects with a message carrying none of these.
+ */
+const TRANSIENT_ERROR_PATTERNS = [
+  'socket hang up',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'fetch failed',
+] as const;
+
+/**
+ * Classify a thrown error as a transient connection drop worth retrying. Only
+ * `Error` instances are considered — Playwright and Node both throw `Error`s;
+ * a non-`Error` rejection is treated as terminal. Retrying on a thrown drop is
+ * only safe for idempotent calls, so the retry loop applies this solely when a
+ * caller opts in via {@link RetryOptions.isRetryableError}.
+ */
+export function isRetryableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return TRANSIENT_ERROR_PATTERNS.some((pattern) => error.message.includes(pattern));
+}
+
+/**
  * Exponential backoff ceiling for a given 0-based attempt, capped at
  * {@link MAX_DELAY_MS}. Jitter (if any) is applied by the caller — this is the
  * deterministic upper bound.
@@ -48,6 +77,14 @@ interface RetryOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Monotonic clock for the deadline check. Injectable for deterministic tests. */
   now?: () => number;
+  /**
+   * Opt-in classifier for a *thrown* error worth retrying (a transient
+   * connection drop — see {@link isRetryableError}). Omitted by default because
+   * re-issuing after a thrown drop is only safe for idempotent calls; a caller
+   * passing it asserts the call is idempotent. A thrown error not matched (or
+   * with no classifier) propagates immediately.
+   */
+  isRetryableError?: (error: unknown) => boolean;
 }
 
 /**
@@ -59,6 +96,11 @@ interface RetryOptions {
  *
  * `getStatus` extracts the status from the response shape (e.g. Playwright's
  * `APIResponse.status()`), keeping this loop independent of any HTTP client.
+ *
+ * When `options.isRetryableError` is supplied, a *thrown* transient error (a
+ * severed connection that never produced a status) is retried on the same
+ * schedule/budget instead of propagating — the connection-level counterpart of
+ * a transient 5xx. Errors it does not match still propagate at once.
  */
 export async function retryOnTransientStatus<T>(
   send: () => Promise<T>,
@@ -69,12 +111,19 @@ export async function retryOnTransientStatus<T>(
   const now = options.now ?? defaultNow;
   const deadline = now() + options.timeoutMs;
 
-  let result = await send();
   let attempt = 0;
-  while (isRetryableStatus(getStatus(result)) && now() < deadline) {
+  for (;;) {
+    try {
+      const result = await send();
+      if (!isRetryableStatus(getStatus(result)) || now() >= deadline) {
+        return result;
+      }
+    } catch (error) {
+      if (now() >= deadline || options.isRetryableError?.(error) !== true) {
+        throw error;
+      }
+    }
     await sleep(backoffCeilingMs(attempt));
     attempt += 1;
-    result = await send();
   }
-  return result;
 }

@@ -26,21 +26,66 @@ import {
 
 const apiUrl = requireEnv('VITE_API_URL');
 
-function attachConsoleErrors(page: Page): { errors: string[]; cleanup: () => void } {
-  const errors: string[] = [];
-  const onConsole = (msg: { type: () => string; text: () => string }): void => {
-    if (msg.type() === 'error') errors.push(msg.text());
+/**
+ * Network `errorText` families for an in-flight load cancelled by navigation,
+ * page close, or an `AbortController` — `net::ERR_ABORTED` (Chromium),
+ * `NS_BINDING_ABORTED` (Firefox), `Load request cancelled` (WebKit). The same
+ * families `DEFAULT_API_ALLOW` tolerates on the network channel.
+ */
+const ABORT_ERROR_TEXTS = ['net::ERR_ABORTED', 'NS_BINDING_ABORTED', 'Load request cancelled'];
+
+/**
+ * Per page: the resource URLs the network layer reported as aborted. Teardown
+ * cross-references these against each captured console error's source URL (its
+ * {@link ConsoleEntry}) to drop the resource-load console error an engine emits
+ * for a cancelled load — browser-agnostically, keyed on the abort *fact* rather
+ * than each engine's console prose (a Firefox font download, a script, a
+ * stylesheet). A genuine 404/5xx/decode failure never produces a
+ * `requestfailed` abort, so it still surfaces.
+ */
+const abortedResourceUrls = new WeakMap<Page, Set<string>>();
+
+/**
+ * A captured console error and the `location().url` it came from (`''` for an
+ * uncaught page error). Text and source travel together so the abort
+ * correlation never has to index two parallel arrays.
+ */
+interface ConsoleEntry {
+  text: string;
+  url: string;
+}
+
+function attachConsoleErrors(page: Page): { entries: ConsoleEntry[]; cleanup: () => void } {
+  const entries: ConsoleEntry[] = [];
+  const aborted = new Set<string>();
+  abortedResourceUrls.set(page, aborted);
+  const onConsole = (msg: {
+    type: () => string;
+    text: () => string;
+    location: () => { url: string };
+  }): void => {
+    if (msg.type() !== 'error') return;
+    entries.push({ text: msg.text(), url: msg.location().url });
   };
   const onPageError = (err: Error): void => {
-    errors.push(`[UNCAUGHT] ${err.message}`);
+    entries.push({ text: `[UNCAUGHT] ${err.message}`, url: '' });
+  };
+  const onRequestFailed = (request: Request): void => {
+    const errorText = request.failure()?.errorText ?? '';
+    if (ABORT_ERROR_TEXTS.some((token) => errorText.includes(token))) {
+      aborted.add(request.url());
+    }
   };
   page.on('console', onConsole);
   page.on('pageerror', onPageError);
+  page.on('requestfailed', onRequestFailed);
   return {
-    errors,
+    entries,
     cleanup: () => {
       page.off('console', onConsole);
       page.off('pageerror', onPageError);
+      page.off('requestfailed', onRequestFailed);
+      abortedResourceUrls.delete(page);
     },
   };
 }
@@ -428,6 +473,37 @@ function filterUnexpected(captured: string[], allowed: RegExp[]): string[] {
 }
 
 /**
+ * A console error is navigation-cancel noise when it refers to a resource the
+ * network layer reported as aborted — by its `location().url` (`source`) or by
+ * a URL embedded in the message (Firefox's font error carries `source: <url>`).
+ * The cross-browser counterpart of `DEFAULT_API_ALLOW`'s network-abort
+ * families: it suppresses the resource-load console error any engine emits for
+ * a load cancelled by navigation/teardown, without a per-engine regex.
+ */
+function isAbortedResourceError(line: string, source: string, abortedUrls: Set<string>): boolean {
+  if (source !== '' && abortedUrls.has(source)) return true;
+  for (const url of abortedUrls) {
+    if (line.includes(url)) return true;
+  }
+  return false;
+}
+
+/**
+ * Console error texts for `page` minus the resource-load errors whose
+ * underlying request the network layer reported as aborted (the page
+ * navigated/closed mid-load) — the browser-agnostic counterpart of
+ * `DEFAULT_API_ALLOW`'s abort families. Each {@link ConsoleEntry} carries its
+ * own source URL, so no parallel-array indexing is involved.
+ */
+function dropAbortedResourceErrors(page: Page, entries: ConsoleEntry[]): string[] {
+  const aborted = abortedResourceUrls.get(page);
+  if (!aborted || aborted.size === 0) return entries.map((entry) => entry.text);
+  return entries
+    .filter((entry) => !isAbortedResourceError(entry.text, entry.url, aborted))
+    .map((entry) => entry.text);
+}
+
+/**
  * Attach a labeled text artifact (`console-errors-<label>`, `api-errors-<label>`)
  * to the failing test. Skips attachment when there are no errors — Playwright
  * shows empty attachments which clutter the report. Used by every page-creating
@@ -501,7 +577,7 @@ function createPageFixture(
     });
     if (initScript !== null) await context.addInitScript({ content: initScript });
     const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
+    const { entries, cleanup } = attachConsoleErrors(page);
     const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
     const { violations, cleanup: cleanupNetwork } = installNetworkAllowlist(
       context,
@@ -515,7 +591,7 @@ function createPageFixture(
         page,
         context,
         label,
-        errors,
+        entries,
         apiErrors,
         violations,
         cleanup,
@@ -646,9 +722,20 @@ function formatNetworkViolations(
 
 async function attachFailureArtifacts(
   testInfo: TestInfo,
-  entry: { page: Page; label: string; errors: string[]; apiErrors: string[]; harPath: string }
+  entry: {
+    page: Page;
+    label: string;
+    entries: ConsoleEntry[];
+    apiErrors: string[];
+    harPath: string;
+  }
 ): Promise<void> {
-  await attachLabeledArtifact(testInfo, 'console-errors', entry.label, entry.errors);
+  await attachLabeledArtifact(
+    testInfo,
+    'console-errors',
+    entry.label,
+    entry.entries.map((e) => e.text)
+  );
   await attachLabeledArtifact(testInfo, 'api-errors', entry.label, entry.apiErrors);
   const snapshot = await entry.page
     .locator(':root')
@@ -672,7 +759,7 @@ interface PageTeardownEntry {
   page: Page;
   context: BrowserContext;
   label: string;
-  errors: string[];
+  entries: ConsoleEntry[];
   apiErrors: string[];
   violations: NetworkViolation[];
   cleanup: () => void;
@@ -689,7 +776,8 @@ async function teardownPage(
   // Promote captured errors to test assertions when the test would otherwise
   // pass. Tests opt-out per-page via `expectConsoleErrors` / `expectApiErrors`.
   const allowList = getAllowList(entry.page);
-  const unexpectedConsole = filterUnexpected(entry.errors, [
+  const consoleLines = dropAbortedResourceErrors(entry.page, entry.entries);
+  const unexpectedConsole = filterUnexpected(consoleLines, [
     ...DEFAULT_CONSOLE_ALLOW,
     ...allowList.console,
   ]);
@@ -750,7 +838,7 @@ export const test = base.extend<CustomFixtures>({
       });
       if (initScript !== null) await context.addInitScript({ content: initScript });
       const page = await context.newPage();
-      const { errors, cleanup } = attachConsoleErrors(page);
+      const { entries, cleanup } = attachConsoleErrors(page);
       const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
       const { violations, cleanup: cleanupNetwork } = installNetworkAllowlist(
         context,
@@ -761,7 +849,7 @@ export const test = base.extend<CustomFixtures>({
         page,
         context,
         label,
-        errors,
+        entries,
         apiErrors,
         violations,
         cleanup,
@@ -963,7 +1051,7 @@ export const test = base.extend<CustomFixtures>({
       }),
     });
     const page = await context.newPage();
-    const { errors, cleanup } = attachConsoleErrors(page);
+    const { entries, cleanup } = attachConsoleErrors(page);
     const { errors: apiErrors, cleanup: cleanupApi } = attachApiErrors(page);
     const { violations, cleanup: cleanupNetwork } = installNetworkAllowlist(
       context,
@@ -977,7 +1065,7 @@ export const test = base.extend<CustomFixtures>({
         page,
         context,
         label: 'lowBalancePage',
-        errors,
+        entries,
         apiErrors,
         violations,
         cleanup,

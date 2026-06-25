@@ -74,6 +74,41 @@ describe('useTrialChatStore', () => {
     });
   });
 
+  describe('setMessageStageDone', () => {
+    it('records the resolved model id and name on the target message', () => {
+      useTrialChatStore
+        .getState()
+        .addMessage({ ...makeTrialMessage('m1', 'assistant', ''), modelName: 'smart-model' });
+
+      useTrialChatStore.getState().setMessageStageDone('m1', {
+        stageId: 'smart-model',
+        resolvedModelId: 'openai/gpt-4o-mini',
+        resolvedModelName: 'GPT-4o mini',
+      });
+
+      const msg = useTrialChatStore.getState().messages[0]!;
+      expect(msg.modelName).toBe('openai/gpt-4o-mini');
+      expect(msg.resolvedModelName).toBe('GPT-4o mini');
+      expect(msg.isSmartModel).toBe(true);
+    });
+
+    it('does not affect other messages', () => {
+      useTrialChatStore.getState().addMessage(makeTrialMessage('m1', 'user', 'Hello'));
+      useTrialChatStore
+        .getState()
+        .addMessage({ ...makeTrialMessage('m2', 'assistant', ''), modelName: 'smart-model' });
+
+      useTrialChatStore.getState().setMessageStageDone('m2', {
+        stageId: 'smart-model',
+        resolvedModelId: 'openai/gpt-4o-mini',
+        resolvedModelName: 'GPT-4o mini',
+      });
+
+      expect(useTrialChatStore.getState().messages[0]!.modelName).toBeUndefined();
+      expect(useTrialChatStore.getState().messages[0]!.resolvedModelName).toBeUndefined();
+    });
+  });
+
   describe('pendingMessage', () => {
     it('sets pending message', () => {
       useTrialChatStore.getState().setPendingMessage('Hello');

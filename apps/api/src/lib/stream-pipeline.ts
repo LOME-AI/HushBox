@@ -63,7 +63,7 @@ import { safeExecutionCtx } from './safe-execution-ctx.js';
 import { getActiveConversationUserIds } from './broadcast.js';
 import { dispatchPushNotification } from '../services/push/index.js';
 import { buildGroupBillingContext } from './billing-types.js';
-import type { Model, ModelPricingResult } from '@hushbox/shared';
+import type { Model, ModelPricingResult, UserTier } from '@hushbox/shared';
 import type { Context } from 'hono';
 import type { EvidenceConfig } from '@hushbox/db';
 import type {
@@ -592,6 +592,55 @@ interface ResolveSmartModelPricingInput {
 
 type SmartModelPricingOutcome = { errorResponse: Response } | { resolution: SmartModelResolution };
 
+export interface BuildSmartModelResolutionInput {
+  /** Processed catalog models (includes the virtual Smart Model entry). */
+  poolModels: Model[];
+  /** Premium model ids the payer's tier may not access. */
+  premiumIds: ReadonlySet<string>;
+  /** Raw gateway catalog, for the classifier-prompt name/description lookup. */
+  gatewayModels: RawModel[];
+  payerTier: UserTier;
+  payerBalanceCents: number;
+  payerFreeAllowanceCents: number;
+  promptCharacterCount: number;
+}
+
+/**
+ * Pure Smart Model resolution: the eligible inference set, the classifier
+ * model, the worst-case classifier cost, and the metadata lookup the stage
+ * needs. Returns `null` when the payer can't afford even the cheapest eligible
+ * model plus classifier overhead.
+ *
+ * Single source of truth for "what can this payer route Smart Model to?",
+ * shared verbatim by authenticated billing resolution and the trial chat route
+ * so neither path can diverge. The trial tier is a first-class payer here —
+ * `getEffectiveBalance` maps it to the fixed per-message ceiling — so no
+ * trial-specific branch is needed.
+ */
+export function buildSmartModelResolution(
+  input: BuildSmartModelResolutionInput
+): SmartModelResolution | null {
+  const eligibility = buildEligibleModels({
+    textModels: input.poolModels.filter((m) => m.modality === 'text' && !m.isSmartModel),
+    premiumIds: input.premiumIds,
+    payerTier: input.payerTier,
+    payerBalanceCents: input.payerBalanceCents,
+    payerFreeAllowanceCents: input.payerFreeAllowanceCents,
+    promptCharacterCount: input.promptCharacterCount,
+  });
+  if (eligibility === null) return null;
+
+  return {
+    classifierModelId: eligibility.classifierModelId,
+    eligibleInferenceIds: eligibility.eligibleInferenceIds,
+    classifierWorstCaseCents: eligibility.classifierWorstCaseCents,
+    modelMetadataById: buildSmartModelMetadata(
+      input.gatewayModels,
+      eligibility.eligibleInferenceIds
+    ),
+  };
+}
+
 /**
  * Mutates `allPricing` in place: every Smart Model slot has its per-token
  * fees overridden to the max of the eligible pool. Returns the resolution
@@ -605,16 +654,17 @@ async function resolveSmartModelPricing(
   if (!models.includes(SMART_MODEL_ID)) return null;
 
   const { models: poolModels, premiumIds } = await getProcessedCatalog(c);
-  const eligibility = buildEligibleModels({
-    textModels: poolModels.filter((m) => m.modality === 'text' && !m.isSmartModel),
+  const resolution = buildSmartModelResolution({
+    poolModels,
     premiumIds: new Set(premiumIds),
+    gatewayModels,
     payerTier: input.payerTier,
     payerBalanceCents: input.payerBalanceCents,
     payerFreeAllowanceCents: input.payerFreeAllowanceCents,
     promptCharacterCount: input.promptCharacterCount,
   });
 
-  if (eligibility === null) {
+  if (resolution === null) {
     return {
       errorResponse: c.json(
         createErrorResponse(ERROR_CODE_INSUFFICIENT_BALANCE, {
@@ -625,20 +675,8 @@ async function resolveSmartModelPricing(
     };
   }
 
-  applySmartModelPricingOverride(poolModels, eligibility.eligibleInferenceIds, models, allPricing);
-  const modelMetadataById = buildSmartModelMetadata(
-    gatewayModels,
-    eligibility.eligibleInferenceIds
-  );
-
-  return {
-    resolution: {
-      classifierModelId: eligibility.classifierModelId,
-      eligibleInferenceIds: eligibility.eligibleInferenceIds,
-      classifierWorstCaseCents: eligibility.classifierWorstCaseCents,
-      modelMetadataById,
-    },
-  };
+  applySmartModelPricingOverride(poolModels, resolution.eligibleInferenceIds, models, allPricing);
+  return { resolution };
 }
 
 /**
@@ -647,7 +685,7 @@ async function resolveSmartModelPricing(
  * picks. Mutates `allPricing` in place for slots whose model id is the
  * Smart Model sentinel.
  */
-function computeMaxEligibleFees(
+export function computeMaxEligibleFees(
   poolModels: Model[],
   eligibleInferenceIds: readonly string[]
 ): { maxInputFee: number; maxOutputFee: number } {
@@ -1111,7 +1149,7 @@ function findLatestByRole(
   return messages.findLast((m) => m.role === role)?.content ?? '';
 }
 
-function extractConversationContextForClassifier(
+export function extractConversationContextForClassifier(
   messagesForInference: readonly MessageForInference[]
 ): { latestUserMessage: string; latestAssistantMessage: string } {
   return {

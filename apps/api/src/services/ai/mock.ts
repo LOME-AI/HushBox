@@ -1,6 +1,7 @@
 import {
   CHARS_PER_TOKEN_STANDARD,
   CLASSIFIER_SYSTEM_PROMPT_MARKER,
+  SMART_MODEL_ID,
   assertNever,
 } from '@hushbox/shared';
 import { fetchModels, getSupportedVideoDurations } from '@hushbox/shared/models';
@@ -566,6 +567,23 @@ export function createMockAIClient(
             return {
               next(): Promise<IteratorResult<InferenceEvent>> {
                 return Promise.reject(new Error(errorMessage));
+              },
+            };
+          },
+        };
+      }
+
+      // `smart-model` is a virtual catalog entry, never a real gateway model:
+      // the real gateway returns "Model 'smart-model' not found". The mock
+      // mirrors that so any path forwarding the virtual id instead of resolving
+      // it first fails in tests, not only in production.
+      if (request.model === SMART_MODEL_ID) {
+        const message = `Model '${SMART_MODEL_ID}' not found`;
+        return {
+          [Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+            return {
+              next(): Promise<IteratorResult<InferenceEvent>> {
+                return Promise.reject(new Error(message));
               },
             };
           },

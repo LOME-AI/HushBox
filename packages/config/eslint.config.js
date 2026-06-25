@@ -95,12 +95,7 @@ export function createBaseConfig(tsconfigRootDir) {
         'import/order': [
           'error',
           {
-            groups: [
-              ['builtin', 'external'],
-              'internal',
-              ['parent', 'sibling', 'index'],
-              'type',
-            ],
+            groups: [['builtin', 'external'], 'internal', ['parent', 'sibling', 'index'], 'type'],
             pathGroups: [
               {
                 pattern: '@hushbox/**',
@@ -399,8 +394,7 @@ export const reactConfig = [
         },
         {
           selector: "JSXOpeningElement[name.name='img']",
-          message:
-            'Use <Img> from @hushbox/ui (content) or <Logo> (decorative) — never raw <img>.',
+          message: 'Use <Img> from @hushbox/ui (content) or <Logo> (decorative) — never raw <img>.',
         },
       ],
     },
@@ -527,8 +521,7 @@ const e2eUniversalRestrictedSyntax = [
     // applies to string values, so `[value=/.../]` silently never matches a
     // numeric literal. `raw` also captures numeric separators (e.g. 30_000).
     selector: "Property[key.name='timeout'] > Literal[raw=/^[0-9][0-9_]*$/]",
-    message:
-      'No inline timeout literals — use a named budget from the timeouts module.',
+    message: 'No inline timeout literals — use a named budget from the timeouts module.',
   },
   {
     // (b) string-literal data-testid as a JSX attribute
@@ -543,8 +536,7 @@ const e2eUniversalRestrictedSyntax = [
   {
     // (b) raw `[data-testid="..."]` string selector passed to .locator()
     selector: "CallExpression[callee.property.name='locator'] > Literal[value=/\\[data-testid=/]",
-    message:
-      'No raw [data-testid="..."] selector — build it from the typed TEST_IDS registry.',
+    message: 'No raw [data-testid="..."] selector — build it from the typed TEST_IDS registry.',
   },
   {
     // (c) setTimeout / setInterval calls
@@ -555,19 +547,34 @@ const e2eUniversalRestrictedSyntax = [
     // (d) test.describe.configure({ mode: 'serial' })
     selector:
       "CallExpression[callee.property.name='configure'] ObjectExpression > Property[key.name='mode'][value.value='serial']",
-    message:
-      'No serial describes outside the @serial allowlist — keep tests order-independent.',
+    message: 'No serial describes outside the @serial allowlist — keep tests order-independent.',
   },
   {
     // (d) describe.serial
     selector: "MemberExpression[object.name='describe'][property.name='serial']",
-    message:
-      'No serial describes outside the @serial allowlist — keep tests order-independent.',
+    message: 'No serial describes outside the @serial allowlist — keep tests order-independent.',
   },
   {
     // (f) importing @hushbox/db (covers static imports the import ban also catches)
     selector: 'ImportDeclaration[source.value=/^@hushbox\\/db(\\/.*)?$/]',
     message: 'Specs must not touch the DB directly — set up state via API/dev endpoints.',
+  },
+  {
+    // (g) raw request.post / request.delete bypasses the retrying wrapper. The
+    // wrapper retries transient saturation drops (5xx + thrown socket hang up);
+    // the raw method silently lacks that, which is how setup flakes enter.
+    // Allowed only inside the wrapper itself (api-retry.ts) via an inline disable.
+    selector:
+      "CallExpression[callee.object.name='request'][callee.property.name=/^(post|delete)$/]",
+    message:
+      'No raw request.post/request.delete — use postWithRetry/deleteWithRetry from the api-retry helper so transient saturation drops are retried.',
+  },
+  {
+    // (g) same footgun via a page's request context (page.request.post/.delete)
+    selector:
+      "CallExpression[callee.object.type='MemberExpression'][callee.object.property.name='request'][callee.property.name=/^(post|delete)$/]",
+    message:
+      'No raw page.request.post/.delete — pass the request context to postWithRetry/deleteWithRetry instead.',
   },
 ];
 
@@ -671,8 +678,7 @@ export const playwrightConfig = [
         },
         {
           selector: 'CallExpression[callee.name=/^(afterEach|afterAll)$/]',
-          message:
-            'No afterEach/afterAll in specs — clean up via fixture teardown instead.',
+          message: 'No afterEach/afterAll in specs — clean up via fixture teardown instead.',
         },
       ],
     },

@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import type { StageDonePayload } from '@hushbox/shared';
+
 export interface TrialMessage {
   id: string;
   conversationId: string;
@@ -7,6 +9,13 @@ export interface TrialMessage {
   content: string;
   createdAt: string;
   modelName?: string;
+  /**
+   * Real model name resolved by a pre-inference stage (Smart Model classifier),
+   * delivered out-of-band via `stage:done`. Used as the nametag's immediate
+   * display value, mirroring the authenticated message shape.
+   */
+  resolvedModelName?: string;
+  isSmartModel?: boolean;
 }
 
 interface TrialChatState {
@@ -22,6 +31,8 @@ interface TrialChatState {
   updateMessageContent: (messageId: string, content: string) => void;
   /** Append content to a message (for streaming tokens) */
   appendToMessage: (messageId: string, token: string) => void;
+  /** Record a pre-inference stage's resolved model on a message (Smart Model). */
+  setMessageStageDone: (messageId: string, payload: StageDonePayload) => void;
   /** Set the pending first message */
   setPendingMessage: (message: string | null) => void;
   /** Clear the pending message */
@@ -52,6 +63,24 @@ export const useTrialChatStore = create<TrialChatState>((set) => ({
     set((state) => ({
       messages: state.messages.map((m) =>
         m.id === messageId ? { ...m, content: m.content + token } : m
+      ),
+    }));
+  },
+  setMessageStageDone: (messageId, payload) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === messageId
+          ? {
+              ...m,
+              // Record the resolved id (so the nametag resolves like an authed
+              // message) and the resolved name (immediate display fallback).
+              modelName: payload.resolvedModelId,
+              resolvedModelName: payload.resolvedModelName,
+              // Cast to string widens away from today's single-literal StageId
+              // union so this reads as forward-compat against future stages.
+              ...((payload.stageId as string) === 'smart-model' && { isSmartModel: true }),
+            }
+          : m
       ),
     }));
   },

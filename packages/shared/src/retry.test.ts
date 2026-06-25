@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { isRetryableStatus, backoffCeilingMs, retryOnTransientStatus } from './retry.js';
+import {
+  isRetryableStatus,
+  isRetryableError,
+  backoffCeilingMs,
+  retryOnTransientStatus,
+} from './retry.js';
 
 describe('isRetryableStatus', () => {
   it('treats request-timeout, rate-limit, and any 5xx as transient', () => {
@@ -12,6 +17,31 @@ describe('isRetryableStatus', () => {
     for (const status of [200, 201, 204, 304, 400, 401, 403, 404, 409, 422]) {
       expect(isRetryableStatus(status)).toBe(false);
     }
+  });
+});
+
+describe('isRetryableError', () => {
+  it('treats connection-drop network errors as transient', () => {
+    for (const message of [
+      'socket hang up',
+      'read ECONNRESET',
+      'connect ECONNREFUSED 127.0.0.1:8787',
+      'connect ETIMEDOUT',
+      'write EPIPE',
+      'fetch failed',
+    ]) {
+      expect(isRetryableError(new Error(message))).toBe(true);
+    }
+  });
+
+  it('treats application errors and non-Error values as terminal', () => {
+    expect(isRetryableError(new Error('Bad Request'))).toBe(false);
+    expect(isRetryableError(new Error('REGENERATION_BLOCKED_BY_OTHER_USER'))).toBe(false);
+    // Only `Error` instances qualify — Playwright/Node throw Errors. A bare
+    // string or an error-shaped plain object does not.
+    expect(isRetryableError('socket hang up')).toBe(false);
+    expect(isRetryableError({ message: 'socket hang up' })).toBe(false);
+    expect(isRetryableError(null)).toBe(false);
   });
 });
 
@@ -86,5 +116,66 @@ describe('retryOnTransientStatus', () => {
     });
     expect(result.status).toBe(503);
     expect(send).toHaveBeenCalledTimes(4);
+  });
+
+  it('retries a thrown transient error then returns the eventual response', async () => {
+    let call = 0;
+    const send = vi.fn((): Promise<{ status: number }> => {
+      call += 1;
+      return call === 1
+        ? Promise.reject(new Error('socket hang up'))
+        : Promise.resolve(withStatus(200));
+    });
+    const result = await retryOnTransientStatus(send, getStatus, {
+      timeoutMs: 60_000,
+      sleep: resolved,
+      now: () => 0,
+      isRetryableError,
+    });
+    expect(result.status).toBe(200);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('rethrows a thrown error that is not classified retryable', async () => {
+    const send = vi.fn((): Promise<{ status: number }> => Promise.reject(new Error('boom')));
+    await expect(
+      retryOnTransientStatus(send, getStatus, {
+        timeoutMs: 60_000,
+        sleep: resolved,
+        now: () => 0,
+        isRetryableError,
+      })
+    ).rejects.toThrow('boom');
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows a thrown transient error once the time budget is exhausted', async () => {
+    let clock = 0;
+    const send = vi.fn(
+      (): Promise<{ status: number }> => Promise.reject(new Error('socket hang up'))
+    );
+    const sleep = (): Promise<void> => {
+      clock += 1000;
+      return Promise.resolve();
+    };
+    await expect(
+      retryOnTransientStatus(send, getStatus, {
+        timeoutMs: 2500,
+        sleep,
+        now: () => clock,
+        isRetryableError,
+      })
+    ).rejects.toThrow('socket hang up');
+    expect(send).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not retry thrown errors when no isRetryableError predicate is given', async () => {
+    const send = vi.fn(
+      (): Promise<{ status: number }> => Promise.reject(new Error('socket hang up'))
+    );
+    await expect(
+      retryOnTransientStatus(send, getStatus, { timeoutMs: 60_000, sleep: resolved, now: () => 0 })
+    ).rejects.toThrow('socket hang up');
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

@@ -12,7 +12,7 @@ import type {
 // capabilities.ts` — `capabilities.test.ts` is the single owner of the shape
 // assertion.
 const ZDR_PROVIDER_OPTIONS = {
-  gateway: { zeroDataRetention: true, serviceTier: 'flex' },
+  gateway: { zeroDataRetention: true },
 } as const;
 
 const mockStreamText = vi.fn();
@@ -761,8 +761,8 @@ describe('createRealAIClient', () => {
           })
         );
         const callArgs = mockGenerateImage.mock.calls[0]![0]!;
-        // The flex-tier opt-in lives on `gateway.serviceTier` post-consolidation
-        // so the `google` namespace is absent unless `sampleImageSize` adds it.
+        // The `google` provider namespace is absent unless `sampleImageSize`
+        // adds it; only `gateway` ZDR options ride along by default.
         expect(callArgs.providerOptions?.google?.sampleImageSize).toBeUndefined();
       });
 
@@ -782,7 +782,6 @@ describe('createRealAIClient', () => {
         const callArgs = mockGenerateImage.mock.calls[0]![0]!;
         expect(callArgs.providerOptions?.gateway).toEqual({
           zeroDataRetention: true,
-          serviceTier: 'flex',
         });
       });
     });

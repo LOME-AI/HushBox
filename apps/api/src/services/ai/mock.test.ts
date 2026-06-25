@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { CLASSIFIER_SYSTEM_PROMPT_MARKER } from '@hushbox/shared';
+import { CLASSIFIER_SYSTEM_PROMPT_MARKER, SMART_MODEL_ID } from '@hushbox/shared';
 import { clearModelCache } from '@hushbox/shared/models';
 import { createMockAIClient, CANNED_IMAGE, CANNED_VIDEO } from './mock.js';
 import { E2E_MODEL_CATALOG } from './e2e-catalog.fixture.js';
@@ -272,6 +272,19 @@ describe('createMockAIClient', () => {
   });
 
   describe('text streaming', () => {
+    it('rejects the virtual Smart Model id (must be resolved before inference)', async () => {
+      // The real gateway has no `smart-model` and returns "Model 'smart-model'
+      // not found"; the mock mirrors that so a path forwarding the virtual id
+      // instead of resolving it fails in tests, not just in production.
+      const request: TextRequest = {
+        modality: 'text',
+        model: SMART_MODEL_ID,
+        messages: [{ role: 'user', content: 'Hi' }],
+      };
+
+      await expect(collectEvents(client.stream(request))).rejects.toThrow(/not found/);
+    });
+
     it('echoes the last user message content', async () => {
       const request: TextRequest = {
         modality: 'text',
