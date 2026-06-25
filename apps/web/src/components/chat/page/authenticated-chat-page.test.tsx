@@ -445,6 +445,10 @@ let mockAuthPrivateKey: Uint8Array | null = mockPrivateKey;
 vi.mock('@/lib/auth', () => ({
   useAuthStore: (selector: (state: { privateKey: Uint8Array | null }) => unknown) =>
     selector({ privateKey: mockAuthPrivateKey }),
+  useSession: () => ({
+    data: { user: { id: 'user-1' }, session: { id: 'session-1' } },
+    isPending: false,
+  }),
 }));
 
 vi.mock('@/hooks/crypto/use-decrypted-messages', () => ({

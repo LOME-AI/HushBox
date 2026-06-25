@@ -108,6 +108,11 @@ export async function runEmulatorContainer(options: RunEmulatorOptions): Promise
     '-e',
     // eslint-disable-next-line no-secrets/no-secrets -- budtmo env var literal selecting the AVD device profile, not a credential
     'EMULATOR_DEVICE=Samsung Galaxy S10',
+    // budtmo phones home (Google Form + ipinfo.io) on container start; disable
+    // it to drop that network call from the boot path.
+    '-e',
+    // eslint-disable-next-line no-secrets/no-secrets -- budtmo env var literal toggling analytics, not a credential
+    'USER_BEHAVIOR_ANALYTICS=false',
   ];
   if (options.includeVnc) envArgs.push('-e', 'WEB_VNC=true');
   await execa(

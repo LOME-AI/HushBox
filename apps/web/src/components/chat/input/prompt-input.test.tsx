@@ -105,6 +105,7 @@ const defaultBudget: PromptBudgetResult = {
 function makeSearchProps(overrides: Partial<ChatSearchProps> = {}): ChatSearchProps {
   return {
     webSearchEnabled: false,
+    canUseWebSearch: true,
     onToggleWebSearch: vi.fn(),
     ...overrides,
   };
@@ -922,7 +923,7 @@ describe('PromptInput', () => {
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
           isAuthenticated={false}
-          searchProps={makeSearchProps()}
+          searchProps={makeSearchProps({ canUseWebSearch: false })}
         />
       );
       const wrapper = screen.getByRole('button', { name: /internet search unavailable/i });
@@ -966,7 +967,7 @@ describe('PromptInput', () => {
           onChange={mockOnChange}
           onSubmit={mockOnSubmit}
           isAuthenticated={false}
-          searchProps={makeSearchProps()}
+          searchProps={makeSearchProps({ canUseWebSearch: false })}
         />
       );
 

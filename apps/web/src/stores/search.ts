@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { WEB_SEARCH_STORAGE_KEY } from '@hushbox/shared';
 
 interface SearchState {
   webSearchEnabled: boolean;
@@ -13,7 +14,7 @@ export const useSearchStore = create<SearchState>()(
       toggleWebSearch: () => set((state) => ({ webSearchEnabled: !state.webSearchEnabled })),
     }),
     {
-      name: 'hushbox-search-storage',
+      name: WEB_SEARCH_STORAGE_KEY,
     }
   )
 );

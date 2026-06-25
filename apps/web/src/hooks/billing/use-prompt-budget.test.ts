@@ -15,6 +15,7 @@ const {
   mockSelectedModels,
   mockModelsData,
   mockSearchStore,
+  mockSession,
   mockActiveModality,
   mockImageSelections,
   mockVideoSelections,
@@ -70,6 +71,21 @@ const {
       } as HoistedModelsData,
     },
     mockSearchStore: { current: { webSearchEnabled: false } },
+    mockSession: {
+      current: {
+        data: {
+          user: {
+            id: 'user-1',
+            email: 'test@test.com',
+            username: 'testuser',
+            emailVerified: true,
+            totpEnabled: false,
+          },
+          session: { id: 'session-1' },
+        },
+        isPending: false,
+      } as { data: { user: { id: string } } | null; isPending: boolean },
+    },
   };
 });
 
@@ -120,22 +136,24 @@ vi.mock('@/stores/search', () => ({
 }));
 
 vi.mock('@/lib/auth', () => ({
-  useSession: () => ({
-    data: {
-      user: {
-        id: 'user-1',
-        email: 'test@test.com',
-        username: 'testuser',
-        emailVerified: true,
-        totpEnabled: false,
-      },
-      session: { id: 'session-1' },
-    },
-    isPending: false,
-  }),
+  useSession: () => mockSession.current,
   useAuthStore: (selector: (state: { customInstructions: string | null }) => unknown) =>
     selector({ customInstructions: null }),
 }));
+
+const AUTHENTICATED_SESSION = {
+  data: {
+    user: {
+      id: 'user-1',
+      email: 'test@test.com',
+      username: 'testuser',
+      emailVerified: true,
+      totpEnabled: false,
+    },
+    session: { id: 'session-1' },
+  },
+  isPending: false,
+};
 
 describe('usePromptBudget', () => {
   const defaultInput: {
@@ -166,6 +184,8 @@ describe('usePromptBudget', () => {
   };
 
   beforeEach(() => {
+    mockSession.current = AUTHENTICATED_SESSION;
+    mockSearchStore.current = { webSearchEnabled: false };
     mockUseBudgetCalculation.mockReturnValue(baseBudgetResult);
     mockUseConversationBudgets.mockReturnValue({
       data: undefined,
@@ -600,6 +620,24 @@ describe('usePromptBudget', () => {
 
       const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as { webSearchCost: number };
       expect(budgetInput.webSearchCost).toBeCloseTo(worstCaseSearchCost(), 10);
+    });
+
+    it('reserves 0 web-search cost for unauthenticated (trial) users even when the toggle is persisted on', () => {
+      // The search preference persists across sign-out/expiry (hushbox-search-storage
+      // is not cleared by resetForUnauthenticated). Web search is authenticated-only,
+      // so a stale `true` must not reserve the worst-case search cost — that would
+      // exceed the 1¢ trial cap and block every trial message.
+      mockSession.current = { data: null, isPending: false };
+      mockSearchStore.current = { webSearchEnabled: true };
+
+      renderHook(() => usePromptBudget(defaultInput));
+
+      const budgetInput = mockUseBudgetCalculation.mock.calls[0]![0] as {
+        webSearchCost: number;
+        isAuthenticated: boolean;
+      };
+      expect(budgetInput.isAuthenticated).toBe(false);
+      expect(budgetInput.webSearchCost).toBe(0);
     });
   });
 

@@ -12,6 +12,7 @@ import {
 } from '../../packages/shared/src/constants.js';
 import { formatFeePercent } from '../../packages/shared/src/fees.js';
 import { generateReadme, getTemplateValues } from './generate-readme.js';
+import { countLinesOfCode } from './lines-of-code.js';
 
 describe('getTemplateValues', () => {
   it('returns fee percentages derived from constants', () => {
@@ -77,6 +78,34 @@ Storage: {{STORAGE_COST_PER_1K}} per 1k chars
     expect(output).toContain(`Storage: $${String(STORAGE_COST_PER_1K_CHARS)} per 1k chars`);
   });
 
+  it('replaces the lines-of-code variable with the repo line count', () => {
+    writeFileSync(
+      path.join(temporaryDir, 'count-me.ts'),
+      'const a = 1;\nconst b = 2;\nconst c = 3;\n'
+    );
+    writeFileSync(path.join(temporaryDir, 'README.template.md'), 'Lines: {{LINES_OF_CODE}}');
+    // Computed at the same filesystem state generateReadme sees (before it writes
+    // README.md), so the assertion is independent of the counted-extension set.
+    const expected = countLinesOfCode(temporaryDir);
+
+    generateReadme(temporaryDir);
+
+    const output = readFileSync(path.join(temporaryDir, 'README.md'), 'utf8');
+    expect(output).toContain(`Lines: ${expected.toLocaleString('en-US')}`);
+  });
+
+  it('formats the line count with thousands separators', () => {
+    writeFileSync(path.join(temporaryDir, 'big.ts'), 'x\n'.repeat(1234));
+    writeFileSync(path.join(temporaryDir, 'README.template.md'), '{{LINES_OF_CODE}}');
+    const expected = countLinesOfCode(temporaryDir);
+
+    generateReadme(temporaryDir);
+
+    const output = readFileSync(path.join(temporaryDir, 'README.md'), 'utf8');
+    expect(expected).toBeGreaterThan(999);
+    expect(output).toContain(expected.toLocaleString('en-US'));
+  });
+
   it('adds auto-generated notice at top', () => {
     const template = '# Hello';
     writeFileSync(path.join(temporaryDir, 'README.template.md'), template);
@@ -119,7 +148,7 @@ Storage: {{STORAGE_COST_PER_1K}} per 1k chars
   });
 
   it('succeeds when all variables are matched', () => {
-    const template = `{{TOTAL_FEE_PERCENT}} {{HUSHBOX_FEE_PERCENT}} {{CC_FEE_PERCENT}} {{PROVIDER_FEE_PERCENT}} {{STORAGE_COST_PER_1K}} {{MESSAGES_PER_DOLLAR}} {{FREE_ALLOWANCE}} {{TRIAL_LIMIT}} {{WELCOME_CREDIT}}`;
+    const template = `{{TOTAL_FEE_PERCENT}} {{HUSHBOX_FEE_PERCENT}} {{CC_FEE_PERCENT}} {{PROVIDER_FEE_PERCENT}} {{STORAGE_COST_PER_1K}} {{MESSAGES_PER_DOLLAR}} {{FREE_ALLOWANCE}} {{TRIAL_LIMIT}} {{WELCOME_CREDIT}} {{LINES_OF_CODE}}`;
     writeFileSync(path.join(temporaryDir, 'README.template.md'), template);
 
     const mockExit = vi.spyOn(process, 'exit');

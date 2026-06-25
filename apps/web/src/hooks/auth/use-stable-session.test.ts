@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
-// Unmock stability provider so we can mock it with controlled values
-vi.unmock('@/providers/stability-provider');
-
 import { useStableSession } from '@/hooks/auth/use-stable-session';
 
 vi.mock('@/lib/auth', () => ({

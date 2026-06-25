@@ -13,9 +13,9 @@ import { useConversationBudgets } from '@/hooks/billing/use-conversation-budgets
 import { useMediaCostEstimate } from '@/hooks/billing/use-media-cost-estimate';
 import { useResolveBilling } from '@/hooks/billing/use-resolve-billing';
 import { useModelStore } from '@/stores/model';
-import { useSearchStore } from '@/stores/search';
 import { useModels } from '@/hooks/models/models';
 import { useSession, useAuthStore } from '@/lib/auth';
+import { useWebSearch } from '@/hooks/chat/use-web-search';
 
 interface PromptBudgetInput {
   value: string;
@@ -285,7 +285,7 @@ export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
   // (resolution and duration are billed).
   const videoConfig = useModelStore((state) => state.videoConfig);
   const audioConfig = useModelStore((state) => state.audioConfig);
-  const { webSearchEnabled } = useSearchStore();
+  const { active: webSearchActive } = useWebSearch();
   const { data: modelsData } = useModels();
   const { data: session, isPending: isSessionPending } = useSession();
 
@@ -293,7 +293,7 @@ export function usePromptBudget(input: PromptBudgetInput): PromptBudgetResult {
   const modelContextLength = Math.min(...modelsPricing.map((m) => m.contextLength));
   const isAuthenticated = !isSessionPending && Boolean(session?.user);
   const customInstructions = useAuthStore((s) => s.customInstructions);
-  const webSearchCost = webSearchEnabled ? worstCaseSearchCost() : 0;
+  const webSearchCost = webSearchActive ? worstCaseSearchCost() : 0;
 
   const isGroupMember = resolveIsGroupMember(input.conversationId, input.currentUserPrivilege);
 

@@ -31,7 +31,7 @@ export default defineConfig({
   forbidOnly: isCI,
   retries: isCI ? 2 : 1,
   maxFailures: isCI ? 1 : 0,
-  workers: isCI ? 6 : '45%',
+  workers: isCI ? 7 : '45%',
   timeout: TIMEOUTS.LONG,
   // Backstop so a wedged run can't hang forever. Playwright aborts via its
   // normal shutdown, which group-kills each webServer — so it won't leak orphan

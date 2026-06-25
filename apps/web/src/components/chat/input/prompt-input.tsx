@@ -168,8 +168,10 @@ function SubmitButtonIcon({ isProcessing }: Readonly<SubmitButtonIconProps>): Re
  * has no search feature" (e.g. image modality).
  */
 export interface ChatSearchProps {
-  /** Whether web search is currently enabled. */
+  /** Whether web search is currently enabled (effective state from useWebSearch). */
   webSearchEnabled: boolean;
+  /** Whether the user may use web search (authenticated-only); drives the toggle's enabled state. */
+  canUseWebSearch: boolean;
   /** Called when the user toggles web search. */
   onToggleWebSearch: () => void;
 }
@@ -264,12 +266,12 @@ function AIToggleButton({
 
 interface SearchToggleButtonProps {
   webSearchEnabled: boolean;
-  isAuthenticated: boolean;
+  canUse: boolean;
   onToggle?: (() => void) | undefined;
 }
 
-function getSearchTooltipText(isAuthenticated: boolean, webSearchEnabled: boolean): string {
-  if (!isAuthenticated) {
+function getSearchTooltipText(canUse: boolean, webSearchEnabled: boolean): string {
+  if (!canUse) {
     return 'Sign up to access internet search';
   }
   return webSearchEnabled ? 'Turn off internet search' : 'Turn on internet search';
@@ -369,11 +371,11 @@ function ModalityIcons({
 
 function SearchToggleButton({
   webSearchEnabled,
-  isAuthenticated,
+  canUse,
   onToggle,
 }: Readonly<SearchToggleButtonProps>): React.JSX.Element {
-  const isDisabled = !isAuthenticated;
-  const tooltipText = getSearchTooltipText(isAuthenticated, webSearchEnabled);
+  const isDisabled = !canUse;
+  const tooltipText = getSearchTooltipText(canUse, webSearchEnabled);
   const ariaLabel = isDisabled ? 'Internet search unavailable' : tooltipText;
 
   return (
@@ -423,7 +425,7 @@ function PromptToolbar({
       {showSearch && (
         <SearchToggleButton
           webSearchEnabled={searchProps.webSearchEnabled}
-          isAuthenticated={isAuthenticated}
+          canUse={searchProps.canUseWebSearch}
           onToggle={searchProps.onToggleWebSearch}
         />
       )}
