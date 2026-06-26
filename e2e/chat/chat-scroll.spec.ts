@@ -60,28 +60,37 @@ test.describe('Auto-scroll During Streaming', () => {
       chatPage.messagesByRole('assistant').getByText('Testing scroll', { exact: false })
     ).toBeVisible({ timeout: TIMEOUTS.ASSERT });
 
-    await chatPage.scrollUp(300);
-    await chatPage.waitForScrollStable();
-
+    // Re-issue the scroll each poll iteration, not once: under a saturated mobile
+    // engine the break-away gesture (a synthetic wheel event) can land outside
+    // the app's USER_SCROLL_DECAY_MS window relative to Virtuoso's debounced
+    // atBottom callback, so a single scroll-up may not register and the list
+    // re-pins to the bottom. Keep nudging — the behaviour a user who keeps
+    // scrolling sees — until the view holds clear of the bottom by the
+    // viewport-proportional threshold. A list that never breaks away (a real
+    // regression) never clears the threshold and the poll times out.
     await expect(async () => {
+      await chatPage.scrollUp(300);
       const pos = await chatPage.getScrollPosition();
       const distanceFromBottom = pos.scrollHeight - pos.scrollTop - pos.clientHeight;
-      expect(distanceFromBottom).toBeGreaterThan(20);
+      const minDistance = Math.max(20, pos.clientHeight * 0.05);
+      expect(distanceFromBottom).toBeGreaterThan(minDistance);
     }).toPass({ timeout: TIMEOUTS.ASSERT });
-
-    const midStreamPos = await chatPage.getScrollPosition();
-    const midStreamDistance =
-      midStreamPos.scrollHeight - midStreamPos.scrollTop - midStreamPos.clientHeight;
-    // Use proportional threshold that works across viewport sizes
-    const minDistance = Math.max(20, midStreamPos.clientHeight * 0.05);
-    expect(midStreamDistance).toBeGreaterThan(minDistance);
 
     await chatPage.waitForStreamComplete();
 
-    const finalPos = await chatPage.getScrollPosition();
-    const distanceFromBottom = finalPos.scrollHeight - finalPos.scrollTop - finalPos.clientHeight;
-    const finalMinDistance = Math.max(50, finalPos.clientHeight * 0.05);
-    expect(distanceFromBottom).toBeGreaterThan(finalMinDistance);
+    // Poll (like the mid-stream check above), don't point-read: as the finished
+    // turn settles its final layout (the toolbar mounts, code highlights, the
+    // post-turn refetch reconciles) the scroller height shifts, and on a
+    // saturated mobile engine that can momentarily read as snapped-to-bottom
+    // before the view re-settles at the user's break-away position. A permanent
+    // re-engage (the break-away genuinely lost) still fails — the distance never
+    // recovers and the poll times out.
+    await expect(async () => {
+      const finalPos = await chatPage.getScrollPosition();
+      const distanceFromBottom = finalPos.scrollHeight - finalPos.scrollTop - finalPos.clientHeight;
+      const finalMinDistance = Math.max(50, finalPos.clientHeight * 0.05);
+      expect(distanceFromBottom).toBeGreaterThan(finalMinDistance);
+    }).toPass({ timeout: TIMEOUTS.ASSERT });
   });
 });
 

@@ -3,6 +3,7 @@ import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.
 import { setupConversationWithSidebar } from '../helpers/group-test-setup.js';
 import { ChatPage, MemberSidebarPage, SidebarPage } from '../pages/index.js';
 import { waitForAppStable } from '../helpers/page-signals.js';
+import { gotoToleratingBounce } from '../helpers/navigation.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 
 // Navigating back into a conversation the user just left or destroyed re-mounts
@@ -53,21 +54,9 @@ test.describe('Group Chat Leave', () => {
     });
 
     await test.step('navigating back to conversation redirects', async () => {
-      // `commit`, not `domcontentloaded`: the access guard client-redirects a
-      // non-member to /chat. That redirect can fire before this navigation
-      // commits and interrupt it ("interrupted by another navigation") — the
-      // interruption IS the bounce. Swallow only that specific error (rethrow
-      // anything else); the assertion below proves Bob was bounced.
-      await testBobPage
-        .goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' })
-        .catch((error: unknown) => {
-          if (
-            !(error instanceof Error) ||
-            !/interrupted by another navigation/i.test(error.message)
-          ) {
-            throw error;
-          }
-        });
+      // The access guard client-redirects a non-member to /chat, which can
+      // interrupt this navigation before it commits — that bounce is the proof.
+      await gotoToleratingBounce(testBobPage, `/chat/${groupConversation.id}`);
       // Should redirect away since Bob is no longer a member
       await expect(testBobPage).not.toHaveURL(new RegExp(groupConversation.id), {
         timeout: TIMEOUTS.ROUTE,
@@ -112,21 +101,9 @@ test.describe('Group Chat Leave', () => {
     });
 
     await test.step('conversation no longer accessible', async () => {
-      // The post-destroy redirect to /chat can fire before this `commit`
-      // navigation resolves and interrupt it ("interrupted by another
-      // navigation") — the interruption IS the proof the conversation is gone.
-      // Swallow only that specific error (rethrow anything else); the assertion
-      // below confirms it.
-      await authenticatedPage
-        .goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' })
-        .catch((error: unknown) => {
-          if (
-            !(error instanceof Error) ||
-            !/interrupted by another navigation/i.test(error.message)
-          ) {
-            throw error;
-          }
-        });
+      // The post-destroy redirect to /chat can interrupt this navigation before
+      // it commits — that interruption is the proof the conversation is gone.
+      await gotoToleratingBounce(authenticatedPage, `/chat/${groupConversation.id}`);
       await expect(authenticatedPage).not.toHaveURL(new RegExp(groupConversation.id), {
         timeout: TIMEOUTS.ROUTE,
       });
@@ -170,20 +147,10 @@ test.describe('Group Chat Leave', () => {
     // Leaving the active conversation redirects to /chat.
     await expect(testBobPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
 
-    // The leaving user can no longer open the conversation. The non-member
-    // redirect to /chat can fire before this navigation commits and interrupt
-    // it — that interruption IS the bounce. Swallow only that specific error
-    // (rethrow anything else), then assert Bob landed on /chat.
-    await testBobPage
-      .goto(`/chat/${groupConversation.id}`, { waitUntil: 'commit' })
-      .catch((error: unknown) => {
-        if (
-          !(error instanceof Error) ||
-          !/interrupted by another navigation/i.test(error.message)
-        ) {
-          throw error;
-        }
-      });
+    // The leaving user can no longer open the conversation: the non-member
+    // redirect to /chat can interrupt this navigation before it commits — that
+    // bounce is expected. Then assert Bob landed on /chat.
+    await gotoToleratingBounce(testBobPage, `/chat/${groupConversation.id}`);
     await expect(testBobPage).toHaveURL('/chat', { timeout: TIMEOUTS.ROUTE });
   });
 

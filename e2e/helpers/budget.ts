@@ -1,5 +1,5 @@
 import { requireEnv } from './env.js';
-import { postWithRetry } from './api-retry.js';
+import { withRequestRetry } from './resilient-request.js';
 import type { APIRequestContext } from '@playwright/test';
 
 const API_BASE = requireEnv('VITE_API_URL');
@@ -33,7 +33,13 @@ interface BalanceData {
  * depending on which user needs to perform the operation.
  */
 export class BudgetHelper {
-  constructor(private request: APIRequestContext) {}
+  private readonly request: APIRequestContext;
+
+  constructor(request: APIRequestContext) {
+    // Wrap the injected context so budget calls retry a saturation sever even
+    // when the caller passes a raw `page.request` (e.g. the multi-model tests).
+    this.request = withRequestRetry(request);
+  }
 
   async getBudgets(conversationId: string): Promise<BudgetData> {
     const response = await this.request.get(`${API_BASE}/api/budgets/${conversationId}`);
@@ -155,7 +161,7 @@ export async function setWalletBalance(
   walletType: 'purchased' | 'free_tier',
   balance: string
 ): Promise<void> {
-  const response = await postWithRetry(request, `${API_BASE}/api/dev/wallet-balance`, {
+  const response = await request.post(`${API_BASE}/api/dev/wallet-balance`, {
     data: { email, walletType, balance },
   });
   if (!response.ok()) {

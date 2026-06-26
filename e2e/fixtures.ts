@@ -18,7 +18,7 @@ import { ChatPage } from './pages';
 import { TIMEOUTS } from './config/timeouts.js';
 import { requireEnv } from './helpers/env.js';
 import { clearUsageRateLimits } from './helpers/auth.js';
-import { postWithRetry } from './helpers/api-retry.js';
+import { withRequestRetry } from './helpers/resilient-request.js';
 import {
   buildStorageInitScript,
   type RawStorageState,
@@ -29,10 +29,20 @@ const apiUrl = requireEnv('VITE_API_URL');
 /**
  * Network `errorText` families for an in-flight load cancelled by navigation,
  * page close, or an `AbortController` — `net::ERR_ABORTED` (Chromium),
- * `NS_BINDING_ABORTED` (Firefox), `Load request cancelled` (WebKit). The same
- * families `DEFAULT_API_ALLOW` tolerates on the network channel.
+ * `NS_BINDING_ABORTED` / `NS_ERROR_DOM_BAD_URI` (Firefox — the latter is what
+ * Firefox reports when a request is abandoned because the document began
+ * unloading, e.g. a key prefetch firing as the page navigates away), and
+ * `Load request cancelled` (WebKit). The single source of truth for "a dropped
+ * load is teardown noise": the console correlation marks these requests' URLs
+ * aborted, and `DEFAULT_API_ALLOW` derives its network-channel allowance from
+ * the same list.
  */
-const ABORT_ERROR_TEXTS = ['net::ERR_ABORTED', 'NS_BINDING_ABORTED', 'Load request cancelled'];
+const ABORT_ERROR_TEXTS = [
+  'net::ERR_ABORTED',
+  'NS_BINDING_ABORTED',
+  'NS_ERROR_DOM_BAD_URI',
+  'Load request cancelled',
+];
 
 /**
  * Per page: the resource URLs the network layer reported as aborted. Teardown
@@ -403,26 +413,45 @@ export function expectApiErrors(page: Page, patterns: (string | RegExp)[]): void
 }
 
 /**
- * Universally-allowed API errors: the navigation-cancel families each
- * browser engine emits when a request is dropped because the page
- * navigated, closed, or its `AbortController` fired (`net::ERR_ABORTED`
- * on Chromium, `NS_BINDING_ABORTED` on Firefox, `Load request cancelled`
- * on WebKit). Always teardown noise, never an app concern.
+ * Universally-allowed API errors. The navigation-cancel families come straight
+ * from the single {@link ABORT_ERROR_TEXTS} source the console correlation also
+ * keys on — a request dropped because the page navigated, closed, or its
+ * `AbortController` fired is teardown noise on both channels, never an app
+ * concern. (`ABORT_ERROR_TEXTS` entries are fixed literals with no regex
+ * metacharacters, so they interpolate directly.)
  */
 const DEFAULT_API_ALLOW: RegExp[] = [
-  /NETWORK_FAILED .* — net::ERR_ABORTED/,
-  /NETWORK_FAILED .* — NS_BINDING_ABORTED/,
-  /NETWORK_FAILED .* — Load request cancelled/,
+  ...ABORT_ERROR_TEXTS.map((text) => new RegExp(`NETWORK_FAILED .* — ${text}`)),
   // A workerd/wrangler worker restart under host saturation answers an in-flight
-  // request (including a CORS preflight OPTIONS) with a bare 503 — the runtime
-  // envelope, not an app response. Reads go through the app-wide query retry
-  // policy and recover, but the failed preflight is still logged. Scoped to 503
-  // so a genuine app/CORS 4xx still fails. See E2E-RULES 2.10 (surface, not fail).
-  /NETWORK_FAILED .* — Preflight response is not successful\. Status code: 503/,
-  // Firefox's non-preflight counterpart: a GET whose CORS-headerless 503 (the
-  // same saturation runtime envelope) surfaces as NS_ERROR_DOM_BAD_URI. Scoped
-  // to /api/ reads, which the app-wide query retry recovers.
-  /NETWORK_FAILED GET .*\/api\/.* — NS_ERROR_DOM_BAD_URI/,
+  // request with a bare, CORS-headerless 503 — the runtime envelope, not an app
+  // response — which fails the fetch at the network layer. Each engine names the
+  // CORS block differently (Chromium "Preflight response is not successful",
+  // WebKit "Origin … is not allowed by Access-Control-Allow-Origin"), so this
+  // keys on the shared 503 fact, not the prose. Reads recover via the app-wide
+  // query retry; the failed attempt is still logged. Scoped to 503 so a genuine
+  // app/CORS 4xx still fails. See E2E-RULES 2.10 (surface, not fail).
+  /NETWORK_FAILED .* — .*Status code: 503/,
+  // A transient network-level drop of an idempotent GET read (a workerd recycle
+  // or a navigation-cancel under saturation severs the socket before any
+  // response). The app's TanStack Query layer retries reads and recovers, so the
+  // data still loads — and a read that genuinely never loads fails the test's own
+  // assertion (the awaited message/element never appears). Scoped to GET so a
+  // dropped mutation (non-idempotent, not auto-retried) still surfaces. Keyed on
+  // the method+endpoint fact, independent of each engine's errorText prose.
+  /NETWORK_FAILED GET .*\/api\//,
+  // The same saturation sever on a *mutation*, where the socket drops with a
+  // bare connection-failure errorText (no status reaches the client, so this is
+  // distinct from the 503 envelope above). Every mutation is idempotent
+  // (Idempotency-Key required; conversation create is keyed on a client-minted
+  // id, the chat turn on an Idempotency-Key, and the stream POST re-issues on a
+  // transport drop), so a severed attempt is reconciled by a retry or a
+  // concurrent idempotent attempt — and a mutation whose effect genuinely never
+  // lands fails the test's own assertion (no conversation row, no AI response).
+  // Unlike the GET rule this is errorText-keyed, not method-keyed: a sever is
+  // tolerated, but a real mutation 4xx/5xx still arrives on its own
+  // status-bearing line and surfaces. Chromium reports the sever as
+  // `net::ERR_FAILED`; other engines' equivalents join here when observed.
+  /NETWORK_FAILED .* — net::ERR_FAILED/,
 ];
 
 /**
@@ -455,17 +484,73 @@ const DEFAULT_CONSOLE_ALLOW: RegExp[] = [
   /\[UNCAUGHT\] (https?:)?\/\/?(localhost|127\.0\.0\.1|0\.0\.0\.0)[:/].*due to access control checks\.?/,
   /Viewport argument key "interactive-widget" not recognized and ignored\./,
   /\[astro-island\] Error hydrating .*TypeError: Importing a module script failed/,
-  // Browser-logged counterpart of the saturation 503 preflight above (both the
-  // pageerror and the "Failed to load resource" line). The query layer retries
-  // and recovers; only the console log remains. Scoped to 503 so a real CORS
-  // failure or app 4xx still fails the test.
-  /Preflight response is not successful\. Status code: 503/,
-  // Firefox's console counterpart of the saturation 503: a CORS-headerless 503
-  // (and its network-level retry companion) surface as "Cross-Origin Request
-  // Blocked". Scoped to a 503 or the failed-network "(null)" status so a real
-  // CORS failure or app 4xx still fails the test.
-  /Cross-Origin Request Blocked: .* Status code: 503\./,
+  // The saturation 503 envelope, console side: a workerd recycle answers a
+  // cross-origin /api request with a bare response lacking CORS headers, so the
+  // browser blocks it and logs a cross-origin error. Each engine phrases it
+  // differently — Chromium "has been blocked by CORS policy: No
+  // 'Access-Control-Allow-Origin' header", Firefox "Cross-Origin Request
+  // Blocked", WebKit "Origin … is not allowed by Access-Control-Allow-Origin",
+  // and the Chromium preflight variant "Preflight response is not successful".
+  // Keyed on the CORS-block fact across engines, NOT on a status code (Chromium's
+  // message carries none). Safe to drop the 503 scope: the app sets CORS headers
+  // on every real response, so a genuine CORS regression blocks every
+  // cross-origin request and fails the whole suite at once — never
+  // intermittently. The query layer retries and recovers.
+  /has been blocked by CORS policy|Cross-Origin Request Blocked|is not allowed by Access-Control-Allow-Origin|Preflight response is not successful/,
+  // Chromium's companion failed-load line for the same blocked fetch — a
+  // network-level failure, not an app status. A real 4xx/5xx logs "responded
+  // with a status of N" instead and still surfaces.
+  /Failed to load resource: net::ERR_FAILED/,
+  // Firefox's network-level companion when the 503 severs the socket outright:
+  // the CORS request "did not succeed" with a "(null)" status.
   /Cross-Origin Request Blocked: .*CORS request did not succeed\)\. Status code: \(null\)\./,
+  // ResizeObserver "loop" notices are a benign browser frame-budget artifact: a
+  // ResizeObserver callback mutated layout and the browser deferred the
+  // remaining notifications to the next frame (it self-heals — they are
+  // delivered then). It is never an app fault, but a host-saturated, starved
+  // frame makes it fire far more often, turning any test into a flake. Both the
+  // modern Chromium phrasing ("completed with undelivered notifications") and
+  // the legacy one ("loop limit exceeded") are the same benign condition. A real
+  // infinite resize loop would instead manifest as the tested UI never settling,
+  // which the test's own assertions catch.
+  /ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)/,
+  // A WebSocket upgrade to the dev realtime endpoint (ws://localhost:<api>/api/ws/…)
+  // can be rejected once before the client reconnects: a link-guest socket races
+  // ahead of its principal/access resolving (a 401), or a workerd recycle under
+  // saturation drops the in-flight upgrade. The client reconnects and realtime
+  // recovers; the browser still logs the one rejected upgrade — and each engine
+  // phrases it differently (Chromium "WebSocket connection to … failed: …",
+  // Firefox "Firefox can't establish a connection to the server at …"). Keyed on
+  // the *fact* that the line names the dev /api/ws/ URL rather than any engine's
+  // prose — the same browser-agnostic principle as the abort correlation. The
+  // only console lines that carry that URL are WS connection failures, and a
+  // genuine realtime regression still fails via the realtime assertions that
+  // depend on a live socket (a dead socket never delivers the awaited frame), so
+  // this backstop is redundant for real breakage.
+  /wss?:\/\/(?:localhost|127\.0\.0\.1):\d+\/api\/ws\//,
+  // Firefox logs a console error when an `@font-face` download is cancelled by a
+  // navigation that fires while the font is still in flight (status 2152398850 =
+  // NS_BINDING_ABORTED). This is the same navigation-cancel class the
+  // abort-correlation below already drops for tracked requests — but CSS-engine
+  // font loads don't surface as Playwright `requestfailed` events, so they can't
+  // be correlated by URL and slip through. Host saturation widens the
+  // font-in-flight-at-navigation window, so a navigation away from a page that
+  // is still loading a dev-served font (e.g. the marketing site's JetBrains
+  // Mono) can cancel the download. The font falls back to the system monospace;
+  // nothing functional breaks. Scoped to a local dev-served font, so a
+  // missing/renamed font (a deterministic 404, caught by the marketing render
+  // tests) is not masked.
+  /downloadable font: download failed.*source: https?:\/\/(?:localhost|127\.0\.0\.1):\d+\/[^"']*\.woff2?/,
+  // Streamdown's code plugin calls Shiki to highlight code blocks and logs
+  // `[Streamdown Code] Failed to highlight code: <err>` when a highlight throws.
+  // The app already wraps the plugin (createSafeCodePlugin) to short-circuit
+  // unsupported/partial languages, but Shiki loads grammars+theme as async WASM,
+  // and under host saturation that work is starved and can throw transiently for
+  // a supported language too — the base plugin logs from inside its own call, so
+  // the wrapper can't intercept it. The block falls back to unhighlighted text;
+  // nothing functional breaks. A real misconfiguration would fail every render
+  // (caught by the code-block render tests), not intermittently under load.
+  /\[Streamdown Code\] Failed to highlight code:/,
 ];
 
 function filterUnexpected(captured: string[], allowed: RegExp[]): string[] {
@@ -672,10 +757,10 @@ async function zeroLowBalanceWallets(
 ): Promise<void> {
   // Zero both wallets so the user is on the free tier with no allowance —
   // every preflight cost trips `insufficient_free_allowance` denial.
-  await postWithRetry(requestContext, '/api/dev/wallet-balance', {
+  await requestContext.post('/api/dev/wallet-balance', {
     data: { email, walletType: 'purchased', balance: '0.00000000' },
   });
-  await postWithRetry(requestContext, '/api/dev/wallet-balance', {
+  await requestContext.post('/api/dev/wallet-balance', {
     data: { email, walletType: 'free_tier', balance: '0.00000000' },
   });
 }
@@ -804,9 +889,18 @@ async function teardownPage(
 }
 
 export const test = base.extend<CustomFixtures>({
+  // Wrap the built-in request context once so every node-side API call retries a
+  // transient saturation sever (5xx envelope or socket drop) by construction —
+  // a plain `request.get(...)` is resilient and there are no per-call retry
+  // wrappers to forget. `authenticatedRequest` and every
+  // `playwright.request.newContext` the harness creates are wrapped the same
+  // way; lint forbids reaching past this via `page.request.<method>()`.
+  request: async ({ request }, use) => {
+    await use(withRequestRetry(request));
+  },
   resetRateLimitsAutoHook: [
     async ({ playwright }, use) => {
-      const ctx = await playwright.request.newContext({ baseURL: apiUrl });
+      const ctx = withRequestRetry(await playwright.request.newContext({ baseURL: apiUrl }));
       await clearUsageRateLimits(ctx);
       await ctx.dispose();
       await use(null);
@@ -873,7 +967,7 @@ export const test = base.extend<CustomFixtures>({
       baseURL: apiUrl,
       storageState: `e2e/.auth/${testInfo.project.name}/test-alice.json`,
     });
-    await use(context);
+    await use(withRequestRetry(context));
     await context.dispose();
   },
 
@@ -896,7 +990,7 @@ export const test = base.extend<CustomFixtures>({
       baseURL: apiUrl,
       storageState: `e2e/.auth/${testInfo.project.name}/test-billing-token.json`,
     });
-    await use(context);
+    await use(withRequestRetry(context));
     await context.dispose();
   },
 
@@ -908,7 +1002,7 @@ export const test = base.extend<CustomFixtures>({
     const projectName = testInfo.project.name;
     const aliceEmail = `test-alice-${projectName}@test.hushbox.ai`;
     const bobEmail = `test-bob-${projectName}@test.hushbox.ai`;
-    const response = await postWithRetry(authenticatedRequest, '/api/dev/group-chat', {
+    const response = await authenticatedRequest.post('/api/dev/group-chat', {
       data: {
         ownerEmail: aliceEmail,
         memberEmails: [bobEmail],
@@ -942,7 +1036,7 @@ export const test = base.extend<CustomFixtures>({
       baseURL: apiUrl,
       storageState: `e2e/.auth/${testInfo.project.name}/test-bob.json`,
     });
-    await use(context);
+    await use(withRequestRetry(context));
     await context.dispose();
   },
 
@@ -1035,10 +1129,12 @@ export const test = base.extend<CustomFixtures>({
     const projectName = testInfo.project.name;
     const lowBalanceEmail = `test-billing-validation-${projectName}@test.hushbox.ai`;
     const storageStatePath = `e2e/.auth/${projectName}/test-billing-validation.json`;
-    const requestContext = await playwright.request.newContext({
-      baseURL: apiUrl,
-      storageState: storageStatePath,
-    });
+    const requestContext = withRequestRetry(
+      await playwright.request.newContext({
+        baseURL: apiUrl,
+        storageState: storageStatePath,
+      })
+    );
 
     await zeroLowBalanceWallets(requestContext, lowBalanceEmail);
 
@@ -1077,7 +1173,7 @@ export const test = base.extend<CustomFixtures>({
       testInfo
     );
 
-    await postWithRetry(requestContext, '/api/dev/wallet-balance', {
+    await requestContext.post('/api/dev/wallet-balance', {
       data: { email: lowBalanceEmail, walletType: 'purchased', balance: '0.00000000' },
     });
     await requestContext.dispose();
@@ -1086,7 +1182,7 @@ export const test = base.extend<CustomFixtures>({
   testConversation: async ({ authenticatedPage, authenticatedRequest }, use, testInfo) => {
     const testMessage = `Fixture setup ${String(Date.now())}`;
     const aliceEmail = `test-alice-${testInfo.project.name}@test.hushbox.ai`;
-    const response = await postWithRetry(authenticatedRequest, '/api/dev/conversation', {
+    const response = await authenticatedRequest.post('/api/dev/conversation', {
       data: {
         ownerEmail: aliceEmail,
         messages: [

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
-import { ERROR_CODE_CONTEXT_LENGTH_EXCEEDED } from '@hushbox/shared';
+import { ERROR_CODE_CONTEXT_LENGTH_EXCEEDED, retryOnTransientStatus } from '@hushbox/shared';
+import { shouldRetryMutation } from '@/lib/retry';
 import { useStreamingActivityStore } from '@/stores/streaming-activity';
 import { usePreInferenceActivityStore } from '@/stores/pre-inference-activity';
 import { getApiUrl } from '@/lib/api';
@@ -386,12 +387,36 @@ async function consumeSSEStream(
   }
 }
 
+/**
+ * Wall-clock budget for transparently re-issuing a stream POST that a transient
+ * transport drop severed before any response — a workerd/wrangler recycle under
+ * host saturation severs the in-flight socket, surfacing as a thrown `TypeError`
+ * (no HTTP response). Bounded so a persistent outage still surfaces "failed"
+ * rather than hanging the composer.
+ */
+const STREAM_POST_RETRY_BUDGET_MS = 10_000;
+
 async function executeStream(
   config: StreamRequestConfig,
   errorMode: StreamMode,
   options?: StreamOptions
 ): Promise<StreamResult> {
-  const response = await fetch(config.url, config.options);
+  // Re-issue the POST only when the transport itself dropped before any response
+  // — the same `shouldRetryMutation` rule the app's TanStack mutations use: a
+  // no-response `TypeError` is the safe case (the run never reached the server,
+  // so repeating can't double-apply), while an intentional `AbortError` must not
+  // retry. A status-bearing response (`!response.ok`) is never retried here: it
+  // is an app error handled below, and a 5xx might mean the server already began
+  // a non-idempotent write. `() => 200` keeps the status branch inert so only a
+  // thrown transport failure re-issues; the time budget bounds the attempts.
+  const response = await retryOnTransientStatus(
+    () => fetch(config.url, config.options),
+    () => 200,
+    {
+      timeoutMs: STREAM_POST_RETRY_BUDGET_MS,
+      isRetryableError: (error) => shouldRetryMutation(0, error),
+    }
+  );
 
   if (!response.ok) {
     const data: unknown = await response.json();

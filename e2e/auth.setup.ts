@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TEST_IDS } from '@hushbox/shared';
+import { withRequestRetry } from './helpers/resilient-request.js';
 import {
   BASE_TEST_PERSONAS,
   TEST_2FA_TOTP_SECRET,
@@ -62,7 +63,7 @@ async function finishSetup({
 }: FinishSetupArgs): Promise<void> {
   await page.waitForURL('/chat', { timeout: TIMEOUTS.ROUTE });
 
-  const verifyResponse = await page.request.get('/api/conversations');
+  const verifyResponse = await withRequestRetry(page.request).get('/api/conversations');
   if (verifyResponse.status() === 401) {
     throw new Error(
       `Session verification failed for ${personaName}: session not persisted in Redis`

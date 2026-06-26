@@ -10,7 +10,7 @@ import {
   getAcceptableTOTPCode,
 } from './helpers/auth.js';
 import { requireEnv } from './helpers/env.js';
-import { postWithRetry } from './helpers/api-retry.js';
+import { openShareModalForMessage } from './helpers/share-message.js';
 import { ROUTES, TEST_IDS } from '@hushbox/shared';
 import { TIMEOUTS } from './config/timeouts.js';
 import type { Page, APIRequestContext, Locator } from '@playwright/test';
@@ -65,7 +65,7 @@ async function seedWalletBalance(
   email: string,
   balance: string
 ): Promise<void> {
-  const response = await postWithRetry(request, `${apiUrl}/api/dev/wallet-balance`, {
+  const response = await request.post(`${apiUrl}/api/dev/wallet-balance`, {
     data: { email, walletType: 'purchased', balance },
   });
   if (!response.ok()) {
@@ -283,7 +283,7 @@ test.describe('Account deletion', () => {
       test.setTimeout(TIMEOUTS.XXLONG);
       const user = await provisionFreshUser(unauthenticatedPage, request, 'e2e-del-share');
 
-      const convResponse = await postWithRetry(request, `${apiUrl}/api/dev/conversation`, {
+      const convResponse = await request.post(`${apiUrl}/api/dev/conversation`, {
         data: {
           ownerEmail: user.email,
           messages: [
@@ -300,10 +300,7 @@ test.describe('Account deletion', () => {
       await chatPage.waitForConversationLoaded();
 
       const aiMessage = chatPage.messagesByRole('assistant').first();
-      await aiMessage.hover();
-      await aiMessage.getByRole('button', { name: 'Share' }).click();
-
-      const shareModal = unauthenticatedPage.getByTestId(TEST_IDS.shareMessageModal);
+      const shareModal = await openShareModalForMessage(unauthenticatedPage, aiMessage);
       await expect(shareModal).toBeVisible();
       await unauthenticatedPage.getByTestId(TEST_IDS.shareMessageCreateButton).click();
 

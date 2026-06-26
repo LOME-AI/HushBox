@@ -2,7 +2,6 @@ import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.
 import { TEST_IDS, WEB_SEARCH_STORAGE_KEY } from '@hushbox/shared';
 import { ChatPage } from '../pages';
 import { requireEnv } from '../helpers/env.js';
-import { deleteWithRetry } from '../helpers/api-retry.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 import type { Page } from '@playwright/test';
 
@@ -33,7 +32,7 @@ test.describe('Trial Chat', { tag: '@chromium-only' }, () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async ({ request }) => {
-    const response = await deleteWithRetry(request, `${apiUrl}/api/dev/trial-usage`);
+    const response = await request.delete(`${apiUrl}/api/dev/trial-usage`);
     expect(response.ok()).toBe(true);
   });
   test.describe('New Chat Page', () => {
@@ -97,7 +96,7 @@ test.describe('Trial Chat', { tag: '@chromium-only' }, () => {
 
   test.describe('Rate Limiting', () => {
     test.beforeEach(async ({ request }) => {
-      const response = await deleteWithRetry(request, `${apiUrl}/api/dev/trial-usage`);
+      const response = await request.delete(`${apiUrl}/api/dev/trial-usage`);
       expect(response.ok()).toBe(true);
     });
 

@@ -2,7 +2,6 @@ import { TEST_IDS } from '@hushbox/shared';
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { SidebarPage } from '../pages/sidebar.page.js';
 import { waitForAppStable } from '../helpers/page-signals.js';
-import { postWithRetry } from '../helpers/api-retry.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 
 test.describe('Inbox decline invite', () => {
@@ -29,7 +28,7 @@ test.describe('Inbox decline invite', () => {
     // Seed a group conversation where Bob is invited but has NOT accepted —
     // mirrors the production invite flow (Alice invites Bob; Bob sees a
     // pending entry in his inbox until he chooses accept or decline).
-    const createResponse = await postWithRetry(authenticatedRequest, '/api/dev/group-chat', {
+    const createResponse = await authenticatedRequest.post('/api/dev/group-chat', {
       data: {
         ownerEmail: aliceEmail,
         memberEmails: [bobEmail],

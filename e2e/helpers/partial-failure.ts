@@ -1,5 +1,6 @@
 import { type Page, expect } from '@playwright/test';
 import { requireEnv } from './env.js';
+import { withRequestRetry } from './resilient-request.js';
 
 interface ContentItemRow {
   modelName: string | null;
@@ -39,7 +40,9 @@ export async function assertPartialFailurePersistence(
   const conversationId = page.url().split('/chat/')[1]?.split('?')[0];
   if (!conversationId) throw new Error('conversation id should be in URL');
 
-  const response = await page.request.get(`${apiUrl}/api/conversations/${conversationId}`);
+  const response = await withRequestRetry(page.request).get(
+    `${apiUrl}/api/conversations/${conversationId}`
+  );
   expect(response.ok()).toBe(true);
   const { messages } = (await response.json()) as ConversationApiResponse;
 

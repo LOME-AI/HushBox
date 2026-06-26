@@ -128,6 +128,19 @@ export async function cleanupTestData(db: Database): Promise<CleanupResult> {
 }
 
 /**
+ * SCAN `count` hint for the dev reset endpoints. Far above the production
+ * default: each SCAN is one HTTP round-trip through the Serverless Redis HTTP
+ * proxy, and under E2E saturation that round-trip count — not Redis CPU — is the
+ * cost. The usage reset runs before every test on every worker, so a high count
+ * collapses each prefix's keyspace traversal to one or two round-trips instead
+ * of dozens, keeping a saturated run's resets well inside the setup budget.
+ * Server-side MATCH still scopes the response to matching keys, so the shared
+ * dev Worker isolate never holds the whole keyspace in memory. Dev-only; never
+ * runs against a production Redis.
+ */
+const RESET_SCAN_COUNT = 1000;
+
+/**
  * Reset all trial usage records for testing purposes.
  * Scans Redis for trial:token:* and trial:ip:* keys and deletes them.
  */
@@ -138,7 +151,7 @@ export async function resetTrialUsage(redis: Redis): Promise<ResetTrialUsageResu
   do {
     const [nextCursor, keys]: [string, string[]] = await redis.scan(cursor, {
       match: 'trial:*',
-      count: 100,
+      count: RESET_SCAN_COUNT,
     });
     cursor = nextCursor;
     if (keys.length > 0) {
@@ -214,7 +227,7 @@ async function deleteRedisKeysByPrefixes(
     do {
       const [nextCursor, keys]: [string, string[]] = await redis.scan(cursor, {
         match: prefix,
-        count: 100,
+        count: RESET_SCAN_COUNT,
       });
       cursor = nextCursor;
       if (keys.length > 0) {

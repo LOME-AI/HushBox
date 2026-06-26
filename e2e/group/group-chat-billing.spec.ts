@@ -2,7 +2,6 @@ import { TEST_IDS, TEST_ID_BUILDERS } from '@hushbox/shared';
 import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { BudgetHelper, setWalletBalance } from '../helpers/budget.js';
-import { postWithRetry } from '../helpers/api-retry.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 import type { APIRequestContext } from '@playwright/test';
 import { personaEmail } from '../helpers/personas.js';
@@ -218,7 +217,7 @@ test.describe('Group Chat Billing', () => {
   }) => {
     // Create a custom group chat where Bob (free tier, $0 balance) is the owner
     // and Alice (paid tier, $100 balance) is an admin member.
-    const createResponse = await postWithRetry(authenticatedRequest, '/api/dev/group-chat', {
+    const createResponse = await authenticatedRequest.post('/api/dev/group-chat', {
       data: {
         ownerEmail: personaEmail('test-bob'),
         memberEmails: [personaEmail('test-alice')],

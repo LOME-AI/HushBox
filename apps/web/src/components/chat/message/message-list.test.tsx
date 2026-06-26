@@ -201,6 +201,66 @@ describe('MessageList', () => {
     expect(container).toHaveAttribute('data-at-bottom', 'true');
   });
 
+  it('re-pins to the last row when atBottom drops while auto-follow is engaged', () => {
+    render(<MessageList messages={messages} />);
+    virtuosoMockHandle.scrollToIndex.mockClear();
+
+    // A late last-item resize (the cost true-up badge growing the final reply
+    // after the stream has settled) drops atBottom with no user scroll. Auto-
+    // follow is still engaged, so the list must re-pin to the latest row —
+    // Virtuoso's followOutput re-pins on new items only, not on a resize.
+    act(() => {
+      (capturedVirtuosoProps['atBottomStateChange'] as (atBottom: boolean) => void)(false);
+    });
+
+    expect(virtuosoMockHandle.scrollToIndex).toHaveBeenCalledWith({ index: 'LAST', align: 'end' });
+  });
+
+  it('does not re-pin when the user scrolled away from the bottom', () => {
+    render(<MessageList messages={messages} />);
+    const scroller = screen.getByTestId('virtuoso-mock');
+    virtuosoMockHandle.scrollToIndex.mockClear();
+
+    // A real user scroll followed by atBottom dropping is the user deliberately
+    // leaving the bottom — auto-follow disengages and must not yank them back.
+    act(() => {
+      scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+      (capturedVirtuosoProps['atBottomStateChange'] as (atBottom: boolean) => void)(false);
+    });
+
+    expect(virtuosoMockHandle.scrollToIndex).not.toHaveBeenCalled();
+  });
+
+  it('does not re-pin while a turn is still streaming', () => {
+    render(<MessageList messages={messages} streamingMessageIds={new Set(['streaming-id'])} />);
+    virtuosoMockHandle.scrollToIndex.mockClear();
+
+    // While streaming, Virtuoso's followOutput owns the bottom-pin; an explicit
+    // re-pin here would fight its smooth follow, so the effect stays out.
+    act(() => {
+      (capturedVirtuosoProps['atBottomStateChange'] as (atBottom: boolean) => void)(false);
+    });
+
+    expect(virtuosoMockHandle.scrollToIndex).not.toHaveBeenCalled();
+  });
+
+  it('re-pins when message content grows after a turn settles off the bottom', () => {
+    const { rerender } = render(
+      <MessageList messages={messages} streamingMessageIds={new Set()} />
+    );
+    act(() => {
+      (capturedVirtuosoProps['atBottomStateChange'] as (atBottom: boolean) => void)(false);
+    });
+    virtuosoMockHandle.scrollToIndex.mockClear();
+
+    // A late cost true-up grows the last reply after streaming settled — a fresh
+    // messages reference with the viewport already off the bottom and auto-follow
+    // engaged must re-pin, since followOutput won't fire on an in-place growth.
+    rerender(<MessageList messages={[...messages]} streamingMessageIds={new Set()} />);
+
+    expect(virtuosoMockHandle.scrollToIndex).toHaveBeenCalledWith({ index: 'LAST', align: 'end' });
+  });
+
   it('excludes messages with a decryption-failure fallback content from data-decrypted-count', () => {
     const partiallyDecrypted = [
       { ...messages[0]!, content: '[decryption failed: missing epoch key]' },

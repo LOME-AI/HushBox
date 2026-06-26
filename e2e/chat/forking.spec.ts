@@ -62,8 +62,13 @@ test.describe('Fork Lifecycle', () => {
       await chatPage.clickForkTab('Main');
       await chatPage.expectActiveForkTab('Main');
       await chatPage.waitForConversationLoaded();
-      const mainCount = await chatPage.countMessages();
-      expect(mainCount).toBeLessThan(fork1MessageCount);
+      // Poll, don't point-read: the tab switch swaps the active branch's
+      // messages via a refetch that reconciles asynchronously. waitForConversationLoaded
+      // can resolve against the outgoing branch's still-mounted rows, so a
+      // one-shot count returns Fork 1's total. Retry until Main's branch lands.
+      await expect
+        .poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.CONVERSATION_LOAD })
+        .toBeLessThan(fork1MessageCount);
     });
 
     await test.step('switch back to Fork 1 — more messages', async () => {
@@ -71,8 +76,9 @@ test.describe('Fork Lifecycle', () => {
       await chatPage.clickForkTab('Fork 1');
       await chatPage.expectActiveForkTab('Fork 1');
       await chatPage.waitForConversationLoaded();
-      const count = await chatPage.countMessages();
-      expect(count).toBe(fork1MessageCount);
+      await expect
+        .poll(() => chatPage.countMessages(), { timeout: TIMEOUTS.CONVERSATION_LOAD })
+        .toBe(fork1MessageCount);
     });
   });
 

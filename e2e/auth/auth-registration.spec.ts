@@ -23,7 +23,7 @@ test.describe('Registration & Verification', () => {
     const password = 'TestPassword123!';
 
     await test.step('signup with valid credentials shows "Check your email"', async () => {
-      await signUpViaUI(unauthenticatedPage, { username, email, password });
+      await signUpViaUI(unauthenticatedPage, request, { username, email, password });
       await expect(unauthenticatedPage.getByText('Check your email')).toBeVisible();
     });
 
@@ -77,7 +77,7 @@ test.describe('Registration & Verification', () => {
       const password = 'TestPassword123!';
 
       await test.step('sign up shows check-your-email with resend button', async () => {
-        await signUpViaUI(unauthenticatedPage, { username, email, password });
+        await signUpViaUI(unauthenticatedPage, request, { username, email, password });
         await expect(unauthenticatedPage.getByTestId(TEST_IDS.checkYourEmail)).toBeVisible();
         await expect(unauthenticatedPage.getByText(email)).toBeVisible();
       });
@@ -122,7 +122,7 @@ test.describe('Registration & Verification', () => {
       const password = 'TestPassword123!';
 
       await test.step('sign up but do not verify', async () => {
-        await signUpViaUI(unauthenticatedPage, { username, email, password });
+        await signUpViaUI(unauthenticatedPage, request, { username, email, password });
         await expect(unauthenticatedPage.getByTestId(TEST_IDS.checkYourEmail)).toBeVisible();
       });
 

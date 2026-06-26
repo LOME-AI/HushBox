@@ -105,12 +105,23 @@ test.describe('Auth User Using Link', () => {
     });
 
     await test.step('Alice sends message in new epoch', async () => {
+      const baselineCount = await chatPage.getMessageCountViaAPI();
       const newMessage = `Post no-history link ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(newMessage);
       await chatPage.expectMessageVisible(newMessage);
-      // Stream + persistence runs under Workers waitUntil; Bob's GET below
-      // would otherwise race the DB write and see an empty messages array.
+      // Stream + persistence runs under Workers waitUntil; Bob's GET below would
+      // otherwise race the DB write and load an empty conversation.
+      // waitForStreamComplete gates on the client's SSE-done signal, which under
+      // saturation can lead the server's waitUntil commit — so additionally read
+      // the conversation back through the API until the write lands before Bob
+      // navigates. (`.catch` keeps a transient saturation 503 on the read from
+      // failing the poll outright.)
       await chatPage.waitForStreamComplete();
+      await expect
+        .poll(() => chatPage.getMessageCountViaAPI().catch(() => baselineCount), {
+          timeout: TIMEOUTS.STREAM_SATURATED,
+        })
+        .toBeGreaterThan(baselineCount);
     });
 
     await test.step('Bob opens read link — sees only new messages, no errors', async () => {
@@ -120,9 +131,12 @@ test.describe('Auth User Using Link', () => {
 
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
-      // Decryption can paint after settled fires.
+      // CONVERSATION_LOAD, not ASSERT: a link guest's first paint waits on the
+      // WASM decryption pass, which a saturated host serializes behind every
+      // other worker — the "messages loaded and decrypted" budget, not the
+      // generic assertion one. The message arrives; it is starved, not missing.
       await expect(testBobPage.getByText('Post no-history link').first()).toBeVisible({
-        timeout: TIMEOUTS.ASSERT,
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
 
       await expectNoDecryptionErrors(testBobPage);
@@ -143,10 +157,19 @@ test.describe('Auth User Using Link', () => {
     });
 
     await test.step('Alice sends another message', async () => {
+      const baselineCount = await chatPage.getMessageCountViaAPI();
       const latestMessage = `Latest for write link ${String(Date.now())}`;
       await chatPage.sendFollowUpMessage(latestMessage);
       await chatPage.expectMessageVisible(latestMessage);
+      // Confirm the server-side write landed before Bob's link GET (see the
+      // read-link step above) — waitForStreamComplete alone races the waitUntil
+      // commit under saturation, leaving Bob's view empty.
       await chatPage.waitForStreamComplete();
+      await expect
+        .poll(() => chatPage.getMessageCountViaAPI().catch(() => baselineCount), {
+          timeout: TIMEOUTS.STREAM_SATURATED,
+        })
+        .toBeGreaterThan(baselineCount);
     });
 
     await test.step('Bob opens write link — sees only new, can send, no errors', async () => {
@@ -157,8 +180,10 @@ test.describe('Auth User Using Link', () => {
       await expect(testBobPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
 
       // Decryption can paint after settled fires.
+      // CONVERSATION_LOAD, not ASSERT: the link guest's decryption pass is
+      // CPU-starved under the saturated matrix (see the read-link assertion above).
       await expect(testBobPage.getByText('Latest for write link').first()).toBeVisible({
-        timeout: TIMEOUTS.ASSERT,
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
       });
 
       await expectNoDecryptionErrors(testBobPage);

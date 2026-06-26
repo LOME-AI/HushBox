@@ -2,6 +2,7 @@ import { test, expect } from '../fixtures.js';
 import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from '../pages/index.js';
 import { requireEnv } from '../helpers/env.js';
+import { withRequestRetry } from '../helpers/resilient-request.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
@@ -230,7 +231,7 @@ test.describe('Smart Model', () => {
     await expect
       .poll(
         async () => {
-          const response = await authenticatedPage.request.get(
+          const response = await withRequestRetry(authenticatedPage.request).get(
             `${apiUrl}/api/dev/llm-completions-count/${conversationId}`
           );
           if (!response.ok()) return -1;

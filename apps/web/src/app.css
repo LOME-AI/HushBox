@@ -164,12 +164,25 @@ html.reduced-motion .animate-shake {
 }
 
 /* E2E: disable all CSS transitions and animations to eliminate timing races.
-   The [data-e2e] attribute is set on <html> when VITE_E2E is true. */
+   The [data-e2e] attribute is set on <html> when VITE_E2E is true.
+
+   `animation-name: none` (not merely a zeroed duration) is load-bearing for
+   exit-animated Radix overlays (Dialog/Sheet/Popover/DropdownMenu/Select). Radix
+   `Presence` unmounts a closing node synchronously only when its computed
+   `animation-name` is `none`; with any name set it instead routes through the
+   node's `animationend` event. Under host saturation WebKit can drop or defer
+   that event for a sub-millisecond animation, stranding the overlay mounted past
+   its close (a modal that never disappears → flaky assertions). Zeroing the
+   duration does NOT help: the reduced-motion rule (html.reduced-motion, also on
+   in the E2E build) wins specificity and pins the duration to 0.01ms regardless,
+   while leaving the name intact. Forcing the name to none removes the event
+   dependency entirely. Production keeps real animations; only the E2E build
+   takes this path. */
 [data-e2e] *,
 [data-e2e] *::before,
 [data-e2e] *::after {
   transition-duration: 0s !important;
-  animation-duration: 0s !important;
+  animation-name: none !important;
 }
 
 /* Demo (autoplaying showcase, no keyboard or screen-reader user). RouteAnnouncer

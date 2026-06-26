@@ -560,21 +560,19 @@ const e2eUniversalRestrictedSyntax = [
     message: 'Specs must not touch the DB directly — set up state via API/dev endpoints.',
   },
   {
-    // (g) raw request.post / request.delete bypasses the retrying wrapper. The
-    // wrapper retries transient saturation drops (5xx + thrown socket hang up);
-    // the raw method silently lacks that, which is how setup flakes enter.
-    // Allowed only inside the wrapper itself (api-retry.ts) via an inline disable.
+    // (g) Reaching a page's own request context (`page.request.get()`,
+    // `authenticatedPage.request.post()`, `this.page.request.get()`) bypasses the
+    // single retry mechanism, so a transient saturation drop (5xx envelope or
+    // thrown socket hang up) silently isn't retried — the classic way setup
+    // flakes enter. The `request`/`authenticatedRequest` fixtures (and every
+    // `playwright.request.newContext` the harness creates) are already wrapped by
+    // `withRequestRetry`, so use those — or wrap explicitly with
+    // `withRequestRetry(page.request)`. A helper's own `this.request` field is
+    // expected to already hold a wrapped context, so it is exempt.
     selector:
-      "CallExpression[callee.object.name='request'][callee.property.name=/^(post|delete)$/]",
+      "CallExpression[callee.object.type='MemberExpression'][callee.object.property.name='request'][callee.object.object.type!='ThisExpression'][callee.property.name=/^(get|head|post|put|patch|delete|fetch)$/]",
     message:
-      'No raw request.post/request.delete — use postWithRetry/deleteWithRetry from the api-retry helper so transient saturation drops are retried.',
-  },
-  {
-    // (g) same footgun via a page's request context (page.request.post/.delete)
-    selector:
-      "CallExpression[callee.object.type='MemberExpression'][callee.object.property.name='request'][callee.property.name=/^(post|delete)$/]",
-    message:
-      'No raw page.request.post/.delete — pass the request context to postWithRetry/deleteWithRetry instead.',
+      'No raw page.request.<method>() — use the wrapped request/authenticatedRequest fixture, or withRequestRetry(page.request), so transient saturation drops are retried.',
   },
 ];
 

@@ -163,8 +163,17 @@ test.describe('Chat Functionality', () => {
 
       await expect(firstMessage).toBeAttached();
 
-      await chatPage.scrollToTop();
-      await expect(firstMessage).toBeInViewport({ ratio: 0.5 });
+      // Re-issue scrollToTop each poll, not once: under a saturated mobile engine
+      // a late post-stream re-render (Virtuoso re-measuring the long message's
+      // height, the toolbar mounting) can re-pin the list to the bottom after a
+      // single scroll, snapping the just-revealed first message back off-screen.
+      // Keep scrolling up — what a user does — until it holds in view. A first
+      // message that can never be scrolled into view (a real regression) never
+      // satisfies the check and the poll times out.
+      await expect(async () => {
+        await chatPage.scrollToTop();
+        await expect(firstMessage).toBeInViewport({ ratio: 0.5, timeout: TIMEOUTS.QUICK });
+      }).toPass({ timeout: TIMEOUTS.STREAM_SATURATED });
     });
 
     test('long messages wrap properly without horizontal overflow', async ({

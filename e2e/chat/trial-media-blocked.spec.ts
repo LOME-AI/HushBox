@@ -2,7 +2,7 @@ import { test, expect } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { createInviteLink } from '../helpers/invite-link.js';
 import { requireEnv } from '../helpers/env.js';
-import { postWithRetry } from '../helpers/api-retry.js';
+import { withRequestRetry } from '../helpers/resilient-request.js';
 import { expectSharedConversationLoaded } from '../helpers/link-assertions.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 
@@ -27,8 +27,7 @@ test.describe('Trial / Link-Guest Media Blocked', () => {
     // testConversation is owned by Alice — but we're posting from a context with
     // empty cookies, so the session middleware must reject the request before
     // it can reach the modality dispatch.
-    const response = await postWithRetry(
-      unauthenticatedPage.request,
+    const response = await withRequestRetry(unauthenticatedPage.request).post(
       `${apiUrl}/api/chat/${testConversation.id}/stream`,
       {
         data: {
@@ -102,8 +101,7 @@ test.describe('Trial / Link-Guest Media Blocked', () => {
     await expect.poll(() => linkPublicKey, { timeout: TIMEOUTS.CONVERSATION_LOAD }).not.toBeNull();
     expect(linkPublicKey, 'guest page should have set the link public key').toBeTruthy();
 
-    const response = await postWithRetry(
-      guest.request,
+    const response = await withRequestRetry(guest.request).post(
       `${apiUrl}/api/chat/${groupConversation.id}/stream`,
       {
         headers: { 'X-Link-Public-Key': linkPublicKey! },

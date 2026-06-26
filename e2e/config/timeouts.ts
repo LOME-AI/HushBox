@@ -26,8 +26,32 @@ export const TIMEOUTS = {
    * project's workers run at once and saturate the host (see resource-scan).
    */
   STREAM_CLEAR: 30_000,
-  /** A media asset (image/video) has decoded and rendered. */
-  MEDIA_DECODE: 30_000,
+  /**
+   * A streamed turn whose first render can lag under the fully saturated matrix.
+   * Wider than STREAM (which is sized for a warm, uncontended single stream) to
+   * cover the two cases that legitimately run long when every browser project's
+   * workers hammer the host at once: (1) a multi-model fan-out, where N streams
+   * contend for the same CPU/socket/DB budget and a workerd recycle can drop one
+   * mid-turn, forcing a reconnect+replay before all tiles settle; and (2) a
+   * first message to a fresh conversation, whose ConversationRoom DO cold-starts
+   * and competes for the ~128 MB shared isolate, so the first token can take far
+   * longer than a warm follow-up. The token still arrives — it is starved, not
+   * dropped — so the budget absorbs it instead of scaling at runtime.
+   *
+   * Coincides with STREAM_CLEAR at 30s today but is kept distinct: that one
+   * bounds a regen's cascade-delete-then-restream, this one a saturated
+   * first-token/fan-out. They can diverge if either profile changes.
+   */
+  STREAM_SATURATED: 30_000,
+  /**
+   * A media asset (image/video) has decoded and rendered. Covers the full
+   * client chain after the turn streams: fetch the ciphertext (R2/MinIO),
+   * decrypt it (WASM crypto), and decode the bytes — all main-thread work that
+   * a saturated host serializes behind every other worker's browser, so the
+   * rendered element can land past a 30s budget. Wider than STREAM so it absorbs
+   * that without scaling at runtime.
+   */
+  MEDIA_DECODE: 45_000,
   /** A realtime WebSocket connection has completed its handshake. */
   WS_HANDSHAKE: 15_000,
   /** A modal/dialog has opened or closed. */
@@ -37,10 +61,11 @@ export const TIMEOUTS = {
   /** An inbound webhook has been received and processed. */
   WEBHOOK: 30_000,
   /**
-   * A dev/setup endpoint POST has returned a terminal (non-transient) response.
-   * Bounds the retry budget for `postWithRetry`: under host saturation a
-   * workerd/wrangler restart answers an in-flight request with a bare 5xx, and
-   * the POST is re-issued until it settles or this budget elapses.
+   * A node-side API request has returned a terminal (non-transient) response.
+   * Bounds the per-request retry budget that `withRequestRetry` wraps every
+   * fixture context with: under host saturation a workerd/wrangler recycle
+   * answers an in-flight request with a bare 5xx or severs the socket, and the
+   * request is re-issued until it settles or this budget elapses.
    */
   API_SETUP: 15_000,
   /** A single web-first assertion. */

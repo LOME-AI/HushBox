@@ -216,6 +216,21 @@ const MessageListInner = forwardRef<MessageListHandle, MessageListProps>(functio
     virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
   }, [conversationKey]);
 
+  // Re-pin to the latest row when content settles off the bottom while auto-
+  // follow is still engaged. After a turn stops streaming, a late growth — the
+  // cost true-up badge inflating the final reply, or a send's smooth scroll
+  // undershooting under host saturation — can leave the viewport above the
+  // bottom, and Virtuoso's followOutput won't recover it (it re-pins on new
+  // items, never on in-place growth or a short scroll). Guarded to act only
+  // post-stream (followOutput owns the streaming case), never against a user
+  // who scrolled away, and never when already pinned, so it converges to the
+  // bottom without fighting the user or churning mid-stream.
+  useEffect(() => {
+    if ((streamingMessageIds?.size ?? 0) > 0) return;
+    if (userScrolledAwayRef.current || isAtBottom) return;
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+  }, [messages, streamingMessageIds, isAtBottom]);
+
   // Must exceed Footer height (10dvh) so scrollToIndex({ index: 'LAST' })
   // lands within the threshold and atBottomStateChange reports true.
   const [atBottomThreshold] = useState((): number => Math.ceil(window.innerHeight * 0.1) + 20);

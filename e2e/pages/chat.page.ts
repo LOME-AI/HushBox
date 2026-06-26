@@ -3,6 +3,7 @@ import { TEST_IDS, TEST_ID_BUILDERS, TEST_SIGNALS } from '@hushbox/shared';
 import { expect } from '../helpers/expect.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 import { requireEnv } from '../helpers/env.js';
+import { withRequestRetry } from '../helpers/resilient-request.js';
 import { getBrowserName, lacksMediaDecode } from '../helpers/webkit-media-decode.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
@@ -103,12 +104,13 @@ export class ChatPage {
    * auto-scroll re-pins — so this verifies the final settled state rather than a
    * one-shot pixel read taken mid-layout.
    *
-   * Budgeted at ASSERT, not SCROLL_STABLE: the re-pin waits on an async layout
-   * pass (Shiki highlighting a code block, then a controls bar mounting) whose
-   * ResizeObserver lands late on WebKit when the host is saturated — wider than
-   * a bare scroll-settle so a loaded machine still observes the final pin.
+   * Budgeted at STREAM_SATURATED, not SCROLL_STABLE/ASSERT: the re-pin waits on
+   * an async layout pass (Shiki highlighting a code block, then a controls bar
+   * mounting) whose ResizeObserver lands late on WebKit, and on a saturated
+   * mobile engine that settle can run past 10s — the same saturated-stream tier
+   * the turn it follows uses, so a loaded machine still observes the final pin.
    */
-  async waitForAtBottom(timeout: number = TIMEOUTS.ASSERT): Promise<void> {
+  async waitForAtBottom(timeout: number = TIMEOUTS.STREAM_SATURATED): Promise<void> {
     await expect(this.messageList).toHaveAttribute(TEST_SIGNALS.atBottom, 'true', { timeout });
   }
 
@@ -439,7 +441,11 @@ export class ChatPage {
 
   async waitForAIResponse(
     expectedContent?: string,
-    timeout: number = TIMEOUTS.STREAM
+    // STREAM_SATURATED, not STREAM: a first message to a fresh conversation cold-
+    // starts its ConversationRoom DO, and under the saturated matrix that first
+    // token is starved (the stream POST sits open, not dropped) well past the
+    // warm-path budget. Callers wanting the tighter warm bound pass it explicitly.
+    timeout: number = TIMEOUTS.STREAM_SATURATED
   ): Promise<void> {
     const assistantMessages = this.messageList.locator(`[${ROLE_ATTR}="assistant"]`);
 
@@ -507,7 +513,14 @@ export class ChatPage {
    * cycle counter (a fact: "a cycle finished") rather than over a transient
    * state (`streaming-count > 0`) that can transition too quickly to observe.
    */
-  async waitForStreamCycle(baseline: number, timeout: number = TIMEOUTS.STREAM): Promise<void> {
+  async waitForStreamCycle(
+    baseline: number,
+    // STREAM_SATURATED, not STREAM: a stream cycle (including a regeneration that
+    // deletes then re-streams) completes far slower when the conversation DO is
+    // CPU-starved under the saturated matrix. The cycle counter still advances —
+    // it is delayed, not lost.
+    timeout: number = TIMEOUTS.STREAM_SATURATED
+  ): Promise<void> {
     await expect
       .poll(
         async () =>
@@ -533,7 +546,7 @@ export class ChatPage {
    */
   async withStreamCycle<T>(
     action: () => Promise<T>,
-    timeout: number = TIMEOUTS.STREAM
+    timeout: number = TIMEOUTS.STREAM_SATURATED
   ): Promise<T> {
     const baseline = await this.captureStreamBaseline();
     const result = await action();
@@ -561,7 +574,7 @@ export class ChatPage {
    * removed; callers that need start-or-skip-equivalence should adopt the
    * cycle-counter helpers above.
    */
-  async waitForStreamComplete(timeout: number = TIMEOUTS.STREAM): Promise<void> {
+  async waitForStreamComplete(timeout: number = TIMEOUTS.STREAM_SATURATED): Promise<void> {
     await expect(this.messageList).toHaveAttribute(TEST_SIGNALS.streamingCount, '0', {
       timeout,
     });
@@ -965,6 +978,12 @@ export class ChatPage {
 
   async scrollToTop(): Promise<void> {
     await this.viewport.evaluate((el) => {
+      // Dispatch the wheel gesture the app's break-away listener keys off (see
+      // scrollUp) BEFORE moving the scroller. A bare `scrollTop = 0` fires no
+      // user-scroll event, so auto-follow never disengages and re-pins the list
+      // to the bottom on the next post-stream re-render — under a saturated
+      // mobile engine that snaps the just-revealed top message back off-screen.
+      el.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -el.scrollHeight }));
       el.scrollTop = 0;
     });
   }
@@ -1033,7 +1052,7 @@ export class ChatPage {
   async getMessageCountViaAPI(): Promise<number> {
     const conversationId = this.getConversationIdFromUrl();
     const url = `${apiUrl}/api/conversations/${conversationId}`;
-    const response = await this.page.request.get(url);
+    const response = await withRequestRetry(this.page.request).get(url);
     if (!response.ok()) {
       throw new Error(`Failed to get conversation: ${String(response.status())}`);
     }
@@ -1514,7 +1533,7 @@ export class ChatPage {
    */
   async waitForMultiModelResponses(
     count: number,
-    timeout: number = TIMEOUTS.STREAM
+    timeout: number = TIMEOUTS.STREAM_SATURATED
   ): Promise<void> {
     const assistantMessages = this.messageList.locator(`[${ROLE_ATTR}="assistant"]`);
     await expect(assistantMessages).toHaveCount(count, { timeout });

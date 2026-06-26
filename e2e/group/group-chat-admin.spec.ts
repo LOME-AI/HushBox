@@ -6,6 +6,7 @@ import { expectAccessRevoked } from '../helpers/member-actions.js';
 import { closeOverlay } from '../helpers/overlay.js';
 import { personaEmail, personaUsername } from '../helpers/personas.js';
 import { budgetMemberInputs, linkItemsIn } from '../helpers/page-signals.js';
+import { openShareModalForMessage } from '../helpers/share-message.js';
 
 test.describe('Group Chat Admin', () => {
   test('displays sender labels, groups consecutive messages, and AI toggle works', async ({
@@ -516,12 +517,11 @@ test.describe('Group Chat Admin', () => {
 
       const shareButton = aiMessage.getByRole('button', { name: 'Share' });
       await expect(shareButton).toBeVisible();
-      await shareButton.click();
     });
 
     await test.step('share modal shows preview and creates link', async () => {
-      const modal = authenticatedPage.getByTestId(TEST_IDS.shareMessageModal);
-      await expect(modal).toBeVisible();
+      const aiMessage = chatPage.messagesByRole('assistant').first();
+      await openShareModalForMessage(authenticatedPage, aiMessage);
 
       await expect(authenticatedPage.getByTestId(TEST_IDS.shareMessagePreview)).toBeVisible();
 
@@ -548,7 +548,7 @@ test.describe('Group Chat Admin', () => {
       const shareButton = firstUserMessage.getByRole('button', { name: 'Share' });
       const shareVisible = await shareButton.isVisible().catch(() => false);
       if (shareVisible) {
-        await shareButton.click();
+        await openShareModalForMessage(authenticatedPage, firstUserMessage);
         await authenticatedPage.getByTestId(TEST_IDS.shareMessageCancelButton).click();
         await expect(authenticatedPage.getByTestId(TEST_IDS.shareMessageModal)).not.toBeVisible();
       }

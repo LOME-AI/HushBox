@@ -253,14 +253,20 @@ test.describe('Group Chat Regeneration', () => {
     const msg = `Alice new ${String(Date.now())}`;
 
     await test.step('Alice sends new message and waits for AI', async () => {
-      // Gate on the stream *cycle* (`data-streams-completed`), which advances
-      // only after the turn streams AND the post-send refetch reconciles the
-      // optimistic tree to the committed one. The load-readiness gate
-      // (`waitForMessagesReady`) stays true through that refetch, so gating on
-      // it let the retry below act on a stale list and send a target the
-      // server's tip-walk rejects (REGENERATION_BLOCKED_BY_OTHER_USER).
+      // The retry below targets whatever id the DOM's last user message
+      // carries. A just-sent message is optimistic: it renders under a
+      // client-only temp id and is swapped for its committed id only once the
+      // post-turn refetch reconciles the tree. `data-streams-completed`
+      // advances at persistence (SSE `done`), which lands BEFORE that refetch,
+      // so the stream-cycle gate alone can leave the temp id in the DOM — the
+      // retry then sends a targetMessageId the server's tip-walk can't find,
+      // walks past another member's seeded message to the root, and 403s
+      // (REGENERATION_BLOCKED_BY_OTHER_USER). `waitForSettled` blocks until the
+      // reconcile refetch (and every other query/mutation/stream) goes idle, so
+      // the retry acts on the committed id.
       await chatPage.withStreamCycle(() => chatPage.sendFollowUpMessage(msg));
       await chatPage.waitForAIResponse(msg);
+      await chatPage.waitForSettled();
     });
 
     await test.step('hover Alice latest user message and retry', async () => {

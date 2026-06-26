@@ -171,9 +171,14 @@ test.describe('Image Generation', () => {
     await chatPage.waitForStreamComplete();
     await chatPage.expectImageVisible();
 
+    // The re-sent turn regenerates the image; the first slot's blob src flips to
+    // the new image only once that image decodes and renders, which is
+    // media-decode-bound under the saturated matrix (firefox serializes the
+    // decode behind every other worker). Budget for the decode, not a plain
+    // assertion, so the swap isn't read before it lands.
     await expect
       .poll(async () => chatPage.imagesIn(chatPage.messageList).first().getAttribute('src'), {
-        timeout: TIMEOUTS.ASSERT,
+        timeout: TIMEOUTS.MEDIA_DECODE,
       })
       .not.toBe(originalSource);
   });
@@ -208,9 +213,14 @@ test.describe('Image Generation', () => {
     await chatPage.expectImageVisible();
 
     await chatPage.expectMessageVisible(prompt);
+    // The re-sent turn regenerates the image; the first slot's blob src flips to
+    // the new image only once that image decodes and renders, which is
+    // media-decode-bound under the saturated matrix (firefox serializes the
+    // decode behind every other worker). Budget for the decode, not a plain
+    // assertion, so the swap isn't read before it lands.
     await expect
       .poll(async () => chatPage.imagesIn(chatPage.messageList).first().getAttribute('src'), {
-        timeout: TIMEOUTS.ASSERT,
+        timeout: TIMEOUTS.MEDIA_DECODE,
       })
       .not.toBe(originalSource);
   });

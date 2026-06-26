@@ -3,7 +3,6 @@ import { isMobileWidth, TEST_IDS } from '@hushbox/shared';
 import { TEST_EMAIL_DOMAIN } from '../../packages/shared/src/constants.js';
 import { TIMEOUTS } from '../config/timeouts.js';
 import { requireEnv } from './env.js';
-import { deleteWithRetry } from './api-retry.js';
 import { waitForAppStable } from './page-signals.js';
 import type { Page, APIRequestContext } from '@playwright/test';
 
@@ -15,15 +14,32 @@ const API_BASE = requireEnv('VITE_API_URL');
  */
 export async function signUpViaUI(
   page: Page,
+  request: APIRequestContext,
   options: { username: string; email: string; password: string }
 ): Promise<void> {
-  await page.goto('/signup', { waitUntil: 'domcontentloaded' });
-  await page.getByLabel('Username').fill(options.username);
-  await page.getByLabel('Email').fill(options.email);
-  await page.getByLabel('Password', { exact: true }).fill(options.password);
-  await page.getByLabel('Confirm password').fill(options.password);
-  await page.getByRole('button', { name: 'Create account' }).click();
-  await page.getByText('Check your email').waitFor({ timeout: TIMEOUTS.ROUTE });
+  const submit = async (): Promise<void> => {
+    await page.goto('/signup', { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('Username').fill(options.username);
+    await page.getByLabel('Email').fill(options.email);
+    await page.getByLabel('Password', { exact: true }).fill(options.password);
+    await page.getByLabel('Confirm password').fill(options.password);
+    await page.getByRole('button', { name: 'Create account' }).click();
+    await page.getByText('Check your email').waitFor({ timeout: TIMEOUTS.ROUTE });
+  };
+
+  try {
+    await submit();
+  } catch {
+    // A wrangler/workerd recycle under host saturation severs the in-flight
+    // OPAQUE register call (the page stays on /signup with no confirmation). The
+    // dev verify-token endpoint is the oracle: a committed register/finish
+    // leaves the account and its verify token present even when the response was
+    // severed, so accept that as success rather than re-submitting into the
+    // unique-email constraint. If no account landed, the register never reached
+    // commit, so a single fresh submit is safe.
+    if (await accountExists(request, options.email)) return;
+    await submit();
+  }
 }
 
 /**
@@ -55,16 +71,31 @@ export async function loginViaUI(
   page: Page,
   options: { email: string; password: string; keepSignedIn?: boolean }
 ): Promise<void> {
-  await page.goto('/login', { waitUntil: 'domcontentloaded' });
-  await page.getByLabel('Email or Username').fill(options.email);
-  await page.getByLabel('Password', { exact: true }).fill(options.password);
+  const submit = async (): Promise<void> => {
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('Email or Username').fill(options.email);
+    await page.getByLabel('Password', { exact: true }).fill(options.password);
 
-  if (options.keepSignedIn) {
-    await page.getByLabel('Keep me signed in').check();
+    if (options.keepSignedIn) {
+      await page.getByLabel('Keep me signed in').check();
+    }
+
+    await page.getByRole('button', { name: 'Log in' }).click();
+    await page.waitForURL('/chat', { timeout: TIMEOUTS.ROUTE });
+  };
+
+  try {
+    await submit();
+  } catch {
+    // A wrangler/workerd recycle under host saturation severs the in-flight
+    // OPAQUE login call, leaving the page on /login with no navigation. A login
+    // carries no server-side state to collide with, so re-running it from a
+    // fresh form is safe; one retry covers a single recycle window. This helper
+    // is for expected-success logins only (failure-path tests drive the form
+    // directly), so the broad catch is intentional — a genuine failure still
+    // surfaces when the second attempt also fails to reach /chat.
+    await submit();
   }
-
-  await page.getByRole('button', { name: 'Log in' }).click();
-  await page.waitForURL('/chat', { timeout: TIMEOUTS.ROUTE });
   // Login fires a non-awaited client navigation to /chat; waitForURL resolves on
   // URL commit, not when that navigation settles. Wait for the landing page's
   // stability signal so a caller's next hard navigation (reload/goto) can't race
@@ -80,9 +111,22 @@ export async function signUpAndVerify(
   request: APIRequestContext,
   options: { username: string; email: string; password: string }
 ): Promise<void> {
-  await signUpViaUI(page, options);
+  await signUpViaUI(page, request, options);
   await verifyEmailViaAPI(request, page, options.email);
   await loginViaUI(page, { email: options.email, password: options.password });
+}
+
+/**
+ * True once a user row with a pending email-verify token exists for `email` —
+ * i.e. register/finish committed. The request context retries a recycle drop on
+ * its own, so the oracle survives saturation; a 404 (terminal) means no account
+ * yet.
+ */
+async function accountExists(request: APIRequestContext, email: string): Promise<boolean> {
+  const response = await request.get(
+    `${API_BASE}/api/dev/verify-token/${encodeURIComponent(email)}`
+  );
+  return response.ok();
 }
 
 /**
@@ -129,7 +173,7 @@ export function uniqueUsername(prefix: string): string {
  * Call this in beforeEach to prevent rate limit failures across test runs.
  */
 export async function clearAuthRateLimits(request: APIRequestContext): Promise<void> {
-  await deleteWithRetry(request, `${API_BASE}/api/dev/auth-rate-limits`);
+  await request.delete(`${API_BASE}/api/dev/auth-rate-limits`);
 }
 
 /**
@@ -139,7 +183,7 @@ export async function clearAuthRateLimits(request: APIRequestContext): Promise<v
  * limits, which `trial-chat.spec.ts` and friends legitimately exercise.
  */
 export async function clearUsageRateLimits(request: APIRequestContext): Promise<void> {
-  await deleteWithRetry(request, `${API_BASE}/api/dev/usage-rate-limits`);
+  await request.delete(`${API_BASE}/api/dev/usage-rate-limits`);
 }
 
 /**
@@ -153,7 +197,7 @@ export async function getAcceptableTOTPCode(
   email: string,
   secret: string
 ): Promise<string> {
-  await deleteWithRetry(request, `${API_BASE}/api/dev/totp-replay`, { data: { email } });
+  await request.delete(`${API_BASE}/api/dev/totp-replay`, { data: { email } });
   return generateTOTPCode(secret);
 }
 

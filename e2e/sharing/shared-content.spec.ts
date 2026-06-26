@@ -2,9 +2,9 @@ import { TEST_IDS } from '@hushbox/shared';
 import { test, expect, expectApiErrors, expectConsoleErrors } from '../fixtures.js';
 import { ChatPage, MemberSidebarPage } from '../pages/index.js';
 import { createInviteLink } from '../helpers/invite-link.js';
-import { createMessageShareUrl } from '../helpers/share-message.js';
+import { createMessageShareUrl, openShareModalForMessage } from '../helpers/share-message.js';
 import { requireEnv } from '../helpers/env.js';
-import { postWithRetry } from '../helpers/api-retry.js';
+import { withRequestRetry } from '../helpers/resilient-request.js';
 import { expectVideoDecoded } from '../helpers/webkit-media-decode.js';
 import { imagesOnPage, videosOnPage } from '../helpers/page-signals.js';
 import { TIMEOUTS } from '../config/timeouts.js';
@@ -322,11 +322,7 @@ test.describe('Shared Content', () => {
     });
 
     const aiMessage = chatPage.messagesByRole('assistant').first();
-    await aiMessage.hover();
-    await aiMessage.getByRole('button', { name: 'Share' }).click();
-
-    const modal = authenticatedPage.getByTestId(TEST_IDS.shareMessageModal);
-    await expect(modal).toBeVisible();
+    await openShareModalForMessage(authenticatedPage, aiMessage);
     await authenticatedPage.getByTestId(TEST_IDS.shareMessageCreateButton).click();
     await expect(authenticatedPage.getByTestId(TEST_IDS.shareMessageUrl)).toBeVisible();
 
@@ -373,10 +369,7 @@ test.describe('Shared Content', () => {
     });
 
     const aiMessage = chatPage.messagesByRole('assistant').first();
-    await aiMessage.hover();
-    await aiMessage.getByRole('button', { name: 'Share' }).click();
-    const modal = authenticatedPage.getByTestId(TEST_IDS.shareMessageModal);
-    await expect(modal).toBeVisible();
+    await openShareModalForMessage(authenticatedPage, aiMessage);
     await authenticatedPage.getByTestId(TEST_IDS.shareMessageCreateButton).click();
 
     const urlEl = authenticatedPage.getByTestId(TEST_IDS.shareMessageUrl);
@@ -388,8 +381,7 @@ test.describe('Shared Content', () => {
 
     await authenticatedPage.keyboard.press('Escape');
 
-    const revoke = await postWithRetry(
-      authenticatedPage.request,
+    const revoke = await withRequestRetry(authenticatedPage.request).post(
       `${apiUrl}/api/dev/revoke-message-share`,
       {
         data: { shareId },
@@ -407,7 +399,9 @@ test.describe('Shared Content', () => {
       /Failed to load resource: the server responded with a status of 404/,
     ]);
 
-    const fetchAfterRevoke = await recipient.request.get(`${apiUrl}/api/shares/${shareId}`);
+    const fetchAfterRevoke = await withRequestRetry(recipient.request).get(
+      `${apiUrl}/api/shares/${shareId}`
+    );
     expect(fetchAfterRevoke.status()).toBe(404);
 
     await recipient.goto(shareUrl, { waitUntil: 'domcontentloaded' });

@@ -397,6 +397,71 @@ describe('useChatStream', () => {
       expect(onToken).toHaveBeenNthCalledWith(2, 'world!', 'gpt-4');
     });
 
+    it('retries the stream POST when a transport drop severs the in-flight request', async () => {
+      const sseEvents = [
+        'event: start',
+        'data: {"userMessageId":"user-789","models":[{"modelId":"gpt-4","assistantMessageId":"msg-789"}]}',
+        'event: token',
+        'data: {"modelId":"gpt-4","content":"recovered"}',
+        'event: done',
+        'data: {}',
+      ];
+
+      // A workerd recycle under host saturation severs the in-flight POST before
+      // any response: fetch rejects with a TypeError (the no-response transport
+      // failure the built-in retry policy treats as safe to repeat, since the
+      // run never reached the server). The next attempt streams normally.
+      mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'Content-Type': 'text/event-stream' }),
+        body: createSSEStream(sseEvents),
+      });
+
+      const onToken = vi.fn();
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current
+          .startStream(
+            {
+              conversationId: 'conv-123',
+              models: ['gpt-4'],
+              userMessage: { id: 'msg-1', content: 'Hello' },
+              messagesForInference: [{ role: 'user', content: 'Hello' }],
+              fundingSource: 'personal_balance',
+            },
+            { onToken }
+          )
+          .catch(() => {});
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(onToken).toHaveBeenCalledWith('recovered', 'gpt-4');
+    });
+
+    it('does not retry the stream POST when the request is intentionally aborted', async () => {
+      // An AbortError is a deliberate cancellation (unmount/navigation), never a
+      // transient drop — it must surface, not retry.
+      mockFetch.mockRejectedValueOnce(new DOMException('aborted', 'AbortError'));
+
+      const { result } = renderHook(() => useChatStream('authenticated'));
+
+      await act(async () => {
+        await result.current
+          .startStream({
+            conversationId: 'conv-123',
+            models: ['gpt-4'],
+            userMessage: { id: 'msg-1', content: 'Hello' },
+            messagesForInference: [{ role: 'user', content: 'Hello' }],
+            fundingSource: 'personal_balance',
+          })
+          .catch(() => {});
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
     it('calls onStart callback with StartEventData containing models array', async () => {
       const sseEvents = [
         'event: start',
