@@ -374,3 +374,34 @@ export function pickValueTextModel(rawModels: RawModel[]): string {
   }
   return bestId;
 }
+
+/**
+ * Returns the ids of the `count` cheapest distinct non-premium text models in
+ * the catalog, in ascending price order.
+ *
+ * The multi-model variant of {@link pickValueTextModel}: dev fixtures seed a
+ * fan-out turn with several sibling AI rows, each needing its own real,
+ * currently-live model id so the nametags differ and a regenerate/retry that
+ * re-uses the persisted `modelName` resolves an existing gateway model. Distinct
+ * by construction — `filteredPool` holds one entry per model id.
+ *
+ * Throws when the catalog yields fewer than `count` non-premium text models;
+ * returning a short list would defer the same failure into the seed's
+ * per-sibling assignment.
+ */
+export function pickValueTextModels(rawModels: RawModel[], count: number): string[] {
+  const text = processTextModels(groupByModality(rawModels).text);
+  const premiumSet = new Set(text.premiumIds);
+  const eligible = text.filteredPool
+    .filter((raw) => !premiumSet.has(raw.id))
+    .map((raw) => ({ id: raw.id, price: getCombinedPrice(raw) }))
+    .toSorted((a, b) => a.price - b.price);
+
+  if (eligible.length < count) {
+    throw new Error(
+      `pickValueTextModels: catalog has ${String(eligible.length)} non-premium text model(s), need ${String(count)} — dev seed cannot pick distinct stable model ids`
+    );
+  }
+
+  return eligible.slice(0, count).map((entry) => entry.id);
+}

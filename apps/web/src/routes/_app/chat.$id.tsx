@@ -12,18 +12,17 @@ export interface ChatSearch {
 }
 
 export const Route = createFileRoute('/_app/chat/$id')({
-  beforeLoad: async () => {
+  beforeLoad: async ({ params, context }) => {
+    // Fire the prefetches before awaiting auth so the `/auth/me` round-trip
+    // overlaps them. Safe: the server still authorizes (404 to non-members,
+    // ciphertext-only key wraps), decryption needs the private key, and an
+    // unauthenticated boot still rejects below before the route mounts. `new`
+    // is the create-mode sentinel — fetching it would 404.
+    if (params.id !== 'new') {
+      void context.queryClient.prefetchQuery(conversationQueryOptions(params.id));
+      void context.queryClient.prefetchQuery(keyChainQueryOptions(params.id));
+    }
     await requireAuth();
-  },
-  loader: ({ params, context }) => {
-    // `new` is a create-mode sentinel from the welcome page send — there is
-    // no real conversation or key chain to fetch yet. Letting it through hits
-    // GET /api/conversations/new and GET /api/keys/new, both of which 404.
-    if (params.id === 'new') return;
-    // Fire-and-forget: start fetching during route transition, don't block navigation.
-    // useQuery in components deduplicates with these in-flight prefetches.
-    void context.queryClient.prefetchQuery(conversationQueryOptions(params.id));
-    void context.queryClient.prefetchQuery(keyChainQueryOptions(params.id));
   },
   component: AuthenticatedChatWithErrorBoundary,
   validateSearch: (search: Record<string, unknown>): ChatSearch => ({

@@ -13,7 +13,7 @@ import {
   type APIRequestContext,
   type TestInfo,
 } from '@playwright/test';
-import { TEST_IDS, TEST_SIGNALS } from '@hushbox/shared';
+import { TEST_IDS } from '@hushbox/shared';
 import { ChatPage } from './pages';
 import { TIMEOUTS } from './config/timeouts.js';
 import { requireEnv } from './helpers/env.js';
@@ -25,6 +25,29 @@ import {
 } from '../scripts/storage-state-init-script.js';
 
 const apiUrl = requireEnv('VITE_API_URL');
+
+/**
+ * Artifact policy mirrors `playwright.config.ts`: CI captures nothing, local
+ * keeps what the e2e debug report consumes. HAR is a per-context network capture
+ * the report attaches on failure (`har-<label>`), so it is recorded locally —
+ * including under `e2e:fast` — and skipped only in CI. The in-memory console/API
+ * error capture is always on regardless.
+ */
+const skipHar = !!process.env['CI'];
+
+/**
+ * The `recordHar` context option, or `undefined` in CI so no network capture is
+ * recorded (mirrors the trace/screenshot gate in playwright.config.ts: CI keeps
+ * no artifacts, local keeps what the debug report consumes). Returned spread into
+ * `newContext({...})`; callers that gate HAR on a retry pass their own predicate
+ * instead.
+ */
+function harOption(
+  harPath: string
+): { recordHar: { path: string; mode: 'minimal'; urlFilter: RegExp } } | undefined {
+  if (skipHar) return undefined;
+  return { recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// } };
+}
 
 /**
  * Network `errorText` families for an in-flight load cancelled by navigation,
@@ -621,19 +644,29 @@ type FixtureSpec = { persona: string } | { state: StorageState };
  * place by the time React boots, identical observable behavior at a
  * fraction of the cost.
  */
+// Cache the read + parse + init-script build per persona path — the JSON is
+// fixed for the run, and Playwright treats the result as read-only.
+const contextOptionsCache = new Map<string, { state: StorageState; initScript: string | null }>();
+
 async function buildContextOptions(
   storageState: StorageState
 ): Promise<{ state: StorageState; initScript: string | null }> {
   if (typeof storageState !== 'string') {
     return { state: storageState, initScript: null };
   }
+  const cached = contextOptionsCache.get(storageState);
+  if (cached !== undefined) return cached;
   const raw = JSON.parse(await readFile(storageState, 'utf8')) as RawStorageState;
   const initScript = buildStorageInitScript(raw);
-  if (initScript === null) {
-    return { state: storageState, initScript: null };
-  }
-  const cookies = raw.cookies as StorageStateObject['cookies'];
-  return { state: { cookies, origins: [] }, initScript };
+  const result =
+    initScript === null
+      ? { state: storageState, initScript: null }
+      : {
+          state: { cookies: raw.cookies as StorageStateObject['cookies'], origins: [] },
+          initScript,
+        };
+  contextOptionsCache.set(storageState, result);
+  return result;
 }
 
 function createPageFixture(
@@ -654,11 +687,7 @@ function createPageFixture(
     // network data in the report instead of only the retry that passed.
     const context = await browser.newContext({
       storageState: state,
-      recordHar: {
-        path: harPath,
-        mode: 'minimal',
-        urlFilter: /\/api\//,
-      },
+      ...harOption(harPath),
     });
     if (initScript !== null) await context.addInitScript({ content: initScript });
     const page = await context.newPage();
@@ -711,6 +740,24 @@ interface MediaConversation {
   page: Page;
 }
 
+/** Seed a finished image/video turn via the dev endpoint; returns its ids. */
+async function seedMediaConversation(
+  request: APIRequestContext,
+  testInfo: TestInfo,
+  mediaType: 'image' | 'video',
+  userContent: string
+): Promise<{ conversationId: string; assistantMessageId: string }> {
+  const ownerEmail = `test-alice-${testInfo.project.name}@test.hushbox.ai`;
+  const response = await request.post('/api/dev/media-conversation', {
+    data: { ownerEmail, userContent, mediaType },
+  });
+  rawExpect(
+    response.ok(),
+    `${mediaType} conversation creation failed: ${String(response.status())}`
+  ).toBe(true);
+  return (await response.json()) as { conversationId: string; assistantMessageId: string };
+}
+
 interface CustomFixtures {
   /**
    * Auto-fixture: clears per-user usage rate-limit buckets (chat stream,
@@ -749,6 +796,14 @@ interface CustomFixtures {
   testBobPage: Page;
   testDavePage: Page;
   testBobRequest: APIRequestContext;
+}
+
+interface CustomWorkerFixtures {
+  /**
+   * Request context reused by `resetRateLimitsAutoHook`, built once per worker so
+   * each test pays only the DELETE. Request contexts hold no isolation state.
+   */
+  rateLimitResetRequest: APIRequestContext;
 }
 
 async function zeroLowBalanceWallets(
@@ -888,7 +943,7 @@ async function teardownPage(
   }
 }
 
-export const test = base.extend<CustomFixtures>({
+export const test = base.extend<CustomFixtures, CustomWorkerFixtures>({
   // Wrap the built-in request context once so every node-side API call retries a
   // transient saturation sever (5xx envelope or socket drop) by construction —
   // a plain `request.get(...)` is resilient and there are no per-call retry
@@ -898,11 +953,17 @@ export const test = base.extend<CustomFixtures>({
   request: async ({ request }, use) => {
     await use(withRequestRetry(request));
   },
-  resetRateLimitsAutoHook: [
+  rateLimitResetRequest: [
     async ({ playwright }, use) => {
       const ctx = withRequestRetry(await playwright.request.newContext({ baseURL: apiUrl }));
-      await clearUsageRateLimits(ctx);
+      await use(ctx);
       await ctx.dispose();
+    },
+    { scope: 'worker' },
+  ],
+  resetRateLimitsAutoHook: [
+    async ({ rateLimitResetRequest }, use) => {
+      await clearUsageRateLimits(rateLimitResetRequest);
       await use(null);
     },
     { auto: true },
@@ -928,7 +989,7 @@ export const test = base.extend<CustomFixtures>({
       const { state, initScript } = await buildContextOptions(storageState);
       const context = await browser.newContext({
         storageState: state,
-        recordHar: { path: harPath, mode: 'minimal', urlFilter: /\/api\// },
+        ...harOption(harPath),
       });
       if (initScript !== null) await context.addInitScript({ content: initScript });
       const page = await context.newPage();
@@ -1040,84 +1101,85 @@ export const test = base.extend<CustomFixtures>({
     await context.dispose();
   },
 
-  multiModelConversation: [
-    async ({ authenticatedPage }, use) => {
-      const chatPage = new ChatPage(authenticatedPage);
-      await chatPage.goto();
-      await chatPage.waitForAppStable();
+  // API-seeded multi-model turn: one user message and two sibling AI responses
+  // sharing a parent message and batch id (the exact shape `saveChatTurn`
+  // writes), seeded server-side via the dev endpoint instead of driving the UI
+  // through a real two-model send. The two AI rows carry distinct live-catalog
+  // model ids (distinct nametags) and non-null seed costs (visible cost badges).
+  multiModelConversation: async ({ authenticatedPage, authenticatedRequest }, use, testInfo) => {
+    const userContent = `Multi-model fixture ${String(Date.now())}`;
+    const aliceEmail = `test-alice-${testInfo.project.name}@test.hushbox.ai`;
+    const response = await authenticatedRequest.post('/api/dev/conversation', {
+      data: {
+        ownerEmail: aliceEmail,
+        aiTurn: { userContent, responseCount: 2 },
+      },
+    });
 
-      await chatPage.selectModels(2);
-      await chatPage.expectComparisonBarVisible();
+    rawExpect(
+      response.ok(),
+      `multi-model conversation creation failed: ${String(response.status())}`
+    ).toBe(true);
+    const data = (await response.json()) as { conversationId: string };
+    const id = data.conversationId;
 
-      const testMessage = `Multi-model fixture ${String(Date.now())}`;
-      await chatPage.sendNewChatMessage(testMessage);
-      await chatPage.waitForConversation();
-      await chatPage.waitForMultiModelResponses(2);
-      await chatPage.waitForStreamComplete();
+    await authenticatedPage.goto(`/chat/${id}`, { waitUntil: 'domcontentloaded' });
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.waitForConversationLoaded();
+    // Both AI siblings render as multi-model peers (proves the shared parent +
+    // batch id), and each shows a cost badge — the shape the dependent specs
+    // (nametags, per-model cost, retry/regenerate) assert against.
+    await rawExpect(chatPage.messageList).toHaveAttribute('data-assistant-count', '2', {
+      timeout: TIMEOUTS.CONVERSATION_LOAD,
+    });
+    await rawExpect(chatPage.messageList).toHaveAttribute('data-cost-count', '2', {
+      timeout: TIMEOUTS.CONVERSATION_LOAD,
+    });
 
-      const url = new URL(authenticatedPage.url());
-      const id = url.pathname.split('/').pop() ?? '';
+    // Leave the composer in 2-model mode. The seed populates the conversation's
+    // history but not the client's model selection; a follow-up send relies on
+    // this selection to fan out to two models (matching the prior UI-driven
+    // fixture's persisted post-state). `data-app-stable` only exists on the
+    // new-chat route, so gate on the conversation being loaded (above) instead.
+    await chatPage.selectModels(2);
 
-      await use({ id, url: authenticatedPage.url() });
-    },
-    { timeout: TIMEOUTS.LONG },
-  ],
+    await use({ id, url: `/chat/${id}` });
+  },
 
-  imageConversation: [
-    async ({ authenticatedPage }, use) => {
-      const chatPage = new ChatPage(authenticatedPage);
-      await chatPage.goto();
-      await chatPage.expectNewChatPageVisible();
+  // API-seeded image turn (one prompt + one finished AI image) — no UI generate.
+  imageConversation: async ({ authenticatedPage, authenticatedRequest }, use, testInfo) => {
+    const { conversationId, assistantMessageId } = await seedMediaConversation(
+      authenticatedRequest,
+      testInfo,
+      'image',
+      `Image fixture ${String(Date.now())}`
+    );
 
-      await chatPage.switchToImageMode();
-      const prompt = `Image fixture ${String(Date.now())}`;
-      await chatPage.sendNewChatMessage(prompt);
-      await chatPage.waitForConversation();
-      await chatPage.expectImageVisible();
-      await chatPage.waitForStreamComplete();
+    await authenticatedPage.goto(`/chat/${conversationId}`, { waitUntil: 'domcontentloaded' });
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.waitForConversationLoaded();
+    // Gate handoff on the seed decoding, so a broken seed fails here, not mid-test.
+    await chatPage.expectImageVisible();
 
-      const url = new URL(authenticatedPage.url());
-      const conversationId = url.pathname.split('/').pop() ?? '';
+    await use({ conversationId, assistantMessageId, page: authenticatedPage });
+  },
 
-      const assistantMessageId =
-        (await authenticatedPage
-          .locator(`[${TEST_SIGNALS.role}="assistant"]`)
-          .first()
-          .getAttribute(TEST_SIGNALS.messageId)) ?? '';
-      rawExpect(assistantMessageId, 'imageConversation: missing assistant message id').not.toBe('');
+  // API-seeded video turn — see imageConversation.
+  videoConversation: async ({ authenticatedPage, authenticatedRequest }, use, testInfo) => {
+    const { conversationId, assistantMessageId } = await seedMediaConversation(
+      authenticatedRequest,
+      testInfo,
+      'video',
+      `Video fixture ${String(Date.now())}`
+    );
 
-      await use({ conversationId, assistantMessageId, page: authenticatedPage });
-    },
-    { timeout: TIMEOUTS.LONG },
-  ],
+    await authenticatedPage.goto(`/chat/${conversationId}`, { waitUntil: 'domcontentloaded' });
+    const chatPage = new ChatPage(authenticatedPage);
+    await chatPage.waitForConversationLoaded();
+    await chatPage.expectVideoVisible();
 
-  videoConversation: [
-    async ({ authenticatedPage }, use) => {
-      const chatPage = new ChatPage(authenticatedPage);
-      await chatPage.goto();
-      await chatPage.expectNewChatPageVisible();
-
-      await chatPage.switchToVideoMode();
-      const prompt = `Video fixture ${String(Date.now())}`;
-      await chatPage.sendNewChatMessage(prompt);
-      await chatPage.waitForConversation();
-      await chatPage.expectVideoVisible();
-      await chatPage.waitForStreamComplete();
-
-      const url = new URL(authenticatedPage.url());
-      const conversationId = url.pathname.split('/').pop() ?? '';
-
-      const assistantMessageId =
-        (await authenticatedPage
-          .locator(`[${TEST_SIGNALS.role}="assistant"]`)
-          .first()
-          .getAttribute(TEST_SIGNALS.messageId)) ?? '';
-      rawExpect(assistantMessageId, 'videoConversation: missing assistant message id').not.toBe('');
-
-      await use({ conversationId, assistantMessageId, page: authenticatedPage });
-    },
-    { timeout: TIMEOUTS.LONG },
-  ],
+    await use({ conversationId, assistantMessageId, page: authenticatedPage });
+  },
 
   // Low-balance page: authenticated as test-billing-validation (zero starting balance);
   // both wallets are zeroed via the dev endpoint before the test runs so the

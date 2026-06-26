@@ -3,6 +3,13 @@ import { defineConfig, devices } from '@playwright/test';
 import { TIMEOUTS } from './e2e/config/timeouts';
 
 const isCI = !!process.env['CI'];
+
+// All projects render at DPR 1. The retina presets (iPhone 15 = 3, Pixel 7 ≈
+// 2.625, iPad Pro = 2, Desktop Safari = 2) rasterize several× the pixels for no
+// coverage gain — the CSS viewport is unchanged, only raster fidelity drops. Set
+// per-project because a top-level `use` is overridden by each `...devices[...]`.
+const DEVICE_SCALE_FACTOR = 1;
+
 const previewPort = process.env['HB_PREVIEW_PORT']!;
 const apiPort = process.env['HB_API_PORT']!;
 const previewUrl = `http://localhost:${previewPort}`;
@@ -31,7 +38,7 @@ export default defineConfig({
   forbidOnly: isCI,
   retries: isCI ? 2 : 1,
   maxFailures: isCI ? 1 : 0,
-  workers: isCI ? 7 : '45%',
+  workers: isCI ? 7 : '50%',
   timeout: TIMEOUTS.LONG,
   // Backstop so a wedged run can't hang forever. Playwright aborts via its
   // normal shutdown, which group-kills each webServer — so it won't leak orphan
@@ -47,9 +54,12 @@ export default defineConfig({
     : [['list'], ['html', { open: 'on-failure' }], ['./scripts/e2e-reporter.ts']],
   use: {
     baseURL: previewUrl,
-    trace: 'retain-on-first-failure',
-    screenshot: isCI ? 'only-on-failure' : 'on',
-    video: 'retain-on-failure',
+    // CI captures nothing (failures reproduce locally); local keeps what the
+    // debug report consumes — trace, failure screenshot, HAR (in fixtures),
+    // console/api/snapshot. Video is off everywhere: the report never reads it.
+    trace: isCI ? 'off' : 'retain-on-first-failure',
+    screenshot: isCI ? 'off' : 'only-on-failure',
+    video: 'off',
     // Determinism: pin clock zone and locale so date/number/collation behaviour
     // is identical on every machine and in CI. Time itself is controlled
     // per-test via page.clock where a test depends on it.
@@ -97,12 +107,16 @@ export default defineConfig({
     {
       name: 'setup-chromium',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Chrome'], launchOptions: chromiumLaunchOptions },
+      use: {
+        ...devices['Desktop Chrome'],
+        deviceScaleFactor: DEVICE_SCALE_FACTOR,
+        launchOptions: chromiumLaunchOptions,
+      },
     },
     {
       name: 'setup-firefox',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Firefox'] },
+      use: { ...devices['Desktop Firefox'], deviceScaleFactor: DEVICE_SCALE_FACTOR },
       // Per-project worker cap. Firefox content-process inits are race-prone
       // on lower-spec CPUs (Ryzen 5 5500 without iGPU SIGSEGV'd at workers=5
       // / 45% of cores in the firefox project specifically). Capping just
@@ -112,27 +126,35 @@ export default defineConfig({
     {
       name: 'setup-webkit',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Safari'] },
+      use: { ...devices['Desktop Safari'], deviceScaleFactor: DEVICE_SCALE_FACTOR },
     },
     {
       name: 'setup-iphone-15',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['iPhone 15'] },
+      use: { ...devices['iPhone 15'], deviceScaleFactor: DEVICE_SCALE_FACTOR },
     },
     {
       name: 'setup-pixel-7',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Pixel 7'], launchOptions: chromiumLaunchOptions },
+      use: {
+        ...devices['Pixel 7'],
+        deviceScaleFactor: DEVICE_SCALE_FACTOR,
+        launchOptions: chromiumLaunchOptions,
+      },
     },
     {
       name: 'setup-ipad-pro',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['iPad Pro 11'] },
+      use: { ...devices['iPad Pro 11'], deviceScaleFactor: DEVICE_SCALE_FACTOR },
     },
     {
       name: 'setup-auth-tests',
       testMatch: /auth\.setup\.ts/,
-      use: { ...devices['Desktop Chrome'], launchOptions: chromiumLaunchOptions },
+      use: {
+        ...devices['Desktop Chrome'],
+        deviceScaleFactor: DEVICE_SCALE_FACTOR,
+        launchOptions: chromiumLaunchOptions,
+      },
     },
     {
       name: 'auth-tests',
@@ -140,6 +162,7 @@ export default defineConfig({
       testDir: './e2e/auth',
       use: {
         ...devices['Desktop Chrome'],
+        deviceScaleFactor: DEVICE_SCALE_FACTOR,
         storageState: 'e2e/.auth/auth-tests/test-alice.json',
         launchOptions: chromiumLaunchOptions,
       },
@@ -149,6 +172,7 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
+        deviceScaleFactor: DEVICE_SCALE_FACTOR,
         storageState: 'e2e/.auth/chromium/test-alice.json',
         launchOptions: chromiumLaunchOptions,
       },
@@ -165,6 +189,7 @@ export default defineConfig({
       ...excludeChromiumOnly,
       use: {
         ...devices['Desktop Firefox'],
+        deviceScaleFactor: DEVICE_SCALE_FACTOR,
         storageState: 'e2e/.auth/firefox/test-alice.json',
       },
       testDir: './e2e',
@@ -180,6 +205,7 @@ export default defineConfig({
       ...excludeChromiumOnly,
       use: {
         ...devices['Desktop Safari'],
+        deviceScaleFactor: DEVICE_SCALE_FACTOR,
         storageState: 'e2e/.auth/webkit/test-alice.json',
       },
       testDir: './e2e',
@@ -191,6 +217,9 @@ export default defineConfig({
       ...excludeChromiumOnly,
       use: {
         ...devices['iPhone 15'],
+        // Pin DPR below the device's retina factor to free render budget (see
+        // DEVICE_SCALE_FACTOR). The CSS viewport is unchanged, so coverage is too.
+        deviceScaleFactor: DEVICE_SCALE_FACTOR,
         storageState: 'e2e/.auth/iphone-15/test-alice.json',
       },
       testIgnore: ['**/auth/**'],
@@ -201,6 +230,7 @@ export default defineConfig({
       ...excludeChromiumOnly,
       use: {
         ...devices['Pixel 7'],
+        deviceScaleFactor: DEVICE_SCALE_FACTOR,
         storageState: 'e2e/.auth/pixel-7/test-alice.json',
         launchOptions: chromiumLaunchOptions,
       },
@@ -212,6 +242,7 @@ export default defineConfig({
       ...excludeChromiumOnly,
       use: {
         ...devices['iPad Pro 11'],
+        deviceScaleFactor: DEVICE_SCALE_FACTOR,
         storageState: 'e2e/.auth/ipad-pro/test-alice.json',
       },
       testIgnore: ['**/auth/**'],

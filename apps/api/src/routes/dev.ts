@@ -5,7 +5,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { getIronSession } from 'iron-session';
 import { users, sharedMessages, llmCompletions, messages, usageRecords } from '@hushbox/db';
 import { ERROR_CODE_NOT_FOUND, ERROR_CODE_SERVER_MISCONFIGURED } from '@hushbox/shared';
-import { pickValueTextModel } from '@hushbox/shared/models';
+import { pickValueTextModel, pickValueTextModels } from '@hushbox/shared/models';
 import {
   listDevPersonas,
   cleanupTestData,
@@ -13,6 +13,8 @@ import {
   resetAuthRateLimits,
   resetUsageRateLimits,
   createDevConversation,
+  createDevMultiModelConversation,
+  createDevMediaConversation,
   createDevGroupChat,
   setWalletBalance,
   clearTotpReplay,
@@ -28,6 +30,7 @@ import {
 import { createErrorResponse } from '../lib/error-response.js';
 import { setVersionOverride } from '../lib/version-override.js';
 import { getSessionOptions, type SessionData } from '../lib/session.js';
+import { mediaStorageMiddleware } from '../middleware/index.js';
 import type { AppEnv } from '../types.js';
 
 const EMAIL_TEMPLATES = [
@@ -144,16 +147,76 @@ export const devRoute = new Hono<AppEnv>()
             })
           )
           .optional(),
+        // Multi-model fan-out seed: one user prompt and `responseCount` sibling
+        // AI tiles. The route resolves the models server-side so the fixture
+        // never hardcodes ids. Mutually exclusive with `messages` in practice;
+        // when present it takes the multi-model path.
+        aiTurn: z
+          .object({
+            userContent: z.string(),
+            responseCount: z.number().int().min(1),
+          })
+          .optional(),
       })
     ),
     async (c) => {
       const db = c.get('db');
       const aiClient = c.get('aiClient');
-      const body = c.req.valid('json');
-      // Derive the seed model from the live catalog so seeds never reference a
-      // retired gateway model. See `pickValueTextModel` for selection criteria.
-      const seedAiModel = pickValueTextModel(await aiClient.listRawModels());
+      const { aiTurn, ...body } = c.req.valid('json');
+      // Derive seed models from the live catalog so seeds never reference a
+      // retired gateway model. See `pickValueTextModel(s)` for the criteria.
+      const rawModels = await aiClient.listRawModels();
+
+      if (aiTurn) {
+        const models = pickValueTextModels(rawModels, aiTurn.responseCount);
+        const aiResponses = models.map((modelName, index) => ({
+          content: `Echo: ${aiTurn.userContent}`,
+          modelName,
+          // Distinct, positive seed costs (e.g. 0.002, 0.003, …) so each tile
+          // renders a cost badge; values stay within the cost-display tolerance.
+          cost: ((2 + index) / 1000).toFixed(8),
+        }));
+        const result = await createDevMultiModelConversation(db, {
+          ownerEmail: body.ownerEmail,
+          userContent: aiTurn.userContent,
+          aiResponses,
+        });
+        return c.json(result, 201);
+      }
+
+      const seedAiModel = pickValueTextModel(rawModels);
       const result = await createDevConversation(db, { ...body, seedAiModel });
+      return c.json(result, 201);
+    }
+  )
+  .post(
+    '/media-conversation',
+    // Route-scoped: only media seeding needs R2/MinIO.
+    mediaStorageMiddleware(),
+    zValidator(
+      'json',
+      z.object({
+        ownerEmail: z.email(),
+        userContent: z.string(),
+        mediaType: z.enum(['image', 'video']),
+      })
+    ),
+    async (c) => {
+      const db = c.get('db');
+      const mediaStorage = c.get('mediaStorage');
+      const aiClient = c.get('aiClient');
+      const { ownerEmail, userContent, mediaType } = c.req.valid('json');
+      // No media-model picker exists; the nametag isn't asserted, so reuse the
+      // text picker for a live-catalog id rather than a hardcodable one.
+      const seedModel = pickValueTextModel(await aiClient.listRawModels());
+      const result = await createDevMediaConversation(db, mediaStorage, {
+        ownerEmail,
+        userContent,
+        mediaType,
+        modelName: seedModel,
+        // Fixed positive cost so the rendered content item carries a cost badge.
+        cost: '0.01000000',
+      });
       return c.json(result, 201);
     }
   )

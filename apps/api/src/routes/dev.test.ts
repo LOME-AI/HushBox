@@ -71,11 +71,28 @@ vi.mock('../services/billing/index.js', () => ({
 }));
 
 const mockCreateDevGroupChat = vi.fn();
+const mockCreateDevConversation = vi.fn();
+const mockCreateDevMultiModelConversation = vi.fn();
+const mockCreateDevMediaConversation = vi.fn();
 vi.mock('../services/dev/index.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../services/dev/index.js')>();
   return {
     ...original,
     createDevGroupChat: (...args: unknown[]) => mockCreateDevGroupChat(...args),
+    createDevConversation: (...args: unknown[]) => mockCreateDevConversation(...args),
+    createDevMultiModelConversation: (...args: unknown[]) =>
+      mockCreateDevMultiModelConversation(...args),
+    createDevMediaConversation: (...args: unknown[]) => mockCreateDevMediaConversation(...args),
+  };
+});
+
+// Pass-through the media middleware; these tests set a stub `mediaStorage`
+// themselves (the real one is covered in middleware/dependencies.test.ts).
+vi.mock('../middleware/index.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../middleware/index.js')>();
+  return {
+    ...original,
+    mediaStorageMiddleware: () => async (_c: unknown, next: () => Promise<void>) => next(),
   };
 });
 
@@ -1069,6 +1086,241 @@ describe('devRoute', () => {
       });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /conversation', () => {
+    // Three ZDR-allowed text models — the route filters through the real ZDR
+    // allow-list, so fabricated ids would be dropped before the picker runs.
+    // Per-token prices ≤ 0.000002 keep the two cheapest under the trial budget
+    // (non-premium); the priciest is flagged premium by the 75th-percentile cut.
+    const oldCreated = Math.floor((Date.now() - 365 * 24 * 60 * 60 * 1000) / 1000);
+    const textModel = (id: string, perToken: string) => ({
+      id,
+      name: id,
+      description: 'stub',
+      modality: 'text',
+      context_length: 100_000,
+      pricing: { prompt: perToken, completion: perToken },
+      supported_parameters: ['temperature'],
+      created: oldCreated,
+      architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+    });
+
+    function createConversationApp(): Hono<AppEnv> {
+      const aiClient = {
+        listRawModels: vi
+          .fn()
+          .mockResolvedValue([
+            textModel('anthropic/claude-haiku-4.5', '0.000001'),
+            textModel('google/gemini-2.5-flash-lite', '0.0000015'),
+            textModel('openai/gpt-5.4-nano', '0.000002'),
+          ]),
+      };
+      const app = new Hono<AppEnv>();
+      app.use('*', async (c, next) => {
+        c.set('db', {} as AppEnv['Variables']['db']);
+        c.set('aiClient', aiClient as unknown as AppEnv['Variables']['aiClient']);
+        await next();
+      });
+      app.route('/dev', devRoute);
+      return app;
+    }
+
+    beforeEach(() => {
+      mockCreateDevConversation.mockReset();
+      mockCreateDevMultiModelConversation.mockReset();
+    });
+
+    it('seeds a multi-model turn with distinct resolved models and costs when aiTurn is provided', async () => {
+      mockCreateDevMultiModelConversation.mockResolvedValue({ conversationId: 'conv-mm' });
+      const app = createConversationApp();
+
+      const res = await app.request('/dev/conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerEmail: 'alice@test.hushbox.ai',
+          aiTurn: { userContent: 'Compare these', responseCount: 2 },
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = await jsonBody<{ conversationId: string }>(res);
+      expect(body.conversationId).toBe('conv-mm');
+
+      expect(mockCreateDevMultiModelConversation).toHaveBeenCalledTimes(1);
+      const callArgument = mockCreateDevMultiModelConversation.mock.calls[0]![1] as {
+        ownerEmail: string;
+        userContent: string;
+        aiResponses: { content: string; modelName: string; cost: string }[];
+      };
+      expect(callArgument.ownerEmail).toBe('alice@test.hushbox.ai');
+      expect(callArgument.userContent).toBe('Compare these');
+      expect(callArgument.aiResponses).toHaveLength(2);
+
+      // The two cheapest non-premium picks, distinct, in ascending price order.
+      const modelNames = callArgument.aiResponses.map((r) => r.modelName);
+      expect(modelNames).toEqual(['anthropic/claude-haiku-4.5', 'google/gemini-2.5-flash-lite']);
+
+      // Every sibling carries a non-null, parseable, positive cost so the badge
+      // renders and the `data-cost-count` signal counts it.
+      for (const response of callArgument.aiResponses) {
+        expect(Number.parseFloat(response.cost)).toBeGreaterThan(0);
+      }
+    });
+
+    it('seeds a plain text conversation via createDevConversation when messages are provided', async () => {
+      mockCreateDevConversation.mockResolvedValue({ conversationId: 'conv-text' });
+      const app = createConversationApp();
+
+      const res = await app.request('/dev/conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerEmail: 'alice@test.hushbox.ai',
+          messages: [
+            { content: 'Hello', senderType: 'user' },
+            { content: 'Echo: Hello', senderType: 'ai' },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = await jsonBody<{ conversationId: string }>(res);
+      expect(body.conversationId).toBe('conv-text');
+
+      expect(mockCreateDevMultiModelConversation).not.toHaveBeenCalled();
+      expect(mockCreateDevConversation).toHaveBeenCalledTimes(1);
+      const callArgument = mockCreateDevConversation.mock.calls[0]![1] as {
+        ownerEmail: string;
+        seedAiModel: string;
+        messages: { content: string; senderType: string }[];
+      };
+      expect(callArgument.ownerEmail).toBe('alice@test.hushbox.ai');
+      // The single cheapest non-premium pick stamps the seeded AI rows.
+      expect(callArgument.seedAiModel).toBe('anthropic/claude-haiku-4.5');
+      expect(callArgument.messages).toHaveLength(2);
+    });
+
+    it('returns 400 when ownerEmail is missing', async () => {
+      const app = createConversationApp();
+      const res = await app.request('/dev/conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ aiTurn: { userContent: 'x', responseCount: 2 } }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when aiTurn.responseCount is below 1', async () => {
+      const app = createConversationApp();
+      const res = await app.request('/dev/conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerEmail: 'alice@test.hushbox.ai',
+          aiTurn: { userContent: 'x', responseCount: 0 },
+        }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /media-conversation', () => {
+    function createMediaApp(): { app: Hono<AppEnv>; put: ReturnType<typeof vi.fn> } {
+      const put = vi.fn(() => Promise.resolve());
+      const app = new Hono<AppEnv>();
+      app.use('*', async (c, next) => {
+        c.set('db', {} as AppEnv['Variables']['db']);
+        c.set('aiClient', TEST_AI_CLIENT_STUB as unknown as AppEnv['Variables']['aiClient']);
+        c.set('mediaStorage', { put } as unknown as AppEnv['Variables']['mediaStorage']);
+        await next();
+      });
+      app.route('/dev', devRoute);
+      return { app, put };
+    }
+
+    beforeEach(() => {
+      mockCreateDevMediaConversation.mockReset();
+    });
+
+    it('seeds an image conversation with a live-catalog model and a positive cost', async () => {
+      mockCreateDevMediaConversation.mockResolvedValue({
+        conversationId: 'conv-img',
+        assistantMessageId: 'msg-img',
+      });
+      const { app } = createMediaApp();
+
+      const res = await app.request('/dev/media-conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerEmail: 'alice@test.hushbox.ai',
+          userContent: 'Draw a cat',
+          mediaType: 'image',
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = await jsonBody<{ conversationId: string; assistantMessageId: string }>(res);
+      expect(body).toEqual({ conversationId: 'conv-img', assistantMessageId: 'msg-img' });
+
+      expect(mockCreateDevMediaConversation).toHaveBeenCalledTimes(1);
+      // The mediaStorage from context is forwarded as the second arg.
+      expect(mockCreateDevMediaConversation.mock.calls[0]![1]).toBeDefined();
+      const params = mockCreateDevMediaConversation.mock.calls[0]![2] as {
+        ownerEmail: string;
+        userContent: string;
+        mediaType: string;
+        modelName: string;
+        cost: string;
+      };
+      expect(params.ownerEmail).toBe('alice@test.hushbox.ai');
+      expect(params.userContent).toBe('Draw a cat');
+      expect(params.mediaType).toBe('image');
+      expect(params.modelName).toBe('anthropic/claude-haiku-4.5');
+      expect(Number.parseFloat(params.cost)).toBeGreaterThan(0);
+    });
+
+    it('seeds a video conversation', async () => {
+      mockCreateDevMediaConversation.mockResolvedValue({
+        conversationId: 'conv-vid',
+        assistantMessageId: 'msg-vid',
+      });
+      const { app } = createMediaApp();
+
+      const res = await app.request('/dev/media-conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerEmail: 'alice@test.hushbox.ai',
+          userContent: 'Animate a cat',
+          mediaType: 'video',
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      const params = mockCreateDevMediaConversation.mock.calls[0]![2] as { mediaType: string };
+      expect(params.mediaType).toBe('video');
+    });
+
+    it('returns 400 for an unknown mediaType', async () => {
+      const { app } = createMediaApp();
+      const res = await app.request('/dev/media-conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ownerEmail: 'alice@test.hushbox.ai',
+          userContent: 'x',
+          mediaType: 'audio',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(mockCreateDevMediaConversation).not.toHaveBeenCalled();
     });
   });
 });

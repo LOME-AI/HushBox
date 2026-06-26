@@ -13,16 +13,34 @@ import {
   type DatabaseClient,
 } from '@hushbox/db';
 import { DEV_EMAIL_DOMAIN, TEST_EMAIL_DOMAIN, type DevPersona } from '@hushbox/shared';
-import { createFirstEpoch, encryptTextForEpoch } from '@hushbox/crypto';
+import {
+  createFirstEpoch,
+  encryptTextForEpoch,
+  beginMessageEnvelope,
+  encryptBinaryWithContentKey,
+} from '@hushbox/crypto';
 import { checkUserBalance } from '../billing/index.js';
 import { createOrGetConversation } from '../conversations/index.js';
 import { saveUserOnlyMessage } from '../chat/index.js';
 import {
   insertEnvelopeTextMessage,
+  insertEnvelopeMediaMessage,
   assignSequenceNumbers,
   fetchEpochPublicKey,
 } from '../chat/message-helpers.js';
+import {
+  TEST_IMAGE_BYTES,
+  TEST_IMAGE_MIME,
+  TEST_IMAGE_WIDTH,
+  TEST_IMAGE_HEIGHT,
+  TEST_VIDEO_BYTES,
+  TEST_VIDEO_MIME,
+  TEST_VIDEO_WIDTH,
+  TEST_VIDEO_HEIGHT,
+  TEST_VIDEO_DURATION_MS,
+} from '../ai/mock-fixtures/index.js';
 import { REDIS_REGISTRY } from '../../lib/redis-registry.js';
+import type { MediaStorage } from '../storage/index.js';
 import type { Redis } from '@upstash/redis';
 
 export interface ResetTrialUsageResult {
@@ -355,6 +373,279 @@ export async function createDevConversation(
   }
 
   return { conversationId: result.conversation.id };
+}
+
+export interface CreateDevMultiModelConversationParams {
+  ownerEmail: string;
+  /** The single user prompt the fan-out responds to. */
+  userContent: string;
+  /**
+   * One entry per sibling AI tile. Each carries its own resolved `modelName`
+   * (distinct, live-catalog ids supplied by the route) and a non-null `cost`
+   * so the rendered tiles get distinct nametags and visible cost badges.
+   */
+  aiResponses: { content: string; modelName: string; cost: string }[];
+}
+
+/**
+ * Seed a multi-model fan-out turn for E2E testing: one user message and N
+ * sibling AI text messages, all persisted in a single transaction with the
+ * exact shape `saveChatTurn` writes for a multi-model send — one shared
+ * `batchId` across the user message and every AI sibling, each AI sibling
+ * parented to the user message, sequential sequence numbers.
+ *
+ * The shared `batchId` + common `parentMessageId` is load-bearing: the client's
+ * fork-filter only renders same-parent assistants as multi-model peers when
+ * their `batchId` also matches (`use-fork-messages.ts`), and the regenerate
+ * path keys retry-all vs replace-one off the shared parent.
+ */
+export async function createDevMultiModelConversation(
+  db: Database,
+  params: CreateDevMultiModelConversationParams
+): Promise<CreateDevConversationResult> {
+  const [user] = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      publicKey: users.publicKey,
+    })
+    .from(users)
+    .where(eq(users.email, params.ownerEmail));
+
+  if (!user) {
+    throw new Error(`User not found: ${params.ownerEmail}`);
+  }
+
+  const epochResult = createFirstEpoch([user.publicKey]);
+  const conversationId = crypto.randomUUID();
+
+  const result = await createOrGetConversation(db, user.id, {
+    id: conversationId,
+    epochPublicKey: epochResult.epochPublicKey,
+    confirmationHash: epochResult.confirmationHash,
+    memberWrap: (() => {
+      const wrap = epochResult.memberWraps[0];
+      if (!wrap) throw new Error('invariant: missing member wrap');
+      return wrap.wrap;
+    })(),
+    userPublicKey: user.publicKey,
+  });
+
+  if (!result) {
+    throw new Error('Failed to create conversation');
+  }
+
+  const userMessageId = crypto.randomUUID();
+  // One batch id per turn, stamped on the user message and every AI sibling —
+  // mirrors saveChatTurn so the persisted rows are structurally identical.
+  const batchId = crypto.randomUUID();
+
+  await db.transaction(async (tx) => {
+    const total = 1 + params.aiResponses.length;
+    const { sequences, currentEpoch } = await assignSequenceNumbers(
+      tx,
+      result.conversation.id,
+      total
+    );
+
+    const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
+      tx,
+      result.conversation.id,
+      currentEpoch
+    );
+
+    const userSeq = sequences[0];
+    if (userSeq === undefined) throw new Error('invariant: expected user sequence number');
+
+    await insertEnvelopeTextMessage(tx, {
+      id: userMessageId,
+      conversationId: result.conversation.id,
+      textContent: params.userContent,
+      epochPublicKey,
+      epochNumber,
+      sequenceNumber: userSeq,
+      senderType: 'user',
+      senderId: user.id,
+      parentMessageId: null,
+      batchId,
+    });
+
+    for (const [index, ai] of params.aiResponses.entries()) {
+      const seq = sequences[index + 1];
+      if (seq === undefined) throw new Error('invariant: expected AI sequence number');
+
+      await insertEnvelopeTextMessage(tx, {
+        id: crypto.randomUUID(),
+        conversationId: result.conversation.id,
+        textContent: ai.content,
+        epochPublicKey,
+        epochNumber,
+        sequenceNumber: seq,
+        senderType: 'ai',
+        modelName: ai.modelName,
+        cost: ai.cost,
+        parentMessageId: userMessageId,
+        batchId,
+      });
+    }
+  });
+
+  return { conversationId: result.conversation.id };
+}
+
+export type DevMediaType = 'image' | 'video';
+
+/**
+ * The mock gateway's CC0 sample bytes — reusing them makes a seeded turn
+ * byte-identical to a generated one, so it decodes across every browser.
+ */
+const DEV_MEDIA_FIXTURES = {
+  image: {
+    contentType: 'image' as const,
+    bytes: TEST_IMAGE_BYTES,
+    mimeType: TEST_IMAGE_MIME,
+    width: TEST_IMAGE_WIDTH,
+    height: TEST_IMAGE_HEIGHT,
+    durationMs: undefined as number | undefined,
+  },
+  video: {
+    contentType: 'video' as const,
+    bytes: TEST_VIDEO_BYTES,
+    mimeType: TEST_VIDEO_MIME,
+    width: TEST_VIDEO_WIDTH,
+    height: TEST_VIDEO_HEIGHT,
+    durationMs: TEST_VIDEO_DURATION_MS as number | undefined,
+  },
+} as const;
+
+export interface CreateDevMediaConversationParams {
+  ownerEmail: string;
+  /** The user prompt the generation responds to. */
+  userContent: string;
+  mediaType: DevMediaType;
+  /** Model id stamped on the content item; resolved by the route from the catalog. */
+  modelName: string;
+  /** Decimal `numeric` cost string for the content item's cost badge. */
+  cost: string;
+}
+
+export interface CreateDevMediaConversationResult {
+  conversationId: string;
+  assistantMessageId: string;
+}
+
+/**
+ * Seed a finished image/video turn for E2E, mirroring the generation pipeline:
+ * one envelope's content key both wraps into the message and encrypts the bytes
+ * stored in R2/MinIO (production storage-key layout), so the client unwraps once
+ * and decrypts the download.
+ */
+export async function createDevMediaConversation(
+  db: Database,
+  mediaStorage: MediaStorage,
+  params: CreateDevMediaConversationParams
+): Promise<CreateDevMediaConversationResult> {
+  const [user] = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      publicKey: users.publicKey,
+    })
+    .from(users)
+    .where(eq(users.email, params.ownerEmail));
+
+  if (!user) {
+    throw new Error(`User not found: ${params.ownerEmail}`);
+  }
+
+  const epochResult = createFirstEpoch([user.publicKey]);
+  const conversationId = crypto.randomUUID();
+
+  const result = await createOrGetConversation(db, user.id, {
+    id: conversationId,
+    epochPublicKey: epochResult.epochPublicKey,
+    confirmationHash: epochResult.confirmationHash,
+    memberWrap: (() => {
+      const wrap = epochResult.memberWraps[0];
+      if (!wrap) throw new Error('invariant: missing member wrap');
+      return wrap.wrap;
+    })(),
+    userPublicKey: user.publicKey,
+  });
+
+  if (!result) {
+    throw new Error('Failed to create conversation');
+  }
+
+  const fixture = DEV_MEDIA_FIXTURES[params.mediaType];
+  const userMessageId = crypto.randomUUID();
+  const assistantMessageId = crypto.randomUUID();
+  const contentItemId = crypto.randomUUID();
+  const storageKey = `media/${result.conversation.id}/${assistantMessageId}/${contentItemId}.enc`;
+
+  // One content key both encrypts the stored bytes and wraps into the message.
+  const { contentKey, wrappedContentKey } = beginMessageEnvelope(epochResult.epochPublicKey);
+  const ciphertext = encryptBinaryWithContentKey(contentKey, fixture.bytes);
+
+  // Store before persisting rows; a later failure leaves an orphan the GC reclaims.
+  await mediaStorage.put(storageKey, ciphertext, 'application/octet-stream');
+
+  await db.transaction(async (tx) => {
+    const { sequences, currentEpoch } = await assignSequenceNumbers(tx, result.conversation.id, 2);
+    const { epochPublicKey, epochNumber } = await fetchEpochPublicKey(
+      tx,
+      result.conversation.id,
+      currentEpoch
+    );
+
+    const userSeq = sequences[0];
+    const aiSeq = sequences[1];
+    if (userSeq === undefined || aiSeq === undefined) {
+      throw new Error('invariant: expected sequence numbers');
+    }
+
+    await insertEnvelopeTextMessage(tx, {
+      id: userMessageId,
+      conversationId: result.conversation.id,
+      textContent: params.userContent,
+      epochPublicKey,
+      epochNumber,
+      sequenceNumber: userSeq,
+      senderType: 'user',
+      senderId: user.id,
+      parentMessageId: null,
+    });
+
+    await insertEnvelopeMediaMessage(tx, {
+      id: assistantMessageId,
+      conversationId: result.conversation.id,
+      wrappedContentKey,
+      epochNumber,
+      sequenceNumber: aiSeq,
+      senderType: 'ai',
+      parentMessageId: userMessageId,
+      mediaItems: [
+        {
+          id: contentItemId,
+          contentType: fixture.contentType,
+          position: 0,
+          storageKey,
+          mimeType: fixture.mimeType,
+          sizeBytes: ciphertext.byteLength,
+          width: fixture.width,
+          height: fixture.height,
+          ...(fixture.durationMs !== undefined && { durationMs: fixture.durationMs }),
+          modelName: params.modelName,
+          cost: params.cost,
+          isSmartModel: false,
+        },
+      ],
+    });
+  });
+
+  return { conversationId: result.conversation.id, assistantMessageId };
 }
 
 interface InsertGroupChatMessagesParams {

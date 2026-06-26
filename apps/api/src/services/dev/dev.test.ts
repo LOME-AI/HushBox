@@ -8,6 +8,8 @@ import {
   resetUsageRateLimits,
   createDevGroupChat,
   createDevConversation,
+  createDevMultiModelConversation,
+  createDevMediaConversation,
   setWalletBalance,
 } from './dev.js';
 
@@ -39,21 +41,50 @@ vi.mock('../chat/index.js', () => ({
 const mockAssignSequenceNumbers = vi.fn();
 const mockFetchEpochPublicKey = vi.fn();
 const mockInsertEnvelopeTextMessage = vi.fn();
+const mockInsertEnvelopeMediaMessage = vi.fn();
 vi.mock('../chat/message-helpers.js', () => ({
   assignSequenceNumbers: (...args: unknown[]) => mockAssignSequenceNumbers(...args),
   fetchEpochPublicKey: (...args: unknown[]) => mockFetchEpochPublicKey(...args),
   insertEnvelopeTextMessage: (...args: unknown[]) => mockInsertEnvelopeTextMessage(...args),
+  insertEnvelopeMediaMessage: (...args: unknown[]) => mockInsertEnvelopeMediaMessage(...args),
 }));
 
 const mockCreateFirstEpoch = vi.fn();
 const mockEncryptMessageForStorage = vi.fn();
+const mockBeginMessageEnvelope = vi.fn();
+const mockEncryptBinaryWithContentKey = vi.fn();
 
 vi.mock('@hushbox/crypto', () => ({
   createFirstEpoch: (...args: unknown[]) => mockCreateFirstEpoch(...args),
   encryptTextForEpoch: (...args: unknown[]) => mockEncryptMessageForStorage(...args),
+  beginMessageEnvelope: (...args: unknown[]) => mockBeginMessageEnvelope(...args),
+  encryptBinaryWithContentKey: (...args: unknown[]) => mockEncryptBinaryWithContentKey(...args),
 }));
 
 describe('dev service', () => {
+  /**
+   * Single-user mock db for the solo-conversation seeders: `select` resolves the
+   * looked-up user rows, and `transaction` runs its callback against an empty tx
+   * stub (the persistence helpers it calls are themselves mocked).
+   */
+  function createMockDb(
+    userRows: { id: string; username: string; email: string; publicKey: Uint8Array }[]
+  ): unknown {
+    const txMock = {};
+    return {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(userRows),
+        }),
+      }),
+      transaction: vi
+        .fn()
+        .mockImplementation(async (function_: (tx: typeof txMock) => Promise<void>) =>
+          function_(txMock)
+        ),
+    };
+  }
+
   describe('listDevPersonas', () => {
     let mockDb: {
       select: ReturnType<typeof vi.fn>;
@@ -763,24 +794,6 @@ describe('dev service', () => {
       mockInsertEnvelopeTextMessage.mockClear();
     });
 
-    function createMockDb(
-      userRows: { id: string; username: string; email: string; publicKey: Uint8Array }[]
-    ): unknown {
-      const txMock = {};
-      return {
-        select: vi.fn().mockReturnValue({
-          from: vi.fn().mockReturnValue({
-            where: vi.fn().mockResolvedValue(userRows),
-          }),
-        }),
-        transaction: vi
-          .fn()
-          .mockImplementation(async (function_: (tx: typeof txMock) => Promise<void>) =>
-            function_(txMock)
-          ),
-      };
-    }
-
     it('looks up user by email and calls createOrGetConversation', async () => {
       const mockDb = createMockDb([
         {
@@ -883,6 +896,271 @@ describe('dev service', () => {
 
       expect(result.conversationId).toBe('conv-456');
       expect(mockSaveUserOnlyMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createDevMultiModelConversation', () => {
+    const ALICE_PUBLIC_KEY = new Uint8Array([1, 2, 3, 4]);
+    const EPOCH_PUBLIC_KEY = new Uint8Array([10, 11, 12, 13]);
+    const CONFIRMATION_HASH = new Uint8Array([20, 21, 22]);
+    const ALICE_WRAP = new Uint8Array([30, 31]);
+
+    beforeEach(() => {
+      mockCreateFirstEpoch.mockReset();
+      mockCreateOrGetConversation.mockReset();
+      mockAssignSequenceNumbers.mockReset();
+      mockFetchEpochPublicKey.mockReset();
+      mockInsertEnvelopeTextMessage.mockReset();
+
+      mockCreateFirstEpoch.mockReturnValue({
+        epochPublicKey: EPOCH_PUBLIC_KEY,
+        confirmationHash: CONFIRMATION_HASH,
+        memberWraps: [{ wrap: ALICE_WRAP }],
+      });
+      // One user + two AI siblings → three sequence numbers in a single call.
+      mockAssignSequenceNumbers.mockResolvedValue({ sequences: [1, 2, 3], currentEpoch: 1 });
+      mockFetchEpochPublicKey.mockResolvedValue({
+        epochPublicKey: EPOCH_PUBLIC_KEY,
+        epochNumber: 1,
+      });
+    });
+
+    const ALICE_ROW = {
+      id: 'alice-id',
+      username: 'alice',
+      email: 'alice@test.hushbox.ai',
+      publicKey: ALICE_PUBLIC_KEY,
+    };
+
+    it('throws when user not found', async () => {
+      const mockDb = createMockDb([]);
+
+      await expect(
+        createDevMultiModelConversation(mockDb as never, {
+          ownerEmail: 'nobody@test.hushbox.ai',
+          userContent: 'Compare these',
+          aiResponses: [
+            { content: 'A', modelName: 'p/a', cost: '0.00200000' },
+            { content: 'B', modelName: 'p/b', cost: '0.00300000' },
+          ],
+        })
+      ).rejects.toThrow('User not found: nobody@test.hushbox.ai');
+    });
+
+    it('seeds one user message then sibling AI messages sharing parent and batchId', async () => {
+      const mockDb = createMockDb([ALICE_ROW]);
+      mockCreateOrGetConversation.mockResolvedValue({
+        conversation: { id: 'conv-mm' },
+        isNew: true,
+      });
+
+      const result = await createDevMultiModelConversation(mockDb as never, {
+        ownerEmail: 'alice@test.hushbox.ai',
+        userContent: 'Compare these',
+        aiResponses: [
+          { content: 'Echo A', modelName: 'p/a', cost: '0.00200000' },
+          { content: 'Echo B', modelName: 'p/b', cost: '0.00300000' },
+        ],
+      });
+
+      expect(result.conversationId).toBe('conv-mm');
+      expect(mockInsertEnvelopeTextMessage).toHaveBeenCalledTimes(3);
+
+      const userCall = mockInsertEnvelopeTextMessage.mock.calls[0]![1] as Record<string, unknown>;
+      const ai1Call = mockInsertEnvelopeTextMessage.mock.calls[1]![1] as Record<string, unknown>;
+      const ai2Call = mockInsertEnvelopeTextMessage.mock.calls[2]![1] as Record<string, unknown>;
+
+      // User message: root of the turn, no parent, sequence 1.
+      expect(userCall['senderType']).toBe('user');
+      expect(userCall['senderId']).toBe('alice-id');
+      expect(userCall['parentMessageId']).toBeNull();
+      expect(userCall['sequenceNumber']).toBe(1);
+      expect(userCall['textContent']).toBe('Compare these');
+
+      // Both AI siblings hang off the user message id and share one batch id —
+      // the exact shape saveChatTurn writes, so the fork-filter renders them
+      // as multi-model peers rather than splitting them across fork branches.
+      const userMessageId = userCall['id'];
+      expect(typeof userMessageId).toBe('string');
+      expect(ai1Call['parentMessageId']).toBe(userMessageId);
+      expect(ai2Call['parentMessageId']).toBe(userMessageId);
+
+      const sharedBatchId = userCall['batchId'];
+      expect(typeof sharedBatchId).toBe('string');
+      expect(ai1Call['batchId']).toBe(sharedBatchId);
+      expect(ai2Call['batchId']).toBe(sharedBatchId);
+
+      // Distinct models + non-null costs drive distinct nametags and rendered
+      // cost badges.
+      expect(ai1Call['senderType']).toBe('ai');
+      expect(ai1Call['sequenceNumber']).toBe(2);
+      expect(ai1Call['modelName']).toBe('p/a');
+      expect(ai1Call['cost']).toBe('0.00200000');
+
+      expect(ai2Call['senderType']).toBe('ai');
+      expect(ai2Call['sequenceNumber']).toBe(3);
+      expect(ai2Call['modelName']).toBe('p/b');
+      expect(ai2Call['cost']).toBe('0.00300000');
+
+      expect(ai1Call['modelName']).not.toBe(ai2Call['modelName']);
+    });
+  });
+
+  describe('createDevMediaConversation', () => {
+    const ALICE_PUBLIC_KEY = new Uint8Array([1, 2, 3, 4]);
+    const EPOCH_PUBLIC_KEY = new Uint8Array([10, 11, 12, 13]);
+    const CONFIRMATION_HASH = new Uint8Array([20, 21, 22]);
+    const ALICE_WRAP = new Uint8Array([30, 31]);
+    const CONTENT_KEY = new Uint8Array([40, 41]);
+    const WRAPPED_CONTENT_KEY = new Uint8Array([50, 51]);
+    const CIPHERTEXT = new Uint8Array([60, 61, 62, 63, 64]);
+
+    const ALICE_ROW = {
+      id: 'alice-id',
+      username: 'alice',
+      email: 'alice@test.hushbox.ai',
+      publicKey: ALICE_PUBLIC_KEY,
+    };
+
+    beforeEach(() => {
+      mockCreateFirstEpoch.mockReset();
+      mockCreateOrGetConversation.mockReset();
+      mockAssignSequenceNumbers.mockReset();
+      mockFetchEpochPublicKey.mockReset();
+      mockInsertEnvelopeTextMessage.mockReset();
+      mockInsertEnvelopeMediaMessage.mockReset();
+      mockBeginMessageEnvelope.mockReset();
+      mockEncryptBinaryWithContentKey.mockReset();
+
+      mockCreateFirstEpoch.mockReturnValue({
+        epochPublicKey: EPOCH_PUBLIC_KEY,
+        confirmationHash: CONFIRMATION_HASH,
+        memberWraps: [{ wrap: ALICE_WRAP }],
+      });
+      // One user prompt + one AI media reply → two sequence numbers.
+      mockAssignSequenceNumbers.mockResolvedValue({ sequences: [1, 2], currentEpoch: 1 });
+      mockFetchEpochPublicKey.mockResolvedValue({
+        epochPublicKey: EPOCH_PUBLIC_KEY,
+        epochNumber: 1,
+      });
+      mockBeginMessageEnvelope.mockReturnValue({
+        contentKey: CONTENT_KEY,
+        wrappedContentKey: WRAPPED_CONTENT_KEY,
+      });
+      mockEncryptBinaryWithContentKey.mockReturnValue(CIPHERTEXT);
+    });
+
+    function createMediaStorageMock(): { put: ReturnType<typeof vi.fn> } {
+      return { put: vi.fn(() => Promise.resolve()) };
+    }
+
+    it('throws when user not found', async () => {
+      const mockDb = createMockDb([]);
+
+      await expect(
+        createDevMediaConversation(mockDb as never, createMediaStorageMock() as never, {
+          ownerEmail: 'nobody@test.hushbox.ai',
+          userContent: 'Draw a cat',
+          mediaType: 'image',
+          modelName: 'p/img',
+          cost: '0.01000000',
+        })
+      ).rejects.toThrow('User not found: nobody@test.hushbox.ai');
+    });
+
+    it('seeds a user prompt then an AI image message, storing the encrypted bytes under the message key', async () => {
+      const mockDb = createMockDb([ALICE_ROW]);
+      mockCreateOrGetConversation.mockResolvedValue({
+        conversation: { id: 'conv-img' },
+        isNew: true,
+      });
+      const mediaStorage = createMediaStorageMock();
+
+      const result = await createDevMediaConversation(mockDb as never, mediaStorage as never, {
+        ownerEmail: 'alice@test.hushbox.ai',
+        userContent: 'Draw a cat',
+        mediaType: 'image',
+        modelName: 'p/img',
+        cost: '0.01000000',
+      });
+
+      expect(result.conversationId).toBe('conv-img');
+      expect(typeof result.assistantMessageId).toBe('string');
+
+      // The same content key wraps the DB envelope and encrypts the stored
+      // bytes, so the client unwraps it once and decrypts the download.
+      expect(mockBeginMessageEnvelope).toHaveBeenCalledWith(EPOCH_PUBLIC_KEY);
+      expect(mockEncryptBinaryWithContentKey).toHaveBeenCalledWith(
+        CONTENT_KEY,
+        expect.any(Uint8Array)
+      );
+
+      // Ciphertext lands in storage under media/<conv>/<assistantMsg>/<item>.enc.
+      expect(mediaStorage.put).toHaveBeenCalledTimes(1);
+      const putCall = mediaStorage.put.mock.calls[0] as [string, Uint8Array, string];
+      const [storageKey, storedBytes, contentType] = putCall;
+      expect(storageKey).toMatch(
+        new RegExp(String.raw`^media/conv-img/${result.assistantMessageId}/[0-9a-f-]+\.enc$`)
+      );
+      expect(storedBytes).toBe(CIPHERTEXT);
+      expect(contentType).toBe('application/octet-stream');
+
+      // User prompt persisted as the turn root.
+      expect(mockInsertEnvelopeTextMessage).toHaveBeenCalledTimes(1);
+      const userCall = mockInsertEnvelopeTextMessage.mock.calls[0]![1] as Record<string, unknown>;
+      expect(userCall['senderType']).toBe('user');
+      expect(userCall['senderId']).toBe('alice-id');
+      expect(userCall['parentMessageId']).toBeNull();
+      expect(userCall['sequenceNumber']).toBe(1);
+      expect(userCall['textContent']).toBe('Draw a cat');
+
+      // AI media message hangs off the user prompt; its single content item
+      // points at the stored object with the encrypted byte length + image dims.
+      expect(mockInsertEnvelopeMediaMessage).toHaveBeenCalledTimes(1);
+      const mediaCall = mockInsertEnvelopeMediaMessage.mock.calls[0]![1] as Record<string, unknown>;
+      expect(mediaCall['id']).toBe(result.assistantMessageId);
+      expect(mediaCall['senderType']).toBe('ai');
+      expect(mediaCall['sequenceNumber']).toBe(2);
+      expect(mediaCall['parentMessageId']).toBe(userCall['id']);
+      expect(mediaCall['wrappedContentKey']).toBe(WRAPPED_CONTENT_KEY);
+      expect(mediaCall['epochNumber']).toBe(1);
+
+      const items = mediaCall['mediaItems'] as Record<string, unknown>[];
+      expect(items).toHaveLength(1);
+      const item = items[0]!;
+      expect(item['contentType']).toBe('image');
+      expect(item['storageKey']).toBe(storageKey);
+      expect(item['mimeType']).toBe('image/jpeg');
+      expect(item['sizeBytes']).toBe(CIPHERTEXT.byteLength);
+      expect(item['modelName']).toBe('p/img');
+      expect(item['cost']).toBe('0.01000000');
+      expect(item['isSmartModel']).toBe(false);
+      expect(item['position']).toBe(0);
+      expect(item['width']).toBeGreaterThan(0);
+      expect(item['height']).toBeGreaterThan(0);
+    });
+
+    it('seeds a video message with duration metadata and the webm mime type', async () => {
+      const mockDb = createMockDb([ALICE_ROW]);
+      mockCreateOrGetConversation.mockResolvedValue({
+        conversation: { id: 'conv-vid' },
+        isNew: true,
+      });
+      const mediaStorage = createMediaStorageMock();
+
+      await createDevMediaConversation(mockDb as never, mediaStorage as never, {
+        ownerEmail: 'alice@test.hushbox.ai',
+        userContent: 'Animate a cat',
+        mediaType: 'video',
+        modelName: 'p/vid',
+        cost: '0.02000000',
+      });
+
+      const mediaCall = mockInsertEnvelopeMediaMessage.mock.calls[0]![1] as Record<string, unknown>;
+      const item = (mediaCall['mediaItems'] as Record<string, unknown>[])[0]!;
+      expect(item['contentType']).toBe('video');
+      expect(item['mimeType']).toBe('video/webm');
+      expect(item['durationMs']).toBeGreaterThan(0);
     });
   });
 });

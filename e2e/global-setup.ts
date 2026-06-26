@@ -60,16 +60,19 @@ async function tickStackHeartbeat(): Promise<void> {
 export default async function globalSetup(): Promise<void> {
   await tickStackHeartbeat();
 
-  const lines = ['', 'GPU renderers (this run):'];
-  for (const { name, type } of ENGINES) {
-    try {
-      const renderer = await readRenderer(type);
-      lines.push(`  ${name.padEnd(9)} ${renderer}  [${classify(renderer)}]`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      lines.push(`  ${name.padEnd(9)} (probe skipped: ${message})`);
-    }
-  }
+  // Probe engines concurrently (independent browsers); mapped in ENGINES order.
+  const probes = await Promise.all(
+    ENGINES.map(async ({ name, type }) => {
+      try {
+        const renderer = await readRenderer(type);
+        return `  ${name.padEnd(9)} ${renderer}  [${classify(renderer)}]`;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return `  ${name.padEnd(9)} (probe skipped: ${message})`;
+      }
+    })
+  );
+  const lines = ['', 'GPU renderers (this run):', ...probes];
   // eslint-disable-next-line no-console -- informational once-per-run diagnostic
   console.log(lines.join('\n'));
 }

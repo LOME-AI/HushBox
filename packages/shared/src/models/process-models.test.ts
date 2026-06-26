@@ -7,7 +7,7 @@ vi.mock('./zdr.js', () => ({
   isZdrModel: () => true,
 }));
 
-import { processModels, pickValueTextModel } from './process-models.js';
+import { processModels, pickValueTextModel, pickValueTextModels } from './process-models.js';
 import { SMART_MODEL_ID } from '../constants.js';
 import { applyFees } from '../pricing.js';
 
@@ -1047,5 +1047,65 @@ describe('pickValueTextModel', () => {
 
   it('throws when no text models exist at all', () => {
     expect(() => pickValueTextModel([])).toThrow(/no non-premium text model/i);
+  });
+});
+
+describe('pickValueTextModels', () => {
+  // Same window rationale as pickValueTextModel: created inside [6mo, 2y] so the
+  // fixtures land in `filtered` and aren't flagged premium-by-recency.
+  const oldCreated = Math.floor((now - 365 * 24 * 60 * 60 * 1000) / 1000);
+
+  function valueModel(id: string, perToken: string) {
+    return createModel({
+      id,
+      modality: 'text',
+      pricing: { prompt: perToken, completion: perToken },
+      created: oldCreated,
+    });
+  }
+
+  it('returns the N distinct cheapest non-premium text ids in ascending price order', () => {
+    // 4 text models; per-token prices stay ≤ 0.000002 so the bottom three clear
+    // the trial-affordability budget, and the 75th-percentile premium cut flags
+    // only the priciest (D), leaving A < B < C as the non-premium pool.
+    const raws = [
+      valueModel('p/c', '0.0000015'),
+      valueModel('p/a', '0.000001'),
+      valueModel('p/d', '0.000002'),
+      valueModel('p/b', '0.0000012'),
+    ];
+
+    expect(pickValueTextModels(raws, 2)).toEqual(['p/a', 'p/b']);
+    expect(pickValueTextModels(raws, 3)).toEqual(['p/a', 'p/b', 'p/c']);
+  });
+
+  it('excludes premium and non-text models from the result', () => {
+    const raws = [
+      createImageModel({ id: 'google/imagen-4.0-generate-001' }),
+      valueModel('p/a', '0.000001'),
+      valueModel('p/b', '0.0000015'),
+      // Priciest text entry AND recent → flagged premium by both percentile and
+      // recency, so it never lands in the value picks.
+      createModel({
+        id: 'p/recent',
+        modality: 'text',
+        pricing: { prompt: '0.000002', completion: '0.000002' },
+        created: Math.floor(now / 1000),
+      }),
+    ];
+
+    expect(pickValueTextModels(raws, 2)).toEqual(['p/a', 'p/b']);
+  });
+
+  it('throws when fewer than N non-premium text models exist (catalog drift guard)', () => {
+    const raws = [valueModel('p/a', '0.000001'), valueModel('p/b', '0.000002')];
+
+    // 2 models → the 75th-percentile cut flags the pricier one premium, leaving
+    // only 1 eligible, so a request for 2 cannot be satisfied.
+    expect(() => pickValueTextModels(raws, 2)).toThrow(/non-premium text model/i);
+  });
+
+  it('throws when no text models exist at all', () => {
+    expect(() => pickValueTextModels([], 1)).toThrow(/non-premium text model/i);
   });
 });

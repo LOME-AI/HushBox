@@ -99,6 +99,19 @@ vi.mock('@/hooks/crypto/keys', () => ({
 
 const redirectError = new Error('REDIRECT');
 
+interface BeforeLoadArgs {
+  params: { id: string };
+  context: { queryClient: { prefetchQuery: ReturnType<typeof vi.fn> } };
+}
+
+function getBeforeLoad(): (args: BeforeLoadArgs) => Promise<void> {
+  const beforeLoad = Route.options.beforeLoad as
+    | ((args: BeforeLoadArgs) => Promise<void>)
+    | undefined;
+  expect(beforeLoad).toBeDefined();
+  return beforeLoad!;
+}
+
 describe('chat.$id route beforeLoad', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -116,36 +129,27 @@ describe('chat.$id route beforeLoad', () => {
       },
     });
 
-    const beforeLoad = Route.options.beforeLoad as (() => Promise<void>) | undefined;
-    expect(beforeLoad).toBeDefined();
-    await beforeLoad!();
+    await getBeforeLoad()({
+      params: { id: 'conv-123' },
+      context: { queryClient: { prefetchQuery: vi.fn() } },
+    });
     expect(mockRequireAuth).toHaveBeenCalledTimes(1);
   });
 
-  it('redirects to login when auth fails', async () => {
-    mockRequireAuth.mockRejectedValue(redirectError);
-
-    const beforeLoad = Route.options.beforeLoad as (() => Promise<void>) | undefined;
-    await expect(beforeLoad!()).rejects.toThrow('REDIRECT');
-  });
-});
-
-describe('chat.$id route loader', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('prefetches conversation and key chain data', () => {
-    const loader = Route.options.loader as
-      | ((args: {
-          params: { id: string };
-          context: { queryClient: { prefetchQuery: ReturnType<typeof vi.fn> } };
-        }) => void)
-      | undefined;
-    expect(loader).toBeDefined();
-
+  it('fires conversation + key-chain prefetch concurrently with the auth check', async () => {
+    // The prefetches must start before requireAuth resolves, so the `/auth/me`
+    // round-trip overlaps the conversation/key-chain fetches instead of
+    // serializing ahead of them. A still-pending auth promise lets us observe
+    // that the prefetches already fired.
+    let resolveAuth!: (value: { user: { id: string } }) => void;
+    mockRequireAuth.mockReturnValue(
+      new Promise<{ user: { id: string } }>((resolve) => {
+        resolveAuth = resolve;
+      })
+    );
     const mockPrefetchQuery = vi.fn();
-    loader!({
+
+    const pending = getBeforeLoad()({
       params: { id: 'conv-123' },
       context: { queryClient: { prefetchQuery: mockPrefetchQuery } },
     });
@@ -153,27 +157,46 @@ describe('chat.$id route loader', () => {
     expect(mockPrefetchQuery).toHaveBeenCalledTimes(2);
     expect(mockPrefetchQuery).toHaveBeenCalledWith(mockConversationOptions);
     expect(mockPrefetchQuery).toHaveBeenCalledWith(mockKeyChainOptions);
+
+    resolveAuth({ user: { id: 'user-1' } });
+    await pending;
+    expect(mockRequireAuth).toHaveBeenCalledTimes(1);
   });
 
-  it('does not prefetch when id is the "new" sentinel', () => {
+  it('redirects to login when auth fails, even though prefetch was already fired', async () => {
+    // Security lock: overlapping the prefetch with the auth check must not
+    // weaken the gate. An unauthenticated boot still rejects in beforeLoad, so
+    // the route component never mounts and no message content can render.
+    // Server-side authorization (membership 404, key-wrap filtering) and the
+    // private-key decryption gate make the fired prefetches harmless.
+    mockRequireAuth.mockRejectedValue(redirectError);
+
+    await expect(
+      getBeforeLoad()({
+        params: { id: 'conv-123' },
+        context: { queryClient: { prefetchQuery: vi.fn() } },
+      })
+    ).rejects.toThrow('REDIRECT');
+  });
+
+  it('does not prefetch when id is the "new" sentinel', async () => {
     // The "new" segment in /chat/new is a create-mode marker, not a real
     // conversation id. Treating it as an id triggers GET /api/conversations/new
     // and GET /api/keys/new, both of which 404 and polluted production
     // observability with phantom errors on every welcome-page send.
-    const loader = Route.options.loader as
-      | ((args: {
-          params: { id: string };
-          context: { queryClient: { prefetchQuery: ReturnType<typeof vi.fn> } };
-        }) => void)
-      | undefined;
-
+    mockRequireAuth.mockResolvedValue({ user: { id: 'user-1' } });
     const mockPrefetchQuery = vi.fn();
-    loader!({
+
+    await getBeforeLoad()({
       params: { id: 'new' },
       context: { queryClient: { prefetchQuery: mockPrefetchQuery } },
     });
 
     expect(mockPrefetchQuery).not.toHaveBeenCalled();
+  });
+
+  it('has no separate loader — the prefetch moved into beforeLoad to overlap auth', () => {
+    expect(Route.options.loader).toBeUndefined();
   });
 });
 
