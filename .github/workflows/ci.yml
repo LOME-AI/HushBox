@@ -24,7 +24,7 @@ jobs:
       version_name: ${{ steps.compute.outputs.version_name }}
       version_code: ${{ steps.compute.outputs.version_code }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup-blacksmith
@@ -39,7 +39,7 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-blacksmith
       - name: Generate Astro types
         run: pnpm --filter @hushbox/marketing exec astro sync
@@ -50,7 +50,7 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-blacksmith
       - name: Type check
         run: pnpm typecheck
@@ -67,7 +67,7 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-blacksmith
       - name: Check code duplication
         run: pnpm lint:duplication
@@ -76,7 +76,7 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-blacksmith
       - name: Generate environment files
         run: pnpm generate:env
@@ -88,11 +88,11 @@ jobs:
     timeout-minutes: 5
     environment: ci
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Scan for secrets
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
@@ -104,7 +104,7 @@ jobs:
     environment: ci
     needs: [gitleaks]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-blacksmith
 
       - name: Cache Turbo
@@ -169,7 +169,7 @@ jobs:
       # in `apps/api/src/services/ai/cassette/cassette-store.ts` changes the
       # `v1` segment of the path and orphans old recordings. See docs/CI-CASSETTES.md.
       - name: Restore AI cassettes
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .ai-cassettes
           key: ai-cassettes-v1-${{ github.run_id }}-${{ github.run_attempt }}
@@ -192,7 +192,7 @@ jobs:
       # is unique per run so a failed save doesn't poison main.
       - name: Save AI cassettes
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .ai-cassettes
           key: ai-cassettes-v1-${{ github.run_id }}-${{ github.run_attempt }}
@@ -205,7 +205,7 @@ jobs:
     needs: [gitleaks, version]
     if: always() && needs.gitleaks.result == 'success' && (needs.version.result == 'success' || needs.version.result == 'skipped')
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-blacksmith
 
       - name: Cache Turbo
@@ -242,7 +242,7 @@ jobs:
           VITE_API_URL: https://api.hushbox.ai
 
       - name: Upload web build artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: web-dist
           path: apps/web/dist
@@ -266,7 +266,7 @@ jobs:
 
       - name: Upload mobile build artifacts
         if: needs.version.result == 'success'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: mobile-dist
           path: |
@@ -288,7 +288,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-blacksmith
 
       - name: Cache Turbo
@@ -310,7 +310,7 @@ jobs:
         # END GENERATED: e2e-build-env
 
       - name: Upload e2e web bundle
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-web-dist
           path: apps/web/dist
@@ -338,7 +338,7 @@ jobs:
           - project: ipad-pro
             browser: webkit
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-blacksmith
 
       - name: Resolve Playwright version
@@ -447,7 +447,7 @@ jobs:
           HOOKDECK_API_KEY: ${{ secrets.HOOKDECK_API_KEY }}
 
       - name: Download prebuilt e2e web bundle
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: e2e-web-dist
           path: apps/web/dist
@@ -458,7 +458,7 @@ jobs:
       # drops @webhook, so the full-payment flow runs on the chromium runner
       # alone (Hookdeck + Helcim sandbox are wired there only).
       - name: Download prebuilt e2e web bundle
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: e2e-web-dist
           path: apps/web/dist
@@ -482,7 +482,7 @@ jobs:
         run: pnpm verify:evidence --require=helcim
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report-${{ matrix.project }}
@@ -502,7 +502,7 @@ jobs:
     environment: ci
     needs: [gitleaks]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-blacksmith
 
       - name: Cache Turbo
@@ -546,7 +546,7 @@ jobs:
         # END GENERATED: e2e-env
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -556,7 +556,7 @@ jobs:
       # Dockerfile miss the registry and fall back to a local cold build,
       # which doesn't require login.
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -588,7 +588,7 @@ jobs:
           done
 
       - name: Upload results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: maestro-results
@@ -619,11 +619,11 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-blacksmith
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -666,7 +666,7 @@ jobs:
       R2_ADMIN_SECRET_ACCESS_KEY: ${{ secrets.R2_ADMIN_SECRET_ACCESS_KEY }}
     # END GENERATED: ops-env
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup
@@ -681,7 +681,7 @@ jobs:
           echo "Deploying version: $VERSION"
 
       - name: Download web build artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: apps/web/dist
@@ -791,7 +791,7 @@ jobs:
           curl -f https://hushbox-api.${{ vars.WORKERS_SUBDOMAIN }}.workers.dev/api/health || exit 1
 
       - name: Download mobile build artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: mobile-dist
           path: apps/web
