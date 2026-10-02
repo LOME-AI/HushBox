@@ -1,0 +1,114 @@
+import { mapWithConcurrency } from '@hushbox/shared';
+import { ResultAsync, okAsync } from '../../../lib/result/index.js';
+import { sendWebPush } from './webpush/index.js';
+import { PUSH_FAN_OUT_CONCURRENCY } from './fan-out-concurrency.js';
+import type { VapidKeys, WebPushSendResult } from './webpush/index.js';
+import type { DomainError } from '../../../lib/errors/index.js';
+import type {
+  PushDelivery,
+  PushDeviceRef,
+  PushMessage,
+  PushRecipient,
+  PushSender,
+} from '../ports/index.js';
+
+const NOTHING: PushDelivery = {
+  successCount: 0,
+  failureCount: 0,
+  deliveredTokens: [],
+  deadTokens: [],
+};
+
+/** RFC 8030 TTL: how long the push service retains an undelivered message. */
+const DEFAULT_TTL_SECONDS = 24 * 60 * 60;
+
+type WebRecipient = Extract<PushRecipient, { platform: 'web' }>;
+
+interface WebPushSenderConfig {
+  readonly vapid: VapidKeys;
+  readonly fetchImpl?: typeof fetch;
+  /** Retention TTL header; defaults to 24h. */
+  readonly ttl?: number;
+}
+
+/**
+ * The Web Push transport as a `PushSender`, driving the in-house single-
+ * recipient `sendWebPush` primitive over the web partition of a message. The
+ * generic wire payload (`category` + `conversationId`) is encoded once and
+ * encrypted per subscription; the collapse alias rides the RFC 8030 `Topic`
+ * header. A status `sendWebPush` classifies as `dead` (its `DEAD_STATUSES`)
+ * lands the subscription in `deadTokens` (keyed by its endpoint, the unique
+ * `device_tokens.token`); every other rejection is a counted best-effort
+ * failure with no retry.
+ */
+export function createWebPushSender(config: WebPushSenderConfig): PushSender {
+  const ttl = config.ttl ?? DEFAULT_TTL_SECONDS;
+  // Resolve the transport once: production omits `fetchImpl` and gets the
+  // platform `fetch`; tests inject a capturing one.
+  const fetchImpl = config.fetchImpl ?? fetch;
+  return {
+    send(message: PushMessage): ResultAsync<PushDelivery, DomainError> {
+      const web = message.recipients.filter(
+        (recipient): recipient is WebRecipient => recipient.platform === 'web'
+      );
+      if (web.length === 0) {
+        return okAsync(NOTHING);
+      }
+      // Projected field by field rather than serialized wholesale: a
+      // structurally typed object can carry properties the type never declared,
+      // and this is the seam where such a property would be encrypted and sent.
+      const payload = new TextEncoder().encode(
+        JSON.stringify({
+          category: message.payload.category,
+          conversationId: message.payload.conversationId,
+        })
+      );
+      const options = {
+        ttl,
+        ...(message.collapseKey === undefined ? {} : { topic: message.collapseKey }),
+      };
+      // Every send is created inside the worker, so `mapWithConcurrency` is
+      // what starts it: a `ResultAsync` built up front is already running and
+      // no limiter downstream of it can bound anything.
+      const sendOne = async (
+        recipient: WebRecipient
+      ): Promise<{ recipient: WebRecipient; result: WebPushSendResult }> => {
+        const result = await sendWebPush(
+          { endpoint: recipient.endpoint, p256dh: recipient.p256dh, auth: recipient.auth },
+          payload,
+          options,
+          { vapid: config.vapid, fetchImpl }
+          // A transport exception is a best-effort failure, never a short-circuit.
+        ).unwrapOr<WebPushSendResult>({ outcome: 'failed', statusCode: 0 });
+        return { recipient, result };
+      };
+      // Safe rather than mapped: every per-recipient failure is already folded
+      // into a `failed` outcome above, so the fan-out promise has no rejection
+      // path and a mapper for one would be unreachable.
+      return ResultAsync.fromSafePromise(
+        mapWithConcurrency(web, PUSH_FAN_OUT_CONCURRENCY, sendOne)
+      ).map((outcomes) => tally(outcomes));
+    },
+  };
+}
+
+function tally(
+  outcomes: readonly { readonly recipient: WebRecipient; readonly result: WebPushSendResult }[]
+): PushDelivery {
+  let successCount = 0;
+  let failureCount = 0;
+  const deliveredTokens: PushDeviceRef[] = [];
+  const deadTokens: PushDeviceRef[] = [];
+  for (const { recipient, result } of outcomes) {
+    if (result.outcome === 'delivered') {
+      successCount++;
+      deliveredTokens.push({ userId: recipient.userId, token: recipient.endpoint });
+      continue;
+    }
+    failureCount++;
+    if (result.outcome === 'dead') {
+      deadTokens.push({ userId: recipient.userId, token: recipient.endpoint });
+    }
+  }
+  return { successCount, failureCount, deliveredTokens, deadTokens };
+}

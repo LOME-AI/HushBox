@@ -1,0 +1,1 @@
+ALTER TABLE "growth_daily_path_reach" ADD COLUMN "overflow" boolean DEFAULT false NOT NULL;

@@ -1,0 +1,112 @@
+---
+title: "'Anyone With the Link' Turned Out to Include Google"
+description: "In July, one Google search listed strangers' shared Claude chats. A share link can carry its own key, so an address alone opens nothing."
+author: 'HushBox Team'
+date: 2026-09-25
+tags: ['privacy', 'encryption', 'security']
+draft: true
+---
+
+## A search that listed other people's chats
+
+On Saturday, July 25, 2026, a Reddit user showed what Google returned for the search `site:claude.ai/share`. That query asks for every page Google knows under the address Claude uses for shared chats. The answer was a list of other people's conversations, and Claude's published artifacts turned out to be listed too.
+
+Futurism's list of what turned up included what "appeared to be a detailed medical report of a real patient, clinical trial results that included patient names, documents sharing the names and phone numbers of primary school-aged children, company documents marked for internal use only, and employee reviews that included personal information about workers."
+
+Every one of those pages began when someone pressed share or publish. Claude's interface told them what sharing did, and TechCrunch quoted the warning: "Anyone with the link can view." The chat-sharing warning said nothing about search engines, Futurism noted, though the one for publishing an artifact did.
+
+Anthropic's answer was that the system had done what it was built to do. Futurism reported that the company "said the system was working as intended." The longer version, from spokeswoman Amie Rotherham, ran in TechCrunch:
+
+> We give people control over sharing their Claude conversations publicly, and in keeping with our privacy principles, we do not share chat directories or sitemaps with search engines like Google. These shareable links are not guessable or discoverable unless people choose to share them themselves. When someone shares a conversation, they are making that content publicly accessible, and like other public web content, it may be archived by third-party services.
+>
+> Amie Rotherham, Anthropic spokeswoman, quoted by TechCrunch
+
+Google's statement, from spokesperson Ned Adriance, placed the question with the site: "Neither Google nor any other search engine controls what pages are made public on the web, and these pages were indexed across many search engines. We give site owners clear controls to decide whether pages can be crawled or indexed, and we always respect those directives."
+
+One statement points at the person who shared, the other at the site's settings. Both describe the same arrangement underneath. The page was public, and its address was the only lock on it. Whoever held the address could read the chat and keep a copy, and within two days of the Reddit post, Decrypt reported, a public GitHub repository had archived 453 of the exposed Claude conversations along with 519 Grok chats: "11,241 messages, all in plain text."
+
+The same thing had happened to other chatbots, and to Claude. In July 2025, OpenAI removed a ChatGPT option that let shared chats appear in search results; Dane Stuckey, its security chief, said it "introduced too many opportunities for folks to accidentally share things they didn't intend to." In August 2025, Forbes reported that Google had indexed "more than 370,000 user conversations" with Grok, and in September that Google "estimated that it had indexed just under 600" conversations with Claude.
+
+## The best case for the share button
+
+A shared chat reached a search engine only after its owner posted the link somewhere public. TechCrunch relayed that point from Anthropic, along with its corollary: a link sent privately to someone stays out of search. On that account the owner chose the audience, the search engine indexed what the public web showed it, and the site held the controls, which is where Google's statement puts them.
+
+The controls are where it came apart. Claude's robots.txt, the file a site uses to tell crawlers which pages to skip, already covered shared chats: in 2025, Forbes reported that Anthropic "instructs web crawlers not to index these shared pages in its robots.txt file," and Decrypt reported in July that the file was still in place. Google's documentation describes the limit of that file: "While Google won't crawl or index the content blocked by a robots.txt file, we might still find and index a disallowed URL if it is linked from other places on the web." The control built to keep a page out of results is a noindex tag on the page itself, and Google spells out when it works: "For the noindex rule to be effective, the page or resource must not be blocked by a robots.txt file." A page blocked in robots.txt keeps its own noindex tag out of the crawler's sight.
+
+Decrypt described Claude conversations listed under the label "No information is available for this page." Google had listed the addresses of chats it never read, and each address was enough, because Claude's server showed the full conversation to anyone who opened it.
+
+And search engines are the polite visitors. Slack's link-preview bot, which fetches the links people post in Slack channels, says on its own documentation page: "We do not currently honor robots.txt files."
+
+## The part of a link the server never sees
+
+Every web address has a piece your browser keeps out of its request to the server. Take this one:
+
+`https://example.com/guide#chapter-3`
+
+Everything before the `#` tells your browser which server to contact and which page to ask for. The part after it, `chapter-3`, is called the fragment, and it exists so a link can point at one spot inside a page. Your browser asks the server for `/guide`, gets the page back, and scrolls to chapter 3 by itself. The request carries `/guide` and stops there.
+
+The standards require this. RFC 3986, which defines web addresses, says what's in the fragment "is dereferenced solely by the user agent," which is standards language for "the browser handles it alone." RFC 9110, the specification for HTTP, says the target of a request "excludes the reference's fragment component," and that when your browser tells the next site where you came from, in what's called the Referer header, it "MUST NOT include the fragment." Google's documentation says the same thing from the crawler's side: "Google ignores fragment identifiers."
+
+Now put a key where `chapter-3` was. The server gets the address. The key stays in the browser that opened the link.
+
+Other services have relied on this for years. MEGA's security white paper says of its file links that "everything after an anchor hash (#) in the URL is not sent to the MEGA servers and is kept locally in the client’s browser." Bitwarden Send, which shares text and files, works the same way: "The anchor/fragment/hash is not sent to the server."
+
+## How a HushBox share link works
+
+When you make a link to a HushBox conversation, your browser does the work before our server hears anything. It picks 32 random bytes, which become the secret. It turns the secret into a pair of keys: a public one that can lock a box, and a private one that can open it. It locks a copy of the conversation's key with the public one. Then it sends our server the public key and the locked copy, and puts the secret after the `#` in the link it gives you.
+
+When your guest opens the link, their browser reads the secret from the fragment, rebuilds the private key and opens the locked copy of the conversation key. With that, it decrypts the conversation's stored messages, which our server keeps as ciphertext. The secret lives only in the link.
+
+Sharing a single message works the same way with fewer parts. Your browser seals that message's key under a fresh secret, hands our server the sealed key and puts the secret after the `#`. The public request behind a shared message returns exactly that one message: its ciphertext, its sealed key and the identifiers needed to decrypt it.
+
+For readers who want the parts list: the secret comes from the browser's `crypto.getRandomValues`. HKDF-SHA-256 turns it into an X25519 private key, and the conversation key is wrapped to the matching public key with a one-time X25519 exchange, HKDF-SHA-256 and XChaCha20-Poly1305. A shared message's key is sealed under its secret with HKDF-SHA-256 and XChaCha20-Poly1305. In the link, the secret is 43 characters of URL-safe base64.
+
+Open a conversation link without its fragment, and where the conversation would be, the page says: "This shared link is no longer available."
+
+That makes our own robots.txt easy to describe. It asks crawlers to stay out of `/share`, and an address posted somewhere public can still land in a search engine's list, the way Claude's did. Google says it ignores fragments, so the address it lists has no key in it. Google also says the words other pages use when they link to a blocked address can appear with the result, and a link pasted raw into a forum uses the whole link as its words. That's the public post in the table below, turning up in a search result.
+
+The app itself loads scripts from exactly one other site, our payment processor's, for the billing dialog. The code on a share page that reads the fragment is ours.
+
+If the person you're sharing with has a HushBox account, add them to the conversation instead; the conversation key is then locked to their account's own key.
+
+## Where the whole link goes
+
+The W3C's Technical Architecture Group, which writes guidance on how the web should be built, calls addresses like these capability URLs and sums them up in one sentence: "Capability URLs grant access to a resource to anyone who has the URL." A HushBox share link is one. The key travels wherever the whole link travels, and here's where that is:
+
+| Who                                                                                              | Gets the address | Gets the key |
+| ------------------------------------------------------------------------------------------------ | ---------------- | ------------ |
+| Our servers                                                                                      | Yes              | No           |
+| A crawler that fetches the page from its address                                                 | Yes              | No           |
+| The person you send the link to                                                                  | Yes              | Yes          |
+| The chat app or email service that carries the link                                              | Yes              | Yes          |
+| A security scanner that opens the full link in a browser                                         | Yes              | Yes          |
+| Everyone who reads a public post of the full link, and every search engine that indexes the post | Yes              | Yes          |
+| Your browser history, and any service that syncs it                                              | Yes              | Yes          |
+
+A yes in the last column means that party holds everything needed to read what the link shares. The scanner row is there because PrivateBin's developers document URL scanners in email and chat security systems that run the JavaScript on the pages they check. The HTTP standard adds a holder no table can list one by one: a fragment stays visible to "any extensions or scripts" running in the browser.
+
+What the fragment guarantees is specific: the key goes exactly where the whole link goes. Our database holds the address and a locked copy of the conversation's key. A crawler that fetches the page holds the address. In July, the address was all anyone needed.
+
+A share link should carry its own key. Then every copy of the address, in a search index, a crawler's cache or our own database, is only an address.
+
+---
+
+## Sources
+
+1. [Uh-oh: Some Claude shared conversations and Artifacts appear to be indexed and publicly accessible on Google Search](https://venturebeat.com/technology/uh-oh-some-claude-shared-conversations-and-artifacts-appear-to-be-indexed-and-publicly-accessible-on-google-search)
+2. [A Whole Bunch of People's Claude Chats Are Publicly Accessible Online, and There's Some Wildly Private Stuff in There](https://futurism.com/artificial-intelligence/claude-chats-publicly-accessible)
+3. [PSA: Your Claude shared chats and Artifacts may have ended up on Google](https://techcrunch.com/2026/07/27/psa-your-claude-shared-chats-and-artifacts-may-have-ended-up-on-google/)
+4. [Your Shared Claude Chats Were Being Quietly Published on Google](https://decrypt.co/374412/anthropic-share-button-quietly-publishing-claude-chats-google)
+5. [Thread by @cryps1s on Thread Reader App](https://threadreaderapp.com/thread/1951041845938499669.html)
+6. [xAI published hundreds of thousands of Grok chatbot conversations](https://www.forbes.com.au/news/innovation/xai-published-hundreds-of-thousands-of-grok-chatbot-conversations/)
+7. [Hundreds of Anthropic chatbot transcripts showed up in Google search](https://www.forbes.com.au/news/innovation/hundreds-of-anthropic-chatbot-transcripts-showed-up-in-google-search/)
+8. [Introduction to robots.txt](https://developers.google.com/search/docs/crawling-indexing/robots/intro)
+9. [Block Search indexing with noindex](https://developers.google.com/search/docs/crawling-indexing/block-indexing)
+10. [Slack Robots](https://api.slack.com/robots)
+11. [RFC 3986: Uniform Resource Identifier (URI): Generic Syntax](https://www.rfc-editor.org/rfc/rfc3986)
+12. [RFC 9110: HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110)
+13. [Pagination, incremental page loading, and their impact on Google Search](https://developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading)
+14. [MEGA Security White Paper](https://mega.nz/SecurityWhitepaper.pdf)
+15. [Send Encryption](https://bitwarden.com/help/send-encryption/)
+16. [Good Practices for Capability URLs](https://w3ctag.github.io/capability-urls/)
+17. [Encryption format](https://github.com/PrivateBin/PrivateBin/wiki/Encryption-format)

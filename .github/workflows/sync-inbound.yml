@@ -1,0 +1,54 @@
+name: Sync inbound
+
+# Public → staging, immediately after the merge queue lands a contributor's
+# pull request. That merge exists only on public, and staging has to be brought
+# over it or the next outbound mirror refuses every publication as a
+# non-fast-forward.
+#
+# Public only. A push to `main` reaches both repositories, and running this in
+# staging would try to carry staging's own commits back into itself; the
+# repository guard is what stops that, and an unset repository variable stops
+# the job in both.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The bot authenticates as its own GitHub App, so the workflow token needs
+# nothing beyond reading this checkout.
+permissions:
+  contents: read
+
+# Syncs are ordered rather than concurrent: two of them merging onto the same
+# staging branch would race, and the loser is refused by the remote anyway.
+concurrency:
+  group: sync-inbound
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.repository == vars.HB_PUBLIC_REPO
+    steps:
+      # ref: main — what this carries back is public's trunk, never the branch a
+      # dispatch was started from; that branch's tip is work the queue never
+      # landed.
+      # fetch-depth: 0 — the sync asks git how the two heads relate and mints a
+      # merge when they have diverged. Both need the full history.
+      # persist-credentials: false — a persisted workflow token is sent as an
+      # `Authorization` header that takes precedence over the App token in the
+      # sync's staging URL, and this workflow's token may only read public.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Carry public main back into staging
+        run: pnpm tsx scripts/publication/sync-inbound.ts
+        env:
+          HUSHBOX_SYNC_APP_ID: ${{ secrets.HUSHBOX_SYNC_APP_ID }}
+          HUSHBOX_SYNC_PRIVATE_KEY: ${{ secrets.HUSHBOX_SYNC_PRIVATE_KEY }}

@@ -1,0 +1,232 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  // Set here rather than passed as `--no-update-notifier`: turbo is spawned from
+  // independent script call sites with no shared wrapper or environment seam to
+  // carry a flag. The notice reaches a terminal only, so a run whose output is
+  // redirected prints nothing either way and evidences nothing about this key.
+  "noUpdateNotifier": true,
+  // Both default to disabled, which is why nothing was ever pruned and the
+  // cache reached twenty gigabytes across fourteen thousand entries. The size
+  // is the bound that matters; the age is the frontier past which an entry is
+  // keyed to a tree nothing will check out again, and the two settle to roughly
+  // the same place at this repository's rate of change.
+  //
+  // Eviction runs at the start of every run, including a run whose cache is
+  // read-only, and it is safe there: an entry unlinked while another run is
+  // extracting it is a file that run still holds open, and an entry it has not
+  // opened yet is a cache miss rather than a wrong answer. Both were
+  // established by execution against this version of the task runner.
+  "cacheMaxAge": "14d",
+  "cacheMaxSize": "10GB",
+  // The two client prefixes are negated so no build task's process carries one,
+  // which makes the generated env file a build's sole supply. Neither bundler
+  // can be told to skip its process overlay — it is applied last and wins — so
+  // a prefixed variable reaching a build process silently beats the file it was
+  // generated to match. Both prefixes are needed and neither covers the other:
+  // the vite-classified packages infer `VITE_*` and the astro-classified one
+  // infers `PUBLIC_*`, as two disjoint sets.
+  //
+  // No client variable may be named here alongside them. A negation on this
+  // list strips a variable this same list names explicitly, in either order, so
+  // such an entry supplies nothing while reading as the supply.
+  //
+  // The cost, accepted: the negation is not by itself the guarantee. On this
+  // version of the task runner an `env` entry naming a prefixed variable is
+  // stripped in a package the runner classifies by framework, and delivered to
+  // the task's process in a package it classifies as neither — alike for an
+  // entry on a task's `env` here and one in that package's own configuration.
+  // And `passThroughEnv` restores such a variable from any package at all,
+  // outside the cache key, which is the defect this file's `inputs` were fixed
+  // to close. So the property this design depends on is an invariant nothing
+  // here enforces: no task's `env` names a prefixed variable, because the
+  // generated file is the supply.
+  "globalEnv": ["DATABASE_URL", "NODE_ENV", "!VITE_*", "!PUBLIC_*"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build", "fetch-pyodide"],
+      // Root-anchored because an input glob resolves against the package
+      // directory, while `pnpm generate:env` writes the env files at the repo
+      // root — unanchored, the glob misses them entirely and a regenerated env
+      // replays a bundle baked with the previous `VITE_*` values.
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.env*"],
+      "outputs": ["dist/**"],
+      // The sandbox build bakes `ESM_CDN_URL` into its `/config.js` and
+      // fail-fasts without it. Vite's `VITE_*` vars reach the web build through
+      // turbo's framework inference; this one has no prefix to be inferred from,
+      // so it must be named or turbo's strict env mode strips it. It belongs in
+      // `env`, not `passThroughEnv`: the value determines build output, and
+      // passthrough supplies a value without hashing it — which would let a dist
+      // built against the local test stub replay from cache for a production
+      // build, serving a wrong artifact on a correct-looking cache hit.
+      //
+      // `HB_ENV_MODE` is what a build derives its mode from, and the mode
+      // names the generated env file the bundle bakes in — the file written
+      // under that same mode. A build reaching here with the variable unset
+      // fails rather than resolving a mode of its own. It is
+      // hashed rather than passed through for the same reason `ESM_CDN_URL` is:
+      // passthrough supplies a value without hashing it, so a bundle built
+      // under one mode would replay from cache for another. Hashing partitions
+      // the cache per selector value, which makes a mode switch a guaranteed
+      // miss.
+      //
+      // It is named here rather than in each building package because a
+      // package-level `env` replaces this array rather than extending it: a
+      // package naming the variable would have to restate every entry here, and
+      // anything added here afterwards would silently stop reaching it.
+      "env": ["ESM_CDN_URL", "HB_ENV_MODE"]
+    },
+    // The marketing site built a second time, for the admin origin to serve and
+    // frame. Its own task rather than a variant of `build` because both
+    // outputs exist at once and turbo archives one output set per task; the
+    // env entries are the ones `build` names, for the reasons stated there.
+    //
+    // It waits on the site build rather than running beside it. The two are one
+    // site builder run twice over one package, under two configurations, and a
+    // run answers a configuration change by clearing the content store that
+    // lives in the package. Started together they overlap end to end and only
+    // one of them clears — which one varies from run to run — so what each
+    // build reads is decided by the interleaving; the symptom seen was a
+    // rename failing mid-build, which took the whole run down. The
+    // repository-wide build reaches the site build directly and this one
+    // through the admin origin's assets, so this edge is the only thing
+    // between them; the index extraction below serialises behind the same
+    // build for its own reason.
+    "admin-preview:build": {
+      "dependsOn": ["^build", "build"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.env*"],
+      "outputs": ["dist-preview/**"],
+      "env": ["ESM_CDN_URL", "HB_ENV_MODE"]
+    },
+    // Moves that build into the admin app's static assets, where the admin
+    // build carries it into the dist its assets Worker serves. Uncached for
+    // the same reason the index extraction below is: the output lands outside
+    // the package, where turbo can neither archive nor restore it, so a cache
+    // hit would replay the log and leave whatever copy was already on disk.
+    "admin-preview:assets": {
+      "dependsOn": ["admin-preview:build"],
+      "cache": false
+    },
+    // Walks the marketing build and writes the page-and-event index the beacon
+    // route validates every body against. Uncached because its output lands
+    // outside the package, where turbo can neither archive nor restore it: a
+    // cache hit would replay the log and leave the file on disk as it was, so
+    // an index describing an older site would pass for a freshly extracted one.
+    "growth:index": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
+    "fetch-pyodide": {
+      "inputs": ["scripts/fetch-pyodide.sh"],
+      "outputs": ["public/pyodide/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      // Dev servers read these from the environment that `scripts/with-env.ts`
+      // loads. Turbo strips anything not listed here, so a registry variable a
+      // dev server reads directly must be named: the `HB_*` glob covers the
+      // worktree-computed ports, and `ESM_CDN_URL` selects the document
+      // sandbox's module source (esm.sh in dev, the local stub in test modes).
+      // `SANDBOX_ORIGIN_URL` is the origin the sandbox dev server names in the
+      // Content-Security-Policy it serves; it is read rather than derived from
+      // the port because the browser must ask for the same origin the policy
+      // names, and the web app points its renderer iframe at that one registry
+      // entry.
+      "passThroughEnv": ["HB_*", "ESM_CDN_URL", "SANDBOX_ORIGIN_URL"]
+    },
+    "lint": {
+      // `topo` puts dependency packages' sources into the hash: typed lint
+      // resolves sibling packages from source (workspace exports point at
+      // .ts), so a dependency's type change can change this package's lint
+      // result — without `topo`, a stale verdict would replay from cache.
+      "dependsOn": ["topo"],
+      "inputs": ["$TURBO_DEFAULT$", "eslint.config.js", "../../packages/config/eslint.config.js"],
+      "outputs": []
+    },
+    "typecheck": {
+      // Same cross-package soundness as lint: the typechecker reads sibling sources.
+      "dependsOn": ["topo"],
+      "inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "../../packages/config/tsconfig.base.json"],
+      "outputs": []
+    },
+    "topo": { "dependsOn": ["^topo"] },
+    "test": {
+      // `topo` is what puts sibling package source into this task's hash — the
+      // same edge `lint` and `typecheck` take, for the same cross-package
+      // soundness their own comments state. A dependency package reaches a
+      // consumer's test hash by no other route: a consumer's `inputs` name its
+      // own tree, and the root dependency closure behind
+      // `hashOfInternalDependencies` reaches only what the root manifest happens
+      // to list as a `workspace:*` dependency, which a dependency cleanup there
+      // can withdraw. Without this edge, an edit to a package outside that
+      // closure left every consumer's test hash unchanged and replayed a
+      // pre-edit green. Rejected: `cache: false`, which closes it by making every
+      // run uncached; and naming `../../packages/**` in `inputs`, which is a
+      // hand-maintained mirror of the dependency graph that rots when a package
+      // gains a dependency. `topo` derives the same fact from the manifests.
+      "dependsOn": ["topo", "fetch-pyodide"],
+      "inputs": ["$TURBO_DEFAULT$", "**/*.test.{ts,tsx}", "!**/*.md"],
+      // Nothing to archive: a run's coverage report lands in a directory named
+      // after the claim that run holds, and the run removes it on the way out.
+      // Declaring the enclosing `coverage/` here archived whatever happened to
+      // be standing in it and, on a cache hit, restored that into a checkout
+      // another run is live in — a directory appearing under a package from
+      // outside the run that owns it, which is the defect the per-run naming
+      // exists to remove.
+      "outputs": [],
+      "passThroughEnv": ["HB_TEST_BATCH_PORT"]
+    },
+    "test:e2e": {
+      "inputs": ["$TURBO_DEFAULT$", "e2e/**"],
+      "outputs": []
+    },
+    "test:ui": {
+      "cache": false,
+      "persistent": true
+    },
+    "clean": {
+      "cache": false
+    },
+    // The repo-wide gates, cached. Each root task runs the root script of
+    // its own name, and the name a caller types is a wrapper that invokes the
+    // task — so the wrapper and the runner cannot share a name without the
+    // wrapper calling itself.
+    //
+    // `$TURBO_DEFAULT$`, rather than a filesystem glob, is what makes these
+    // cacheable at all. It is gitignore-aware: it carries tracked files,
+    // untracked non-ignored files and every workspace package tree, while
+    // leaving out `node_modules`, `.git`, `.turbo` and whatever the task itself
+    // just wrote. A `**/*` walks all of those, rehashes the task's own outputs,
+    // and can therefore never hit cache — it reads as a slow gate rather than a
+    // broken one.
+    //
+    // `node_modules` going unhashed is the accepted residual: a `pnpm patch`, a
+    // varying postinstall or a partial install can leave `arch:scan` hitting
+    // cache on a verdict its dependencies no longer support. Hashing
+    // `node_modules` is the only thing that closes it, at the same cost that
+    // makes `**/*` uncacheable, so the gap is accepted rather than closed.
+    //
+    // `pnpm-lock.yaml` is redundant today — it is a tracked root file, so
+    // `$TURBO_DEFAULT$` already carries it — and is named as belt-and-braces
+    // against it ever becoming gitignored.
+    "//#privacy:check": {
+      "inputs": ["$TURBO_DEFAULT$", "pnpm-lock.yaml"],
+      "outputs": []
+    },
+    "//#arch:scan": {
+      "inputs": ["$TURBO_DEFAULT$", "pnpm-lock.yaml"],
+      "outputs": []
+    },
+    "//#design-tokens:scan": {
+      "inputs": ["$TURBO_DEFAULT$", "pnpm-lock.yaml"],
+      "outputs": []
+    },
+    "//#duplication:scan": {
+      "inputs": ["$TURBO_DEFAULT$", "pnpm-lock.yaml"],
+      // Declared because a reader of this gate's verdict opens the report to see
+      // which clone pairs it counted. Undeclared, a cache hit would restore no
+      // report and leave a stale or absent file behind a green verdict.
+      "outputs": ["reports/jscpd/**"]
+    }
+  }
+}

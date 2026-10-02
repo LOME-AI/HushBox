@@ -1,0 +1,384 @@
+import { describe, expect, it } from 'vitest';
+
+import { REASONING_BUDGET_TOKENS_BY_EFFORT } from '@hushbox/shared/affordability/estimate/reasoning-plan';
+import { TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
+import { tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
+import { turnClassifies } from './classifier.js';
+import { reasoningEntryFor, resolveTurnReasoning, turnEffortChoices } from './reasoning.js';
+import type { ModelPricingResolver } from '../../../models/index.js';
+import type { ModelDescriptor, ModelReasoning } from '@hushbox/shared';
+
+/** An inert fixture stamp: nothing in this file reads it against a clock. */
+const FIXTURE_STAMP_SECONDS = secondsAt(TEST_DAY_START);
+
+function descriptorFor(id: string, reasoning?: ModelReasoning): ModelDescriptor {
+  return {
+    id,
+    provider: 'p',
+    version: '1',
+    inputs: ['text'],
+    outputs: ['text'],
+    parameters: {},
+    behaviors: [],
+    limits: { contextLength: 1_000_000 },
+    pricing: tokenPricingFixture({ input: 2n, output: 3n }),
+    zdrReachable: true,
+    releasedAt: FIXTURE_STAMP_SECONDS,
+    fetchedAt: 0,
+    ...(reasoning === undefined ? {} : { reasoning }),
+  };
+}
+
+/** An effort-vocabulary model accepting every canonical level (`null` tristate). */
+const OPEN_EFFORT: ModelReasoning = { supportedEfforts: null };
+/** An enumerated-levels model. */
+const HIGH_ONLY: ModelReasoning = { supportedEfforts: ['high'] };
+/** A budget-native model (no effort vocabulary — absent `supportedEfforts`). */
+const BUDGET_NATIVE: ModelReasoning = {};
+
+function resolverFor(models: Record<string, ModelDescriptor>): ModelPricingResolver {
+  return (id) => models[id];
+}
+
+describe('reasoningEntryFor', () => {
+  it('returns the effort wire and budget for an effort-vocabulary model', () => {
+    const entry = reasoningEntryFor(descriptorFor('m', OPEN_EFFORT), 'low');
+    expect(entry).toEqual({
+      effort: 'low',
+      wire: { effort: 'low' },
+      reasoningBudgetTokens: REASONING_BUDGET_TOKENS_BY_EFFORT.low,
+    });
+  });
+
+  it('returns the max_tokens wire for a budget-native model', () => {
+    const entry = reasoningEntryFor(descriptorFor('m', BUDGET_NATIVE), 'medium');
+    expect(entry).toEqual({
+      effort: 'medium',
+      wire: { max_tokens: REASONING_BUDGET_TOKENS_BY_EFFORT.medium },
+      reasoningBudgetTokens: REASONING_BUDGET_TOKENS_BY_EFFORT.medium,
+    });
+  });
+
+  it('returns undefined for a level outside the enumerated set', () => {
+    expect(reasoningEntryFor(descriptorFor('m', HIGH_ONLY), 'low')).toBeUndefined();
+  });
+
+  it('returns undefined for a non-reasoning model', () => {
+    expect(reasoningEntryFor(descriptorFor('m'), 'low')).toBeUndefined();
+  });
+});
+
+describe('resolveTurnReasoning', () => {
+  it('resolves no reasoning when the selection is absent', () => {
+    const resolve = resolverFor({ m: descriptorFor('m', OPEN_EFFORT) });
+    expect(resolveTurnReasoning(['m'], resolve)._unsafeUnwrap().size).toBe(0);
+  });
+
+  it("resolves 'off' to the explicit hard-off wire on a non-mandatory reasoning model", () => {
+    const resolve = resolverFor({ m: descriptorFor('m', OPEN_EFFORT) });
+    const entries = resolveTurnReasoning(['m'], resolve, 'off')._unsafeUnwrap();
+    expect(entries.get('m')).toEqual({
+      effort: 'off',
+      wire: { enabled: false },
+      reasoningBudgetTokens: 0,
+    });
+  });
+
+  it("resolves 'off' on a non-reasoning model to no entry (nothing to turn off)", () => {
+    const resolve = resolverFor({ m: descriptorFor('m') });
+    expect(resolveTurnReasoning(['m'], resolve, 'off')._unsafeUnwrap().size).toBe(0);
+  });
+
+  it("refuses 'off' on a mandatory-reasoning model (never silently ignored)", () => {
+    const resolve = resolverFor({
+      m: descriptorFor('m', { mandatory: true, supportedEfforts: null }),
+    });
+    const result = resolveTurnReasoning(['m'], resolve, 'off');
+    expect(result._unsafeUnwrapErr().code).toBe('validation');
+  });
+
+  it('resolves an explicit level to a per-model entry', () => {
+    const resolve = resolverFor({ m: descriptorFor('m', OPEN_EFFORT) });
+    const entries = resolveTurnReasoning(['m'], resolve, 'high')._unsafeUnwrap();
+    expect(entries.get('m')).toEqual({
+      effort: 'high',
+      wire: { effort: 'high' },
+      reasoningBudgetTokens: REASONING_BUDGET_TOKENS_BY_EFFORT.high,
+    });
+  });
+
+  it('refuses an explicit level on a non-reasoning model (no silent downgrade)', () => {
+    const resolve = resolverFor({ m: descriptorFor('m') });
+    const result = resolveTurnReasoning(['m'], resolve, 'medium');
+    expect(result._unsafeUnwrapErr().code).toBe('validation');
+  });
+
+  it('refuses an explicit level outside the enumerated set (no nearest-mapping)', () => {
+    const resolve = resolverFor({ m: descriptorFor('m', HIGH_ONLY) });
+    const result = resolveTurnReasoning(['m'], resolve, 'low');
+    expect(result._unsafeUnwrapErr().code).toBe('validation');
+  });
+
+  it('skips an unknown model (the compile step owns the unknown-model refusal)', () => {
+    const resolve = resolverFor({ a: descriptorFor('a', OPEN_EFFORT) });
+    const entries = resolveTurnReasoning(['a', 'nope'], resolve, 'low')._unsafeUnwrap();
+    expect(entries.size).toBe(1);
+    expect(entries.get('a')?.wire).toEqual({ effort: 'low' });
+  });
+
+  it('resolves to an empty map when every model of a multi-model turn is unknown', () => {
+    const resolve = resolverFor({});
+    expect(resolveTurnReasoning(['x', 'y'], resolve, 'low')._unsafeUnwrap().size).toBe(0);
+  });
+});
+
+describe('resolveTurnReasoning — multi-model union resolution', () => {
+  it('resolves a sibling lacking the union level to hard off, not a 400 (ruled edge a)', () => {
+    // `low` sits below HIGH_ONLY's whole ladder and the model can disable, so
+    // it runs reasoning-off while the open sibling runs the asked level.
+    const resolve = resolverFor({
+      a: descriptorFor('a', OPEN_EFFORT),
+      b: descriptorFor('b', HIGH_ONLY),
+    });
+    const entries = resolveTurnReasoning(['a', 'b'], resolve, 'low')._unsafeUnwrap();
+    expect(entries.get('a')?.wire).toEqual({ effort: 'low' });
+    expect(entries.get('b')).toEqual({
+      effort: 'off',
+      wire: { enabled: false },
+      reasoningBudgetTokens: 0,
+    });
+  });
+
+  it('resolves a mandatory sibling below its ladder UP to its lowest rung (ruled edge b)', () => {
+    // ['hi','lo'] is upstream-descending; the ascending 2-rung ladder maps
+    // low→'lo', high→'hi'. `lite` sits below it and off is impossible.
+    const resolve = resolverFor({
+      a: descriptorFor('a', OPEN_EFFORT),
+      b: descriptorFor('b', { mandatory: true, supportedEfforts: ['hi', 'lo'] }),
+    });
+    const entries = resolveTurnReasoning(['a', 'b'], resolve, 'lite')._unsafeUnwrap();
+    expect(entries.get('a')?.wire).toEqual({ effort: 'minimal' });
+    expect(entries.get('b')?.wire).toEqual({ effort: 'lo' });
+    expect(entries.get('b')?.effort).toBe('low');
+  });
+
+  it('resolves a chosen level to the nearest offered rung BELOW, never up', () => {
+    // b offers [low, high]; `medium` is not offered, so b falls to low while
+    // the open sibling runs medium exactly.
+    const resolve = resolverFor({
+      a: descriptorFor('a', OPEN_EFFORT),
+      b: descriptorFor('b', { supportedEfforts: ['hi', 'lo'] }),
+    });
+    const entries = resolveTurnReasoning(['a', 'b'], resolve, 'medium')._unsafeUnwrap();
+    expect(entries.get('a')?.wire).toEqual({ effort: 'medium' });
+    expect(entries.get('b')?.wire).toEqual({ effort: 'lo' });
+  });
+
+  it('leaves a non-reasoning sibling wire-silent at a union level (no entry, no error)', () => {
+    const resolve = resolverFor({
+      a: descriptorFor('a', OPEN_EFFORT),
+      b: descriptorFor('b'),
+    });
+    const entries = resolveTurnReasoning(['a', 'b'], resolve, 'medium')._unsafeUnwrap();
+    expect(entries.get('a')?.wire).toEqual({ effort: 'medium' });
+    expect(entries.has('b')).toBe(false);
+  });
+
+  it("resolves multi-model 'off' per model: a mandatory sibling runs its lowest rung", () => {
+    const resolve = resolverFor({
+      a: descriptorFor('a', OPEN_EFFORT),
+      b: descriptorFor('b', { mandatory: true, supportedEfforts: ['hi', 'lo'] }),
+    });
+    const entries = resolveTurnReasoning(['a', 'b'], resolve, 'off')._unsafeUnwrap();
+    expect(entries.get('a')?.wire).toEqual({ enabled: false });
+    expect(entries.get('b')?.wire).toEqual({ effort: 'lo' });
+  });
+
+  it('refuses a choice outside the union option set with a 400', () => {
+    // Both models offer only High (+ Min via disable): `low` is not in the
+    // turn's choice set, so the request never came from the offered menu.
+    const resolve = resolverFor({
+      a: descriptorFor('a', HIGH_ONLY),
+      b: descriptorFor('b', HIGH_ONLY),
+    });
+    const result = resolveTurnReasoning(['a', 'b'], resolve, 'low');
+    expect(result._unsafeUnwrapErr().code).toBe('validation');
+  });
+
+  it('refuses a level when no selected model reasons at all (empty option set)', () => {
+    const resolve = resolverFor({ a: descriptorFor('a'), b: descriptorFor('b') });
+    const result = resolveTurnReasoning(['a', 'b'], resolve, 'medium');
+    expect(result._unsafeUnwrapErr().code).toBe('validation');
+  });
+
+  it("keeps multi-model 'off' a no-op when no selected model reasons", () => {
+    const resolve = resolverFor({ a: descriptorFor('a'), b: descriptorFor('b') });
+    expect(resolveTurnReasoning(['a', 'b'], resolve, 'off')._unsafeUnwrap().size).toBe(0);
+  });
+});
+
+/**
+ * The Smart Model slot is an answer source on this axis, so whether a pinned
+ * model runs the turn ALONE is not a question about the length of the pinned
+ * list. The slot's candidates are derived AT the send's pin — that derivation
+ * is where a pin no candidate can offer is refused — so beside it a pinned
+ * sibling resolves downward or runs wire-silent, exactly as it does beside a
+ * pinned sibling.
+ */
+describe('resolveTurnReasoning — the slot is an answer source', () => {
+  it("leaves a mixed turn's lone non-reasoning sibling wire-silent instead of refusing", () => {
+    const resolve = resolverFor({ a: descriptorFor('a') });
+    const entries = resolveTurnReasoning(['a'], resolve, 'medium', {
+      smartSlot: true,
+    })._unsafeUnwrap();
+    expect(entries.size).toBe(0);
+  });
+
+  it("resolves a mixed turn's lone sibling downward instead of refusing", () => {
+    const resolve = resolverFor({ a: descriptorFor('a', HIGH_ONLY) });
+    const entries = resolveTurnReasoning(['a'], resolve, 'max', {
+      smartSlot: true,
+    })._unsafeUnwrap();
+    expect(entries.get('a')?.wire).toEqual({ effort: 'high' });
+  });
+
+  it("honours a mixed turn's off rung against a mandatory lone sibling", () => {
+    const resolve = resolverFor({
+      a: descriptorFor('a', { mandatory: true, supportedEfforts: ['hi', 'lo'] }),
+    });
+    const entries = resolveTurnReasoning(['a'], resolve, 'off', {
+      smartSlot: true,
+    })._unsafeUnwrap();
+    expect(entries.get('a')?.wire).toEqual({ effort: 'lo' });
+  });
+
+  it('accepts a level no pinned sibling offers when the slot answers beside them', () => {
+    const resolve = resolverFor({
+      a: descriptorFor('a', HIGH_ONLY),
+      b: descriptorFor('b', HIGH_ONLY),
+    });
+    const entries = resolveTurnReasoning(['a', 'b'], resolve, 'low', {
+      smartSlot: true,
+    })._unsafeUnwrap();
+    expect(entries.get('a')?.wire).toEqual({ enabled: false });
+    expect(entries.get('b')?.wire).toEqual({ enabled: false });
+  });
+
+  it("still refuses a level outside a PINNED-ONLY turn's option set", () => {
+    // The regression fence: widening what a slot turn accepts must not widen
+    // what a turn with no slot accepts.
+    const resolve = resolverFor({
+      a: descriptorFor('a', HIGH_ONLY),
+      b: descriptorFor('b', HIGH_ONLY),
+    });
+    expect(resolveTurnReasoning(['a', 'b'], resolve, 'low')._unsafeUnwrapErr().code).toBe(
+      'validation'
+    );
+  });
+});
+
+/**
+ * The two `auto` decisions are complements over ONE option set: the classifier
+ * question asks for two or more, the deterministic pick asks for exactly one.
+ * They are pinned together because either drifting alone makes an `auto` turn
+ * buy a classifier AND hard-wire a level, or buy neither and silently run
+ * reasoning-free — neither of which either decision can detect on its own.
+ */
+describe('the classifier decision and the auto resolution partition one option set', () => {
+  function decisionsFor(
+    models: readonly string[],
+    resolve: ModelPricingResolver
+  ): { optionCount: number; classifies: boolean; hardWires: boolean } {
+    return {
+      optionCount: turnEffortChoices(models, resolve).length,
+      classifies: turnClassifies(models, resolve),
+      hardWires: resolveTurnReasoning(models, resolve, 'auto')._unsafeUnwrap().size > 0,
+    };
+  }
+
+  it('buys no classifier for a turn presenting no option, wiring nothing', () => {
+    const resolve = resolverFor({ m: descriptorFor('m') });
+    expect(decisionsFor(['m'], resolve)).toEqual({
+      optionCount: 0,
+      classifies: false,
+      hardWires: false,
+    });
+  });
+
+  it('buys no classifier for a turn presenting a sole option, wiring that option', () => {
+    const resolve = resolverFor({
+      m: descriptorFor('m', { mandatory: true, supportedEfforts: ['high'] }),
+    });
+    expect(decisionsFor(['m'], resolve)).toEqual({
+      optionCount: 1,
+      classifies: false,
+      hardWires: true,
+    });
+  });
+
+  it('buys a classifier for a turn presenting two options, wiring nothing', () => {
+    const resolve = resolverFor({ m: descriptorFor('m', HIGH_ONLY) });
+    expect(decisionsFor(['m'], resolve)).toEqual({
+      optionCount: 2,
+      classifies: true,
+      hardWires: false,
+    });
+  });
+});
+
+describe("resolveTurnReasoning — deterministic 'auto' (no static preference order)", () => {
+  it("resolves 'auto' reasoning-free when the model offers two or more real choices", () => {
+    // Multi-choice auto belongs to the classifier stage; a build that reaches
+    // this resolution without one runs reasoning-free — never a static pick.
+    const resolve = resolverFor({ m: descriptorFor('m', OPEN_EFFORT) });
+    expect(resolveTurnReasoning(['m'], resolve, 'auto')._unsafeUnwrap().size).toBe(0);
+  });
+
+  it("resolves 'auto' on a non-reasoning model to no reasoning (no refusal, no entry)", () => {
+    const resolve = resolverFor({ m: descriptorFor('m') });
+    expect(resolveTurnReasoning(['m'], resolve, 'auto')._unsafeUnwrap().size).toBe(0);
+  });
+
+  it("picks the sole choice deterministically on a Min-only model ('auto' → hard off)", () => {
+    // A disableable model with no offered rungs has exactly one real choice
+    // (Min), so auto picks it with no classifier and no reserve.
+    const resolve = resolverFor({ m: descriptorFor('m', { supportedEfforts: ['none'] }) });
+    const entries = resolveTurnReasoning(['m'], resolve, 'auto')._unsafeUnwrap();
+    expect(entries.get('m')).toEqual({
+      effort: 'off',
+      wire: { enabled: false },
+      reasoningBudgetTokens: 0,
+    });
+  });
+
+  it("picks the sole rung deterministically on a single-level mandatory model ('auto' → that rung)", () => {
+    // No CHOICE exists, so no classifier is bought — but the rung carries a real
+    // budget the provider will spend, so it is wired and priced explicitly
+    // instead of being left to the provider default.
+    const resolve = resolverFor({
+      m: descriptorFor('m', { mandatory: true, supportedEfforts: ['high'] }),
+    });
+    const entries = resolveTurnReasoning(['m'], resolve, 'auto')._unsafeUnwrap();
+    expect(entries.get('m')).toMatchObject({ effort: 'high', wire: { effort: 'high' } });
+  });
+
+  it('applies the sole union choice per model on a multi-model turn', () => {
+    // Union = {Min} (one Min-only model, one non-reasoning): the deterministic
+    // pick turns the disableable sibling off and leaves the other silent.
+    const resolve = resolverFor({
+      a: descriptorFor('a', { supportedEfforts: ['none'] }),
+      b: descriptorFor('b'),
+    });
+    const entries = resolveTurnReasoning(['a', 'b'], resolve, 'auto')._unsafeUnwrap();
+    expect(entries.get('a')?.wire).toEqual({ enabled: false });
+    expect(entries.has('b')).toBe(false);
+  });
+
+  it("resolves multi-model 'auto' reasoning-free when the union offers two or more choices", () => {
+    const resolve = resolverFor({
+      a: descriptorFor('a', OPEN_EFFORT),
+      b: descriptorFor('b', HIGH_ONLY),
+    });
+    expect(resolveTurnReasoning(['a', 'b'], resolve, 'auto')._unsafeUnwrap().size).toBe(0);
+  });
+});

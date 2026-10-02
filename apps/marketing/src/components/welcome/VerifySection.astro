@@ -1,0 +1,30 @@
+---
+import { TRUST_BLOCKS } from '../../lib/word-blocks';
+import SectionHeading from '../SectionHeading.astro';
+import WordBlock from '../WordBlock.astro';
+import { EncryptionDemo } from '../encryption-demo';
+import { DEMO_SAMPLE_TEXT, encryptDemoSample } from '../../lib/encryption-demo-sample';
+import WelcomeSection from './WelcomeSection.astro';
+
+const encryptionSample = encryptDemoSample(DEMO_SAMPLE_TEXT);
+---
+
+<WelcomeSection id="how-it-works" reveal>
+  <SectionHeading>Privacy you can verify</SectionHeading>
+  <div class="mt-12 grid grid-cols-1 gap-6 md:grid-cols-2">
+    {
+      TRUST_BLOCKS.map((block) => (
+        <WordBlock
+          tone="trust"
+          icon={block.icon}
+          title={block.title}
+          text={block.text}
+          headingLevel={3}
+        />
+      ))
+    }
+  </div>
+  <div class="mt-12" data-reveal="delayed">
+    <EncryptionDemo client:visible initialSample={encryptionSample} />
+  </div>
+</WelcomeSection>

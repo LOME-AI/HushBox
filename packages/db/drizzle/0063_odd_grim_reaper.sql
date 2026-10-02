@@ -1,0 +1,1 @@
+ALTER TYPE "public"."model_exclude_reason" ADD VALUE 'missing-aspect-ratio';

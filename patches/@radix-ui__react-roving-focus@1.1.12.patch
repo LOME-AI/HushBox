@@ -1,0 +1,50 @@
+diff --git a/dist/index.js b/dist/index.js
+index b49982f5a62521aaf0be8831ad7c86d661ab04a0..fd883f1ff18d958979b7e3dd3a188b578ac40765 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -216,7 +216,19 @@ var RovingFocusGroupItem = React.forwardRef(
+                   const currentIndex = candidateNodes.indexOf(event.currentTarget);
+                   candidateNodes = context.loop ? wrapArray(candidateNodes, currentIndex + 1) : candidateNodes.slice(currentIndex + 1);
+                 }
+-                setTimeout(() => focusFirst(candidateNodes));
++                // HushBox patch: upstream moves focus here in `setTimeout`, so a key event
++                // handled before that timer fires acts on the item focus is leaving. With keys
++                // queued behind a long task, ArrowDown then Enter in a menu chose the item being
++                // left, and a second ArrowDown recomputed from that same item. This patch moves
++                // focus in a microtask instead, which runs before the next key event is handled.
++                // Upstream: https://github.com/radix-ui/primitives/pull/4108 makes this change
++                // (the same race, reported for RadioGroup in
++                // https://github.com/radix-ui/primitives/issues/4094).
++                // Remove this patch once a released @radix-ui/react-roving-focus moves this focus
++                // in a microtask or synchronously. The packages/ui dropdown-menu test "chooses the
++                // item the arrow keys reached when each key arrives before a timer turn" fails
++                // whenever this patch is not applied.
++                queueMicrotask(() => focusFirst(candidateNodes));
+               }
+             }),
+             children: typeof children === "function" ? children({ isCurrentTabStop, hasTabStop: currentTabStopId != null }) : children
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 08aaabcdb5402c74bcbd935a34e2b7f4a50fdfc0..46468b5c5a0a8a983932300539d383985e968472 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -177,7 +177,19 @@ var RovingFocusGroupItem = React.forwardRef(
+                   const currentIndex = candidateNodes.indexOf(event.currentTarget);
+                   candidateNodes = context.loop ? wrapArray(candidateNodes, currentIndex + 1) : candidateNodes.slice(currentIndex + 1);
+                 }
+-                setTimeout(() => focusFirst(candidateNodes));
++                // HushBox patch: upstream moves focus here in `setTimeout`, so a key event
++                // handled before that timer fires acts on the item focus is leaving. With keys
++                // queued behind a long task, ArrowDown then Enter in a menu chose the item being
++                // left, and a second ArrowDown recomputed from that same item. This patch moves
++                // focus in a microtask instead, which runs before the next key event is handled.
++                // Upstream: https://github.com/radix-ui/primitives/pull/4108 makes this change
++                // (the same race, reported for RadioGroup in
++                // https://github.com/radix-ui/primitives/issues/4094).
++                // Remove this patch once a released @radix-ui/react-roving-focus moves this focus
++                // in a microtask or synchronously. The packages/ui dropdown-menu test "chooses the
++                // item the arrow keys reached when each key arrives before a timer turn" fails
++                // whenever this patch is not applied.
++                queueMicrotask(() => focusFirst(candidateNodes));
+               }
+             }),
+             children: typeof children === "function" ? children({ isCurrentTabStop, hasTabStop: currentTabStopId != null }) : children

@@ -1,0 +1,101 @@
+import { Hono } from 'hono';
+import { routePath } from 'hono/route';
+import { zValidator } from '@hono/zod-validator';
+import { ERROR_CODES, submitFeedbackBodySchema } from '@hushbox/shared';
+import {
+  STATUS_BY_DOMAIN_CODE,
+  defineSliceManifest,
+  rejectInvalid,
+  respondDomainError,
+  routeClass,
+} from '../../middleware/pipeline-manifest.js';
+import {
+  callerUserId,
+  createErrorResponse,
+  idempotent,
+  isFeedbackDuplicate,
+  readIdempotencyKey,
+  runMutation,
+  submitFeedback,
+  submitFeedbackResponseSchema,
+} from './domain/index.js';
+import type { Context } from 'hono';
+import type { AppEnv, RefusalResponse } from '../../middleware/pipeline-manifest.js';
+import type { DomainError, FeedbackStoresFactory } from './domain/index.js';
+
+interface FeedbackRouteDeps {
+  /** Bound per call to the pipeline's `c.var.db` or the byKey transaction. */
+  readonly stores: FeedbackStoresFactory;
+}
+
+/**
+ * Submit failures answer the feedback-specific `FEEDBACK_SUBMIT_FAILED` wire
+ * code (a friendly "couldn't send" message) at the domain error's status; an
+ * idempotency-key conflict keeps its specific 409 wire code so a retried key
+ * with a different body is diagnosable, and a same-body resubmit inside the
+ * dedup window answers the specific `FEEDBACK_DUPLICATE` 409.
+ */
+function respondSubmitError(c: Context<AppEnv>, error: DomainError): RefusalResponse {
+  if (isFeedbackDuplicate(error)) {
+    return c.json(createErrorResponse(ERROR_CODES.FEEDBACK_DUPLICATE), 409);
+  }
+  // A carried wire code (an idempotency-key conflict) answers through the shared
+  // responder; every other submit failure answers the friendly fallback.
+  if (error.wireCode !== undefined) return respondDomainError(c, error);
+  return c.json(
+    createErrorResponse(ERROR_CODES.FEEDBACK_SUBMIT_FAILED),
+    STATUS_BY_DOMAIN_CODE[error.code]
+  );
+}
+
+/**
+ * The pipeline enforced the header before the handler ran; absence is a
+ * composition defect, not a client error. Exported so the defect arm stays
+ * executable in tests.
+ */
+export function requiredIdempotencyKey(c: Context<AppEnv>): string {
+  const key = readIdempotencyKey(c);
+  if (key === undefined) {
+    throw new Error('feedback: idempotency key missing after the pipeline stage');
+  }
+  return key;
+}
+
+/**
+ * The feedback slice's HTTP surface: a single session-class submit endpoint. It
+ * dedups with `idempotent.byKey` (at-most-once) because submission is NOT
+ * naturally idempotent — a repeat without a key would file a second note.
+ *
+ * The return type is deliberately inferred: annotating it with a bare
+ * `Hono<AppEnv>` widens the routes to `BlankSchema` and erases the route schema
+ * from `AppType` (the typed client goes blind to this slice). The route mounts
+ * at `/` under the `/feedback` base so it resolves as `client.feedback.$post`.
+ */
+export function createFeedbackManifest(deps: FeedbackRouteDeps) {
+  return defineSliceManifest({
+    basePath: '/feedback',
+    routes: new Hono<AppEnv>().post(
+      '/',
+      routeClass('session'),
+      zValidator('json', submitFeedbackBodySchema, rejectInvalid),
+      async (c) => {
+        const body = c.req.valid('json');
+        const userId = callerUserId(c.var.principal);
+        const result = await runMutation(() =>
+          idempotent.byKey({
+            db: c.var.db,
+            scope: { userId, route: routePath(c), key: requiredIdempotencyKey(c) },
+            body,
+            executorId: crypto.randomUUID(),
+            responseSchema: submitFeedbackResponseSchema,
+            execute: (tx) => submitFeedback(deps.stores(tx), userId, body),
+          })
+        );
+        return result.match(
+          (submitted) => c.json(submitted, 200),
+          (error) => respondSubmitError(c, error)
+        );
+      }
+    ),
+  });
+}

@@ -1,0 +1,36 @@
+---
+import { CrawlerEye as CrawlerEyeBadge } from '@hushbox/ui';
+import { env } from '../lib/env';
+
+/**
+ * The crawler-eye badge mount for the marketing (Astro/SSG) site — renders the
+ * shared `@hushbox/ui` badge as an island, behind `env.isDevServer`, the same
+ * gate the web SPA's mount reads. Astro evaluates this frontmatter while it
+ * emits the page, so here the value decides which built pages carry the island;
+ * the SPA reads it in the browser instead.
+ *
+ * A direct `import.meta.env.MODE` comparison, which the lint rule's in-place
+ * exception would admit as a build-time constant, buys nothing here: this
+ * frontmatter reaches no browser, the badge's code sits in one client chunk
+ * whichever form the gate takes, and the emitted `_astro` tree is byte-identical
+ * between the two. The gate decides which pages mount the island, never what the
+ * bundle carries.
+ */
+const gateOn = env.isDevServer;
+
+// env.config defines VITE_CRAWLER_VIEW_URL for the Development mode alone:
+// crawler-view is a local tooling server, so an address under another mode would
+// name one that never listens. Absent where the gate is on, that is a config
+// defect, so fail fast.
+function crawlerViewOrigin(): string {
+  const origin = import.meta.env.VITE_CRAWLER_VIEW_URL;
+  if (origin === undefined) {
+    throw new Error('VITE_CRAWLER_VIEW_URL must be defined wherever the badge mounts');
+  }
+  return origin;
+}
+
+const badgeOrigin = gateOn ? crawlerViewOrigin() : null;
+---
+
+{badgeOrigin !== null && <CrawlerEyeBadge client:load origin={badgeOrigin} />}

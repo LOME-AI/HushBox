@@ -1,0 +1,30 @@
+{
+  "threshold": 2,
+  "minLines": 5,
+  "minTokens": 50,
+  "maxLines": 100000,
+  "maxSize": "5mb",
+  "reporters": ["console", "json"],
+  "output": "./reports/jscpd",
+  "format": ["typescript", "javascript", "tsx", "jsx"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.d.ts",
+    "**/__snapshots__/**",
+    "**/coverage/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.test.mjs",
+    "**/__test-fixtures-*__/**",
+    "**/slices/_template/**",
+    "**/*.gen.ts",
+    "**/.wrangler/**",
+    "**/ios/App/App/public/**",
+    "**/android/app/src/main/assets/public/**",
+    "apps/sandbox/public/**",
+    "apps/admin/public/preview/**",
+    "films/*/rounds/**",
+    ".claude/skills/frontend-design/scripts/**"
+  ]
+}

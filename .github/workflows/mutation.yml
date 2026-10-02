@@ -1,0 +1,105 @@
+name: Mutation Testing
+
+on:
+  schedule:
+    - cron: '0 2 * * 1' # Monday 2am UTC
+  workflow_dispatch: # Manual trigger
+
+permissions:
+  contents: read
+
+# A scheduled workflow fires in every repository that carries the file. Both
+# carry the same tree, so this sweep belongs in exactly one — the public
+# repository, which is where the `ci` environment's dashboard key is held.
+jobs:
+  mutation:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    environment: ci
+    if: github.repository == vars.HB_PUBLIC_REPO
+    # Every step below is a process of its own, so none of them inherits the
+    # stack from the step that generated its env files. The suite this job
+    # mutates runs on the test stack, and naming it here is what points each
+    # step at the triple the generate step wrote.
+    env:
+      HB_ENV_MODE: test
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Cache Docker images
+        uses: useblacksmith/stickydisk@35ba2e331a80056a42af053ee54968511de2b7c7 # v1.5.0
+        with:
+          key: docker-${{ hashFiles('docker-compose.yml') }}
+          path: /tmp/docker-cache
+
+      - name: Load cached Docker images
+        run: |
+          if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            for img in /tmp/docker-cache/*.tar; do
+              docker load -i "$img"
+            done
+          fi
+
+      - name: Generate environment files
+        run: pnpm generate:env --mode=test
+
+      - name: Start database
+        run: pnpm db:up
+
+      - name: Save Docker images for next run
+        run: |
+          if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            mkdir -p /tmp/docker-cache
+            # The compose file is the list: this prints each image a service
+            # runs, exactly as written there, one per line.
+            listed=$(pnpm exec tsx scripts/with-env.ts tsx scripts/compose.ts config --images)
+            mapfile -t images <<< "$listed"
+            for image in "${images[@]}"; do
+              # A digest reference is pulled, never loaded: a docker save and load
+              # round trip drops the digest on Docker's classic image store, so
+              # compose pulls the image whatever tar the cache holds.
+              if [[ "$image" == *@* ]]; then continue; fi
+              docker save "$image" -o "/tmp/docker-cache/$(printf '%s' "$image" | tr -c 'A-Za-z0-9._-' '_').tar"
+            done
+          fi
+
+      # A Postgres cluster is born with the one database the compose file hands
+      # it, and a stack other than the default resolves another. The stack
+      # bring-up creates the missing one on a developer's machine and returns at
+      # its CI guard here, so making it exist is a step of the job's own.
+      - name: Create the stack database
+        run: pnpm exec tsx scripts/with-env.ts tsx scripts/stack-database-ready.ts
+
+      - name: Run migrations
+        run: pnpm db:migrate
+
+      # stryker.config.json runs in incremental mode, which only skips unchanged
+      # mutants when .stryker-cache survives between runs. The key is run-unique
+      # with a prefix restore-key because a cache entry is immutable once written:
+      # a fixed key would pin every later run to the first run's results.
+      - name: Cache Stryker incremental results
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .stryker-cache
+          key: stryker-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            stryker-${{ github.ref_name }}-
+
+      - name: Run Stryker mutation testing
+        run: pnpm mutation
+        env:
+          STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
+
+      - name: Upload mutation report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          retention-days: 30
+
+      - name: Stop database
+        if: always()
+        run: pnpm db:down

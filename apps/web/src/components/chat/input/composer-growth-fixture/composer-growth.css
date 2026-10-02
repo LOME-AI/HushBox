@@ -1,0 +1,13 @@
+/* Tailwind core + Preflight only — no app theme. The growth mechanism under test
+   (packages/ui/src/components/primitives/textarea.tsx) depends only on core
+   utilities (grid, padding, line-height, field-sizing) and Preflight's form-element
+   reset (font inheritance, box-sizing: border-box); it depends on none of the
+   brand theme tokens apps/web/src/app.css layers on top. */
+@import 'tailwindcss';
+
+/* The shipped Textarea's grid-sizing classes (packages/ui/src/components/primitives/textarea.tsx)
+   live outside this file's own directory tree, so Tailwind v4's automatic
+   content detection never sees them without this — the same reason
+   packages/config/tailwind/index.css declares the identical @source for the
+   real app bundle. */
+@source '../../../../../../../packages/ui/src/**/*.tsx';

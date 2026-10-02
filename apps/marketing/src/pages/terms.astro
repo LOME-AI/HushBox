@@ -1,0 +1,27 @@
+---
+import { TERMS_OF_SERVICE_META, TERMS_SECTIONS } from '@hushbox/shared/legal';
+import SiteLayout from '../layouts/SiteLayout.astro';
+import PageHero from '../components/PageHero.astro';
+import EffectiveDateRule from '../components/EffectiveDateRule.astro';
+import { LegalDocument } from '../components/LegalDocument';
+
+const TERMS_CIPHER_MESSAGES: readonly string[] = [
+  'No Lock-In',
+  'No Auto-Renew',
+  'Source Available',
+  'No Forced Arbitration',
+  'No Dark Patterns',
+  'Promises We Keep',
+];
+---
+
+<SiteLayout title={TERMS_OF_SERVICE_META.title} description="Terms of Service for using HushBox.">
+  <div class="flex-1 pt-20">
+    <PageHero title={TERMS_OF_SERVICE_META.title} messages={TERMS_CIPHER_MESSAGES} />
+
+    <section class="mx-auto max-w-3xl px-6 pb-12" data-reading>
+      <EffectiveDateRule date={TERMS_OF_SERVICE_META.effectiveDate} />
+      <LegalDocument client:visible meta={TERMS_OF_SERVICE_META} sections={TERMS_SECTIONS} />
+    </section>
+  </div>
+</SiteLayout>

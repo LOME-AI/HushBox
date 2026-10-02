@@ -1,0 +1,131 @@
+/* Accessibility font faces. Single canonical source: ../fonts/*.woff2. The
+   url() is relative so each app's bundler (Vite for web, Astro for marketing)
+   emits its own hashed copy — no per-app public/ duplicate exists. Family names
+   match the --a11y-font-family value the init script and font-loader set
+   ("<id>"), so `html.a11y-font-override body * { font-family: var(--a11y-font-family) }`
+   below resolves the chosen face both pre-paint and at runtime. font-display:
+   block mirrors the runtime font-loader's FontFace descriptor. */
+@font-face {
+  font-family: 'atkinson';
+  src: url('../fonts/atkinson-hyperlegible.woff2') format('woff2');
+  font-display: block;
+}
+/* OpenDyslexic's intrinsic metrics render ~15% larger than the other a11y fonts
+   at the same point size; size-adjust shrinks it so the user's chosen text-size
+   step stays the visual reference (matches font-loader's sizeAdjust). */
+@font-face {
+  font-family: 'open-dyslexic';
+  src: url('../fonts/open-dyslexic.woff2') format('woff2');
+  font-display: block;
+  size-adjust: 85%;
+}
+@font-face {
+  font-family: 'lexend';
+  src: url('../fonts/lexend.woff2') format('woff2');
+  font-display: block;
+}
+
+/* Root font-size baseline. 106.25% of the browser's default font-size — yields
+   17px for the standard 16px browser default, but scales with users who have
+   explicitly raised their browser default for accessibility. Px would silently
+   override that user-level preference. CSS px is also a W3C reference pixel,
+   so all derived sizes are resolution-independent (same angular size on 1080p,
+   1440p, and 4K). */
+html {
+  font-size: 106.25%;
+}
+
+/* Font scaling — Tailwind's rem utilities cascade from this root value.
+   Percentages multiply against the user's browser default. */
+html.a11y-font-scale-88 {
+  font-size: 93.75%;
+}
+html.a11y-font-scale-112 {
+  font-size: 118.75%;
+}
+html.a11y-font-scale-124 {
+  font-size: 131.25%;
+}
+html.a11y-font-scale-141 {
+  font-size: 150%;
+}
+
+/* iOS Safari zooms the viewport on focus when a form-control's computed
+   font-size is < 16px. The 'Smaller' scale crosses that line; carve it out. */
+html.a11y-font-scale-88 input,
+html.a11y-font-scale-88 textarea,
+html.a11y-font-scale-88 select {
+  font-size: 16px;
+}
+
+/* Mobile baseline — drop the root from 17px (desktop) to 16px under Tailwind's
+   md: breakpoint so every rem-derived utility (text-*, p-*, gap-*, h-*) shrinks
+   proportionally on narrow viewports. The 48rem literal is load-bearing: it
+   must match Tailwind's --breakpoint-md AND the MOBILE_BREAKPOINT constant in
+   @hushbox/shared (the breakpoint-coupling test in
+   packages/shared/src/platform/mobile.test.ts enforces 768 === 48 × 16). rem inside an
+   @media condition resolves against the CSS initial 16px — not the document
+   root — so the boundary is stable even as the html font-size changes.
+
+   The a11y class rules above have higher specificity (0,0,1,1) than `html`
+   (0,0,0,1), so any explicit accessibility tier still overrides this baseline
+   — `Smaller`, `Larger`, etc. keep their absolute pixel sizes across viewports.
+   The mobile override below for `a11y-font-scale-88` exists only because the
+   default 93.75% (15px) lands too close to the new mobile Normal (16px) for
+   the step to read as distinct; 87.5% (14px) restores a perceptible gap. The
+   iOS form-zoom carve-out above keeps inputs at 16px regardless. */
+@media (width < 48rem) {
+  html {
+    font-size: 100%;
+  }
+  html.a11y-font-scale-88 {
+    font-size: 87.5%;
+  }
+}
+
+/* Letter / line / paragraph spacing — scoped to text elements, not all */
+html.a11y-letter-spacing-loose body p,
+html.a11y-letter-spacing-loose body li,
+html.a11y-letter-spacing-loose body td,
+html.a11y-letter-spacing-loose body span {
+  letter-spacing: 0.05em;
+}
+html.a11y-letter-spacing-loosest body p,
+html.a11y-letter-spacing-loosest body li,
+html.a11y-letter-spacing-loosest body td,
+html.a11y-letter-spacing-loosest body span {
+  letter-spacing: 0.12em;
+}
+
+html.a11y-line-height-tight p,
+html.a11y-line-height-tight li,
+html.a11y-line-height-tight td {
+  line-height: 1.25 !important;
+}
+html.a11y-line-height-double p,
+html.a11y-line-height-double li,
+html.a11y-line-height-double td {
+  line-height: 2 !important;
+}
+
+html.a11y-para-spacing-double p:not(:last-child) {
+  margin-bottom: 2em;
+}
+
+/* Font family override — applied via inline style by font-loader (sets --a11y-font-family) */
+html.a11y-font-override body * {
+  font-family: var(--a11y-font-family), system-ui, sans-serif !important;
+}
+/* Code blocks always preserve mono — accessibility fonts destroy code readability.
+   The descendant terms are load-bearing: the universal rule above matches nested
+   elements directly, and a direct match always beats inheritance, so without them a
+   syntax highlighter's own markup (Shiki emits <pre><code><span>) takes the
+   accessibility face while its container keeps mono. */
+html.a11y-font-override body code,
+html.a11y-font-override body pre,
+html.a11y-font-override body kbd,
+html.a11y-font-override body code *,
+html.a11y-font-override body pre *,
+html.a11y-font-override body kbd * {
+  font-family: var(--font-mono), monospace !important;
+}

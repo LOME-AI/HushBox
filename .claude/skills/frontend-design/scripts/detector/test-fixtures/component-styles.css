@@ -1,0 +1,18 @@
+.sidebar {
+  border-right: 3px solid #ef4444;
+}
+
+.card {
+  border-top: 4px solid #22c55e;
+  border-radius: 12px;
+}
+
+.heading {
+  font-family: 'Montserrat', sans-serif;
+  background-clip: text;
+}
+
+.cta {
+  animation: bounce 1s infinite;
+  transition: width 200ms ease;
+}

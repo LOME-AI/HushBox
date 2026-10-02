@@ -1,0 +1,20 @@
+{
+  "name": "@hushbox/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@hushbox/config": "workspace:*",
+    "@hushbox/crypto": "workspace:*",
+    "@hushbox/shared": "workspace:*",
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^24.13.3",
+    "eslint": "^9.39.4",
+    "execa": "^10.0.1",
+    "typescript": "catalog:"
+  }
+}

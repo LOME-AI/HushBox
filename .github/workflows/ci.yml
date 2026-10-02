@@ -1,0 +1,1995 @@
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  # On public `main`, deploys with the borrowable checks not run; `verdict`
+  # judges their skips, and every publishing job but the emulator image push
+  # runs as on a deploying push.
+  workflow_dispatch:
+
+# Keyed on the pull-request number rather than the head branch: two forks can
+# carry the same branch name, and the base repository's pull-request number is
+# what tells their runs apart. Trusted events carry no pull request and fall
+# through to the run id, which gives each its own group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+# Least privilege by default. A job that needs more than read declares its own
+# `permissions:` block, so those blocks are the whole list of elevations. Write
+# access to repository contents is held only by the jobs that push a ref:
+# `version-claim` pushes the version claim and `deploy` the release tag.
+# Everything else scans and builds with a read-only token, pull-request-triggered
+# jobs holding `environment: ci` secrets included.
+permissions:
+  contents: read
+
+jobs:
+  # ── Version claim ────────────────────────────────────────
+  # On a deploying run of public `main` (a push or a dispatch), takes the
+  # deploy's version number by pushing `refs/version-claims/v<next>` before
+  # anything is built, so no two deploys share a number and a deploy that
+  # fails only burns one. Release tags still mean shipped; a claim is not a
+  # release.
+  #
+  # The write token lives here rather than in `version` because `version` also
+  # runs in the public merge queue on contributor code, where a write token
+  # would let queued code push refs. Every step, not the job, is confined to the
+  # deploying event, so on any other event its job condition admits this job
+  # succeeds having run nothing and `version` needs no status function to
+  # follow it.
+  #
+  # Deploying runs share one group and queue in it rather than cancel an older
+  # pending run, so each claim reads every earlier claim; every other run gets a
+  # group of its own. HUSKY is off because the checkout's install sets up the
+  # repository's git hooks, and the push-stage gate is not this job's to run.
+  version-claim:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
+    if: github.event_name != 'pull_request' && (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO)
+    concurrency:
+      group: ${{ github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && 'version-claim' || format('version-claim-{0}', github.run_id) }}
+      cancel-in-progress: false
+      queue: max
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      version: ${{ steps.claim.outputs.version }}
+      version_name: ${{ steps.claim.outputs.version_name }}
+      version_code: ${{ steps.claim.outputs.version_code }}
+      claimed: ${{ steps.claim.outputs.claimed }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-blacksmith
+        if: github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      - name: Claim the next version
+        id: claim
+        if: github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: pnpm tsx scripts/release/compute-next-version.ts
+        env:
+          CLAIM_VERSION: 'true'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HUSKY: '0'
+
+  # ── Version computation ──────────────────────────────────
+  # Runs wherever the build does, because the build bakes this output into the
+  # client bundle and a bundle built without it throws at module load. On the
+  # deploying event it hands on the number `version-claim` took instead of
+  # computing one; everywhere else it computes as it always has and claims
+  # nothing.
+  version:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 3
+    needs: [version-claim]
+    if: github.event_name != 'pull_request' && (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO)
+    # The bump is computed from the labels of the pull requests behind the push,
+    # and that lookup throws on any non-OK status rather than degrading — so the
+    # read is required, not best-effort. A job's own grant replaces the
+    # workflow's rather than adding to it, which is why the checkout's read is
+    # restated here. Read-only because this job runs on contributor code in the
+    # merge queue.
+    permissions:
+      contents: read
+      pull-requests: read
+    # Exactly one of the two sources is set on any event: the compute step's on
+    # every event but the deploying one, and the claim's on that one alone.
+    outputs:
+      version: ${{ steps.compute.outputs.version || needs.version-claim.outputs.version }}
+      version_name: ${{ steps.compute.outputs.version_name || needs.version-claim.outputs.version_name }}
+      version_code: ${{ steps.compute.outputs.version_code || needs.version-claim.outputs.version_code }}
+      claimed: ${{ steps.compute.outputs.claimed || needs.version-claim.outputs.claimed }}
+      privacy_policy_effective_date: ${{ steps.legal-dates.outputs.privacy_policy_effective_date }}
+      terms_of_service_effective_date: ${{ steps.legal-dates.outputs.terms_of_service_effective_date }}
+    steps:
+      # Full history with tags, and the whole defence of the legal effective
+      # dates the `Derive the legal effective dates` step answers for. Those
+      # dates are the day of the earliest release tag
+      # carrying each document's revision, and a shallow clone fetched without
+      # tags is indistinguishable from a repository that has never been tagged:
+      # the tag listing exits zero, writing nothing to either stream, so the
+      # derivation answers today and today gets published as the day a legal
+      # document took effect. Nothing in the script can tell those two apart.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-blacksmith
+      - name: Compute next version
+        id: compute
+        if: "!(github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))"
+        run: pnpm tsx scripts/release/compute-next-version.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Prints its own refusal to this step's log and stops the build: a revision
+      # declaration it cannot read, or a tag listing that was not clean, each
+      # quotes what it found and states what it needs.
+      - name: Derive the legal effective dates
+        id: legal-dates
+        run: pnpm tsx scripts/legal-effective-dates.ts
+
+  # ── Green borrow ─────────────────────────────────────────
+  # On a push to public `main`, asks whether staging's trusted push run already
+  # proved this exact commit (`scripts/publication/green-borrow.ts`, by the predicate the
+  # outbound mirror publishes by); where it did, the checks that proof covers
+  # skip here and `verdict` judges the skip. Only its steps are confined to that
+  # event: the job itself runs wherever its repository gate admits, so a check
+  # that needs it never inherits a skip, and elsewhere `borrowed` is empty, so
+  # no check skips on `borrow`'s account: a check that skips there skips by a
+  # clause of its own, which `verdict` judges in a run on public `main`. Any
+  # state the script cannot establish answers `false`, which also runs every
+  # check. Each check that needs it carries `!cancelled()`, so a failed borrow
+  # skips no check either: a skipped required check counts as passing, and
+  # would let a merge-queue run merge untested code.
+  borrow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO)
+    outputs:
+      borrowed: ${{ steps.borrow.outputs.borrowed }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO
+      - uses: ./.github/actions/setup
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO
+      - name: Read staging's proof of this commit
+        id: borrow
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO
+        run: pnpm tsx scripts/publication/green-borrow.ts
+        env:
+          HUSHBOX_SYNC_APP_ID: ${{ secrets.HUSHBOX_SYNC_APP_ID }}
+          HUSHBOX_SYNC_PRIVATE_KEY: ${{ secrets.HUSHBOX_SYNC_PRIVATE_KEY }}
+
+  # ── Quick lint jobs (Blacksmith 2 vCPU) ──────────────────
+  lint:
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 15 || 5 }}
+    needs: [borrow]
+    if: "!cancelled() && github.event_name != 'workflow_dispatch' && (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO) && needs.borrow.outputs.borrowed != 'true'"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-ci
+      - name: Generate Astro types
+        run: pnpm --filter @hushbox/marketing exec astro sync
+      - name: Lint
+        run: pnpm lint
+      - name: Architecture rules
+        run: pnpm arch:check
+      - name: Audit findings
+        run: pnpm docket --validate
+      - name: Dependency licences
+        run: pnpm verify:licenses
+      - name: Documentation paths
+        run: pnpm verify:doc-paths
+      - name: Design tokens
+        run: pnpm verify:design-tokens
+
+  typecheck:
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 15 || 5 }}
+    needs: [borrow]
+    if: "!cancelled() && github.event_name != 'workflow_dispatch' && (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO) && needs.borrow.outputs.borrowed != 'true'"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-ci
+      - name: Type check
+        run: pnpm typecheck
+      - name: Verify typecheck coverage
+        run: pnpm verify:typecheck-coverage
+      - name: Generate environment files
+        run: pnpm generate:env
+      # Re-derives every `BEGIN GENERATED:` block from its TypeScript source and
+      # compares it to what is committed. What it proves: a committed block's
+      # contents match their source. It says nothing about a dirty working tree —
+      # regeneration erases an uncommitted edit, so only committed drift is
+      # visible here.
+      #
+      # What it can see is exactly what a generator rewrites: the span between
+      # the markers of a pair some section declares. What it cannot see follows
+      # from that, rather than from a list — text outside those spans (an entry
+      # hand-added after an END marker, a job-level `if:` dropping a generated
+      # matrix job), and a pair no section declares, which no generator renders
+      # at all. That last one is caught in scripts/generate-env.test.ts, which
+      # reads markers off every workflow file rather than off the section map —
+      # the level at which out-of-span text can be reached at all. This step
+      # diffs spans, so nothing it does reaches text in none of them, whatever
+      # is asserted about that text there. A lost marker fails a generator run
+      # rather than diffing clean — each generator measures the files its
+      # sections declare and throws before writing anything.
+      #
+      # apps/api/wrangler.toml is diffed too, on a different mechanism: it carries
+      # no markers, so the generator rewrites its whole `[vars]` block — the
+      # production values plus the secret-name list under them — from the env
+      # registry and appends it at the end of the file. Text above that block is
+      # hand-maintained and no generator rewrites it, which is why a clean
+      # checkout regenerates the file byte-for-byte. A registry edit also reaches
+      # the deploy jobs' generated env blocks, so the workflow diff sees that one
+      # already; what this reaches on its own is a committed hand-edit inside the
+      # block, whose bytes exist in no workflow file.
+      #
+      # It runs both generators itself so it stays a whole gate if a neighbouring
+      # step moves.
+      - name: Generated block drift check
+        run: |
+          pnpm generate:env
+          pnpm generate:ops-dispatch
+          git diff --exit-code .github/workflows/ apps/api/wrangler.toml docs/SECRETS.md || (echo "Generated block drift. Run 'pnpm generate:env && pnpm generate:ops-dispatch' and commit." && exit 1)
+      - name: Drizzle migration drift check
+        run: |
+          pnpm --filter @hushbox/db db:generate
+          git diff --exit-code packages/db/drizzle/ || (echo "Schema/snapshot drift. Run 'pnpm db:generate' and commit." && exit 1)
+      # Rewrites every generated SKILL.md and every agent definition — a skill
+      # opts into generation by carrying a SKILL.template.md; every agent has a
+      # template at .claude/agent-templates/<name>.md, and an agent file without
+      # one makes the generator refuse, failing this step — from that template and
+      # the single-source files it injects, then refuses any modified or untracked
+      # file left under .claude/skills/ or .claude/agents/. What it proves: a
+      # committed skill or agent matches the sources it is generated from, which
+      # is the drift a skipped pre-commit hook ships. Like the generated-block
+      # and migration drift checks, it cannot see an uncommitted edit to a
+      # generated SKILL.md —
+      # regeneration erases one before the check looks — so committed drift is
+      # the whole subject.
+      #
+      # `git status`, not the `git diff --exit-code` its two siblings use,
+      # because drift can leave the regenerated file UNTRACKED, where a diff sees
+      # nothing: a committed SKILL.template.md whose SKILL.md was never
+      # committed, and a committed deletion of a generated SKILL.md, both end
+      # with the generator writing a file git diff has no entry for. The sidecar
+      # the generator writes under .claude/skills/.cache/ is gitignored, so it
+      # never surfaces as untracked drift.
+      #
+      # That choice is what an ignore rule reaching this tree would cost. git
+      # status reports no untracked path a rule covers, so such a rule leaves
+      # the tracked half reported and takes both untracked cases above with it,
+      # silently reducing this step to the strength of the two siblings it
+      # deliberately does not copy. So the step asks git which paths under the
+      # tree it measures are ignored, and refuses to measure at all when the
+      # answer is any path but that sidecar. The question goes to git rather
+      # than to .gitignore's text because an effective ignore status is what
+      # blinds the measurement, and --no-index is what puts it to the rules
+      # rather than to the index: without it a rule over a fully committed tree
+      # reads clean until drift happens to arrive.
+      #
+      # The generator's own cache cannot hide drift either: its sidecar hashes
+      # the outputs alongside the inputs, so a hand-edited SKILL.md misses the
+      # cache and is rewritten from its template rather than left standing.
+      - name: Skills drift check
+        run: |
+          pnpm generate:skills
+          if find .claude/skills .claude/agents -type f -not -path '.claude/skills/.cache/*' | git check-ignore --no-index --stdin --verbose; then
+            echo "The rules above ignore paths under .claude/skills/ or .claude/agents/, which blinds the git status below to untracked skill drift. Remove them."
+            exit 1
+          fi
+          DRIFT="$(git status --porcelain -- .claude/skills/ .claude/agents/)"
+          if [ -n "$DRIFT" ]; then
+            echo "$DRIFT"
+            echo "Skill drift. Run 'pnpm generate:skills' and commit."
+            exit 1
+          fi
+
+  duplication:
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 15 || 5 }}
+    needs: [borrow]
+    if: "!cancelled() && github.event_name != 'workflow_dispatch' && (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO) && needs.borrow.outputs.borrowed != 'true'"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-ci
+      - name: Check code duplication
+        run: pnpm lint:duplication
+
+  unused:
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 15 || 5 }}
+    needs: [borrow]
+    if: "!cancelled() && github.event_name != 'workflow_dispatch' && (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO) && needs.borrow.outputs.borrowed != 'true'"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-ci
+      - name: Generate environment files
+        run: pnpm generate:env
+      - name: Check unused code
+        run: pnpm lint:unused
+
+  gitleaks:
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 15 || 5 }}
+    environment: ci
+    if: (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO)
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+      # The vendor's Action authenticates with an organisation licence, which is
+      # a repository secret — so it is the trusted phase's scanner only. An
+      # untrusted run scans with the same pinned binary through the repository's
+      # own installer, naming no secret on its path. A dispatch scans the same
+      # way: the Action's behaviour on that event is undocumented, and what a
+      # dispatch must answer is whether the tree it ships holds a secret.
+      - uses: ./.github/actions/setup-ci
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+
+      - name: Scan the tree for secrets
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        run: pnpm gitleaks:scan
+
+      - name: Scan for secrets
+        if: github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          # BEGIN GENERATED: gitleaks-version
+          GITLEAKS_VERSION: '8.24.3'
+          # END GENERATED: gitleaks-version
+
+  # ── Privacy sweep (the backstop for a bypassed hook) ─────
+  # The commit and push hooks are skippable by design, so this is the only
+  # privacy check nobody can skip. It runs both content gates over the whole
+  # tree of the commit under test rather than over a range: a range needs an
+  # answer about what the destination already holds, and every blinding this
+  # gate family has suffered came in through that question. Whole-tree has no
+  # such question, and it re-judges whatever an earlier bypass already landed.
+  privacy-sweep:
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 20 || 10 }}
+    if: (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO)
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # The commit-date backstop walks a range, which a shallow clone
+          # cannot answer.
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-ci
+      - name: Sweep the tree for timing and host disclosure
+        run: pnpm privacy:sweep
+      # The hook normalizes and the push gate refuses, and both are skippable;
+      # this is the same check where nothing can skip it. It runs on every event
+      # this workflow declares, in both repositories: the commits a queue mints
+      # carry the platform's clock and are read past by the check itself, on
+      # whichever of these events surfaces them, so nothing here is exempt by
+      # the path its commits arrived on.
+      #
+      # Which two commits an event introduced is the event's own question and
+      # each answers it with different fields, so every pair is named. A
+      # dispatch carries none of them and introduces no commit, so both ends
+      # fall back to the commit it runs on and the range is empty: what it ships
+      # was date-checked by the push run that landed it on `main`.
+      - name: Verify the commit dates this event introduces
+        run: pnpm tsx scripts/verify-commit-dates.ts
+        env:
+          COMMIT_DATE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || github.sha }}
+          COMMIT_DATE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+
+  # ── Merge-queue alignment gate (required check) ──────────
+  # Runs on every event so it always reports — a required check that never
+  # reports blocks the pull request it is supposed to guard. It only has
+  # something to do inside the public repository's merge queue: everywhere else
+  # the job is a green no-op. See docs/PUBLICATION.md.
+  sync-alignment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO)
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: github.event_name == 'merge_group' && github.repository == vars.HB_PUBLIC_REPO
+      - uses: ./.github/actions/setup-ci
+        if: github.event_name == 'merge_group' && github.repository == vars.HB_PUBLIC_REPO
+      - name: Await staging and public alignment
+        if: github.event_name == 'merge_group' && github.repository == vars.HB_PUBLIC_REPO
+        run: pnpm tsx scripts/publication/sync-alignment.ts
+        env:
+          HUSHBOX_SYNC_APP_ID: ${{ secrets.HUSHBOX_SYNC_APP_ID }}
+          HUSHBOX_SYNC_PRIVATE_KEY: ${{ secrets.HUSHBOX_SYNC_PRIVATE_KEY }}
+
+  # ── Test job (Blacksmith 4 vCPU + Docker) ────────────────
+  test:
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 10 }}
+    environment: ci
+    needs: [borrow]
+    if: "!cancelled() && github.event_name != 'workflow_dispatch' && (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO) && needs.borrow.outputs.borrowed != 'true'"
+    # Every step below is a process of its own, so none of them inherits the
+    # stack from the step that generated its env files. Naming it here is what
+    # points each step at the phase's own generated triple; a runner writes only
+    # the triple its phase asked for, so a step left unnamed reads nothing.
+    env:
+      HB_ENV_MODE: test
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-ci
+
+      # Every cache below is the runner fleet's own; the untrusted phase runs on
+      # GitHub-hosted runners that cannot reach it, and pays a cold run instead.
+      - name: Cache Turbo
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo
+          key: turbo-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ github.ref_name }}-
+            turbo-main-
+
+      - name: Cache Docker images
+        if: github.event_name != 'pull_request'
+        uses: useblacksmith/stickydisk@35ba2e331a80056a42af053ee54968511de2b7c7 # v1.5.0
+        with:
+          key: docker-${{ hashFiles('docker-compose.yml') }}
+          path: /tmp/docker-cache
+
+      - name: Load cached Docker images
+        if: github.event_name != 'pull_request'
+        run: |
+          if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            echo "Loading cached Docker images..."
+            pids=()
+            for img in /tmp/docker-cache/*.tar; do
+              docker load -i "$img" &
+              pids+=("$!")
+            done
+            # Per-pid waits: a bare `wait` exits 0 even when a background job failed.
+            for pid in "${pids[@]}"; do
+              wait "$pid" || exit 1
+            done
+          fi
+
+      # Two steps rather than one, because the trusted step's env block is
+      # generated from the env registry and names secrets: the untrusted phase
+      # must reach no part of it.
+      - name: Generate environment files (untrusted phase)
+        if: github.event_name == 'pull_request'
+        run: pnpm generate:env --mode=test
+
+      - name: Generate environment files
+        if: github.event_name != 'pull_request'
+        run: pnpm generate:env --mode=ciVitest
+        # BEGIN GENERATED: vitest-env
+        env:
+          OPENROUTER_API_KEY_RESTRICTED: ${{ secrets.OPENROUTER_API_KEY_RESTRICTED }}
+          BRAVE_SEARCH_API_KEY_RESTRICTED: ${{ secrets.BRAVE_SEARCH_API_KEY_RESTRICTED }}
+          LINEAR_API_KEY_READ: ${{ secrets.LINEAR_API_KEY_READ }}
+          FCM_PROJECT_ID_CI: ${{ secrets.FCM_PROJECT_ID_CI }}
+          FCM_SERVICE_ACCOUNT_JSON_CI: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON_CI }}
+        # END GENERATED: vitest-env
+
+      - name: Verify environment configuration
+        run: pnpm verify:env --mode="$ENV_MODE"
+        env:
+          ENV_MODE: ${{ github.event_name == 'pull_request' && 'test' || 'ciVitest' }}
+
+      - name: Start database
+        run: pnpm db:up
+
+      - name: Save Docker images for next run
+        if: github.event_name != 'pull_request'
+        run: |
+          if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            mkdir -p /tmp/docker-cache
+            # The compose file is the list: this prints each image a service
+            # runs, exactly as written there, one per line.
+            listed=$(pnpm exec tsx scripts/with-env.ts tsx scripts/compose.ts config --images)
+            mapfile -t images <<< "$listed"
+            pids=()
+            for image in "${images[@]}"; do
+              # A digest reference is pulled, never loaded: a docker save and load
+              # round trip drops the digest on Docker's classic image store, so
+              # compose pulls the image whatever tar the cache holds.
+              if [[ "$image" == *@* ]]; then continue; fi
+              docker save "$image" -o "/tmp/docker-cache/$(printf '%s' "$image" | tr -c 'A-Za-z0-9._-' '_').tar" &
+              pids+=("$!")
+            done
+            # Per-pid waits: a bare `wait` exits 0 even when a background job failed.
+            for pid in "${pids[@]}"; do
+              wait "$pid" || exit 1
+            done
+          fi
+
+      # A Postgres cluster is born with the one database the compose file hands
+      # it, and a stack other than the default resolves another. The stack
+      # bring-up creates the missing one on a developer's machine and returns at
+      # its CI guard here, so making it exist is a step of the job's own.
+      - name: Create the stack database
+        run: pnpm exec tsx scripts/with-env.ts tsx scripts/stack-database-ready.ts
+
+      - name: Run migrations
+        run: pnpm db:migrate
+
+      - name: Verify hand-written DB objects
+        run: pnpm verify:db-objects
+
+      # HTTP cassettes — one R2 bucket shared by both repositories and every
+      # branch, one object per recording, no eviction. The restore brings back
+      # everything any trusted run has ever recorded of the current recording
+      # version, so a request is recorded once and never again. Bumping
+      # AI_RECORDING_VERSION changes a directory segment on both sides and
+      # retires the old objects, which stay in the bucket but are no longer
+      # restored. An unreachable store degrades to a cold cache rather than
+      # failing the run. See docs/CI-CASSETTES.md.
+      - name: Restore AI cassettes
+        if: github.event_name != 'pull_request'
+        run: pnpm tsx scripts/cassette-store.ts download
+        env:
+          CASSETTE_R2_ACCOUNT_ID: ${{ secrets.CASSETTE_R2_ACCOUNT_ID }}
+          CASSETTE_R2_ACCESS_KEY_ID: ${{ secrets.CASSETTE_R2_ACCESS_KEY_ID }}
+          CASSETTE_R2_SECRET_ACCESS_KEY: ${{ secrets.CASSETTE_R2_SECRET_ACCESS_KEY }}
+          CASSETTE_R2_BUCKET: ${{ secrets.CASSETTE_R2_BUCKET }}
+
+      # Worker-weights — CI keeps its own self-updating copy of the per-package
+      # test-work weights (scripts/.cache/test-weights/<pkg>.json, gitignored).
+      # A full `pnpm test` run rewrites these files; the allocator reads them to
+      # size each package's worker pool next run. The unique save key below never
+      # collides (actions/cache entries are immutable), so `restore-keys` prefix
+      # fallback restores the most-recent prior weights and the save writes the
+      # freshly-updated ones — a cache that updates every run instead of freezing.
+      - name: Restore test worker-weights
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: scripts/.cache/test-weights
+          key: test-weights-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            test-weights-${{ runner.os }}-${{ github.ref_name }}-
+            test-weights-${{ runner.os }}-main-
+            test-weights-${{ runner.os }}-
+
+      # Self-hosted Pyodide assets (~26 MB) the sandbox suite runs against. The
+      # bytes are gitignored and fetched from a pinned CDN by the sandbox
+      # `fetch-pyodide` turbo task (a dependency of its `test` task). Cache them
+      # keyed on the fetch script's pins so the download happens once per pin
+      # change; on a cache hit the fetch task's idempotency guard skips it.
+      - name: Cache Pyodide assets
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/sandbox/public/pyodide
+          key: pyodide-${{ hashFiles('apps/sandbox/scripts/fetch-pyodide.sh') }}
+
+      # The prediction canary (apps/web's prediction-canary.browser.test.ts) loads the
+      # real sentence-completion model in a real browser, which is the only thing that
+      # catches a miscompiled ONNX Runtime or a changed export — both of which take the
+      # feature inert with no error anywhere. The speech model is not seeded: no vitest
+      # file loads it. Cache the download, not the seeded store, which does not outlive
+      # the job; the manifest's hash invalidates it on any artifact change.
+      - name: Cache prediction model weights
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: scripts/.cache/model-weights
+          key: model-weights-prediction-${{ hashFiles('scripts/lib/model-weights/manifest.ts') }}
+
+      - name: Seed prediction model weights
+        run: pnpm exec tsx scripts/with-env.ts tsx scripts/publish-model-weights.ts --prediction
+
+      # Vitest files in this job drive a real Playwright browser in-process, so the
+      # test run needs browser binaries installed before it starts.
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: |
+          VERSION=$(node -p "require('./node_modules/@playwright/test/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Playwright version: $VERSION"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-firefox-${{ steps.playwright-version.outputs.version }}
+          restore-keys: |
+            playwright-chromium-firefox-
+
+      - name: Install Playwright system deps
+        run: pnpm exec playwright install-deps chromium firefox
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium firefox
+
+      - name: Run tests
+        run: pnpm test
+        env:
+          TURBO_FORCE: true
+
+      # The object-store seams are the two that hold in both phases: their
+      # endpoint is the local MinIO the job already started, so the PUT and the
+      # sweep need no credential and an ordinary test run writes both rows.
+      # What a row proves is that the adapter built a request a compatible S3
+      # endpoint accepted — never that Cloudflare accepted anything.
+      - name: Verify the object store was written
+        run: pnpm verify:evidence --require=r2-storage
+      - name: Verify the object-store sweep ran
+        run: pnpm verify:evidence --require=r2-gc
+
+      # Assert the real external services were actually exercised, not mocked.
+      # The untrusted phase reaches no vendor by design, so the steps below
+      # assert nothing there rather than asserting something it arranged to be
+      # false.
+      # Two seams, two names: inference replays a cassette, the catalog read
+      # does not, so a dead catalog test must not hide behind an inference row.
+      - name: Verify the OpenRouter catalog was read
+        if: github.event_name != 'pull_request'
+        run: pnpm verify:evidence --require=openrouter-catalog
+      - name: Verify OpenRouter inference ran
+        if: github.event_name != 'pull_request'
+        run: pnpm verify:evidence --require=openrouter-inference
+      - name: Verify Linear was called
+        if: github.event_name != 'pull_request'
+        run: pnpm verify:evidence --require=linear
+      # FCM is a real call: the live test authenticates against Google and
+      # posts a validate-only send, and writes the row only after it succeeds.
+      - name: Verify FCM push was called
+        if: github.event_name != 'pull_request'
+        run: pnpm verify:evidence --require=push-fcm
+      - name: Verify Brave search ran
+        if: github.event_name != 'pull_request'
+        run: pnpm verify:evidence --require=brave-search
+
+      # Store new recordings regardless of test outcome — a recording made by a
+      # failed run is still the one the next run replays. Each upload carries a
+      # never-overwrite precondition and is one whole object, so a failed or
+      # partial store can neither replace an existing recording nor leave a
+      # half-written one behind.
+      - name: Store new AI cassettes
+        if: always() && github.event_name != 'pull_request'
+        run: pnpm tsx scripts/cassette-store.ts upload
+        env:
+          CASSETTE_R2_ACCOUNT_ID: ${{ secrets.CASSETTE_R2_ACCOUNT_ID }}
+          CASSETTE_R2_ACCESS_KEY_ID: ${{ secrets.CASSETTE_R2_ACCESS_KEY_ID }}
+          CASSETTE_R2_SECRET_ACCESS_KEY: ${{ secrets.CASSETTE_R2_SECRET_ACCESS_KEY }}
+          CASSETTE_R2_BUCKET: ${{ secrets.CASSETTE_R2_BUCKET }}
+
+      # Persist the weights this run just rewrote under a fresh, never-colliding
+      # key so the next run's restore-keys prefix fallback picks them up. Saved
+      # even on failure — carrying the restored weights forward is harmless and
+      # a partial recording is still a better signal than none.
+      - name: Save test worker-weights
+        if: always()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: scripts/.cache/test-weights
+          key: test-weights-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # ── Build job (Blacksmith 4 vCPU) ────────────────────────
+  build:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 8
+    environment: ci
+    needs: [version]
+    if: always() && github.event_name != 'pull_request' && (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO) && (needs.version.result == 'success' || needs.version.result == 'skipped')
+    # Every step below is a process of its own, so none of them inherits the
+    # mode from the step that generated its env file. This job builds what
+    # ships, and production is the one mode that runs no stack: naming it here
+    # is what makes each build resolve production instead of refusing for want
+    # of a mode.
+    #
+    # The slot goes beside it because the run claim the env wrapper takes reads
+    # one and has no default, and production is the mode whose generated scripts
+    # file — the file that carries the slot everywhere else — is never written.
+    # It resolves no stack here, leaving the slot a label on the run-claim
+    # record, which one checkout holding no stack cannot get wrong.
+    env:
+      HB_ENV_MODE: production
+      HB_STACK_SLOT: '0'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo
+          key: turbo-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ github.ref_name }}-
+            turbo-main-
+
+      # Production is the only mode whose environment file is written nowhere
+      # else, and `pnpm verify:env --mode=production` reads it — so this step
+      # runs first or that check has nothing to verify.
+      - name: Generate production environment file
+        run: pnpm generate:env --mode=production
+        # BEGIN GENERATED: production-env
+        env:
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          VITE_HELCIM_JS_TOKEN_PRODUCTION: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_APP_VERSION: ${{ needs.version.outputs.version }}
+          VITE_PRIVACY_POLICY_EFFECTIVE_DATE: ${{ needs.version.outputs.privacy_policy_effective_date }}
+          VITE_TERMS_OF_SERVICE_EFFECTIVE_DATE: ${{ needs.version.outputs.terms_of_service_effective_date }}
+        # END GENERATED: production-env
+
+      - name: Verify production environment
+        run: pnpm verify:env --mode=production
+
+      # The sandbox origin's dist ships the self-hosted Pyodide assets (~26 MB,
+      # gitignored), pulled from a pinned CDN by the `fetch-pyodide` turbo task
+      # that `build` depends on. Cache them on the fetch script's pins so the
+      # download happens once per pin change; on a hit the fetch task's
+      # idempotency guard skips it.
+      - name: Cache Pyodide assets
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/sandbox/public/pyodide
+          key: pyodide-${{ hashFiles('apps/sandbox/scripts/fetch-pyodide.sh') }}
+
+      - name: Build
+        run: pnpm build
+        # BEGIN GENERATED: build-env
+        env:
+          ESM_CDN_URL: https://esm.sh
+          VITE_SANDBOX_ORIGIN_URL: https://sandbox.hushbox.ai
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          VITE_API_URL: https://api.hushbox.ai
+          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_PLATFORM: web
+          VITE_APP_VERSION: ${{ needs.version.outputs.version }}
+          VITE_PRIVACY_POLICY_EFFECTIVE_DATE: ${{ needs.version.outputs.privacy_policy_effective_date }}
+          VITE_TERMS_OF_SERVICE_EFFECTIVE_DATE: ${{ needs.version.outputs.terms_of_service_effective_date }}
+          VITE_WEB_URL: https://hushbox.ai
+        # END GENERATED: build-env
+
+      # The growth beacon validates every body against the page-and-event index
+      # extracted from the built marketing site, and the Worker bundles that
+      # index as a committed module — so no check job has to build the site to
+      # compile, lint or test against it. Regenerating and diffing here is what
+      # keeps the committed copy honest.
+      #
+      # It runs in this job rather than beside the drift checks in the typecheck
+      # job because each of those regenerates from source, and this one needs a
+      # built site: this is the only job that builds one.
+      - name: Growth event index drift check
+        run: |
+          pnpm --filter @hushbox/marketing growth:index
+          git diff --exit-code apps/api/src/slices/growth/domain/growth-index.json || (echo "Growth event index drift. Regenerating the committed index means running 'pnpm --filter @hushbox/marketing growth:index' over a production marketing build, and that build needs production credentials a working checkout does not hold, so it cannot be redone locally. Route it to someone who can run a production build." && exit 1)
+
+      - name: Merge marketing into web dist
+        run: pnpm tsx scripts/merge-marketing-into-web.ts
+
+      - name: Generate _headers (CSP hashes per marketing route)
+        run: pnpm tsx scripts/generate-headers.ts
+        # generate-headers.ts bakes VITE_API_URL into the CSP connect-src, so it
+        # must match the API origin the client bundles were built against above.
+        # BEGIN GENERATED: headers-env
+        env:
+          VITE_API_URL: https://api.hushbox.ai
+          SANDBOX_ORIGIN_URL: https://sandbox.hushbox.ai
+        # END GENERATED: headers-env
+
+      # Each dist the deploy publishes carries the version it was built for, so
+      # the deploy can refuse an artifact of another version and the probe
+      # after the deploy can read the version each surface serves. It runs
+      # outside the turbo task, so a cache replay cannot carry a stale stamp.
+      - name: Stamp the build identity into each deployed dist
+        run: pnpm tsx scripts/stamp-build-identity.ts stamp apps/web/dist apps/admin/dist apps/sandbox/dist
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      # The deployed bundle is assembled by the steps after the build, not by a
+      # build script, so the bundle guard runs as its own step: after the last
+      # step that adds a file to the dist (the Pages file-count check counts
+      # `_headers` and `build.json`) and before the upload. The step needs no
+      # env block.
+      - name: Verify web bundle
+        run: pnpm verify:bundle
+
+      - name: Upload web build artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: web-dist
+          path: apps/web/dist
+
+      - name: Upload admin build artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: admin-dist
+          path: apps/admin/dist
+
+      # The sandbox origin is deployed from this dist (static pages + Pyodide +
+      # the env-derived config.js); the deploy job never builds, so it travels
+      # as an artifact like the web and admin bundles.
+      - name: Upload sandbox build artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: sandbox-dist
+          path: apps/sandbox/dist
+
+      - name: Build mobile OTA bundles (parallel)
+        if: needs.version.result == 'success'
+        # The subshell inherits the generated frontend env below; only
+        # VITE_PLATFORM varies per bundle, so the loop sets it inline (it
+        # overrides the block's base value).
+        run: |
+          pids=()
+          for platform in ios android android-direct; do
+            (
+              VITE_PLATFORM=$platform \
+              pnpm --filter web exec vite build --outDir dist-$platform
+            ) &
+            pids+=("$!")
+          done
+          # Per-pid waits: a bare `wait` exits 0 even when a background job failed.
+          for pid in "${pids[@]}"; do
+            wait "$pid" || exit 1
+          done
+        # BEGIN GENERATED: build-env-mobile
+        env:
+          VITE_SANDBOX_ORIGIN_URL: https://sandbox.hushbox.ai
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          VITE_API_URL: https://api.hushbox.ai
+          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_PLATFORM: web
+          VITE_APP_VERSION: ${{ needs.version.outputs.version }}
+          VITE_PRIVACY_POLICY_EFFECTIVE_DATE: ${{ needs.version.outputs.privacy_policy_effective_date }}
+          VITE_TERMS_OF_SERVICE_EFFECTIVE_DATE: ${{ needs.version.outputs.terms_of_service_effective_date }}
+          VITE_WEB_URL: https://hushbox.ai
+        # END GENERATED: build-env-mobile
+
+      # The OTA bundles are built after the web dist was verified, into their own
+      # sibling dist directories, so they get their own guard run before upload.
+      # Each is named as an argument; the app they belong to — and with it the
+      # TTS expectation — is the script's own. The step needs no env block.
+      - name: Verify mobile OTA bundles
+        if: needs.version.result == 'success'
+        run: pnpm verify:bundle dist-ios dist-android dist-android-direct
+
+      # The artifact's only consumer is the deploy job, so this upload carries
+      # that job's own event and claim conditions (the main branch, the public
+      # repository, a deploying event, a claimed version): its whole condition
+      # less its status function, its needs' success terms, and the shipped
+      # answer, which a job waiting on this one computes. On any other path the
+      # upload has no reader at all. The mobile build and verify steps stay
+      # keyed to the version job because both are cheap and buy early detection
+      # wherever they run.
+      - name: Upload mobile build artifacts
+        if: github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.version.outputs.claimed == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: mobile-dist
+          path: |
+            apps/web/dist-ios
+            apps/web/dist-android
+            apps/web/dist-android-direct
+
+  # ── E2E tests (Blacksmith 4 vCPU + Docker + Playwright) ──
+  # Builds the merged dev-mode web bundle ONCE; every e2e leg below reuses it
+  # instead of rebuilding it (6 cold builds -> 1). `build:e2e` is the single
+  # build path: it self-generates the ciE2E env, Turbo-builds web + marketing in
+  # parallel, merges marketing into web, and writes _headers. No DB/stack needed
+  # (static build), so this job stays lean.
+  e2e-build:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    environment: ci
+    needs: [borrow]
+    if: "!cancelled() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO) && needs.borrow.outputs.borrowed != 'true'"
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo
+          # Separate key from the prod `build` job: the e2e bundle is dev-mode,
+          # a distinct Turbo hash, and must not clobber the prod cache entry.
+          key: turbo-e2e-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            turbo-e2e-${{ github.ref_name }}-
+            turbo-e2e-main-
+
+      - name: Build merged e2e web bundle
+        run: pnpm build:e2e
+        # BEGIN GENERATED: e2e-build-env
+        env:
+          NODE_ENV: development
+          VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+        # END GENERATED: e2e-build-env
+
+      - name: Upload e2e web bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: e2e-web-dist
+          path: apps/web/dist
+          retention-days: 1
+
+      # E2E-mode admin bundle (VITE_E2E baked, dev-mode). Distinct from the
+      # deploy job's production `admin-dist` artifact — different build, must
+      # never be confused with or overwrite it. NODE_ENV is required by
+      # createEnvUtilities; mode (CiE2E) is selected from isCI at runtime.
+      - name: Build e2e admin bundle
+        run: pnpm build:e2e:admin
+        env:
+          NODE_ENV: development
+
+      - name: Upload e2e admin bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: admin-e2e-dist
+          path: apps/admin/dist
+          retention-days: 1
+
+  e2e:
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 20
+    environment: ci
+    # The trust-phase and repository guards sit on `e2e-build`, which this job
+    # needs: such a condition here would drop registry-declared browser projects
+    # while the matrix still named them and the drift check still diffed clean.
+    # Its one condition runs it past a skipped or failed ancestor on
+    # `e2e-build`'s success: GitHub's implicit `success()` reads every ancestor,
+    # so a failed `borrow` would otherwise skip it, and a skipped required check
+    # counts as passing.
+    needs: [e2e-build]
+    if: "!cancelled() && needs.e2e-build.result == 'success'"
+    # `actions: write` is for the cancel-run-on-failure step below.
+    permissions:
+      contents: read
+      actions: write
+    # The stack every step of this job reads; a step inherits it from no earlier
+    # step, so it is named once here rather than on each of them.
+    env:
+      HB_ENV_MODE: e2e
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # One job per project in scripts/lib/playwright/projects.ts. The webhook lane
+          # is declared there too: exactly one job hosts the single Hookdeck
+          # listener process, so only that job may run @webhook specs. Which
+          # project it is is incidental — the constraint is that there is one.
+          # BEGIN GENERATED: e2e-matrix
+          - project: chromium
+            browser: chromium
+            webhookLane: true
+          - project: firefox
+            browser: firefox
+          - project: webkit
+            browser: webkit
+          - project: iphone-15
+            browser: webkit
+          - project: pixel-7
+            browser: chromium
+          - project: ipad-pro
+            browser: webkit
+          - project: admin
+            browser: chromium
+          # END GENERATED: e2e-matrix
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: |
+          VERSION=$(node -p "require('./node_modules/@playwright/test/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Playwright version: $VERSION"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ matrix.browser }}-${{ steps.playwright-version.outputs.version }}
+          restore-keys: |
+            playwright-${{ matrix.browser }}-
+
+      - name: Cache Docker images
+        uses: useblacksmith/stickydisk@35ba2e331a80056a42af053ee54968511de2b7c7 # v1.5.0
+        with:
+          key: docker-${{ hashFiles('docker-compose.yml') }}
+          path: /tmp/docker-cache
+
+      - name: Load cached Docker images
+        run: |
+          if ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            pids=()
+            for img in /tmp/docker-cache/*.tar; do
+              docker load -i "$img" &
+              pids+=("$!")
+            done
+            # Per-pid waits: a bare `wait` exits 0 even when a background job failed.
+            for pid in "${pids[@]}"; do
+              wait "$pid" || exit 1
+            done
+          fi
+
+      - name: Generate environment files
+        run: pnpm generate:env --mode=ciE2E
+        # BEGIN GENERATED: e2e-env
+        env:
+          HELCIM_API_TOKEN_SANDBOX: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
+          HELCIM_WEBHOOK_VERIFIER_SANDBOX: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
+          VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+        # END GENERATED: e2e-env
+
+      - name: Verify environment configuration
+        run: pnpm verify:env --mode=ciE2E
+
+      - name: Install Playwright system deps
+        run: pnpm exec playwright install-deps "$BROWSER"
+        env:
+          BROWSER: ${{ matrix.browser }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install "$BROWSER"
+        env:
+          BROWSER: ${{ matrix.browser }}
+
+      - name: Start database
+        run: pnpm db:up
+
+      - name: Save Docker images for next run
+        run: |
+          if ! ls /tmp/docker-cache/*.tar 1>/dev/null 2>&1; then
+            mkdir -p /tmp/docker-cache
+            # The compose file is the list: this prints each image a service
+            # runs, exactly as written there, one per line.
+            listed=$(pnpm exec tsx scripts/with-env.ts tsx scripts/compose.ts config --images)
+            mapfile -t images <<< "$listed"
+            pids=()
+            for image in "${images[@]}"; do
+              # A digest reference is pulled, never loaded: a docker save and load
+              # round trip drops the digest on Docker's classic image store, so
+              # compose pulls the image whatever tar the cache holds.
+              if [[ "$image" == *@* ]]; then continue; fi
+              docker save "$image" -o "/tmp/docker-cache/$(printf '%s' "$image" | tr -c 'A-Za-z0-9._-' '_').tar" &
+              pids+=("$!")
+            done
+            # Per-pid waits: a bare `wait` exits 0 even when a background job failed.
+            for pid in "${pids[@]}"; do
+              wait "$pid" || exit 1
+            done
+          fi
+
+      # A Postgres cluster is born with the one database the compose file hands
+      # it, and a stack other than the default resolves another. The stack
+      # bring-up creates the missing one on a developer's machine and returns at
+      # its CI guard here, so making it exist is a step of the job's own.
+      - name: Create the stack database
+        run: pnpm exec tsx scripts/with-env.ts tsx scripts/stack-database-ready.ts
+
+      - name: Run migrations
+        run: pnpm db:migrate
+
+      - name: Seed test data
+        run: pnpm db:seed
+
+      - name: Start Hookdeck listener
+        if: matrix.webhookLane
+        run: |
+          pnpm exec hookdeck version
+          pnpm exec hookdeck ci --api-key "$HOOKDECK_API_KEY"
+          pnpm exec hookdeck listen 8787 helcim-sandbox --path /billing/webhooks/payment --output compact 2>&1 | tee /tmp/hookdeck.log &
+          for i in {1..60}; do
+            # grep's stderr is discarded because tee has not created the log yet on
+            # the first iterations; that missing-file error is expected, not a failure.
+            if grep -q -E "(Listening|Webhook URL|forwarding)" /tmp/hookdeck.log 2>/dev/null; then
+              echo "Hookdeck listener ready"
+              cat /tmp/hookdeck.log
+              break
+            fi
+            # Anchored on output captured from the CLI itself: a bad or expired key
+            # prints prose ("Authentication failed: ..."), while an unexpected API
+            # response prints a logrus key=value line carrying level=error. Matching
+            # bare words instead aborts the job on any banner containing "failed" or
+            # "unknown". Same missing-log window as above.
+            if grep -q -E '^(Authentication failed|error:)|(^| )level=(error|fatal|panic)( |$)' /tmp/hookdeck.log 2>/dev/null; then
+              echo "Hookdeck failed to start:"
+              cat /tmp/hookdeck.log
+              exit 1
+            fi
+            echo "Waiting for Hookdeck listener... ($i/60)"
+            sleep 1
+          done
+          # A startup failure whose output matches neither shape above — a rejected
+          # flag, an unresolvable connection — is caught here instead, by readiness
+          # never appearing. Same missing-log window as above.
+          if ! grep -q -E "(Listening|Webhook URL|forwarding)" /tmp/hookdeck.log 2>/dev/null; then
+            echo "Hookdeck failed to start within timeout"
+            cat /tmp/hookdeck.log
+            exit 1
+          fi
+        env:
+          HOOKDECK_API_KEY: ${{ secrets.HOOKDECK_API_KEY }}
+
+      - name: Download prebuilt e2e web bundle
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: e2e-web-dist
+          path: apps/web/dist
+
+      # The admin webServer (playwright.config.ts) reads the same HB_E2E_PREBUILT
+      # flag and serves this prebuilt dist via vite preview instead of rebuilding.
+      - name: Download prebuilt e2e admin bundle
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: admin-e2e-dist
+          path: apps/admin/dist
+
+      # The document-rendering E2E specs load the sandbox origin, which serves the
+      # self-hosted Pyodide assets (~26 MB, gitignored). Cache them on the fetch
+      # script's pins and fetch on a cache miss; the fetch is idempotent (skips
+      # when the pinned set is already present).
+      - name: Cache Pyodide assets
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/sandbox/public/pyodide
+          key: pyodide-${{ hashFiles('apps/sandbox/scripts/fetch-pyodide.sh') }}
+
+      - name: Fetch Pyodide assets
+        run: pnpm --filter @hushbox/sandbox fetch-pyodide
+
+      # e2e:prepare seeds the speech model's weights (~93 MB, gitignored) into
+      # the local R2 simulator so the read-aloud E2E flow can let a download
+      # finish; the prediction model never seeds here because E2E autocomplete
+      # runs behind a deterministic stub predictor, so no E2E test ever
+      # requests the real prediction weights. Cache the download, not the
+      # seeded store: wrangler's local persistence never survives past this
+      # job, so what is worth keeping across runs is scripts/.cache/model
+      # -weights, which the manifest's hash invalidates on any artifact change
+      # (a new voice, a corrected size, a version bump).
+      - name: Cache model weights
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: scripts/.cache/model-weights
+          key: model-weights-e2e-${{ hashFiles('scripts/lib/model-weights/manifest.ts') }}
+
+      # Tag-based gating via Playwright --grep-invert, which composes (AND) with
+      # the project-level grepInvert in playwright.config.ts. CI always drops
+      # @local-only (dev-mode-only tests); every job outside the webhook lane
+      # also drops @webhook. That constraint is CI topology, not a browser fact:
+      # one Hookdeck listener exists, so one job may drive the full payment flow.
+      - name: Run E2E tests (${{ matrix.project }})
+        run: pnpm e2e --project="$E2E_PROJECT" --grep-invert "$E2E_GREP_INVERT"
+        env:
+          CI: true
+          E2E_PROJECT: ${{ matrix.project }}
+          # The bundle was built once by the e2e-build job and downloaded above;
+          # Playwright's webServer skips build:e2e and serves it via vite preview.
+          HB_E2E_PREBUILT: '1'
+          E2E_GREP_INVERT: ${{ matrix.webhookLane && '@local-only' || '@local-only|@webhook' }}
+          # The run this job is one process of. Work that must happen once per
+          # run — engine-any carrier election — is resolved across these
+          # projects; a process that sees only its own --project would elect
+          # itself and run that work once per job.
+          # BEGIN GENERATED: e2e-run-set
+          E2E_RUN_PROJECTS: 'chromium,firefox,webkit,iphone-15,pixel-7,ipad-pro,admin'
+          # END GENERATED: e2e-run-set
+
+      # Assert the real external services were actually exercised, not mocked.
+      # Only the webhook lane wires Hookdeck and the Helcim sandbox.
+      - name: Verify the Helcim webhook was verified
+        if: matrix.webhookLane
+        run: pnpm verify:evidence --require=helcim-webhook
+      - name: Verify Helcim was called
+        if: matrix.webhookLane
+        run: pnpm verify:evidence --require=helcim
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Cancel workflow run on failure
+        if: failure()
+        run: gh run cancel "$RUN_ID"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+
+  # ── Mobile tests (Maestro + Android emulator via Docker) ──
+  mobile-test:
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 20
+    environment: ci
+    needs: [borrow]
+    if: "!cancelled() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch' && (github.repository == vars.HB_PUBLIC_REPO || github.repository == vars.HB_STAGING_REPO) && needs.borrow.outputs.borrowed != 'true'"
+    # `actions: write` is for the cancel-run-on-failure step below.
+    permissions:
+      contents: read
+      actions: write
+    # The stack every step of this job reads; a step inherits it from no earlier
+    # step, so it is named once here rather than on each of them.
+    env:
+      HB_ENV_MODE: e2e
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Cache Turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo
+          key: turbo-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ github.ref_name }}-
+            turbo-main-
+
+      - name: Cache Android SDK
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Android/Sdk
+          key: android-sdk-android-36-cmdtools-11076708
+
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('apps/web/android/gradle/wrapper/gradle-wrapper.properties', 'apps/web/android/**/*.gradle') }}
+          restore-keys: |
+            gradle-
+
+      - name: Cache Maestro CLI
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.maestro
+          key: maestro-cli-2.11.0
+
+      - name: Generate environment files
+        run: pnpm generate:env --mode=ciE2E
+        # BEGIN GENERATED: e2e-env
+        env:
+          HELCIM_API_TOKEN_SANDBOX: ${{ secrets.HELCIM_API_TOKEN_SANDBOX }}
+          HELCIM_WEBHOOK_VERIFIER_SANDBOX: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_SANDBOX }}
+          VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+        # END GENERATED: e2e-env
+
+      - name: Setup Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # Logs into GHCR so this job can pull the published emulator image.
+      # Whether a run pulls one is decided by bakeImage
+      # (scripts/lib/mobile/mobile-image.ts); a login the run does not use costs
+      # nothing, so the step is unconditional.
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Start database
+        run: pnpm db:up
+
+      # A Postgres cluster is born with the one database the compose file hands
+      # it, and a stack other than the default resolves another. The stack
+      # bring-up creates the missing one on a developer's machine and returns at
+      # its CI guard here, so making it exist is a step of the job's own.
+      - name: Create the stack database
+        run: pnpm exec tsx scripts/with-env.ts tsx scripts/stack-database-ready.ts
+
+      - name: Run migrations
+        run: pnpm db:migrate
+
+      # The seed documents a populated catalog as its precondition and adds only
+      # the two synthetic media rows, so without this the core flow's chat send
+      # reaches a model picker offering no text model. Public metadata only — no
+      # credential, no spend — as in `pnpm dev` and `e2e:prepare`.
+      - name: Refresh model catalog
+        run: pnpm catalog:refresh
+
+      - name: Seed test data
+        # The unified seed mints MOBILE_TEST_PERSONA alongside everything else.
+        run: pnpm db:seed
+
+      - name: Run mobile tests
+        run: pnpm mobile:test
+
+      - name: Dump emulator logs
+        if: failure()
+        # Iterate every container whose name carries the emulator's shard infix,
+        # so this scales automatically with mobile-tests/config.ts SHARDS — no
+        # need to update CI when the constant changes. The prefix ahead of the
+        # infix is the checkout's compose project, which varies by stack slot and
+        # is the half that moves when the naming is respelled; matching the infix
+        # is what keeps a rename from turning this dump into one that collects
+        # nothing while still exiting zero. `ci-workflow.test.ts` pins this
+        # filter against the name `emulatorContainerName` mints.
+        run: |
+          docker ps -aq --filter "name=-emulator-shard-" | while read -r id; do
+            [ -z "$id" ] && continue
+            name=$(docker inspect --format '{{.Name}}' "$id" | sed 's|^/||')
+            # Both dumps are best-effort diagnostics for a job that has already
+            # failed: a container the failure took down with it must not replace
+            # the real failure with a docker exit code, so each swallows its own.
+            docker logs "$id" > "emulator-logs-$name.txt" 2>&1 || true
+            docker inspect "$id" > "emulator-inspect-$name.json" 2>&1 || true
+          done
+
+      - name: Upload results
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: maestro-results
+          path: |
+            maestro-results/
+            emulator-logs-*.txt
+            emulator-inspect-*.json
+          retention-days: 7
+
+      - name: Cancel workflow run on failure
+        if: failure()
+        run: gh run cancel "$RUN_ID"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+
+  # ── Verdict (the one gate between the checks and every release) ──
+  # Every job that publishes needs this job in place of the borrowable checks.
+  # `!cancelled()` runs it past a skipped need, which is how a borrowed or a
+  # dispatched run reaches it at all, so `scripts/release/deploy-verdict.ts`
+  # judges what a skip could hide: a failed, cancelled, unknown or missing need
+  # refuses on every event; a skipped check passes on a dispatch, whose checks
+  # never run, and on a push only when `borrow` said this commit was proven.
+  # GitHub's implicit `success()` reads every ancestor, not only the
+  # direct needs, so a publishing job would inherit a borrowed run's skips
+  # through this one: each carries `!cancelled()` and a success term for every
+  # direct need instead, which makes this job succeeding the whole of what the
+  # checks add to it. It takes the deploy's event conditions but not its claim
+  # condition or its shipped answer, which read jobs this one does not need.
+  verdict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [borrow, lint, typecheck, duplication, unused, test, e2e-build, e2e, mobile-test]
+    if: "!cancelled() && github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup
+      - name: Judge every check this release rests on
+        run: pnpm tsx scripts/release/deploy-verdict.ts
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+
+  # ── Push mobile-emulator image to GHCR (in parallel with deploy) ──
+  # Publishes the emulator image for the `mobile-tests/docker` context; the
+  # --push below is what asks bakeImage (scripts/lib/mobile/mobile-image.ts) for
+  # that. Gated by the same checks as deploy, and on the push alone where
+  # deploy also takes a dispatch, so the registry only ever holds artifacts
+  # that passed the full check suite.
+  push-mobile-emulator-image:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    needs: [verdict, privacy-sweep, build, version, gitleaks]
+    if: "!cancelled() && github.ref == 'refs/heads/main' && github.event_name == 'push' && github.repository == vars.HB_PUBLIC_REPO && needs.verdict.result == 'success' && needs.privacy-sweep.result == 'success' && needs.build.result == 'success' && needs.version.result == 'success' && needs.gitleaks.result == 'success'"
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup-blacksmith
+
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bake and push mobile emulator image
+        run: pnpm tsx scripts/bake-mobile-image.ts --push
+
+  # ── Shipped (a release tag already on this commit) ───────
+  # A dispatch deploys the tip of `main` while the push run of the same commit
+  # may still be running its checks; once a release tag sits on the commit or
+  # a descendant, that push run stops before escrow and deploy instead of
+  # shipping the code again under a second number. A dispatch always answers
+  # false, since pressing it asks for a deploy. It runs behind every gate the
+  # publishing jobs wait on, as late as the release path allows, because the
+  # tag it looks for is pushed at the end of the other run's deploy.
+  shipped:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [verdict, privacy-sweep, build, version, gitleaks]
+    if: "!cancelled() && github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.verdict.result == 'success' && needs.privacy-sweep.result == 'success' && needs.build.result == 'success' && needs.version.result == 'success' && needs.gitleaks.result == 'success'"
+    outputs:
+      shipped: ${{ steps.shipped.outputs.shipped }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - name: Ask whether a release already shipped this commit
+        id: shipped
+        run: pnpm tsx scripts/release/deploy-shipped.ts
+
+  # ── Escrow (GitHub-hosted — hyper-secrets) ───────────────
+  # The offline copy of every secret whose loss class says one must exist,
+  # written before the deploy that publishes them: `deploy` needs this job, so a
+  # failure here is a deploy that does not happen rather than a secret set with
+  # no copy behind it: `deploy`'s condition requires this job's success, since
+  # it runs past a skipped need. Same gates and, less that term, the same run
+  # condition as `deploy`, so the two sit in one line rather than racing.
+  #
+  # One call per GitHub environment, each naming the set it writes. A called
+  # workflow reports the aggregate of its jobs and `needs` cannot name a job
+  # inside one, so a single call would put the deploy behind every environment's
+  # set — including one whose keys it never publishes.
+  escrow:
+    needs: [verdict, privacy-sweep, build, version, gitleaks, shipped]
+    if: "!cancelled() && github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.version.outputs.claimed == 'true' && needs.verdict.result == 'success' && needs.privacy-sweep.result == 'success' && needs.build.result == 'success' && needs.version.result == 'success' && needs.gitleaks.result == 'success' && needs.shipped.result == 'success' && needs.shipped.outputs.shipped != 'true'"
+    uses: ./.github/workflows/escrow-secrets.yml
+    with:
+      environment: production
+    secrets: inherit
+
+  # The backup environment's set. Nothing waits on it: the hourly backup run is
+  # not part of this pipeline, and holding the deploy for a credential it never
+  # publishes would make one environment's escrow the gate on every release.
+  escrow-backup:
+    needs: [verdict, privacy-sweep, build, version, gitleaks]
+    if: "!cancelled() && github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.verdict.result == 'success' && needs.privacy-sweep.result == 'success' && needs.build.result == 'success' && needs.version.result == 'success' && needs.gitleaks.result == 'success'"
+    uses: ./.github/workflows/escrow-secrets.yml
+    with:
+      environment: backup
+    secrets: inherit
+
+  # ── Deploy (GitHub-hosted — hyper-secrets) ───────────────
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [verdict, privacy-sweep, build, version, gitleaks, shipped, escrow]
+    # Only a run that claimed its number deploys: an unclaimed run was
+    # superseded by a descendant already holding a newer one.
+    if: "!cancelled() && github.ref == 'refs/heads/main' && github.repository == vars.HB_PUBLIC_REPO && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.version.outputs.claimed == 'true' && needs.verdict.result == 'success' && needs.privacy-sweep.result == 'success' && needs.build.result == 'success' && needs.version.result == 'success' && needs.gitleaks.result == 'success' && needs.shipped.result == 'success' && needs.shipped.outputs.shipped != 'true' && needs.escrow.result == 'success'"
+    # Deploys run one at a time, and a pending deploy waits rather than being
+    # cancelled by a later one. The group does not promise to release pending
+    # runs in the order they arrived, which is why the job's first step after
+    # the version check is an order guard.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+      queue: max
+    environment: production
+    # `contents: write` is for the release tag pushed as the final step.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+
+      - name: Verify version
+        run: |
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Version is empty"
+            exit 1
+          fi
+          echo "Deploying version: $VERSION"
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      # Refuses, before any step of this job publishes, a version not strictly
+      # newer than the one the API Worker serves: the native client applies any
+      # server version that differs from its own, so an older run released
+      # after a newer one would ship every phone a downgrade. It fails rather
+      # than skipping the steps below, so a publishing step added later cannot
+      # slip past it by lacking a condition.
+      - name: Refuse a deploy not newer than production
+        run: pnpm tsx scripts/release/deploy-order-guard.ts
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Download web build artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: web-dist
+          path: apps/web/dist
+
+      # The deep-link association files ship literal placeholders in the repo —
+      # `TEAMID` in the AASA appID and `PLACEHOLDER_SHA256_FINGERPRINT` in the
+      # Android assetlinks. iOS Universal Links and Android App Links only
+      # verify against the real Apple Team ID + release signing SHA-256, so
+      # substitute them into the merged web dist (served as static assets on
+      # Pages) before deploy, then guard that no placeholder survived. Runs
+      # before every deploy action so a mis-set secret fails the job with
+      # nothing published.
+      # values-pending: APPLE_TEAM_ID and ANDROID_CERT_SHA256_FINGERPRINT are
+      # founder-supplied production secrets and may not exist yet.
+      - name: Substitute deep-link association files
+        run: |
+          set -euo pipefail
+          well_known="apps/web/dist/.well-known"
+          aasa="$well_known/apple-app-site-association"
+          assetlinks="$well_known/assetlinks.json"
+          if [ -z "${APPLE_TEAM_ID:-}" ]; then
+            echo "ERROR: APPLE_TEAM_ID secret is empty"
+            exit 1
+          fi
+          if [ -z "${ANDROID_CERT_SHA256_FINGERPRINT:-}" ]; then
+            echo "ERROR: ANDROID_CERT_SHA256_FINGERPRINT secret is empty"
+            exit 1
+          fi
+          for f in "$aasa" "$assetlinks"; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: expected association file missing: $f"
+              exit 1
+            fi
+          done
+          sed -i "s/TEAMID/${APPLE_TEAM_ID}/g" "$aasa"
+          sed -i "s/PLACEHOLDER_SHA256_FINGERPRINT/${ANDROID_CERT_SHA256_FINGERPRINT}/g" "$assetlinks"
+          # Structure must survive substitution — both files must stay valid JSON.
+          jq empty "$aasa"
+          jq empty "$assetlinks"
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ANDROID_CERT_SHA256_FINGERPRINT: ${{ secrets.ANDROID_CERT_SHA256_FINGERPRINT }}
+
+      - name: Guard deep-link placeholders substituted
+        run: |
+          set -euo pipefail
+          well_known="apps/web/dist/.well-known"
+          if grep -R -E 'TEAMID|PLACEHOLDER_SHA256_FINGERPRINT' "$well_known"; then
+            echo "ERROR: deep-link association placeholder still present after substitution"
+            exit 1
+          fi
+          echo "Deep-link association placeholders substituted"
+
+      - name: Download admin build artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: admin-dist
+          path: apps/admin/dist
+
+      - name: Download sandbox build artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: sandbox-dist
+          path: apps/sandbox/dist
+
+      # Refuses, before anything publishes, a downloaded dist stamped with a
+      # version other than the one this deploy claimed.
+      - name: Check the downloaded dists carry this version
+        run: pnpm tsx scripts/stamp-build-identity.ts check apps/web/dist apps/admin/dist apps/sandbox/dist
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+
+      # Publish-then-promote: the OTA bundle must exist in R2 BEFORE APP_VERSION
+      # is set. Setting APP_VERSION (below) is what makes /updates/current
+      # advertise the new version; if the bundle weren't already published, that
+      # window advertises a version whose download 404s. The per-platform
+      # checksums land in the same deploy upload as APP_VERSION, so they can
+      # never be stale against it. The download, the re-publish guard and the
+      # upload depend only on the mobile-dist artifact + CF creds + the resolved
+      # version — never on the worker being deployed — so they run first.
+      - name: Download mobile build artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: mobile-dist
+          path: apps/web
+
+      # A version is only tagged at the very end of this job, so a deploy that
+      # fails anywhere after the upload leaves the object published under its
+      # version, and a re-run of this deploy job reuses that version.
+      # Re-uploading it would hand clients already on that version different
+      # bytes under the same identifier, and no update would ever be offered to
+      # them again. Guarding on the object's absence makes version-to-bytes a
+      # property of the store rather than of step ordering. A tripped guard
+      # needs a new number, which only a new claim gives: re-running all jobs
+      # or pushing again claims one, and nothing is deleted. Wrangler has no
+      # head/exists command, so the probe is a discarded download — and a
+      # download of an object that does exist can die partway through, which
+      # by exit code alone is indistinguishable from the object being absent.
+      # So absence is recognised only by wrangler's own not-found message;
+      # every other failure fails the deploy rather than being read as
+      # permission to overwrite.
+      - name: Guard against re-publishing an existing OTA bundle
+        working-directory: apps/api
+        run: |
+          for platform in ios android android-direct; do
+            key="builds/$platform/$VERSION.zip"
+            if probe=$(pnpm exec wrangler r2 object get "hushbox-app-builds/$key" \
+              --remote --pipe 2>&1 >/dev/null); then
+              echo "::error::$key is already published — a re-upload would serve different bytes under version $VERSION. A re-run of this deploy cannot reuse v$VERSION; re-run all jobs (which claims a new number) or push again."
+              exit 1
+            fi
+            case "$probe" in
+              *"The specified key does not exist."*) ;;
+              *)
+                # A workflow annotation is one line; the newlines wrangler writes would
+                # drop everything after the first out of it.
+                echo "::error::the published-bundle probe for $key failed, so whether $VERSION is already published is unknown; refusing to upload. wrangler said: ${probe//$'\n'/ }"
+                exit 1
+                ;;
+            esac
+            echo "OK: no published bundle at $key"
+          done
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Upload mobile OTA bundles to R2
+        id: ota
+        working-directory: apps/api
+        run: |
+          for platform in ios android android-direct; do
+            (cd ../../apps/web/dist-$platform && zip -r ../../../${platform}-dist.zip .)
+            pnpm exec wrangler r2 object put \
+              "hushbox-app-builds/builds/$platform/$VERSION.zip" \
+              --file ../../${platform}-dist.zip --remote
+            echo "Uploaded builds/$platform/$VERSION.zip"
+            # The bundle's sha256 is the per-platform checksum binding, served on
+            # /updates/current so the native client can integrity-check the
+            # download before applying it. Each platform's zip has a distinct
+            # sha256 (distinct VITE_PLATFORM build), so the binding is per platform.
+            # Recorded as a step output under the Worker key's own name; the
+            # API deploy uploads it with the code and APP_VERSION.
+            CHECKSUM=$(sha256sum ../../${platform}-dist.zip | cut -d' ' -f1)
+            PLATFORM_KEY=$(echo "$platform" | tr '[:lower:]-' '[:upper:]_')
+            echo "APP_BUNDLE_CHECKSUM_${PLATFORM_KEY}=$CHECKSUM" >> "$GITHUB_OUTPUT"
+            echo "Recorded APP_BUNDLE_CHECKSUM_${PLATFORM_KEY}"
+          done
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ needs.version.outputs.version }}
+
+      # The on-device models the browser loads: prediction weights, speech
+      # weights, tokenizers, configs and one blob per offered voice. The route
+      # serving them declares `immutable`, so the script probes every object
+      # before it uploads anything and skips what is already published — a
+      # re-upload under the same version would hand two clients different bytes
+      # under one URL. A probe that fails for any reason other than the object
+      # being absent stops the run rather than being read as permission to
+      # overwrite. Steady state uploads nothing and reaches no source repository
+      # at all; only a version bump in the manifest re-downloads. Each probe is
+      # a signed S3 head request, so the steady-state step moves metadata rather
+      # than every object's body.
+      #
+      # This script reads process.env directly — it is deliberately not wrapped
+      # in scripts/with-env.ts — so every variable it needs is named here. The
+      # R2 credentials sign the probes; wrangler uploads on the CLOUDFLARE_ ones.
+      - name: Publish on-device model artifacts to R2
+        run: pnpm weights:publish
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+      # Resolve any `run-script:<name>` labels on the merged PR against
+      # ops/manifest.yml, validate them, and partition by phase. Outputs
+      # JSON arrays consumed by the pre-deploy and post-deploy steps below.
+      # See ops/README.md for the trust model.
+      #
+      # The generated ops-env bindings sit on this step and on the two runner
+      # steps and nowhere else in the job: the resolver checks each script's
+      # declared secrets against its own environment, and the runners hand
+      # that environment to the scripts.
+      #
+      # Implemented as a tsx script (not actions/github-script) so the
+      # workspace's js-yaml is resolvable — pnpm doesn't hoist devDeps to
+      # the repo root.
+      - name: Resolve ops scripts from PR labels
+        id: ops
+        run: pnpm tsx ops/lib/resolve-pr-scripts.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          # BEGIN GENERATED: ops-env
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
+          OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
+          TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
+          TOTP_ENCRYPTION_SECRET_NEXT: ${{ secrets.TOTP_ENCRYPTION_SECRET_NEXT }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_BUCKET_MEDIA: hushbox-media
+          R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}
+          R2_ADMIN_SECRET_ACCESS_KEY: ${{ secrets.R2_ADMIN_SECRET_ACCESS_KEY }}
+          # END GENERATED: ops-env
+
+      - name: Run pre-deploy ops scripts
+        if: steps.ops.outputs.pre != '' && steps.ops.outputs.pre != '[]'
+        run: |
+          printf '%s' "$OPS_SCRIPTS" | jq -c '.[]' | while read -r s; do
+            name=$(echo "$s" | jq -r '.name')
+            file=$(echo "$s" | jq -r '.file')
+            echo "::group::Pre-deploy ops script: $name ($file)"
+            pnpm tsx "$file"
+            echo "::endgroup::"
+          done
+        env:
+          OPS_SCRIPTS: ${{ steps.ops.outputs.pre }}
+          # BEGIN GENERATED: ops-env
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
+          OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
+          TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
+          TOTP_ENCRYPTION_SECRET_NEXT: ${{ secrets.TOTP_ENCRYPTION_SECRET_NEXT }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_BUCKET_MEDIA: hushbox-media
+          R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}
+          R2_ADMIN_SECRET_ACCESS_KEY: ${{ secrets.R2_ADMIN_SECRET_ACCESS_KEY }}
+          # END GENERATED: ops-env
+
+      # `db:migrate` runs through scripts/with-env.ts, which refuses without a
+      # slot and loads a stack's generated env files with `override: true`.
+      # Production is the one mode that loads none, so naming it is what keeps
+      # the DATABASE_URL below from being replaced by a local development one;
+      # it resolves no stack from the slot either, leaving the slot a label on
+      # the run-claim record, which one checkout holding no stack cannot get
+      # wrong. NODE_ENV is what the drizzle config and the schema-drift check
+      # choose DATABASE_URL by, and they refuse to run without it.
+      - name: Run database migrations (production)
+        run: pnpm --filter @hushbox/db db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NODE_ENV: production
+          HB_ENV_MODE: production
+          HB_STACK_SLOT: '0'
+
+      # Every Worker secret, APP_VERSION and the bundle checksums ride this
+      # upload as its secrets file, so they go live in the same Worker version
+      # as the code that serves them — never on the code already live while
+      # the migrations and ops scripts above run, and never at all if the
+      # deploy fails. The encoder refuses the whole batch, writing nothing,
+      # when a binding in the generated env block below is missing or empty,
+      # and its output is captured before wrangler starts, so a refusal ends
+      # the step before `wrangler deploy` runs — a binding gone missing is a
+      # failed deploy rather than a live secret quietly overwritten with an
+      # empty value, whatever wrangler would make of an empty secrets file.
+      - name: Deploy API to Workers
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          # BEGIN GENERATED: deploy-secrets
+          secrets_json="$(pnpm -w exec tsx scripts/encode-deploy-secrets.ts)"
+          printf '%s\n' "$secrets_json" | pnpm exec wrangler deploy --secrets-file /dev/stdin --tag "v$VERSION" --message "$GITHUB_SHA"
+          # END GENERATED: deploy-secrets
+        # CLOUDFLARE_ACCOUNT_ID is not repeated here: it is a Worker secret, so
+        # the generated block below already binds it for wrangler to read.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+          # BEGIN GENERATED: deploy-secrets-env
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          RATE_LIMIT_KEY_SECRET: ${{ secrets.RATE_LIMIT_KEY_SECRET }}
+          OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
+          TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
+          ENUMERATION_DECOY_SECRET: ${{ secrets.ENUMERATION_DECOY_SECRET }}
+          IRON_SESSION_SECRET: ${{ secrets.IRON_SESSION_SECRET }}
+          CF_ACCESS_TEAM_DOMAIN: ${{ secrets.CF_ACCESS_TEAM_DOMAIN }}
+          CF_ACCESS_AUD: ${{ secrets.CF_ACCESS_AUD }}
+          ADMIN_ACTOR_ALLOWLIST: ${{ secrets.ADMIN_ACTOR_ALLOWLIST }}
+          ADMIN_ROLE_MAP: ${{ secrets.ADMIN_ROLE_MAP }}
+          GROWTH_READER_DATABASE_URL: ${{ secrets.GROWTH_READER_DATABASE_URL }}
+          ADMIN_SQL_PANEL_DATABASE_URL: ${{ secrets.ADMIN_SQL_PANEL_DATABASE_URL }}
+          CLOUDFLARE_ACCESS_LOG_API_TOKEN: ${{ secrets.CLOUDFLARE_ACCESS_LOG_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          APP_VERSION: ${{ needs.version.outputs.version }}
+          APP_BUNDLE_CHECKSUM_IOS: ${{ steps.ota.outputs.APP_BUNDLE_CHECKSUM_IOS }}
+          APP_BUNDLE_CHECKSUM_ANDROID: ${{ steps.ota.outputs.APP_BUNDLE_CHECKSUM_ANDROID }}
+          APP_BUNDLE_CHECKSUM_ANDROID_DIRECT: ${{ steps.ota.outputs.APP_BUNDLE_CHECKSUM_ANDROID_DIRECT }}
+          GROWTH_HASH_SECRET: ${{ secrets.GROWTH_HASH_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_WEBHOOK_SECRET: ${{ secrets.RESEND_WEBHOOK_SECRET }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY_PRODUCTION }}
+          FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
+          FCM_SERVICE_ACCOUNT_JSON: ${{ secrets.FCM_SERVICE_ACCOUNT_JSON }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          NOTIFICATION_TAG_SECRET: ${{ secrets.NOTIFICATION_TAG_SECRET }}
+          HELCIM_API_TOKEN: ${{ secrets.HELCIM_API_TOKEN_PRODUCTION }}
+          LINEAR_API_KEY_READ: ${{ secrets.LINEAR_API_KEY_READ }}
+          HELCIM_WEBHOOK_VERIFIER: ${{ secrets.HELCIM_WEBHOOK_VERIFIER_PRODUCTION }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          BACKUP_B2_S3_ENDPOINT: ${{ secrets.BACKUP_B2_S3_ENDPOINT }}
+          BACKUP_B2_REGION: ${{ secrets.BACKUP_B2_REGION }}
+          BACKUP_B2_AUDITOR_KEY_ID: ${{ secrets.BACKUP_B2_AUDITOR_KEY_ID }}
+          BACKUP_B2_AUDITOR_KEY: ${{ secrets.BACKUP_B2_AUDITOR_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          # END GENERATED: deploy-secrets-env
+
+      - name: Verify secrets deployed
+        working-directory: apps/api
+        run: |
+          secrets=$(pnpm exec wrangler secret list)
+          # BEGIN GENERATED: verify-secrets
+          for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN RATE_LIMIT_KEY_SECRET OPAQUE_KEK TOTP_ENCRYPTION_SECRET ENUMERATION_DECOY_SECRET IRON_SESSION_SECRET CF_ACCESS_TEAM_DOMAIN CF_ACCESS_AUD ADMIN_ACTOR_ALLOWLIST ADMIN_ROLE_MAP GROWTH_READER_DATABASE_URL ADMIN_SQL_PANEL_DATABASE_URL CLOUDFLARE_ACCESS_LOG_API_TOKEN CLOUDFLARE_ACCOUNT_ID APP_VERSION APP_BUNDLE_CHECKSUM_IOS APP_BUNDLE_CHECKSUM_ANDROID APP_BUNDLE_CHECKSUM_ANDROID_DIRECT GROWTH_HASH_SECRET RESEND_API_KEY RESEND_WEBHOOK_SECRET OPENROUTER_API_KEY BRAVE_SEARCH_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY NOTIFICATION_TAG_SECRET HELCIM_API_TOKEN LINEAR_API_KEY_READ HELCIM_WEBHOOK_VERIFIER R2_S3_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY BACKUP_B2_S3_ENDPOINT BACKUP_B2_REGION BACKUP_B2_AUDITOR_KEY_ID BACKUP_B2_AUDITOR_KEY SENTRY_DSN; do
+          # END GENERATED: verify-secrets
+            # -w, not a bare match: the deployed set holds a containment pair
+            # (DATABASE_URL inside ADMIN_SQL_PANEL_DATABASE_URL), and `_` is a word
+            # character, so only whole-name matching can tell them apart.
+            if ! echo "$secrets" | grep -qw "$secret"; then
+              echo "ERROR: Secret $secret not found in Workers"
+              exit 1
+            fi
+          done
+          echo "All required secrets verified"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Web to Pages
+        working-directory: apps/web
+        run: pnpm exec wrangler pages deploy dist --project-name=hushbox
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Admin assets Worker
+        working-directory: apps/admin
+        run: pnpm exec wrangler deploy --tag "v$VERSION" --message "$GITHUB_SHA"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Deploy Sandbox assets Worker
+        working-directory: apps/sandbox
+        run: pnpm exec wrangler deploy --tag "v$VERSION" --message "$GITHUB_SHA"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VERSION: ${{ needs.version.outputs.version }}
+
+      - name: Run post-deploy ops scripts
+        if: steps.ops.outputs.post != '' && steps.ops.outputs.post != '[]'
+        run: |
+          printf '%s' "$OPS_SCRIPTS" | jq -c '.[]' | while read -r s; do
+            name=$(echo "$s" | jq -r '.name')
+            file=$(echo "$s" | jq -r '.file')
+            echo "::group::Post-deploy ops script: $name ($file)"
+            pnpm tsx "$file"
+            echo "::endgroup::"
+          done
+        env:
+          OPS_SCRIPTS: ${{ steps.ops.outputs.post }}
+          # BEGIN GENERATED: ops-env
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
+          OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
+          TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
+          TOTP_ENCRYPTION_SECRET_NEXT: ${{ secrets.TOTP_ENCRYPTION_SECRET_NEXT }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_BUCKET_MEDIA: hushbox-media
+          R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}
+          R2_ADMIN_SECRET_ACCESS_KEY: ${{ secrets.R2_ADMIN_SECRET_ACCESS_KEY }}
+          # END GENERATED: ops-env
+
+      # Verify against the REAL production host (api.hushbox.ai, the registry's
+      # production API_URL), not the workers.dev subdomain — and assert the thing that just
+      # changed is actually live: the deployed APP_VERSION is serving AND the OTA
+      # manifest is coherent, meaning that for every platform the bundle the
+      # download route hands out hashes to the checksum served beside that
+      # version. The bundles and their checksums are already published when this
+      # runs, so what a failure gates is the release rather than the
+      # publication: this step precedes "Tag release" with no `if: always()`, so
+      # a bad or OTA-incoherent deploy fails the job and never gets tagged.
+      #
+      # Founder/CI-verify: this runs against production only on a real `main`
+      # deploy; the assertions are exercised for the first time there.
+      - name: Verify API health (real host + version/OTA assert)
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          # BEGIN GENERATED: deploy-verify-env
+          API_URL: https://api.hushbox.ai
+          # END GENERATED: deploy-verify-env
+        run: |
+          set -euo pipefail
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: resolved version is empty"
+            exit 1
+          fi
+          # Poll for liveness — allow for edge propagation after wrangler deploy.
+          for attempt in $(seq 1 12); do
+            if curl -fsS "$API_URL/health" >/dev/null; then
+              echo "Health endpoint live on $API_URL (attempt $attempt)"
+              break
+            fi
+            if [ "$attempt" -eq 12 ]; then
+              echo "ERROR: $API_URL/health never became healthy"
+              exit 1
+            fi
+            sleep 5
+          done
+          # A bundle and a checksum taken for the same platform say nothing
+          # about any other platform, so each platform needs its own pass and
+          # one this loop does not reach is left unproven. Both sides of the
+          # comparison are taken from the deployment — the bundle over the route
+          # a device downloads it over, the checksum off the manifest served
+          # beside it — because the archive on this runner and the value
+          # recorded from that same archive cannot disagree, so nothing derived
+          # from them can see a faulty upload.
+          bundle=$(mktemp)
+          trap 'rm -f "$bundle"' EXIT
+          for platform in ios android android-direct; do
+            for attempt in $(seq 1 12); do
+              body=$(curl -fsS -H "X-HushBox-Platform: $platform" "$API_URL/updates/current") || body=''
+              served=$(printf '%s' "$body" | jq -r '.version // empty')
+              checksum=$(printf '%s' "$body" | jq -r '.checksum // empty')
+              if [ "$served" = "$VERSION" ] && [ -n "$checksum" ]; then
+                break
+              fi
+              if [ "$attempt" -eq 12 ]; then
+                echo "ERROR: /updates/current for $platform reports version='$served' checksum='$checksum'; expected version '$VERSION' and a checksum"
+                exit 1
+              fi
+              sleep 5
+            done
+            if ! curl -fsS "$API_URL/updates/download/$platform/$VERSION" -o "$bundle"; then
+              echo "ERROR: the published $platform bundle for $VERSION could not be downloaded"
+              exit 1
+            fi
+            published=$(sha256sum "$bundle" | cut -d' ' -f1)
+            if [ "$published" != "$checksum" ]; then
+              echo "ERROR: the published $platform bundle hashes to $published, but /updates/current serves $checksum for it"
+              exit 1
+            fi
+            echo "Serving version $VERSION; the published $platform bundle matches the checksum served for it"
+          done
+
+      # The release is tagged only once every static surface proves it serves
+      # this version: web and sandbox by the version stamped in the dist they
+      # serve, the admin and sandbox Workers by the tag on the version carrying
+      # all their traffic, and the admin origin by redirecting an
+      # unauthenticated request to this account's Access team. No `if:
+      # always()`, so a failed probe leaves the release untagged. The Access
+      # team is bound from its secret here because the registry holds it as one.
+      - name: Verify every deployed surface serves this version
+        run: pnpm tsx scripts/release/verify-deployed-surfaces.ts
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCESS_TEAM_DOMAIN: ${{ secrets.CF_ACCESS_TEAM_DOMAIN }}
+          VERSION: ${{ needs.version.outputs.version }}
+          # BEGIN GENERATED: deploy-surfaces-env
+          FRONTEND_URL: https://hushbox.ai
+          SANDBOX_ORIGIN_URL: https://sandbox.hushbox.ai
+          ADMIN_URL: https://admin.hushbox.ai
+          # END GENERATED: deploy-surfaces-env
+
+      - name: Tag release
+        run: |
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+        env:
+          HUSKY: '0'
+          VERSION: ${{ needs.version.outputs.version }}

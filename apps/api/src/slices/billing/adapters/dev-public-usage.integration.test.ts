@@ -1,0 +1,97 @@
+import { afterAll, describe, expect, it } from 'vitest';
+import { inArray } from 'drizzle-orm';
+import { LOCAL_NEON_DEV_CONFIG, createDb, usageRecords } from '@hushbox/db';
+import { DAY_MS, HOUR_MS, MINUTE_MS, TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
+import { seedPublicUsageRecords } from './dev-public-usage.js';
+import type { PublicUsageRecordSpec } from './dev-public-usage.js';
+
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value === '') {
+    throw new Error(`${name} is required for public-usage seed integration tests`);
+  }
+  return value;
+}
+
+const db = createDb(requiredEnv('DATABASE_URL'), { neonDev: LOCAL_NEON_DEV_CONFIG });
+
+// Unique per test run so re-runs never collide with rows a previous run (or the
+// real seed) left behind; cleanup deletes exactly this run's rows.
+const RUN_KEY = crypto.randomUUID();
+
+function stableKey(suffix: string): string {
+  return `public-stats-test-${RUN_KEY}-${suffix}`;
+}
+
+function idempotencyKeys(): string[] {
+  return SPECS.map((spec) => `seed:public-usage:${spec.stableKey}`);
+}
+
+const SPECS: PublicUsageRecordSpec[] = [
+  {
+    stableKey: stableKey('text'),
+    modelId: 'anthropic/claude-opus-4.6',
+    providerName: 'anthropic',
+    modality: 'text',
+    costNanoUsd: 5_200_000n,
+    createdAt: new Date(TEST_DAY_START + 12 * HOUR_MS + 30 * MINUTE_MS),
+  },
+  {
+    stableKey: stableKey('image'),
+    modelId: 'openai/gpt-image-1',
+    providerName: 'openai',
+    modality: 'image',
+    costNanoUsd: 40_000_000n,
+    isEstimated: true,
+    createdAt: new Date(TEST_DAY_START + 21 * DAY_MS + 8 * HOUR_MS + 15 * MINUTE_MS),
+  },
+];
+
+afterAll(async () => {
+  await db.delete(usageRecords).where(inArray(usageRecords.idempotencyKey, idempotencyKeys()));
+  await db.$client.end();
+});
+
+describe('seedPublicUsageRecords', () => {
+  it('inserts anonymous, backdated usage records with no user/conversation/content linkage', async () => {
+    const result = await seedPublicUsageRecords({ db }, { records: SPECS });
+    expect(result.usageRecordsCreated).toBe(2);
+
+    const rows = await db
+      .select()
+      .from(usageRecords)
+      .where(inArray(usageRecords.idempotencyKey, idempotencyKeys()));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.payerUserId).toBeNull();
+      expect(row.conversationId).toBeNull();
+      expect(row.contentItemId).toBeNull();
+      expect(row.runId).toMatch(/^[0-9a-f-]{36}$/);
+    }
+    const text = rows.find((row) => row.modality === 'text');
+    expect(text?.costNanoUsd).toBe(5_200_000n);
+    expect(text?.isEstimated).toBe(false);
+    expect(text?.createdAt.toISOString()).toBe(
+      isoAt(TEST_DAY_START + 12 * HOUR_MS + 30 * MINUTE_MS)
+    );
+    const image = rows.find((row) => row.modality === 'image');
+    expect(image?.costNanoUsd).toBe(40_000_000n);
+    expect(image?.isEstimated).toBe(true);
+  });
+
+  it('is an idempotent no-op on re-run (deterministic keys already present)', async () => {
+    const result = await seedPublicUsageRecords({ db }, { records: SPECS });
+    expect(result.usageRecordsCreated).toBe(0);
+
+    const rows = await db
+      .select({ id: usageRecords.id })
+      .from(usageRecords)
+      .where(inArray(usageRecords.idempotencyKey, idempotencyKeys()));
+    expect(rows).toHaveLength(2);
+  });
+
+  it('creates nothing for an empty spec list', async () => {
+    const result = await seedPublicUsageRecords({ db }, { records: [] });
+    expect(result.usageRecordsCreated).toBe(0);
+  });
+});

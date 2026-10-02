@@ -1,0 +1,26 @@
+{
+  "extends": "../config/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    // The repository root rather than this package, because the claim
+    // primitive the write lock is built on lives outside it and a root
+    // directory must contain every file in the program.
+    "rootDir": "../..",
+    "composite": true
+  },
+  // Everything outside this package that the claim primitive's program reaches:
+  // the primitive, what it imports, and the ambient declaration for the untyped
+  // package it locks with. Named as files rather than matched by a pattern,
+  // because a pattern over those directories would pull the whole claims lane
+  // and the rest of the script library into this package's typecheck; a file the
+  // primitive starts importing has to be added here by hand, and `tsc` names it.
+  "include": [
+    "src/**/*",
+    "*.config.ts",
+    "*.config.js",
+    "../../scripts/lib/canonical-path.ts",
+    "../../scripts/lib/claims/claim.ts",
+    "../../scripts/lib/claims/fs-native-extensions.d.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,586 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@source '../../../packages/ui/src/**/*.tsx';
+
+@custom-variant dark (&:is(.dark *));
+
+/* BEGIN GENERATED: design-tokens */
+/* Generated from packages/shared/src/design/tokens.ts by `pnpm generate:design-tokens`.
+   Edit that module and regenerate; a hand edit here fails the token freshness test. */
+:root {
+  --brand-red: #ec4755;
+  --brand-red-hover: #d93d4a;
+  --brand-red-subtle: #ec475515;
+  --background: #faf9f6;
+  --background-paper: #faf5ed;
+  --background-subtle: #eae8e3;
+  --foreground: #1a1a1a;
+  --foreground-muted: #4d4a45;
+  --border: #b5b1a8;
+  --border-strong: #8f8b81;
+  --border-control: #86827a;
+  --secondary: #e5e2db;
+  --secondary-foreground: #1a1a1a;
+  --accent: #e5e2db;
+  --accent-foreground: #1a1a1a;
+  --error: #c2201f;
+  --warning: #975304;
+  --info: #2563eb;
+  --success: #0f7334;
+  --success-text: #0b5e2a;
+  --warning-text: #7a4303;
+  --error-text: #a31b1a;
+  --info-text: #1e4fa8;
+  --sidebar: #f5f4f0;
+  --sidebar-foreground: #1a1a1a;
+  --sidebar-border: #d1cfc9;
+  --message-user: #d4cdc4;
+  --message-assistant: transparent;
+  --prediction: #24496b;
+  --meter-track: #dcd8cf;
+  --disabled-ink: #7d7973;
+  --model-1: #0e6e66;
+  --model-2: #2563eb;
+  --model-3: #15803d;
+  --model-4: #7c3aed;
+  --model-5: #a16207;
+  --model-6: #475569;
+  --model-7: #a21caf;
+  --model-8: #4d7c0f;
+  --chart-1: #ec4755;
+  --chart-2: #2563eb;
+  --chart-3: #16a34a;
+  --chart-4: #d97706;
+  --chart-5: #8b5cf6;
+  --seq-1: #e8eef8;
+  --seq-2: #cddbf1;
+  --seq-3: #a9c2e7;
+  --seq-4: #82a8db;
+  --seq-5: #5b8ccb;
+  --seq-foreground: #1a1a1a;
+  --code-changed: #9a4a12;
+  --code-comment: #6a655c;
+  --code-constant: #9a4a12;
+  --code-deleted: #b3261e;
+  --code-function: #1e4fa8;
+  --code-inserted: #1a6b45;
+  --code-keyword: #a3246d;
+  --code-link: #1e4fa8;
+  --code-parameter: #7a4a00;
+  --code-punctuation: #5d5850;
+  --code-string: #1a6b45;
+  --code-string-expression: #1a6b45;
+  --radius: 0.5rem;
+  --app-header-height: 3.3125rem;
+}
+
+.dark {
+  --brand-red: #ec4755;
+  --brand-red-hover: #d93d4a;
+  --brand-red-subtle: #ec475520;
+  --background: #1a1816;
+  --background-paper: #252320;
+  --background-subtle: #2d2b28;
+  --foreground: #f2f1ef;
+  --foreground-muted: #bcb9b3;
+  --border: #3d3a36;
+  --border-strong: #4a4743;
+  --border-control: #7a756d;
+  --secondary: #3d3a36;
+  --secondary-foreground: #f2f1ef;
+  --accent: #2d2b28;
+  --accent-foreground: #f2f1ef;
+  --error: #f76e6e;
+  --warning: #f59e0b;
+  --info: #3b82f6;
+  --success: #22c55e;
+  --success-text: #4ade80;
+  --warning-text: #fbbf24;
+  --error-text: #ff9090;
+  --info-text: #8fb8ff;
+  --sidebar: #141311;
+  --sidebar-foreground: #f2f1ef;
+  --sidebar-border: #3d3a36;
+  --message-user: #2a2725;
+  --message-assistant: transparent;
+  --prediction: #99bddd;
+  --meter-track: #3a3632;
+  --disabled-ink: #8f8b84;
+  --model-1: #2dd4bf;
+  --model-2: #60a5fa;
+  --model-3: #4ade80;
+  --model-4: #a78bfa;
+  --model-5: #facc15;
+  --model-6: #94a3b8;
+  --model-7: #e879f9;
+  --model-8: #a3e635;
+  --chart-1: #f87171;
+  --chart-2: #60a5fa;
+  --chart-3: #4ade80;
+  --chart-4: #fbbf24;
+  --chart-5: #a78bfa;
+  --seq-1: #1e2733;
+  --seq-2: #26364a;
+  --seq-3: #2f4661;
+  --seq-4: #39567a;
+  --seq-5: #436894;
+  --seq-foreground: #f2f1ef;
+  --code-changed: #f0b45f;
+  --code-comment: #9a938a;
+  --code-constant: #f0b45f;
+  --code-deleted: #f78a8a;
+  --code-function: #8fb8ff;
+  --code-inserted: #86d9a8;
+  --code-keyword: #f090c0;
+  --code-link: #8fb8ff;
+  --code-parameter: #e3c489;
+  --code-punctuation: #a8a199;
+  --code-string: #86d9a8;
+  --code-string-expression: #86d9a8;
+}
+
+@theme inline {
+  --font-sans: 'Hanken Grotesk', system-ui, sans-serif;
+  --font-serif: 'Merriweather', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-brand-red: var(--brand-red);
+  --color-brand-red-hover: var(--brand-red-hover);
+  --color-brand-red-subtle: var(--brand-red-subtle);
+  --color-background: var(--background);
+  --color-background-paper: var(--background-paper);
+  --color-background-subtle: var(--background-subtle);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-border-control: var(--border-control);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-error: var(--error);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-success: var(--success);
+  --color-success-text: var(--success-text);
+  --color-warning-text: var(--warning-text);
+  --color-error-text: var(--error-text);
+  --color-info-text: var(--info-text);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-message-user: var(--message-user);
+  --color-message-assistant: var(--message-assistant);
+  --color-prediction: var(--prediction);
+  --color-meter-track: var(--meter-track);
+  --color-disabled-ink: var(--disabled-ink);
+  --color-model-1: var(--model-1);
+  --color-model-2: var(--model-2);
+  --color-model-3: var(--model-3);
+  --color-model-4: var(--model-4);
+  --color-model-5: var(--model-5);
+  --color-model-6: var(--model-6);
+  --color-model-7: var(--model-7);
+  --color-model-8: var(--model-8);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-seq-1: var(--seq-1);
+  --color-seq-2: var(--seq-2);
+  --color-seq-3: var(--seq-3);
+  --color-seq-4: var(--seq-4);
+  --color-seq-5: var(--seq-5);
+  --color-seq-foreground: var(--seq-foreground);
+  --color-code-changed: var(--code-changed);
+  --color-code-comment: var(--code-comment);
+  --color-code-constant: var(--code-constant);
+  --color-code-deleted: var(--code-deleted);
+  --color-code-function: var(--code-function);
+  --color-code-inserted: var(--code-inserted);
+  --color-code-keyword: var(--code-keyword);
+  --color-code-link: var(--code-link);
+  --color-code-parameter: var(--code-parameter);
+  --color-code-punctuation: var(--code-punctuation);
+  --color-code-string: var(--code-string);
+  --color-code-string-expression: var(--code-string-expression);
+
+  --color-primary: var(--brand-red);
+  --color-primary-foreground: #ffffff;
+  --color-destructive: var(--error);
+  --color-destructive-foreground: #ffffff;
+  --color-muted: var(--background-subtle);
+  --color-muted-foreground: var(--foreground-muted);
+  --color-card: var(--background-paper);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--background-paper);
+  --color-popover-foreground: var(--foreground);
+  --color-input: var(--border);
+  --color-ring: var(--brand-red);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@theme {
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 300ms;
+  --motion-deliberate: 500ms;
+
+  --btn-full-max: 40rem;
+  --btn-min: 12rem;
+  --btn-stack-two: 18rem;
+  --btn-stack-many: 28rem;
+
+  --text-display-1: clamp(2.25rem, 1.6rem + 3.2vw, 3.75rem);
+  --text-display-1--line-height: 1.08;
+  --text-display-1--font-weight: 700;
+  --text-display-1--letter-spacing: -0.025em;
+  --text-display-2: clamp(1.875rem, 1.4rem + 2vw, 3rem);
+  --text-display-2--line-height: 1.15;
+  --text-display-2--font-weight: 700;
+  --text-display-2--letter-spacing: -0.02em;
+  --text-title-1: 1.5rem;
+  --text-title-1--line-height: 1.25;
+  --text-title-1--font-weight: 700;
+  --text-title-2: 1.25rem;
+  --text-title-2--line-height: 1.3;
+  --text-title-2--font-weight: 700;
+  --text-title-3: 1rem;
+  --text-title-3--line-height: 1.35;
+  --text-title-3--font-weight: 600;
+  --text-title-3-read: 1.0625rem;
+  --text-title-3-read--line-height: 1.35;
+  --text-title-3-read--font-weight: 700;
+  --text-lead: 1.125rem;
+  --text-lead--line-height: 1.55;
+  --text-lead--font-weight: 400;
+  --text-body: 1rem;
+  --text-body--line-height: 1.65;
+  --text-body--font-weight: 400;
+  --text-body-lg: 1rem;
+  --text-body-lg--line-height: 1.7;
+  --text-body-lg--font-weight: 400;
+  --text-body-sub: 0.9375rem;
+  --text-body-sub--line-height: 1.65;
+  --text-body-sub--font-weight: 400;
+  --text-ui-lg: 1rem;
+  --text-ui-lg--line-height: 1.4;
+  --text-ui-lg--font-weight: 500;
+  --text-ui: 0.875rem;
+  --text-ui--line-height: 1.43;
+  --text-ui--font-weight: 400;
+  --text-ui-sm: 0.8125rem;
+  --text-ui-sm--line-height: 1.4;
+  --text-ui-sm--font-weight: 400;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.35;
+  --text-caption--font-weight: 400;
+  --text-mono: 0.875rem;
+  --text-mono--line-height: 1.55;
+  --text-mono--font-weight: 400;
+  --text-num: 0.8125rem;
+  --text-num--line-height: 1.4;
+  --text-num--font-weight: 400;
+  --text-num--letter-spacing: -0.01em;
+  --text-tabular: 1em;
+  --text-tabular--line-height: inherit;
+  --text-tabular--font-weight: 500;
+  --text-tabular--letter-spacing: -0.02em;
+  --text-site-hero: clamp(2.25rem, 1.2rem + 3.5vw, 3.75rem);
+  --text-site-hero--line-height: 1.1;
+  --text-site-hero--font-weight: 700;
+  --text-site-hero--letter-spacing: -0.025em;
+  --text-site-section: clamp(1.875rem, 1.55rem + 1.1vw, 2.25rem);
+  --text-site-section--line-height: 1.2;
+  --text-site-section--font-weight: 700;
+  --text-site-section--letter-spacing: -0.025em;
+  --text-site-title: 1.875rem;
+  --text-site-title--line-height: 1.2;
+  --text-site-title--font-weight: 700;
+  --text-site-title--letter-spacing: -0.025em;
+  --text-auth-title: 1.875rem;
+  --text-auth-title--line-height: 1.2;
+  --text-auth-title--font-weight: 700;
+  --text-header-title: 0.875rem;
+  --text-header-title--line-height: 1.25;
+  --text-header-title--font-weight: 500;
+  --text-chat-greeting: 1.875rem;
+  --text-chat-greeting--line-height: 1.2;
+  --text-chat-greeting--font-weight: 700;
+  --text-chat-greeting--letter-spacing: -0.025em;
+  --text-site-post-title: 2.25rem;
+  --text-site-post-title--line-height: 1.111;
+  --text-site-post-title--font-weight: 700;
+  --text-site-post-title--letter-spacing: -0.025em;
+  --text-site-lead: clamp(1.5rem, 1.2rem + 1.2vw, 2.25rem);
+  --text-site-lead--line-height: 1.2;
+  --text-site-lead--font-weight: 700;
+  --text-site-lead--letter-spacing: -0.02em;
+  --text-site-value: clamp(1.125rem, 1.08rem + 0.2vw, 1.25rem);
+  --text-site-value--line-height: 1.4;
+  --text-site-value--font-weight: 700;
+  --text-site-value--letter-spacing: -0.025em;
+  --text-site-subhead: 1.25rem;
+  --text-site-subhead--line-height: 1.4;
+  --text-site-subhead--font-weight: 600;
+  --text-site-trust: 1rem;
+  --text-site-trust--line-height: 1.5;
+  --text-site-trust--font-weight: 600;
+  --text-ui-snug: 0.875rem;
+  --text-ui-snug--line-height: 1.35;
+  --text-ui-snug--font-weight: 400;
+  --text-site-card-title: 1rem;
+  --text-site-card-title--line-height: 1.4;
+  --text-site-card-title--font-weight: 600;
+  --text-mono-sm: 0.75rem;
+  --text-mono-sm--line-height: 1.43;
+  --text-mono-sm--font-weight: 400;
+  --text-site-cipher: 0.8125rem;
+  --text-site-cipher--line-height: 1.55;
+  --text-site-cipher--font-weight: 400;
+
+  --container-composer-compact: 34rem;
+  --container-composer-ai-icon: 24rem;
+  --container-composer-mode-icon: 20.5rem;
+  --container-composer-minimal: 20rem;
+  --container-cmp-columns: 38rem;
+  --container-cmp-grid: 58rem;
+  --container-panehost-dock: 51rem;
+  --container-docpane-run-row: 24.75rem;
+  --container-a11y-two-col: 26rem;
+  --container-auth-wall: 51rem;
+  --container-header-new-chat: 22.5rem;
+  --container-header-branch-label: 20rem;
+  --container-budget-table: 24rem;
+  --container-cost-split: 36.5rem;
+  --container-usage-pair: 50.5rem;
+  --container-branch-current-3line: 22.125rem;
+  --container-mkt-cost-stack: 19.5rem;
+  --container-mkt-list-provider: 30rem;
+  --container-mkt-compare-tight: 27rem;
+  --container-mkt-stack-label-above: 16.75rem;
+}
+
+@media (width >= 48rem) {
+  :root {
+    --text-body-lg: 1.0625rem;
+    --text-body-lg--line-height: 1.7;
+    --text-site-title: 2.25rem;
+    --text-site-title--line-height: 1.111;
+    --text-chat-greeting: 2.75rem;
+    --text-chat-greeting--line-height: 1.15;
+    --text-site-post-title: 3rem;
+    --text-site-post-title--line-height: 1;
+  }
+}
+
+@utility z-sticky {
+  z-index: 20;
+}
+
+@utility z-drawer {
+  z-index: 40;
+}
+
+@utility z-popover {
+  z-index: 50;
+}
+
+@utility z-modal {
+  z-index: 50;
+}
+
+@utility z-toast {
+  z-index: 60;
+}
+
+@utility z-overlay {
+  z-index: 70;
+}
+/* END GENERATED: design-tokens */
+
+.dark {
+  /* Shiki dual-theme: override inline light-theme colors with dark-theme values.
+     Shiki puts `color: #lightcolor` directly in inline style (cannot be overridden
+     by normal CSS), so !important is required. --shiki-dark is also set as an
+     inline CSS variable on each <span> by Shiki's htmlStyle output. */
+  & [data-streamdown='code-block-body'] span {
+    color: var(--shiki-dark, inherit) !important;
+  }
+  & [data-streamdown='code-block-body'] {
+    background-color: var(--shiki-dark-bg, var(--sdm-bg, transparent));
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    padding-top: env(safe-area-inset-top, 0px) !important;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: var(--color-brand-red);
+    font-family: var(--font-serif);
+    text-wrap: balance;
+  }
+
+  /* A heading in a reply or a blog post breaks like the prose around it. */
+  :is(.prose, .prose-blog) :is(h1, h2, h3, h4, h5, h6) {
+    text-wrap: wrap;
+  }
+
+  /* Reading-versus-Chrome typography. Sans (on body) is the default for all UI
+     chrome, including portaled overlays. Reading surfaces opt into the editorial
+     serif via the data-reading attribute (the twin of data-chrome); headings are
+     always serif. Code is always mono, even inside a reading region, because the
+     element rule matches directly and inheritance has no specificity. Native form
+     controls inherit sans via Tailwind preflight's `font-family: inherit`. See the
+     Reading-versus-Chrome Rule in docs/DESIGN.md. */
+  [data-reading] {
+    font-family: var(--font-serif);
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  /* Every keyboard-focused element draws this outline unless it hides its own. It stays
+     in the base layer, without `!important`, so a control's utility classes and the
+     accessibility layer's strong-focus override both win. */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  /* Key hints are for keyboards. `!important` beats a hint's own display utility, so
+     a key that is the content rather than a hint opts out with `data-always-visible`. */
+  @media (width < 48rem), (pointer: coarse) {
+    kbd:not([data-always-visible]) {
+      display: none !important;
+    }
+  }
+
+  /* Code moves focus to these: a `main` landmark as the overlay focus-return fallback or
+     the skip link's target, and the heading the route announcer gives a tabindex. A click
+     that focuses one never matches `:focus-visible`, so it draws no ring. The offset
+     is negative so a landmark that fills the viewport cannot clip its own ring. Kept in
+     the base layer so the demo's unlayered suppression and the accessibility layer's
+     strong-focus override both win. */
+  main:focus-visible,
+  main h1[tabindex='-1']:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: -2px;
+  }
+}
+
+/* Global scrollbar styling - shared across web + marketing.
+   Thin Firefox scrollbar, custom webkit-scrollbar for Chromium/Safari. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Hide scrollbar but keep scrollability */
+.scrollbar-hide {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
+}
+
+@utility h-dvh {
+  height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+
+@utility min-h-dvh {
+  min-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+
+@utility wrap-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@keyframes shine {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* View Transitions API - Theme Toggle Animation */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 9999;
+}
+
+/* Radial clip animation for theme transition */
+@keyframes theme-reveal {
+  from {
+    clip-path: circle(0% at var(--transition-x, 50%) var(--transition-y, 50%));
+  }
+  to {
+    clip-path: circle(
+      var(--transition-radius, 100%) at var(--transition-x, 50%) var(--transition-y, 50%)
+    );
+  }
+}
+
+::view-transition-new(root) {
+  animation: theme-reveal 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+}

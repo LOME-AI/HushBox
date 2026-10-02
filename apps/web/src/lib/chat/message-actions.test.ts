@@ -1,0 +1,657 @@
+import { describe, it, expect } from 'vitest';
+import { TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
+import {
+  resolveMessageActions,
+  buildChatContext,
+  regenerateRefusalOf,
+  type MessageAction,
+  type ChatContext,
+  type MessageContext,
+} from './message-actions.js';
+
+describe('regenerateRefusalOf', () => {
+  it('carries a money refusal through', () => {
+    expect(
+      regenerateRefusalOf({
+        sendRefusal: 'insufficient_funds',
+        fundingSource: 'personal_balance',
+      })
+    ).toBe('insufficient_funds');
+  });
+
+  it('carries a hold refusal through so the transient reason still shows', () => {
+    expect(
+      regenerateRefusalOf({ sendRefusal: 'funds_held_by_run', fundingSource: 'personal_balance' })
+    ).toBe('funds_held_by_run');
+  });
+
+  it('refuses a regenerate while the payer’s funding cannot be read', () => {
+    expect(
+      regenerateRefusalOf({
+        sendRefusal: 'send_check_unavailable',
+        fundingSource: 'personal_balance',
+      })
+    ).toBe('send_check_unavailable');
+  });
+
+  it('refuses a regenerate when no funding verdict exists for the payer', () => {
+    expect(regenerateRefusalOf({ sendRefusal: undefined, fundingSource: 'no_verdict' })).toBe(
+      'send_check_unavailable'
+    );
+  });
+
+  it('exempts a regenerate from the signed-in premium entitlement gate', () => {
+    expect(
+      regenerateRefusalOf({
+        sendRefusal: 'premium_requires_credit',
+        fundingSource: 'personal_balance',
+      })
+    ).toBeUndefined();
+  });
+
+  it('exempts a regenerate from the account-required premium gate', () => {
+    expect(
+      regenerateRefusalOf({
+        sendRefusal: 'premium_requires_account',
+        fundingSource: 'personal_balance',
+      })
+    ).toBeUndefined();
+  });
+
+  it('refuses nothing when the send gate refuses nothing', () => {
+    expect(
+      regenerateRefusalOf({ sendRefusal: undefined, fundingSource: 'personal_balance' })
+    ).toBeUndefined();
+  });
+});
+
+function makeMessage(
+  overrides: Partial<{
+    id: string;
+    role: 'user' | 'assistant';
+    senderId: string;
+    parentMessageId: string | null;
+    awaitingStoredRow: true;
+  }> = {}
+): MessageContext['message'] {
+  const base: MessageContext['message'] = {
+    id: overrides.id ?? 'm1',
+    conversationId: 'conv-1',
+    role: overrides.role ?? 'assistant',
+    content: 'Hello',
+    createdAt: isoAt(TEST_DAY_START),
+    parentMessageId: overrides.parentMessageId ?? null,
+  };
+  if (overrides.senderId !== undefined) {
+    base.senderId = overrides.senderId;
+  }
+  if (overrides.awaitingStoredRow !== undefined) {
+    base.awaitingStoredRow = overrides.awaitingStoredRow;
+  }
+  return base;
+}
+
+function makeMsgContext(
+  overrides: {
+    message?: Partial<{
+      id: string;
+      role: 'user' | 'assistant';
+      senderId: string;
+      parentMessageId: string | null;
+      awaitingStoredRow: true;
+    }>;
+    isStreaming?: boolean;
+    isError?: boolean;
+    isMultiModel?: boolean;
+    canRegenerate?: boolean;
+  } = {}
+): MessageContext {
+  const { message: msgOverrides, ...rest } = overrides;
+  return {
+    message: makeMessage(msgOverrides),
+    isStreaming: false,
+    isError: false,
+    isMultiModel: false,
+    canRegenerate: true,
+    ...rest,
+  };
+}
+
+function actionsArray(set: Set<MessageAction>): MessageAction[] {
+  return [...set].toSorted((a, b) => a.localeCompare(b));
+}
+
+describe('buildChatContext', () => {
+  it('returns trial mode for unauthenticated non-link-guest', () => {
+    const ctx = buildChatContext({
+      isAuthenticated: false,
+      isLinkGuest: false,
+      privilege: undefined,
+      currentUserId: undefined,
+      isGroupChat: false,
+    });
+
+    expect(ctx).toEqual({
+      mode: 'trial',
+      privilege: undefined,
+      currentUserId: undefined,
+      isGroupChat: false,
+    });
+  });
+
+  it('returns link-guest mode with privilege', () => {
+    const ctx = buildChatContext({
+      isAuthenticated: false,
+      isLinkGuest: true,
+      privilege: 'write',
+      currentUserId: 'guest-1',
+      isGroupChat: false,
+    });
+
+    expect(ctx.mode).toBe('link-guest');
+    expect(ctx.privilege).toBe('write');
+  });
+
+  it('defaults link-guest privilege to read', () => {
+    const ctx = buildChatContext({
+      isAuthenticated: false,
+      isLinkGuest: true,
+      privilege: undefined,
+      currentUserId: undefined,
+      isGroupChat: false,
+    });
+
+    expect(ctx.privilege).toBe('read');
+  });
+
+  it('returns group mode for authenticated group chat', () => {
+    const ctx = buildChatContext({
+      isAuthenticated: true,
+      isLinkGuest: false,
+      privilege: 'write',
+      currentUserId: 'user-1',
+      isGroupChat: true,
+    });
+
+    expect(ctx).toEqual({
+      mode: 'group',
+      privilege: 'write',
+      currentUserId: 'user-1',
+      isGroupChat: true,
+    });
+  });
+
+  it('returns solo mode for authenticated non-group chat', () => {
+    const ctx = buildChatContext({
+      isAuthenticated: true,
+      isLinkGuest: false,
+      privilege: 'owner',
+      currentUserId: 'user-1',
+      isGroupChat: false,
+    });
+
+    expect(ctx).toEqual({
+      mode: 'solo',
+      privilege: 'owner',
+      currentUserId: 'user-1',
+      isGroupChat: false,
+    });
+  });
+});
+
+describe('resolveMessageActions', () => {
+  describe('solo chat', () => {
+    const soloCtx: ChatContext = {
+      mode: 'solo',
+      privilege: 'owner',
+      currentUserId: 'user-1',
+      isGroupChat: false,
+    };
+
+    it('shows copy, regenerate, fork, share on AI message', () => {
+      const actions = resolveMessageActions(
+        soloCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actions.has('copy')).toBe(true);
+      expect(actions.has('regenerate')).toBe(true);
+      expect(actions.has('fork')).toBe(true);
+      expect(actions.has('share')).toBe(true);
+    });
+
+    it('shows copy, retry, edit on own user message', () => {
+      const actions = resolveMessageActions(
+        soloCtx,
+        makeMsgContext({ message: { role: 'user', senderId: 'user-1' } })
+      );
+
+      expect(actions.has('copy')).toBe(true);
+      expect(actions.has('retry')).toBe(true);
+      expect(actions.has('edit')).toBe(true);
+      expect(actions.has('fork')).toBe(false);
+    });
+
+    it('does not show regenerate on user message', () => {
+      const actions = resolveMessageActions(soloCtx, makeMsgContext({ message: { role: 'user' } }));
+
+      expect(actions.has('regenerate')).toBe(false);
+    });
+
+    it('does not show share on user message', () => {
+      const actions = resolveMessageActions(soloCtx, makeMsgContext({ message: { role: 'user' } }));
+
+      expect(actions.has('share')).toBe(false);
+    });
+
+    it('does not show retry/edit on AI message', () => {
+      const actions = resolveMessageActions(
+        soloCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actions.has('retry')).toBe(false);
+      expect(actions.has('edit')).toBe(false);
+    });
+
+    it('keeps copy and regenerate available on errored AI message (replaces the deleted Retry button)', () => {
+      const actions = resolveMessageActions(
+        soloCtx,
+        makeMsgContext({ message: { role: 'assistant' }, isError: true })
+      );
+
+      expect(actions.has('copy')).toBe(true);
+      expect(actions.has('regenerate')).toBe(true);
+    });
+
+    it('hides fork and share on errored AI message (no successful turn to branch from)', () => {
+      const actions = resolveMessageActions(
+        soloCtx,
+        makeMsgContext({ message: { role: 'assistant' }, isError: true })
+      );
+
+      expect(actions.has('fork')).toBe(false);
+      expect(actions.has('share')).toBe(false);
+    });
+
+    it('hides all actions on streaming message', () => {
+      const actions = resolveMessageActions(
+        soloCtx,
+        makeMsgContext({ message: { role: 'assistant' }, isStreaming: true })
+      );
+
+      expect(actions.size).toBe(0);
+    });
+
+    it('shows regenerate even when isMultiModel is true (multi-model per-tile regenerate-one)', () => {
+      const actions = resolveMessageActions(
+        soloCtx,
+        makeMsgContext({ message: { role: 'assistant' }, isMultiModel: true })
+      );
+
+      expect(actions.has('regenerate')).toBe(true);
+      expect(actions.has('copy')).toBe(true);
+      expect(actions.has('fork')).toBe(true);
+    });
+
+    it('hides retry/edit when canRegenerate is false', () => {
+      const actions = resolveMessageActions(
+        soloCtx,
+        makeMsgContext({ message: { role: 'user' }, canRegenerate: false })
+      );
+
+      expect(actions.has('retry')).toBe(false);
+      expect(actions.has('edit')).toBe(false);
+      expect(actions.has('copy')).toBe(true);
+      expect(actions.has('fork')).toBe(false);
+    });
+  });
+
+  describe('group chat (write privilege)', () => {
+    const groupWriteCtx: ChatContext = {
+      mode: 'group',
+      privilege: 'write',
+      currentUserId: 'user-1',
+      isGroupChat: true,
+    };
+
+    it('shows full actions on own user message', () => {
+      const actions = resolveMessageActions(
+        groupWriteCtx,
+        makeMsgContext({ message: { role: 'user', senderId: 'user-1' } })
+      );
+
+      expect(actions.has('copy')).toBe(true);
+      expect(actions.has('retry')).toBe(true);
+      expect(actions.has('edit')).toBe(true);
+      expect(actions.has('fork')).toBe(false);
+    });
+
+    it('shows only copy on other user message', () => {
+      const actions = resolveMessageActions(
+        groupWriteCtx,
+        makeMsgContext({ message: { role: 'user', senderId: 'user-2' } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy']);
+    });
+
+    it('shows full AI actions including share', () => {
+      const actions = resolveMessageActions(
+        groupWriteCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actions.has('copy')).toBe(true);
+      expect(actions.has('regenerate')).toBe(true);
+      expect(actions.has('fork')).toBe(true);
+      expect(actions.has('share')).toBe(true);
+    });
+  });
+
+  describe('group chat (admin privilege)', () => {
+    const groupAdminCtx: ChatContext = {
+      mode: 'group',
+      privilege: 'admin',
+      currentUserId: 'user-1',
+      isGroupChat: true,
+    };
+
+    it('has same actions as write on AI message', () => {
+      const actions = resolveMessageActions(
+        groupAdminCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actions.has('regenerate')).toBe(true);
+      expect(actions.has('share')).toBe(true);
+    });
+  });
+
+  describe('group chat (owner privilege)', () => {
+    const groupOwnerCtx: ChatContext = {
+      mode: 'group',
+      privilege: 'owner',
+      currentUserId: 'user-1',
+      isGroupChat: true,
+    };
+
+    it('has same actions as write on AI message', () => {
+      const actions = resolveMessageActions(
+        groupOwnerCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actions.has('regenerate')).toBe(true);
+      expect(actions.has('share')).toBe(true);
+    });
+  });
+
+  describe('group chat (read privilege)', () => {
+    const groupReadCtx: ChatContext = {
+      mode: 'group',
+      privilege: 'read',
+      currentUserId: 'user-1',
+      isGroupChat: true,
+    };
+
+    it('shows only copy on AI message', () => {
+      const actions = resolveMessageActions(
+        groupReadCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy']);
+    });
+
+    it('shows only copy on user message', () => {
+      const actions = resolveMessageActions(
+        groupReadCtx,
+        makeMsgContext({ message: { role: 'user', senderId: 'user-2' } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy']);
+    });
+
+    it('shows no actions on streaming message', () => {
+      const actions = resolveMessageActions(
+        groupReadCtx,
+        makeMsgContext({ message: { role: 'assistant' }, isStreaming: true })
+      );
+
+      expect(actions.size).toBe(0);
+    });
+
+    it('keeps copy available on errored message (so readers can quote the error)', () => {
+      const actions = resolveMessageActions(
+        groupReadCtx,
+        makeMsgContext({ message: { role: 'assistant' }, isError: true })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy']);
+    });
+  });
+
+  describe('trial chat', () => {
+    const trialCtx: ChatContext = {
+      mode: 'trial',
+      privilege: undefined,
+      currentUserId: undefined,
+      isGroupChat: false,
+    };
+
+    it('shows copy and regenerate on AI message', () => {
+      const actions = resolveMessageActions(
+        trialCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy', 'regenerate']);
+    });
+
+    it('shows copy, edit, and retry on user message', () => {
+      const actions = resolveMessageActions(
+        trialCtx,
+        makeMsgContext({ message: { role: 'user' } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy', 'edit', 'retry']);
+    });
+
+    it('does not show fork or share', () => {
+      const aiActions = resolveMessageActions(
+        trialCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+      const userActions = resolveMessageActions(
+        trialCtx,
+        makeMsgContext({ message: { role: 'user' } })
+      );
+
+      expect(aiActions.has('fork')).toBe(false);
+      expect(aiActions.has('share')).toBe(false);
+      expect(aiActions.has('edit')).toBe(false);
+      expect(userActions.has('fork')).toBe(false);
+    });
+
+    it('shows no actions on streaming message', () => {
+      const actions = resolveMessageActions(
+        trialCtx,
+        makeMsgContext({ message: { role: 'assistant' }, isStreaming: true })
+      );
+
+      expect(actions.size).toBe(0);
+    });
+
+    it('hides regenerate when canRegenerate is false', () => {
+      const actions = resolveMessageActions(
+        trialCtx,
+        makeMsgContext({ message: { role: 'assistant' }, canRegenerate: false })
+      );
+
+      expect(actions.has('regenerate')).toBe(false);
+      expect(actions.has('copy')).toBe(true);
+    });
+  });
+
+  describe('link-guest (write privilege)', () => {
+    const linkWriteCtx: ChatContext = {
+      mode: 'link-guest',
+      privilege: 'write',
+      currentUserId: 'guest-1',
+      isGroupChat: false,
+    };
+
+    it('shows copy, regenerate, fork on AI message (no share)', () => {
+      const actions = resolveMessageActions(
+        linkWriteCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actions.has('copy')).toBe(true);
+      expect(actions.has('regenerate')).toBe(true);
+      expect(actions.has('fork')).toBe(true);
+      expect(actions.has('share')).toBe(false);
+    });
+
+    it('shows copy, retry, edit on own user message (no fork)', () => {
+      const actions = resolveMessageActions(
+        linkWriteCtx,
+        makeMsgContext({ message: { role: 'user', senderId: 'guest-1' } })
+      );
+
+      expect(actions.has('copy')).toBe(true);
+      expect(actions.has('retry')).toBe(true);
+      expect(actions.has('edit')).toBe(true);
+      expect(actions.has('fork')).toBe(false);
+    });
+
+    it('keeps regenerate available on errored AI message (link-guest write)', () => {
+      const actions = resolveMessageActions(
+        linkWriteCtx,
+        makeMsgContext({ message: { role: 'assistant' }, isError: true })
+      );
+
+      expect(actions.has('regenerate')).toBe(true);
+    });
+  });
+
+  describe('link-guest (read privilege)', () => {
+    const linkReadCtx: ChatContext = {
+      mode: 'link-guest',
+      privilege: 'read',
+      currentUserId: undefined,
+      isGroupChat: false,
+    };
+
+    it('shows only copy on AI message', () => {
+      const actions = resolveMessageActions(
+        linkReadCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy']);
+    });
+
+    it('shows only copy on user message', () => {
+      const actions = resolveMessageActions(
+        linkReadCtx,
+        makeMsgContext({ message: { role: 'user' } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy']);
+    });
+
+    it('shows no actions on streaming message', () => {
+      const actions = resolveMessageActions(
+        linkReadCtx,
+        makeMsgContext({ message: { role: 'assistant' }, isStreaming: true })
+      );
+
+      expect(actions.size).toBe(0);
+    });
+
+    it('keeps copy available on errored message (link-guest read)', () => {
+      const actions = resolveMessageActions(
+        linkReadCtx,
+        makeMsgContext({ message: { role: 'assistant' }, isError: true })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy']);
+    });
+  });
+
+  describe("a watcher's tile waiting for its stored row", () => {
+    const groupWriteCtx: ChatContext = {
+      mode: 'group',
+      privilege: 'write',
+      currentUserId: 'user-1',
+      isGroupChat: true,
+    };
+
+    it('resolves no actions for an answer awaiting its stored row', () => {
+      const actions = resolveMessageActions(
+        groupWriteCtx,
+        makeMsgContext({ message: { role: 'assistant', awaitingStoredRow: true } })
+      );
+
+      expect(actionsArray(actions)).toEqual([]);
+    });
+
+    it('resolves the usual answer actions once no flag marks it as waiting', () => {
+      const actions = resolveMessageActions(
+        groupWriteCtx,
+        makeMsgContext({ message: { role: 'assistant' } })
+      );
+
+      expect(actionsArray(actions)).toEqual(['copy', 'fork', 'regenerate', 'share']);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('returns empty set for unknown privilege', () => {
+      const ctx: ChatContext = {
+        mode: 'group',
+        privilege: 'nonexistent' as never,
+        currentUserId: 'user-1',
+        isGroupChat: true,
+      };
+      const actions = resolveMessageActions(ctx, makeMsgContext());
+
+      expect(actions.size).toBe(0);
+    });
+
+    it('canRegenerate false hides regenerate on AI message', () => {
+      const ctx: ChatContext = {
+        mode: 'solo',
+        privilege: 'owner',
+        currentUserId: 'user-1',
+        isGroupChat: false,
+      };
+      const actions = resolveMessageActions(
+        ctx,
+        makeMsgContext({ message: { role: 'assistant' }, canRegenerate: false })
+      );
+
+      expect(actions.has('regenerate')).toBe(false);
+      expect(actions.has('copy')).toBe(true);
+    });
+
+    it('isMultiModel allows retry and edit on user message (retry-all/edit-all)', () => {
+      const ctx: ChatContext = {
+        mode: 'solo',
+        privilege: 'owner',
+        currentUserId: 'user-1',
+        isGroupChat: false,
+      };
+      const actions = resolveMessageActions(
+        ctx,
+        makeMsgContext({ message: { role: 'user' }, isMultiModel: true })
+      );
+
+      expect(actions.has('retry')).toBe(true);
+      expect(actions.has('edit')).toBe(true);
+      expect(actions.has('fork')).toBe(false);
+    });
+  });
+});

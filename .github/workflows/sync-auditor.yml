@@ -1,0 +1,52 @@
+name: Sync auditor
+
+# The read-only check over the publication topology: public `main` must always
+# be an ancestor of staging `main`, and the mirror must keep running. Both fail
+# silently — a stalled publication looks exactly like a quiet week — so this
+# looks every few hours and files one issue on staging when it finds either.
+#
+# Staging only. Its alert lands on the private repository, and the invariant it
+# reads is one staging's own clone can answer. With the repository variables
+# unset the guard stops the job in both repositories.
+
+on:
+  schedule:
+    # Four times a day. GitHub evaluates cron in UTC.
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+# Read-only by construction: it writes nothing to either repository's history,
+# and its one issue is filed as the app rather than through this token.
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-auditor
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.repository == vars.HB_STAGING_REPO
+    steps:
+      # ref: main — the invariant is about the trunk. A run dispatched from a
+      # branch built on public's head would read the invariant as intact and
+      # close a genuine stall issue.
+      # fetch-depth: 0 — an ancestry question over two heads that may be many
+      # commits apart cannot be answered from a shallow clone.
+      # persist-credentials: false — a persisted workflow token is sent as an
+      # `Authorization` header that takes precedence over the App token in the
+      # auditor's public URL, so the fetch would not run as the App.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Check the publication invariant and the mirror's freshness
+        run: pnpm tsx scripts/publication/sync-auditor.ts
+        env:
+          HUSHBOX_SYNC_APP_ID: ${{ secrets.HUSHBOX_SYNC_APP_ID }}
+          HUSHBOX_SYNC_PRIVATE_KEY: ${{ secrets.HUSHBOX_SYNC_PRIVATE_KEY }}

@@ -1,0 +1,16 @@
+{
+  "extends": "../packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
+    "noEmit": true,
+    // The package's `eslint.config.js` carries `// @ts-check`; these are what
+    // make that pragma true rather than decorative. `allowImportingTsExtensions`
+    // is required because the shared config it imports reaches a `.ts` module by
+    // its real extension, and nothing here emits.
+    "allowJs": true,
+    "checkJs": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["../packages/config/types/*.d.ts", "eslint.config.js", "**/*.ts"]
+}

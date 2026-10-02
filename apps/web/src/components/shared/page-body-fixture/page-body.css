@@ -1,0 +1,7 @@
+/* The app's own entry stylesheet, so the band is laid out under the cascade it ships in:
+   the width band's root size and the text-size classes included. */
+@import '../../../app.css';
+
+/* The fixture's root is this folder, so the page body's and the page's classes are named here. */
+@source '../page-body.tsx';
+@source './page-body.entry.tsx';

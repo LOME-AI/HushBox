@@ -1,0 +1,18 @@
+---
+/* A post's markdown table. Below 768 the wrapper scrolls it sideways, so the table itself stays
+   a table at full width and its rows fill its border at every width. */
+import type { HTMLAttributes } from 'astro/types';
+
+type Props = HTMLAttributes<'table'>;
+---
+
+<div class="mb-4 max-md:overflow-x-auto">
+  {
+    (
+      // eslint-disable-next-line sonarjs/table-header -- the header row arrives through <slot />, which the rule cannot see
+      <table {...Astro.props}>
+        <slot />
+      </table>
+    )
+  }
+</div>

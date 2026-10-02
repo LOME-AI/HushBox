@@ -1,0 +1,172 @@
+---
+import { render } from 'astro:content';
+import { BlogReadAloud } from '@hushbox/ui/blog-reader';
+import { Heading } from '@hushbox/ui/type';
+import SiteLayout from '../../layouts/SiteLayout.astro';
+import BlogPostCard from '../../components/blog/BlogPostCard.astro';
+import ProseTable from '../../components/blog/ProseTable.astro';
+import { TopicTag } from '../../components/blog/TopicTag';
+import { TableOfContents } from '../../components/blog/TableOfContents';
+import BlogDisclaimer from '../../components/blog/BlogDisclaimer.astro';
+import { ShareButton } from '../../components/blog/ShareButton';
+import { NewsletterSignup } from '../../components/newsletter/NewsletterSignup';
+import NewsletterPrivacyNotice from '../../components/newsletter/NewsletterPrivacyNotice.astro';
+import {
+  getPublishedPosts,
+  getRelatedPosts,
+  getReadingTime,
+  formatPostDate,
+  tagUrl,
+} from '../../lib/blog';
+import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
+
+export const getStaticPaths = (async () => {
+  const posts = await getPublishedPosts();
+  return posts.map((post) => ({
+    params: { slug: post.id },
+    props: { post },
+  }));
+}) satisfies GetStaticPaths;
+
+type Props = InferGetStaticPropsType<typeof getStaticPaths>;
+
+const { post } = Astro.props;
+const allPosts = await getPublishedPosts();
+const relatedPosts = getRelatedPosts(post, allPosts);
+
+const { Content, headings } = await render(post);
+const readingTime = getReadingTime(post.body ?? '');
+
+const formattedDate = formatPostDate(post.data.date);
+
+/* The one grid the page's content column is defined by. The header band and the
+   article row below are both laid out on it, so the reader's right edge is
+   derived from the same track sizing as the article's and the two cannot drift
+   apart. Only the article row fills the second track (with the "On this page"
+   aside); the band leaves it empty, which is what keeps the reader clear of the
+   aside at every width. */
+const CONTENT_GRID = 'lg:grid lg:grid-cols-[1fr_220px] lg:gap-10';
+
+const initials = post.data.author
+  .split(' ')
+  .map((w) => w[0])
+  .join('')
+  .slice(0, 2)
+  .toUpperCase();
+---
+
+<SiteLayout
+  title={post.data.title}
+  description={post.data.description}
+  article={{ author: post.data.author, date: post.data.date, tags: post.data.tags }}
+  image={post.data.image?.src}
+>
+  <div class="mx-auto w-full max-w-5xl flex-1 px-6 pt-24 pb-12">
+    <a
+      href="/blog"
+      class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm transition-colors"
+    >
+      &larr; Back to Blog
+    </a>
+
+    <header class="mt-8 [&>h1]:text-wrap [&>h1]:wrap-break-word">
+      <Heading level={1} variant="site-post-title">
+        {post.data.title}
+      </Heading>
+
+      {/* The header band, held to the article's own column width (see CONTENT_GRID). */}
+      <div class={`mt-4 ${CONTENT_GRID}`}>
+        {
+          /* Byline + tags on the left, the reserved download-bar slot in the
+            gap, the read-aloud pill on the right — the last two both come from
+            the `BlogReadAloud` island, whose two roots become direct band
+            children because Astro renders `astro-island` with
+            `display: contents`. `items-stretch` gives both sides the height of
+            the taller one, and the reader centres its pill in that height;
+            below `md` the band stacks and the reader goes full width. */
+        }
+        <div class="flex flex-col gap-6 md:flex-row md:items-stretch md:gap-5">
+          <div class="flex min-w-0 flex-col">
+            <div class="flex items-center gap-3">
+              <div
+                class="bg-brand-red-subtle text-brand-red flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold"
+              >
+                {initials}
+              </div>
+              <div>
+                <div class="text-foreground text-sm font-medium">{post.data.author}</div>
+                <div class="text-muted-foreground text-xs">
+                  <time datetime={post.data.date.toISOString()}>{formattedDate}</time>
+                  <span aria-hidden="true"> &middot; </span>
+                  <span>{readingTime} min read</span>
+                </div>
+              </div>
+            </div>
+
+            {
+              post.data.tags.length > 0 && (
+                <div class="mt-4 flex flex-wrap gap-1.5">
+                  {post.data.tags.map((tag) => (
+                    <TopicTag href={tagUrl(tag)}>{tag}</TopicTag>
+                  ))}
+                </div>
+              )
+            }
+          </div>
+
+          <BlogReadAloud client:load />
+        </div>
+      </div>
+    </header>
+
+    <details class="border-border mt-4 rounded-lg border p-4 lg:hidden">
+      <summary class="text-foreground cursor-pointer text-sm font-semibold">On this page</summary>
+      <div class="mt-3">
+        <TableOfContents headings={headings} client:visible />
+      </div>
+    </details>
+
+    <div class={`mt-4 ${CONTENT_GRID}`}>
+      <article class="prose-blog max-w-none wrap-break-word" data-reading>
+        {
+          (
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- the ESLint type service types .astro imports as an error type
+            <Content components={{ table: ProseTable }} />
+          )
+        }
+      </article>
+
+      <aside class="hidden lg:block">
+        <div class="sticky top-28">
+          <TableOfContents headings={headings} client:visible />
+        </div>
+      </aside>
+    </div>
+
+    <div
+      class="border-border mt-8 flex flex-col gap-4 border-t pt-6 md:flex-row md:items-start md:justify-between"
+    >
+      <BlogDisclaimer date={post.data.date} />
+      <ShareButton client:visible />
+    </div>
+
+    <div class="border-border mt-8 border-t pt-8">
+      <NewsletterSignup compact client:visible>
+        <NewsletterPrivacyNotice />
+      </NewsletterSignup>
+    </div>
+
+    {
+      relatedPosts.length > 0 && (
+        <div class="border-border mt-8 border-t pt-8">
+          <h2 class="mb-6 text-2xl font-bold">More from the blog</h2>
+          <div class="grid gap-6 md:grid-cols-3">
+            {relatedPosts.map((related) => (
+              <BlogPostCard post={related} />
+            ))}
+          </div>
+        </div>
+      )
+    }
+  </div>
+</SiteLayout>

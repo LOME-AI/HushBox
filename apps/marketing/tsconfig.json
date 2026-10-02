@@ -1,0 +1,16 @@
+{
+  "extends": "../../packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    // Astro runs TypeScript directly and never emits from this config; `noEmit`
+    // is also what makes `allowImportingTsExtensions` legal.
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
+  },
+  // `scripts/**` is in the site's own project rather than a project of its
+  // own: the ESLint project service resolves a file through the nearest
+  // `tsconfig.json`, so tooling left out of this list lints as a parse error
+  // rather than as code.
+  "include": [".astro/types.d.ts", "src/**/*", "public/**/*", "scripts/**/*"]
+}

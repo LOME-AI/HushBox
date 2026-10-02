@@ -1,0 +1,47 @@
+# Normalize all text files to LF on commit, regardless of contributor OS.
+# Prevents CRLF corruption of shell scripts, Husky hooks, and bash shebangs
+# when Windows contributors clone with the default core.autocrlf=true.
+
+* text=auto eol=lf
+
+# Force LF on files where CRLF would break the interpreter or tool.
+*.sh                text eol=lf
+*.bash              text eol=lf
+*.bats              text eol=lf
+scripts/with-env*   text eol=lf
+.husky/*            text eol=lf
+.husky/_/*          text eol=lf
+
+# Force CRLF on Windows-only files.
+*.bat               text eol=crlf
+*.cmd               text eol=crlf
+*.ps1               text eol=crlf
+
+# Ad production media: large binaries go through Git LFS (run `git lfs install`
+# once per clone before committing ads media).
+ads/**/*.mp4        filter=lfs diff=lfs merge=lfs -text
+ads/**/*.webm       filter=lfs diff=lfs merge=lfs -text
+ads/**/*.wav        filter=lfs diff=lfs merge=lfs -text
+ads/**/*.png        filter=lfs diff=lfs merge=lfs -text
+
+# Treat binaries explicitly to avoid any normalization.
+*.png               binary
+*.jpg               binary
+*.jpeg              binary
+*.gif               binary
+*.ico               binary
+*.webp              binary
+*.avif              binary
+*.pdf               binary
+*.woff              binary
+*.woff2             binary
+*.ttf               binary
+*.otf               binary
+*.eot               binary
+*.mp4               binary
+*.webm              binary
+*.zip               binary
+*.gz               binary
+*.tar              binary
+*.keystore         binary
+*.jks              binary

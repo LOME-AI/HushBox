@@ -1,0 +1,41 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+import PageHero from '../components/PageHero.astro';
+import LabeledRule from '../components/LabeledRule.astro';
+import ValueBlocks from '../components/ValueBlocks.astro';
+import { NewsletterSignup } from '../components/newsletter/NewsletterSignup';
+import NewsletterPrivacyNotice from '../components/newsletter/NewsletterPrivacyNotice.astro';
+
+const NEWSLETTER_CIPHER_MESSAGES: readonly string[] = [
+  'A Few Letters a Year',
+  'No Tracking',
+  'Written by Humans',
+  'Leave Any Time',
+  'No Spam, Ever',
+  'Signal, Not Noise',
+  'Worth Your Inbox',
+];
+---
+
+<SiteLayout
+  title="Newsletter"
+  description="An occasional newsletter from HushBox. A few letters a year, no tracking, written by humans."
+>
+  <div class="group/newsletter flex-1 pt-20">
+    <PageHero title="Newsletter" messages={NEWSLETTER_CIPHER_MESSAGES} />
+
+    <section class="mx-auto max-w-xl px-6 pb-12">
+      <LabeledRule lines={['A few letters a year', 'No tracking']} />
+      <NewsletterSignup client:load>
+        <NewsletterPrivacyNotice />
+      </NewsletterSignup>
+    </section>
+
+    {/* Keyed on NewsletterSignup's NEWSLETTER_SENT_ATTRIBUTE; the scan needs the literal. */}
+    <section class="pb-9 group-has-[[data-newsletter-sent]]/newsletter:hidden">
+      <div class="mx-auto max-w-5xl px-6">
+        <ValueBlocks />
+      </div>
+    </section>
+  </div>
+</SiteLayout>

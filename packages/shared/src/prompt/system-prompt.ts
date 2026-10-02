@@ -1,0 +1,37 @@
+/**
+ * The server-owned base system prompt sent on every language turn (paid and
+ * trial) — and the ONE system-prompt builder: the client's composer preview
+ * measures this builder's exact output, so preview and send can never price
+ * different prompts. It carries only the base preamble and, when the client
+ * supplies them, the user's custom instructions.
+ *
+ * The date is passed in, never read from the wall clock, so the assembled
+ * prompt (and therefore the provider request hash) is deterministic under test.
+ * Custom instructions are E2E-encrypted at rest, so the server cannot decrypt
+ * the stored blob — the plaintext arrives client-supplied per request, exactly
+ * like conversation history.
+ */
+import { BASE_SYSTEM_PREAMBLE, RUNNABLE_DOCUMENTS_GUIDANCE } from './base-preamble.ts';
+
+export interface SystemPromptInput {
+  /** The UTC calendar day to render, already keyed as `YYYY-MM-DD`. */
+  readonly utcDay: string;
+  /** Client-supplied plaintext custom instructions, when present. */
+  readonly customInstructions?: string;
+}
+
+export function buildTurnSystemPrompt(input: SystemPromptInput): string {
+  const sections: string[] = [
+    `${BASE_SYSTEM_PREAMBLE}\nCurrent date: ${input.utcDay}`,
+    RUNNABLE_DOCUMENTS_GUIDANCE,
+  ];
+
+  // Whitespace-only instructions are treated as absent — a bare "   " must not
+  // emit a dangling, content-free section.
+  const customInstructions = input.customInstructions?.trim();
+  if (customInstructions !== undefined && customInstructions.length > 0) {
+    sections.push(`## User's Custom Instructions\n${customInstructions}`);
+  }
+
+  return sections.join('\n\n');
+}

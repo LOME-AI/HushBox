@@ -1,0 +1,35 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+import HeroSection from '../components/welcome/HeroSection.astro';
+import DemoSection from '../components/welcome/DemoSection.astro';
+import ValuesSection from '../components/welcome/ValuesSection.astro';
+import VerifySection from '../components/welcome/VerifySection.astro';
+import CostSection from '../components/welcome/CostSection.astro';
+import CompareSection from '../components/welcome/CompareSection.astro';
+import FeaturesSection from '../components/welcome/FeaturesSection.astro';
+import PricingSection from '../components/welcome/PricingSection.astro';
+import ClosingSection from '../components/welcome/ClosingSection.astro';
+import NewsletterSection from '../components/welcome/NewsletterSection.astro';
+import { NewsletterSignup } from '../components/newsletter/NewsletterSignup';
+import NewsletterPrivacyNotice from '../components/newsletter/NewsletterPrivacyNotice.astro';
+---
+
+<SiteLayout
+  title="One Interface. Every AI Model. Private."
+  description="Access GPT, Claude, Gemini, and dozens more from one encrypted workspace. Your conversations stay yours."
+>
+  <HeroSection />
+  <DemoSection />
+  <ValuesSection />
+  <VerifySection />
+  <CostSection />
+  <CompareSection />
+  <FeaturesSection />
+  <PricingSection />
+  <ClosingSection />
+  <NewsletterSection>
+    <NewsletterSignup compact client:visible>
+      <NewsletterPrivacyNotice />
+    </NewsletterSignup>
+  </NewsletterSection>
+</SiteLayout>

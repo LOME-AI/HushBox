@@ -1,0 +1,103 @@
+name: Backup
+
+# One hourly cycle, running the same entry point a developer runs against the
+# local stack: dump the database, snapshot the object buckets straight from
+# object storage into the encrypted repository on Backblaze B2, reconcile and
+# spot-restore, read a rotating slice of the repository back, then apply the
+# retention ladder. Everything the run needs is a registry entry, so the only
+# difference between this and a local run is which values are loaded.
+#
+# The entry point is named directly rather than through `pnpm backup`, which
+# wraps it in the env loader for a developer's benefit. That loader reads
+# `.env.scripts`, which is git-ignored and so absent on a runner, and it fails
+# on the stack slot that file carries before the backup script starts. Making it
+# load one would be worse: the generator writes development values — a local
+# object store, its throwaway credentials, a local repository password — and the
+# loader applies them over the bindings below, so a run would appear to succeed
+# while writing a throwaway store. The job's env block is the whole
+# configuration source, which is why nothing here generates or loads a file.
+#
+# Off the top of the hour, where GitHub documents the scheduling load and the
+# delay it costs.
+#
+# One generated section, not to be edited by hand: the job's environment, from
+# `pnpm generate:env` (scripts/generate-env.ts), which derives it from the
+# variable map the orchestrator itself reads. CI re-runs that generator and
+# diffs the result, so a binding the run no longer reads — or one it started
+# reading and nothing here supplies — fails the build. Before this file was
+# generated it bound production-environment secrets under `backup`, where they
+# resolve to the empty string, and no gate could see it.
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      provision:
+        description: 'Create the repository and back nothing up. Run once, before the first scheduled run.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: Backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: backup
+    # A scheduled workflow fires in every repository that carries the file; the
+    # `backup` environment and its credentials live where the deploy does.
+    if: github.repository == vars.HB_PUBLIC_REPO
+    # Runs of this workflow never overlap, whatever triggered them. That is what
+    # makes provisioning safe to reach from here: two `--provision` runs against
+    # an empty bucket would each write their own master key and leave the
+    # repository unreadable, and the group is what makes two of them impossible.
+    # It queues at most one waiting run and cancels an older waiting one when a
+    # newer arrives, so a superseded dispatch does not run rather than running
+    # late — for an hourly cycle that is the wanted behaviour, and for a
+    # provision it is a visible cancellation rather than a silent second write.
+    concurrency:
+      group: backup
+      cancel-in-progress: false
+    # BEGIN GENERATED: backup-env
+    env:
+      BACKUP_B2_S3_ENDPOINT: ${{ secrets.BACKUP_B2_S3_ENDPOINT }}
+      BACKUP_B2_REGION: ${{ secrets.BACKUP_B2_REGION }}
+      BACKUP_B2_BUCKET: hushbox-backup
+      BACKUP_REPO_ROOT: repository
+      BACKUP_B2_KEY_ID: ${{ secrets.B2_ACCOUNT_ID }}
+      BACKUP_B2_KEY: ${{ secrets.B2_ACCOUNT_KEY }}
+      BACKUP_REPOSITORY_PASSWORD: ${{ secrets.BACKUP_REPOSITORY_PASSWORD }}
+      BACKUP_R2_S3_ENDPOINT: ${{ secrets.BACKUP_R2_S3_ENDPOINT }}
+      BACKUP_R2_REGION: auto
+      BACKUP_R2_ACCESS_KEY_ID: ${{ secrets.BACKUP_R2_ACCESS_KEY_ID }}
+      BACKUP_R2_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_R2_SECRET_ACCESS_KEY }}
+      BACKUP_SOURCE_BUCKET_MEDIA: hushbox-media
+      BACKUP_SOURCE_BUCKET_APP_BUILDS: hushbox-app-builds
+      BACKUP_SOURCE_BUCKET_MODEL_WEIGHTS: hushbox-model-weights
+      BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+      BACKUP_SNAPSHOT_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+    # END GENERATED: backup-env
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup
+
+      # Creating the repository is a one-time act in the same class as creating
+      # the bucket and minting the keys, reachable here rather than from a
+      # laptop so the production credentials never leave the environment that
+      # already holds them. It refuses a repository that already exists.
+      - name: Create the backup repository
+        if: inputs.provision
+        run: pnpm tsx scripts/backup.ts --provision
+
+      # A dispatched cycle always restores the newest dump and proves it, which
+      # a scheduled one does on the day's designated run only.
+      - name: Run the backup cycle
+        if: github.event_name == 'workflow_dispatch' && !inputs.provision
+        run: pnpm tsx scripts/backup.ts --dispatched
+
+      - name: Run the hourly backup cycle
+        if: github.event_name == 'schedule'
+        run: pnpm tsx scripts/backup.ts

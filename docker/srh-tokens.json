@@ -1,0 +1,17 @@
+{
+  "local_dev_token": {
+    "srh_id": "hushbox-development",
+    "connection_string": "redis://redis:6379/0",
+    "max_connections": 200
+  },
+  "local_test_token": {
+    "srh_id": "hushbox-test",
+    "connection_string": "redis://redis:6379/1",
+    "max_connections": 200
+  },
+  "local_e2e_token": {
+    "srh_id": "hushbox-e2e",
+    "connection_string": "redis://redis:6379/2",
+    "max_connections": 200
+  }
+}

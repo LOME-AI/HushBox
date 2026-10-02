@@ -1,0 +1,100 @@
+---
+title: 'We Put an 82-Million-Parameter Speech Model in Your Browser Tab So Nobody Else Hears It'
+description: 'Most read-aloud features upload your text to be spoken. HushBox runs Kokoro-82M inside your browser: one 90 MB download, and your text never leaves your device.'
+author: 'HushBox Team'
+date: 2026-09-11
+tags: ['privacy', 'accessibility', 'on-device']
+draft: false
+---
+
+In March 2025, Amazon emailed the Echo owners who had turned on a privacy setting to tell them it was going away. "Do Not Send Voice Recordings" had let a 4th-generation Echo Dot, an Echo Show 10 or an Echo Show 15 understand a request without shipping the audio to Amazon. The Register quoted the email's reason in full: "As we continue to expand Alexa's capabilities with generative AI features that rely on the processing power of Amazon's secure cloud, we have decided to no longer support this feature." From March 28, voice recordings would be "sent to and processed in the cloud."
+
+Read that sentence as a policy and it says something plain. Generative AI lives in the cloud, so anything that touches it now goes to the cloud, and a setting that said otherwise was an obstacle. Cheaper Echos never had the option at all.
+
+That was the microphone side. The speaker side went the same direction years earlier, and almost nobody noticed, because a voice reading to you registers as a convenience and never as a transfer of your text to someone else's computer.
+
+## Read aloud is an upload
+
+Microsoft's privacy whitepaper for Edge is unusually candid about what happens when you press Read aloud on a web page.
+
+> Depending on the voice you select, the contents of the page are converted from text to speech using either a platform-supplied, client-side library (for example, one specific to your operating system) or a server-side library powered by Azure Cognitive Services. If your content is converted to speech by using a client-side library, no information is sent to Microsoft servers. If your content is converted to speech by using Azure Cognitive Services (as indicated by the word "Online" in any of the voice names), the text, along with a randomly generated token, is sent to Microsoft.
+>
+> Microsoft, "User data and privacy in Microsoft Edge"
+
+Microsoft adds that the text and the generated audio "are both deleted immediately after conversion occurs," and there's no reason to doubt it. But notice what the setting is. The page doesn't say which voices sound better. It says which ones send the page: the ones with Online in the name. The privacy decision is made in a voice picker, by a word most people would read as a feature.
+
+This is how the read-aloud products people use describe themselves, in their own documents.
+
+| Product                          | What leaves your device, in their words                                                                         |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Edge Read aloud, "Online" voices | "the text, along with a randomly generated token, is sent to Microsoft"                                         |
+| ElevenLabs                       | "We process your Input (which may include text, audio, or other content) and Output"                            |
+| Apple Personal Voice             | Nothing, unless you turn on sharing across devices: "Your recorded speech is then processed securely on device" |
+| HushBox read-aloud               | Nothing: "No audio or text ever leaves this device"                                                             |
+
+Apple earns its row. Personal Voice is built on the device, and Apple says so in one sentence; only if you ask for it on your other devices does an encrypted copy go to iCloud. In the other two commercial rows, the text you want spoken travels to a company before you hear it.
+
+For a general-purpose reader that's a trade you might accept. For a chat app, the text being read is the conversation itself. A cloud voice would post it to a speech vendor sentence by sentence, a company you never chose, with its own meter and its own retention policy. So we didn't build one.
+
+## The meter is the motive
+
+The cloud speech services in the table below price by volume of text: per character at Amazon and Google, per credit at ElevenLabs, whose pricing page says that "for V2 Multilingual models, 1 text character equals 1 credit." That one fact explains the architecture better than any privacy page does.
+
+| Service                                 | Price                           |
+| --------------------------------------- | ------------------------------- |
+| Amazon Polly, Standard                  | $4 per million characters       |
+| Amazon Polly, Neural                    | $16 per million characters      |
+| Amazon Polly, Generative                | $30 per million characters      |
+| Google Cloud Text-to-Speech, Chirp 3 HD | $30 per million characters      |
+| ElevenLabs, Creator plan                | $22 a month for 121,000 credits |
+
+A service that charges by volume has to measure the volume. To measure it, it has to receive the text. So the business model requires the text to arrive at a server, and once text is arriving at a server the only question left is retention policy, which is a promise, which can change. Amazon's on-device setting was a promise too, until the email.
+
+The meter isn't about cost, either. Kokoro's own model card notes that, as of April 2025, the same model we run was served over API for "under $1 per million characters of text input." Cloud speech is cheap to sell. What the meter tells you is which direction the text flows.
+
+An on-device model has no meter. Nobody counts your characters because nobody receives them. The incentive runs the other way: the last thing we want is another copy of your conversation anywhere, so a design where the speech never leaves your device is also the one with no bill attached.
+
+## Eighty-two million parameters in a tab
+
+Kokoro is an open-weight text-to-speech model published on Hugging Face under the name hexgrad. The model card states the size plainly: "Kokoro is an open-weight TTS model with 82 million parameters." It's Apache 2.0 licensed, built on the StyleTTS 2 architecture with an ISTFTNet vocoder, and trained on what the card calls "a few hundred hours of audio" for about a thousand dollars of GPU time. The 1.0 release ships 54 voices across 8 languages. Eighty-two million parameters is small enough to fit in a browser tab, and the size is what makes the rest possible.
+
+At full 32-bit precision the weights are 326 MB. We ship the 8-bit quantised version instead, which is 92.4 MB. Quantisation stores most of the weights as 8-bit integers with scale factors instead of 32-bit floats; you lose a little precision and gain a file under a third the size. HushBox tells you 90 MB, and the exact figure the code counts, weights plus tokenizer plus config plus one voice file, is 92,887,010 bytes.
+
+The runtime is ONNX Runtime compiled to WebAssembly, driven by kokoro-js, a wrapper over Hugging Face's Transformers.js. WebAssembly on the CPU was fast enough once we stopped running one inference at a time.
+
+What happens when you press play: HushBox splits the text into sentences and hands them to a pool of four Web Workers, each holding its own copy of the model. Sentence one is being synthesised while sentence two is queued; by the time sentence one finishes playing, sentence two's audio is already scheduled to start in the same audio timeline, so as long as synthesis stays ahead of playback there's no gap. In chat, the reply is fed to the workers as it streams in, so the voice starts before the model has finished writing. Each worker returns raw audio samples to the page, which plays them through the browser's audio system. No request carries the text anywhere in that path. The fetches the feature makes are downloads: the weights, the tokenizer and config, the WebAssembly runtime, and the half-megabyte file for the voice you chose, each once. Pick a different voice and its file downloads, once.
+
+And every one of those downloads comes from us. Kokoro-js, out of the box, downloads from the Hugging Face hub. We point it at our own storage bucket instead, served through a plain route on our API that does nothing but stream a named file. On the web, our site's Content Security Policy, the browser-enforced list of hosts a page may talk to, names our API as the source of the download and names no Hugging Face host and no model CDN anywhere. Tests in the repository assert all three. If a future change tried to fetch the model from Hugging Face again, the browser would refuse the request before it left.
+
+After the first download the browser keeps the weights in its Cache API, and in the chat app HushBox also asks the browser for persistent storage so it won't evict them under pressure. The second listen, and every one after, starts without a download.
+
+## What it costs you
+
+The honest case against this design has four parts, and most of it is true.
+
+Cloud voices sound better. We ship five of Kokoro's voices, three American and two British, English only, and they're a step behind the best studio-grade neural voices from Google or ElevenLabs. And 90 MB is real bandwidth: on a metered mobile connection it's a download you'd want to be asked about, which is why HushBox tells you the size before it starts.
+
+There's the CPU. Running inference in WebAssembly on a five-year-old phone is slower than on a laptop, and a long reply takes longer to begin than it would from a datacentre GPU.
+
+There's the browser's own speech API, which costs nothing to download. Why not use it? Because it's the same API Edge uses in the passage above, and the same voice picker. MDN documents a `localService` flag on each voice that says whether it's "supplied by a local speech synthesizer service (true), or a remote speech synthesizer service (false)." A read-aloud built on that API is private only if the code refuses every remote voice and the operating system's local voices are all what they claim to be, on every platform, forever. We ship a voice we can vouch for instead of filtering one we can't.
+
+And there's us. The page is served by HushBox, so you're trusting our code either way; on-device speech doesn't change that. What it removes is the speech vendor. The better cloud voice comes with a condition attached, that every sentence of your conversation is sent to a speech vendor whose retention policy you'll never read, and five voices seems a fair price for declining it.
+
+## Try it on this page
+
+The Listen button at the top of this post runs the same engine as the chat app. Open your browser's developer tools, switch to the Network tab, and press it. On the first listen you'll see the weights download from our API. After that, watch what the entries are: the page's own scripts and the speech runtime, none of them carrying a word of what you're hearing. The text is never in a request, because it never needs to be.
+
+---
+
+## Sources
+
+1. [Amazon kills off on-device Alexa processing for Echo owners](https://www.theregister.com/2025/03/17/amazon_kills_on_device_alexa/)
+2. [User data and privacy in Microsoft Edge](https://learn.microsoft.com/en-us/legal/microsoft-edge/privacy)
+3. [Privacy Policy](https://elevenlabs.io/privacy-policy)
+4. [Create a Personal Voice on iPhone, iPad, or Mac](https://support.apple.com/en-us/104993)
+5. [ElevenLabs Pricing for Creators & Businesses of All Sizes](https://elevenlabs.io/pricing)
+6. [Amazon Polly Pricing](https://aws.amazon.com/polly/pricing/)
+7. [Review pricing for Text-to-Speech](https://cloud.google.com/text-to-speech/pricing)
+8. [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M)
+9. [onnx-community/Kokoro-82M-v1.0-ONNX at main](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/tree/main/onnx)
+10. [SpeechSynthesisVoice: localService property](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesisVoice/localService)

@@ -1,0 +1,387 @@
+import { describe, expect, it } from 'vitest';
+import {
+  ARM_FIRST_DELAY_MS,
+  IDLE_DECAY_LADDER_MS,
+  JobDispatcherCore,
+  SHARD_STORAGE_KEY,
+  resolveDispatcherShard,
+} from './job-dispatcher-core.js';
+import type { DispatcherTelemetry, JobPassResult } from './job-dispatcher-core.js';
+import type { DoIdentityStore } from './do-identity.js';
+
+class FakeScheduler {
+  alarm: number | null = null;
+  readonly sets: number[] = [];
+
+  getAlarm(): Promise<number | null> {
+    return Promise.resolve(this.alarm);
+  }
+
+  setAlarm(at: number): Promise<void> {
+    this.alarm = at;
+    this.sets.push(at);
+    return Promise.resolve();
+  }
+}
+
+class FakeClock {
+  t = 1_000_000;
+  now = (): number => this.t;
+}
+
+/** DO storage for the ladder's anchor: it outlives every core built over it. */
+class FakeWorkStore {
+  value: number | undefined;
+  writes = 0;
+
+  read = (): Promise<number | undefined> => Promise.resolve(this.value);
+
+  write = (at: number): Promise<void> => {
+    this.value = at;
+    this.writes += 1;
+    return Promise.resolve();
+  };
+}
+
+interface Harness {
+  core: JobDispatcherCore;
+  /** A fresh core over the same storage, scheduler and clock — what the
+   * platform hands back when it revives the object to fire an alarm. */
+  rebuild: () => JobDispatcherCore;
+  scheduler: FakeScheduler;
+  clock: FakeClock;
+  store: FakeWorkStore;
+  failures: { shard: string }[];
+}
+
+function harness(runPass: (shard: string) => Promise<JobPassResult>): Harness {
+  const scheduler = new FakeScheduler();
+  const clock = new FakeClock();
+  const store = new FakeWorkStore();
+  const failures: { shard: string }[] = [];
+  const telemetry: DispatcherTelemetry = {
+    passFailed: (fields) => {
+      failures.push(fields);
+    },
+  };
+  const rebuild = (): JobDispatcherCore =>
+    new JobDispatcherCore({
+      shard: 'default',
+      executor: { runPass },
+      scheduler,
+      telemetry,
+      now: clock.now,
+      lastWork: store,
+    });
+  return { core: rebuild(), rebuild, scheduler, clock, store, failures };
+}
+
+const idle = (): Promise<JobPassResult> => Promise.resolve({ kind: 'idle' });
+
+/**
+ * Fire the armed alarm on a newly reconstructed core, and report the delay its
+ * re-arm chose. Reconstruction is the point: the ladder position may live only
+ * in storage, never in the instance the previous alarm ran on.
+ */
+async function fireOnFreshCore(h: Harness): Promise<number> {
+  h.clock.t = h.scheduler.alarm ?? h.clock.t;
+  await h.rebuild().onAlarm();
+  expect(h.scheduler.alarm).not.toBeNull();
+  return h.scheduler.alarm! - h.clock.t;
+}
+
+describe('JobDispatcherCore.wake', () => {
+  it('arms an immediate alarm when none is set', async () => {
+    const { core, scheduler, clock } = harness(idle);
+    await core.wake();
+    expect(scheduler.alarm).toBe(clock.t);
+  });
+
+  it('pulls a later alarm forward to now', async () => {
+    const { core, scheduler, clock } = harness(idle);
+    scheduler.alarm = clock.t + 60_000;
+    await core.wake();
+    expect(scheduler.alarm).toBe(clock.t);
+  });
+
+  it('never displaces an alarm already due', async () => {
+    const { core, scheduler, clock } = harness(idle);
+    scheduler.alarm = clock.t - 5000;
+    await core.wake();
+    expect(scheduler.alarm).toBe(clock.t - 5000);
+    expect(scheduler.sets).toEqual([]);
+  });
+});
+
+describe('JobDispatcherCore.onAlarm', () => {
+  it('arms the pulse before any fallible work runs', async () => {
+    const { core, scheduler, clock } = harness(() => {
+      expect(scheduler.sets).toEqual([clock.t + ARM_FIRST_DELAY_MS]);
+      return Promise.resolve<JobPassResult>({ kind: 'idle' });
+    });
+    await core.onAlarm();
+    expect(scheduler.sets.length).toBeGreaterThan(1);
+  });
+
+  it('leaves the pulse standing when the pass throws, without throwing itself', async () => {
+    const { core, scheduler, clock, failures } = harness(() =>
+      Promise.reject(new Error('pass blew up'))
+    );
+    await core.onAlarm();
+    expect(scheduler.alarm).toBe(clock.t + ARM_FIRST_DELAY_MS);
+    expect(failures).toEqual([{ shard: 'default' }]);
+  });
+
+  it('re-arms immediately when more due work remains', async () => {
+    const { core, scheduler, clock } = harness(() =>
+      Promise.resolve<JobPassResult>({ kind: 'due' })
+    );
+    await core.onAlarm();
+    expect(scheduler.alarm).toBe(clock.t);
+  });
+
+  it('re-arms to the exact scheduled delay inside the pulse window', async () => {
+    const { core, scheduler, clock } = harness(() =>
+      Promise.resolve<JobPassResult>({ kind: 'scheduled', delayMs: 5000 })
+    );
+    await core.onAlarm();
+    expect(scheduler.alarm).toBe(clock.t + 5000);
+  });
+
+  it('lets an exact scheduled delay replace the pulse beyond thirty seconds', async () => {
+    const { core, scheduler, clock } = harness(() =>
+      Promise.resolve<JobPassResult>({ kind: 'scheduled', delayMs: 300_000 })
+    );
+    await core.onAlarm();
+    expect(scheduler.alarm).toBe(clock.t + 300_000);
+  });
+
+  it('never displaces a wake that landed during the pass', async () => {
+    const { core, scheduler, clock } = harness(async () => {
+      await core.wake();
+      return { kind: 'scheduled', delayMs: 300_000 };
+    });
+    await core.onAlarm();
+    expect(scheduler.alarm).toBe(clock.t);
+  });
+
+  it('decays along the ladder to the thirty-minute cap across core reconstructions', async () => {
+    const h = harness(idle);
+    // A dispatcher is born woken: the wake anchors the ladder.
+    await h.core.wake();
+    const observed: number[] = [];
+    for (let pass = 0; pass < IDLE_DECAY_LADDER_MS.length + 1; pass += 1) {
+      observed.push(await fireOnFreshCore(h));
+    }
+    expect(observed).toEqual([...IDLE_DECAY_LADDER_MS, 1_800_000]);
+  });
+
+  it('decays straight to the cap when no work was ever signalled', async () => {
+    const { core, scheduler, clock } = harness(idle);
+    await core.onAlarm();
+    expect(scheduler.alarm).toBe(clock.t + 1_800_000);
+  });
+
+  it('writes nothing on an empty pass', async () => {
+    const h = harness(idle);
+    await h.core.wake();
+    const anchored = h.store.writes;
+    await fireOnFreshCore(h);
+    await fireOnFreshCore(h);
+    expect(h.store.writes).toBe(anchored);
+  });
+
+  it('resets the idle decay ladder on a wake, across reconstructions', async () => {
+    const h = harness(idle);
+    await h.core.wake();
+    await fireOnFreshCore(h);
+    await fireOnFreshCore(h);
+    // The wake lands on its own instance, and the alarm after it on another:
+    // the reset survives both only if it is the stored anchor that moved.
+    await h.rebuild().wake();
+    await h.rebuild().onAlarm();
+    expect(h.scheduler.alarm).toBe(h.clock.t + 60_000);
+  });
+
+  it('re-anchors the idle decay ladder when a pass found work', async () => {
+    const results: JobPassResult[] = [
+      { kind: 'idle' },
+      { kind: 'scheduled', delayMs: 1000 },
+      { kind: 'idle' },
+    ];
+    const h = harness(() => {
+      const next = results.shift();
+      if (next === undefined) throw new Error('unexpected extra pass');
+      return Promise.resolve(next);
+    });
+    await h.core.wake();
+    expect(await fireOnFreshCore(h)).toBe(60_000);
+    await fireOnFreshCore(h);
+    expect(await fireOnFreshCore(h)).toBe(60_000);
+  });
+});
+
+/** Deterministic PRNG (Park-Miller) so failing sequences replay exactly. */
+function seededRandom(seed: number): () => number {
+  let state = seed % 2_147_483_647;
+  if (state <= 0) state += 2_147_483_646;
+  return () => {
+    state = (state * 16_807) % 2_147_483_647;
+    return (state - 1) / 2_147_483_646;
+  };
+}
+
+/**
+ * The property-test model: a fake shard whose pending work the executor
+ * consumes when due, plus the op vocabulary (enqueue with or without its
+ * wake, wake, fire, crash). Every op appends to the trace — the replay
+ * artifact a failure message carries alongside its seed.
+ */
+class DispatcherModel {
+  readonly scheduler = new FakeScheduler();
+  readonly clock = new FakeClock();
+  readonly pendingWork: number[] = [];
+  readonly trace: string[] = [];
+  private crashNextPass = false;
+  private readonly core: JobDispatcherCore;
+
+  constructor(private readonly seed: number) {
+    this.core = new JobDispatcherCore({
+      shard: 'default',
+      executor: { runPass: () => this.runModelPass() },
+      scheduler: this.scheduler,
+      telemetry: { passFailed: () => {} },
+      now: this.clock.now,
+      lastWork: new FakeWorkStore(),
+    });
+  }
+
+  artifact(): string {
+    return `seed=${String(this.seed)} ops=${JSON.stringify(this.trace)}`;
+  }
+
+  async wake(label: string): Promise<void> {
+    this.trace.push(label);
+    await this.core.wake();
+  }
+
+  async enqueue(delay: number, withWake: boolean): Promise<void> {
+    this.pendingWork.push(this.clock.t + delay);
+    if (withWake) {
+      await this.wake(`enqueue+wake@${String(delay)}`);
+      return;
+    }
+    // The lost enqueue: commit landed, the post-commit wake was lost.
+    this.trace.push(`enqueue-lost@${String(delay)}`);
+  }
+
+  async fireAlarm(label: string): Promise<void> {
+    this.trace.push(label);
+    const alarm = this.scheduler.alarm;
+    expect(alarm, this.artifact()).not.toBeNull();
+    this.clock.t = Math.max(this.clock.t, alarm!);
+    await this.core.onAlarm();
+  }
+
+  async crashPass(): Promise<void> {
+    this.crashNextPass = true;
+    await this.fireAlarm('crash-pass');
+  }
+
+  assertAlarmArmed(): void {
+    expect(this.scheduler.alarm, this.artifact()).not.toBeNull();
+  }
+
+  private runModelPass(): Promise<JobPassResult> {
+    if (this.crashNextPass) {
+      this.crashNextPass = false;
+      return Promise.reject(new Error('scripted crash'));
+    }
+    const remaining = this.pendingWork.filter((at) => at > this.clock.t);
+    this.pendingWork.length = 0;
+    this.pendingWork.push(...remaining);
+    if (remaining.length === 0) return Promise.resolve({ kind: 'idle' });
+    const soonest = Math.min(...remaining);
+    return Promise.resolve({
+      kind: 'scheduled',
+      delayMs: Math.max(250, soonest - this.clock.t),
+    });
+  }
+}
+
+async function runRandomOp(model: DispatcherModel, random: () => number): Promise<void> {
+  const roll = random();
+  if (roll < 0.35) {
+    await model.enqueue(Math.floor(random() * 120_000), random() < 0.6);
+  } else if (roll < 0.45) {
+    await model.wake('wake');
+  } else if (roll < 0.55) {
+    await model.crashPass();
+  } else {
+    await model.fireAlarm('fire-alarm');
+  }
+}
+
+describe('alarm-always-armed property', () => {
+  it('keeps an alarm armed across seeded random enqueue/wake/pass/crash sequences and drains all work', async () => {
+    const seeds = Array.from({ length: 30 }, (_, index) => 0xc0_ff_ee + index * 7919);
+    for (const seed of seeds) {
+      const random = seededRandom(seed);
+      const model = new DispatcherModel(seed);
+
+      // The dispatcher is born woken: a DO instance only exists once reached.
+      await model.wake('wake');
+
+      for (let step = 0; step < 40; step += 1) {
+        await runRandomOp(model, random);
+        // The invariant: after every operation an alarm is armed — the
+        // perpetual pulse is what recovers lost enqueues.
+        model.assertAlarmArmed();
+      }
+
+      // Liveness: firing the armed alarm repeatedly drains every pending job,
+      // including ones whose enqueue lost its wake.
+      for (let fires = 0; fires < 60 && model.pendingWork.length > 0; fires += 1) {
+        await model.fireAlarm('drain-fire');
+      }
+      expect(model.pendingWork, model.artifact()).toEqual([]);
+      model.assertAlarmArmed();
+    }
+  });
+});
+
+class FakeShardStore implements DoIdentityStore {
+  readonly puts: string[] = [];
+  constructor(private stored?: string) {}
+
+  get(key: string): Promise<string | undefined> {
+    return Promise.resolve(key === SHARD_STORAGE_KEY ? this.stored : undefined);
+  }
+
+  put(key: string, value: string): Promise<void> {
+    if (key === SHARD_STORAGE_KEY) this.stored = value;
+    this.puts.push(value);
+    return Promise.resolve();
+  }
+}
+
+describe('resolveDispatcherShard', () => {
+  it('persists the name when the id carries one (live construction)', async () => {
+    const store = new FakeShardStore();
+    const shard = await resolveDispatcherShard('default', store);
+    expect(shard).toBe('default');
+    expect(store.puts).toEqual(['default']);
+  });
+
+  it('reads the persisted shard when the id has no name (alarm reconstruction)', async () => {
+    const store = new FakeShardStore('bulk');
+    const shard = await resolveDispatcherShard(undefined, store);
+    expect(shard).toBe('bulk');
+    expect(store.puts).toEqual([]);
+  });
+
+  it('throws when the id has no name and none was persisted', async () => {
+    const store = new FakeShardStore();
+    await expect(resolveDispatcherShard(undefined, store)).rejects.toThrow(/shard identity/);
+  });
+});

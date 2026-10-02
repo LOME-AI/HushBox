@@ -1,0 +1,1 @@
+ALTER TABLE "llm_completions" ADD COLUMN "reasoning_duration_ms" integer;

@@ -1,0 +1,329 @@
+import { z } from 'zod';
+import { recordServiceEvidence, SERVICE_NAMES } from '@hushbox/db';
+import { NANO_USD_PER_CENT } from '@hushbox/shared';
+import { errAsync, fromPromise, okAsync } from '../../../lib/result/index.js';
+import { notFoundError, unavailableError, validationError } from '../../../lib/errors/index.js';
+import { retryWithTimeoutPolicy } from '../../../lib/resilience/index.js';
+import type { ResultAsync } from '../../../lib/result/index.js';
+import type { DomainError } from '../../../lib/errors/index.js';
+import type { Database } from '@hushbox/db';
+import type { NanoUSD } from '@hushbox/shared';
+import type {
+  CaptureLookup,
+  ChargeOutcome,
+  ChargeRequest,
+  ChargeStatus,
+  PaymentProvider,
+} from '../ports/index.js';
+
+const DEFAULT_BASE_URL = 'https://api.helcim.com/v2';
+const NANO_PER_USD = 1_000_000_000n;
+
+interface HelcimNetworkOptions {
+  readonly maxRetries: number;
+  readonly initialDelayMs: number;
+  readonly maxDelayMs: number;
+  readonly timeoutMs: number;
+}
+
+/**
+ * Retrying the purchase POST is safe only because the idempotency key is
+ * forwarded on every attempt — Helcim replays the original transaction for a
+ * reused key instead of charging twice. The status GET is read-only.
+ */
+const DEFAULT_NETWORK: HelcimNetworkOptions = {
+  maxRetries: 2,
+  initialDelayMs: 100,
+  maxDelayMs: 1000,
+  timeoutMs: 30_000,
+};
+
+interface HelcimPaymentProviderConfig {
+  readonly apiToken: string;
+  /** Helcim v2 API root; sandbox and production share it (only the token differs). */
+  readonly baseUrl?: string;
+  readonly fetchImpl?: typeof fetch;
+  readonly network?: Partial<HelcimNetworkOptions>;
+  /**
+   * Evidence writes go through `recordServiceEvidence` (CI-only inside, and
+   * skipped entirely when no db is wired). When present, a successful real
+   * charge records one `helcim` service-evidence row so CI's `verify:evidence`
+   * step can prove the live seam was exercised — legacy parity.
+   */
+  readonly db?: Database;
+  readonly isCI?: boolean;
+}
+
+interface HttpJson {
+  readonly ok: boolean;
+  readonly status: number;
+  readonly data: unknown;
+}
+
+const helcimErrorDetailSchema = z.object({ message: z.string() });
+
+const purchaseResponseSchema = z.object({
+  transactionId: z.union([z.string(), z.number()]).optional(),
+  approvalCode: z.string().optional(),
+  responseMessage: z.string().optional(),
+  cardNumber: z.string().optional(),
+  cardType: z.string().optional(),
+  errors: z.record(z.string(), z.array(helcimErrorDetailSchema)).optional(),
+});
+
+const transactionStatusSchema = z.object({
+  transactionId: z.union([z.string(), z.number()]),
+  status: z.string(),
+});
+
+/**
+ * The card-transactions search response (`?invoiceNumber=`). SYNTHETIC shape —
+ * the legacy client never called this endpoint; taken from Helcim v2
+ * conventions and must be confirmed against the sandbox before it ships.
+ */
+const cardTransactionListSchema = z.array(
+  z.object({
+    transactionId: z.union([z.string(), z.number()]),
+    status: z.string(),
+  })
+);
+
+/**
+ * Exact bigint → decimal-dollar string; no float math touches the money
+ * value. The provider's JSON boundary wants a number — card amounts have
+ * cent precision (enforced as a charge precondition), exactly representable
+ * in a double, so the final `parseFloat` of this string cannot drift.
+ */
+function formatNanoUsdAsDollars(amount: NanoUSD): string {
+  const whole = amount / NANO_PER_USD;
+  const fraction = (amount % NANO_PER_USD).toString(10).padStart(9, '0');
+  const trimmed = fraction.replace(/0+$/, '');
+  return trimmed === '' ? whole.toString(10) : `${whole.toString(10)}.${trimmed}`;
+}
+
+function declineReasonFrom(data: z.infer<typeof purchaseResponseSchema>): string {
+  if (data.responseMessage !== undefined && data.responseMessage !== '') {
+    return data.responseMessage;
+  }
+  if (data.errors !== undefined) {
+    const joined = Object.values(data.errors)
+      .flat()
+      .map((detail) => detail.message)
+      .join(', ');
+    if (joined !== '') return joined;
+  }
+  return 'Payment declined';
+}
+
+/**
+ * The real Helcim adapter. Helcim's idempotency mechanism is the
+ * `idempotency-key` request header on the purchase call: a reused key
+ * replays the original transaction instead of charging again. The header is
+ * set from the caller-supplied key on every charge, unconditionally.
+ *
+ * Error values never carry the api token: failures are mapped to fixed
+ * operator-safe messages with the original cause attached, and the token
+ * travels only in the request header.
+ */
+export function createHelcimPaymentProvider(config: HelcimPaymentProviderConfig): PaymentProvider {
+  const apiToken = config.apiToken;
+  if (apiToken.trim().length === 0) {
+    throw new Error('Helcim API token is not configured');
+  }
+  if (apiToken.length < 10) {
+    throw new Error('Helcim API token appears invalid (too short)');
+  }
+
+  const baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const runner = retryWithTimeoutPolicy({ ...DEFAULT_NETWORK, ...config.network });
+
+  function fetchJson(url: string, init: RequestInit): ResultAsync<HttpJson, DomainError> {
+    return runner
+      .run(async (signal) => fetchImpl(url, { ...init, signal }))
+      .andThen((response) =>
+        fromPromise(response.json(), () =>
+          unavailableError(
+            `payment provider returned a non-JSON response (HTTP ${String(response.status)})`
+          )
+        ).map((data) => ({ ok: response.ok, status: response.status, data }))
+      );
+  }
+
+  /**
+   * Records the `helcim` service-evidence row after an approved real charge —
+   * a no-op inside `recordServiceEvidence` outside CI, so production charge
+   * behavior is unchanged. The charge has already succeeded here; the row is
+   * purely CI proof of the live seam.
+   */
+  function recordChargeEvidence(db: Database): ResultAsync<void, DomainError> {
+    return fromPromise(
+      recordServiceEvidence(db, config.isCI ?? false, SERVICE_NAMES.HELCIM),
+      (cause) => unavailableError('service-evidence write failed', cause)
+    ).map((): void => undefined);
+  }
+
+  function handleApprovedPurchase(
+    data: z.infer<typeof purchaseResponseSchema>
+  ): ResultAsync<ChargeOutcome, DomainError> {
+    if (data.transactionId === undefined) {
+      return errAsync<ChargeOutcome, DomainError>(
+        unavailableError('payment provider approved without a transaction id')
+      );
+    }
+    const outcome: ChargeOutcome = {
+      status: 'approved',
+      transactionId: String(data.transactionId),
+      ...(data.cardType === undefined ? {} : { cardType: data.cardType }),
+      ...(data.cardNumber === undefined ? {} : { cardLastFour: data.cardNumber.slice(-4) }),
+    };
+    const { db } = config;
+    return db === undefined
+      ? okAsync<ChargeOutcome, DomainError>(outcome)
+      : recordChargeEvidence(db).map(() => outcome);
+  }
+
+  return {
+    isMock: false,
+
+    charge(request: ChargeRequest): ResultAsync<ChargeOutcome, DomainError> {
+      if (request.amount <= 0n) {
+        return errAsync(validationError('charge amount must be positive'));
+      }
+      if (request.amount % NANO_USD_PER_CENT !== 0n) {
+        return errAsync(validationError('charge amount must be whole cents'));
+      }
+
+      const body = JSON.stringify({
+        amount: Number.parseFloat(formatNanoUsdAsDollars(request.amount)),
+        currency: 'USD',
+        ipAddress: request.ipAddress,
+        customerCode: request.customerCode,
+        // Submitted so an orphaned capture is recoverable via the
+        // card-transactions search (findCaptureByReference).
+        invoiceNumber: request.reference,
+        cardData: { cardToken: request.cardToken },
+      });
+
+      return fetchJson(`${baseUrl}/payment/purchase`, {
+        method: 'POST',
+        headers: {
+          'api-token': apiToken,
+          'Content-Type': 'application/json',
+          accept: 'application/json',
+          'idempotency-key': request.idempotencyKey,
+        },
+        body,
+      }).andThen(({ ok, status, data }) => {
+        // A server error is an unknown outcome, decided by the status alone: a
+        // 5xx can follow a capture, and Helcim documents no 5xx for this API at
+        // all, so the decline-shaped body one carries states nothing about the
+        // card. The error channel keeps the pre-claim `pending` for the
+        // reconcile job; a terminal decline would finalize it as `failed` and
+        // offer the payer a re-charge against a card that may already have paid.
+        if (status >= 500) {
+          return errAsync<ChargeOutcome, DomainError>(
+            unavailableError(`payment provider purchase failed (HTTP ${String(status)})`)
+          );
+        }
+
+        const parsed = purchaseResponseSchema.safeParse(data);
+        if (!parsed.success) {
+          return errAsync<ChargeOutcome, DomainError>(
+            unavailableError('payment provider returned an unrecognized purchase response')
+          );
+        }
+
+        if (ok && parsed.data.approvalCode !== undefined) {
+          return handleApprovedPurchase(parsed.data);
+        }
+
+        // Every remaining non-approved response is the provider's verdict on
+        // the card — a decline, and an expected outcome rather than an error.
+        return okAsync<ChargeOutcome, DomainError>({
+          status: 'declined',
+          declineReason: declineReasonFrom(parsed.data),
+        });
+      });
+    },
+
+    getChargeStatus(transactionId: string): ResultAsync<ChargeStatus, DomainError> {
+      return fetchJson(`${baseUrl}/card-transactions/${encodeURIComponent(transactionId)}`, {
+        method: 'GET',
+        headers: { 'api-token': apiToken, accept: 'application/json' },
+      }).andThen(({ ok, status, data }) => {
+        if (status === 404) {
+          return errAsync<ChargeStatus, DomainError>(
+            notFoundError('payment provider has no such transaction')
+          );
+        }
+        if (!ok) {
+          return errAsync<ChargeStatus, DomainError>(
+            unavailableError(`payment provider status query failed (HTTP ${String(status)})`)
+          );
+        }
+
+        const parsed = transactionStatusSchema.safeParse(data);
+        if (!parsed.success) {
+          return errAsync<ChargeStatus, DomainError>(
+            unavailableError('payment provider returned an unrecognized status response')
+          );
+        }
+
+        const providerStatus = parsed.data.status.toUpperCase();
+        if (providerStatus === 'APPROVED') {
+          return okAsync<ChargeStatus, DomainError>({
+            status: 'approved',
+            transactionId: String(parsed.data.transactionId),
+          });
+        }
+        if (providerStatus === 'DECLINED') {
+          return okAsync<ChargeStatus, DomainError>({
+            status: 'declined',
+            transactionId: String(parsed.data.transactionId),
+          });
+        }
+        return errAsync<ChargeStatus, DomainError>(
+          unavailableError('payment provider returned an unrecognized transaction status')
+        );
+      });
+    },
+
+    findCaptureByReference(reference: string): ResultAsync<CaptureLookup, DomainError> {
+      return fetchJson(
+        `${baseUrl}/card-transactions?invoiceNumber=${encodeURIComponent(reference)}`,
+        { method: 'GET', headers: { 'api-token': apiToken, accept: 'application/json' } }
+      ).andThen(({ ok, status, data }) => {
+        if (!ok) {
+          return errAsync<CaptureLookup, DomainError>(
+            unavailableError(`payment provider reference lookup failed (HTTP ${String(status)})`)
+          );
+        }
+        const parsed = cardTransactionListSchema.safeParse(data);
+        if (!parsed.success) {
+          return errAsync<CaptureLookup, DomainError>(
+            unavailableError('payment provider returned an unrecognized card-transactions response')
+          );
+        }
+        // A unique reference matches at most one charge; take the first.
+        const first = parsed.data[0];
+        if (first === undefined) {
+          return okAsync<CaptureLookup, DomainError>({ kind: 'not-found' });
+        }
+        const captureStatus = first.status.toUpperCase();
+        if (captureStatus !== 'APPROVED' && captureStatus !== 'DECLINED') {
+          return errAsync<CaptureLookup, DomainError>(
+            unavailableError('payment provider returned an unrecognized capture status')
+          );
+        }
+        return okAsync<CaptureLookup, DomainError>({
+          kind: 'found',
+          capture: {
+            transactionId: String(first.transactionId),
+            status: captureStatus === 'APPROVED' ? 'approved' : 'declined',
+          },
+        });
+      });
+    },
+  };
+}

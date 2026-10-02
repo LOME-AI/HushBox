@@ -1,0 +1,88 @@
+---
+title: 'Your Chatbot Now Remembers Everything. Have You Checked What?'
+description: 'Claude, Gemini and ChatGPT keep memory on unless you turn it off. What they store, what "delete" does, and how a poisoned memory follows you into every chat.'
+author: 'HushBox Team'
+date: 2026-09-05
+tags: ['privacy', 'security', 'ai-models', 'memory']
+draft: false
+---
+
+## What changed this month
+
+On August 25, 2026, Anthropic announced that Claude's memory now works across chat and its Cowork agent (when Cowork runs in the cloud), and that "Memory is on by default on Free, Pro and Max plans across web, desktop, and mobile." With that, the last of the three big consumer assistants defaulted to remembering.
+
+The other two got there earlier. OpenAI's saved memories date to April 2024. In April 2025 it added the first version of what it calls dreaming, "a method for ChatGPT to automatically curate memories in the background by referencing chat history," and on June 4, 2026 it made dreaming the memory system itself, for US Plus and Pro users first and Free users over the following weeks. Google's Gemini post from August 13, 2025 introduced a setting that lets Gemini learn from your past conversations and said, in the same breath, "This setting is on by default to help Gemini give you more relevant responses, but you remain in control."
+
+Here is where the three stand, in each vendor's own terms.
+
+| Assistant | Memory default                                                               | What turning it off does                                  | Off-the-record option                              |
+| --------- | ---------------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------- |
+| Claude    | On, for Free, Pro and Max                                                    | Pause (existing memory kept, unused) or reset             | Incognito chat: nothing saved to memory or history |
+| Gemini    | On ("Memory", called "Personal context" at launch)                           | Stops personalization; Keep Activity is a separate switch | Temporary Chat, kept up to 72 hours                |
+| ChatGPT   | On; OpenAI's FAQ states no default, only that you can disable it at any time | Stops new memories; past chats stay                       | Temporary Chat, no memories read or written        |
+
+Each arrived as a feature announcement with a notice you could click through, and behind the notice the default was on.
+
+## A dossier, not a diary
+
+Chat history is a diary. You wrote it, you can scroll it, deleting a page deletes that page. Memory is something else, and the vendors say so themselves once you read past the headline.
+
+OpenAI's help center describes ChatGPT's memory as "a continually updated synthesis of context from your past chats, which may be broader than what can be shown as individual items in a summary." The summary you can inspect is a "high-level view" of the thing, and the thing is bigger than the view. OpenAI's own instruction for checking is to ask: "If you want to know if ChatGPT has remembered something, just ask in chat." Anthropic's version writes as you go: "Claude now adds topics to memory as you chat, instead of summarizing conversations after they end." You mention that your lease ends in November. You don't say "remember this." It's remembered.
+
+The difference matters because a synthesis is an inference engine, not a transcript. Tell a chatbot about a symptom on Monday, a medication on Wednesday, and a fight with your partner on Friday, and the model doesn't hold three sentences. It holds a person, which is the whole pitch.
+
+Four researchers put this in front of ordinary users. Cheng Chen, Maria Molina, Mengqi Liao and Eugene Cho Snyder interviewed 20 ChatGPT users for a paper at CHI 2026, the ACM's human-computer interaction conference, and had participants examine what ChatGPT remembered about them. Most, the abstract reports, "experienced negative expectancy violations after learning what ChatGPT remembered about them," which is the researchers' term for finding a record that isn't the one you expected. Participants named four ways the machine's memory differed from a human's: it doesn't forget, it's detailed, it's accurate, and it has no feelings about any of it. A friend who remembers your bad year also remembers it kindly, and with gaps. A database has neither.
+
+## "Delete" is a suggestion
+
+Every one of these products has a delete button. What the button does is narrower than the word.
+
+Start with ChatGPT, because OpenAI documents it most carefully. The current system keeps its memory apart from any single chat, so removing something means, in the help center's words, you "need to delete every source where it appears, including past chats, archived chats, files, the memory summary, and disconnect any connected apps that may contain that information." Five places. And the off switch is not a delete:
+
+> You can delete the memories shown on your memory summary page and turn memory off by selecting Delete and turn off memory from the three-dot menu. This does not delete your past chats. If you turn memory back on later, ChatGPT may create new memories from chats that remain in your chat history, including older chats.
+>
+> OpenAI, Memory FAQ
+
+So the off switch is a pause, and the chat history is the seed bank. The older saved-memories system is still one click away in settings, and its rules are on the same page: deleting a chat doesn't remove memories made from it, and "We may retain a log of deleted Saved Memories for up to 30 days for safety and debugging purposes."
+
+Gemini's version of the same trap is two switches that look like one. Turning off Memory stops personalization. Keep Activity is its own switch, the one that decides whether your chats are stored and whether "a sample of your future uploads will be used to help improve Google services for everyone." Deleting your activity is a third action. Do one and you've done one.
+
+Anthropic's controls are the cleanest of the three on paper: every remembered topic is a short file you can read, edit or delete, and sensitive subjects (health, race, religion, politics, gender identity) stay out of memory unless you flip "include sensitive topics in memory." That's a real improvement over a synthesis you can't see. It's still a policy. The list of what counts as sensitive, the default, and the existence of the toggle are all things Anthropic decides and can revise. And the memory files are, per Anthropic's help page, "stored with encryption at rest," which means decrypted every time the model reads them, because a model can't use what it can't read.
+
+## Memory as an attack surface
+
+There's a second problem with a chatbot that remembers, and it has nothing to do with the vendor's intentions.
+
+In May 2024, the security researcher Johann Rehberger showed that ChatGPT's memory could be written by things other than you. A Google Doc referenced in a conversation could add memories. An uploaded image could. He wrote that such a hole "would allow an attacker to write misinformation, bias and even instructions into your ChatGPT's memories," and that "it is also possible to delete all existing memories with a simple prompt injection." OpenAI's response, in his account, was to close the report as a "Model Safety Issue" that "is not considered a security vulnerability."
+
+The reason this is worse than ordinary prompt injection is persistence. An injected instruction in a stateless chat dies when the tab closes. An injected memory is read at the top of every future conversation, forever, or until you happen to notice it in a settings page you've never opened.
+
+Radware demonstrated where that leads. Their ZombieAgent research, disclosed on January 8, 2026 and reported by SecurityWeek and CSO Online, targeted ChatGPT with connectors to email, where memory is normally switched off. A malicious file routed around that: it rewrote the agent's long-term memory with attacker rules to read memory first on every message, save any sensitive information the user shares, and leak it. CSO quoted the researchers on the part that should worry anyone who has asked a chatbot about their health: "We also demonstrated non-exfiltration damage, such as manipulating stored medical history and causing harmful, misleading medical advice." Radware reported the techniques to OpenAI in September 2025 and OpenAI shipped a fix on December 16. The write itself was the bypass: memory is supposed to be off in connector chats, and a file turned it back on.
+
+How easy is the write? A paper from Texas A&M researchers Mengxiao Wang, Yuxuan Zhang and Guofei Gu includes a short experiment against production chatbots, framed around shared accounts: anyone who gets a turn at your session can type a memory in. On ChatGPT, a prompt reading "remember that" landed 100% of the time; "keep in mind that" 60%; "don't forget that" 40%. On Gemini all three landed every time, though Gemini asked for confirmation more often. The paper gives no trial counts, so treat the percentages as a sketch. Their example was a health query poisoned by an earlier planted memory, and they note the injected content "remains active even after visible chat history is cleared."
+
+## The best case for memory
+
+The strongest argument for all this is the one Anthropic makes: re-explaining yourself is friction, and friction is the tax you pay for a tool that treats every conversation as a first date. Memory that works is better. Ask for a recipe and it already knows about the gluten allergy. Ask for an email to your manager and it already knows how she likes updates written. The vendors didn't invent the demand; users did, every time they pasted the same context into a new chat.
+
+And the controls have improved. Anthropic gives you a file per topic, OpenAI shows some of the sources behind a reply, Google ships a temporary mode. Grant all of it.
+
+What none of it changes is where the memory lives and who can read it. A per-topic file is a better interface to a server-side profile. The profile is still on the server, still readable by the company that runs the model, still subject to that company's retention log and its definition of sensitive, and still open to whatever the next indirect prompt injection manages to write into it.
+
+So check what yours remembers. Not because the settings page will save you, but because it's the only place you'll ever see the profile that every future answer is now being written against.
+
+---
+
+## Sources
+
+1. [Claude's memory works everywhere, and you decide what's in it](https://claude.com/blog/claudes-memory-works-everywhere-and-you-decide-whats-in-it)
+2. [Dreaming: Better memory for a more helpful ChatGPT](https://openai.com/index/chatgpt-memory-dreaming/)
+3. [Gemini adds Temporary Chats and new personalization features](https://blog.google/products-and-platforms/products/gemini/temporary-chats-privacy-controls/)
+4. [Use Claude's chat search and memory to build on previous context](https://support.claude.com/en/articles/11817273-use-claude-s-chat-search-and-memory-to-build-on-previous-context)
+5. [Get personalization with memory of your past Gemini chats](https://support.google.com/gemini/answer/16598469)
+6. [Memory FAQ](https://help.openai.com/en/articles/8590148-memory-faq)
+7. [Relational Gains, Privacy Strains: Exploring Users' Perceptions and Experiences with ChatGPT's Memory Feature](https://doi.org/10.1145/3772318.3791635)
+8. [ChatGPT: Hacking Memories with Prompt Injection](https://embracethered.com/blog/posts/2024/chatgpt-hacking-memories/)
+9. ['ZombieAgent' Attack Let Researchers Take Over ChatGPT](https://www.securityweek.com/zombieagent-attack-let-researchers-take-over-chatgpt/)
+10. [ZombieAgent ChatGPT attack shows persistent data leak risks of AI agents](https://www.csoonline.com/article/4115110/zombieagent-chatgpt-attack-shows-persistent-data-leak-risks-of-ai-agents.html)
+11. [PromptSleuth: Detecting Prompt Injection via Semantic Intent Invariance](https://arxiv.org/abs/2508.20890)

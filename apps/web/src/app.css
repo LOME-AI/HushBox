@@ -1,0 +1,214 @@
+/* Self-hosted brand fonts (Merriweather serif, Hanken Grotesk sans, JetBrains
+   Mono), shared with the marketing app via @hushbox/ui so a single woff2 source
+   feeds both bundlers. @font-face declarations live in the package. */
+@import '@hushbox/ui/fonts';
+
+@layer base, components, utilities, accessibility;
+
+@import '@hushbox/config/tailwind';
+
+/* Fixed-shell guarantee — the document itself never scrolls. Every scrollable
+ * region in the app is an explicit overflow-y-auto/scroll container. Without
+ * this cap, any layout slip (flex-1 missing min-h-0, sticky header in a tall
+ * route, a stray fixed-position sibling that adds layout height) lets <html>
+ * grow past viewport and produces a "phantom" page-level scroll that drags
+ * the PageHeader along with it. Marketing keeps document scrolling because
+ * it uses its own global.css; this cap is web-only. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Accessibility class-based overrides — must be imported AFTER Tailwind so
+   the `accessibility` layer sits at the top of the cascade. */
+@import '@hushbox/ui/accessibility/styles';
+
+/* Announcement banner — plain CSS over shared theme tokens (no Tailwind utilities,
+   so no @source needed). */
+@import '@hushbox/ui/banner/styles';
+
+@source '../../../packages/ui/src/components/accessibility/**/*.tsx';
+
+/* Streamdown uses Tailwind classes in its dist files — tell Tailwind to scan them */
+@source '../node_modules/streamdown/dist/*.js';
+@source '../node_modules/@streamdown/code/dist/*.js';
+
+/* Blinking cursor animation for streaming messages */
+@keyframes blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* Slide up animation for auth error messages */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.2s ease-out forwards;
+}
+
+/* Shake animation for repeated auth errors */
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-8px);
+  }
+  50% {
+    transform: translateX(8px);
+  }
+  75% {
+    transform: translateX(-8px);
+  }
+}
+
+.animate-shake {
+  animation: shake 0.6s ease-in-out;
+}
+
+/* Shine sweep animation for gradient action buttons. The sweep's own colour lives
+   here rather than inline so the accessibility layer can override it; the element is
+   decorative and aria-hidden, but an inline colour would be unreachable by the cascade. */
+.sidebar-sheen {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.2), transparent);
+}
+
+.sidebar-sheen-collapsed {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.3), transparent);
+}
+
+/* Shine sweep animation for gradient action buttons */
+@keyframes shine {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Hide Streamdown's built-in code block header and border in document panel —
+   the panel has its own header with title, copy, download, fullscreen */
+.document-panel-code [data-streamdown='code-block-header'] {
+  display: none;
+}
+
+.document-panel-code [data-streamdown='code-block'] {
+  border: none !important;
+  border-radius: 0;
+  margin: 0;
+}
+
+.document-panel-code [data-streamdown='code-block-body'] {
+  padding: 4px;
+}
+
+/* Thinking indicator dot animation */
+@keyframes dot-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+.animate-dot-pulse {
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+
+/* One-shot accent pulse for the carryover model row when switching to multi mode */
+@keyframes picker-pulse {
+  0% {
+    background-color: transparent;
+  }
+  35% {
+    background-color: color-mix(in oklch, var(--color-accent) 70%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-picker-pulse {
+  animation: picker-pulse 600ms ease-out 1;
+}
+
+/* Reduced motion — keyed on `html.reduced-motion` (set by the broadcaster
+   when either the OS pref or the a11y widget toggles reduce-motion on). The
+   global `motion.css` rule already crushes durations to 0.01ms, but these
+   animations have a final keyframe that isn't the desired resting state
+   (blink ends invisible; dot-pulse ends low-opacity) — so they need explicit
+   `animation: none` to land on the natural element styles. */
+html.reduced-motion .animate-picker-pulse {
+  animation: none;
+}
+
+html.reduced-motion .animate-dot-pulse {
+  animation: none;
+  opacity: 0.6;
+}
+
+html.reduced-motion .animate-blink,
+html.reduced-motion .animate-slide-up,
+html.reduced-motion .animate-shake {
+  animation: none;
+}
+
+/* E2E: disable all CSS transitions and animations to eliminate timing races.
+   The [data-e2e] attribute is set on <html> when VITE_E2E is true.
+
+   `animation-name: none` (not merely a zeroed duration) is load-bearing for
+   exit-animated Radix overlays (Dialog/Sheet/Popover/DropdownMenu/Select). Radix
+   `Presence` unmounts a closing node synchronously only when its computed
+   `animation-name` is `none`; with any name set it instead routes through the
+   node's `animationend` event. Under host saturation WebKit can drop or defer
+   that event for a sub-millisecond animation, stranding the overlay mounted past
+   its close (a modal that never disappears → flaky assertions). Zeroing the
+   duration does NOT help: the reduced-motion rule (html.reduced-motion, also on
+   in the E2E build) wins specificity and pins the duration to 0.01ms regardless,
+   while leaving the name intact. Forcing the name to none removes the event
+   dependency entirely. Production keeps real animations; only the E2E build
+   takes this path. */
+[data-e2e] *,
+[data-e2e] *::before,
+[data-e2e] *::after {
+  transition-duration: 0s !important;
+  animation-name: none !important;
+}
+
+/* Demo (autoplaying showcase, no keyboard or screen-reader user). RouteAnnouncer
+   moves focus to each route's heading (`#main h1`, falling back to `#main`) on
+   every programmatic navigation; with no pointer modality the browser paints its
+   :focus-visible ring on that heading, which reads as a border around the
+   greeting. Drop the ring for the route-announce targets only — interactive
+   controls keep their focus styles, and the a11y strong-focus override (which
+   uses !important) still wins for anyone who enables it. The [data-demo]
+   attribute is set on <html> by the demo bootstrap. */
+[data-demo] #main:focus,
+[data-demo] #main h1[tabindex]:focus {
+  outline: none;
+}

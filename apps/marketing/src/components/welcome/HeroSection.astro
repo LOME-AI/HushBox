@@ -1,0 +1,83 @@
+---
+import { PRODUCT_TAGLINE_SENTENCES } from '@hushbox/shared';
+import { LANDING_CIPHER_MESSAGES } from '@hushbox/shared/cipher-messages';
+import { ROUTES } from '@hushbox/shared/routes';
+import { buttonVariants } from '@hushbox/ui/button';
+import { Icon, ScrollChevron } from '@hushbox/ui/icons';
+import { cn } from '@hushbox/ui/lib/utils';
+import { Heading } from '@hushbox/ui/type';
+import PageHero from '../PageHero.astro';
+
+const lastIndex = PRODUCT_TAGLINE_SENTENCES.length - 1;
+// A label wider than the screen (the largest text sizes) wraps inside its button instead
+// of pushing the page sideways; at default sizes every label fits on one line.
+const CTA_FIT = 'h-auto min-h-10 max-w-full py-2 text-center whitespace-normal';
+---
+
+<PageHero messages={LANDING_CIPHER_MESSAGES} fullscreen>
+  <style is:inline>
+    @keyframes scroll-arrow-nudge {
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(8px);
+      }
+    }
+    .scroll-arrow {
+      animation: scroll-arrow-nudge 2s ease-in-out infinite;
+      transition: opacity 0.3s;
+    }
+  </style>
+  <Heading level={1} variant="site-hero">
+    {
+      PRODUCT_TAGLINE_SENTENCES.map((sentence, index) =>
+        index === lastIndex ? (
+          <span class="text-primary">{sentence}</span>
+        ) : (
+          <Fragment>
+            {sentence}
+            <br />
+          </Fragment>
+        )
+      )
+    }
+  </Heading>
+  <p
+    class="text-foreground mx-auto mt-6 max-w-xl font-serif text-[length:clamp(1.125rem,1.05rem_+_0.3vw,1.25rem)] leading-normal"
+  >
+    Access the world's leading AI models from one private workspace. Your conversations stay yours.
+  </p>
+  <div data-hero-cta class="mt-8 flex flex-col items-center gap-4 md:flex-row md:justify-center">
+    <a href={ROUTES.CHAT} class={cn(buttonVariants({ size: 'lg' }), CTA_FIT)}> Try HushBox Free </a>
+    <a href="#demo" class={cn(buttonVariants({ variant: 'ghost', size: 'lg' }), CTA_FIT)}>
+      See How It Works &rarr;
+    </a>
+  </div>
+  <p class="text-foreground mt-4 font-serif text-sm">No account required to try.</p>
+
+  <Fragment slot="below">
+    <a
+      id="scroll-arrow"
+      href="#demo"
+      aria-label="Scroll to learn more"
+      class="scroll-arrow absolute bottom-16 left-1/2 -translate-x-1/2 cursor-pointer"
+    >
+      <Icon icon={ScrollChevron} size="display" className="text-primary" />
+    </a>
+    <script is:inline>
+      (function () {
+        var arrow = document.getElementById('scroll-arrow');
+        if (!arrow) return;
+        window.addEventListener(
+          'scroll',
+          function () {
+            arrow.style.opacity = window.scrollY > 50 ? '0' : '1';
+          },
+          { passive: true }
+        );
+      })();
+    </script>
+  </Fragment>
+</PageHero>

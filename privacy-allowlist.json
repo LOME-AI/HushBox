@@ -1,0 +1,610 @@
+{
+  "entries": [
+    {
+      "clause": "provenance",
+      "description": "Upstream PyPI simple-index fixture: the upload-time fields are the package index's own record of third-party releases, not a record of when work happened here.",
+      "path": "apps/sandbox/test-fixtures/pypi/cowsay-simple-index.json",
+      "literals": [
+        "2017-05-08T10:10:00.853913Z",
+        "2020-12-08T22:21:23.166151Z",
+        "2020-12-08T22:21:24.106254Z",
+        "2021-04-19T11:54:06.998235Z",
+        "2021-04-19T11:54:11.179586Z",
+        "2022-06-22T01:21:41.932633Z",
+        "2023-09-08T17:16:34.440054Z",
+        "2023-09-08T17:25:17.505873Z",
+        "2023-09-08T17:16:36.028565Z",
+        "2023-09-25T16:30:01.619675Z"
+      ]
+    },
+    {
+      "clause": "provenance",
+      "description": "MinIO/Quay.io release tag names for minio/minio and minio/mc images: the embedded date-time is the upstream release's own build timestamp naming scheme, not a record of when work happened here.",
+      "path": "docs/runs/2026-09-22-ci-release-hardening/research/pinning-facts.md",
+      "literals": [
+        "2025-09-07T16-13-09Z",
+        "2025-08-13T08-35-41Z"
+      ]
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/components/accessibility/fonts/atkinson-hyperlegible.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/components/accessibility/fonts/lexend.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/components/accessibility/fonts/open-dyslexic.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/styles/fonts/hanken-grotesk-latin-ext.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/styles/fonts/hanken-grotesk-latin.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/styles/fonts/jetbrains-mono-latin-ext.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/styles/fonts/jetbrains-mono-latin.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/styles/fonts/merriweather-italic-latin-ext.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/styles/fonts/merriweather-italic-latin.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/styles/fonts/merriweather-latin-ext.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "packages/ui/src/styles/fonts/merriweather-latin.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "films/fonts/katex-sans-serif/katex-sans-serif-700.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream PyPI wheel used as a sandbox test fixture: its ZIP entry modification times are the package author\u2019s. No literals are pinned because none can be: the times are packed 16-bit DOS words and 32-bit extra-field integers rather than text, and rewriting them invalidates the RECORD hashes the fixture exists to exercise.",
+      "path": "apps/sandbox/test-fixtures/pypi/cowsay-6.1-py3-none-any.whl"
+    },
+    {
+      "clause": "provenance",
+      "description": "Vendor-generated music bed. What remains after its ID3 C2PA manifest was dropped is the MP3 encoder's own identity banner, which that encoder drains into the ancillary bits of the coded audio frames: it names a third-party tool and never when work happened here. No metadata remedy reaches it, because it sits in no metadata container \u2014 the tag walk ends before the frames begin. The one in-place remedy that does reach it rewrites coded audio, and decoding both files to raw samples shows that rewrite changing them, so taking it would trade a tool's name for the recording.",
+      "path": "ads/2026-07-hq-tour/06-music/bed-lyria3pro-take1.mp3"
+    },
+    {
+      "clause": "form",
+      "description": "The Privacy section's own worked examples of the day-resolution rule. These three literals are the rule's illustration of the shape it forbids, not a record of when anything happened \u2014 the allowlist's format-string class. Rewriting them to day resolution would leave the rule stating a prohibition with no example of what it rejects, which is the teaching force the section carries examples for.",
+      "path": "docs/AGENT-RULES.md",
+      "literals": [
+        "03:14",
+        "21:00",
+        "23:40"
+      ]
+    },
+    {
+      "clause": "form",
+      "description": "A rendered-markup sample whose machine-readable attribute and visible text carry deliberately different renderings of one value; the next line's 'no locale formatting' observation is the conclusion drawn from that pair. One identical value in both positions leaves the observation without its demonstration. Format demonstration, not an event record.",
+      "path": "docs/runs/2026-07-30-audit-review/task-13/impl-report-1.md",
+      "literals": [
+        "2026-07-31 21:37",
+        "2026-07-31T21:37:31.073Z"
+      ]
+    },
+    {
+      "clause": "form",
+      "description": "The entry records which test literal a prior task deliberately left un-migrated, so the next task's ownership is unambiguous. Shown already in migrated form it asserts the opposite of the ownership fact it exists to record. Quoted source constant, format-string class.",
+      "path": "docs/runs/2026-08-16-docket-day-resolution/ledger.md",
+      "literals": [
+        "2026-08-01T10:00:00Z"
+      ]
+    },
+    {
+      "clause": "form",
+      "description": "That run's whole subject is timestamp precision, and this line is the cost record for dropping a dashboard tile: it prints a lexicographic comparison between a day-form stamp and a full-precision one to show the comparison is false forever. The literal is the shape being compared, not a record of when anything happened \u2014 the format-string class. Collapsed to its day, both operands become the same string, the printed comparison becomes true, and the record argues from a false premise.",
+      "path": "docs/runs/2026-08-16-docket-day-resolution/plan.md",
+      "literals": [
+        "2026-08-16T10:42:13.123Z"
+      ]
+    },
+    {
+      "clause": "form",
+      "description": "Watched-RED evidence and fixture-migration records from the task that moved the docket's stamps to day resolution. Each literal is a quoted assertion message, a quoted fixture default, a quoted rendered-output expectation, or a quoted test argument whose whole point is the format it is in \u2014 the format-string class, not a record of when work happened. Collapsed, the quoted actual value matches the very pattern the message says it failed to match, so the report records a RED that could not have occurred.",
+      "path": "docs/runs/2026-08-16-docket-day-resolution/task-02/impl-report-1.md",
+      "literals": [
+        "2026-07-30T08:00:00Z",
+        "2026-07-30T23:59:00Z",
+        "2026-08-01 09:30",
+        "2026-08-16T16:48:14.491Z",
+        "2026-08-16T16:48:56.843Z"
+      ]
+    },
+    {
+      "clause": "form",
+      "description": "Collapse-audit tables and a quoted unified diff from that same day-resolution task. Each literal is one member of a pair the record exists to contrast \u2014 the HEAD side of a diff, or the two halves of a column headed 'collapsed pair'. Both members must stay distinct for the column to show what collapsed; identical members read as though the pair was never distinct. Format demonstrations, not event records.",
+      "path": "docs/runs/2026-08-16-docket-day-resolution/task-02/impl-report-2.md",
+      "literals": [
+        "2026-07-31 14:05",
+        "2026-07-31T08:30:00.000Z",
+        "2026-08-01 09:30",
+        "2026-08-01T09:30:00.000Z",
+        "2026-08-01T09:30:12.000Z"
+      ]
+    },
+    {
+      "clause": "form",
+      "description": "The literal names the one full-precision test constant that task deliberately left in place, and the sentence exists to say why. Rendered as a bare day it becomes an example that refutes its own sentence. A quoted source constant describing a shape, not a record of when work happened.",
+      "path": "docs/runs/2026-08-16-docket-day-resolution/task-03/impl-report-1.md",
+      "literals": [
+        "2026-07-30T14:12:00.000Z"
+      ]
+    },
+    {
+      "clause": "content",
+      "description": "Interface-testing report: a ten-digit content hash of rendered page markup, read as a second-precision epoch because its leading digits fall inside the era the rule guards. It is printed in a hash column whose neighbouring values are negative, which no epoch is, and the defect the report records is that the value stayed byte-identical across presses \u2014 which a clock cannot.",
+      "path": "docs/runs/2026-07-30-audit-review/task-12/impl-report-3.md",
+      "literals": [
+        "1997994972"
+      ],
+      "evidence": {
+        "is": "a 32-bit content hash of the rendered `#main` markup, printed as a column of a before/after table",
+        "shownBy": "#main innerHTML hash"
+      }
+    },
+    {
+      "clause": "content",
+      "description": "The same rendered-markup content hash, quoted in the plan's statement of the defect: three presses left the markup byte-identical, which is the finding rather than a time.",
+      "path": "docs/runs/2026-07-30-audit-review/plan.md",
+      "literals": [
+        "1997994972"
+      ],
+      "evidence": {
+        "is": "a content hash of the rendered `#main` markup, named as a hash on the line that carries it",
+        "shownBy": "left `#main.innerHTML` byte-identical (hash "
+      }
+    },
+    {
+      "clause": "content",
+      "description": "The same rendered-markup content hash, quoted in the ledger's record of the fix, whose point is that the hashes now move where they had been identical.",
+      "path": "docs/runs/2026-07-30-audit-review/ledger.md",
+      "literals": [
+        "1997994972"
+      ],
+      "evidence": {
+        "is": "a content hash of the rendered markup, one of a sequence the line reports as moving",
+        "shownBy": "`j`/`k` hashes move ("
+      }
+    },
+    {
+      "clause": "data",
+      "description": "Quiet-hours spike report: the zone identifiers are the feature's own input, exercised to prove the runtime resolves arbitrary zones and honours daylight saving. Mutually exclusive zones sit in one list, so none of them is where an author was. The offsets and rendered clock readings beside them are the spike's result \u2014 one fixed instant read out in each of those zones \u2014 so they are the same input observed, and a reading that moves with the zone it is paired with cannot be a reading of where the author is.",
+      "path": "docs/runs/2026-07-23-notifications/task-04/impl-report-1.md",
+      "literals": [
+        "America/New_York",
+        "Asia/Tokyo",
+        "Asia/Kolkata",
+        "UTC-5",
+        "UTC-4",
+        "UTC+9",
+        "21:00",
+        "17:30"
+      ],
+      "evidence": {
+        "is": "zones fed to `Intl.DateTimeFormat` as spike inputs, never the author's own",
+        "shownBy": "workerd honors arbitrary IANA `timeZone` values",
+        "beside": "` renders one fixed UTC time-of-day"
+      }
+    },
+    {
+      "clause": "data",
+      "description": "The same quiet-hours zones as test inputs, chosen to span both hemispheres and a half-hour offset. Four mutually exclusive zones in one file are feature data, not a location. The clock readings are what those zones render one fixed instant as, including the pair either side of a daylight-saving transition, so each is a result of the input rather than an observation of the author.",
+      "path": "docs/runs/2026-07-23-notifications/task-04/impl-report-2.md",
+      "literals": [
+        "America/New_York",
+        "Asia/Tokyo",
+        "Asia/Kolkata",
+        "Australia/Lord_Howe",
+        "17:30",
+        "07:00",
+        "08:00"
+      ],
+      "evidence": {
+        "is": "zones the quiet-hours test evaluates through the production module",
+        "shownBy": "workerd Intl spike test pinning arbitrary IANA zone evaluation.",
+        "beside": "harness, evaluates "
+      }
+    },
+    {
+      "clause": "data",
+      "description": "Notification-card report: the zones are the stored-versus-device premise of the quiet-hours display, carried by a test constant that switches to the other zone when the runner is already in the first \u2014 so the value is chosen to differ from wherever the run happens.",
+      "path": "docs/runs/2026-07-23-notifications/task-10/impl-report-2.md",
+      "literals": [
+        "America/New_York",
+        "Europe/London"
+      ],
+      "evidence": {
+        "is": "a test constant deliberately set to a zone the runner is not in, and the home and away zones of a hypothetical traveller in the prose weighing the display options",
+        "shownBy": "or `Europe/London` if the runner is already in"
+      }
+    },
+    {
+      "clause": "data",
+      "description": "Notification-preferences report: the value is the upper endpoint of the hour-label range the quiet-hours control renders, quoted inside a deviation note whose entire claim is about that rendering. Re-expression at day resolution is unavailable here, because the labels are the subject of the sentence rather than its units: the same note names minutes-of-day as the wire format the labels are derived from, so a rewrite to the canonical unit would make the sentence assert a rendering the control does not produce.",
+      "path": "docs/runs/2026-07-23-notifications/task-10/impl-report-1.md",
+      "literals": [
+        "23:00"
+      ],
+      "evidence": {
+        "is": "the top label of the range the hour control draws, one of the two endpoints the note quotes to show the labels are 24-hour rather than locale-formatted",
+        "shownBy": "Hour labels are 24-hour"
+      }
+    },
+    {
+      "clause": "content",
+      "description": "An offset-shaped term in an admission-cap inequality: the value is an operand of the arithmetic written on the line, and a zone offset cannot be added to a cap.",
+      "path": "docs/runs/2026-07-23-affordability-remediation/ledger.md",
+      "literals": [
+        "+1000"
+      ],
+      "evidence": {
+        "is": "an addend in an inequality over an admission cap",
+        "shownBy": "(admission proved cap\u22651000, not cap\u2265B"
+      }
+    },
+    {
+      "clause": "content",
+      "description": "An offset-shaped cell in a table column of elapsed ages: the cell carries an hours unit and its sibling rows read in hours, seconds and milliseconds. A zone offset carries no unit and is not a delta.",
+      "path": "docs/runs/2026-07-23-affordability-remediation/task-r76-template/impl-report-2.md",
+      "literals": [
+        "+1000"
+      ],
+      "evidence": {
+        "is": "an age in hours, in a column comparing the current instant against a minted one",
+        "shownBy": "now vs minted",
+        "beside": "+1000 h"
+      }
+    },
+    {
+      "clause": "content",
+      "description": "An offset-shaped character-count delta: the value is immediately followed by its unit and a token estimate.",
+      "path": "docs/runs/2026-07-23-in-browser-code-execution/ledger.md",
+      "literals": [
+        "+1130"
+      ],
+      "evidence": {
+        "is": "the growth in characters of a system-prompt section",
+        "shownBy": " chars \u2248283 tokens"
+      }
+    },
+    {
+      "clause": "content",
+      "description": "Three adjacent members of a regular-expression character class, read as a civil zone abbreviation. The letters are a bracket expression quoted while describing a repository search, not a zone.",
+      "path": "docs/runs/2026-07-23-affordability-remediation/task-s3/impl-report-1.md",
+      "literals": [
+        "HST"
+      ],
+      "evidence": {
+        "is": "letters inside a bracketed character class in a quoted search pattern",
+        "shownBy": "[A-HST][0-9]{1,2}"
+      }
+    },
+    {
+      "clause": "data",
+      "description": "A civil zone abbreviation, and it is one \u2014 but it is the browser-automation value a mutation test plants, not where anyone sits. The report is about a mutation that sets a wrong `timezoneId` to prove the citation checker fails on it; the configuration itself is set to UTC.",
+      "path": "docs/runs/2026-08-10-e2e-billing-proof/task-citation-link/impl-report-1.md",
+      "literals": [
+        "CET"
+      ],
+      "evidence": {
+        "is": "a deliberately wrong `timezoneId` planted in a mutation test",
+        "shownBy": "`config` wrong value: `timezoneId=UTC` \u2192 `timezoneId=CET`."
+      }
+    },
+    {
+      "clause": "content",
+      "description": "A model alias read as the named-home shorthand: the token is quoted as an example of the gateway's alias models, and the segment after the tilde is a provider name.",
+      "path": "docs/runs/2026-07-21-reasoning-effort/research/openrouter-reasoning.md",
+      "literals": [
+        "~openai/"
+      ],
+      "evidence": {
+        "is": "a model alias on the inference gateway, quoted as an example",
+        "shownBy": "`~latest` alias models (e.g. "
+      }
+    },
+    {
+      "clause": "data",
+      "description": "Creative direction in the ad-writing skill: an hour named as an emotional register in the allowed-tone list, and the hour of a scene in the setting list. Both set a mood the ad aims at, never a moment anything happened.",
+      "path": ".claude/skills/create-ad/SKILL.md",
+      "literals": [
+        "2am"
+      ],
+      "evidence": {
+        "is": "a mood named in the skill's allowed-emotion list, and the hour of a shot description in its setting list",
+        "shownBy": "quiet dread (the 2am question sitting in a training set)",
+        "beside": "ordinary desks at 2am, server rooms as they actually look."
+      }
+    },
+    {
+      "clause": "data",
+      "description": "The English gloss of the cron expression it shares a line with: the weekday and hour the mutation sweep is scheduled to fire.",
+      "path": ".github/workflows/mutation.yml",
+      "literals": [
+        "2am"
+      ],
+      "evidence": {
+        "is": "the hour half of a weekly cron schedule, glossed in a trailing comment beside the expression that sets it",
+        "shownBy": "cron: '0 2 * * 1' # Monday 2am UTC"
+      }
+    },
+    {
+      "clause": "data",
+      "description": "The hour bands the greeting selector switches on, written into test titles. Every instant a test runs at is derived from the shared frozen day start, so no title names a moment anything happened.",
+      "path": "apps/web/src/lib/chat/greetings.test.ts",
+      "literals": [
+        "5 AM",
+        "6 AM",
+        "11 AM",
+        "12 PM",
+        "4:59 PM",
+        "2 PM",
+        "4 PM",
+        "5 PM",
+        "8:59 PM",
+        "6 PM",
+        "8 PM",
+        "9 PM",
+        "4:59 AM",
+        "10 PM",
+        "2 AM"
+      ],
+      "evidence": {
+        "is": "the product's morning, afternoon, evening and night boundaries, named in the titles that group the cases; the clock each case sets comes from TEST_LOCAL_DAY_START plus a whole number of HOUR_MS",
+        "shownBy": "morning \u2014 from 5 AM until noon"
+      }
+    },
+    {
+      "clause": "data",
+      "description": "The hour of a scene in a shipped image-prompt suggestion, sitting among siblings that set their scene with sunset, night and twilight. It lights a picture rather than dating anything.",
+      "path": "apps/web/src/lib/chat/prompt-suggestions.ts",
+      "literals": [
+        "3am"
+      ],
+      "evidence": {
+        "is": "the lighting cue of one scene suggestion in the list the image composer offers",
+        "shownBy": "Underground subway station at 3am, fluorescent lights"
+      }
+    },
+    {
+      "clause": "data",
+      "description": "An hour inside a competitor's advertising line, quoted in a teardown of who that copy self-selects. The value belongs to the quoted headline, and the document analyses it rather than reporting anything.",
+      "path": "docs/history/COMPETITOR-MARKETING.md",
+      "literals": [
+        "3am"
+      ],
+      "evidence": {
+        "is": "an hour inside a quoted competitor headline, read on the same line as the audience it selects for",
+        "shownBy": "\"Problem solvers, up at 3am\" \u2014 this copy self-selects"
+      }
+    },
+    {
+      "clause": "content",
+      "description": "A documentation-community acronym read as a civil time-zone abbreviation. The three letters are quoted as the named opposite of the ARID principle, and the sentence goes on to gloss the duplication they stand for.",
+      "path": "docs/runs/2026-08-21-doc-agent/research/r3-maintainability.md",
+      "literals": [
+        "WET"
+      ],
+      "evidence": {
+        "is": "an acronym for tolerated duplication, quoted as the thing ARID is not",
+        "shownBy": "ARID \"does not mean WET\""
+      }
+    },
+    {
+      "clause": "data",
+      "description": "A fixture sentence fed to the sentence chunker. Its point is the periods inside the meridiem abbreviations, which must not end a sentence; the hours are filler the chunker never reads as time.",
+      "path": "packages/ui/src/components/accessibility/lib/sentence-chunker.test.ts",
+      "literals": [
+        "9 a.m.",
+        "5 p.m."
+      ],
+      "evidence": {
+        "is": "the input and the expected single output of the case titled 'does not split on the a.m. and p.m. abbreviations'",
+        "shownBy": "We meet at 9 a.m. and leave by 5 p.m. today."
+      }
+    },
+    {
+      "clause": "data",
+      "description": "A midday twelve-hour clock held as a parser input constant: it stands in for a spelling a developer might type instead of HHMM, and the cases assert how the window-argument parser reads it.",
+      "path": "scripts/git-window.test.ts",
+      "literals": [
+        "12pm"
+      ],
+      "evidence": {
+        "is": "a named constant holding one of the clock spellings the window-argument parser accepts",
+        "shownBy": "const MIDDAY_12_HOUR = '12pm';"
+      }
+    },
+    {
+      "clause": "content",
+      "description": "An hour no clock face has, passed to the window-argument parser to pin that it offers no correction. Twelve-hour notation has no thirteenth hour, so the value is not a reading of anything.",
+      "path": "scripts/git-window.test.ts",
+      "literals": [
+        "13pm"
+      ],
+      "evidence": {
+        "is": "a deliberately invalid argument, named as invalid by the case it sits in",
+        "shownBy": "offers no correction for a 12-hour clock naming an hour no clock face has",
+        "beside": "parseWindowArguments(['13pm', STORED_END])"
+      }
+    },
+    {
+      "clause": "data",
+      "description": "An override directory handed to the gitleaks install resolver so the case can assert that a caller's choice beats the default. The resolver never touches the filesystem here, so the directory exists nowhere: it is the case's input, not a location anyone's checkout sits at. Admitting it as a complete match also silences any deeper path spelled under it at this file: the segment class stops at the separator, so the rule reads the admitted value and then refuses the inner root behind its own left guard. The reach is depth only \u2014 a sibling value here, and this value at any other path, both still report.",
+      "path": "scripts/lib/privacy/gitleaks.test.ts",
+      "literals": [
+        "/opt/custom"
+      ],
+      "evidence": {
+        "is": "the directory the case supplies as the provided option, and the value it then expects back on the resolution and on the binary path built from it",
+        "shownBy": "prefers provided options over defaults",
+        "beside": "dir: '"
+      }
+    },
+    {
+      "clause": "data",
+      "description": "A stand-in Android SDK location assigned to the environment so the installer cases can take the branch where the SDK is already present. The surrounding block deletes the variable again afterwards, which is what makes the value a fixture rather than a reading of any machine. Admitting it as a complete match also silences any deeper path spelled under it at this file: the segment class stops at the separator, so the rule reads the admitted value and then refuses the inner root behind its own left guard. The reach is depth only \u2014 a sibling value here, and this value at any other path, both still report.",
+      "path": "scripts/mobile-test.test.ts",
+      "literals": [
+        "/opt/android-sdk"
+      ],
+      "evidence": {
+        "is": "the value the installer cases assign to ANDROID_HOME to exercise the already-installed branch, and the prefix of the platform-tools entry they then expect on PATH",
+        "shownBy": "skips install when ANDROID_HOME is set and platform exists",
+        "beside": "process.env['ANDROID_HOME'] = '"
+      }
+    },
+    {
+      "clause": "form",
+      "description": "A Perl one-liner quoted verbatim from the run's own boundary-enforcement pattern: `=~tr/\\n//` and `=~s/\\n/\\\\n/g` bind Perl's tilde-slash regex and substitution operators to a backslash-n escape. The tilde-letter-slash shape they happen to spell is Perl syntax, not a named-home path.",
+      "path": "docs/runs/2026-08-20-boundary-enforcement/task-p5bw/impl-report-2.md",
+      "literals": [
+        "~tr/",
+        "~s/"
+      ]
+    },
+    {
+      "clause": "form",
+      "description": "The same Perl one-liner, quoted a second time verbatim in the sibling report proving the replacement pattern's reach. Same operators, same false read.",
+      "path": "docs/runs/2026-08-20-boundary-enforcement/task-p5bw/impl-report-3.md",
+      "literals": [
+        "~tr/",
+        "~s/"
+      ]
+    },
+    {
+      "clause": "data",
+      "description": "A wire-shaped dollar amount printed by a chart test's X-axis tick fixture in a carded-defect report: the report's whole point is that the fixture's dollar-shaped strings hid a nano-USD formatting bug, so the value is one of five rendered tick labels, not a record of when anything happened.",
+      "path": "docs/runs/2026-08-28-carded-defects/task-07/impl-report-1.md",
+      "literals": [
+        "1600000000.00"
+      ],
+      "evidence": {
+        "is": "the largest of five dollar-formatted X-axis tick labels a chart test renders from a nano-USD test fixture",
+        "shownBy": "the X-axis ticks read",
+        "beside": "$0.00 / $400000000.00 / $800000000.00 / $1200000000.00"
+      }
+    },
+    {
+      "clause": "data",
+      "description": "Quotes the greetings-selector's own describe title naming the product's morning boundary \u2014 the same fact already allowlisted at its source in apps/web/src/lib/chat/greetings.test.ts. The value is the hour band that title names, not a record of when this report was written.",
+      "path": "docs/runs/2026-08-28-carded-defects/task-30/impl-report-1.md",
+      "literals": [
+        "5 AM"
+      ],
+      "evidence": {
+        "is": "the greetings-selector's morning-boundary hour, quoted from the describe title the same sentence names",
+        "shownBy": "'morning \u2014 from 5 AM until noon'"
+      }
+    },
+    {
+      "clause": "data",
+      "description": "A parser-input test literal from the git-window argument table: an HH:MM-punctuated time deliberately rejected because the shipped parser accepts only unpunctuated HHMM, quoted once as the input array element and once inside the rejection message on the same row.",
+      "path": "docs/runs/2026-08-29-commit-window-days/task-02/impl-report-1.md",
+      "literals": [
+        "09:00"
+      ],
+      "evidence": {
+        "is": "a deliberately invalid HH:MM-punctuated time argument the window parser rejects, echoed inside its own rejection message on the same table row",
+        "shownBy": "Not an HHMM time in 24-hour UTC"
+      }
+    },
+    {
+      "clause": "provenance",
+      "description": "OpenRouter's own Models guide, quoted verbatim: the parenthetical glosses inside the doc's PricingOverride example are the vendor's own illustration of its utc_start/utc_end field values, never a record of when work happened here.",
+      "path": "docs/runs/2026-09-26-hold-bounds-bill/research/pricing-conditions.md",
+      "literals": [
+        "16:30",
+        "00:30"
+      ]
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "docs/runs/2026-09-23-ui-ux-redesign/references/mockups/kit/fonts/gelasio-latin.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "docs/runs/2026-09-23-ui-ux-redesign/references/mockups/kit/fonts/hanken-grotesk-latin-ext.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "docs/runs/2026-09-23-ui-ux-redesign/references/mockups/kit/fonts/hanken-grotesk-latin.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "docs/runs/2026-09-23-ui-ux-redesign/references/mockups/kit/fonts/jetbrains-mono-latin-ext.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "docs/runs/2026-09-23-ui-ux-redesign/references/mockups/kit/fonts/jetbrains-mono-latin.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "docs/runs/2026-09-23-ui-ux-redesign/references/mockups/kit/fonts/merriweather-italic-latin.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "docs/runs/2026-09-23-ui-ux-redesign/references/mockups/kit/fonts/merriweather-latin-ext.woff2"
+    },
+    {
+      "clause": "provenance",
+      "description": "Upstream font binary: the head-table creation and modification dates are the type designer\u2019s and pre-date this repo. No literals are pinned because none can be: the dates are 64-bit fields inside a brotli-compressed table stream, so no literal a reviewer could write would ever match, and removing them means re-compressing that stream, which is not byte-stable.",
+      "path": "docs/runs/2026-09-23-ui-ux-redesign/references/mockups/kit/fonts/merriweather-latin.woff2"
+    },
+    {
+      "clause": "data",
+      "description": "Locked design mockup: the times are the quiet hours in a list of house rules inside the unsent draft that fills the page's message composer, a request to translate those rules. They are scenario content chosen for the mockup, never a record of when work happened or where anyone is.",
+      "path": "docs/runs/2026-09-23-ui-ux-redesign/references/mockups/pages/notice-group-owner-funds-unavailable.html",
+      "literals": [
+        "22:00",
+        "08:00",
+        "23:00",
+        "09:00"
+      ],
+      "evidence": {
+        "is": "the quiet-hours times inside the mockup composer's unsent draft text, on the same line as the rule they belong to",
+        "shownBy": "Quiet hours are from"
+      }
+    }
+  ]
+}

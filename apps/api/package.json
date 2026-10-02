@@ -1,0 +1,56 @@
+{
+  "name": "@hushbox/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/app.ts",
+    "./dev-seed": "./src/dev/seed-toolkit.ts",
+    "./identity": "./src/slices/identity/index.ts",
+    "./cron-schedules": "./src/composition/cron-schedules.ts"
+  },
+  "scripts": {
+    "dev": "tsx ../../scripts/wrangler-dev.ts",
+    "test": "tsx ../../scripts/with-env.ts tsx ../../scripts/run-package-tests.ts",
+    "test:workers": "tsx ../../scripts/with-env.ts tsx ../../scripts/package-vitest.ts run --config vitest.workers.config.ts",
+    "test:watch": "tsx ../../scripts/with-env.ts tsx ../../scripts/package-vitest.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "//@ai-sdk/provider-utils": "Exact, never a range: `ai` depends on this package at an exact version rather than by range, so any specifier here that resolves elsewhere installs a second `@ai-sdk/provider` alongside the one `ai` carries. The two copies declare structurally identical but nominally distinct types, and the mismatch surfaces as a TS2322 where a provider value crosses between them in `src/slices/models/adapters/language-adapter.ts`. Read the required version off the installed `ai` package's own dependency on it, and move the two together.",
+  "dependencies": {
+    "@ai-sdk/provider-utils": "5.0.40",
+    "@hono/zod-validator": "^0.7.6",
+    "@hushbox/crypto": "workspace:*",
+    "@hushbox/db": "workspace:*",
+    "@hushbox/realtime": "workspace:*",
+    "@hushbox/shared": "workspace:*",
+    "@openrouter/ai-sdk-provider": "~3.0.0",
+    "@sentry/cloudflare": "^10.72.0",
+    "@upstash/redis": "^1.38.0",
+    "ai": "^7.0.101",
+    "aws4fetch": "^1.0.20",
+    "cockatiel": "^4.0.0",
+    "drizzle-orm": "^0.45.2",
+    "entities": "^7.0.1",
+    "hono": "^4.12.25",
+    "iron-session": "^8.0.4",
+    "isbot": "^5.2.2",
+    "jose": "^6.2.3",
+    "marked": "^18.0.5",
+    "neverthrow": "^8.2.0",
+    "ts-pattern": "^5.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.15",
+    "@cloudflare/workers-types": "^4.20260612.1",
+    "@hushbox/config": "workspace:*",
+    "@types/node": "^24.13.3",
+    "eslint": "^9.39.4",
+    "fast-check": "^4.10.1",
+    "typescript": "catalog:",
+    "vitest": "^4.1.10",
+    "wrangler": "4.134.0"
+  }
+}

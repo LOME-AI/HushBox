@@ -1,0 +1,12 @@
+---
+import { CostBreakdown } from '@hushbox/ui';
+import SectionHeading from '../SectionHeading.astro';
+import WelcomeSection from './WelcomeSection.astro';
+---
+
+<WelcomeSection reveal>
+  <SectionHeading>Transparent pricing</SectionHeading>
+  <div class="mx-auto mt-12 max-w-2xl [--cost-ring-gap:var(--color-background)]">
+    <CostBreakdown headingLevel={3} depositAmount={10} />
+  </div>
+</WelcomeSection>

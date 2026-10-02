@@ -1,0 +1,15 @@
+/* The app's own entry stylesheet, so the typing line and the composer are measured under the
+   cascade they ship in: the theme tokens, the width band's root size and the text-size
+   classes included. */
+@import '../../../../app.css';
+
+/* The fixture's root is this folder, so the line's, the composer's and its chips' classes
+   are named here. */
+@source '../typing-indicator.tsx';
+@source '../dot-pulse-indicator.tsx';
+@source '../../input/*.tsx';
+@source '../../budget/*.tsx';
+@source '../../media/*.tsx';
+@source '../../layout/chat-column.tsx';
+@source '../../../shared/*.tsx';
+@source './typing-indicator.entry.tsx';

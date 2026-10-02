@@ -1,0 +1,1 @@
+ALTER TABLE member_budgets ALTER COLUMN budget SET DEFAULT '0.00000000';

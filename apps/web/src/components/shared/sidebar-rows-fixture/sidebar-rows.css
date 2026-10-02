@@ -1,0 +1,8 @@
+/* The app's own entry stylesheet, so the rows are measured under the cascade they ship in:
+   the theme tokens, the pointer variant and the accessibility overrides included. */
+@import '../../../app.css';
+
+/* The fixture's root is this folder, so the rows' own classes are named here. */
+@source '../sidebar-action-row.tsx';
+@source '../sidebar-search-row.tsx';
+@source './sidebar-rows.entry.tsx';

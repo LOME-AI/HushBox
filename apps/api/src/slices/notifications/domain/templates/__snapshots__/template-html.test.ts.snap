@@ -1,0 +1,65 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`email template html is byte-stable > chargeback-lock 1`] = `
+"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>HushBox</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0a0a0a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0a0a0a;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
+          <!-- Header -->
+          <tr>
+            <td align="center" style="padding: 20px 0; border-bottom: 1px solid #27272a;">
+              <span style="font-size: 24px; font-weight: 700; color: #fafafa; letter-spacing: 2px; font-family: 'Merriweather', Georgia, serif;">Hush<span style="color: #ec4755;">Box</span></span>
+            </td>
+          </tr>
+          <!-- Content Card -->
+          <tr>
+            <td style="padding: 40px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #171717; border-radius: 12px; border: 1px solid #27272a;">
+                <tr>
+                  <td style="padding: 40px;">
+                    
+    <h1 style="margin: 0 0 16px 0; color: #fafafa; font-size: 24px; font-weight: 600;">
+      Account Locked
+    </h1>
+    <p style="margin: 0 0 8px 0; color: #fafafa; font-size: 16px; line-height: 1.5;">
+      Hi Sam,
+    </p>
+    <p style="margin: 0 0 16px 0; color: #a1a1aa; font-size: 16px; line-height: 1.5;">
+      Your HushBox account has been locked because of a payment dispute on a recent charge.
+    </p>
+    <p style="margin: 0; color: #a1a1aa; font-size: 14px; line-height: 1.5;">
+      The lock stays in place until the dispute is resolved. Contact us at <a href="mailto:legal@hushbox.ai" style="color: #ec4755; text-decoration: none;">legal@hushbox.ai</a> to resolve it.
+    </p>
+  
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding: 20px 0; border-top: 1px solid #27272a;">
+              <p style="margin: 0 0 8px 0; color: #a1a1aa; font-size: 12px;">
+                &copy; 2026 LOME-AI LLC
+              </p>
+              <p style="margin: 0; color: #a1a1aa; font-size: 12px;">
+                Questions? <a href="mailto:hello@hushbox.ai" style="color: #ec4755; text-decoration: none;">hello@hushbox.ai</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"
+`;

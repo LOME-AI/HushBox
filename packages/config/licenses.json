@@ -1,0 +1,41 @@
+{
+  "allow": [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BlueOak-1.0.0",
+    "CC0-1.0",
+    "ISC",
+    "LGPL-3.0",
+    "LGPL-3.0-only",
+    "LGPL-3.0-or-later",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Python-2.0",
+    "UNLICENSE",
+    "Unlicense"
+  ],
+  "exceptions": {
+    "@remotion/bundler": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/canvas-capture": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/cli": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/compositor-darwin-arm64": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/compositor-darwin-x64": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/compositor-linux-arm64-gnu": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/compositor-linux-arm64-musl": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/compositor-linux-x64-gnu": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/compositor-linux-x64-musl": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/compositor-win32-x64-msvc": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/media-parser": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/player": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/renderer": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "@remotion/web-renderer": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "caniuse-lite": "CC-BY-4.0 browser-support tables: the package carries data rather than code.",
+    "gitconfiglocal": "The release ships no licence text and the repository carried none at that commit; the project's later published licence is BSD-3-Clause.",
+    "khroma": "Ships the MIT licence text and omits the manifest's licence field.",
+    "remotion": "Remotion Free License, admitted by the eligibility recorded in docs/DECISIONS.md rather than by a licence identifier.",
+    "spdx-exceptions": "CC-BY-3.0 licence-exception texts: the package carries data rather than code."
+  }
+}

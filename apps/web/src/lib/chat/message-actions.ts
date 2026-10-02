@@ -1,0 +1,158 @@
+import { refusesRegenerate } from '@hushbox/shared';
+import type { FundingSource, MemberPrivilege, NoticeReason } from '@hushbox/shared';
+import type { Message } from '../api/api.js';
+
+/**
+ * The send gate's refusal as it applies to a regenerate: the same verdict, minus
+ * entitlement, money in full. `undefined` means the regenerate may run. Which
+ * refusals survive a re-run is the money module's verdict — this file composes
+ * it with the funding state the composer holds, and grades nothing itself.
+ *
+ * An absent funding verdict is read first and refuses on its own. It is not
+ * always accompanied by a named send refusal, and a re-run is a paid turn like
+ * any other: an absence is not a wallet, so nothing may spend on it.
+ */
+export function regenerateRefusalOf(gate: {
+  readonly sendRefusal: NoticeReason | undefined;
+  readonly fundingSource: FundingSource | 'denied' | 'no_verdict';
+}): NoticeReason | undefined {
+  const { sendRefusal } = gate;
+  if (gate.fundingSource === 'no_verdict') return 'send_check_unavailable';
+  if (sendRefusal === undefined) return undefined;
+  return refusesRegenerate(sendRefusal) ? sendRefusal : undefined;
+}
+
+/** Every possible action button on a message */
+export type MessageAction = 'copy' | 'regenerate' | 'retry' | 'edit' | 'fork' | 'share';
+
+type ChatMode = 'solo' | 'group' | 'trial' | 'link-guest';
+
+/** Distilled chat context for action resolution. Built once per render, not per-message. */
+export interface ChatContext {
+  mode: ChatMode;
+  privilege: MemberPrivilege | undefined;
+  currentUserId: string | undefined;
+  isGroupChat: boolean;
+}
+
+/** Per-message information needed for action resolution. */
+export interface MessageContext {
+  message: Message;
+  isStreaming: boolean;
+  isError: boolean;
+  isMultiModel: boolean;
+  canRegenerate: boolean;
+}
+
+/**
+ * Static base permissions: maximum set of actions per mode + privilege.
+ * Dynamic guards further restrict these.
+ */
+const BASE_PERMISSIONS: Record<
+  ChatMode,
+  Partial<Record<MemberPrivilege | 'none', readonly MessageAction[]>>
+> = {
+  solo: {
+    owner: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share'],
+  },
+  group: {
+    owner: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share'],
+    admin: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share'],
+    write: ['copy', 'regenerate', 'retry', 'edit', 'fork', 'share'],
+    read: ['copy'],
+  },
+  trial: {
+    none: ['copy', 'retry', 'regenerate', 'edit'],
+  },
+  'link-guest': {
+    write: ['copy', 'regenerate', 'retry', 'edit', 'fork'],
+    read: ['copy'],
+  },
+};
+
+/**
+ * Per-action dynamic guards. If a guard returns false, the action is removed
+ * even if BASE_PERMISSIONS allows it. Actions not listed here pass unconditionally.
+ */
+const ACTION_GUARDS: Partial<
+  Record<MessageAction, (chat: ChatContext, msg: MessageContext) => boolean>
+> = {
+  // Copy + regenerate stay available on errored assistant turns — that's the
+  // sole retry affordance now that the standalone Retry button is gone.
+  copy: (_chat, msg) => !msg.isStreaming,
+  regenerate: (_chat, msg) =>
+    msg.message.role === 'assistant' && !msg.isStreaming && msg.canRegenerate,
+  retry: (_chat, msg) =>
+    msg.message.role === 'user' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
+  edit: (_chat, msg) =>
+    msg.message.role === 'user' && !msg.isStreaming && !msg.isError && msg.canRegenerate,
+  fork: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
+  share: (_chat, msg) => msg.message.role === 'assistant' && !msg.isStreaming && !msg.isError,
+};
+
+/** Whether a group chat's user message was sent by someone other than the caller. */
+function isOtherMembersUserMessage(chat: ChatContext, msg: MessageContext): boolean {
+  return Boolean(
+    chat.isGroupChat &&
+    msg.message.role === 'user' &&
+    chat.currentUserId &&
+    msg.message.senderId !== chat.currentUserId
+  );
+}
+
+export function resolveMessageActions(chat: ChatContext, msg: MessageContext): Set<MessageAction> {
+  // A watcher's tile waiting for its stored row gets its actions from that row.
+  if (msg.message.awaitingStoredRow === true) return new Set();
+  const privilegeKey = chat.privilege ?? 'none';
+  const baseActions = BASE_PERMISSIONS[chat.mode][privilegeKey] ?? [];
+  const allowed = new Set(baseActions);
+
+  // Ownership gate: remove retry/edit for other user's messages in group contexts
+  if (isOtherMembersUserMessage(chat, msg)) {
+    allowed.delete('retry');
+    allowed.delete('edit');
+  }
+
+  const result = new Set<MessageAction>();
+  for (const action of allowed) {
+    const guard = ACTION_GUARDS[action];
+    if (!guard || guard(chat, msg)) {
+      result.add(action);
+    }
+  }
+  return result;
+}
+
+export function buildChatContext(options: {
+  isAuthenticated: boolean;
+  isLinkGuest: boolean;
+  privilege: MemberPrivilege | undefined;
+  currentUserId: string | undefined;
+  isGroupChat: boolean;
+}): ChatContext {
+  if (!options.isAuthenticated && !options.isLinkGuest) {
+    return { mode: 'trial', privilege: undefined, currentUserId: undefined, isGroupChat: false };
+  }
+  if (options.isLinkGuest) {
+    return {
+      mode: 'link-guest',
+      privilege: options.privilege ?? 'read',
+      currentUserId: options.currentUserId,
+      isGroupChat: options.isGroupChat,
+    };
+  }
+  if (options.isGroupChat) {
+    return {
+      mode: 'group',
+      privilege: options.privilege,
+      currentUserId: options.currentUserId,
+      isGroupChat: true,
+    };
+  }
+  return {
+    mode: 'solo',
+    privilege: 'owner',
+    currentUserId: options.currentUserId,
+    isGroupChat: false,
+  };
+}

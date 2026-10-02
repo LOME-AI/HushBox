@@ -1,0 +1,32 @@
+---
+import { ROUTES } from '@hushbox/shared/routes';
+import { buttonVariants } from '@hushbox/ui/button';
+import { buttonRowClass } from '@hushbox/ui/button-groups';
+import { cn } from '@hushbox/ui/lib/utils';
+import SectionHeading from '../SectionHeading.astro';
+import WelcomeSection from './WelcomeSection.astro';
+
+// A label wider than the column (the largest text sizes) wraps inside its button instead
+// of pushing the page sideways; at default sizes it fits on one line.
+const CTA_FIT = 'h-auto min-h-10 py-2 text-center whitespace-normal';
+---
+
+<WelcomeSection width="narrow">
+  <div class="text-center" data-closing-call>
+    <SectionHeading>Ready to chat privately?</SectionHeading>
+    <div class={`${buttonRowClass} mt-8`}>
+      <a href={ROUTES.CHAT} class={cn(buttonVariants({ size: 'lg' }), CTA_FIT)}>
+        Try HushBox Free
+      </a>
+    </div>
+    <p class="text-foreground mt-4 font-serif text-sm">No account required.</p>
+  </div>
+</WelcomeSection>
+
+<script>
+  import { measureButtonGroups } from '@hushbox/ui/button-groups';
+
+  for (const call of document.querySelectorAll('[data-closing-call]')) {
+    measureButtonGroups(call);
+  }
+</script>

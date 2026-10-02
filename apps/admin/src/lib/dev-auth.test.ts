@@ -1,0 +1,269 @@
+import { describe, it, expect, vi } from 'vitest';
+import { CF_ACCESS_JWT_HEADER, createEnvUtilities } from '@hushbox/shared';
+import { requestUrl } from '@/test-utils/request-url';
+import { computeDevAuthEnabled } from './env.js';
+import { createDevAuthFetch } from './dev-auth.js';
+import type { DevAdminTokenResponse } from '@hushbox/shared';
+
+const MINT_PATH = '/api/dev/admin-token';
+
+interface FetchCall {
+  url: string;
+  headers: Headers;
+}
+
+function createBackend(options?: { rejectToken?: string }): {
+  baseFetch: typeof fetch;
+  calls: FetchCall[];
+  mints: string[];
+} {
+  const calls: FetchCall[] = [];
+  const mints: string[] = [];
+  let mintCounter = 0;
+  const baseFetch: typeof fetch = (input, init) => {
+    const url = requestUrl(input);
+    if (url.startsWith(MINT_PATH)) {
+      const email = new URL(url, 'http://localhost').searchParams.get('email') ?? '';
+      mintCounter += 1;
+      const token = `token-${email}-${String(mintCounter)}`;
+      mints.push(token);
+      const minted: DevAdminTokenResponse = { token, header: CF_ACCESS_JWT_HEADER };
+      return Promise.resolve(Response.json(minted, { status: 200 }));
+    }
+    const headers = new Headers(init?.headers);
+    calls.push({ url, headers });
+    if (
+      options?.rejectToken !== undefined &&
+      headers.get(CF_ACCESS_JWT_HEADER) === options.rejectToken
+    ) {
+      return Promise.resolve(new Response(null, { status: 401 }));
+    }
+    return Promise.resolve(Response.json({ ok: true }, { status: 200 }));
+  };
+  return { baseFetch, calls, mints };
+}
+
+describe('createDevAuthFetch', () => {
+  it('production-leak guard: production env shape attaches nothing and never fetches a token', async () => {
+    const { baseFetch, calls, mints } = createBackend();
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: computeDevAuthEnabled(createEnvUtilities({ NODE_ENV: 'production' })),
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    await wrapped('/api/admin/dashboard');
+
+    expect(mints).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.headers.has(CF_ACCESS_JWT_HEADER)).toBe(false);
+  });
+
+  it('mints and attaches the header in the CI-e2e env shape (E2E true, isLocalDev false)', async () => {
+    const { baseFetch, calls, mints } = createBackend();
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: computeDevAuthEnabled(
+        createEnvUtilities({ NODE_ENV: 'development', CI: 'true', E2E: 'true' })
+      ),
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    await wrapped('/api/admin/dashboard');
+
+    expect(mints).toHaveLength(1);
+    expect(calls[0]?.headers.get(CF_ACCESS_JWT_HEADER)).toBe(mints[0]);
+  });
+
+  it('mints a token for the current actor and attaches it in local dev', async () => {
+    const { baseFetch, calls, mints } = createBackend();
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: true,
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    await wrapped('/api/admin/dashboard');
+
+    expect(mints).toHaveLength(1);
+    expect(calls[0]?.headers.get(CF_ACCESS_JWT_HEADER)).toBe(mints[0]);
+  });
+
+  it('reuses the in-memory token across requests for the same actor', async () => {
+    const { baseFetch, calls, mints } = createBackend();
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: true,
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    await wrapped('/api/admin/dashboard');
+    await wrapped('/api/admin/jobs');
+
+    expect(mints).toHaveLength(1);
+    expect(calls[1]?.headers.get(CF_ACCESS_JWT_HEADER)).toBe(mints[0]);
+  });
+
+  it('re-mints when the actor switches', async () => {
+    const { baseFetch, calls, mints } = createBackend();
+    let actor = 'admin@hushbox.test';
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: true,
+      getActor: () => actor,
+    });
+
+    await wrapped('/api/admin/dashboard');
+    actor = 'ops@hushbox.test';
+    await wrapped('/api/admin/dashboard');
+
+    expect(mints).toHaveLength(2);
+    expect(mints[0]).toContain('admin@hushbox.test');
+    expect(mints[1]).toContain('ops@hushbox.test');
+    expect(calls[1]?.headers.get(CF_ACCESS_JWT_HEADER)).toBe(mints[1]);
+  });
+
+  it('re-mints once and retries on a 401', async () => {
+    const backend = createBackend({ rejectToken: 'token-admin@hushbox.test-1' });
+    const wrapped = createDevAuthFetch({
+      baseFetch: backend.baseFetch,
+      enabled: true,
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    const res = await wrapped('/api/admin/dashboard');
+
+    expect(res.status).toBe(200);
+    expect(backend.mints).toHaveLength(2);
+    expect(backend.calls).toHaveLength(2);
+    expect(backend.calls[1]?.headers.get(CF_ACCESS_JWT_HEADER)).toBe(backend.mints[1]);
+  });
+
+  it('reads the body of the 401 it discards before re-minting', async () => {
+    const refused = Response.json({ code: 'UNAUTHORIZED' }, { status: 401 });
+    let apiCalls = 0;
+    const baseFetch: typeof fetch = (input) => {
+      if (requestUrl(input).startsWith(MINT_PATH)) {
+        const minted: DevAdminTokenResponse = { token: 't', header: CF_ACCESS_JWT_HEADER };
+        return Promise.resolve(Response.json(minted, { status: 200 }));
+      }
+      apiCalls += 1;
+      return Promise.resolve(apiCalls === 1 ? refused : Response.json({ ok: true }));
+    };
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: true,
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    await wrapped('/api/admin/dashboard');
+
+    expect(refused.bodyUsed).toBe(true);
+  });
+
+  it('does not retry more than once on repeated 401s', async () => {
+    const calls: FetchCall[] = [];
+    let mintCount = 0;
+    const baseFetch: typeof fetch = (input, init) => {
+      const url = requestUrl(input);
+      if (url.startsWith(MINT_PATH)) {
+        mintCount += 1;
+        const minted: DevAdminTokenResponse = { token: 't', header: CF_ACCESS_JWT_HEADER };
+        return Promise.resolve(Response.json(minted, { status: 200 }));
+      }
+      calls.push({ url, headers: new Headers(init?.headers) });
+      return Promise.resolve(new Response(null, { status: 401 }));
+    };
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: true,
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    const res = await wrapped('/api/admin/dashboard');
+
+    expect(res.status).toBe(401);
+    expect(mintCount).toBe(2);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('throws when the mint route fails', async () => {
+    const baseFetch: typeof fetch = () => Promise.resolve(new Response(null, { status: 404 }));
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: true,
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    await expect(wrapped('/api/admin/dashboard')).rejects.toThrow('dev admin token mint failed');
+  });
+
+  it('refuses a mint answer that carries no token instead of presenting one', async () => {
+    let apiCalls = 0;
+    const baseFetch: typeof fetch = (input) => {
+      if (requestUrl(input).startsWith(MINT_PATH)) {
+        return Promise.resolve(Response.json({ header: CF_ACCESS_JWT_HEADER }, { status: 200 }));
+      }
+      apiCalls += 1;
+      return Promise.resolve(Response.json({ ok: true }));
+    };
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: true,
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    await expect(wrapped('/api/admin/dashboard')).rejects.toThrow();
+
+    expect(apiCalls).toBe(0);
+  });
+
+  it('refuses a mint answer that names no header instead of presenting its token', async () => {
+    let apiCalls = 0;
+    const baseFetch: typeof fetch = (input) => {
+      if (requestUrl(input).startsWith(MINT_PATH)) {
+        return Promise.resolve(Response.json({ token: 't' }, { status: 200 }));
+      }
+      apiCalls += 1;
+      return Promise.resolve(Response.json({ ok: true }));
+    };
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: true,
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    await expect(wrapped('/api/admin/dashboard')).rejects.toThrow();
+
+    expect(apiCalls).toBe(0);
+  });
+
+  it('reads the body of a failed mint response before throwing', async () => {
+    const refused = Response.json({ code: 'NOT_FOUND' }, { status: 404 });
+    const baseFetch: typeof fetch = () => Promise.resolve(refused);
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: true,
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    await expect(wrapped('/api/admin/dashboard')).rejects.toThrow('dev admin token mint failed');
+
+    expect(refused.bodyUsed).toBe(true);
+  });
+
+  it('never touches localStorage or sessionStorage', async () => {
+    const setItemLocal = vi.spyOn(Storage.prototype, 'setItem');
+    const { baseFetch } = createBackend();
+    const wrapped = createDevAuthFetch({
+      baseFetch,
+      enabled: true,
+      getActor: () => 'admin@hushbox.test',
+    });
+
+    await wrapped('/api/admin/dashboard');
+
+    expect(setItemLocal).not.toHaveBeenCalled();
+    setItemLocal.mockRestore();
+  });
+});

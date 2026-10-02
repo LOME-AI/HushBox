@@ -1,0 +1,235 @@
+[
+  {
+    "group_key": {
+      "hostname": "hushbox-backup",
+      "label": "app-builds",
+      "paths": ["/app-builds"]
+    },
+    "snapshots": [
+      {
+        "time": "2026-01-03T00:00:00.000000000+00:00",
+        "program_version": "rustic v0.11.4",
+        "tree": "5929684a57f7d5f30acc1023a505e0357b44a698749468a49f8cdf2797c419e7",
+        "label": "app-builds",
+        "paths": ["/app-builds"],
+        "hostname": "hushbox-backup",
+        "username": "",
+        "uid": 0,
+        "gid": 0,
+        "tags": [],
+        "original": "2c79380c6a03459d8e28ea66a64dcd8b6d5af26f15ad8eb7cf8a89e05961af8c",
+        "summary": {
+          "files_new": 1,
+          "files_changed": 0,
+          "files_unmodified": 0,
+          "total_files_processed": 1,
+          "total_bytes_processed": 2048,
+          "dirs_new": 2,
+          "dirs_changed": 0,
+          "dirs_unmodified": 0,
+          "total_dirs_processed": 2,
+          "total_dirsize_processed": 513,
+          "data_blobs": 1,
+          "tree_blobs": 2,
+          "data_added": 2561,
+          "data_added_packed": 2500,
+          "data_added_files": 2048,
+          "data_added_files_packed": 2089,
+          "data_added_trees": 513,
+          "data_added_trees_packed": 411,
+          "command": "rustic -r <repository> backup <source> --host hushbox-backup --label app-builds --as-path /app-builds",
+          "backup_start": "2026-01-03T00:00:00.000000000+00:00",
+          "backup_end": "2026-01-03T00:00:00.000000000+00:00",
+          "backup_duration": 1.726333973,
+          "total_duration": 1.726969792
+        },
+        "id": "2c79380c6a03459d8e28ea66a64dcd8b6d5af26f15ad8eb7cf8a89e05961af8c"
+      }
+    ]
+  },
+  {
+    "group_key": {
+      "hostname": "hushbox-backup",
+      "label": "media",
+      "paths": ["/media"]
+    },
+    "snapshots": [
+      {
+        "time": "2026-01-01T00:00:00.000000000+00:00",
+        "program_version": "rustic v0.11.4",
+        "tree": "c23b2db67008cea27d89dfab27df6d65076f282cc4bd51a5f387ad33e6e41bfd",
+        "label": "media",
+        "paths": ["/media"],
+        "hostname": "hushbox-backup",
+        "username": "",
+        "uid": 0,
+        "gid": 0,
+        "tags": [],
+        "original": "aa195455f2041e9d4efdcc6bd6650295c46fadd323e2c4cb3a93a80bbfaa396b",
+        "summary": {
+          "files_new": 3,
+          "files_changed": 0,
+          "files_unmodified": 0,
+          "total_files_processed": 3,
+          "total_bytes_processed": 13312,
+          "dirs_new": 3,
+          "dirs_changed": 0,
+          "dirs_unmodified": 0,
+          "total_dirs_processed": 3,
+          "total_dirsize_processed": 1581,
+          "data_blobs": 3,
+          "tree_blobs": 3,
+          "data_added": 14893,
+          "data_added_packed": 14261,
+          "data_added_files": 13312,
+          "data_added_files_packed": 13435,
+          "data_added_trees": 1581,
+          "data_added_trees_packed": 826,
+          "command": "rustic -r <repository> backup <source> --host hushbox-backup --label media --as-path /media --iglob !/inputs/**",
+          "backup_start": "2026-01-01T00:00:00.000000000+00:00",
+          "backup_end": "2026-01-01T00:00:00.000000000+00:00",
+          "backup_duration": 0.012594414,
+          "total_duration": 0.019432052
+        },
+        "id": "aa195455f2041e9d4efdcc6bd6650295c46fadd323e2c4cb3a93a80bbfaa396b"
+      },
+      {
+        "time": "2026-01-02T00:00:00.000000000+00:00",
+        "program_version": "rustic v0.11.4",
+        "parent": "aa195455f2041e9d4efdcc6bd6650295c46fadd323e2c4cb3a93a80bbfaa396b",
+        "parents": ["aa195455f2041e9d4efdcc6bd6650295c46fadd323e2c4cb3a93a80bbfaa396b"],
+        "tree": "129627c553fc2b2d5bc3a70fbdc8ffdf17afcd64833ed2b461e2925d373a4ff2",
+        "label": "media",
+        "paths": ["/media"],
+        "hostname": "hushbox-backup",
+        "username": "",
+        "uid": 0,
+        "gid": 0,
+        "tags": [],
+        "original": "7b3f4c4f4d8362d14d1b37a2945fc3f8f1e8301d9588772bb79f3f5a6fd031cb",
+        "summary": {
+          "files_new": 0,
+          "files_changed": 0,
+          "files_unmodified": 2,
+          "total_files_processed": 2,
+          "total_bytes_processed": 12288,
+          "dirs_new": 0,
+          "dirs_changed": 3,
+          "dirs_unmodified": 0,
+          "total_dirs_processed": 3,
+          "total_dirsize_processed": 1226,
+          "data_blobs": 0,
+          "tree_blobs": 3,
+          "data_added": 1226,
+          "data_added_packed": 630,
+          "data_added_files": 0,
+          "data_added_files_packed": 0,
+          "data_added_trees": 1226,
+          "data_added_trees_packed": 630,
+          "command": "rustic -r <repository> backup <source> --host hushbox-backup --label media --as-path /media --iglob !**/inputs/**",
+          "backup_start": "2026-01-02T00:00:00.000000000+00:00",
+          "backup_end": "2026-01-02T00:00:00.000000000+00:00",
+          "backup_duration": 0.015386634,
+          "total_duration": 0.016322071
+        },
+        "id": "7b3f4c4f4d8362d14d1b37a2945fc3f8f1e8301d9588772bb79f3f5a6fd031cb"
+      }
+    ]
+  },
+  {
+    "group_key": {
+      "hostname": "hushbox-backup",
+      "label": "model-weights",
+      "paths": ["/model-weights"]
+    },
+    "snapshots": [
+      {
+        "time": "2026-01-04T00:00:00.000000000+00:00",
+        "program_version": "rustic v0.11.4",
+        "tree": "46a860ec8d3a905b953718265f3fbc99995d1a742b0bc599df15ef8734d9e95c",
+        "label": "model-weights",
+        "paths": ["/model-weights"],
+        "hostname": "hushbox-backup",
+        "username": "",
+        "uid": 0,
+        "gid": 0,
+        "tags": [],
+        "original": "611728518d1ec9bfbbea710dc1c341392ef40d818d13842758c66a1783b4f2e8",
+        "summary": {
+          "files_new": 1,
+          "files_changed": 0,
+          "files_unmodified": 0,
+          "total_files_processed": 1,
+          "total_bytes_processed": 16384,
+          "dirs_new": 2,
+          "dirs_changed": 0,
+          "dirs_unmodified": 0,
+          "total_dirs_processed": 2,
+          "total_dirsize_processed": 517,
+          "data_blobs": 1,
+          "tree_blobs": 2,
+          "data_added": 16901,
+          "data_added_packed": 16845,
+          "data_added_files": 16384,
+          "data_added_files_packed": 16425,
+          "data_added_trees": 517,
+          "data_added_trees_packed": 420,
+          "command": "rustic -r <repository> backup <source> --host hushbox-backup --label model-weights --as-path /model-weights",
+          "backup_start": "2026-01-04T00:00:00.000000000+00:00",
+          "backup_end": "2026-01-04T00:00:00.000000000+00:00",
+          "backup_duration": 0.073080209,
+          "total_duration": 0.077918783
+        },
+        "id": "611728518d1ec9bfbbea710dc1c341392ef40d818d13842758c66a1783b4f2e8"
+      }
+    ]
+  },
+  {
+    "group_key": {
+      "hostname": "hushbox-backup",
+      "label": "postgres",
+      "paths": ["/postgres"]
+    },
+    "snapshots": [
+      {
+        "time": "2026-01-05T00:00:00.000000000+00:00",
+        "program_version": "rustic v0.11.4",
+        "tree": "d493ff2f4bbd4d2af2f978a704fb6a961a507c5230336a6091823e05045f0f61",
+        "label": "postgres",
+        "paths": ["/postgres"],
+        "hostname": "hushbox-backup",
+        "username": "",
+        "uid": 0,
+        "gid": 0,
+        "tags": [],
+        "original": "a422370700213bec665c1a07bbdcf4b1ae6c1079978f21ab2d54deb8af7870c0",
+        "summary": {
+          "files_new": 2,
+          "files_changed": 0,
+          "files_unmodified": 0,
+          "total_files_processed": 2,
+          "total_bytes_processed": 531,
+          "dirs_new": 2,
+          "dirs_changed": 0,
+          "dirs_unmodified": 0,
+          "total_dirs_processed": 2,
+          "total_dirsize_processed": 863,
+          "data_blobs": 2,
+          "tree_blobs": 2,
+          "data_added": 1394,
+          "data_added_packed": 1097,
+          "data_added_files": 531,
+          "data_added_files_packed": 613,
+          "data_added_trees": 863,
+          "data_added_trees_packed": 484,
+          "command": "rustic -r <repository> backup <source> --host hushbox-backup --label postgres --as-path /postgres",
+          "backup_start": "2026-01-05T00:00:00.000000000+00:00",
+          "backup_end": "2026-01-05T00:00:00.000000000+00:00",
+          "backup_duration": 0.093288528,
+          "total_duration": 0.09702798
+        },
+        "id": "a422370700213bec665c1a07bbdcf4b1ae6c1079978f21ab2d54deb8af7870c0"
+      }
+    ]
+  }
+]

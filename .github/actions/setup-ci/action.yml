@@ -1,0 +1,24 @@
+name: 'Setup (CI, phase-aware)'
+description: 'pnpm and dependencies, on whichever runner this trust phase uses'
+
+# Some jobs choose their runner fleet from `github.event_name` in `runs-on`,
+# and a step's `uses:` cannot carry an expression, so the branch that matches
+# that choice lives here rather than in every job that needs it.
+#
+# Each branch delegates to the fleet's own setup action instead of restating
+# what it declares. Anything restated here would reach only the jobs that come
+# through this action; the ones naming a fleet action directly would keep the
+# fleet's own value, so a drift between the two would leave jobs disagreeing
+# about the toolchain they ran.
+# `scripts/ci-workflow.test.ts` holds the delegation, asserting this file names
+# no action outside `./.github/actions/`. Neither fleet action pins Node:
+# `pnpm install` provisions the version `pnpm-lock.yaml` resolved from the root
+# manifest's `devEngines.runtime`, on whichever fleet runs it.
+runs:
+  using: 'composite'
+  steps:
+    - uses: ./.github/actions/setup
+      if: github.event_name == 'pull_request'
+
+    - uses: ./.github/actions/setup-blacksmith
+      if: github.event_name != 'pull_request'

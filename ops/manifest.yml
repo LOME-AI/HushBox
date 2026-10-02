@@ -1,0 +1,46 @@
+# Operations script manifest. Single source of truth for:
+#   - which scripts can be triggered via PR labels (allowlist)
+#   - which phase each runs in (pre-deploy / post-deploy)
+#   - which scripts no deploy may carry (dispatch_only)
+#   - which production secrets each requires (fail-fast validation)
+#
+# Editing this file requires CODEOWNERS approval (.github/CODEOWNERS).
+# After merge, .github/workflows/sync-ops-labels.yml creates the matching
+# `run-script:<name>` labels in the repo — none for a dispatch_only entry.
+# Every entry, flagged or not, appears in the manual runner's dropdown.
+#
+# See ops/README.md for the contributor contract (idempotency, dependency
+# injection at network boundaries, etc.).
+
+scripts:
+  - name: configure-r2-cors
+    file: ops/r2/configure-cors.ts
+    phase: pre-deploy
+    description: |
+      Apply CORS rules to the production R2 media bucket. Replaces the rule
+      set wholesale (idempotent). Re-run whenever PRODUCTION_ALLOWED_ORIGINS
+      changes.
+    requires_secrets:
+      - R2_S3_ENDPOINT
+      - R2_ADMIN_ACCESS_KEY_ID
+      - R2_ADMIN_SECRET_ACCESS_KEY
+      - R2_BUCKET_MEDIA
+
+  - name: reseal-identity-server-keys
+    file: ops/identity/reseal-server-keys.ts
+    phase: pre-deploy
+    dispatch_only: true
+    description: |
+      Re-seal every user's OPAQUE server material and stored TOTP secret from
+      the live key to the next one (OPAQUE_KEK_NEXT /
+      TOTP_ENCRYPTION_SECRET_NEXT). Idempotent: rows already on the next key
+      are skipped, so the job is re-run until it reports zero remaining. The
+      API must be down for the run and the deploy that carries the next key,
+      which is why the entry is dispatch_only: the phase a PR label would bind
+      it to runs against a live API. docs/runbooks/secrets/opaque-kek.md sequences it.
+    requires_secrets:
+      - DATABASE_URL
+      - OPAQUE_KEK
+      - OPAQUE_KEK_NEXT
+      - TOTP_ENCRYPTION_SECRET
+      - TOTP_ENCRYPTION_SECRET_NEXT

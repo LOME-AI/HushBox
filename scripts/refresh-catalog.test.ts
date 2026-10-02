@@ -1,0 +1,98 @@
+import { describe, expect, it } from 'vitest';
+import { formatRefreshSummary } from './refresh-catalog.js';
+import type { RefreshSummary } from '@hushbox/api/dev-seed';
+import type { ExcludeReason } from '@hushbox/shared';
+
+/** Build a `RefreshSummary` with a per-reason breakdown, zero-filling the rest.
+ *
+ * `formatRefreshSummary` reads neither `previouslyIncluded` nor `newlyExcluded`,
+ * but each case still carries the value its scenario means. In every case below
+ * `written + unchanged` accounts for every admitted model, and only the
+ * `unchanged` rows were already in the table and admitted — so
+ * `previouslyIncluded` is `unchanged`. No case takes an admitted model away, so
+ * `newlyExcluded` is 0 throughout. */
+function summaryOf(
+  totals: { discovered: number; written: number; unchanged: number },
+  excludedByReason: Partial<Record<ExcludeReason, number>>
+): RefreshSummary {
+  const full: Record<ExcludeReason, number> = {
+    'token-priced-image': 0,
+    'token-priced-video': 0,
+    'megapixel-priced-image': 0,
+    'missing-pricing': 0,
+    'zero-priced': 0,
+    'below-price-floor': 0,
+    'too-old': 0,
+    deprecated: 0,
+    'non-zdr': 0,
+    'non-conversational': 0,
+    'non-runnable-shape': 0,
+    'unclassifiable-modality': 0,
+    'missing-release-date': 0,
+    'unknown-pricing-unit': 0,
+    'missing-aspect-ratio': 0,
+    'unrepresentable-token-limit': 0,
+    ...excludedByReason,
+  };
+  const excluded = Object.values(full).reduce((sum, count) => sum + count, 0);
+  return {
+    ...totals,
+    excluded,
+    excludedByReason: full,
+    // The one-line summary renders counts only; which id carried which reason
+    // is the E2E gate's concern, not this formatter's.
+    excludedReasonById: new Map(),
+    previouslyIncluded: totals.unchanged,
+    newlyExcluded: 0,
+  };
+}
+
+describe('formatRefreshSummary', () => {
+  it('lists only the non-zero exclusion categories in a fixed order', () => {
+    const line = formatRefreshSummary(
+      summaryOf(
+        { discovered: 388, written: 357, unchanged: 0 },
+        {
+          'token-priced-image': 14,
+          'token-priced-video': 3,
+          deprecated: 5,
+          'unknown-pricing-unit': 9,
+        }
+      )
+    );
+    expect(line).toBe(
+      'catalog:refresh: 388 discovered, 357 written, 0 unchanged, ' +
+        '31 excluded (14 token-priced-image, 3 token-priced-video, 5 deprecated, 9 unknown-pricing-unit).'
+    );
+  });
+
+  it('omits the breakdown entirely when nothing was excluded', () => {
+    const line = formatRefreshSummary(summaryOf({ discovered: 5, written: 5, unchanged: 0 }, {}));
+    expect(line).toBe('catalog:refresh: 5 discovered, 5 written, 0 unchanged, 0 excluded.');
+  });
+
+  it('reports each commercial exclusion separately, never collapsed', () => {
+    // An operator has to be able to tell "priced too low to sell" from "aged
+    // out" from "free", because those call for different responses.
+    const line = formatRefreshSummary(
+      summaryOf(
+        { discovered: 400, written: 300, unchanged: 0 },
+        { 'zero-priced': 12, 'below-price-floor': 40, 'too-old': 48 }
+      )
+    );
+
+    expect(line).toBe(
+      'catalog:refresh: 400 discovered, 300 written, 0 unchanged, ' +
+        '100 excluded (12 zero-priced, 40 below-price-floor, 48 too-old).'
+    );
+  });
+
+  it('surfaces a lone unknown-pricing-unit (the real drift signal)', () => {
+    const line = formatRefreshSummary(
+      summaryOf({ discovered: 10, written: 8, unchanged: 1 }, { 'unknown-pricing-unit': 1 })
+    );
+    expect(line).toBe(
+      'catalog:refresh: 10 discovered, 8 written, 1 unchanged, 1 excluded (1 unknown-pricing-unit).'
+    );
+  });
+});

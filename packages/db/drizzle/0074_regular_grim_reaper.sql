@@ -1,0 +1,1 @@
+CREATE INDEX "payments_user_unresolved_idx" ON "payments" USING btree ("user_id") WHERE "payments"."status" IN ('pending', 'awaiting_webhook');

@@ -1,0 +1,104 @@
+---
+import {
+  createElement,
+  Fragment as ReactFragment,
+  type ComponentProps,
+  type ReactElement,
+} from 'react';
+import { TEST_IDS } from '@hushbox/shared';
+import { ROUTES } from '@hushbox/shared/routes';
+import { Logo, ReleaseStageBadge, ThemeToggle } from '@hushbox/ui';
+import { buttonVariants, IconButton } from '@hushbox/ui/button';
+import { Icon, Menu, X } from '@hushbox/ui/icons';
+import { cn } from '@hushbox/ui/lib/utils';
+import GitHubLink from './GitHubLink.astro';
+import SiteMenu from './SiteMenu.astro';
+import { fetchGitHubStars } from '../lib/fetch-github-stars';
+import { SITE_NAV_LINKS, isCurrentNavLink } from '../lib/site-nav';
+
+const starCount = await fetchGitHubStars();
+
+// The drawn glyphs are larger than the icon button's default glyph; the button's
+// aria-expanded, which the menu script sets, picks the one shown.
+function MenuGlyph(): ReactElement {
+  return createElement(
+    ReactFragment,
+    null,
+    createElement(Icon, { icon: Menu, size: 'xl', className: 'in-aria-expanded:hidden' }),
+    createElement(Icon, { icon: X, size: 'xl', className: 'hidden in-aria-expanded:block' })
+  );
+}
+
+// The badge follows the logo in the row: its auto margin holds it beside the logo rather
+// than spread to the middle, and its negative margin halves the row's gap between them.
+function releaseStageLink({ className, ...props }: ComponentProps<'a'>): ReactElement {
+  return createElement('a', {
+    ...props,
+    className: cn(className, 'mr-auto -ml-[min(0.5rem,2.5vw)]'),
+  });
+}
+---
+
+<header
+  data-site-header
+  class="group/site-header border-border bg-background/80 fixed top-[var(--hb-banner-height)] z-50 w-full border-b backdrop-blur-md"
+>
+  <div
+    data-site-header-row
+    class="mx-auto flex max-w-6xl items-center justify-between gap-[min(1rem,5vw)] px-[min(1.5rem,7.5vw)] py-4"
+  >
+    <a href={ROUTES.MARKETING} class="transition-opacity hover:opacity-80">
+      {/* The cap reaches the wordmark only while Logo draws it as its direct-child span. */}
+      <Logo className="[&>span]:text-[length:min(var(--text-lg),5.625vw)]" />
+    </a>
+    <ReleaseStageBadge link={releaseStageLink} />
+
+    <nav
+      data-site-nav
+      aria-label="Site"
+      class="hidden items-center gap-5 group-data-[nav-compact]/site-header:hidden md:flex"
+    >
+      <GitHubLink stars={starCount} variant="nav" />
+      {
+        SITE_NAV_LINKS.map((link) => (
+          <a
+            href={link.href}
+            aria-current={isCurrentNavLink(Astro.url.pathname, link.href) ? 'page' : undefined}
+            class="text-muted-foreground hover:text-foreground text-sm transition-colors"
+          >
+            {link.label}
+          </a>
+        ))
+      }
+      <ThemeToggle client:load />
+      <a href={ROUTES.CHAT} class={buttonVariants({ size: 'sm' })}>Open HushBox</a>
+    </nav>
+
+    <div
+      class="flex items-center gap-[min(0.5rem,2.5vw)] group-data-[nav-compact]/site-header:flex md:hidden"
+    >
+      <ThemeToggle client:load />
+      <IconButton
+        type="button"
+        id="landing-menu-toggle"
+        data-testid={TEST_IDS.landingMenuToggle}
+        data-site-menu-toggle
+        aria-label="Open menu"
+        aria-controls="landing-mobile-menu"
+        aria-expanded="false"
+        icon={MenuGlyph}
+        size="sm"
+        hitArea="extend"
+      />
+    </div>
+  </div>
+
+  <SiteMenu stars={starCount} />
+</header>
+
+<script>
+  import { initSiteMenu } from '../lib/site-menu';
+
+  const header = document.querySelector('[data-site-header]');
+  if (header instanceof HTMLElement) initSiteMenu(header);
+</script>

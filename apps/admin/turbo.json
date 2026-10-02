@@ -1,0 +1,65 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // This app's build runs the bundle guard AND the security-header generator
+    // from its own vite config, but `$TURBO_DEFAULT$` covers only files inside
+    // the package — so a change to either one's rules leaves the hash
+    // untouched, and a cache hit replays a dist verified under the superseded
+    // guard or served with a superseded CSP. Both tools' sources are named file
+    // by file: a `scripts/**` glob is edited constantly for unrelated reasons
+    // and every edit would rebuild admin. `ort-runtime.ts` and `routes.ts` need
+    // no entry — they belong to `@hushbox/shared`, whose build this already
+    // depends on. `inputs` and `dependsOn` are overridden; `outputs` and `env`
+    // are inherited from the root task.
+    "build": {
+      // The root task's edges are restated alongside the new one, so that an
+      // override of this key cannot cost this build its dependency builds.
+      // The marketing preview copy lands in this package's static assets, so
+      // it has to be in place before the bundler runs — the bundler empties
+      // the dist on its way in, which is why the copy cannot simply be
+      // written there afterwards.
+      "dependsOn": ["^build", "fetch-pyodide", "@hushbox/marketing#admin-preview:assets"],
+      // The copied site under `public/preview/` is deliberately unnamed below.
+      // The reason is kept here and cited from the case that pins it, rather
+      // than repeated there: the two prose copies that existed drifted apart.
+      // An input glob is sampled before the depended-on tasks have run, so
+      // naming it keys this build on the copy the previous run left rather
+      // than the one it bundles, and that copy's bytes do not repeat run to
+      // run in any case: a hydrated island records the duration its render
+      // took, and the identifiers those islands carry can move too.
+      // What the edge above carries is the marketing package's own sources,
+      // the root env files, and the packages it builds on; `HB_ENV_MODE`
+      // and `ESM_CDN_URL` are declared environment on this build and on the
+      // preview build, so the mode a copy was built under moves both keys
+      // even though nothing names the wrapper that reads it. Dropping the
+      // glob still leaves a residue — deciders of that copy's content that
+      // reach no key at all. One of them is not a file: the build-time star
+      // count in `apps/marketing/src/lib/fetch-github-stars.ts` awaits a
+      // network response, and no hash can see what comes back. The module
+      // itself is a marketing source the edge above carries, so editing it
+      // moves this key and the preview build's; only the reply does not. The
+      // file-level residue is the source of `scripts/with-env.ts`, the
+      // wrapper the preview build's command names, together with the stack
+      // modules that wrapper loads: no input map on either build names the
+      // wrapper or any of those modules. A change there leaves this build
+      // on a hit whose dist carries the copy from before the change, and so
+      // does a different reply to the star count, with no file having
+      // changed.
+      "inputs": [
+        // The root task's own entries, repeated because an override replaces
+        // the array rather than extending it. The anchor on the env glob is
+        // load-bearing, for the reason the root task states.
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/.env*",
+        "../../scripts/verify-bundle.ts",
+        "../../scripts/generate-headers.ts",
+        "../../scripts/lib/bundling/seam.ts",
+        "../../scripts/lib/bundling/headers-vite-plugin.ts",
+        "../../scripts/lib/bundling/admin-preview.ts",
+        "../../scripts/lib/cli/is-main.ts",
+        "../../scripts/lib/cli/run-main.ts"
+      ]
+    }
+  }
+}

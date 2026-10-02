@@ -1,0 +1,11 @@
+/* The app's own entry stylesheet, imported whole rather than reconstructed: the layer
+   order, the theme tokens and the accessibility overrides arrive here in exactly the
+   order apps/web/src/app.css puts them, which is the cascade whose resolution is under
+   test. */
+@import '../../../app.css';
+
+/* Tailwind's automatic content detection is rooted at the directory of the stylesheet
+   Vite compiles, so it finds this fixture's markup; the app's own utilities come from the
+   @source directives inside app.css. Named explicitly because the classes under test
+   exist nowhere else, and a detection root that moved would silently drop them. */
+@source './contrast-surface-tokens.html';

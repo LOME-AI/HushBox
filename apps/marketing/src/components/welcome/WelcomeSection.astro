@@ -1,0 +1,32 @@
+---
+interface Props {
+  id?: string;
+  width?: 'content' | 'narrow' | 'none';
+  reveal?: boolean;
+}
+
+const { id, width = 'content', reveal = false } = Astro.props;
+
+const CONTAINER_CLASS = {
+  content: 'mx-auto max-w-5xl px-6',
+  narrow: 'mx-auto max-w-3xl px-6',
+} as const;
+---
+
+<section id={id} class="py-9" data-reveal={reveal ? '' : undefined}>
+  {
+    width === 'none' ? (
+      <slot />
+    ) : (
+      <div class={CONTAINER_CLASS[width]}>
+        <slot />
+      </div>
+    )
+  }
+</section>
+
+<script>
+  import { initRevealOnScroll } from '../../lib/reveal-on-scroll';
+
+  initRevealOnScroll(document);
+</script>

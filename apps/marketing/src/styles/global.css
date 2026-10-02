@@ -1,0 +1,277 @@
+@layer base, components, utilities, accessibility;
+
+@import '../../../../packages/config/tailwind/index.css';
+
+/* Self-hosted brand fonts, shared with the web app via @hushbox/ui. Marketing
+   previously declared no @font-face and fell back to system fonts. */
+@import '@hushbox/ui/fonts';
+
+@source '../../../../packages/ui/src/components/marketing/**/*.tsx';
+@source '../../../../packages/ui/src/components/cipher-wall/**/*.tsx';
+@source '../../../../packages/ui/src/components/accessibility/**/*.tsx';
+
+@import '@hushbox/ui/accessibility/styles';
+
+/* Announcement banner — plain CSS over shared theme tokens (no Tailwind utilities,
+   so no @source needed). The mount is fixed at the top; its live height is
+   published as `--hb-banner-height` by the banner script, and the fixed header
+   (SiteHeader) + page content offset below it. Collapses to 0 when absent. */
+@import '@hushbox/ui/banner/styles';
+
+:root {
+  --hb-banner-height: 0px;
+}
+
+.hb-announcement-mount {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 60;
+}
+
+body {
+  padding-block-start: var(--hb-banner-height, 0px);
+}
+
+/*
+ * Durable in-page anchor offset. `--header-height` is set live by
+ * SiteHeader from the fixed header's measured height, so any
+ * `section[id]` jump target clears the header instead of landing under it
+ * (or, with a stale magic-number offset, too far down). Smooth by default;
+ * the accessibility motion toggle forces instant.
+ */
+html {
+  scroll-behavior: smooth;
+}
+
+html.reduced-motion {
+  scroll-behavior: auto;
+}
+
+:where(section[id]) {
+  scroll-margin-top: calc(var(--header-height, 4.5rem) + 1rem);
+}
+
+.prose-blog {
+  @apply text-foreground leading-relaxed;
+}
+
+.prose-blog :where(h2, h3, h4):not(:where([class~='not-prose'] *)) {
+  scroll-margin-top: 6rem;
+}
+
+.prose-blog :where(h2):not(:where([class~='not-prose'] *)) {
+  @apply text-brand-red mt-10 mb-4 text-2xl font-bold;
+}
+
+.prose-blog :where(h3):not(:where([class~='not-prose'] *)) {
+  @apply text-brand-red mt-8 mb-3 text-xl font-semibold;
+}
+
+.prose-blog :where(h4):not(:where([class~='not-prose'] *)) {
+  @apply text-brand-red mt-6 mb-2 text-lg font-semibold;
+}
+
+.prose-blog :where(p):not(:where([class~='not-prose'] *)) {
+  @apply mb-4;
+}
+
+.prose-blog :where(a):not(:where([class~='not-prose'] *)) {
+  @apply text-brand-red underline-offset-2 hover:underline;
+}
+
+.prose-blog :where(blockquote):not(:where([class~='not-prose'] *)) {
+  @apply border-brand-red bg-brand-red-subtle mb-4 rounded-r-lg border-l-4 py-3 pl-4 italic;
+}
+
+/* A quote's closing paragraph is its attribution when it isn't the only paragraph. */
+.prose-blog :where(blockquote > p:last-child:not(:only-child)):not(:where([class~='not-prose'] *)) {
+  @apply text-muted-foreground mb-0 text-sm not-italic;
+}
+
+.prose-blog :where(pre):not(:where([class~='not-prose'] *)) {
+  @apply bg-background-paper border-border overflow-x-auto rounded-lg border-2 p-4;
+}
+
+.prose-blog :where(code):not(:where(pre *)):not(:where([class~='not-prose'] *)) {
+  @apply bg-background-subtle rounded px-1.5 py-0.5 font-mono text-sm;
+}
+
+.prose-blog :where(pre code):not(:where([class~='not-prose'] *)) {
+  @apply bg-transparent p-0 font-mono text-sm;
+}
+
+.prose-blog :where(img):not(:where([class~='not-prose'] *)) {
+  @apply w-full rounded-lg;
+}
+
+.prose-blog :where(figcaption):not(:where([class~='not-prose'] *)) {
+  @apply text-muted-foreground mt-2 text-center text-sm;
+}
+
+.prose-blog :where(ul):not(:where([class~='not-prose'] *)) {
+  @apply mb-4 list-disc pl-6;
+}
+
+.prose-blog :where(ol):not(:where([class~='not-prose'] *)) {
+  @apply mb-4 list-decimal pl-6;
+}
+
+.prose-blog :where(li):not(:where([class~='not-prose'] *)) {
+  @apply mb-1;
+}
+
+.prose-blog :where(hr):not(:where([class~='not-prose'] *)) {
+  @apply border-border my-8;
+}
+
+.prose-blog :where(table):not(:where([class~='not-prose'] *)) {
+  @apply border-border w-full border-separate border-spacing-0 overflow-hidden rounded-lg border text-sm;
+}
+
+.prose-blog :where(th):not(:where([class~='not-prose'] *)) {
+  @apply border-border bg-background-subtle border-r border-b-2 px-3 py-2 text-left font-semibold last:border-r-0 max-md:min-w-36;
+}
+
+.prose-blog :where(td):not(:where([class~='not-prose'] *)) {
+  @apply border-border border-r border-b px-3 py-2 align-top first:font-medium last:border-r-0 max-md:min-w-36;
+}
+
+.prose-blog :where(tbody tr:last-child td):not(:where([class~='not-prose'] *)) {
+  @apply border-b-0;
+}
+
+.prose-blog :where(tbody tr:nth-child(even) td):not(:where([class~='not-prose'] *)) {
+  @apply bg-background-subtle/40;
+}
+
+.prose-blog :where(h2#sources ~ ol a, h2#sources ~ ul a):not(:where([class~='not-prose'] *)) {
+  @apply text-brand-red hover:text-brand-red-hover underline underline-offset-2 transition-colors;
+}
+
+/* The welcome sections' fade-up. Only the reveal-on-scroll script sets a hidden state, and only
+   on an element that starts below the fold, so a page without script hides nothing. */
+[data-reveal-state='hidden'] {
+  opacity: 0;
+  transform: translateY(2rem);
+}
+
+[data-reveal-state='shown'] {
+  transition:
+    opacity var(--motion-deliberate) var(--ease-out),
+    transform var(--motion-deliberate) var(--ease-out);
+}
+
+[data-reveal='delayed'][data-reveal-state='shown'] {
+  transition-delay: var(--motion-base);
+}
+
+html.reduced-motion [data-reveal-state='hidden'] {
+  opacity: 1;
+  transform: none;
+}
+
+[data-slot='step-flow'][data-connected] [data-slot='step-item'] {
+  position: relative;
+}
+
+[data-slot='step-flow'][data-connected] [data-slot='step-item']:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 2rem;
+  width: 2px;
+  height: calc(100% - 0.5rem);
+  background: var(--color-border);
+}
+
+[data-slot='step-flow'][data-connected] [data-slot='step-item'][aria-current]::after {
+  left: calc(15px + 1rem);
+  top: 2.5rem;
+  height: calc(100% - 1rem);
+}
+
+[data-cipher-bg] {
+  animation: cipherFadeIn 2.5s ease-in forwards;
+}
+
+@keyframes cipherFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/*
+ * Ghost-UI skeleton. RoadmapBoard stamps [data-skeleton] on its wrapper
+ * while the API is in flight and renders the real component tree against
+ * a placeholder dataset. The rules below mask text into bars and mute
+ * coloured surfaces so the skeleton mirrors the loaded layout — adding a
+ * field to ProjectCard automatically appears in the skeleton, without a
+ * parallel skeleton component to keep in sync.
+ */
+
+[data-skeleton] {
+  position: relative;
+}
+
+[data-skeleton],
+[data-skeleton] * {
+  color: transparent !important;
+  text-shadow: none !important;
+}
+
+[data-skeleton] :is(button, [role='progressbar'] > *) {
+  background-color: var(--color-background-subtle) !important;
+  background-image: none !important;
+  border-color: var(--color-border) !important;
+  cursor: default !important;
+}
+
+[data-skeleton] :is(h1, h2, h3, h4, p, span):not(:has(*)) {
+  background-color: var(--color-foreground);
+  border-radius: 3px;
+  opacity: 0.18;
+}
+
+[data-skeleton] [aria-hidden='true']:not(:has(*)) {
+  background-color: var(--color-foreground) !important;
+  opacity: 0.18;
+}
+
+[data-skeleton] svg {
+  visibility: hidden;
+}
+
+/* The shimmer is disabled under reduced motion by the global rule in
+   packages/ui/src/components/accessibility/styles/motion.css, which
+   pins animation-duration to 0.01ms on every element + pseudo-element
+   when `html.reduced-motion` is set. That class is toggled by the
+   accessibility broadcaster off the merged OS preference + in-app
+   toggle, so a local `@media (prefers-reduced-motion)` here would
+   only catch half the signal. */
+[data-skeleton]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: hb-skeleton-shimmer 1.8s linear infinite;
+}
+
+@keyframes hb-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

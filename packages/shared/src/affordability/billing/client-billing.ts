@@ -1,0 +1,251 @@
+/**
+ * The client's imperative shell around the shared {@link resolveFunding}
+ * core. It is the client counterpart to the server's `resolvePayerWallet`: both
+ * sides feed the SAME pure core, so the who-pays + premium-tier RULE is shared.
+ *
+ * Only ONE of them decides the payer of a real turn. The send path prices
+ * `minTurnCost` and runs priority 1's comparison; no production client caller
+ * supplies a group dimension at all (see {@link ClientFundingContext}), so this
+ * shell resolves the solo arm and the SERVED payer names who pays on every
+ * group surface. `funding-decision.contract.test.ts` pins the rule both sides
+ * run, not the inputs they feed it.
+ *
+ * The core answers only two questions — WHO pays and WHETHER a premium model is
+ * allowed. It says nothing about affordability or the trial quota. Those live
+ * here, in the client-only affordability layer, which maps the core's
+ * `FundingDecision` in
+ * `packages/shared/src/affordability/billing/funding-decision.ts` plus the
+ * caller's served numbers onto this module's own denial discriminator ({@link
+ * DenialReason}). That discriminator names WHY the client refused;
+ * `generateNotifications()` maps it onto the shared typed notice vocabulary,
+ * which is where the wording lives. The server never uses this discriminator —
+ * its settlement path draws from the core directly.
+ *
+ * All money here is nano-USD `bigint`, exact end-to-end — cents exist only at
+ * display formatting, never in a decision.
+ */
+
+import { TRIAL_MESSAGE_COST_CAP_NANO_USD } from '../constants.ts';
+import { resolveFunding, type FundingInputs, type PayerSwitchReason } from './funding-decision.ts';
+import type { UserTier } from '../money/tiers.ts';
+
+export type FundingSource = 'owner_balance' | 'personal_balance' | 'free_allowance' | 'trial_fixed';
+
+export type DenialReason =
+  | 'premium_requires_balance'
+  | 'insufficient_balance'
+  /** The payer's own purchased balance is below zero, whatever the turn would cost. */
+  | 'negative_balance'
+  | 'insufficient_free_allowance'
+  | 'trial_limit_exceeded'
+  | 'guest_budget_exhausted';
+
+/**
+ * An answer about the payer's money: who pays, or why the client refused.
+ * Everything downstream that words a funding sentence takes THIS rather than
+ * {@link ResolveBillingResult}, so a caller holding no verdict cannot hand one
+ * in and have a sentence derived from it.
+ */
+export type FundingVerdict =
+  /**
+   * `payerSwitch` carries the affirmative pre-send disclosure §Notices 5
+   * requires: a group turn whose headroom could not cover it succeeds against
+   * the SENDER's wallet, and that must not change who is charged silently. It
+   * is absent on a refused send, which carries its refusal reason instead.
+   *
+   * This layer never sets it — the client cannot resolve a group verdict at
+   * all, so nothing here knows a switch happened. The surface that holds both
+   * the served payer and the group membership stamps it onto the result, which
+   * is the only place both facts are in hand.
+   */
+  | { fundingSource: FundingSource; payerSwitch?: PayerSwitchReason }
+  | { fundingSource: 'denied'; reason: DenialReason };
+
+export type ResolveBillingResult =
+  | FundingVerdict
+  /**
+   * No verdict exists, because no funding figure was read. It is NOT a denial
+   * and NOT a zero balance: a payer whose snapshot has not arrived, or whose
+   * read is exhausted, may be rich. Substituting `0n` for that absence answered
+   * `denied` on every priced turn and stated it to the user as a shortfall.
+   *
+   * `resolveClientBilling` never produces it — the absence is known one layer
+   * out, at the funding read — so this member exists for the shell that maps a
+   * read onto a result, and it obliges every consumer to say what it does with
+   * "unknown" rather than defaulting it into a money claim.
+   */
+  | { fundingSource: 'no_verdict' };
+
+export interface ClientBillingInput {
+  tier: UserTier;
+  /**
+   * The RAW served purchased-wallet balance (negative-capable). Feeds the
+   * negative-balance hard block and the core's who-pays sign — never the
+   * affordability compare (that is {@link ClientBillingInput.spendableNanoUsd}).
+   */
+  purchasedBalanceNanoUsd: bigint;
+  /**
+   * The SERVED spendable: cushion- and hold-aware, exactly what admission's
+   * balance gate compares. The cushion is baked in exactly once server-side —
+   * this layer must never re-add it (the double-cushion hazard). `0n` only for
+   * the trial, which has no funding endpoint to read.
+   *
+   * It is ONE number for every tier that has a door: a paid payer's is the
+   * cushioned wallet spendable, a free payer's is the day-keyed allowance
+   * remaining, a guest's is the owner-funded group headroom its own read
+   * serves, and all of them arrive hold-aware from the same field. There is no
+   * second funding figure to compose against, which is what makes the
+   * affordability compare below tier-blind in its arithmetic and tier-keyed
+   * only in its vocabulary.
+   */
+  spendableNanoUsd: bigint;
+  isPremiumModel: boolean;
+  estimatedMinimumCostNanoUsd: bigint;
+}
+
+/**
+ * The funding-relevant inputs: who pays depends on the caller's tier, raw
+ * balance and model tier, plus — at priority 1 — the amount the headroom has to
+ * cover, never on the affordability balances. There is no channel here for a
+ * caller to supply group dimensions: the served snapshot names the payer, so
+ * the only group figure the client ever holds is a link guest's served
+ * spendable, which IS the owner-funded headroom. A signed-in caller therefore
+ * resolves the solo arm and renders the served payer.
+ *
+ * `estimatedMinimumCostNanoUsd` is `undefined` for a caller asking only who
+ * WOULD pay, with no turn priced.
+ */
+export interface ClientFundingContext {
+  tier: UserTier;
+  purchasedBalanceNanoUsd: bigint;
+  /**
+   * The served spendable. It carries the group dimensions for a link guest,
+   * whose served figure IS the owner-funded headroom, and is otherwise the
+   * caller's own funding number.
+   */
+  spendableNanoUsd: bigint;
+  isPremiumModel: boolean;
+  estimatedMinimumCostNanoUsd: bigint | undefined;
+}
+
+/**
+ * Map the client's served nano numbers onto the core's {@link FundingInputs}.
+ * `effectiveRemainingNanoUsd` is already the backend's clamped group minimum,
+ * so the member/conversation dimensions collapse onto it (the owner balance is
+ * carried through for fidelity); the core's `min` therefore tracks the sign of
+ * the effective remaining. The caller's own balance is the RAW wallet figure —
+ * the core reads its sign for premium access, which a cushioned spendable
+ * would falsify. The minimum the surface is judging is what priority 1's group
+ * headroom must cover, so it crosses into the core under the core's own name.
+ *
+ * The core cushions its owner dimension, and that cannot double-cushion the
+ * already-clamped figure passed here: the served headroom is itself a min over
+ * the same read's clamped owner balance, so it can never exceed that balance plus
+ * a cushion and the core's min stays the served number.
+ */
+export function deriveClientFundingInputs(input: ClientFundingContext): FundingInputs {
+  const isGuest = input.tier === 'guest';
+
+  if (isGuest) {
+    // A link guest's served figure IS the group headroom: its funding read
+    // serves the owner-funded `min(member cap, conversation cap, owner balance)`
+    // already clamped, so the three dimensions collapse onto that one number and
+    // there is no second field to compose. The caller's own balance is fixed at
+    // zero here rather than read — a guest holds no wallet, so grading one is
+    // how a guest ends up refused for being a guest.
+    return {
+      isSolo: false,
+      isGuest: true,
+      memberRemainingNanoUsd: input.spendableNanoUsd,
+      conversationRemainingNanoUsd: input.spendableNanoUsd,
+      ownerPurchasedBalanceNanoUsd: input.spendableNanoUsd,
+      callerOwnPurchasedBalanceNanoUsd: 0n,
+      isPremiumModel: input.isPremiumModel,
+      minTurnCostNanoUsd: input.estimatedMinimumCostNanoUsd,
+    };
+  }
+
+  // Everyone else resolves the SOLO arm. The client holds no group dimensions
+  // to compose — the served snapshot already applied §Group Funding 2 and names
+  // the payer — so a second, client-side owner-funded verdict is unreachable by
+  // construction rather than merely unused.
+  return {
+    isSolo: true,
+    isGuest,
+    memberRemainingNanoUsd: 0n,
+    conversationRemainingNanoUsd: 0n,
+    ownerPurchasedBalanceNanoUsd: 0n,
+    callerOwnPurchasedBalanceNanoUsd: input.purchasedBalanceNanoUsd,
+    isPremiumModel: input.isPremiumModel,
+    minTurnCostNanoUsd: input.estimatedMinimumCostNanoUsd,
+  };
+}
+
+/**
+ * The affordability + trial-quota layer for a self-funding caller. The core has
+ * already permitted the model tier, so this only asks "can the caller's own
+ * funds cover the estimate?" and picks the tier-specific vocabulary. Exact
+ * bigint compares throughout — no float tolerance exists in integer money.
+ */
+function resolveSelfFunding(input: ClientBillingInput): FundingVerdict {
+  const { tier, spendableNanoUsd, estimatedMinimumCostNanoUsd } = input;
+
+  // Paid and free run the SAME compare against the SAME served number — the
+  // wallet each draws on differs, but which wallet it is was decided
+  // server-side and is already baked into the served figure. Only the
+  // vocabulary is tier-keyed: what the payer can do about a shortfall differs
+  // (top up versus wait for tomorrow), so the two arms name different sources
+  // and different reasons for one piece of arithmetic.
+  if (tier === 'paid' || tier === 'free') {
+    const source = tier === 'paid' ? 'personal_balance' : 'free_allowance';
+    const reason = tier === 'paid' ? 'insufficient_balance' : 'insufficient_free_allowance';
+    return spendableNanoUsd >= estimatedMinimumCostNanoUsd
+      ? { fundingSource: source }
+      : { fundingSource: 'denied', reason };
+  }
+
+  // Only the trial remains. A link guest never reaches this arm: the core
+  // answers owner-or-refuse for it, because a guest has no wallet to fall
+  // through to — which is why the fixed per-message ceiling below, whose whole
+  // reason is that a trial session has NO funding endpoint to read, cannot
+  // become a guest's ceiling. Pinned by "guest never takes the trial
+  // per-message ceiling".
+  return estimatedMinimumCostNanoUsd <= TRIAL_MESSAGE_COST_CAP_NANO_USD
+    ? { fundingSource: 'trial_fixed' }
+    : { fundingSource: 'denied', reason: 'trial_limit_exceeded' };
+}
+
+/**
+ * Resolve billing for a message on the client: WHO pays or WHY it's denied.
+ *
+ * Who-pays + premium comes from the shared {@link resolveFunding} core;
+ * this function only translates the core's decision into the notification
+ * vocabulary and layers the affordability / trial checks on top.
+ */
+export function resolveClientBilling(input: ClientBillingInput): FundingVerdict {
+  // A negative balance on the wallet that would fund this turn hard-blocks new
+  // paid turns until top-up (a negative balance lives on the purchased wallet
+  // and the day-keyed free allowance never offsets it). This reads the RAW
+  // served balance — a complementary defense the cushioned spendable compare
+  // must never absorb (a −$0.10 wallet still shows a positive spendable). The
+  // server's admission is authoritative; surfacing the denial here disables the
+  // composer before the request is sent. A guest carries `0n` here — it holds no
+  // wallet, so this block cannot fire on one, and its payer's overdraft reaches
+  // it as a zero-clamped headroom instead.
+  const payerBalanceNanoUsd = input.purchasedBalanceNanoUsd;
+  if (payerBalanceNanoUsd < 0n) {
+    return { fundingSource: 'denied', reason: 'negative_balance' };
+  }
+
+  const decision = resolveFunding(deriveClientFundingInputs(input));
+
+  if (decision.payer === 'owner') {
+    return { fundingSource: 'owner_balance' };
+  }
+  if (decision.payer === 'refuse') {
+    return decision.refusalCode === 'MODEL_TIER_LOCKED'
+      ? { fundingSource: 'denied', reason: 'premium_requires_balance' }
+      : { fundingSource: 'denied', reason: 'guest_budget_exhausted' };
+  }
+  return resolveSelfFunding(input);
+}

@@ -1,0 +1,6 @@
+/* The app's own entry stylesheet, so the card is measured under the cascade it ships in:
+   the theme tokens, the pointer variant and the accessibility overrides included. */
+@import '../../../app.css';
+
+/* The resting reconstruction's classes live only in this fixture's entry. */
+@source './setting-card-targets.entry.tsx';

@@ -1,0 +1,51 @@
+---
+import { buttonVariants } from '@hushbox/ui/button';
+import { GitHubMark, Icon } from '@hushbox/ui/icons';
+
+interface Props {
+  stars: number;
+  variant: 'nav' | 'menu';
+}
+
+const { stars, variant } = Astro.props;
+
+const REPOSITORY_URL = 'https://github.com/LOME-AI/HushBox';
+
+function formatStars(count: number): string {
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}k`;
+  }
+  return String(count);
+}
+
+const shownCount = formatStars(stars);
+---
+
+{
+  variant === 'nav' ? (
+    <a
+      href={REPOSITORY_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`GitHub, ${shownCount} stars`}
+      class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm leading-none transition-colors"
+    >
+      <Icon icon={GitHubMark} />
+      <span>{shownCount}</span>
+    </a>
+  ) : (
+    <a
+      href={REPOSITORY_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`GitHub, ${shownCount} stars`}
+      class:list={[buttonVariants({ variant: 'outline', size: 'lg' }), 'w-full']}
+    >
+      <Icon icon={GitHubMark} />
+      <span>GitHub</span>
+      <span class="bg-background-subtle text-muted-foreground rounded-full px-1.75 py-px font-mono text-xs">
+        {shownCount}
+      </span>
+    </a>
+  )
+}

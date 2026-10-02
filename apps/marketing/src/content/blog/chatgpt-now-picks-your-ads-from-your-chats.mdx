@@ -1,0 +1,96 @@
+---
+title: 'ChatGPT Now Picks Your Ads From Your Chats'
+description: 'OpenAI says ChatGPT ads hit a $1 billion run rate in under 200 days. What picks them, what "private from advertisers" leaves out, and who pays whom.'
+author: 'HushBox Team'
+date: 2026-09-24
+tags: ['privacy', 'advertising', 'pricing', 'ai-models']
+draft: true
+---
+
+## What picks the ad
+
+On February 9, OpenAI started showing ads in ChatGPT. The test covered logged-in adults in the U.S. on the Free plan and on Go, the $8-a-month tier. OpenAI's announcement explained how an ad gets chosen: "we decide which ad to show by matching ads submitted by advertisers with the topic of your conversation, your past chats, and past interactions with ads."
+
+That's three inputs, and you wrote two of them. The example in the announcement was a gentle one: research recipes, and you may see ads for meal kits or grocery delivery.
+
+A Help Center page fills in more. With ad personalization on, the signals grow to include your past chats, your memories and how you've reacted to earlier ads, and the page is plain about memory: "If memory is on, ChatGPT may save and use memories and reference recent chats when selecting an ad." Turn personalization off and the same page promises that "you will still see ads based on the context of your current chat thread." The switch decides how much of your history the ad system consults. It doesn't stop the system reading the chat you're in.
+
+ChatGPT isn't alone.
+
+| Assistant         | Where the ads appear                                                                | What picks the ad                                                                                                                                                                         | Can you switch it off?                                                                            |
+| ----------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| ChatGPT           | Below answers, for Free and Go users and for logged-out visitors                    | Your current chat, your general location and language, and the advertiser's targeting choices. With personalization on, also your past chats, your memories and how you've reacted to ads | Personalization, yes. To stop the ads: Plus or Pro, a Temporary Chat, or Free with fewer messages |
+| Microsoft Copilot | In Copilot, for people without a Microsoft 365 subscription                         | Without personalization, "the most recent content of your current conversation." With it, also chat history, saved memories and other Microsoft data you've chosen to share               | Personalization, yes                                                                              |
+| Meta AI           | Across Meta's apps from December 16, 2025, except in the EU, the UK and South Korea | Your conversations with Meta AI, minus topics Meta treats as sensitive, such as health and religion                                                                                       | No, Meta said at launch                                                                           |
+| Claude            | None                                                                                | Nothing. Anthropic says Claude will stay ad-free                                                                                                                                          | Nothing to switch off                                                                             |
+
+## What "private from advertisers" leaves out
+
+OpenAI's promise on advertisers is specific: "Advertisers do not have access to your chats, chat history, memories, or personal details. Advertisers only receive aggregate information about how their ads perform such as number of views or clicks." There's no reason to doubt it, and the documented exception is one you choose: if you message an advertiser through an ad, OpenAI's Help Center says, "the advertiser will only see the messages you send them directly."
+
+It's a promise about advertisers. The conversation itself sits with OpenAI, which also runs the ad system that reads it, and information about you is moving in the other direction, from advertisers to OpenAI. Two of OpenAI's advertiser tools show how.
+
+One is custom audiences. An advertiser uploads a list of its customers or prospects, as email addresses or phone numbers, raw or hashed, or as Google advertising IDs, and OpenAI matches the list against ChatGPT accounts. The advertiser can then show a campaign only to people on the list, keep it away from them, or change its bid, from a tenth of normal up to ten times, whenever the person in the chat is on the list. Among the examples in OpenAI's help pages is "a 5x multiplier for people who have previously engaged with your brand." There are guardrails: a list has to match at least 25,000 users before it can be used to target anyone or adjust a bid, and OpenAI says Ads Manager "does not show individual matched users." Hashing, for what it's worth, hides nothing from anyone who already has your address: the same email always produces the same hash, which is exactly why it works as a matching key.
+
+The other is the measurement pixel, a script advertisers add to their own websites so OpenAI can see which ads led to a sale. According to OpenAI's developer documentation, the pixel starts with consent set to true unless the site sets it to false, and when its "automatic advanced matching" is enabled, it finds supported customer information on the site and hashes it before sending. The same documentation says what OpenAI doesn't do with that data yet: "For clarity, OpenAI does not currently use data collected via the measurement pixel for user-level personalization. If we do so in the future, we will respect this opt-out toggle." The toggle is a field on each event, and it "Defaults to `false`."
+
+Put together, OpenAI's ad system weighs the lists advertisers send against what you've said, inside a conversation you thought was between you and a chatbot. Advertisers don't see your chats. They don't need to.
+
+## The second customer
+
+In May 2024, Sam Altman told an audience at Harvard that "Ads plus AI is sort of uniquely unsettling to me," according to Business Insider, and that "I kind of think of ads as a last resort for us for a business model." Twenty months later, OpenAI announced it would test them.
+
+The last resort is doing well. On August 31, OpenAI said ChatGPT's ads had reached $1 billion in annualized revenue run rate within 200 days of launch, with tens of thousands of advertisers, and that ChatGPT Ads are "available in over 40 countries." Axios had already reported what OpenAI told investors to expect: $2.5 billion in ad revenue this year, growing to $100 billion by 2030.
+
+What's being sold is spelled out in the same announcement, in a section headed "Where decisions take shape":
+
+> People come to ChatGPT with clear goals. They might be choosing software for their business, learning a new language, planning a renovation, looking for a job, or exploring a new hobby. They explain what they want to accomplish, what matters to them, and the constraints they face.
+>
+> OpenAI, "A milestone in expanding access to AI"
+
+Read that last sentence the way an advertiser would. "What matters to them" is intent. "The constraints they face" is a budget and a deadline. A search engine gets a few keywords. A chatbot gets the whole paragraph.
+
+Saying no has a price: Go subscribers pay $8 a month and still see ads, and Free users can switch ads off in exchange for, in OpenAI's words, "fewer messages per day and no access to tools like images." Attention is the currency the free tier runs on.
+
+Who gets shown ads at all? In a paper posted to arXiv on August 5, Emma Lurie and three colleagues at the University of Pennsylvania and Haverford College describe 91 test accounts they ran through ChatGPT starting in February, each made to look as though it came from a particular ZIP code. Accounts from lower-income ZIP codes were more likely to receive any ads: every $1,000 of median household income cut the odds by about 2 percent. The authors say this income gradient "warrants continued monitoring as OpenAI's targeting infrastructure matures." They're careful about its limits, too: the accounts were synthetic, without the months of history real users carry, and the topic of each chat looked like the main thing deciding which ads appeared.
+
+## The best case for ads
+
+By OpenAI's count, more than a billion people use ChatGPT every week. The ones who never pay still cost money to serve. Ads are how search and social media were paid for, and an assistant sold only to people who can afford a monthly fee sorts access to AI by income, which is its own kind of unfairness.
+
+OpenAI has also drawn real lines. Advertisers get only aggregate numbers. No ads go to accounts it believes belong to someone under 18. None appear near personal health, mental health or politics. The Penn and Haverford researchers found the ads "clearly separated from the LLM's response text." They also reported that "OpenAI's stated content exclusions appear to be functioning as intended," with health, mental health and political prompts drawing almost no ads.
+
+All of that is true today. "Today" is the weak word: every item on that list is a policy, and policies answer to revenue targets. Anthropic, which sells Claude without ads, put the mechanism this way: "advertising incentives, once introduced, tend to expand over time as they become integrated into revenue targets and product development, blurring boundaries that were once more clear-cut." Its own pledge keeps a door open: "Should we need to revisit this approach, we'll be transparent about our reasons for doing so."
+
+Between January and September, OpenAI's own record shows the lines moving. Its January ad principles said, "We do not optimize for time spent in ChatGPT," and previewed where the ads were going: "soon you might see an ad and be able to directly ask the questions you need to make a purchase decision." By the end of August the platform had custom audiences, a measurement pixel, per-click and outcome-optimized bidding in the majority of campaigns, and a plan to "explore new ways for businesses to interact with consumers in more native ways in ChatGPT." In September it began testing Sponsored Agents, which let people "start a conversation with a business-sponsored agent after clicking an ad in ChatGPT," along with an opt-in tool that "adapts an advertiser's existing headlines and descriptions to better fit the context of a conversation." None of it breaks a stated principle, and all of it points the same way.
+
+Axios's figures show why: OpenAI's 2030 projection assumes its products reach 2.75 billion weekly users. Even if every one of them arrives, that's less than three times the audience OpenAI reports now, while the revenue target is a hundred times today's run rate. The rest, a factor of more than 30, has to come from earning more per weekly user: more people seeing ads, more ads each, or more money per ad.
+
+## A chatbot with one customer
+
+HushBox has one customer: the person typing. We charge a 15 percent fee on model usage, and our terms spell out where it goes: 5 percent is our margin, 4.5 percent covers credit card processing and 5.5 percent covers the AI providers' overhead. Storage is billed separately, at $0.0003 per thousand characters of text and a per-megabyte rate for generated media. That's the business, and our privacy policy states what follows from it: "We do not use your data for advertising, profiling, or any purpose other than operating the service and understanding how people find it."
+
+Your messages, the model's replies and your conversation titles are stored encrypted. The keys that open them belong to the people in the conversation; our database holds only locked copies of those keys. There's no memory feature, and custom instructions are encrypted too.
+
+What one customer costs you shows in the free tier: five cents of usage a day, with no advertiser paying to make it bigger.
+
+So when a chatbot tells you advertisers never see your chats, believe it, and then ask the question that sentence doesn't answer: who else pays you, and what are they paying for? OpenAI has already answered. It's a section heading in the post announcing its first ad billion: "Where decisions take shape."
+
+---
+
+## Sources
+
+1. [Testing ads in ChatGPT](https://openai.com/index/testing-ads-in-chatgpt/)
+2. [Our approach to advertising and expanding access to ChatGPT](https://openai.com/index/our-approach-to-advertising-and-expanding-access/)
+3. [Ads in ChatGPT | OpenAI Help Center](https://help.openai.com/en/articles/20001047-ads-in-chatgpt)
+4. [A milestone in expanding access to AI](https://openai.com/index/expanding-access-to-ai-with-chatgpt-ads/)
+5. [Microsoft Copilot for individuals: your privacy controls and choices](https://support.microsoft.com/en-us/privacy/microsoft-copilot/privacy-controls)
+6. [Improving Your Recommendations on Our Apps With AI at Meta](https://about.fb.com/news/2025/10/improving-your-recommendations-apps-ai-meta/)
+7. [Meta plans to sell targeted ads based on data in your AI chats](https://techcrunch.com/2025/10/01/meta-plans-to-sell-targeted-ads-based-on-data-in-your-ai-chats/)
+8. [Claude is a space to think](https://www.anthropic.com/news/claude-is-a-space-to-think)
+9. [Set up Custom Audiences for your Campaign | OpenAI Help Center](https://help.openai.com/en/articles/20001346-set-up-custom-audiences-for-your-campaign)
+10. [Measurement Pixel – Ads | OpenAI Developers](https://developers.openai.com/ads/measurement-pixel)
+11. [Sam Altman's 'last resort' is now minting money for OpenAI](https://uk.finance.yahoo.com/news/openai-says-ads-business-booming-141405281.html)
+12. [Scoop: OpenAI projects $100 billion in ad revenue by 2030](https://www.axios.com/2026/04/09/openai-100-billion-in-ad-revenue)
+13. [The Beginning of ChatGPT Ads](https://arxiv.org/abs/2608.05008)
+14. [Reimagining advertising with AI](https://openai.com/index/reimagining-advertising-with-ai/)

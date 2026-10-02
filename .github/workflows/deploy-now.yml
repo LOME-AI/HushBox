@@ -1,0 +1,87 @@
+name: Deploy now
+
+# The one button that deploys without waiting for the suite. `public` deploys
+# public `main` as it stands; `staging` first publishes staging `main`'s tip
+# onto public `main` (after scanning what it publishes), then deploys that.
+#
+# The deploy itself is a separate run of `ci.yml`, started by dispatch, because
+# a run deploys its own `GITHUB_SHA` and nothing a step does can change it: the
+# commit this workflow publishes is deployed only by a run started after it.
+#
+# Public only. With the repository variables unset the guard stops every job in
+# both repositories.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Which repository's main to deploy
+        required: true
+        type: choice
+        options:
+          - public
+          - staging
+        default: public
+
+# The bot authenticates as its own GitHub App for the publish, and the dispatch
+# job asks for the one grant it needs on its own, so the workflow token needs
+# nothing beyond reading this checkout.
+permissions:
+  contents: read
+
+# One deploy request at a time; a second press waits rather than racing the
+# first onto public `main`.
+concurrency:
+  group: deploy-now
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.repository == vars.HB_PUBLIC_REPO && github.ref == 'refs/heads/main' && inputs.source == 'staging'
+    outputs:
+      dispatch: ${{ steps.publish.outputs.dispatch }}
+    steps:
+      # ref: main — the publish moves public's trunk, never the branch a
+      # dispatch was started from.
+      # fetch-depth: 0 — the publisher asks git whether public's head is an
+      # ancestor of staging's tip and scans every commit between them. A
+      # shallow clone can answer neither.
+      # persist-credentials: false — a persisted workflow token is sent as an
+      # `Authorization` header that takes precedence over the App token in the
+      # publisher's push URL, and this workflow's token may only read.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-ci
+
+      - name: Publish staging main's tip to public main
+        id: publish
+        run: pnpm tsx scripts/publication/publish-staging-tip.ts
+        env:
+          HUSHBOX_SYNC_APP_ID: ${{ secrets.HUSHBOX_SYNC_APP_ID }}
+          HUSHBOX_SYNC_PRIVATE_KEY: ${{ secrets.HUSHBOX_SYNC_PRIVATE_KEY }}
+
+  # `publish` is skipped for `public`, which leaves its output empty; the
+  # publisher answers `false` only when the push run its fast-forward started
+  # will deploy the tip on staging's proof, and a dispatch would only race it.
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [publish]
+    if: "!cancelled() && github.repository == vars.HB_PUBLIC_REPO && github.ref == 'refs/heads/main' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') && needs.publish.outputs.dispatch != 'false'"
+    # The App holds no Actions permission, so the dispatch is the workflow
+    # token's — granted here alone, away from the job holding the App's key.
+    permissions:
+      actions: write
+    steps:
+      # --ref main — a dispatch runs the `ci.yml` of the ref it names, and a
+      # run deploys only from public `main`.
+      - name: Start the deploying run of ci.yml on public main
+        run: gh workflow run ci.yml --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}

@@ -1,0 +1,3 @@
+# Render products the public directory serves to Studio and to every bundle,
+# derived from source like out/ and never committed.
+public/

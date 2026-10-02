@@ -1,0 +1,41 @@
+---
+import { COMPARISON_ROWS } from '@hushbox/shared';
+import SectionHeading from '../SectionHeading.astro';
+import { DataTable } from '../ui/data-table';
+import WelcomeSection from './WelcomeSection.astro';
+import type { ValueCell } from '../ui/value-mark';
+
+function answer(holds: boolean): ValueCell {
+  return holds ? { kind: 'yes', text: 'Yes' } : { kind: 'no', text: 'No' };
+}
+
+const comparisonRows = COMPARISON_ROWS.map((row) => ({
+  label: row.label,
+  cells: [answer(row.others), answer(row.hushbox)],
+}));
+---
+
+<WelcomeSection reveal>
+  <SectionHeading>How we compare</SectionHeading>
+  <div class="mt-12">
+    <DataTable
+      layout="compare"
+      caption="How HushBox compares with your current AI chat app"
+      columns={['Your current AI chat app', 'HushBox']}
+      rowHeaderLabel="Feature"
+      rows={comparisonRows}
+      highlightColumn={1}
+      brandHead
+    />
+  </div>
+</WelcomeSection>
+
+<script>
+  import { observeOverflowStop } from '@hushbox/ui/scroll-overflow';
+
+  for (const region of document.querySelectorAll<HTMLElement>(
+    '[data-slot="data-table"][data-layout="compare"] [data-slot="table-wrapper"]'
+  )) {
+    observeOverflowStop(region);
+  }
+</script>

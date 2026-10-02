@@ -1,0 +1,29 @@
+{
+  "name": "@hushbox/docket",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./brief": "./src/brief.ts",
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "test": "tsx ../../scripts/with-env.ts tsx ../../scripts/run-package-tests.ts",
+    "test:watch": "tsx ../../scripts/with-env.ts tsx ../../scripts/package-vitest.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hushbox/shared": "workspace:*",
+    "marked": "^18.0.5"
+  },
+  "devDependencies": {
+    "@hushbox/config": "workspace:*",
+    "@types/node": "^24.13.3",
+    "eslint": "^9.39.4",
+    "prettier": "^3.8.4",
+    "typescript": "catalog:",
+    "vitest": "^4.1.10"
+  }
+}

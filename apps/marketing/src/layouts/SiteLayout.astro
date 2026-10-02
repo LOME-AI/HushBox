@@ -1,0 +1,73 @@
+---
+import faviconUrl from '@hushbox/ui/assets/favicon.ico';
+import { AccessibilityWidget } from '@hushbox/ui/accessibility/panel';
+import { A11Y_INIT_SCRIPT } from '@hushbox/ui/accessibility/init-script';
+import { growthInitScript } from '@hushbox/ui/growth/init-script';
+import ThemeScript from '../components/ThemeScript.astro';
+import AnnouncementBanner from '../components/AnnouncementBanner.astro';
+import CrawlerEye from '../components/CrawlerEye.astro';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import { A11yProvider } from '../components/a11y-provider';
+import { forcedReducedMotionClass } from '../lib/a11y-boot';
+import { env } from '../lib/env';
+import { requireSite } from '../lib/site-url';
+import { siteHead } from './site-head';
+import type { SiteHeadProps } from './site-head';
+import '../styles/global.css';
+
+type Props = SiteHeadProps;
+
+const { description, article } = Astro.props;
+const head = siteHead(Astro.props, requireSite(Astro.site), Astro.url.pathname);
+const GROWTH_INIT_SCRIPT = growthInitScript(env);
+---
+
+<!doctype html>
+<html lang="en" class={forcedReducedMotionClass}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{head.documentTitle}</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="canonical" href={head.canonicalUrl} />
+
+    <meta property="og:title" content={head.documentTitle} />
+    {description && <meta property="og:description" content={description} />}
+    <meta property="og:type" content={head.ogType} />
+    <meta property="og:url" content={head.canonicalUrl} />
+    <meta property="og:image" content={head.ogImage} />
+    <meta property="og:site_name" content="HushBox" />
+    {article && <meta property="article:published_time" content={article.date.toISOString()} />}
+    {article && <meta property="article:author" content={article.author} />}
+    {article?.tags.map((tag) => <meta property="article:tag" content={tag} />)}
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={head.twitterTitle} />
+    {description && <meta name="twitter:description" content={description} />}
+    <meta name="twitter:image" content={head.ogImage} />
+
+    {
+      head.rss && (
+        <link rel="alternate" type="application/rss+xml" title="HushBox Blog" href="/rss.xml" />
+      )
+    }
+
+    <link rel="icon" type="image/x-icon" href={faviconUrl} />
+    <ThemeScript />
+    <script is:inline set:html={A11Y_INIT_SCRIPT} />
+    {head.jsonLd && <script is:inline type="application/ld+json" set:html={head.jsonLd} />}
+  </head>
+  <body class="bg-background text-foreground flex min-h-dvh flex-col antialiased">
+    <AnnouncementBanner />
+    <SiteHeader />
+    <main id="main" class="flex flex-1 flex-col">
+      <slot />
+    </main>
+    <SiteFooter />
+    <A11yProvider client:load />
+    <AccessibilityWidget client:load />
+    <CrawlerEye />
+    <script is:inline set:html={GROWTH_INIT_SCRIPT} />
+  </body>
+</html>

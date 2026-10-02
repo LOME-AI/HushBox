@@ -1,0 +1,14 @@
+/* The app's own entry stylesheet, so the body is measured under the cascade it ships in:
+   the theme tokens, the width band's root size and the text-size classes included. */
+@import '../../../../app.css';
+
+/* The fixture's root is this folder, so the body's and its rows' classes are named here. */
+@source '../member-sidebar-body.tsx';
+@source '../member-row.tsx';
+@source '../member-row-parts.tsx';
+@source '../link-row.tsx';
+@source '../admin-action-buttons.tsx';
+@source '../../../shared/sidebar-action-row.tsx';
+@source '../../../shared/sidebar-search-row.tsx';
+@source '../../../shared/avatar.tsx';
+@source './member-sidebar-body.entry.tsx';

@@ -1,0 +1,18 @@
+/* Colorblind filters — applied via filter:url() to the document root, never body: a filtered
+   element is the containing block for its position:fixed descendants unless it is the root.
+   SVG defs are injected by the SvgColorblindDefs React component. */
+html.a11y-cb-protan {
+  filter: url(#a11y-cb-protan);
+}
+html.a11y-cb-deutan {
+  filter: url(#a11y-cb-deutan);
+}
+html.a11y-cb-tritan {
+  filter: url(#a11y-cb-tritan);
+}
+html.a11y-cb-achroma {
+  filter: url(#a11y-cb-achroma);
+}
+html.a11y-cb-achromatomaly {
+  filter: url(#a11y-cb-achromatomaly);
+}

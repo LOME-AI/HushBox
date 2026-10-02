@@ -1,0 +1,4 @@
+/** Whether two byte arrays hold the same bytes. */
+export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, index) => byte === b[index]);
+}

@@ -1,0 +1,253 @@
+{
+  // The installed package's own JSONC schema (this file carries comments and
+  // trailing commas), so the version an editor validates against is the one
+  // `pnpm install` resolved rather than a number remembered here.
+  "$schema": "./node_modules/knip/schema-jsonc.json",
+  "workspaces": {
+    ".": {
+      // The consolidated vitest config is reached only through `--config` on
+      // the vitest CLI, never imported.
+      "entry": ["vitest.projects.config.ts"],
+      // Local MCP servers: .mcp.json invokes these packages' binaries with
+      // node directly (pinned, not `npx pkg@latest`), which no plugin reads.
+      "ignoreDependencies": ["@playwright/mcp", "chrome-devtools-mcp", "shadcn"],
+    },
+    "ads": {
+      // Ad production tooling: scripts are run directly with tsx and Remotion
+      // compositions load by convention, so nothing imports them — every
+      // script and barrel in the package is an entry by contract.
+      "entry": ["**/*.{ts,tsx}"],
+    },
+    "films": {
+      // Films render from code: Studio discovers every `composition.tsx` through
+      // a bundler context and the CLI loads every `film.ts` and verb module by
+      // path, so compositions and CLI modules load by convention and nothing
+      // imports them — every module in the package is an entry by contract.
+      "entry": ["**/*.{ts,tsx}"],
+      // A take under a film's `rounds/` is exploration outside every package
+      // gate by the founder's ruling, unused code included.
+      "ignore": ["*/rounds/**"],
+    },
+    "apps/api": {
+      // The workerd validation project's config: run by `test:workers`, never
+      // imported (an explicit entry list suppresses knip's default config-file
+      // detection for this workspace).
+      "entry": ["vitest.workers.config.ts"],
+      "project": ["src/**/*.ts"],
+      // The slice template is scaffolding, not code. The telemetry port file is
+      // ignored for its deliberate exported contract type (TelemetryErrorChannel).
+      "ignore": ["src/slices/_template/**", "src/lib/telemetry/port.ts"],
+      // "cloudflare" provides the cloudflare:workers/cloudflare:test builtins
+      // (same as packages/db and packages/realtime).
+      "ignoreDependencies": ["cloudflare"],
+    },
+    "apps/web": {
+      // A browser fixture's entry is reached only from its own `.html`'s
+      // `<script type="module" src="...">`, resolved by a browser Vite serves the
+      // fixture to at runtime — an HTML attribute, not an import knip's graph walk
+      // can see. Declared here by contract, same pattern as apps/sandbox's
+      // bootstrap entries.
+      "entry": [
+        "src/components/accessibility/setting-card-targets-fixture/setting-card-targets.entry.tsx",
+        "src/components/auth/auth-frame-fixture/auth-frame.entry.tsx",
+        "src/components/chat/indicators/typing-indicator-fixture/typing-indicator.entry.tsx",
+        "src/components/chat/input/composer-bar-fixture/composer-bar.entry.tsx",
+        "src/components/chat/input/composer-growth-fixture/composer-growth.entry.tsx",
+        "src/components/chat/member/member-sidebar-body-fixture/member-sidebar-body.entry.tsx",
+        "src/components/shared/overlay-focus-reveal-fixture/overlay-focus-reveal.entry.tsx",
+        "src/components/shared/sidebar-rows-fixture/sidebar-rows.entry.tsx",
+        "src/components/sidebar/contrast-surface-tokens-fixture/contrast-surface-tokens.entry.ts",
+        "src/components/usage/cost-by-model-chart-fixture/cost-by-model-chart.entry.tsx",
+        "src/components/usage/spending-over-time-chart-fixture/spending-over-time-chart.entry.tsx",
+        "src/components/usage/usage-filters-fixture/usage-filters.entry.tsx",
+        "src/lib/prediction/prediction-canary-fixture/prediction-canary.entry.ts",
+        // A fixture's stub is reached only through its browser test's `resolve.alias`,
+        // which swaps it in for a module by a path string the graph walk cannot follow.
+        "src/components/auth/auth-frame-fixture/auth-client-stub.ts",
+        "src/components/chat/input/composer-bar-fixture/composer-messages-stub.ts",
+        "src/components/chat/input/composer-bar-fixture/payer-premium-access-stub.ts",
+        "src/components/chat/input/composer-bar-fixture/prompt-budget-stub.ts",
+        "src/components/chat/input/composer-bar-fixture/reasoning-effort-stub.ts",
+        "src/components/chat/input/composer-bar-fixture/stability-stub.ts",
+        "src/components/usage/cost-by-model-chart-fixture/models-stub.ts",
+        "src/components/usage/spending-over-time-chart-fixture/models-stub.ts",
+        "src/components/usage/usage-filters-fixture/models-stub.ts",
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": ["@capacitor/ios"],
+    },
+    "apps/admin": {
+      "project": ["src/**/*.{ts,tsx}"],
+    },
+    "apps/crawler-view": {
+      "project": ["src/**/*.{ts,tsx}"],
+    },
+    "apps/docket": {
+      "project": ["src/**/*.{ts,tsx}"],
+    },
+    "apps/sandbox": {
+      // The serve/build script entries are auto-detected from package.json
+      // scripts. The two bootstrap.ts files are esbuild entry points the build
+      // scripts resolve by string path (path.join(dir, 'bootstrap.ts')), so knip
+      // cannot trace them from the import graph — declared here by contract.
+      "entry": ["src/render/bootstrap.ts", "src/python/bootstrap.ts"],
+      "project": ["src/**/*.ts"],
+    },
+    "packages/shared": {
+      "project": ["src/**/*.ts"],
+    },
+    "packages/docket": {
+      "project": ["src/**/*.ts"],
+    },
+    "packages/db": {
+      // `db:migrate` in this package's manifest runs the drift verifier by path
+      // as its second half; knip reads that script as far as the env wrapper it
+      // starts with and never reaches the module name after it.
+      "entry": ["src/verify-schema-drift.ts"],
+      "project": ["src/**/*.ts"],
+      // "cloudflare" provides the cloudflare:workers/cloudflare:test builtins
+      // (same as packages/realtime).
+      "ignoreDependencies": ["cloudflare"],
+    },
+    "packages/ui": {
+      "project": ["src/**/*.{ts,tsx}"],
+    },
+    "packages/config": {
+      // Tooling entry points: topic-named arch rule files and the eslint
+      // extension slot (both loaded dynamically — by the arch runner and
+      // eslint.config.js respectively — so knip cannot trace them; they are
+      // entries by contract). The runner itself is traced from the root
+      // arch:check script.
+      "entry": [
+        "arch/rules/*.rule.ts",
+        "eslint-extensions/*.config.mjs",
+        // The package's own test config: named as a string by `test`
+        // (`--config vitest.package.config.ts`, handed to the tsx test runner),
+        // so knip's vitest plugin never sees it.
+        "vitest.package.config.ts",
+      ],
+      "project": ["**/*.{js,mjs,ts}"],
+      // A lint- or arch-rule fixture corpus is source a rule is run over, never
+      // source anything imports, so it can have no importer by construction —
+      // the directory name is the whole key, and the test-collection exclude in
+      // `packages/config/vitest.config.ts` reads the same spelling.
+      "ignore": ["import-meta-env.d.ts", "**/__test-fixtures-*__/**"],
+    },
+    "scripts": {
+      // The vitest-run infrastructure is reached at runtime only: the coverage
+      // provider via the config's `customProviderModule` string, its host and
+      // merge worker via URL imports, the sequencer via a URL import in the
+      // consolidated config — none of which knip can trace.
+      "entry": [
+        "*.ts",
+        "!*.test.ts",
+        "lib/stack/idle-killer-daemon-entry.ts",
+        "lib/vitest/coverage-provider.ts",
+        "lib/vitest/coverage-provider-host.ts",
+        "lib/vitest/coverage-merge-worker.ts",
+        "lib/vitest/lpt-sequencer.ts",
+      ],
+      "project": ["**/*.ts"],
+      // A peer of the Linear SDK's GraphQL client, declared here because
+      // `auto-install-peers` is false and nothing else would install it. No
+      // file imports it, and none can: the SDK resolves it itself.
+      "ignoreDependencies": ["graphql"],
+    },
+    "ops": {
+      "entry": ["**/*.ts", "!**/*.test.ts"],
+      "project": ["**/*.ts"],
+    },
+    "e2e": {
+      "entry": [
+        "fixtures.ts",
+        "auth.setup.ts",
+        "admin/admin.setup.ts",
+        "global-setup.ts",
+        "global-teardown.ts",
+        "**/*.spec.ts",
+      ],
+      "project": ["**/*.ts"],
+    },
+    "packages/realtime": {
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["cloudflare"],
+    },
+    "apps/marketing": {
+      "entry": ["src/pages/**/*.astro"],
+      "project": ["src/**/*.{astro,ts,tsx}"],
+    },
+  },
+  // `.claude/**` exempts the frontend-design skill's vendored halves: the craft
+  // guides under `reference/` and the detector under `scripts/`, taken verbatim
+  // at a pinned commit from `pbakaus/impeccable` (Apache-2.0). Dev-only tooling
+  // that ships to no user and runs on no production path, never written to this
+  // repo's conventions and deliberately not held to them; its provenance, and
+  // that of the three further upstreams the skill merges, is recorded in
+  // `.claude/skills/frontend-design/.MAINTAINERS.md`.
+  //
+  // The glob reaches wider than that reason does, and this records the gap
+  // rather than defending it: it also exempts first-party `.claude/hooks/`.
+  // Narrowing it to the vendored directories reports those hooks as unused
+  // files — Claude Code invokes them by path from a `command` string in
+  // `.claude/settings.json`, which no import graph can follow — and declaring
+  // them as entries only turns that into unused exports nobody has
+  // dispositioned. Closing it is first-party quality work, out of scope by
+  // ruling, so the glob stays as it is.
+  //
+  // `docs/runs/**` holds subagent-driven-dev run records and throwaway spike
+  // artifacts — run history, not source to analyze for unused exports.
+  "ignore": [".claude/**", "docs/runs/**"],
+  "ignoreDependencies": [
+    // ESLint output formatter — invoked via CLI (`lint:summary` = `eslint
+    // --format summary`), never imported, so knip can't see the reference.
+    "eslint-formatter-summary",
+    // Markdown stylesheet loaded by filesystem path in
+    // scripts/readme/preview-readme.ts (node_modules/github-markdown-css/...),
+    // not a JS import.
+    "github-markdown-css",
+    // Pulled in via CSS `@import 'tailwindcss'` in
+    // packages/config/tailwind/index.css; knip does not follow CSS @import.
+    "tailwindcss",
+    // Pulled in via CSS `@import 'tw-animate-css'` in the same shared Tailwind
+    // entry; knip does not follow CSS @import.
+    "tw-animate-css",
+  ],
+  "ignoreBinaries": [
+    "maestro",
+    "adb",
+    "cap",
+    "wrangler",
+    "tar",
+    // Git invokes ssh-keygen itself for SSH-signed commits; it ships with the git
+    // toolchain the repo already requires, not a tool contributors install.
+    "ssh-keygen",
+    // The claim-registry races are made reproducible by a named pipe standing in
+    // for a record file, and node's fs binds no call that creates one. POSIX
+    // mandates the utility, and the suite that reaches for it already skips on
+    // Windows, so it is present wherever it is invoked.
+    "mkfifo",
+  ],
+  // The barrel's own export line is the only place a re-exported symbol can be
+  // reported, since its declaration counts as used the moment a barrel names it.
+  // Without this, that line sits in an entry file, which knip skips by default,
+  // and dead code lives in the gap.
+  "includeEntryExports": true,
+  // Each tag names why an export has no importer and cannot get one. Anything
+  // that could be imported instead is a finding, not an exemption.
+  //   toolContract     a tool, not an importer, loads the file by path or names
+  //                    the symbol (config paths, wrangler class bindings, gates
+  //                    that read source as text or AST, lint rules that
+  //                    prescribe the import).
+  //   namespaceMember  the only reference is a member access on a namespace
+  //                    object (`import * as`, `await import(...)`, an
+  //                    `import(...)` type query), which knip cannot attribute.
+  //   compilerRequired no file names it, but a consumer's inferred or declared
+  //                    type does, so withholding the export fails that consumer
+  //                    to compile.
+  //   keptByRuling     nothing reaches it and an explicit ruling keeps it
+  //                    published anyway; the tag cites the ruling.
+  "tags": ["-@toolContract", "-@namespaceMember", "-@compilerRequired", "-@keptByRuling"],
+  "playwright": {
+    "config": ["playwright.config.{js,ts,mjs}", "playwright-ct.config.{js,ts,mjs}"],
+  },
+}

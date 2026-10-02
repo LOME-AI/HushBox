@@ -1,0 +1,94 @@
+diff --git a/dist/index.js b/dist/index.js
+index b673ed843f6db20625c3432a7821461b7fcb913d..e9b82983b2c231dbc70dd68b20851600f311be19 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -470,7 +470,20 @@ var SelectContentImpl = React.forwardRef(
+       const currentItem = enabledItems.find((item) => item.ref.current === document.activeElement);
+       const nextItem = findNextItem(enabledItems, search, currentItem);
+       if (nextItem) {
+-        setTimeout(() => nextItem.ref.current.focus());
++        // HushBox patch: upstream moves focus here in `setTimeout`, so a key event
++        // handled before that timer fires acts on the item focus is leaving: a letter then
++        // Enter chose the item being left, and a timer firing after the select closed threw
++        // on the unmounted item. This patch moves focus in a microtask instead, which runs
++        // before the next key event is handled. Source: packages/react/select/src/select.tsx
++        // line 777 at @radix-ui/react-select 2.3.0 (https://github.com/radix-ui/primitives).
++        // No upstream issue tracks this timer; https://github.com/radix-ui/primitives/pull/4108
++        // makes the same change in @radix-ui/react-roving-focus.
++        // Remove this patch once a released @radix-ui/react-select moves this focus in a
++        // microtask or synchronously. The packages/ui select tests "chooses the option
++        // typeahead reached when Enter arrives before a timer turn" and "raises no uncaught
++        // error when the select closes right after a typeahead letter" fail whenever this
++        // patch is not applied.
++        queueMicrotask(() => nextItem.ref.current.focus());
+       }
+     });
+     const itemRefCallback = React.useCallback(
+@@ -580,7 +593,19 @@ var SelectContentImpl = React.forwardRef(
+                           const currentIndex = candidateNodes.indexOf(currentElement);
+                           candidateNodes = candidateNodes.slice(currentIndex + 1);
+                         }
+-                        setTimeout(() => focusFirst(candidateNodes));
++                        // HushBox patch: upstream moves focus here in `setTimeout`, so a key event
++                        // handled before that timer fires acts on the item focus is leaving: ArrowDown then
++                        // Enter chose the item being left, and a second ArrowDown recomputed from that same
++                        // item. This patch moves focus in a microtask instead, which runs before the next key
++                        // event is handled. Source: packages/react/select/src/select.tsx line 907 at
++                        // @radix-ui/react-select 2.3.0 (https://github.com/radix-ui/primitives).
++                        // No upstream issue tracks this timer; https://github.com/radix-ui/primitives/pull/4108
++                        // makes the same change in @radix-ui/react-roving-focus.
++                        // Remove this patch once a released @radix-ui/react-select moves this focus in a
++                        // microtask or synchronously. The packages/ui select test "chooses the option the
++                        // arrow keys reached when each key arrives before a timer turn" fails whenever this
++                        // patch is not applied.
++                        queueMicrotask(() => focusFirst(candidateNodes));
+                         event.preventDefault();
+                       }
+                     })
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 4478ffd8411e212f502ca70bca406a23c01c08fd..dd887a6603ebdb58dda865e6110413ac63c32a7c 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -399,7 +399,20 @@ var SelectContentImpl = React.forwardRef(
+       const currentItem = enabledItems.find((item) => item.ref.current === document.activeElement);
+       const nextItem = findNextItem(enabledItems, search, currentItem);
+       if (nextItem) {
+-        setTimeout(() => nextItem.ref.current.focus());
++        // HushBox patch: upstream moves focus here in `setTimeout`, so a key event
++        // handled before that timer fires acts on the item focus is leaving: a letter then
++        // Enter chose the item being left, and a timer firing after the select closed threw
++        // on the unmounted item. This patch moves focus in a microtask instead, which runs
++        // before the next key event is handled. Source: packages/react/select/src/select.tsx
++        // line 777 at @radix-ui/react-select 2.3.0 (https://github.com/radix-ui/primitives).
++        // No upstream issue tracks this timer; https://github.com/radix-ui/primitives/pull/4108
++        // makes the same change in @radix-ui/react-roving-focus.
++        // Remove this patch once a released @radix-ui/react-select moves this focus in a
++        // microtask or synchronously. The packages/ui select tests "chooses the option
++        // typeahead reached when Enter arrives before a timer turn" and "raises no uncaught
++        // error when the select closes right after a typeahead letter" fail whenever this
++        // patch is not applied.
++        queueMicrotask(() => nextItem.ref.current.focus());
+       }
+     });
+     const itemRefCallback = React.useCallback(
+@@ -509,7 +522,19 @@ var SelectContentImpl = React.forwardRef(
+                           const currentIndex = candidateNodes.indexOf(currentElement);
+                           candidateNodes = candidateNodes.slice(currentIndex + 1);
+                         }
+-                        setTimeout(() => focusFirst(candidateNodes));
++                        // HushBox patch: upstream moves focus here in `setTimeout`, so a key event
++                        // handled before that timer fires acts on the item focus is leaving: ArrowDown then
++                        // Enter chose the item being left, and a second ArrowDown recomputed from that same
++                        // item. This patch moves focus in a microtask instead, which runs before the next key
++                        // event is handled. Source: packages/react/select/src/select.tsx line 907 at
++                        // @radix-ui/react-select 2.3.0 (https://github.com/radix-ui/primitives).
++                        // No upstream issue tracks this timer; https://github.com/radix-ui/primitives/pull/4108
++                        // makes the same change in @radix-ui/react-roving-focus.
++                        // Remove this patch once a released @radix-ui/react-select moves this focus in a
++                        // microtask or synchronously. The packages/ui select test "chooses the option the
++                        // arrow keys reached when each key arrives before a timer turn" fails whenever this
++                        // patch is not applied.
++                        queueMicrotask(() => focusFirst(candidateNodes));
+                         event.preventDefault();
+                       }
+                     })

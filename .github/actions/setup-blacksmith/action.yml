@@ -1,0 +1,38 @@
+name: 'Setup (Blacksmith)'
+description: 'Setup pnpm and install dependencies on the Blacksmith fleet, over a cached pnpm store'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      with:
+        version: 10.26.0
+
+    # Nothing here installs Node. `pnpm install` provisions the version
+    # `pnpm-lock.yaml` resolved from the root manifest's `devEngines.runtime`
+    # and unpacks it into the pnpm store, so the store cache below carries the
+    # runtime along with the packages. Reaching it is PATH-bound: pnpm leads
+    # the PATH it hands a command with `node_modules/.bin`, where that install
+    # leaves a `node` shim, so everything run through pnpm is on the pinned
+    # runtime, while a bare `node` in a `run:` step is the runner image's.
+    - name: Locate the pnpm store
+      id: store
+      shell: bash
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+    # The upstream action rather than a Blacksmith one on purpose: Blacksmith's
+    # fork of it was archived read-only and takes no further dependency security
+    # updates, its archive notice directing callers back here because the fleet
+    # now accelerates the upstream action transparently.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        # Any lockfile edit changes the key. Without a prefix to fall back on,
+        # each one would re-download the Node runtime tarball as well as the
+        # changed packages, because the runtime lives in this same store.
+        restore-keys: pnpm-store-${{ runner.os }}-
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

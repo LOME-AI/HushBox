@@ -1,0 +1,55 @@
+---
+import { Icon, type IconComponent } from '@hushbox/ui/icons';
+import { Heading } from '@hushbox/ui/type';
+
+interface Props {
+  tone: 'value' | 'trust';
+  icon: IconComponent;
+  title: string;
+  text: string;
+  headingLevel: 2 | 3;
+}
+
+const { tone, icon, title, text, headingLevel } = Astro.props;
+
+const LOOK = {
+  value: {
+    block: 'p-[clamp(1.5rem,1.2rem_+_1vw,2rem)]',
+    tile: 'bg-brand-red-subtle text-brand-red size-10',
+    iconSize: 'lg',
+    heading: 'site-value',
+    text: 'text-[length:clamp(0.875rem,0.84rem_+_0.2vw,1rem)]',
+  },
+  trust: {
+    block: 'bg-muted/30 p-6',
+    tile: 'bg-success/14 text-success size-9',
+    iconSize: 'md-lg',
+    heading: 'site-trust',
+    text: 'text-sm',
+  },
+} as const;
+
+const look = LOOK[tone];
+---
+
+<div class={`border-border rounded-lg border-2 ${look.block}`}>
+  <div class="flex items-center gap-3">
+    <span aria-hidden="true" class={`grid flex-none place-items-center rounded-xl ${look.tile}`}>
+      <Icon icon={icon} size={look.iconSize} />
+    </span>
+    <div class="min-w-0 wrap-break-word">
+      <Heading level={headingLevel} variant={look.heading}>
+        <span data-decrypt>{title}</span>
+      </Heading>
+    </div>
+  </div>
+  <p class={`text-foreground mt-3 font-serif leading-relaxed ${look.text}`}>
+    {text}
+  </p>
+</div>
+
+<script>
+  import { initDecryptHeadings } from '../lib/decrypt-headings';
+
+  initDecryptHeadings(document);
+</script>

@@ -1,0 +1,53 @@
+{
+  "name": "@hushbox/marketing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "tsx ../../scripts/with-env.ts tsx ../../scripts/build-marketing-site.ts",
+    "admin-preview:build": "tsx ../../scripts/with-env.ts tsx ../../scripts/build-marketing-site.ts --config astro.config.preview.mjs",
+    "admin-preview:assets": "tsx scripts/admin-preview-assets.ts",
+    "growth:index": "tsx scripts/growth-index.ts",
+    "preview": "astro preview",
+    "lint": "eslint .",
+    "typecheck": "tsx ../../scripts/run-checks.ts :: astro astro check :: tests tsc --noEmit -p tsconfig.tests.json ::end",
+    "test": "tsx ../../scripts/with-env.ts tsx ../../scripts/run-package-tests.ts",
+    "test:watch": "tsx ../../scripts/with-env.ts tsx ../../scripts/package-vitest.ts"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^7.0.5",
+    "@astrojs/react": "^6.0.2",
+    "@astrojs/rss": "^4.0.19",
+    "@astrojs/sitemap": "^3.7.3",
+    "@hushbox/crypto": "workspace:*",
+    "@hushbox/shared": "workspace:*",
+    "@hushbox/ui": "workspace:*",
+    "astro": "^7.1.6",
+    "lucide-react": "^0.577.0",
+    "lucide-static": "^1.18.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@hushbox/config": "workspace:*",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "eslint": "^9.39.4",
+    "fast-check": "^4.10.1",
+    "happy-dom": "^20.11.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "catalog:",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.10"
+  }
+}

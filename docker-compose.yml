@@ -1,0 +1,193 @@
+# Every substitution in this file demands a value rather than defaulting.
+# Compose's answer to a missing one is silence, and every kind of blank starts a
+# wrong stack instead of refusing: a blank host port publishes the container on
+# a kernel-assigned port while every generated URL still names the planned one,
+# an unset project name resolves onto whatever a bare invocation picks, and a
+# blank credential is one no client can present.
+# `pnpm generate:env` writes the project name and the port variables in every
+# mode and `scripts/with-env.ts` loads them, so a command invoked through pnpm
+# resolves both from the stack it was given. A command that passes `-p` never
+# interpolates the field below at all: the argument replaces it rather than
+# supplying it, which is how the teardown paths act on a project whose env file
+# they never load.
+name: ${COMPOSE_PROJECT_NAME:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm, or name the project with -p}
+
+# Which clone brought a project up, carried by every container it starts. The
+# project outlives the run that started it and can outlive the checkout itself,
+# and a deleted directory resolves to no repository at all — so without this a
+# stack whose checkout is gone is indistinguishable from another clone's and is
+# left running forever. `scripts/docker-cleanup.ts` reads it; the variable is
+# published by the run wrapper rather than written into a generated env file,
+# because it is resolved by the same call the run claim records its checkout
+# with. A project started before this label existed carries none, and nothing
+# reaches back to stamp one.
+x-clone-labels: &clone-labels
+  hushbox-stack.clone-dir: ${HB_CLONE_DIR:?this checkout's identity was not published - invoke through pnpm}
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    labels: *clone-labels
+    # Disposable test/dev DB with durability off: `pnpm db:reset` rebuilds it
+    # from migrations and `pnpm db:seed` refills it. fsync and disk writes are
+    # pure overhead here, and dominate the write-heavy test path.
+    command: >-
+      postgres -c max_connections=1000 -c fsync=off
+      -c synchronous_commit=off -c full_page_writes=off
+    ports:
+      - '${HB_POSTGRES_PORT:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}:5432'
+    environment:
+      POSTGRES_USER: ${HB_POSTGRES_USER:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}
+      POSTGRES_PASSWORD: ${HB_POSTGRES_PASSWORD:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}
+      # The database the cluster is born with, and the credentials it is born
+      # holding. All three come from `scripts/lib/stack/compose-env.ts`, which
+      # derives them from the one spelling the env registry carries, and all
+      # three resolve the default stack whichever stack brought the project up:
+      # a cluster is born once and its volume outlives every stack, so a value
+      # varying with the invoker would vary the container. Every other stack
+      # reaches its own database through the bring-up, which creates whatever
+      # the resolved URL names (`ensureDatabase` in
+      # `scripts/ensure-stack-cli.ts`).
+      POSTGRES_DB: ${HB_POSTGRES_DB:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}
+      # The driver pipelines the password with the startup message
+      # (`pipelineConnect` in `packages/db/src/client.ts`), so the server has to
+      # be asking for a cleartext password, and this value is what makes it ask.
+      # `scripts/lib/stack/postgres-auth-method.ts` carries what breaks when the
+      # two disagree, when this setting is read, and how a cluster it never
+      # reached is repaired.
+      POSTGRES_HOST_AUTH_METHOD: password
+      PGDATA: /pgdata
+    volumes:
+      # A disk volume, not tmpfs. tmpfs pages are Shmem: reclaimable only by
+      # swapping, so under pressure they push every reclaimable page out of the
+      # cache instead of yielding. A disk-backed PGDATA of this size stays
+      # wholly in page cache, which the kernel can drop instantly, and the swap
+      # cost was measured at zero wall-clock. fsync and synchronous_commit are
+      # off above, so no commit waits for a flush, but Postgres still writes to
+      # this disk, and under host write pressure those writes can wait on it.
+      # An E2E Postgres in RAM measured no faster.
+      - pgdata:/pgdata
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${HB_POSTGRES_USER:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  neon-proxy:
+    # The upstream repository publishes one tag, `latest`, so a digest is the
+    # only reference that names a fixed image.
+    image: ghcr.io/neondatabase/wsproxy@sha256:7f2e2149aa6a57ba382a140102fba44f5053f3e44389ccc18adcecf896054efb
+    labels: *clone-labels
+    environment:
+      APPEND_PORT: 'postgres:5432'
+      ALLOW_ADDR_REGEX: '.*'
+      # On, this base64-dumps every frame in both directions - the whole
+      # database path. Connection admission and every error path log regardless.
+      LOG_TRAFFIC: 'false'
+    ports:
+      - '${HB_NEON_PORT:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}:80'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    labels: *clone-labels
+    ports:
+      - '${HB_REDIS_PORT:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  serverless-redis-http:
+    image: hiett/serverless-redis-http:0.0.10@sha256:65128347949bca511e448fd7238780d624573d74c22b79155a7563db19e9b678
+    labels: *clone-labels
+    ports:
+      - '${HB_REDIS_HTTP_PORT:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}:80'
+    environment:
+      SRH_MODE: file
+    volumes:
+      # File mode fronts one connection pool per bearer token, which is how the
+      # development, test and e2e stacks each reach their own logical Redis
+      # database through one container: the token in the request selects the
+      # pool, and the pool's connection string names the database. The image
+      # reads this one path, once, at boot, so a token edited here needs the
+      # container recreated before it takes effect.
+      #
+      # Each pool's `max_connections` is sized for the widest run that can drive
+      # it on its own: a full vitest run (19 workers on the machine this was
+      # measured on) or a Playwright run (12 workers), at the ~8 connections per
+      # worker the single pool's previous 100 implied for 12 Playwright workers.
+      # The pools no longer compete, so the sum sits far under Redis's own
+      # `maxclients`.
+      - ./docker/srh-tokens.json:/app/srh-config/tokens.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Every pool declared in the mounted file is probed, and the tokens are
+      # read from that file rather than written here: it is generated from the
+      # env registry, which is where every client gets its token, so this check
+      # cannot drift from them. Probing all of them is what makes a wrong token
+      # loud — one that belongs to a mode nothing runs locally would otherwise
+      # surface only as `401 Invalid token` inside that mode's own suite.
+      test:
+        [
+          'CMD-SHELL',
+          'tokens=$$(sed -n ''s/^[[:space:]]*"\([^"]*\)": {$$/\1/p'' /app/srh-config/tokens.json) && test -n "$$tokens" && for token in $$tokens; do wget -qO- --header="Authorization: Bearer $$token" --header="Content-Type: application/json" --post-data=''["PING"]'' http://127.0.0.1:80/ || exit 1; done',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    # Runs SILO, a MinIO fork that keeps MinIO's configuration variables, routes
+    # and on-disk layout; the bucket-readiness probe in
+    # `scripts/lib/stack/minio-bucket-ready-docker.ts` depends on that layout.
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
+    labels: *clone-labels
+    command: server /data --console-address ":9001"
+    ports:
+      - '${HB_MINIO_API_PORT:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}:9000'
+      - '${HB_MINIO_CONSOLE_PORT:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}:9001'
+    environment:
+      # The account the emulator is born with is the pair every client of it
+      # presents, because it holds exactly one: `R2_ACCESS_KEY_ID` and
+      # `R2_SECRET_ACCESS_KEY` reach here through
+      # `scripts/lib/stack/compose-env.ts`.
+      MINIO_ROOT_USER: ${HB_MINIO_ROOT_USER:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}
+      MINIO_ROOT_PASSWORD: ${HB_MINIO_ROOT_PASSWORD:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio-setup:
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
+    labels: *clone-labels
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 ${HB_MINIO_ROOT_USER:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm} ${HB_MINIO_ROOT_PASSWORD:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm} &&
+        for bucket in ${HB_STACK_BUCKETS:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}; do mc mb -p local/$$bucket || exit 1; done
+      "
+
+  # android-emulator: managed by scripts/mobile-test.ts via direct `docker run`
+  # so the script can scale to mobile-tests/config.ts SHARDS containers with
+  # distinct per-shard ADB ports and names. Compose stays for the dev-stack
+  # services above.
+
+volumes:
+  pgdata:
+  minio_data:

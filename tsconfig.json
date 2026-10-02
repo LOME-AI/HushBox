@@ -1,0 +1,34 @@
+{
+  "extends": "./packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The repo-root `eslint.config.js` carries the same `// @ts-check` pragma
+    // the package configs do; these are what make it true here.
+    // `allowImportingTsExtensions` follows the shared config's `.ts` import, and
+    // nothing in this project emits.
+    "allowJs": true,
+    "checkJs": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@hushbox/config/*": ["./packages/config/*"],
+      "@hushbox/shared/*": ["./packages/shared/*"],
+      "@hushbox/ui/*": ["./packages/ui/*"],
+      "@hushbox/db/*": ["./packages/db/*"]
+    }
+  },
+  // The repo-root configs belong to no workspace, so this project is their only
+  // typechecker; the root `typecheck:root` script is what runs it.
+  "include": [
+    "./packages/config/types/*.d.ts",
+    "*.config.ts",
+    "*.config.js",
+    "*.workspace.ts",
+    ".lintstagedrc.js"
+  ]
+  // Deliberately no "references": every workspace typechecks with `--noEmit`,
+  // and a referenced project must set "composite" and must not disable emit. Listing
+  // them made this project fail to load (TS6306/TS6310) — so it listed the files above
+  // and checked none of them — and invited `tsc --build`, which emits .js/.d.ts debris
+  // over the sources. The included files reach package sources through ordinary module
+  // resolution, so nothing here needs a reference.
+}

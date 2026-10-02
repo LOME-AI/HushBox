@@ -1,0 +1,80 @@
+{
+  "files": {
+    "repo": [
+      {
+        "tpe": "key",
+        "count": 1,
+        "size": 363
+      },
+      {
+        "tpe": "snapshot",
+        "count": 5,
+        "size": 3251
+      },
+      {
+        "tpe": "index",
+        "count": 5,
+        "size": 2167
+      },
+      {
+        "tpe": "pack",
+        "count": 9,
+        "size": 36436
+      }
+    ]
+  },
+  "index": {
+    "blobs": [
+      {
+        "blob_type": "tree",
+        "count": 12,
+        "size": 2771,
+        "data_size": 4700
+      },
+      {
+        "blob_type": "data",
+        "count": 7,
+        "size": 32562,
+        "data_size": 32275
+      }
+    ],
+    "blobs_delete": [
+      {
+        "blob_type": "tree",
+        "count": 0,
+        "size": 0,
+        "data_size": 0
+      },
+      {
+        "blob_type": "data",
+        "count": 0,
+        "size": 0,
+        "data_size": 0
+      }
+    ],
+    "packs": [
+      {
+        "blob_type": "tree",
+        "count": 5,
+        "min_size": 529,
+        "max_size": 985
+      },
+      {
+        "blob_type": "data",
+        "count": 4,
+        "min_size": 731,
+        "max_size": 16502
+      }
+    ],
+    "packs_delete": [
+      {
+        "blob_type": "tree",
+        "count": 0
+      },
+      {
+        "blob_type": "data",
+        "count": 0
+      }
+    ]
+  }
+}

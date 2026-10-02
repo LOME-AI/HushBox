@@ -1,0 +1,35 @@
+---
+import { PRIVACY_POLICY_META } from '@hushbox/shared/legal';
+import SiteLayout from '../layouts/SiteLayout.astro';
+import PageHero from '../components/PageHero.astro';
+import EffectiveDateRule from '../components/EffectiveDateRule.astro';
+import { PrivacyDocument } from '../components/PrivacyDocument';
+import { DEMO_SAMPLE_TEXT, encryptDemoSample } from '../lib/encryption-demo-sample';
+
+const PRIVACY_CIPHER_MESSAGES: readonly string[] = [
+  'No Plaintext Stored',
+  'Keys Stay Local',
+  'Never Trained On',
+  'No Tracking Pixels',
+  'No Ads, Ever',
+  'You Hold The Recovery',
+  'Yours To Delete',
+  'Zero Retention',
+];
+
+const encryptionSample = encryptDemoSample(DEMO_SAMPLE_TEXT);
+---
+
+<SiteLayout
+  title={PRIVACY_POLICY_META.title}
+  description="How HushBox collects, uses, and protects your data."
+>
+  <div class="flex-1 pt-20">
+    <PageHero title={PRIVACY_POLICY_META.title} messages={PRIVACY_CIPHER_MESSAGES} />
+
+    <section class="mx-auto max-w-3xl px-6 pb-12" data-reading>
+      <EffectiveDateRule date={PRIVACY_POLICY_META.effectiveDate} />
+      <PrivacyDocument client:visible encryptionSample={encryptionSample} />
+    </section>
+  </div>
+</SiteLayout>

@@ -1,0 +1,27 @@
+{
+  "categories": {
+    "judgment": { "model": "opus" },
+    "engineering": { "model": "opus" },
+    "review": { "model": "opus" },
+    "lookup": { "model": "sonnet" },
+    "mechanical": { "model": "sonnet" }
+  },
+  "agents": {
+    "analyst": "judgment",
+    "blog-fact-checker": "review",
+    "blog-slop-hunter": "review",
+    "card-reviewer": "review",
+    "codebase-explorer": "lookup",
+    "design-review": "engineering",
+    "doc-writer": "judgment",
+    "film-reviewer": "review",
+    "package-researcher": "lookup",
+    "rote-worker": "mechanical",
+    "sdd-auditor": "engineering",
+    "sdd-design-critic": "judgment",
+    "sdd-implementer": "engineering",
+    "sdd-ui-auditor": "engineering",
+    "sdd-ui-implementer": "engineering",
+    "web-researcher": "lookup"
+  }
+}

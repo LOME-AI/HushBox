@@ -1,0 +1,185 @@
+# Wrangler configuration for Cloudflare Workers
+# Local dev requires no Cloudflare credentials
+
+name = "hushbox-api"
+main = "src/index.ts"
+compatibility_date = "2026-03-01"
+# web_socket_auto_reply_to_close: the runtime auto-sends a reciprocal Close frame
+# echoing the peer's exact code/reason for hibernatable WebSockets — the
+# hibernation-race-safe equivalent of legacy `ws.close(event.code, event.reason)`
+# in webSocketClose. A targeted flag, NOT a compatibility_date bump (a date bump
+# would enable unrelated behaviors, including a WS reason-byte limit that throws).
+compatibility_flags = ["nodejs_compat", "web_socket_auto_reply_to_close"]
+# Off and stated, never inferred: a workers.dev or preview hostname answers outside
+# every zone route, WAF rule and Access policy. Asserted by a test.
+workers_dev = false
+preview_urls = false
+
+# The growth beacon validates every body against the page-and-event index the
+# marketing build extracts, and the Worker imports that file as a module. The
+# file is committed, so a checkout resolves it and nothing has to write it
+# first. It is re-extracted here anyway, because `wrangler deploy` runs this
+# command before bundling: what ships then describes the site sitting beside
+# it rather than the site the committed copy was taken from, so a stale
+# committed copy can be wrong in the repository and never wrong in front of a
+# user. That rests on the site beside it being a production
+# build: the extraction writes from no other. Where what it read differs from
+# the committed copy and was not built under production, the reason decides
+# what happens here: a site built under another mode leaves the committed copy
+# standing and says so, while a site whose build mode it cannot read at all
+# fails this command rather than passing as though it had checked. The
+# extractor refuses a tree with no built marketing site, so a deploy without
+# one fails here. The local stacks' launcher clears this command and bundles
+# the committed copy: off a production build the extraction leaves that copy
+# standing anyway, and the built site it reads is shared by every stack.
+[build]
+command = "pnpm --filter @hushbox/marketing growth:index"
+
+[dev]
+local_protocol = "http"
+
+# Deliberately off, and asserted by a test. Two independent reasons hold it
+# there, so switching invocation logs off on their own does not answer this.
+# Invocation logs: Cloudflare publishes no field-level schema for them and no
+# redaction, field-scrubbing, or URL-masking control, so what the stream
+# captures is undocumented and can change without notice. This API carries
+# live credentials in its URLs by construction — a share URL is itself the
+# capability, and a browser WebSocket cannot set headers, so guest and trial
+# credentials ride query-parameter fallbacks. No route reshaping reaches
+# those; a logging premise built on content being unrepresentable cannot admit
+# an unspecified, unscrubbable vendor payload into the same path.
+# Custom logs: enabling them buys retention with no push channel behind it,
+# and a stream that must be visited is visited never — a metric names its
+# watcher or it does not ship.
+[observability]
+enabled = false
+
+[limits]
+cpu_ms = 30000
+
+# Workers Cache. Two facts a reader editing this value needs, neither derivable
+# from the key.
+#
+# The cache partitions by Worker version, so a deploy starts cold by design and
+# there is no purge mechanism here because none is needed. Sharing entries
+# across versions is deliberately not taken: the download route it would have
+# preserved is version-scoped, and every push to main mints a new APP_VERSION,
+# so a surviving entry is one no client can ask for again.
+#
+# The setting has no observable effect outside production: no local runtime
+# honors it, and wrangler forwards it only into the deploy-time upload payload.
+# No local run, and no test, can tell you anything about what it is set to.
+[cache]
+enabled = true
+
+[durable_objects]
+bindings = [
+  { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
+  { name = "JOB_DISPATCHER", class_name = "JobDispatcher" },
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ConversationRoom"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["JobDispatcher"]
+
+# Mirrored, in this order and asserted by test, by the schedule constants in
+# src/scheduled.ts: JOBS_HEALTH_CRON, ACCESS_LOG_CRON, HOURLY_MAINTENANCE_CRON,
+# DAILY_RETENTION_CRON. What each expression runs is that module's entry list
+# for its constant, which grows there without touching this file.
+[triggers]
+crons = ["*/15 * * * *", "0 */6 * * *", "0 * * * *", "0 3 * * *"]
+[[r2_buckets]]
+binding = "APP_BUILDS"
+bucket_name = "hushbox-app-builds"
+
+# On-device model artifacts (prediction + TTS weights, tokenizers, configs,
+# voice blobs) served by GET /models/:model/:version/:file. One bucket, no dev
+# counterpart: a native binding is simulated locally by wrangler off this same
+# name, so nothing has to exist in Cloudflare for local dev to work.
+[[r2_buckets]]
+binding = "MODEL_WEIGHTS"
+bucket_name = "hushbox-model-weights"
+# Admin plane: the SPA is served by a separate assets-only Worker on
+# admin.hushbox.ai; its API traffic routes to THIS product Worker under the
+# /api/* path (one hostname, one Access app covers SPA and API — ARCHITECTURE
+# §Admin plane). The product apex (api.hushbox.ai) stays on its dashboard-configured
+# custom domain; this route claims only the admin hostname's API path space.
+[[routes]]
+pattern = "admin.hushbox.ai/api/*"
+zone_name = "hushbox.ai"
+# The growth beacon, served same-origin with the marketing pages. It is a
+# route rather than a path on the API host so that the session cookie is out
+# of scope for it, and so that a text/plain POST stays a CORS simple request
+# with no preflight. It claims exactly one path on the apex and nothing else;
+# the marketing site itself is served by Pages, which answers every path this
+# pattern does not name.
+#
+# The cookie half rests on a declaration rather than on this file:
+# `sessionCookieOptions` (src/lib/context/principal.ts) sets no domain
+# attribute, which makes that cookie host-only on the host that sealed it. In
+# production that host is the API host, and the pattern below names the apex.
+# Cookie scope is per host and ignores the port, so the argument covers that
+# one cookie between those two hosts; on a development stack, where every
+# origin is localhost, the same cookie is in scope.
+[[routes]]
+pattern = "hushbox.ai/e"
+zone_name = "hushbox.ai"
+[vars]
+NODE_ENV = "production"
+API_URL = "https://api.hushbox.ai"
+FRONTEND_URL = "https://hushbox.ai"
+MARKETING_URL = "https://hushbox.ai"
+ADMIN_URL = "https://admin.hushbox.ai"
+RATE_LIMIT_REDIS_TIMEOUT_MS = "500"
+VAPID_SUBJECT = "mailto:notifications@hushbox.ai"
+R2_BUCKET_MEDIA = "hushbox-media"
+BACKUP_B2_BUCKET = "hushbox-backup"
+BACKUP_REPO_ROOT = "repository"
+TELEMETRY_SINKS = "console,sentry"
+
+# Secrets deployed via CI (wrangler deploy --secrets-file):
+# - DATABASE_URL
+# - UPSTASH_REDIS_REST_URL
+# - UPSTASH_REDIS_REST_TOKEN
+# - RATE_LIMIT_KEY_SECRET
+# - OPAQUE_KEK
+# - TOTP_ENCRYPTION_SECRET
+# - ENUMERATION_DECOY_SECRET
+# - IRON_SESSION_SECRET
+# - CF_ACCESS_TEAM_DOMAIN
+# - CF_ACCESS_AUD
+# - ADMIN_ACTOR_ALLOWLIST
+# - ADMIN_ROLE_MAP
+# - GROWTH_READER_DATABASE_URL
+# - ADMIN_SQL_PANEL_DATABASE_URL
+# - CLOUDFLARE_ACCESS_LOG_API_TOKEN
+# - CLOUDFLARE_ACCOUNT_ID
+# - APP_VERSION
+# - APP_BUNDLE_CHECKSUM_IOS
+# - APP_BUNDLE_CHECKSUM_ANDROID
+# - APP_BUNDLE_CHECKSUM_ANDROID_DIRECT
+# - GROWTH_HASH_SECRET
+# - RESEND_API_KEY
+# - RESEND_WEBHOOK_SECRET
+# - OPENROUTER_API_KEY
+# - BRAVE_SEARCH_API_KEY
+# - FCM_PROJECT_ID
+# - FCM_SERVICE_ACCOUNT_JSON
+# - VAPID_PUBLIC_KEY
+# - VAPID_PRIVATE_KEY
+# - NOTIFICATION_TAG_SECRET
+# - HELCIM_API_TOKEN
+# - LINEAR_API_KEY_READ
+# - HELCIM_WEBHOOK_VERIFIER
+# - R2_S3_ENDPOINT
+# - R2_ACCESS_KEY_ID
+# - R2_SECRET_ACCESS_KEY
+# - BACKUP_B2_S3_ENDPOINT
+# - BACKUP_B2_REGION
+# - BACKUP_B2_AUDITOR_KEY_ID
+# - BACKUP_B2_AUDITOR_KEY
+# - SENTRY_DSN

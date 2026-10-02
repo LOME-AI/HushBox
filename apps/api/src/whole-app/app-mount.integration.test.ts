@@ -1,0 +1,600 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Hono } from 'hono';
+import { hc } from 'hono/client';
+import { Redis } from '@upstash/redis';
+import { sealData } from 'iron-session';
+import { eq, inArray } from 'drizzle-orm';
+import {
+  LOCAL_NEON_DEV_CONFIG,
+  conversationMembers,
+  conversations,
+  createDb,
+  jobs,
+  modelCatalog,
+  payments,
+  users,
+  wallets,
+} from '@hushbox/db';
+import { userFactory } from '@hushbox/db/factories';
+import { ADMIN_OP_NAMES, ERROR_CODES, Mode } from '@hushbox/shared';
+import { envConfig } from '@hushbox/shared/env.config';
+import { expectCompileTimeProof } from '@hushbox/shared/test-assertions';
+import { trialRoomName } from '@hushbox/realtime/protocol';
+import { TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
+import { createApp, type AppType } from '../app.js';
+import { applyPipeline } from '../middleware/pipeline.js';
+import { CF_ACCESS_JWT_HEADER, mintDevAdminToken } from '../middleware/pipeline-admin.js';
+import { SESSION_COOKIE_NAME } from '../middleware/pipeline-session.js';
+import { createAppJobRegistry } from '../lib/jobs/index.js';
+import { okAsync } from '../lib/result/index.js';
+import {
+  createBillingManifest,
+  createBillingStores,
+  createPaymentVerifyJobRegistration,
+} from '../slices/billing/index.js';
+import { createChatManifest } from '../slices/chat/index.js';
+import { createLinkResolutionAdapter } from '../composition/bindings/link-resolution.js';
+import { createConversationsStores } from '../slices/conversations/index.js';
+import { issueSession } from '../slices/identity/index.js';
+import { seedConversationWithEpoch } from '../test-support/conversation-seed.js';
+import type { AppEnv, Bindings } from '../lib/context/index.js';
+import type { TelemetryEnv } from '../lib/telemetry/index.js';
+import type { RealtimeBroadcast } from '../slices/conversations/index.js';
+import type { ChargeOutcome, PaymentProvider } from '../slices/billing/index.js';
+
+/** An inert fixture stamp: nothing in this file reads it against a clock. */
+const FIXTURE_STAMP_SECONDS = secondsAt(TEST_DAY_START);
+
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value === '') {
+    throw new Error(`app-mount tests: missing ${name}. Run via a package test script.`);
+  }
+  return value;
+}
+
+// `res.json()` is typed `unknown` by the typechecker but already-typed by the
+// lint program, so an inline assertion is simultaneously required (typecheck)
+// and flagged as redundant (lint). Reading through a generic seam satisfies
+// both: the cast to a free type parameter is not a lint no-op.
+async function jsonBody<T>(res: Response): Promise<T> {
+  return (await res.json()) as T;
+}
+
+const SECRET = 'secret-at-least-32-characters-long!!';
+const DATABASE_URL = requiredEnv('DATABASE_URL');
+const UPSTASH_REDIS_REST_URL = requiredEnv('UPSTASH_REDIS_REST_URL');
+const UPSTASH_REDIS_REST_TOKEN = requiredEnv('UPSTASH_REDIS_REST_TOKEN');
+
+// A full stack env: session-revocation is unwired on the manifest apps below
+// (they mount `applyPipeline` without the revocation option), so a sealed
+// cookie authenticates without a Redis round trip — matching the slice tests.
+const devEnv: Bindings &
+  TelemetryEnv & { FRONTEND_URL: string; MARKETING_URL: string; FRONTEND_PREVIEW_URL: string } = {
+  NODE_ENV: 'development',
+  DATABASE_URL,
+  UPSTASH_REDIS_REST_URL,
+  UPSTASH_REDIS_REST_TOKEN,
+  IRON_SESSION_SECRET: SECRET,
+  TELEMETRY_SINKS: 'console',
+  // The composed pipeline runs CORS first; it fail-fasts on absent web origins.
+  FRONTEND_URL: requiredEnv('FRONTEND_URL'),
+  MARKETING_URL: requiredEnv('MARKETING_URL'),
+  FRONTEND_PREVIEW_URL: requiredEnv('FRONTEND_PREVIEW_URL'),
+};
+
+/** devEnv plus the Access config the admin JWT stage fail-fasts on. */
+const adminEnv: Bindings & TelemetryEnv = {
+  ...devEnv,
+  CF_ACCESS_TEAM_DOMAIN: 'hushbox-dev',
+  CF_ACCESS_AUD: 'dev-admin-access-aud',
+  ADMIN_ACTOR_ALLOWLIST: 'admin@hushbox.test',
+  ADMIN_ROLE_MAP: 'admin@hushbox.test=operator',
+  CF_ACCESS_DEV_PRIVATE_JWK: envConfig.CF_ACCESS_DEV_PRIVATE_JWK[Mode.Development],
+};
+
+const db = createDb(DATABASE_URL, { neonDev: LOCAL_NEON_DEV_CONFIG });
+const redis = new Redis({ url: UPSTASH_REDIS_REST_URL, token: UPSTASH_REDIS_REST_TOKEN });
+const BYTES = new Uint8Array([7, 7, 7]);
+// Unique per test run so repeated runs against one database never collide.
+const MODEL = `app-mount/${crypto.randomUUID().slice(0, 8)}`;
+
+const createdUserIds: string[] = [];
+const createdConversationIds: string[] = [];
+const createdPaymentIds: string[] = [];
+
+afterAll(async () => {
+  for (const paymentId of createdPaymentIds) {
+    await db.delete(jobs).where(eq(jobs.dedupeKey, `payment.verify:${paymentId}`));
+    await db.delete(payments).where(eq(payments.id, paymentId));
+  }
+  if (createdConversationIds.length > 0) {
+    await db.delete(conversations).where(inArray(conversations.id, createdConversationIds));
+  }
+  if (createdUserIds.length > 0) {
+    await db.delete(users).where(inArray(users.id, createdUserIds));
+  }
+  await db.delete(modelCatalog).where(eq(modelCatalog.modelId, MODEL));
+  await db.$client.end();
+});
+
+async function seedUser(): Promise<string> {
+  const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 10);
+  const rows = await db
+    .insert(users)
+    .values(
+      userFactory.build({
+        email: `${suffix}@app-mount.test`,
+        username: `am${suffix}`,
+        opaqueRegistration: BYTES,
+        publicKey: BYTES,
+        passwordWrappedPrivateKey: BYTES,
+        recoveryWrappedPrivateKey: BYTES,
+        recoveryPublicKey: BYTES,
+      })
+    )
+    .returning({ id: users.id });
+  const id = rows[0]?.id;
+  if (id === undefined) throw new Error('user seed failed');
+  createdUserIds.push(id);
+  return id;
+}
+
+async function seedConversationWithMember(userId: string): Promise<string> {
+  const { conversationId } = await seedConversationWithEpoch(db, { userId, title: BYTES });
+  createdConversationIds.push(conversationId);
+  await db.insert(conversationMembers).values({ conversationId, userId, visibleFromEpoch: 1 });
+  return conversationId;
+}
+
+async function seedPurchasedWallet(userId: string): Promise<void> {
+  await db.insert(wallets).values({ userId, type: 'purchased', balanceNanoUsd: 10_000_000n });
+}
+
+async function seedModel(): Promise<void> {
+  await db
+    .insert(modelCatalog)
+    .values({
+      modelId: MODEL,
+      descriptor: {
+        id: MODEL,
+        provider: 'p',
+        version: '3',
+        inputs: ['text'],
+        outputs: ['text'],
+        parameters: {},
+        behaviors: [],
+        limits: { contextLength: 128_000 },
+        pricing: { kind: 'tokens', anchor: { base: { input: '2', output: '3' }, tiers: [] } },
+        zdrReachable: true,
+        releasedAt: FIXTURE_STAMP_SECONDS,
+        fetchedAt: 0,
+      },
+    })
+    .onConflictDoNothing();
+}
+
+async function cookie(userId: string): Promise<string> {
+  const sealed = await sealData(
+    {
+      userId,
+      sessionId: 's1',
+      createdAt: Date.now() - 1000,
+      pending2FA: false,
+      pending2FAExpiresAt: 0,
+    },
+    { password: SECRET }
+  );
+  return `${SESSION_COOKIE_NAME}=${sealed}`;
+}
+
+/** A Hono ExecutionContext double: records the tasks `waitUntil` receives. */
+function recordingExecutionCtx(): { ctx: ExecutionContext; tasks: Promise<unknown>[] } {
+  const tasks: Promise<unknown>[] = [];
+  const ctx = {
+    waitUntil: (task: Promise<unknown>): void => {
+      tasks.push(task);
+    },
+    passThroughOnException: (): void => {},
+    props: {},
+  } as unknown as ExecutionContext;
+  return { ctx, tasks };
+}
+
+describe('createApp: chat and billing are mounted behind the default-deny pipeline', () => {
+  it('reaches the chat turn route — the session class denies the anonymous caller (not 404)', async () => {
+    const res = await createApp().request(
+      '/chat',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+      devEnv
+    );
+    expect(res.status).not.toBe(404);
+    expect(res.status).toBe(401);
+  });
+
+  it('reaches the billing balance route — session class denies the anonymous caller (not 404)', async () => {
+    const res = await createApp().request('/billing/balance', {}, devEnv);
+    expect(res.status).not.toBe(404);
+    expect(res.status).toBe(401);
+  });
+
+  it('reaches the billing payments route — billing-token class denies the anonymous caller (not 404)', async () => {
+    const res = await createApp().request(
+      '/billing/payments',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+      devEnv
+    );
+    expect(res.status).not.toBe(404);
+    expect(res.status).toBe(401);
+  });
+
+  it('reaches the media download-url route — the handler resolves the caller and denies anonymous (not 404)', async () => {
+    const res = await createApp().request(`/media/${crypto.randomUUID()}/download-url`, {}, devEnv);
+    expect(res.status).not.toBe(404);
+    expect(res.status).toBe(401);
+  });
+
+  it('reaches the admin ops catalog — the admin class denies the anonymous caller (not 404)', async () => {
+    const res = await createApp().request('/admin/ops', {}, adminEnv);
+    expect(res.status).not.toBe(404);
+    expect(res.status).toBe(401);
+  });
+
+  it('serves the admin ops catalog to a verified dev-minted admin assertion', async () => {
+    const token = await mintDevAdminToken(adminEnv, { email: 'admin@hushbox.test' });
+    const res = await createApp().request(
+      '/admin/ops',
+      { headers: { [CF_ACCESS_JWT_HEADER]: token } },
+      adminEnv
+    );
+    expect(res.status).toBe(200);
+    // The op flows and the catalog's serving order are pinned by the
+    // admin-ops mount suite; this proves a verified assertion reaches the
+    // whole declared contract set through the composed pipeline, rather than
+    // whatever subset the composition root happened to wire.
+    const body = await jsonBody<{ ops: { name: string }[] }>(res);
+    const byName = (a: string, b: string): number => a.localeCompare(b);
+    expect(body.ops.map((op) => op.name).toSorted(byName)).toEqual(
+      [...ADMIN_OP_NAMES].toSorted(byName)
+    );
+  });
+
+  it('still answers 404 for a genuinely unknown path under a mounted base', async () => {
+    const res = await createApp().request('/billing/no-such-route', {}, devEnv);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ code: ERROR_CODES.NOT_FOUND });
+  });
+});
+
+describe('AppType retains chat, billing, media and admin route inference', () => {
+  /**
+   * Compile-time proof that chat, billing, media and admin all survive on
+   * `AppType`: a slice erased from it would make these `never` and fail
+   * typecheck. The thunk keeps the references live against TypeScript erasure —
+   * `expectCompileTimeProof` never invokes it, so no request is made.
+   */
+  it('keeps all four slices on the typed hc client', () => {
+    const typedClient = hc<AppType>('http://localhost');
+    expectCompileTimeProof(() => [
+      typedClient.billing.balance.$get,
+      typedClient.billing.payments.$post,
+      typedClient.chat.regenerate.$post,
+      // Annotating createMediaManifest's return type would erase the media slice
+      // from the typed client; this keeps that regression a compile error.
+      typedClient.media[':contentItemId']['download-url'].$get,
+      // The generic ops routes must stay on the typed client for the admin SPA.
+      typedClient.admin.ops.$get,
+      typedClient.admin.ops[':name'].execute.$post,
+    ]);
+  });
+});
+
+describe('billing /payments fires the dispatcher wake post-commit', () => {
+  const stores = createBillingStores();
+  const approvingProvider: PaymentProvider = {
+    isMock: true,
+    charge: () =>
+      okAsync<ChargeOutcome>({ status: 'approved', transactionId: crypto.randomUUID() }),
+    getChargeStatus: () => {
+      throw new Error('getChargeStatus unexpectedly invoked');
+    },
+    findCaptureByReference: () => {
+      throw new Error('findCaptureByReference unexpectedly invoked');
+    },
+  };
+  const wakes: string[] = [];
+  /** The DO namespace the pipeline's post-response discharge nudges. */
+  const wakingEnv = {
+    ...devEnv,
+    JOB_DISPATCHER: {
+      idFromName: (name: string) => name,
+      get: (id: unknown) => ({
+        fetch: (): Promise<unknown> => {
+          wakes.push(String(id));
+          return Promise.resolve(new Response(null, { status: 200 }));
+        },
+      }),
+    },
+  };
+
+  function buildApp(): Hono<AppEnv> {
+    const manifest = createBillingManifest({
+      stores,
+      // Unused on the payment paths under test.
+      conversationFunding: () => () => {
+        throw new Error('conversationFunding unexpectedly invoked');
+      },
+      paymentProvider: () => approvingProvider,
+      // Unused on the success/validation paths under test.
+      webhookVerifier: () => {
+        throw new Error('webhookVerifier unexpectedly invoked');
+      },
+      jobRegistry: (_env, requestDb) =>
+        createAppJobRegistry([
+          createPaymentVerifyJobRegistration({
+            db: requestDb,
+            stores,
+            resolveProvider: () => approvingProvider,
+          }),
+        ]),
+      accountDefense: {
+        lockForChargebackWithinTx: () => {
+          throw new Error('lockForChargebackWithinTx unexpectedly invoked');
+        },
+      },
+      accountLockedEmail: { sendChargebackLockEmail: () => okAsync() },
+    });
+    const app = applyPipeline(new Hono<AppEnv>());
+    app.route(manifest.basePath, manifest.routes);
+    return app;
+  }
+
+  it('fires the wake from the request boundary after a successful pre-claim commit', async () => {
+    wakes.length = 0;
+    const userId = await seedUser();
+    const { ctx, tasks } = recordingExecutionCtx();
+    const res = await buildApp().request(
+      '/billing/payments',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+          cookie: await cookie(userId),
+        },
+        body: JSON.stringify({
+          amountNanoUsd: '5000000000',
+          cardToken: 'tok',
+          customerCode: 'cust',
+        }),
+      },
+      wakingEnv,
+      ctx
+    );
+    expect(res.status).toBe(200);
+    const outcome = await jsonBody<{ paymentId: string }>(res);
+    createdPaymentIds.push(outcome.paymentId);
+    // The discharge rides the pipeline's post-response teardown, which the
+    // runtime hands to `waitUntil`; the double collects it so the assertion
+    // observes the same work production does.
+    await Promise.all(tasks);
+    expect(wakes).toEqual(['default']);
+  });
+
+  it('does not fire the wake when the mutation is refused (no successful commit)', async () => {
+    wakes.length = 0;
+    const userId = await seedUser();
+    const { ctx, tasks } = recordingExecutionCtx();
+    const res = await buildApp().request(
+      '/billing/payments',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+          cookie: await cookie(userId),
+        },
+        // Below the minimum: validated (and refused) before any transaction opens.
+        body: JSON.stringify({ amountNanoUsd: '5', cardToken: 'tok', customerCode: 'cust' }),
+      },
+      wakingEnv,
+      ctx
+    );
+    expect(res.status).toBe(400);
+    await Promise.all(tasks);
+    expect(wakes).toEqual([]);
+  });
+});
+
+describe('a refused run start answers the paid /chat send synchronously with its mapped status', () => {
+  let userId: string;
+  let conversationId: string;
+
+  beforeAll(async () => {
+    userId = await seedUser();
+    conversationId = await seedConversationWithMember(userId);
+    await seedPurchasedWallet(userId);
+  });
+
+  function refusingRealtime(
+    code: (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
+  ): RealtimeBroadcast {
+    return {
+      broadcast: () => okAsync({ delivered: 0, paused: 0, evicted: 0 }),
+      evict: () => okAsync(0),
+      presence: () => okAsync([]),
+      startRun: () => okAsync({ started: false, code }),
+      stopRun: () => okAsync(false),
+      upgrade: () => okAsync(new Response(null, { status: 200 })),
+    };
+  }
+
+  function buildApp(code: (typeof ERROR_CODES)[keyof typeof ERROR_CODES]): Hono<AppEnv> {
+    const manifest = createChatManifest({
+      conversations: createConversationsStores,
+      billing: createBillingStores(),
+      realtime: () => refusingRealtime(code),
+      trialRoomName,
+      linkResolution: (db) => createLinkResolutionAdapter(db),
+    });
+    const app = applyPipeline(new Hono<AppEnv>());
+    app.route(manifest.basePath, manifest.routes);
+    return app;
+  }
+
+  // The refusal `code` is returned so a future catalog starvation shows up as a
+  // distinguishable code, not a bare status mismatch.
+  async function sendTurn(
+    code: (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
+  ): Promise<{ status: number; code: string | undefined }> {
+    await seedModel();
+    const res = await buildApp(code).request(
+      '/chat',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+          cookie: await cookie(userId),
+        },
+        body: JSON.stringify({
+          conversationId,
+          turnSources: [{ kind: 'model', id: MODEL }],
+          userMessage: { content: 'hello' },
+        }),
+      },
+      devEnv
+    );
+    const body = await jsonBody<{ code?: string }>(res);
+    return { status: res.status, code: body.code };
+  }
+
+  it('maps INSUFFICIENT_ADMISSION to 402', async () => {
+    const { status, code } = await sendTurn(ERROR_CODES.INSUFFICIENT_ADMISSION);
+    expect(status, `refusal code: ${code ?? 'none'}`).toBe(402);
+  });
+
+  it('maps RUN_CAPACITY_REACHED to 402, the same status the collapsed code answered', async () => {
+    // Giving the run cap its own code must not move its status: a code outside
+    // the refusal map falls through to 409, which would change how every client
+    // handles it.
+    const { status, code } = await sendTurn(ERROR_CODES.RUN_CAPACITY_REACHED);
+    expect(status, `refusal code: ${code ?? 'none'}`).toBe(402);
+  });
+
+  it('maps ADMISSION_UNAVAILABLE to 503', async () => {
+    const { status, code } = await sendTurn(ERROR_CODES.ADMISSION_UNAVAILABLE);
+    expect(status, `refusal code: ${code ?? 'none'}`).toBe(503);
+  });
+
+  it('maps TRIAL_CAPACITY_REACHED to 429', async () => {
+    const { status, code } = await sendTurn(ERROR_CODES.TRIAL_CAPACITY_REACHED);
+    // The body first: 429 is also what a rate limiter answers, so a status-only
+    // assertion cannot tell this refusal from a limiter that pre-empted it.
+    expect(code).toBe(ERROR_CODES.TRIAL_CAPACITY_REACHED);
+    expect(status).toBe(429);
+  });
+});
+
+describe('composition-root closures execute on real requests', () => {
+  it('conversations read constructs the real link-resolution adapter before denying anonymous', async () => {
+    // authorizeCaller builds the adapter unconditionally, so the closure runs
+    // even though the anonymous caller is refused.
+    const res = await createApp().request(`/conversations/${crypto.randomUUID()}`, {}, devEnv);
+    expect(res.status).toBe(401);
+  });
+
+  it('chat guest send constructs the real link-resolution adapter before denying the credential-less caller', async () => {
+    const res = await createApp().request(
+      '/chat/guest',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          conversationId: crypto.randomUUID(),
+          turnSources: [{ kind: 'model', id: MODEL }],
+          userMessage: { content: 'hello' },
+        }),
+      },
+      devEnv
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('newsletter webhook constructs the real env-bound Resend verifier and fails closed', async () => {
+    // The dev-mode registry literal is a well-formed whsec_ secret, so the
+    // verifier constructs; a delivery with no svix headers is refused 401.
+    const webhookEnv: typeof devEnv & { RESEND_WEBHOOK_SECRET: string } = {
+      ...devEnv,
+      RESEND_WEBHOOK_SECRET: 'whsec_bmV3c2xldHRlci1kZXYtd2ViaG9vay1zZWNyZXQ=',
+    };
+    const res = await createApp().request(
+      '/newsletter/webhooks/resend',
+      { method: 'POST', body: '{}' },
+      webhookEnv
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('billing payments runs through the real env-selected payment provider (dev mock)', async () => {
+    const userId = await seedUser();
+    const { ctx, tasks } = recordingExecutionCtx();
+    // The full app enforces session LIVENESS (checkSessionRevocation), so a
+    // sealed-but-never-issued cookie is refused — issue a real session.
+    const issueResponse = new Response();
+    const issued = await issueSession({
+      request: new Request('http://localhost/'),
+      response: issueResponse,
+      redis,
+      secret: SECRET,
+      isProduction: false,
+      userId,
+      kind: 'full',
+      now: Date.now(),
+    });
+    if (issued.isErr()) throw new Error('app mount tests: session issue failed');
+    const sessionCookie = (issueResponse.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    // createPaymentProviderFromEnv fail-fasts without these; dev mode selects
+    // the in-process mock provider (auto-approve), so no external call happens.
+    const paymentEnv: Bindings &
+      TelemetryEnv & { API_URL: string; HELCIM_WEBHOOK_VERIFIER: string } = {
+      ...devEnv,
+      API_URL: requiredEnv('API_URL'),
+      HELCIM_WEBHOOK_VERIFIER: requiredEnv('HELCIM_WEBHOOK_VERIFIER'),
+    };
+    const app = createApp();
+    const res = await app.request(
+      '/billing/payments',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+          cookie: sessionCookie,
+        },
+        body: JSON.stringify({
+          amountNanoUsd: '5000000000',
+          cardToken: 'tok',
+          customerCode: 'cust',
+        }),
+      },
+      paymentEnv,
+      ctx
+    );
+    // Real logout cleans the issued session up (before the assertions, so a
+    // failing expectation cannot leak the Redis key).
+    const bye = await app.request(
+      '/auth/logout',
+      { method: 'POST', headers: { cookie: sessionCookie } },
+      devEnv
+    );
+    expect(bye.status).toBe(200);
+    expect(res.status).toBe(200);
+    const outcome = await jsonBody<{ paymentId: string }>(res);
+    createdPaymentIds.push(outcome.paymentId);
+    await Promise.all(tasks);
+  });
+});

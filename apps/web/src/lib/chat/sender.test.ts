@@ -1,0 +1,320 @@
+import { describe, it, expect } from 'vitest';
+import { TEST_DAY_START, isoAt } from '@hushbox/shared/test-time';
+import {
+  getSenderLabel,
+  isOwnMessage,
+  groupConsecutiveMessages,
+  resolveSenderName,
+} from './sender';
+import type { Message } from '@/lib/api/api';
+
+function createMessage(overrides: Partial<Message> = {}): Message {
+  return {
+    id: crypto.randomUUID(),
+    conversationId: 'conv-1',
+    role: 'user',
+    content: 'test message',
+    createdAt: isoAt(TEST_DAY_START),
+    ...overrides,
+  };
+}
+
+const members = [
+  { id: 'member-1', userId: 'user-1', username: 'alice', privilege: 'owner' },
+  { id: 'member-2', userId: 'user-2', username: 'bob', privilege: 'admin' },
+];
+
+describe('getSenderLabel', () => {
+  it('returns undefined when not in group chat', () => {
+    const label = getSenderLabel({
+      senderId: 'user-1',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: false,
+    });
+
+    expect(label).toBeUndefined();
+  });
+
+  it('returns undefined when senderId is undefined', () => {
+    const label = getSenderLabel({
+      senderId: undefined,
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+    });
+
+    expect(label).toBeUndefined();
+  });
+
+  it('returns "You" when senderId matches currentUserId', () => {
+    const label = getSenderLabel({
+      senderId: 'user-1',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+    });
+
+    expect(label).toBe('You');
+  });
+
+  it('returns username when senderId matches a member', () => {
+    const label = getSenderLabel({
+      senderId: 'user-2',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+    });
+
+    expect(label).toBe('bob');
+  });
+
+  it('returns left user message when senderId is not found in members', () => {
+    const label = getSenderLabel({
+      senderId: 'user-deleted',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+    });
+
+    expect(label).toBe('This user has left the conversation');
+  });
+
+  it('returns link displayName when senderId matches a link id', () => {
+    const links = [
+      {
+        id: 'link-001',
+        displayName: 'Guest Alice',
+        privilege: 'write',
+        createdAt: isoAt(TEST_DAY_START),
+      },
+    ];
+    const label = getSenderLabel({
+      senderId: 'link-001',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+      links,
+    });
+
+    expect(label).toBe('Guest Alice');
+  });
+
+  it('returns fallback label when link has no displayName', () => {
+    const links = [
+      { id: 'link-002', displayName: null, privilege: 'write', createdAt: isoAt(TEST_DAY_START) },
+    ];
+    const label = getSenderLabel({
+      senderId: 'link-002',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+      links,
+    });
+
+    expect(label).toBe('Guest');
+  });
+
+  it('prefers member match over link match', () => {
+    const links = [
+      {
+        id: 'user-2',
+        displayName: 'Link User',
+        privilege: 'write',
+        createdAt: isoAt(TEST_DAY_START),
+      },
+    ];
+    const label = getSenderLabel({
+      senderId: 'user-2',
+      currentUserId: 'user-1',
+      members,
+      isGroupChat: true,
+      links,
+    });
+
+    expect(label).toBe('bob');
+  });
+});
+
+describe('resolveSenderName', () => {
+  const guestLinks = [
+    { id: 'link-named', displayName: 'Luísa' },
+    { id: 'link-unnamed', displayName: null },
+  ];
+
+  it("resolves a member to the member's username", () => {
+    expect(resolveSenderName({ senderId: 'user-2', members, links: guestLinks })).toBe('bob');
+  });
+
+  it("resolves a link guest to the link's name", () => {
+    expect(resolveSenderName({ senderId: 'link-named', members, links: guestLinks })).toBe('Luísa');
+  });
+
+  it('resolves an unnamed link guest to "Guest"', () => {
+    expect(resolveSenderName({ senderId: 'link-unnamed', members, links: guestLinks })).toBe(
+      'Guest'
+    );
+  });
+
+  it('gives nothing for a sender who is neither a member nor a link', () => {
+    expect(
+      resolveSenderName({ senderId: 'user-departed', members, links: guestLinks })
+    ).toBeUndefined();
+  });
+
+  it('gives nothing for a link id when no links are known', () => {
+    expect(resolveSenderName({ senderId: 'link-named', members })).toBeUndefined();
+  });
+});
+
+describe('isOwnMessage', () => {
+  it('returns true when senderId matches currentUserId', () => {
+    expect(isOwnMessage('user-1', 'user-1')).toBe(true);
+  });
+
+  it('returns false when senderId does not match', () => {
+    expect(isOwnMessage('user-2', 'user-1')).toBe(false);
+  });
+
+  it('returns false when senderId is undefined', () => {
+    expect(isOwnMessage(undefined, 'user-1')).toBe(false);
+  });
+});
+
+describe('groupConsecutiveMessages', () => {
+  it('returns empty array for empty input', () => {
+    const groups = groupConsecutiveMessages([]);
+
+    expect(groups).toEqual([]);
+  });
+
+  it('groups consecutive user messages with same senderId', () => {
+    const msg1 = createMessage({ id: 'msg-1', senderId: 'user-1' });
+    const msg2 = createMessage({ id: 'msg-2', senderId: 'user-1' });
+
+    const groups = groupConsecutiveMessages([msg1, msg2]);
+
+    expect(groups).toHaveLength(1);
+    const group = groups[0]!;
+    expect(group.id).toBe('msg-1');
+    expect(group.role).toBe('user');
+    expect(group.senderId).toBe('user-1');
+    expect(group.messages).toHaveLength(2);
+    expect(group.messages[0]!.id).toBe('msg-1');
+    expect(group.messages[1]!.id).toBe('msg-2');
+  });
+
+  it('splits groups when senderId changes', () => {
+    const msg1 = createMessage({ id: 'msg-1', senderId: 'user-1' });
+    const msg2 = createMessage({ id: 'msg-2', senderId: 'user-2' });
+
+    const groups = groupConsecutiveMessages([msg1, msg2]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.senderId).toBe('user-1');
+    expect(groups[1]!.senderId).toBe('user-2');
+  });
+
+  it('never groups AI messages', () => {
+    const ai1 = createMessage({ id: 'ai-1', role: 'assistant' });
+    const ai2 = createMessage({ id: 'ai-2', role: 'assistant' });
+
+    const groups = groupConsecutiveMessages([ai1, ai2]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.messages).toHaveLength(1);
+    expect(groups[1]!.messages).toHaveLength(1);
+  });
+
+  it('never groups user messages without senderId', () => {
+    const msg1 = createMessage({ id: 'msg-1' });
+    const msg2 = createMessage({ id: 'msg-2' });
+
+    const groups = groupConsecutiveMessages([msg1, msg2]);
+
+    expect(groups).toHaveLength(2);
+  });
+
+  it('handles mixed sequence: alice×2, AI, bob×1, alice×3, AI', () => {
+    const messages = [
+      createMessage({ id: 'a1', senderId: 'alice' }),
+      createMessage({ id: 'a2', senderId: 'alice' }),
+      createMessage({ id: 'ai1', role: 'assistant' }),
+      createMessage({ id: 'b1', senderId: 'bob' }),
+      createMessage({ id: 'a3', senderId: 'alice' }),
+      createMessage({ id: 'a4', senderId: 'alice' }),
+      createMessage({ id: 'a5', senderId: 'alice' }),
+      createMessage({ id: 'ai2', role: 'assistant' }),
+    ];
+
+    const groups = groupConsecutiveMessages(messages);
+
+    expect(groups).toHaveLength(5);
+
+    const g1 = groups[0]!;
+    expect(g1.id).toBe('a1');
+    expect(g1.senderId).toBe('alice');
+    expect(g1.messages).toHaveLength(2);
+
+    const g2 = groups[1]!;
+    expect(g2.id).toBe('ai1');
+    expect(g2.role).toBe('assistant');
+    expect(g2.messages).toHaveLength(1);
+
+    const g3 = groups[2]!;
+    expect(g3.id).toBe('b1');
+    expect(g3.senderId).toBe('bob');
+    expect(g3.messages).toHaveLength(1);
+
+    const g4 = groups[3]!;
+    expect(g4.id).toBe('a3');
+    expect(g4.senderId).toBe('alice');
+    expect(g4.messages).toHaveLength(3);
+
+    const g5 = groups[4]!;
+    expect(g5.id).toBe('ai2');
+    expect(g5.role).toBe('assistant');
+    expect(g5.messages).toHaveLength(1);
+  });
+
+  it('uses first message id as group id', () => {
+    const msg1 = createMessage({ id: 'first-id', senderId: 'user-1' });
+    const msg2 = createMessage({ id: 'second-id', senderId: 'user-1' });
+
+    const groups = groupConsecutiveMessages([msg1, msg2]);
+
+    expect(groups[0]!.id).toBe('first-id');
+  });
+
+  it('preserves role in each group', () => {
+    const user = createMessage({ id: 'u1', role: 'user', senderId: 'user-1' });
+    const ai = createMessage({ id: 'a1', role: 'assistant' });
+
+    const groups = groupConsecutiveMessages([user, ai]);
+
+    expect(groups[0]!.role).toBe('user');
+    expect(groups[1]!.role).toBe('assistant');
+  });
+
+  it('handles single message', () => {
+    const msg = createMessage({ id: 'solo', senderId: 'user-1' });
+
+    const groups = groupConsecutiveMessages([msg]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.messages).toHaveLength(1);
+  });
+
+  it('does not group user message followed by AI then same user', () => {
+    const u1 = createMessage({ id: 'u1', senderId: 'user-1' });
+    const ai = createMessage({ id: 'ai', role: 'assistant' });
+    const u2 = createMessage({ id: 'u2', senderId: 'user-1' });
+
+    const groups = groupConsecutiveMessages([u1, ai, u2]);
+
+    expect(groups).toHaveLength(3);
+    expect(groups[0]!.senderId).toBe('user-1');
+    expect(groups[1]!.role).toBe('assistant');
+    expect(groups[2]!.senderId).toBe('user-1');
+  });
+});

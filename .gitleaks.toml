@@ -1,0 +1,240 @@
+[extend]
+useDefault = true
+
+# Every exemption below trips only the default generic-api-key rule (verified),
+# so each is attached as a rule-scoped allowlist. Top-level [[allowlists]] are
+# silently ignored under `[extend] useDefault = true` in gitleaks 8.24.3; only
+# [[rules.allowlists]] merge into the extended rule.
+[[rules]]
+id = "generic-api-key"
+
+# Deterministic dev-only seed-crypto cache file committed for fast CI seeding
+# (see .gitignore). File holds OPAQUE/ECIES output for fixed dev personas + dev
+# password + per-persona server material derived from the dev OPAQUE_KEK —
+# high entropy but not secret.
+[[rules.allowlists]]
+description = "Dev-only seed-crypto cache; whole file exempt by path."
+paths = ['''^scripts/\.cache/seed-crypto\.json$''']
+
+# Inert base64 fixtures in stream-handler.test.ts. Each string decodes to a
+# human-readable label ('wrapped-b', 'user-wrapped', 'ai_wrapped') used as
+# opaque envelope bytes in SSE writer tests. AND-pins them to that one file.
+[[rules.allowlists]]
+description = "Stream-handler SSE test fixtures; AND-pins the exact secrets to that file."
+condition = "AND"
+paths = ['''^apps/api/src/lib/stream-handler\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^d3JhcHBlZC1i$''',
+  '''^dXNlci13cmFwcGVk$''',
+  '''^YWlfd3JhcHBlZA==$''',
+]
+
+# Two high-entropy base64 chunks of bundled demo media (public-domain JPEG +
+# H.264 video). The rule's value capture spills from one array element onto the
+# next, so the flagged "secret" is the line after each reported start line.
+# Inert media bytes, not credentials.
+[[rules.allowlists]]
+description = "Demo media base64 chunks in media-assets.ts; AND-pins the exact captured secrets to that file."
+condition = "AND"
+paths = ['''^apps/web/src/demo/mock-backend/media-assets\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^eNxNjdgoXYa/jI\+Z/My2tAkv7qwFfzUvBbqIIxVR8sL9ZLoGSaW88HLj3DUovzfo35lyX3txgW1eSnI9Icb6DmE3ACZXEQMvUtTZacdcaDA5$''',
+  '''^ApWrpwhm\+w17ZLA/uR3O0719kCuODqQImCywb3DGkFjXKXWXKJv83mjb19wVAUSxBttmyyj1jwMgbyxvXHAcjjCXzB8g1gskTzWzD0BXuenu$''',
+]
+
+# Inert Web Push crypto vectors in the notifications webpush tests. The auth
+# secret is the RFC 8291 Appendix A public UA auth vector; the private key is a
+# throwaway P-256 scalar generated once for these tests. The `authSecret:` /
+# `auth:` / `privateKey:` labels trip generic-api-key's keyword heuristic. Each
+# entry AND-pins its exact captured secret to its one file.
+[[rules.allowlists]]
+description = "Web Push encrypt.test.ts RFC 8291 auth-secret vector; AND-pins the exact secret to that file."
+condition = "AND"
+paths = ['''^apps/api/src/slices/notifications/adapters/webpush/encrypt\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^BTBZMqHH6r4Tts7J_aSIgg$''',
+]
+
+[[rules.allowlists]]
+description = "Web Push vapid.test.ts throwaway P-256 private key; AND-pins the exact secret to that file."
+condition = "AND"
+paths = ['''^apps/api/src/slices/notifications/adapters/webpush/vapid\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^SQ6hnT9IQ-46JeC7tl_zN_tJjH0v76csKdFBGcCYTx0$''',
+]
+
+[[rules.allowlists]]
+description = "Web Push send.test.ts auth-secret vector + throwaway private key; AND-pins the exact secrets to that file."
+condition = "AND"
+paths = ['''^apps/api/src/slices/notifications/adapters/webpush/send\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^BTBZMqHH6r4Tts7J_aSIgg$''',
+  '''^SQ6hnT9IQ-46JeC7tl_zN_tJjH0v76csKdFBGcCYTx0$''',
+]
+
+[[rules.allowlists]]
+description = "Web Push push-webpush.test.ts RFC 8291 Appendix A auth-secret vector; AND-pins the exact secret to that file."
+condition = "AND"
+paths = ['''^apps/api/src/slices/notifications/adapters/push-webpush\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^BTBZMqHH6r4Tts7J_aSIgg$''',
+]
+
+[[rules.allowlists]]
+description = "Web Push rfc8291-decryptor.test.ts RFC 8291 Appendix A auth-secret vector; AND-pins the exact secret to that file."
+condition = "AND"
+paths = [
+  '''^apps/api/src/slices/notifications/adapters/webpush/__tests__/rfc8291-decryptor\.test\.ts$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^BTBZMqHH6r4Tts7J_aSIgg$''',
+]
+
+# The same RFC 8291 Appendix A user-agent auth-secret vector the webpush
+# adapter entries above exempt, reached here through the device-token schema
+# and the notifications routes. A published IETF test vector, not a credential.
+# The second value in device-tokens.test.ts is base64 of the byte values 0..14
+# — a deliberately fifteen-byte auth, there to prove the schema rejects an auth
+# that is not sixteen bytes.
+[[rules.allowlists]]
+description = "Notifications device-token tests; AND-pins the exact secrets to that file."
+condition = "AND"
+paths = ['''^apps/api/src/slices/notifications/domain/device-tokens\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^BTBZMqHH6r4Tts7J_aSIgg$''',
+  '''^AAECAwQFBgcICQoLDA0O$''',
+]
+
+[[rules.allowlists]]
+description = "Notifications routes test RFC 8291 Appendix A auth-secret vector; AND-pins the exact secret to that file."
+condition = "AND"
+paths = ['''^apps/api/src/slices/notifications/routes\.integration\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^BTBZMqHH6r4Tts7J_aSIgg$''',
+]
+
+[[rules.allowlists]]
+description = "Audit research quoting the RFC 8291 Appendix A auth-secret vector; AND-pins the exact secret to that file."
+condition = "AND"
+paths = [
+  '''^docs/runs/2026-09-19-audit-dedicated-findings/research/webpush-wiring\.md$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^BTBZMqHH6r4Tts7J_aSIgg$''',
+]
+
+# The Resend webhook secret the env registry resolves to in every non-production
+# mode (`packages/shared/src/env/env.config.ts`, whose own comment states it is
+# never a real secret). Both tests retype it so their delivery reaches the
+# signature verifier production runs.
+[[rules.allowlists]]
+description = "Rate-limit posture test dev-mode webhook literal; AND-pins the exact secret to that file."
+condition = "AND"
+paths = ['''^apps/api/src/whole-app/app-rate-limit-posture\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^whsec_bmV3c2xldHRlci1kZXYtd2ViaG9vay1zZWNyZXQ=$''',
+]
+
+[[rules.allowlists]]
+description = "App-mount test dev-mode webhook literal; AND-pins the exact secret to that file."
+condition = "AND"
+paths = ['''^apps/api/src/whole-app/app-mount\.integration\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^whsec_bmV3c2xldHRlci1kZXYtd2ViaG9vay1zZWNyZXQ=$''',
+]
+
+# A placeholder Resend API key in a production-shaped env fixture: the vendor's
+# prefix followed by the digits one to nine.
+[[rules.allowlists]]
+description = "Env registry test placeholder API key; AND-pins the exact secret to that file."
+condition = "AND"
+paths = ['''^packages/shared/src/env/env\.config\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^re_123456789$''',
+]
+
+# Two object keys in a backup listing fixture, hex-shaped names chosen to read
+# as object keys and flagged only because the property holding them is `key`.
+# The same two names sit in `scripts/lib/backup/fixtures/rustic-ls-media.json`.
+[[rules.allowlists]]
+description = "Backup reconcile listing fixture object keys; AND-pins the exact secrets to that file."
+condition = "AND"
+paths = ['''^scripts/lib/backup/reconcile\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^a1b2c3d4e5f6$''',
+  '''^f6e5d4c3b2a1$''',
+]
+
+# Every entry below is in a document that is never edited (`docs/CODE-RULES.md`
+# §Doc Lifecycle), so an allowlist entry is its only disposition.
+
+# A key-derivation domain-separation label — an info string, not key material —
+# flagged because the argument before it is named `masterSecret`.
+[[rules.allowlists]]
+description = "Archived plan's HKDF domain-separation label; AND-pins the exact secret to that file."
+condition = "AND"
+paths = [
+  '''^docs/history/2026-01-26-auth-encryption-compression-implementation-plan\.md$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^opaque-ake-private-v1$''',
+]
+
+# Prose: the word after "password-change," in a list of route names.
+[[rules.allowlists]]
+description = "Run record's route-name prose; AND-pins the exact secret to that file."
+condition = "AND"
+paths = [
+  '''^docs/runs/2026-07-21-legacy-parity-remediation/task-02/impl-report-1\.md$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^2FA-disable\.$''',
+]
+
+# Two run records that quoted a scanner finding verbatim, reproducing the
+# placeholder API key the env fixture above carries.
+[[rules.allowlists]]
+description = "Run record quoting the placeholder API key; AND-pins the exact secret to that file."
+condition = "AND"
+paths = ['''^docs/runs/2026-07-23-notifications/task-15/impl-report-1\.md$''']
+regexTarget = "secret"
+regexes = [
+  '''^re_123456789$''',
+]
+
+[[rules.allowlists]]
+description = "Run record quoting the placeholder API key; AND-pins the exact secret to that file."
+condition = "AND"
+paths = ['''^docs/runs/2026-09-01-secret-rotation/task-10/impl-report-1\.md$''']
+regexTarget = "secret"
+regexes = [
+  '''^re_123456789$''',
+]
+
+# A push request-body sample whose collapse key is a test fixture; the same
+# value sits unflagged in `apps/api/src/slices/notifications/adapters/push-webpush.test.ts`,
+# where no keyword precedes it.
+[[rules.allowlists]]
+description = "Run record's push request-body sample collapse key; AND-pins the exact secret to that file."
+condition = "AND"
+paths = ['''^docs/runs/2026-07-23-notifications/task-25/impl-report-1\.md$''']
+regexTarget = "secret"
+regexes = [
+  '''^LP8HoKvhpgV7wlyNkKm5FzNGj9H6Rs3q$''',
+]

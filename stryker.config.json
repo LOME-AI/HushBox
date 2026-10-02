@@ -1,0 +1,38 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+  "packageManager": "pnpm",
+  "plugins_comment": "Named rather than left to the default \"@stryker-mutator/*\" glob, which reads the core package's own dependency directory: under an isolated node_modules layout that directory holds only core's dependencies, so nothing is discovered and the first child worker dies with \"no Checker plugins were loaded\". The names are also what reaches the workers, which load the list the parent resolved.",
+  "plugins": ["@stryker-mutator/vitest-runner", "@stryker-mutator/typescript-checker"],
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vitest.config.ts"
+  },
+  "checkers": ["typescript"],
+  "tsconfigFile": "tsconfig.json",
+  "mutate": [
+    "packages/shared/src/**/*.ts",
+    "packages/db/src/**/*.ts",
+    "apps/api/src/slices/{billing,chat,workflows}/domain/**",
+    "packages/crypto/src/**",
+    "!**/*.test.ts",
+    "!**/*.d.ts",
+    "!**/index.ts",
+    "!packages/db/src/workers-validation/**"
+  ],
+  "coverageAnalysis": "perTest",
+  "reporters": ["html", "clear-text", "progress", "json"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/index.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/report.json"
+  },
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": 60
+  },
+  "incremental": true,
+  "incrementalFile": ".stryker-cache/incremental.json",
+  "concurrency": 4
+}

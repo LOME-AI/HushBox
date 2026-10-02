@@ -1,0 +1,7 @@
+#!/bin/sh
+# git's pre-push arguments are the remote's name and its URL; both decide what
+# the push-stage checks are checking, so they are forwarded rather than guessed.
+# Silenced because the package manager echoes the resolved command line before
+# it runs anything, and that echo is this clone's path plus those arguments: the
+# push destination, printed on every push, above the gate that redacts it.
+pnpm -s pre-push "$@"

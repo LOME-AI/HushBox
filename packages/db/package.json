@@ -1,0 +1,45 @@
+{
+  "name": "@hushbox/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts",
+    "./factories": "./src/factories/index.ts",
+    "./local-host-url": "./src/local-host-url.ts",
+    "./schema-drift": "./src/schema-drift.ts",
+    "./test-db": "./src/test-db.ts"
+  },
+  "scripts": {
+    "dev": "pnpm db:studio",
+    "db:generate": "tsx ../../scripts/with-env.ts tsx ./node_modules/drizzle-kit/bin.cjs generate && tsx ../../scripts/normalize-migration-journal.ts",
+    "db:migrate": "tsx ../../scripts/with-env.ts tsx ./node_modules/drizzle-kit/bin.cjs migrate && tsx ../../scripts/with-env.ts tsx ./src/verify-schema-drift.ts",
+    "db:push": "tsx ../../scripts/with-env.ts tsx ./node_modules/drizzle-kit/bin.cjs push",
+    "db:studio": "tsx ../../scripts/with-env.ts tsx ../../scripts/drizzle-studio.ts",
+    "test": "tsx ../../scripts/with-env.ts tsx ../../scripts/run-package-tests.ts",
+    "test:workers": "tsx ../../scripts/with-env.ts tsx ../../scripts/run-workers-tests.ts",
+    "test:watch": "tsx ../../scripts/with-env.ts tsx ../../scripts/package-vitest.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hushbox/shared": "workspace:*",
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.15",
+    "@cloudflare/workers-types": "^4.20260612.1",
+    "@faker-js/faker": "^10.4.0",
+    "@hushbox/config": "workspace:*",
+    "@types/node": "^24.13.3",
+    "@vitest/coverage-v8": "^4.1.10",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9.39.4",
+    "fishery": "^2.4.0",
+    "pg": "^8.21.0",
+    "typescript": "catalog:",
+    "vitest": "^4.1.10"
+  }
+}

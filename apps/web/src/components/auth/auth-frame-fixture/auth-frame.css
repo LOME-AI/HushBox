@@ -1,0 +1,9 @@
+/* The app's own entry stylesheet, so the frame is measured under the cascade it ships in:
+   the root font steps, the container keys and the pointer variant included. */
+@import '../../../app.css';
+
+/* The frame's classes live in its route file, which no glob of the app stylesheet names. */
+@source '../../../routes/_auth.tsx';
+
+/* The root route's shell, reproduced in the fixture page. */
+@source './auth-frame.html';

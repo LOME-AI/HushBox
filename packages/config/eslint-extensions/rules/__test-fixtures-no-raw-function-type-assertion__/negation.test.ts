@@ -1,0 +1,10 @@
+expect(typeof barrel.encode).not.toBe('function');
+expect(barrel.encode).not.toBeTypeOf('function');
+expect(barrel.encode).not.toBeInstanceOf(Function);
+expect(typeof barrel.encode === 'function').toBe(false);
+expect(typeof barrel.encode !== 'function').toBe(true);
+expect(typeof barrel.encode === 'function').toBeFalsy();
+expect(typeof barrel.encode !== 'function').toBe(false);
+expect(typeof barrel.encode === 'function').toBeTruthy();
+expect(typeof barrel.encode === 'function').toEqual(1);
+expect(typeof barrel.encode === 'function').not.toBe(false);

@@ -1,0 +1,88 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0",
+    "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION": "600",
+    "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION": "2000"
+  },
+  "permissions": {
+    "allow": [
+      "mcp__linear-server",
+      "Bash(pnpm test)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm ensure-stack)",
+      "Bash(pnpm ensure-stack:*)",
+      "Bash(pnpm e2e)",
+      "Bash(pnpm e2e:*)",
+      "Bash(turbo:*)",
+      "Bash(jscpd:*)",
+      "Bash(eslint:*)",
+      "Bash(vitest:*)",
+      "Bash(git diff:*)",
+      "Bash(git status)",
+      "Bash(git status:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": [
+      "Bash(git stash:*)",
+      "Bash(git checkout -- :*)",
+      "Bash(git checkout .:*)",
+      "Bash(git restore:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "mcp__linear-server__delete_*",
+      "mcp__linear-server__remove_*",
+      "Agent(Explore)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__chrome-devtools__take_screenshot",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/contain-screenshot-output.mjs\""
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/precompact-skill-state.mjs\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstart-skill-restore.mjs\" 0"
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstart-skill-restore.mjs\" 1"
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstart-skill-restore.mjs\" 2"
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/sessionstart-skill-restore.mjs\" 3"
+          }
+        ]
+      }
+    ]
+  }
+}

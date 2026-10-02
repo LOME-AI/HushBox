@@ -1,0 +1,302 @@
+import { TEST_IDS } from '@hushbox/shared';
+import { test, expect } from '../fixtures.js';
+import { matrix } from '../../scripts/lib/playwright/browser-matrix.js';
+import { ChatPage, MemberSidebarPage } from '../pages/index.js';
+import {
+  setupConversationWithSidebar,
+  setupGroupConversationWithSidebar,
+} from '../helpers/group-test-setup.js';
+import { expectDelegatedBudget } from '../helpers/exact-money.js';
+import { createInviteLink, createWriteLinkWithBudget } from '../helpers/invite-link.js';
+import {
+  expectSharedConversationLoaded,
+  expectSendInputDisabled,
+  expectReadOnlyNotice,
+  expectDelegatedBudgetNotice,
+} from '../helpers/link-assertions.js';
+import { guestIp } from '../helpers/guest-identity.js';
+import { TIMEOUTS } from '../config/timeouts.js';
+
+const SPEC_MATRIX = matrix({ engine: 'engine-matrix', formFactor: 'either' });
+
+test.describe('Link Guest Access', SPEC_MATRIX, () => {
+  // eslint-disable-next-line no-restricted-syntax -- serial: the write-guest tests send owner-funded messages that reserve against the shared per-owner balance key (chatReservedBalance:{aliceUserId}); parallel runs would race that reservation
+  test.describe.configure({ mode: 'serial' });
+
+  test('with-history link guests can view and interact', async ({
+    authenticatedPage,
+    unauthenticatedPage,
+    authenticatedRequest,
+    groupConversation,
+    createPage,
+  }) => {
+    test.slow();
+
+    await unauthenticatedPage.setExtraHTTPHeaders({ 'cf-connecting-ip': guestIp() });
+
+    const { sidebar, helper } = await setupGroupConversationWithSidebar(
+      authenticatedPage,
+      authenticatedRequest,
+      groupConversation.id
+    );
+
+    let readUrl: string;
+    let writeUrl: string;
+    let writeMemberId: string;
+
+    await test.step('create read+history link and verify guest access', async () => {
+      const result = await createInviteLink(authenticatedPage, sidebar, {
+        withHistory: true,
+        extractLinkId: false,
+      });
+      readUrl = result.url;
+      expect(readUrl).toContain('/share/c/');
+    });
+
+    await test.step('read guest sees all history and has no send input', async () => {
+      await unauthenticatedPage.goto(readUrl, { waitUntil: 'domcontentloaded' });
+
+      await expectSharedConversationLoaded(unauthenticatedPage);
+
+      // Sees pre-existing messages (with-history). Use ChatPage helpers so
+      // virtualization (chat now mounts at the latest message) doesn't hide
+      // first-seed rows from the assertion.
+      const guestChatPage = new ChatPage(unauthenticatedPage);
+      await guestChatPage.assertMessageVisible('Hello from Alice', { timeout: TIMEOUTS.ASSERT });
+      await guestChatPage.assertMessageVisible('Hi from Bob');
+
+      await expectSendInputDisabled(unauthenticatedPage);
+      await expectReadOnlyNotice(unauthenticatedPage);
+    });
+
+    await test.step('create write+history link and setup budgets', async () => {
+      const result = await createWriteLinkWithBudget(authenticatedPage, sidebar, {
+        helper,
+        conversationId: groupConversation.id,
+        withHistory: true,
+        displayName: 'Write Guest',
+      });
+      writeUrl = result.url;
+      writeMemberId = result.memberId;
+    });
+
+    await test.step('write guest sees history and can send', async () => {
+      // Use fresh context to avoid cache from read guest
+      const freshPage = await createPage();
+      await freshPage.setExtraHTTPHeaders({ 'cf-connecting-ip': guestIp() });
+      await freshPage.goto(writeUrl, { waitUntil: 'domcontentloaded' });
+
+      await expectSharedConversationLoaded(freshPage);
+
+      const freshChatPage = new ChatPage(freshPage);
+      await freshChatPage.assertMessageVisible('Hello from Alice', {
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
+      });
+
+      await expectDelegatedBudgetNotice(freshPage);
+
+      // The budget the guest sends against, exactly as delegated, read from the
+      // owner's own view. Read there rather than off the guest's page because
+      // the budget route is session-classed and answers a link guest 401, so
+      // their page renders no budget line at all and a figure missing from it
+      // says nothing about the delegation.
+      await expectDelegatedBudget(authenticatedRequest, groupConversation.id, writeMemberId);
+
+      const guestInput = freshPage.getByRole('textbox', { name: /message/i });
+      await expect(guestInput).toBeVisible({ timeout: TIMEOUTS.MODAL });
+
+      const guestMessage = `Write guest says hello ${String(Date.now())}`;
+      await guestInput.fill(guestMessage);
+
+      const sendButton = freshPage.getByTestId(TEST_IDS.sendButton);
+      await expect(sendButton).toBeEnabled({ timeout: TIMEOUTS.MODAL });
+      await sendButton.click();
+
+      await expect(freshPage.getByText(guestMessage).first()).toBeVisible({
+        timeout: TIMEOUTS.ASSERT,
+      });
+
+      await expect(
+        freshPage.getByRole('log', { name: 'Chat messages' }).getByText('Echo:').first()
+      ).toBeVisible({ timeout: TIMEOUTS.STREAM });
+    });
+  });
+
+  test('without-history link guests see only post-link messages', async ({
+    authenticatedPage,
+    unauthenticatedPage,
+    authenticatedRequest,
+    groupConversation,
+    createPage,
+  }) => {
+    test.slow();
+
+    await unauthenticatedPage.setExtraHTTPHeaders({ 'cf-connecting-ip': guestIp() });
+
+    const { chatPage, sidebar, helper } = await setupGroupConversationWithSidebar(
+      authenticatedPage,
+      authenticatedRequest,
+      groupConversation.id
+    );
+
+    let readUrl: string;
+    let writeUrl: string;
+
+    await test.step('create read+no-history link (triggers epoch rotation)', async () => {
+      const result = await createInviteLink(authenticatedPage, sidebar, { extractLinkId: false });
+      readUrl = result.url;
+      await sidebar.closeMobileSidebarIfOpen();
+    });
+
+    await test.step('Alice sends message in new epoch', async () => {
+      const newMessage = `Post-rotation message ${String(Date.now())}`;
+      const streamBaseline = await chatPage.captureStreamBaseline();
+      await chatPage.sendFollowUpMessage(newMessage);
+      await chatPage.expectMessageVisible(newMessage);
+      // Stream + persistence runs under Workers waitUntil; the guest's GET
+      // below would otherwise race the DB write and see an empty messages array.
+      await chatPage.waitForStreamCycle(streamBaseline);
+    });
+
+    await test.step('read guest does NOT see old messages, sees new message', async () => {
+      await unauthenticatedPage.goto(readUrl, { waitUntil: 'domcontentloaded' });
+
+      await expectSharedConversationLoaded(unauthenticatedPage);
+
+      await expect(
+        unauthenticatedPage.getByText('Hello from Alice', { exact: true })
+      ).not.toBeVisible();
+
+      // Should see post-rotation message (decryption may lag behind fetch settlement)
+      await expect(unauthenticatedPage.getByText('Post-rotation message').first()).toBeVisible({
+        timeout: TIMEOUTS.ASSERT,
+      });
+
+      await expectSendInputDisabled(unauthenticatedPage);
+      await expectReadOnlyNotice(unauthenticatedPage);
+    });
+
+    await test.step('create write+no-history link and setup budgets', async () => {
+      await sidebar.openViaFacepile();
+
+      const result = await createWriteLinkWithBudget(authenticatedPage, sidebar, {
+        helper,
+        conversationId: groupConversation.id,
+        displayName: 'Write Guest',
+      });
+      writeUrl = result.url;
+      await sidebar.closeMobileSidebarIfOpen();
+    });
+
+    await test.step('Alice sends another message in latest epoch', async () => {
+      const latestMessage = `Latest epoch message ${String(Date.now())}`;
+      const streamBaseline = await chatPage.captureStreamBaseline();
+      await chatPage.sendFollowUpMessage(latestMessage);
+      await chatPage.expectMessageVisible(latestMessage);
+      await chatPage.waitForStreamCycle(streamBaseline);
+    });
+
+    await test.step('write guest sees only new messages and can send', async () => {
+      const freshPage = await createPage();
+      await freshPage.setExtraHTTPHeaders({ 'cf-connecting-ip': guestIp() });
+      await freshPage.goto(writeUrl, { waitUntil: 'domcontentloaded' });
+
+      await expectSharedConversationLoaded(freshPage);
+
+      await expect(freshPage.getByText('Hello from Alice', { exact: true })).not.toBeVisible();
+
+      // Decryption can paint after settled fires.
+      await expect(freshPage.getByText('Latest epoch message').first()).toBeVisible({
+        timeout: TIMEOUTS.CONVERSATION_LOAD,
+      });
+
+      await expectDelegatedBudgetNotice(freshPage);
+
+      const guestInput = freshPage.getByRole('textbox', { name: /message/i });
+      await expect(guestInput).toBeVisible({ timeout: TIMEOUTS.MODAL });
+
+      const guestMessage = `No-history write guest ${String(Date.now())}`;
+      await guestInput.fill(guestMessage);
+
+      const sendButton = freshPage.getByTestId(TEST_IDS.sendButton);
+      await expect(sendButton).toBeEnabled({ timeout: TIMEOUTS.MODAL });
+      await sendButton.click();
+
+      await expect(freshPage.getByText(guestMessage).first()).toBeVisible({
+        timeout: TIMEOUTS.ASSERT,
+      });
+    });
+  });
+
+  test('read guest sees read-only notice on blank conversation', async ({
+    authenticatedPage,
+    unauthenticatedPage,
+    groupConversation,
+  }) => {
+    test.slow();
+
+    await unauthenticatedPage.setExtraHTTPHeaders({ 'cf-connecting-ip': guestIp() });
+
+    const { sidebar } = await setupConversationWithSidebar(authenticatedPage, groupConversation.id);
+
+    let readUrl: string;
+
+    await test.step('create read+history link', async () => {
+      const result = await createInviteLink(authenticatedPage, sidebar, {
+        withHistory: true,
+        extractLinkId: false,
+      });
+      readUrl = result.url;
+    });
+
+    await test.step('read guest sees read-only notice (not trial notice)', async () => {
+      // Guest opens link without any new messages being sent after link creation
+      await unauthenticatedPage.goto(readUrl, { waitUntil: 'domcontentloaded' });
+
+      await expectSharedConversationLoaded(unauthenticatedPage);
+      await expectReadOnlyNotice(unauthenticatedPage);
+    });
+  });
+
+  test('link guest does not see leave button in member sidebar', async ({
+    authenticatedPage,
+    unauthenticatedPage,
+    authenticatedRequest,
+    groupConversation,
+  }) => {
+    test.slow();
+
+    await unauthenticatedPage.setExtraHTTPHeaders({ 'cf-connecting-ip': guestIp() });
+
+    const { sidebar } = await setupGroupConversationWithSidebar(
+      authenticatedPage,
+      authenticatedRequest,
+      groupConversation.id
+    );
+
+    let readUrl: string;
+
+    await test.step('create read+history link', async () => {
+      const result = await createInviteLink(authenticatedPage, sidebar, {
+        withHistory: true,
+        extractLinkId: false,
+      });
+      readUrl = result.url;
+    });
+
+    await test.step('guest opens sidebar and sees no leave action', async () => {
+      await unauthenticatedPage.goto(readUrl, { waitUntil: 'domcontentloaded' });
+      await expectSharedConversationLoaded(unauthenticatedPage);
+
+      const guestSidebar = new MemberSidebarPage(unauthenticatedPage);
+      await guestSidebar.openViaFacepile();
+      await guestSidebar.waitForLoaded();
+
+      const youBadge = unauthenticatedPage.getByTestId(TEST_IDS.linkYouBadge);
+      await expect(youBadge).toBeVisible({ timeout: TIMEOUTS.MODAL });
+
+      const memberLeaveAction = unauthenticatedPage.getByTestId(TEST_IDS.memberLeaveAction);
+      await expect(memberLeaveAction).not.toBeVisible();
+    });
+  });
+});

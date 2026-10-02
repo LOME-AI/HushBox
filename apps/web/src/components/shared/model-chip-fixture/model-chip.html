@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>model chip fixture</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Inline, so the fixture adds no module for the unused-export scan to find unreached:
+         it is reached only from this page, which a browser loads at test time. -->
+    <script type="module">
+      import './model-chip.css';
+      import { createElement as h } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { flushSync } from 'react-dom';
+      import { ComposerBar } from '@/components/chat/input/composer-bar';
+      import { ModelChip } from '@/components/shared/model-chip';
+      import { Chip } from '@/components/shared/chip';
+      import { Globe, Plus, Sparkles } from '@hushbox/ui/icons';
+
+      const root = createRoot(document.getElementById('root'));
+
+      function box(element) {
+        const r = element.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
+      }
+
+      globalThis.__modelChip = {
+        // The real bar at a set composer width, holding the composer's chips and a Send-sized
+        // box, so the model chip is squeezed exactly as the composer squeezes it.
+        mount(widthRem, label, count) {
+          flushSync(() => {
+            root.render(
+              h(
+                'div',
+                {
+                  'data-slot': 'composer',
+                  className: '@container/composer border',
+                  style: { width: `${widthRem}rem` },
+                },
+                h(ComposerBar, {
+                  modeControl: h(Chip, { icon: Plus, iconOnly: true, label: 'Change mode' }),
+                  searchControl: h(Chip, { icon: Globe, label: 'Search', pressed: false }),
+                  effortControl: h(Chip, { icon: Sparkles, label: 'Auto' }),
+                  modelControl: h(ModelChip, {
+                    swatch: 1,
+                    label,
+                    count,
+                    expanded: false,
+                    onClick: () => undefined,
+                  }),
+                  send: h('button', { type: 'button', className: 'size-9' }, 'Send'),
+                })
+              )
+            );
+          });
+        },
+        read() {
+          const chip = document.querySelector('[aria-haspopup="dialog"]');
+          const count = chip.querySelector('[data-slot="model-count"]');
+          const name = [...chip.querySelectorAll('span')].find(
+            (span) =>
+              span !== count && !span.dataset.slot && getComputedStyle(span).display !== 'none'
+          );
+          return {
+            rootPx: Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
+            chip: box(chip),
+            count: count === null ? null : box(count),
+            chevron: box(chip.querySelector(':scope > svg:last-child')),
+            countClipped:
+              count === null ? null : count.scrollWidth > Math.ceil(count.clientWidth) + 0.5,
+            nameTruncated: name.scrollWidth > name.clientWidth,
+          };
+        },
+      };
+    </script>
+  </body>
+</html>

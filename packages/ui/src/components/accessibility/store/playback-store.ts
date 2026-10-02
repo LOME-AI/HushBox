@@ -1,0 +1,61 @@
+import { create } from 'zustand';
+import type { StateCreator, StoreApi, UseBoundStore } from 'zustand';
+
+interface TtsPlaybackStore {
+  /** Id of the message whose audio is currently playing, or null when idle. */
+  speakingStreamId: string | null;
+  /**
+   * Ids of streams the user explicitly stopped via the Stop button. Looked up
+   * by the feeder to skip any sentences that still arrive after the click,
+   * and by the inline notice that points the user at /accessibility.
+   */
+  stoppedStreamIds: ReadonlySet<string>;
+  /**
+   * Ids of streams whose audio has actually started (the feeder's
+   * `onAudioStart`, sourced from the TTS engine's own `onAudioStart` after
+   * `source.start()` returns) — never merely that the stream began
+   * synthesizing. Only ever grows; a stream id is not reused.
+   */
+  audioStartedStreamIds: ReadonlySet<string>;
+  setSpeakingStream: (id: string) => void;
+  /** Clear only if the currently-speaking id matches; avoids a late end()
+   *  for an older stream clobbering a newer one that just started. */
+  clearSpeakingStreamIfMatches: (id: string) => void;
+  markStreamStopped: (id: string) => void;
+  markAudioStarted: (id: string) => void;
+}
+
+const stateCreator: StateCreator<TtsPlaybackStore> = (set) => ({
+  speakingStreamId: null,
+  stoppedStreamIds: new Set<string>(),
+  audioStartedStreamIds: new Set<string>(),
+  setSpeakingStream: (id) => {
+    set({ speakingStreamId: id });
+  },
+  clearSpeakingStreamIfMatches: (id) => {
+    set((state) => (state.speakingStreamId === id ? { speakingStreamId: null } : state));
+  },
+  markStreamStopped: (id) => {
+    set((state) => {
+      const nextStopped = new Set(state.stoppedStreamIds);
+      nextStopped.add(id);
+      return {
+        stoppedStreamIds: nextStopped,
+        speakingStreamId: state.speakingStreamId === id ? null : state.speakingStreamId,
+      };
+    });
+  },
+  markAudioStarted: (id) => {
+    set((state) => {
+      const next = new Set(state.audioStartedStreamIds);
+      next.add(id);
+      return { audioStartedStreamIds: next };
+    });
+  },
+});
+
+export function createTtsPlaybackStore(): UseBoundStore<StoreApi<TtsPlaybackStore>> {
+  return create<TtsPlaybackStore>()(stateCreator);
+}
+
+export const useTtsPlaybackStore = createTtsPlaybackStore();

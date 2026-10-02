@@ -1,0 +1,123 @@
+import { z } from 'zod';
+import { HOUR_MS } from '@hushbox/shared/durations';
+import { okAsync } from '../../../../lib/result/index.js';
+import { consume } from '../../../../lib/rate-limit/index.js';
+import { IDENTITY_KEYS } from '../keys.js';
+import type { DomainError } from '../../../../lib/errors/index.js';
+import type { ResultAsync } from '../../../../lib/result/index.js';
+import type {
+  ConsumeEmailVerificationOutcome,
+  IdentityVerificationStore,
+  VerificationEmailPort,
+} from '../../ports/index.js';
+import type { RedisClient } from '../keys.js';
+
+/** Single-use email-verification token lifetime (legacy parity: 24 hours). */
+export const EMAIL_VERIFY_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+export const verifyEmailBodySchema = z.object({
+  token: z.string().min(1),
+});
+
+export const resendVerificationBodySchema = z.object({
+  email: z.email().max(254),
+});
+
+interface VerifyEmailArgs {
+  readonly redis: RedisClient;
+  readonly store: IdentityVerificationStore;
+  readonly token: string;
+  readonly now: Date;
+}
+
+type VerifyEmailOutcome =
+  | ConsumeEmailVerificationOutcome
+  | { readonly kind: 'rate-limited'; readonly retryAfterSeconds: number };
+
+/**
+ * Consumes a verification token and flips `emailVerified` in one transaction
+ * (the store enforces atomicity + single-use). The token itself is the
+ * idempotency credential (`token-is-key`): a replay finds nothing consumed and
+ * answers `invalid`. A per-token throttle (legacy parity: 10/hour) bounds
+ * repeated consume attempts on one token ahead of the store round-trip;
+ * the per-IP dimension is enforced at the edge (domain/rate-limit.ts).
+ */
+export function verifyEmailToken(
+  args: VerifyEmailArgs
+): ResultAsync<VerifyEmailOutcome, DomainError> {
+  return consume(args.redis, IDENTITY_KEYS.verifyTokenRateLimit, args.token).andThen((decision) => {
+    if (!decision.allowed) {
+      return okAsync<VerifyEmailOutcome, DomainError>({
+        kind: 'rate-limited',
+        retryAfterSeconds: decision.retryAfterSeconds,
+      });
+    }
+    return args.store.consumeEmailVerification(args.token, args.now);
+  });
+}
+
+interface ResendVerificationArgs {
+  readonly redis: RedisClient;
+  readonly store: IdentityVerificationStore;
+  readonly emailPort: VerificationEmailPort;
+  readonly email: string;
+  readonly now: number;
+}
+
+type ResendVerificationOutcome =
+  | { readonly kind: 'rate-limited'; readonly retryAfterSeconds: number }
+  | { readonly kind: 'ok' };
+
+/**
+ * Issues a fresh verification token and sends it, enumeration-safely: the
+ * per-email throttle runs before the existence check (so a known and an
+ * unknown address are throttled identically), the response is always the same
+ * `ok` shape, and an unknown (or already-verified) address performs a
+ * decoy store write mirroring the known path's token issue instead of
+ * returning early. The residual asymmetry is the external send itself, which
+ * cannot be mirrored without sending mail. The email send is best-effort —
+ * its failure is swallowed so a transient sender outage never blocks or leaks.
+ */
+export function resendVerification(
+  args: ResendVerificationArgs
+): ResultAsync<ResendVerificationOutcome, DomainError> {
+  const email = args.email.toLowerCase();
+  return consume(args.redis, IDENTITY_KEYS.resendVerifyRateLimit, email).andThen((decision) => {
+    if (!decision.allowed) {
+      return okAsync<ResendVerificationOutcome, DomainError>({
+        kind: 'rate-limited',
+        retryAfterSeconds: decision.retryAfterSeconds,
+      });
+    }
+    return args.store.findUnverifiedByEmail(email).andThen((user) => {
+      if (user === null) {
+        return args.store
+          .issueVerificationDecoy(crypto.randomUUID())
+          .map((): ResendVerificationOutcome => ({ kind: 'ok' }));
+      }
+      return issueAndSend(args, email, user.id, user.username);
+    });
+  });
+}
+
+function issueAndSend(
+  args: ResendVerificationArgs,
+  email: string,
+  userId: string,
+  userName: string
+): ResultAsync<ResendVerificationOutcome, DomainError> {
+  const token = crypto.randomUUID();
+  const expiresAt = new Date(args.now + EMAIL_VERIFY_TOKEN_TTL_MS);
+  return args.store.issueEmailVerification(userId, token, expiresAt).andThen(() =>
+    args.emailPort
+      .sendVerificationEmail({
+        to: email,
+        token,
+        userName,
+        expiresInHours: EMAIL_VERIFY_TOKEN_TTL_MS / HOUR_MS,
+      })
+      // Best-effort: a sender failure must not fail (or leak through) the request.
+      .orElse(() => okAsync())
+      .map((): ResendVerificationOutcome => ({ kind: 'ok' }))
+  );
+}

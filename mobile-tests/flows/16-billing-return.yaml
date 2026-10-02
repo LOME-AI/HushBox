@@ -1,0 +1,81 @@
+appId: ai.hushbox.app
+name: The billing return link opens Billing and leaves the app usable
+tags:
+  - must
+androidWebViewHierarchy: devtools
+env:
+  # See 10-core-user-flow.yaml for why the 3-char seeded MOBILE_TEST_PERSONA
+  # username is typed rather than its email.
+  TEST_USERNAME: tmu
+  TEST_PASSWORD: pass1234
+---
+# The return link with no in-app browser open: the emulator cannot host one
+# (Chrome is disabled so deep links open the app), so this proves the link
+# lands on Billing and that nothing invisible sits on top of the app.
+- launchApp:
+    clearState: true
+
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 45000
+
+# Billing requires a session. /login is not deep-linkable (auth routes fall
+# back to home), so reach it via in-app links.
+- tapOn: 'Sign up'
+# While RELEASE_STAGE is 'beta', /signup opens on the welcome step and the form
+# sits behind its 'Join the beta' button.
+- extendedWaitUntil:
+    visible: 'Join the beta'
+    timeout: 10000
+- tapOn: 'Join the beta'
+- extendedWaitUntil:
+    visible: 'Create your account'
+    timeout: 10000
+- tapOn: 'Log in'
+- extendedWaitUntil:
+    visible: 'Welcome back'
+    timeout: 10000
+- tapOn: 'Email or Username'
+- inputText: ${TEST_USERNAME}
+- hideKeyboard
+- tapOn: 'Password'
+- inputText: ${TEST_PASSWORD}
+- hideKeyboard
+- tapOn: 'Log in'
+
+# Authenticated chat page (an element unique to chat, not the login page).
+- extendedWaitUntil:
+    visible:
+      id: 'model-selector-button'
+    timeout: 15000
+
+# Chat is not Billing, so the wait below is non-vacuous.
+- assertNotVisible: 'Current Balance'
+
+- openLink: hushbox://billing
+
+- extendedWaitUntil:
+    visible: 'Current Balance'
+    timeout: 15000
+- assertVisible: 'Billing'
+
+# A tap that reaches the app proves no activity was left on top of it. The
+# sidebar is a phone drawer whose contents are unmounted while it is closed.
+- tapOn:
+    id: 'hamburger-button'
+
+# The account button cannot be matched by its test id: the menu trigger gives
+# it a generated HTML id, which Maestro's `id:` selector reads first. The
+# footer has no HTML id, so its test id reaches Maestro, and on a phone the
+# footer's centre is the full-width account button. If anything else ever sits
+# there, the menu wait below goes red.
+- extendedWaitUntil:
+    visible:
+      id: 'sidebar-footer'
+    timeout: 10000
+- assertNotVisible: 'Log Out'
+- tapOn:
+    id: 'sidebar-footer'
+- extendedWaitUntil:
+    visible: 'Log Out'
+    timeout: 10000

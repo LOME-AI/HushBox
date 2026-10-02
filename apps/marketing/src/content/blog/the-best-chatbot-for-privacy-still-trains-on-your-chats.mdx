@@ -1,0 +1,93 @@
+---
+title: 'The Best Chatbot for Privacy Still Trains on Your Chats'
+description: 'Incogni ranked 13 AI chatbots on privacy. The winner scored 11.9, the loser 17.8, and none ruled out training on your chats or offered to give anything back.'
+author: 'HushBox Team'
+date: 2026-09-08
+tags: ['privacy', 'ai-models', 'transparency']
+draft: false
+---
+
+## Thirteen chatbots, one table
+
+Incogni, a data-removal company that has a commercial interest in you caring about this, published its second annual privacy ranking of AI chatbots on August 17, 2026. Thirteen platforms this year, up from the nine chatbots it scored in its 2025 ranking. Eleven weighted criteria in three groups: what happens to your conversations, how clearly the company tells you, and what else it collects about you. Lower is better. There's no fixed ceiling, and Incogni's own dataset notes that on most criteria a score of 0 "could be impossible," because each platform is measured against the best practice any of them actually showed, not against an ideal.
+
+Mistral's Vibe won with 11.9 risk points. ChatGPT came second at 12.0. Microsoft Copilot finished last at 17.8, behind Meta AI at 17.4 and Moonshot's Kimi at 16.8. Incogni's first listed finding was that "the largest AI platforms turned out to be the most privacy-invasive," and the press release went out under a headline about the biggest platforms posing some of the highest risks.
+
+The table below is from Incogni's public dataset, with the two training criteria beside the total.
+
+| Chatbot    | Company       | Chats can train the model (0 to 1) | Opt-out from scraped personal data in training (0 to 1) | Total risk score |
+| ---------- | ------------- | ---------------------------------- | ------------------------------------------------------- | ---------------- |
+| Vibe       | Mistral AI    | 0.3                                | 1                                                       | 11.9             |
+| ChatGPT    | OpenAI        | 0.3                                | 1                                                       | 12.0             |
+| Pi         | Inflection AI | 0.45                               | 1                                                       | 13.4             |
+| Perplexity | Perplexity AI | 0.45                               | 0.9                                                     | 13.5             |
+| Qwen       | Alibaba       | 0.45                               | 1                                                       | 13.6             |
+| Z.ai       | Z.ai          | 0.45                               | 0.7                                                     | 13.8             |
+| Gemini     | Google        | 0.6                                | 1                                                       | 14.1             |
+| Claude     | Anthropic     | 0.3                                | 1                                                       | 14.3             |
+| DeepSeek   | DeepSeek      | 0.45                               | 1                                                       | 14.3             |
+| Grok       | xAI           | 0.45                               | 0.5                                                     | 14.4             |
+| Kimi       | Moonshot AI   | 0.7                                | 1                                                       | 16.8             |
+| Meta AI    | Meta          | 1                                  | 1                                                       | 17.4             |
+| Copilot    | Microsoft     | 0.6                                | 1                                                       | 17.8             |
+
+The gap between first and last place is 5.9 points, and most of it comes from the transparency and collection criteria: how readable the policy is, what the apps collect, who else gets the data. The training column contributes 0.6 of it. Nobody scored 0 there. In the fourth column the field barely moves at all: ten of 13 got the worst possible mark. The ranking sorts the platforms mostly on transparency and on what else they collect, and on whether anything can be taken back it finds them nearly interchangeable.
+
+## What a 0.3 means
+
+Incogni scored most criteria from 0 to 1, and the dataset spells out the rubric for the training column. If your prompts are never used to train the model, 0. If you have to opt in before they're used, 0.3. If they're used and you can't stop it, 0.9. The worst score is reserved for a company that won't say.
+
+Nobody scored 0. Not one of the 13 platforms rules out training on what you type.
+
+The best anyone managed was 0.3, and here the rubric gets interesting. By its own text, 0.3 is the opt-in score. But Incogni's report says in the same breath that "consumer accounts are typically included in training by default," with OpenAI, Google, Microsoft, Perplexity and Mistral all following the pattern, and that nine platforms, ChatGPT among them, offer a toggle to switch it off. A toggle you must find and flip is an opt-out. So 0.3 was in practice awarded to default-on with an exit. The dataset gives the same "opt-out available" label to platforms scored 0.45 and 0.6 without saying what separates them, so read the digits as a grade, not a category. The same digit covers "you were asked" and "you can leave."
+
+The exits vary a lot for the same score. Gemini's opt-out is a broader account setting that also stops your conversations from appearing in your chat history, so you pay for privacy with your own records. Kimi's opt-out "requires the user to email support and verify their identity." Meta's policy says you can object to your data being used for training and, in Incogni's words, "never explains how." Z.ai has no working opt-out that Incogni could find, only a general right to object to data processing.
+
+Then there's the odd case of Claude, which Incogni's report describes two different ways. One passage says Anthropic's training "is given as an option to users on an opt-in basis." Another says a July 2026 policy update changed it to "explicitly stating that users' input is used unless users opt out." We checked. The opt-out has been in Anthropic's Privacy Policy since the version Anthropic posted in 2025 (effective date first set at September 28, then moved to October 8), which read "We may use your Inputs and Outputs to train our models and improve our Services, unless you opt out through your account settings." The July 8, 2026 version reworded the front half to "train and improve Anthropic AI models" and kept the opt-out. Meanwhile Anthropic's Privacy Center article on the same question, last touched in March 2026, still frames it the other way round: your chats are used if "you choose to allow us to use your chats and coding sessions to improve Claude." Both pages are live today, and the policy adds that flagged conversations are used for model improvement "even if you opt-out."
+
+A legal document says opt-out. A plain-language explainer says opt-in. Incogni collected its data between June 15 and July 6, and the policy revision took effect on July 8.
+
+## What no one gives back
+
+The finding in the report that nobody's toggle touches is this one: "No platform allows users to have their data removed once it has been used to train a model." Opting out stops future data from being used and, in Incogni's words, "does not retroactively remove data already incorporated." Whatever you sent before you found the switch is in the model, and none of the 13 offers a way to get it out.
+
+The fourth criterion is the same finding from the other direction. It scores whether a company lets you keep your personal information out of the data it scrapes for training, or take it out afterwards. Ten of the 13 scored 1, the worst mark. Every one of those ten rows in the dataset reads the same way: no ability to opt out of publicly available, potentially personal data being used for training. Grok's 0.5 is the best result; the dataset's one exception is for X, where Incogni says xAI can train on public conversations unless you opt out. Whether it's your conversation or your old forum post, the pattern holds. Nothing is retroactive, and Incogni's conclusion says why it matters for pre-training data: once personal information is in, "identifying it and having it corrected or removed is often extremely difficult, if not impossible."
+
+The remaining columns are about telling you. Twelve of the 13 disclose that they train on "publicly available information," and none of the 13 names the datasets. Every one of the 13 privacy policies was estimated, by the Dale-Chall formula, to need a college-graduate reading level. Google, Microsoft and Meta cover their chatbots with policies written for their whole product lines, so the AI-specific rules have to be inferred. DeepSeek, Kimi, Qwen and Z.ai publish what Incogni calls "only the most barebones, international versions of their privacy policies."
+
+## The best objection: just flip the toggle
+
+Take the strongest case for the status quo, because it's a decent one. Eight of the 13 platforms give you a single switch, with no trade-off, that keeps future conversations out of training, and Gemini makes nine if you'll accept losing your chat history. Flip it once and the headline problem is handled. The ranking is an argument about defaults, and defaults are a nuisance, not a betrayal. A careful user is fine.
+
+Incogni's CEO answered that argument in the press release. "A privacy setting can help, but it only addresses part of the picture," Darius Belejevas said. "These companies may still be collecting information through their apps, other products, and external sources."
+
+The third group of criteria is where that shows up. Microsoft's privacy statement lists data brokers among the sources it buys demographic data from, and Incogni reads the same statement as allowing user data to reach ad networks once users opt in. Three iOS apps, ChatGPT, Copilot and Meta AI, disclose that at least some user data is used to help third-party advertisers. The Gemini and Meta AI iOS apps disclose collecting what Apple classes as sensitive data: race or ethnicity, sexual orientation, pregnancy, disability, religion, politics. Seven of the 12 apps Incogni reviewed collect your email address and five collect your phone number. Meta, Microsoft, Inflection and Perplexity all reserve the right to derive inferences about you from what they've collected.
+
+None of that is governed by the training toggle. The switch covers one use of one data stream, and everything else sits under a policy the company can edit with a notice. Incogni's conclusion opens with the line that "AI platforms' privacy controls can create an illusion of control," and later observes that the harder data practices are to understand, the easier it is for platforms to keep collecting.
+
+So the careful user is careful about one thing, and the other things were never on the switch.
+
+## Promises versus capability
+
+Follow who holds the risk. Every chat you've ever sent to one of these 13 companies is an asset on their side of the ledger with an option attached: they may use it later, under terms they may revise. You hold the other side. If the policy tightens, you gain nothing you didn't already have. If it loosens, or the company is acquired, or a court orders the logs preserved, or the safety classifier flags your conversation, the exposure is yours. The company collects the option value; you carry the tail.
+
+A privacy ranking is a ranking of promises. It reads the policy, the help pages and the app-store disclosures, and it grades how good the promise is and how clearly it's written. That work is useful and Incogni does it well. But better writing moves a platform up the table without moving the two middle columns, because those columns record what the company has built, and no one has built the thing that would score 0.
+
+Consider what we've agreed to. People now think out loud to software, about their health, their marriages, their contracts and their crimes, and the industry's settled position is that this is a donation with a revocation form. The toggle is the confession. A company that believed your conversations were yours wouldn't need a switch to stop using them; it would need one to start. Every default-on toggle in that table is a decision, made in a meeting, that your words are more useful to the company than your consent is inconvenient, and a ranking that scores the toggle's ease of use has accepted the premise before it begins.
+
+Our own service, HushBox, is built on the other premise, and the honest version of that claim has limits. Every model request leaves through OpenRouter with a routing block that demands zero data retention and denies data collection, and any model not on OpenRouter's verified zero-retention list is refused before the call is made. There is no code that trains anything on anyone's conversations, so there's no toggle to find. To be fair to the 13, Incogni notes that most of them already exclude their business, enterprise and API tiers from training by default; the difference is that HushBox has no consumer tier where that promise is switched off. Messages rest as ciphertext, each piece of content encrypted under its own key, wrapped to the conversation's current epoch key. Two things that arrangement does not buy: the model provider still sees your prompt in plaintext while it generates a reply, which is how hosted inference works for us and for all 13 platforms above, and our privacy page says as much; and zero retention on the provider's side is the provider's own stated policy, which OpenRouter records, and in some cases backs with what its documentation calls "special agreements with providers"; our code demands it on every call and cannot observe it. That is still a promise, one hop further from you than the 13 make theirs, and we'd rather call it one than dress it up as a guarantee.
+
+Which leaves the question a ranking can't answer, and the one to ask of every chat service including ours: if the policy changed tomorrow, what could they do with what you've already sent?
+
+---
+
+## Sources
+
+1. [Gen AI and LLM Data Privacy Ranking 2026](https://blog.incogni.com/gen-ai-llm-privacy-ranking-2026/)
+2. [Gen AI and LLM Data Privacy Ranking 2026: public dataset](https://docs.google.com/spreadsheets/d/1oBNmdf3RpbG565oGZ0CZqG6A6IDc8i45MeRkLxYObow/edit?usp=sharing)
+3. [Incogni's 2026 Gen AI and LLM Privacy Ranking Finds Biggest Platforms Pose Some of the Highest Risks to User Data](https://radicaldatascience.wordpress.com/2026/08/20/incognis-2026-gen-ai-and-llm-privacy-ranking-finds-biggest-platforms-pose-some-of-the-highest-risks-to-user-data/)
+4. [Privacy Policy](https://www.anthropic.com/legal/privacy)
+5. [Privacy Policy](https://www.anthropic.com/legal/archive/fbe2e87e-8f4e-4bba-9e5e-a6a8b15afc0e)
+6. [Is my data used for model training?](https://privacy.claude.com/en/articles/10023580-is-my-data-used-for-model-training)
+7. [Updates to our Privacy Policy](https://privacy.claude.com/en/articles/10301952-updates-to-our-privacy-policy)
+8. [Zero Data Retention](https://openrouter.ai/docs/guides/features/zdr)

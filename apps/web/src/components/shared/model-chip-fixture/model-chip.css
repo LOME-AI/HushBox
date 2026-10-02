@@ -1,0 +1,8 @@
+/* The app's own entry stylesheet, so the chip is measured under the cascade it ships in:
+   the root font steps, the composer container keys and the theme tokens included. */
+@import '../../../app.css';
+
+/* The fixture's root is this folder, so the chip's and the bar's own classes are named here. */
+@source '../model-chip.tsx';
+@source '../chip.tsx';
+@source '../../chat/input/composer-bar.tsx';

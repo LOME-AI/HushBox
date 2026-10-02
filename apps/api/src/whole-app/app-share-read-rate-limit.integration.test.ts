@@ -1,0 +1,98 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Redis } from '@upstash/redis';
+import { z } from 'zod';
+import { createApp } from '../app.js';
+import { callerIpIdForAddress } from '../lib/redis/index.js';
+import { publicShareReadRateLimit } from '../slices/conversations/index.js';
+import { rateLimitKey } from '../lib/rate-limit/index.js';
+import type { Bindings } from '../lib/context/index.js';
+import type { TelemetryEnv } from '../lib/telemetry/index.js';
+
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value === '') {
+    throw new Error(`share-read rate-limit tests: missing ${name}. Run via a package test script.`);
+  }
+  return value;
+}
+
+const DATABASE_URL = requiredEnv('DATABASE_URL');
+const UPSTASH_REDIS_REST_URL = requiredEnv('UPSTASH_REDIS_REST_URL');
+const UPSTASH_REDIS_REST_TOKEN = requiredEnv('UPSTASH_REDIS_REST_TOKEN');
+
+const devEnv: Bindings &
+  TelemetryEnv & { FRONTEND_URL: string; MARKETING_URL: string; FRONTEND_PREVIEW_URL: string } = {
+  NODE_ENV: 'development',
+  DATABASE_URL,
+  UPSTASH_REDIS_REST_URL,
+  UPSTASH_REDIS_REST_TOKEN,
+  IRON_SESSION_SECRET: 'secret-at-least-32-characters-long!!',
+  TELEMETRY_SINKS: 'console',
+  // The composed pipeline runs CORS first; it fail-fasts on absent web origins.
+  FRONTEND_URL: requiredEnv('FRONTEND_URL'),
+  MARKETING_URL: requiredEnv('MARKETING_URL'),
+  FRONTEND_PREVIEW_URL: requiredEnv('FRONTEND_PREVIEW_URL'),
+};
+
+const redis = new Redis({ url: UPSTASH_REDIS_REST_URL, token: UPSTASH_REDIS_REST_TOKEN });
+
+const refusalBodySchema = z.object({
+  code: z.string(),
+  details: z.object({ retryAfterSeconds: z.number() }),
+});
+
+// A per-run-unique caller identity, hashed into the limiter key. It is not an
+// IPv6 literal, so the identity hashes it verbatim rather than collapsing it to
+// a /64. A uuid guarantees no window is shared with a parallel worker or a
+// prior run.
+const IP = `share-read-ratelimit-test-${crypto.randomUUID()}`;
+
+async function limiterKey(): Promise<string> {
+  const ipHash = await callerIpIdForAddress(IP);
+  return rateLimitKey(publicShareReadRateLimit, ipHash)._unsafeUnwrap();
+}
+
+// Flush before as well as after: a leftover window from a crashed prior run
+// must not pollute the under-cap admission below.
+beforeAll(async () => {
+  await redis.del(await limiterKey());
+});
+afterAll(async () => {
+  await redis.del(await limiterKey());
+});
+
+// The cap is declared in the slice's posture fragment and spent by the pipeline
+// stage, so only a request through the real composed app proves the declaration
+// reaches this route. Accumulating the cap by firing `maxAttempts` real
+// requests straddles the fixed window under parallel load (30 composed-app
+// requests can exceed the 60s window, rolling it over mid-test); instead the
+// counter is seeded at the cap with a fresh TTL, so the refused request is
+// deterministic. The full accumulation path belongs to the counting primitive
+// and is measured against real Redis in
+// `lib/rate-limit/consume.integration.test.ts`; the stage's own accumulation
+// over a declared route is measured in `app-posture-counting.integration.test.ts`.
+describe('composed app: public share read per-IP cap', () => {
+  it('admits an under-cap GET from one IP, then refuses one at the cap with 429 RATE_LIMITED', async () => {
+    const app = createApp();
+    const path = `/conversations/shared/message/${crypto.randomUUID()}`;
+    const headers = { 'cf-connecting-ip': IP };
+    const { maxAttempts, windowSeconds } = publicShareReadRateLimit;
+
+    // Under the cap: a fresh window admits the request past the limiter (the
+    // fake link 404s, but never 429s).
+    const admitted = await app.request(path, { headers }, devEnv);
+    expect(admitted.status).not.toBe(429);
+
+    // At the cap: seed the counter at `maxAttempts` with a fresh TTL, so the
+    // window is guaranteed open (no wall-clock straddle) and the next request
+    // through the composed app is deterministically refused.
+    await redis.set(await limiterKey(), maxAttempts, { ex: windowSeconds });
+
+    const refused = await app.request(path, { headers }, devEnv);
+    expect(refused.status).toBe(429);
+    const body = refusalBodySchema.parse(await refused.json());
+    expect(body.code).toBe('RATE_LIMITED');
+    expect(body.details.retryAfterSeconds).toBeGreaterThan(0);
+    expect(body.details.retryAfterSeconds).toBeLessThanOrEqual(windowSeconds);
+  });
+});

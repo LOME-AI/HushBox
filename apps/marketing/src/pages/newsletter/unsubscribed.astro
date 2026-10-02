@@ -1,0 +1,10 @@
+---
+import SiteLayout from '../../layouts/SiteLayout.astro';
+import { NewsletterUnsubscribed } from '../../components/newsletter/NewsletterUnsubscribed';
+---
+
+<SiteLayout title="Unsubscribed" description="You have been unsubscribed from the newsletter.">
+  <div class="flex min-h-[60svh] flex-1 items-center justify-center px-6 pt-20 pb-16 text-center">
+    <NewsletterUnsubscribed client:load />
+  </div>
+</SiteLayout>

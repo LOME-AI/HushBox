@@ -1,0 +1,82 @@
+name: Run ops script
+
+# Manually run one ops script from ops/manifest.yml against production, gated by
+# the `production` environment's required reviewer; no PR or merge needed. For
+# most scripts this is an alternative to the PR-label flow (see ops/README.md);
+# for a `dispatch_only` entry, which mints no label and whose label the deploy
+# resolver refuses, it is the only path.
+#
+# Two sections are generated — do not edit them by hand:
+#   - the script dropdown:  `pnpm generate:ops-dispatch` (ops/lib/generate-dispatch-options.ts)
+#   - the step env blocks:  `pnpm generate:env`          (scripts/generate-env.ts)
+# CI re-runs both generators and diffs the result, so a section out of sync with
+# its source fails the build. The diff sees only what sits between the markers:
+# an option added after an END marker is compared against nothing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: 'Ops script to run (from ops/manifest.yml)'
+        required: true
+        type: choice
+        options:
+          # BEGIN GENERATED: ops-dispatch-options
+          - configure-r2-cors
+          - reseal-identity-server-keys
+          # END GENERATED: ops-dispatch-options
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Dispatchable in whichever repository carries the file, and only the public
+    # one holds the `production` environment this leans on — so in staging the
+    # required reviewer would be absent and every secret this job reads would
+    # resolve empty. The guard makes that refusal explicit rather than incidental.
+    if: github.repository == vars.HB_PUBLIC_REPO
+    environment: production
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup
+
+      # Resolve the selected name against ops/manifest.yml and validate its
+      # required secrets are present — same checks as the PR-label flow.
+      - name: Resolve and validate ops script
+        id: resolve
+        run: pnpm tsx ops/lib/resolve-dispatch-script.ts
+        env:
+          OPS_SCRIPT: ${{ inputs.script }}
+          # BEGIN GENERATED: ops-env
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
+          OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
+          TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
+          TOTP_ENCRYPTION_SECRET_NEXT: ${{ secrets.TOTP_ENCRYPTION_SECRET_NEXT }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_BUCKET_MEDIA: hushbox-media
+          R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}
+          R2_ADMIN_SECRET_ACCESS_KEY: ${{ secrets.R2_ADMIN_SECRET_ACCESS_KEY }}
+          # END GENERATED: ops-env
+
+      - name: Run ops script
+        run: pnpm tsx "$OPS_SCRIPT_FILE"
+        env:
+          OPS_SCRIPT_FILE: ${{ steps.resolve.outputs.file }}
+          # BEGIN GENERATED: ops-dispatch-run-env
+          NODE_ENV: production
+          # END GENERATED: ops-dispatch-run-env
+          # BEGIN GENERATED: ops-env
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
+          OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
+          TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
+          TOTP_ENCRYPTION_SECRET_NEXT: ${{ secrets.TOTP_ENCRYPTION_SECRET_NEXT }}
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_BUCKET_MEDIA: hushbox-media
+          R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}
+          R2_ADMIN_SECRET_ACCESS_KEY: ${{ secrets.R2_ADMIN_SECRET_ACCESS_KEY }}
+          # END GENERATED: ops-env

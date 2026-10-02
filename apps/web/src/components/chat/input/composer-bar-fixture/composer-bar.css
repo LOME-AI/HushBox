@@ -1,0 +1,11 @@
+/* The app's own entry stylesheet, so the composer is measured under the cascade it ships
+   in: the root font steps, the container keys, the pointer variant and the accessibility
+   widget's text scale included. */
+@import '../../../../app.css';
+
+/* The composer's classes live in its own files and in the shared chips, which this
+   fixture's directory does not contain. */
+@source '../*.tsx';
+@source '../../budget/*.tsx';
+@source '../../media/*.tsx';
+@source '../../../shared/*.tsx';

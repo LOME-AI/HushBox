@@ -1,0 +1,72 @@
+{
+  "name": "@hushbox/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./affordability": "./src/affordability/index.ts",
+    "./affordability/completion-cap": "./src/affordability/completion-cap.ts",
+    "./affordability/constants": "./src/affordability/constants.ts",
+    "./affordability/estimate/effort-options": "./src/affordability/estimate/effort-options.ts",
+    "./affordability/estimate/reasoning-plan": "./src/affordability/estimate/reasoning-plan.ts",
+    "./affordability/estimate/run-ceiling": "./src/affordability/estimate/run-ceiling.ts",
+    "./affordability/estimate/smart-model-affordability": "./src/affordability/estimate/smart-model-affordability.ts",
+    "./affordability/price/curve": "./src/affordability/price/curve.ts",
+    "./affordability/price/display": "./src/affordability/price/display.ts",
+    "./affordability/price/reservation": "./src/affordability/price/reservation.ts",
+    "./affordability/price/schedule": "./src/affordability/price/schedule.ts",
+    "./affordability/price/trial": "./src/affordability/price/trial.ts",
+    "./affordability/price/wire": "./src/affordability/price/wire.ts",
+    "./atomic-rename": "./src/utils/atomic-rename.ts",
+    "./billing-portal": "./src/platform/billing-portal.ts",
+    "./cassettes": "./src/testing/cassettes.ts",
+    "./cipher-messages": "./src/cipher-messages.ts",
+    "./color/contrast": "./src/color/contrast.ts",
+    "./design-tokens": "./src/design/tokens.ts",
+    "./documents": "./src/documents/index.ts",
+    "./durations": "./src/utils/durations.ts",
+    "./env": "./src/env/env.ts",
+    "./env-registry-content": "./src/env/env-registry-content.ts",
+    "./env.config": "./src/env/env.config.ts",
+    "./legal": "./src/legal/index.ts",
+    "./linear": "./src/linear/index.ts",
+    "./origins": "./src/origins.ts",
+    "./pricing-fixture": "./src/testing/pricing-fixture.ts",
+    "./property-tests": "./src/testing/property-tests.ts",
+    "./property-tests.setup": "./src/testing/property-tests.setup.ts",
+    "./require-env": "./src/env/require-env.ts",
+    "./routes": "./src/platform/routes.ts",
+    "./sandbox-origin": "./src/env/sandbox-origin.ts",
+    "./script-safe-json": "./src/utils/script-safe-json.ts",
+    "./test-assertions": "./src/testing/test-assertions.ts",
+    "./test-instants": "./src/testing/test-instants.ts",
+    "./test-polyfills": "./src/testing/test-polyfills.ts",
+    "./test-time": "./src/testing/test-time.ts",
+    "./test-utilities": "./src/testing/test-utilities.ts",
+    "./model-weights": "./src/model-weights.ts",
+    "./models": "./src/models/index.ts",
+    "./zod-jitless": "./src/zod-jitless.ts"
+  },
+  "nodeRuntimeDoors": [
+    "./atomic-rename"
+  ],
+  "scripts": {
+    "test": "tsx ../../scripts/with-env.ts tsx ../../scripts/run-package-tests.ts",
+    "test:watch": "tsx ../../scripts/with-env.ts tsx ../../scripts/package-vitest.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@hushbox/config": "workspace:*",
+    "@types/node": "^24.13.3",
+    "eslint": "^9.39.4",
+    "fast-check": "^4.10.1",
+    "jsdom": "^30.0.1",
+    "typescript": "catalog:",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

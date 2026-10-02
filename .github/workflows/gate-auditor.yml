@@ -1,0 +1,46 @@
+name: Gate auditor
+
+# The read-only check over the scheduled gates: each one's newest finished run
+# must have left the verdict it exists to produce. A gate that dies before it
+# reaches a verdict looks exactly like one that ran and reported — a red run
+# nobody opens — and only the first means nothing measured anything. So this
+# looks every few hours and files one issue when it finds one.
+#
+# Public only. A scheduled workflow fires in every repository that carries the
+# file, and the gates it reads run here; the issue is filed here too, beside the
+# runs a reader has to open. With the repository variables unset the guard stops
+# the job in both repositories.
+#
+# What the auditor may read and write is the whole of what it asks for: the runs
+# and their artifacts, and the one issue. It holds no bot credential, because
+# nothing it does crosses to the other repository.
+
+on:
+  schedule:
+    # Four times a day, off the top of the hour where GitHub documents the
+    # scheduling load. GitHub evaluates cron in UTC.
+    - cron: '45 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: gate-auditor
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.repository == vars.HB_PUBLIC_REPO
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: ./.github/actions/setup
+
+      - name: Check that every scheduled gate's last run left a verdict
+        run: pnpm tsx scripts/gate-auditor.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

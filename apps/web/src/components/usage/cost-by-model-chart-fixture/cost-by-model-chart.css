@@ -1,0 +1,7 @@
+/* The app's own entry stylesheet, so the list is measured under the cascade it ships in:
+   the theme tokens, the width band's root size and the text-size classes included. */
+@import '../../../app.css';
+
+/* The fixture's root is this folder, so the list's and its block's classes are named here. */
+@source '../cost-by-model-chart.tsx';
+@source '../chart-utilities.tsx';

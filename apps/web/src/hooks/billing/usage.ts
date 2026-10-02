@@ -1,0 +1,93 @@
+import { useQuery } from '@tanstack/react-query';
+import { client, fetchJson } from '@/lib/api-client.js';
+import type {
+  UsageSummaryResponse,
+  SpendingOverTimeResponse,
+  CostByModelResponse,
+  SpendingByConversationResponse,
+  UsageModelsResponse,
+  UsageGranularity,
+} from '@hushbox/shared';
+
+interface DateRange {
+  startDate: string;
+  endDate: string;
+}
+
+interface TimeSeriesParams extends DateRange {
+  granularity?: UsageGranularity;
+  model?: string;
+}
+
+export const usageKeys = {
+  all: ['usage'] as const,
+  summary: (params: DateRange) => [...usageKeys.all, 'summary', params] as const,
+  spendingOverTime: (params: TimeSeriesParams) =>
+    [...usageKeys.all, 'spending-over-time', params] as const,
+  costByModel: (params: DateRange) => [...usageKeys.all, 'cost-by-model', params] as const,
+  spendingByConversation: (params: DateRange & { limit?: number }) =>
+    [...usageKeys.all, 'spending-by-conversation', params] as const,
+  models: () => [...usageKeys.all, 'models'] as const,
+};
+
+export function useUsageSummary(
+  params: DateRange
+): ReturnType<typeof useQuery<UsageSummaryResponse, Error>> {
+  return useQuery({
+    queryKey: usageKeys.summary(params),
+    queryFn: () => fetchJson(client.billing.usage.summary.$get({ query: params })),
+  });
+}
+
+export function useSpendingOverTime(
+  params: TimeSeriesParams
+): ReturnType<typeof useQuery<SpendingOverTimeResponse, Error>> {
+  return useQuery({
+    queryKey: usageKeys.spendingOverTime(params),
+    queryFn: () =>
+      fetchJson(
+        client.billing.usage['spending-over-time'].$get({
+          query: {
+            startDate: params.startDate,
+            endDate: params.endDate,
+            granularity: params.granularity,
+            model: params.model,
+          },
+        })
+      ),
+  });
+}
+
+export function useCostByModel(
+  params: DateRange
+): ReturnType<typeof useQuery<CostByModelResponse, Error>> {
+  return useQuery({
+    queryKey: usageKeys.costByModel(params),
+    queryFn: () => fetchJson(client.billing.usage['cost-by-model'].$get({ query: params })),
+  });
+}
+
+export function useSpendingByConversation(
+  params: DateRange & { limit?: number }
+): ReturnType<typeof useQuery<SpendingByConversationResponse, Error>> {
+  return useQuery({
+    queryKey: usageKeys.spendingByConversation(params),
+    queryFn: () =>
+      fetchJson(
+        client.billing.usage['spending-by-conversation'].$get({
+          query: {
+            startDate: params.startDate,
+            endDate: params.endDate,
+            ...(params.limit !== undefined && { limit: String(params.limit) }),
+          },
+        })
+      ),
+  });
+}
+
+export function useUsageModels(): ReturnType<typeof useQuery<UsageModelsResponse, Error>> {
+  return useQuery({
+    queryKey: usageKeys.models(),
+    queryFn: () => fetchJson(client.billing.usage.models.$get()),
+  });
+}

@@ -1,0 +1,1089 @@
+import {
+  MODALITIES,
+  PRICING_KIND_BY_FAMILY,
+  applyMarkupCeil,
+  callShapeFamilyFor,
+  isRunnableModelShape,
+} from '@hushbox/shared';
+import { ModelPricingSchema } from '@hushbox/shared/affordability/price/schedule';
+import {
+  MEDIA_PARAMETER_NAMES,
+  exceedsModelAgeLimit,
+  mediaParameterSpecs,
+  priceFloorVerdict,
+  topContextExemptionTokens,
+} from '@hushbox/shared/affordability';
+import { isNonConversational } from './non-chat-exclusions.js';
+import { usdRateToNanoUsd } from '../pricing/usd-rate.js';
+import type {
+  ExcludeReason,
+  Modality,
+  ModelDescriptor,
+  ParamSpec as ParameterSpec,
+} from '@hushbox/shared';
+import type {
+  GatewayModelMetadata,
+  ImageMetadata,
+  ImagePricingEntry,
+  ImageSupportedParameters,
+  LanguageMetadata,
+  LanguageTokenPricing,
+  VideoMetadata,
+} from './gateway-metadata.js';
+import type { z } from 'zod';
+
+/**
+ * A price as ingestion writes it: the JSON form `ModelPricingSchema` parses,
+ * each rate an integer nano-USD decimal string. The catalog states one rate
+ * per media unit, so a media price's anchor and dearest are the same rate.
+ * {@link excludeUnrepresentable} parses every row's price before it is
+ * persisted, so a form the schema refuses is excluded rather than written.
+ */
+export type StoredPricing =
+  | {
+      readonly kind: 'tokens';
+      readonly anchor: {
+        readonly base: { readonly input: string; readonly output: string };
+        readonly tiers: readonly [];
+      };
+    }
+  | { readonly kind: 'perImage'; readonly anchor: string; readonly dearest: string }
+  | {
+      readonly kind: 'perSecond';
+      readonly anchor: Readonly<Record<string, string>>;
+      readonly dearest: Readonly<Record<string, string>>;
+    };
+
+/**
+ * Descriptor content: the wire form of `ModelDescriptor` minus the fields
+ * stamped at persist time (`fetchedAt`) or injected at read time
+ * (`popularityRank`). Skip-unchanged content-compares exactly this shape —
+ * a refresh that changes nothing here writes nothing. `version` is part of
+ * the content (stamped by normalize), so a descriptor-version bump rewrites
+ * every row the next refresh admits, by construction.
+ */
+export type DescriptorContent = Omit<
+  z.input<typeof ModelDescriptor>,
+  'fetchedAt' | 'popularityRank' | 'pricing'
+> & { readonly pricing: StoredPricing };
+
+/**
+ * The persisted descriptor contract version. '3' = pricing is a typed price
+ * schedule of BILLABLE rates (ceil-marked-up at normalize; BILLING.md §Fee
+ * Structure). The catalog read path refuses any other version on a row it has
+ * not already set aside as unsellable: '2' rows carry flat rates the schedule
+ * cannot parse, and '1' rows pre-fee provider rates.
+ */
+export const DESCRIPTOR_VERSION = '3';
+
+/**
+ * The per-refresh inputs a single model's commercial admission depends on but
+ * cannot derive from itself (BILLING.md §Catalog Admission).
+ */
+export interface CatalogAdmission {
+  /**
+   * Context length at or above which a language model bypasses the price floor
+   * and the age cutoff. It is the top-context percentile over the ZDR-filtered
+   * language pool, so it is a property of the whole catalog — which is why it
+   * arrives here rather than being computed per model.
+   */
+  readonly contextExemptionTokens: number;
+  /** The refresh clock, epoch ms. The age cutoff is measured back from it. */
+  readonly nowMs: number;
+}
+
+type NormalizeOutcome =
+  | { kind: 'normalized'; content: DescriptorContent; pricingFallbacks?: readonly string[] }
+  | { kind: 'excluded'; modelId: string; reason: ExcludeReason };
+
+/**
+ * OpenRouter `supported_parameters` names → canonical descriptor ParamSpecs
+ * for language models. Data, not per-model code: a name missing here is
+ * skipped (the model still works with defaults). Canonical names match the
+ * SDK call-shape the adapters wire.
+ */
+const SUPPORTED_PARAMETER_SPECS: Readonly<
+  Record<string, { readonly name: string; readonly spec: ParameterSpec }>
+> = {
+  temperature: {
+    name: 'temperature',
+    spec: { type: 'number', min: 0, max: 2, wire: 'firstClass' },
+  },
+  top_p: { name: 'topP', spec: { type: 'number', min: 0, max: 1, wire: 'firstClass' } },
+  max_tokens: {
+    name: 'maxOutputTokens',
+    spec: { type: 'integer', min: 1, wire: 'firstClass' },
+  },
+};
+
+/** Gateway parameter names that signal behaviors rather than call params. */
+const BEHAVIOR_PARAMETERS: Readonly<Record<string, string>> = {
+  tools: 'tools',
+  reasoning: 'reasoning',
+};
+
+/**
+ * Every `supported_parameters` member this normalizer recognizes: the union of
+ * {@link SUPPORTED_PARAMETER_SPECS} and {@link BEHAVIOR_PARAMETERS}, the only
+ * readers of that wire list. Published so the live wire-format check pins
+ * exactly the vocabulary the catalog derives from — a member the gateway stops
+ * sending silently drops a control, because an unrecognized name is skipped by
+ * design.
+ */
+export const RECOGNIZED_SUPPORTED_PARAMETERS: readonly string[] = [
+  ...Object.keys(SUPPORTED_PARAMETER_SPECS),
+  ...Object.keys(BEHAVIOR_PARAMETERS),
+];
+
+const MODALITY_SET: ReadonlySet<string> = new Set(MODALITIES);
+
+function knownModalities(values: readonly string[]): Modality[] {
+  return values.filter((value): value is Modality => MODALITY_SET.has(value));
+}
+
+function seedParameters(supportedParameters: readonly string[]): Record<string, ParameterSpec> {
+  const parameters: Record<string, ParameterSpec> = {};
+  for (const gatewayName of supportedParameters) {
+    const known = SUPPORTED_PARAMETER_SPECS[gatewayName];
+    if (known !== undefined) parameters[known.name] = known.spec;
+  }
+  return parameters;
+}
+
+function languageBehaviors(supportedParameters: readonly string[]): string[] {
+  const behaviors = ['streaming'];
+  for (const gatewayName of supportedParameters) {
+    const behavior = BEHAVIOR_PARAMETERS[gatewayName];
+    if (behavior !== undefined) behaviors.push(behavior);
+  }
+  return behaviors;
+}
+
+/** A stated token rate as a pre-fee nano string; a leg the gateway does not state, or states unreadably, charges nothing. */
+function statedTokenRate(rate: string | undefined): string {
+  return (rate === undefined ? undefined : usdRateToNanoUsd(rate)) ?? '0';
+}
+
+/**
+ * A language model's pre-fee token price: its two stated rates with no
+ * long-context tiers. The catalog's cache-read rate is not carried, because no
+ * price HushBox reserves or bills reads it.
+ */
+function tokenPricing(
+  pricing: LanguageTokenPricing | undefined
+): Extract<StoredPricing, { kind: 'tokens' }> {
+  return {
+    kind: 'tokens',
+    anchor: {
+      base: {
+        input: statedTokenRate(pricing?.prompt),
+        output: statedTokenRate(pricing?.completion),
+      },
+      tiers: [],
+    },
+  };
+}
+
+/** The optional display-name spread: present only when the source carries one. */
+function nameOf(model: GatewayModelMetadata): { name?: string } {
+  return model.name === undefined ? {} : { name: model.name };
+}
+
+/** The optional description spread: present only when the source carries one. */
+function descriptionOf(model: GatewayModelMetadata): { description?: string } {
+  return model.description === undefined ? {} : { description: model.description };
+}
+
+/** The optional reasoning spread: present only when the gateway entry carried
+ * a top-level reasoning object (absence stays absence in the persisted jsonb). */
+function reasoningOf(model: LanguageMetadata): Pick<DescriptorContent, 'reasoning'> {
+  return model.reasoning === undefined ? {} : { reasoning: model.reasoning };
+}
+
+function inputsOrText(values: readonly string[]): Modality[] {
+  const known = knownModalities(values);
+  return known.length > 0 ? known : ['text'];
+}
+
+// --- language --------------------------------------------------------------
+
+/**
+ * A language row STATING a token limit that is not a whole positive count is
+ * UNREPRESENTABLE DATA, not a smaller limit: both limits count whole tokens and
+ * the gateway types neither with `.int()`, so a fractional, zero or negative one
+ * describes no window and no ceiling. It is excluded with an alert, the way
+ * `CODE-RULES.md` §Registries already handles an unknown pricing unit — the
+ * alternative is a row degraded into a shape indistinguishable from a correct
+ * one, since an omitted key is exactly what a gateway stating nothing produces.
+ *
+ * An ABSENT limit is deliberately not this: many gateway entries state no output
+ * ceiling and some state no window, and absence is a representable state the
+ * descriptor carries by omitting the key.
+ *
+ * Placement is deliberate — LAST in {@link normalizeLanguage}, after the
+ * deprecation, modality, release-date and commercial gates, matching
+ * {@link declaresNoAspectRatio}. A row already hidden for another reason keeps
+ * that reason, so the hourly refresh stays quiet and the alert fires only when
+ * an unrepresentable limit would otherwise reach a sellable row.
+ */
+function declaresUnrepresentableTokenLimit(model: LanguageMetadata): boolean {
+  return [model.contextLength, model.maxCompletionTokens].some(
+    (count) => count !== undefined && !(Number.isInteger(count) && count > 0)
+  );
+}
+
+/**
+ * Every stated limit reaches the descriptor; an unstated one omits its key.
+ * Reached only past {@link declaresUnrepresentableTokenLimit}, so a stated value
+ * here is already a whole positive count.
+ */
+function languageLimits(model: LanguageMetadata): DescriptorContent['limits'] {
+  return {
+    ...(model.contextLength === undefined ? {} : { contextLength: model.contextLength }),
+    ...(model.maxCompletionTokens === undefined
+      ? {}
+      : { maxOutputTokens: model.maxCompletionTokens }),
+  };
+}
+
+/**
+ * The commercial admission rules (BILLING.md §Catalog Admission), over the
+ * PRE-FEE rates — the markup IS the margin, so the raw rate is what decides
+ * whether a percentage of it is worth having. Called before fee baking, on the
+ * language path only: image and video price per unit, so a per-token floor has
+ * no meaning for them and none is applied. The zero-rate rule is NOT
+ * language-only — {@link excludeZeroPriced} applies it to every family at the
+ * {@link normalizeModel} choke point; the combined-rate verdict stays here
+ * because it is the same arithmetic the floor needs, because it must outrank
+ * the floor and the age cutoff, and because it is what catches a language model
+ * that states no rate at all.
+ *
+ * Reason order is fixed and load-bearing: a zero rate earns nothing so it is
+ * unconditional and first, then the floor, then age. A model failing both the
+ * floor and the age cutoff therefore reports one stable reason, which is what
+ * keeps the refresh summary's counts comparable across runs.
+ */
+function commercialExclusionReason(
+  base: { readonly input: string; readonly output: string },
+  contextLength: number,
+  releasedAtSeconds: number,
+  admission: CatalogAdmission
+): ExcludeReason | undefined {
+  const verdict = priceFloorVerdict(BigInt(base.input), BigInt(base.output));
+  if (verdict === 'zero') return 'zero-priced';
+  if (contextLength >= admission.contextExemptionTokens) return undefined;
+  if (verdict === 'below-floor') return 'below-price-floor';
+  return exceedsModelAgeLimit(releasedAtSeconds, admission.nowMs) ? 'too-old' : undefined;
+}
+
+function normalizeLanguage(
+  model: LanguageMetadata,
+  zdrReachable: boolean,
+  admission: CatalogAdmission
+): NormalizeOutcome {
+  if (model.deprecated) {
+    return { kind: 'excluded', modelId: model.id, reason: 'deprecated' };
+  }
+  const outputs = knownModalities(model.outputModalities);
+  if (callShapeFamilyFor(outputs) === undefined) {
+    return { kind: 'excluded', modelId: model.id, reason: 'unclassifiable-modality' };
+  }
+  if (model.releasedAt === undefined || model.releasedAt <= 0) {
+    return { kind: 'excluded', modelId: model.id, reason: 'missing-release-date' };
+  }
+  const pricing = tokenPricing(model.pricing);
+  const commercial = commercialExclusionReason(
+    pricing.anchor.base,
+    model.contextLength ?? 0,
+    model.releasedAt,
+    admission
+  );
+  if (commercial !== undefined) {
+    return { kind: 'excluded', modelId: model.id, reason: commercial };
+  }
+  if (declaresUnrepresentableTokenLimit(model)) {
+    return { kind: 'excluded', modelId: model.id, reason: 'unrepresentable-token-limit' };
+  }
+  const content: DescriptorContent = {
+    id: model.id,
+    provider: model.provider,
+    version: DESCRIPTOR_VERSION,
+    inputs: inputsOrText(model.inputModalities),
+    outputs,
+    releasedAt: model.releasedAt,
+    parameters: seedParameters(model.supportedParameters),
+    // Behaviors key off the canonical family of the FINAL outputs: a
+    // text→media entry (file-part outputs, no text) is media-classified by
+    // exposure gating and dispatch, so it carries media behaviors (none
+    // today), never streaming/language.
+    behaviors:
+      callShapeFamilyFor(outputs) === 'language'
+        ? languageBehaviors(model.supportedParameters)
+        : [],
+    limits: languageLimits(model),
+    pricing,
+    zdrReachable,
+    ...nameOf(model),
+    ...descriptionOf(model),
+    ...reasoningOf(model),
+  };
+  return { kind: 'normalized', content };
+}
+
+// --- image -----------------------------------------------------------------
+
+/** OpenRouter image billing units that price one output image. */
+const PER_IMAGE_UNITS: ReadonlySet<string> = new Set(['image', 'per_image', 'per_output_image']);
+
+type ImagePricingOutcome =
+  | { readonly kind: 'priced'; readonly perImage: string }
+  | { readonly kind: 'token' }
+  | { readonly kind: 'megapixel' }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'unknown' };
+
+/**
+ * Resolve an image model's output pricing. Only the `output_image` charge sets
+ * the per-image rate; input-* roles (reference / text / image inputs) are never
+ * the generation price and are ignored. Two KNOWN shapes we cannot price
+ * deterministically exclude QUIETLY, never as fail-closed defects: per-output-
+ * token pricing (`token`, a growing set of image models) and per-megapixel
+ * pricing (`megapixel`, e.g. the flux.2 family). A model with no output pricing
+ * rows at all (empty endpoints — common for preview models) is the quiet
+ * `missing`. Only an output_image row carrying a genuinely unrecognized unit —
+ * or a recognized per-image unit with an unparseable value — is the loud
+ * `unknown`.
+ */
+interface ImagePricingScan {
+  perImage: string | undefined;
+  sawToken: boolean;
+  sawMegapixel: boolean;
+  sawUnknownUnit: boolean;
+}
+
+/** Classify one pricing entry into the running scan. Only `output_image` rows count. */
+function scanImagePricingEntry(entry: ImagePricingEntry, scan: ImagePricingScan): void {
+  if (entry.billable !== 'output_image') return;
+  if (PER_IMAGE_UNITS.has(entry.unit)) {
+    // First representable per-image rate wins; a recognized unit carrying an
+    // unparseable value is a data defect, not a known shape — stays loud.
+    const rate = usdRateToNanoUsd(entry.costUsd);
+    if (rate === undefined) scan.sawUnknownUnit = true;
+    else scan.perImage ??= rate;
+  } else if (entry.unit.includes('token')) scan.sawToken = true;
+  else if (entry.unit.includes('megapixel')) scan.sawMegapixel = true;
+  else scan.sawUnknownUnit = true;
+}
+
+function imagePricing(entries: readonly ImagePricingEntry[]): ImagePricingOutcome {
+  const scan: ImagePricingScan = {
+    perImage: undefined,
+    sawToken: false,
+    sawMegapixel: false,
+    sawUnknownUnit: false,
+  };
+  for (const entry of entries) scanImagePricingEntry(entry, scan);
+  if (scan.perImage !== undefined) return { kind: 'priced', perImage: scan.perImage };
+  if (scan.sawToken) return { kind: 'token' };
+  if (scan.sawMegapixel) return { kind: 'megapixel' };
+  if (scan.sawUnknownUnit) return { kind: 'unknown' };
+  return { kind: 'missing' };
+}
+
+/**
+ * A media row that describes no aspect-ratio domain is UNREPRESENTABLE DATA, not
+ * a model with an open axis: nothing downstream can offer the user a shape to
+ * pick, and the alternative to refusing it is a fabricated global default —
+ * exactly the hand-written second domain the catalog's own ParamSpecs replace.
+ * So it is excluded with an alert, the way `CODE-RULES.md` §Registries already
+ * handles an unknown pricing unit.
+ *
+ * Read off the minted specs rather than the gateway metadata so it asks the same
+ * question every consumer asks: "does this model's descriptor carry a domain
+ * under the axis name the dimensions look up?"
+ *
+ * Placement is deliberate — LAST in each media normalizer, after the pricing
+ * gates and downstream of the ZDR/non-conversational pre-gate. A row already
+ * hidden for another reason keeps that reason, so the hourly refresh stays quiet
+ * and the alert fires only when a shapeless model would otherwise be sellable.
+ */
+function declaresNoAspectRatio(parameters: Readonly<Record<string, ParameterSpec>>): boolean {
+  return parameters[MEDIA_PARAMETER_NAMES.aspectRatio] === undefined;
+}
+
+function imageParameters(params: ImageSupportedParameters): Record<string, ParameterSpec> {
+  const specs: Record<string, ParameterSpec> = mediaParameterSpecs({
+    aspectRatio: params.aspectRatio,
+    resolution: params.resolution,
+  });
+  if (params.maxN !== undefined) {
+    specs['n'] = { type: 'integer', min: 1, max: params.maxN, wire: 'providerOptions' };
+  }
+  return specs;
+}
+
+function normalizeImage(model: ImageMetadata, zdrReachable: boolean): NormalizeOutcome {
+  if (model.releasedAt === undefined || model.releasedAt <= 0) {
+    return { kind: 'excluded', modelId: model.id, reason: 'missing-release-date' };
+  }
+  const priced = imagePricing(model.endpointPricing);
+  // Deterministic-only support: an image model we cannot price at admission or
+  // settlement is excluded, never exposed unpriced. Token-priced, megapixel-
+  // priced, and no-pricing (empty endpoints) are quiet, expected shapes;
+  // anything else unrecognizable is the loud defect.
+  if (priced.kind === 'token') {
+    return { kind: 'excluded', modelId: model.id, reason: 'token-priced-image' };
+  }
+  if (priced.kind === 'megapixel') {
+    return { kind: 'excluded', modelId: model.id, reason: 'megapixel-priced-image' };
+  }
+  if (priced.kind === 'missing') {
+    return { kind: 'excluded', modelId: model.id, reason: 'missing-pricing' };
+  }
+  if (priced.kind === 'unknown') {
+    return { kind: 'excluded', modelId: model.id, reason: 'unknown-pricing-unit' };
+  }
+  const parameters = imageParameters(model.supportedParameters);
+  if (declaresNoAspectRatio(parameters)) {
+    return { kind: 'excluded', modelId: model.id, reason: 'missing-aspect-ratio' };
+  }
+  const content: DescriptorContent = {
+    id: model.id,
+    provider: model.provider,
+    version: DESCRIPTOR_VERSION,
+    inputs: inputsOrText(model.inputModalities),
+    outputs: ['image'],
+    releasedAt: model.releasedAt,
+    parameters,
+    behaviors: [],
+    limits: {},
+    pricing: { kind: 'perImage', anchor: priced.perImage, dearest: priced.perImage },
+    zdrReachable,
+    ...nameOf(model),
+    ...descriptionOf(model),
+  };
+  return { kind: 'normalized', content };
+}
+
+// --- video -----------------------------------------------------------------
+
+/** Shift a decimal USD-cents string two places right of the point:
+ * "5" → "0.05", "5.5" → "0.055", "123" → "1.23" — exact string math. */
+function centsToUsd(cents: string): string {
+  const dot = cents.indexOf('.');
+  const whole = dot === -1 ? cents : cents.slice(0, dot);
+  const fraction = dot === -1 ? '' : cents.slice(dot + 1);
+  const digits = whole + fraction;
+  const pointPos = whole.length - 2;
+  if (pointPos <= 0) return `0.${'0'.repeat(-pointPos)}${digits}`;
+  return `${digits.slice(0, pointPos)}.${digits.slice(pointPos)}`;
+}
+
+interface VideoRate {
+  /** `null` = flat: applies to any resolution the SKU set didn't price directly. */
+  readonly resolution: string | null;
+  readonly nano: string;
+  readonly audio: boolean;
+}
+
+type VideoSkuOutcome =
+  | { readonly kind: 'rate'; readonly rate: VideoRate }
+  | { readonly kind: 'skip' }
+  | { readonly kind: 'token' }
+  | { readonly kind: 'unknown' };
+
+/** A SKU key's role, read from its markers before rate parsing:
+ * `video_tokens*` → token-priced; `*_input` / `image_to_video*` /
+ * `*_without_audio*` → an unsupported tier we drop. `undefined` = a
+ * per-second rate key to parse. */
+function videoSkuMarker(key: string): 'token' | 'skip' | undefined {
+  if (key.includes('video_tokens')) return 'token';
+  if (key.includes('_input') || key.includes('image_to_video') || key.includes('_without_audio')) {
+    return 'skip';
+  }
+  return undefined;
+}
+
+interface ParsedVideoRateKey {
+  readonly unit: 'usd' | 'cents';
+  /** `null` = flat (no resolution suffix). */
+  readonly resolution: string | null;
+  readonly audio: boolean;
+}
+
+/** Parse a per-second rate key: strip the `text_to_video_` mode prefix and the
+ * `_with_audio` marker, read the unit prefix (`duration_seconds` = USD/sec,
+ * `cents_per_video_output_second` = cents/sec), and take the resolution suffix
+ * (empty → flat). An unrecognized unit returns `undefined` (→ unknown). */
+function parseVideoRateKey(key: string): ParsedVideoRateKey | undefined {
+  let rest = key;
+  if (rest.startsWith('text_to_video_')) rest = rest.slice('text_to_video_'.length);
+  let audio = false;
+  if (rest.includes('_with_audio')) {
+    audio = true;
+    rest = rest.replace('_with_audio', '');
+  }
+  let unit: 'usd' | 'cents';
+  if (rest.startsWith('cents_per_video_output_second')) {
+    unit = 'cents';
+    rest = rest.slice('cents_per_video_output_second'.length);
+  } else if (rest.startsWith('duration_seconds')) {
+    unit = 'usd';
+    rest = rest.slice('duration_seconds'.length);
+  } else {
+    return undefined;
+  }
+  const token = rest.replace(/^_/, '');
+  return { unit, resolution: token.length > 0 ? token : null, audio };
+}
+
+/**
+ * Classify one `pricing_skus` entry. Markers first (token / unsupported tier),
+ * then a per-second `rate` (`duration_seconds[...]` USD or
+ * `cents_per_video_output_second[...]` cents); an unrecognized unit is a
+ * genuinely `unknown` unit (the fail-closed net for a novel taxonomy), and a
+ * value that can't be represented in nano-USD is a silent `skip`.
+ */
+function classifyVideoSku(key: string, value: string): VideoSkuOutcome {
+  const marker = videoSkuMarker(key);
+  if (marker !== undefined) return { kind: marker };
+  const parsed = parseVideoRateKey(key);
+  if (parsed === undefined) return { kind: 'unknown' };
+  const nano = usdRateToNanoUsd(parsed.unit === 'cents' ? centsToUsd(value) : value);
+  if (nano === undefined) return { kind: 'skip' };
+  return { kind: 'rate', rate: { resolution: parsed.resolution, nano, audio: parsed.audio } };
+}
+
+type VideoPricingResult =
+  | {
+      readonly kind: 'priced';
+      readonly perSecondByResolution: Record<string, string>;
+      readonly fallbacks: readonly string[];
+    }
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'token' }
+  | { readonly kind: 'unknown' };
+
+/** The rates a model states, keyed for the precedence lookup: resolution-specific
+ * (case-normalized) with and without audio, plus the flat (resolution-less) rates. */
+interface CollectedVideoRates {
+  readonly resAudio: Map<string, string>;
+  readonly resBare: Map<string, string>;
+  flatAudio?: string;
+  flatBare?: string;
+  readonly allRates: string[];
+}
+
+/** Fold one parsed rate into the accumulator (audio wins its resolution; the
+ * first bare rate wins a resolution/flat slot). */
+function recordVideoRate(accumulator: CollectedVideoRates, rate: VideoRate): void {
+  accumulator.allRates.push(rate.nano);
+  if (rate.resolution === null) {
+    if (rate.audio) accumulator.flatAudio = rate.nano;
+    else accumulator.flatBare ??= rate.nano;
+    return;
+  }
+  const norm = rate.resolution.toLowerCase();
+  if (rate.audio) accumulator.resAudio.set(norm, rate.nano);
+  else if (!accumulator.resBare.has(norm)) accumulator.resBare.set(norm, rate.nano);
+}
+
+/** Collect every SKU's rate, or reject the whole model on the first `token` /
+ * `unknown` SKU (both make the model unpriceable-as-declared). */
+function collectVideoRates(
+  skus: Readonly<Record<string, string>>
+): CollectedVideoRates | { readonly reject: 'token' | 'unknown' } {
+  const accumulator: CollectedVideoRates = {
+    resAudio: new Map(),
+    resBare: new Map(),
+    allRates: [],
+  };
+  for (const [key, value] of Object.entries(skus)) {
+    const outcome = classifyVideoSku(key, value);
+    if (outcome.kind === 'token' || outcome.kind === 'unknown') return { reject: outcome.kind };
+    if (outcome.kind === 'rate') recordVideoRate(accumulator, outcome.rate);
+  }
+  return accumulator;
+}
+
+/** Largest of a non-empty set of nano-USD rate strings (bigint compare). */
+function maxRate(rates: readonly string[]): string {
+  let max = rates[0] ?? '0';
+  for (const rate of rates) {
+    if (BigInt(rate) > BigInt(max)) max = rate;
+  }
+  return max;
+}
+
+/** The rate for one declared resolution by fixed precedence — (a)
+ * resolution-specific + audio, (b) resolution-specific, (c) flat + audio, (d)
+ * flat — matching resolution tokens case-insensitively. */
+function pickResolutionRate(rates: CollectedVideoRates, resolution: string): string | undefined {
+  const norm = resolution.toLowerCase();
+  return rates.resAudio.get(norm) ?? rates.resBare.get(norm) ?? rates.flatAudio ?? rates.flatBare;
+}
+
+/**
+ * Build the per-resolution price matrix whose KEYS EXACTLY EQUAL the model's
+ * declared `supported_resolutions` (case-preserved), so the estimator's strict
+ * exact-key lookup can never miss. When a resolution has no stated rate but the
+ * model prices some other resolution, its max known rate is SUBSTITUTED and
+ * flagged (`fallbacks`): the one loud price-substitution, alerted for a human to
+ * verify. A model with no usable rate at all for declared resolutions is
+ * `unknown` (fail-closed); a model that declares no resolutions is `empty`
+ * (unpriceable but exposed, degenerate).
+ */
+function interpretVideoSkus(
+  resolutions: readonly string[],
+  skus: Readonly<Record<string, string>>
+): VideoPricingResult {
+  const rates = collectVideoRates(skus);
+  if ('reject' in rates) return rates.reject === 'token' ? { kind: 'token' } : { kind: 'unknown' };
+  if (resolutions.length === 0) return { kind: 'empty' };
+  if (rates.allRates.length === 0) return { kind: 'unknown' };
+  const substitute = maxRate(rates.allRates);
+  const perSecondByResolution: Record<string, string> = {};
+  const fallbacks: string[] = [];
+  for (const resolution of resolutions) {
+    const rate = pickResolutionRate(rates, resolution);
+    perSecondByResolution[resolution] = rate ?? substitute;
+    if (rate === undefined) fallbacks.push(resolution);
+  }
+  return { kind: 'priced', perSecondByResolution, fallbacks };
+}
+
+function videoParameters(model: VideoMetadata): Record<string, ParameterSpec> {
+  // Durations are valued as integer seconds so a numeric request duration matches
+  // the ParamSpec compiler's strict enum membership (the wire catalog carries
+  // durations as strings). Non-integer/absent durations drop out, mirroring the
+  // client-facing `supportedVideoDurationsSeconds` filter.
+  const durationSeconds = model.durations
+    .map(Number)
+    .filter((seconds) => Number.isInteger(seconds) && seconds > 0);
+  const specs: Record<string, ParameterSpec> = mediaParameterSpecs({
+    resolution: model.resolutions,
+    aspectRatio: model.aspectRatios,
+    durationSeconds,
+  });
+  if (model.generateAudio) specs['generateAudio'] = { type: 'boolean', wire: 'providerOptions' };
+  if (model.seed) specs['seed'] = { type: 'integer', wire: 'providerOptions' };
+  return specs;
+}
+
+function normalizeVideo(model: VideoMetadata, zdrReachable: boolean): NormalizeOutcome {
+  if (model.releasedAt === undefined || model.releasedAt <= 0) {
+    return { kind: 'excluded', modelId: model.id, reason: 'missing-release-date' };
+  }
+  const priced = interpretVideoSkus(model.resolutions, model.pricingSkus);
+  if (priced.kind === 'token') {
+    return { kind: 'excluded', modelId: model.id, reason: 'token-priced-video' };
+  }
+  if (priced.kind === 'unknown') {
+    return { kind: 'excluded', modelId: model.id, reason: 'unknown-pricing-unit' };
+  }
+  // A model that declares no resolution states no rate for any call it could
+  // take, and a per-second price must price at least one resolution.
+  if (priced.kind === 'empty') {
+    return { kind: 'excluded', modelId: model.id, reason: 'missing-pricing' };
+  }
+  const parameters = videoParameters(model);
+  if (declaresNoAspectRatio(parameters)) {
+    return { kind: 'excluded', modelId: model.id, reason: 'missing-aspect-ratio' };
+  }
+  const inputs: Modality[] = model.supportsFrameImages ? ['text', 'image'] : ['text'];
+  const content: DescriptorContent = {
+    id: model.id,
+    provider: model.provider,
+    version: DESCRIPTOR_VERSION,
+    inputs,
+    outputs: ['video'],
+    releasedAt: model.releasedAt,
+    parameters,
+    behaviors: [],
+    limits: {},
+    pricing: {
+      kind: 'perSecond',
+      anchor: priced.perSecondByResolution,
+      dearest: priced.perSecondByResolution,
+    },
+    zdrReachable,
+    ...nameOf(model),
+    ...descriptionOf(model),
+  };
+  const { fallbacks } = priced;
+  return fallbacks.length > 0
+    ? { kind: 'normalized', content, pricingFallbacks: fallbacks }
+    : { kind: 'normalized', content };
+}
+
+/** The firm per-model gate, applied before family dispatch so it lives in one
+ * family-agnostic place: only ZDR-reachable conversational models are
+ * persisted. Non-ZDR wins first (the firm rule), then non-conversational
+ * specialty models; `undefined` means the model passes to normalization. */
+function nonChatExclusionReason(
+  model: GatewayModelMetadata,
+  zdrReachable: boolean
+): ExcludeReason | undefined {
+  if (!zdrReachable) return 'non-zdr';
+  if (isNonConversational(model.id, model.provider, model.name)) return 'non-conversational';
+  return undefined;
+}
+
+/** One provider rate → billable: the 15% markup, ceil-rounded against the
+ * user (BILLING.md §Fee Structure). Rates are integer nano-USD strings. */
+function billableRate(providerRate: string): string {
+  return applyMarkupCeil(BigInt(providerRate)).toString(10);
+}
+
+/** Every rate of a price marked up to billable. Applied once, at the
+ * {@link normalizeModel} choke point, so every family (and any future one)
+ * bakes fees identically; the same-id merge only picks among already-baked
+ * prices and never re-applies. */
+function billablePricing(pricing: StoredPricing): StoredPricing {
+  switch (pricing.kind) {
+    case 'tokens': {
+      const { base } = pricing.anchor;
+      return {
+        kind: 'tokens',
+        anchor: {
+          base: { input: billableRate(base.input), output: billableRate(base.output) },
+          tiers: [],
+        },
+      };
+    }
+    case 'perImage': {
+      return {
+        kind: 'perImage',
+        anchor: billableRate(pricing.anchor),
+        dearest: billableRate(pricing.dearest),
+      };
+    }
+    case 'perSecond': {
+      return {
+        kind: 'perSecond',
+        anchor: billableRates(pricing.anchor),
+        dearest: billableRates(pricing.dearest),
+      };
+    }
+  }
+}
+
+function billableRates(rates: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(rates).map(([resolution, rate]) => [resolution, billableRate(rate)])
+  );
+}
+
+/** Every rate a price states, the per-second matrix flattened. */
+function statedRates(pricing: StoredPricing): string[] {
+  switch (pricing.kind) {
+    case 'tokens': {
+      return [pricing.anchor.base.input, pricing.anchor.base.output];
+    }
+    case 'perImage': {
+      return [pricing.anchor, pricing.dearest];
+    }
+    case 'perSecond': {
+      return [...Object.values(pricing.anchor), ...Object.values(pricing.dearest)];
+    }
+  }
+}
+
+/**
+ * A model that names its rates and charges nothing for any of them earns
+ * nothing, so it cannot be sold — the rule the language path applies through
+ * {@link commercialExclusionReason}'s combined-rate verdict, stated once here
+ * over the descriptor's own pricing so the per-unit families are covered by the
+ * same rule rather than by a second copy of it. A rate the gateway states below
+ * nano-USD precision converts to a zero rate, so it is excluded by this gate
+ * too — which is what the per-unit families had no equivalent of.
+ *
+ * Every price reaching here states at least one rate: a language row states
+ * both legs, an unstated one as zero, and a video row that declares no
+ * resolution is excluded before it arrives.
+ */
+function pricesNothing(pricing: StoredPricing): boolean {
+  return statedRates(pricing).every((rate) => BigInt(rate) === 0n);
+}
+
+/** The family-agnostic zero-rate gate, applied at the {@link normalizeModel}
+ * choke point BEFORE fee baking: a markup on a zero rate is still zero, but the
+ * rule is about the provider's rate, so it reads the pre-fee one. */
+function excludeZeroPriced(outcome: NormalizeOutcome): NormalizeOutcome {
+  if (outcome.kind === 'excluded' || !pricesNothing(outcome.content.pricing)) return outcome;
+  return { kind: 'excluded', modelId: outcome.content.id, reason: 'zero-priced' };
+}
+
+/** The one place provider rates become billable: every normalized outcome's
+ * pricing is fee-baked here, whatever its family or shape. */
+function bakeFees(outcome: NormalizeOutcome): NormalizeOutcome {
+  if (outcome.kind === 'excluded') return outcome;
+  return {
+    ...outcome,
+    content: { ...outcome.content, pricing: billablePricing(outcome.content.pricing) },
+  };
+}
+
+/**
+ * A billable price the schedule cannot represent is excluded with an alert,
+ * never persisted: every rate must be positive, so a token model with exactly
+ * one zero leg, or a video model with a zero resolution beside priced ones, is
+ * refused here. Placed after {@link excludeZeroPriced}, so a model that prices
+ * nothing at all keeps its quiet commercial reason.
+ */
+function excludeUnrepresentable(outcome: NormalizeOutcome): NormalizeOutcome {
+  if (outcome.kind === 'excluded') return outcome;
+  if (ModelPricingSchema.safeParse(outcome.content.pricing).success) return outcome;
+  return { kind: 'excluded', modelId: outcome.content.id, reason: 'unknown-pricing-unit' };
+}
+
+/**
+ * OpenRouter metadata → descriptor content (version-stamped, fee-baked;
+ * `fetchedAt` is stamped at persist time). `zdrReachable` is
+ * authoritative endpoint-granular membership in `/endpoints/zdr` by model id;
+ * unlisted is treated as unreachable and hidden (fail-closed). Modalities
+ * come from `architecture.*_modalities` (language) or the endpoint the model
+ * was discovered on (image/video).
+ *
+ * `admission` carries the pool-relative commercial inputs; only the language
+ * path consumes them, and only {@link normalizeCatalog} can derive them.
+ */
+export function normalizeModel(
+  model: GatewayModelMetadata,
+  zdrModelIds: ReadonlySet<string>,
+  admission: CatalogAdmission
+): NormalizeOutcome {
+  const zdrReachable = zdrModelIds.has(model.id);
+  const excludedReason = nonChatExclusionReason(model, zdrReachable);
+  if (excludedReason !== undefined) {
+    return { kind: 'excluded', modelId: model.id, reason: excludedReason };
+  }
+  return excludeUnrepresentable(
+    bakeFees(excludeZeroPriced(normalizeBySource(model, zdrReachable, admission)))
+  );
+}
+
+/** Family dispatch alone, so the gates that follow it — the zero-rate exclusion,
+ * then fee baking — are each written once for every family. */
+function normalizeBySource(
+  model: GatewayModelMetadata,
+  zdrReachable: boolean,
+  admission: CatalogAdmission
+): NormalizeOutcome {
+  switch (model.source) {
+    case 'language': {
+      return normalizeLanguage(model, zdrReachable, admission);
+    }
+    case 'image': {
+      return normalizeImage(model, zdrReachable);
+    }
+    case 'video': {
+      return normalizeVideo(model, zdrReachable);
+    }
+  }
+}
+
+// --- dedupe + merge (one catalog, one row per id) --------------------------
+
+/** One deduped catalog id: either a single merged descriptor or an exclusion.
+ * The catalog is single-row-per-model (`model_catalog` UNIQUE(model_id)), so a
+ * slug advertised by more than one endpoint must resolve to ONE descriptor —
+ * not two rows racing to overwrite each other and oscillating between refreshes. */
+export type CatalogEntry =
+  | {
+      readonly kind: 'normalized';
+      readonly modelId: string;
+      readonly content: DescriptorContent;
+      /** Resolutions whose price was substituted (video fallback — §Solution 2a);
+       * telemetry-only, never persisted. Present only when non-empty. */
+      readonly pricingFallbacks?: readonly string[];
+    }
+  | { readonly kind: 'excluded'; readonly modelId: string; readonly reason: ExcludeReason };
+
+/** Fixed merge order so a folded descriptor is identical no matter the order the
+ * endpoints were fetched in — the property that kills refresh oscillation. The
+ * language entry (richest: streaming, tool behaviors, token params) is the fold
+ * base whenever present. */
+const SOURCE_MERGE_PRIORITY: Readonly<Record<GatewayModelMetadata['source'], number>> = {
+  language: 0,
+  image: 1,
+  video: 2,
+};
+
+/** Canonical order for language behaviors, so a merged behaviors list is stable
+ * regardless of which sibling contributed each behavior. */
+const LANGUAGE_BEHAVIOR_ORDER: readonly string[] = ['streaming', 'tools', 'reasoning'];
+
+/** Union of two modality lists in the closed MODALITIES order (deterministic). */
+function unionModalities(a: readonly Modality[], b: readonly Modality[]): Modality[] {
+  const present = new Set<Modality>([...a, ...b]);
+  return MODALITIES.filter((modality) => present.has(modality));
+}
+
+/** Behaviors recomputed against the MERGED outputs' family: language behaviors
+ * (streaming, …) survive a text+media merge; a non-language merged family
+ * carries none. Deterministic order regardless of sibling contribution order. */
+function mergedBehaviors(
+  outputs: readonly Modality[],
+  a: readonly string[],
+  b: readonly string[]
+): string[] {
+  if (callShapeFamilyFor(outputs) !== 'language') return [];
+  const present = new Set<string>([...a, ...b]);
+  const ordered = LANGUAGE_BEHAVIOR_ORDER.filter((behavior) => present.has(behavior));
+  const extras = [...present]
+    .filter((behavior) => !LANGUAGE_BEHAVIOR_ORDER.includes(behavior))
+    .toSorted((x, y) => x.localeCompare(y));
+  return [...ordered, ...extras];
+}
+
+/**
+ * The price a merged descriptor carries: one price, never a union of two. The
+ * base's price when it charges by the merged outputs' family, else the next
+ * sibling's when that one does, else the base's — so a slug advertised by a
+ * language endpoint and an image endpoint, merged into an image model, carries
+ * its per-image rate.
+ */
+function mergedPricing(
+  outputs: readonly Modality[],
+  base: StoredPricing,
+  next: StoredPricing
+): StoredPricing {
+  const family = callShapeFamilyFor(outputs);
+  if (family === undefined) return base;
+  const kind = PRICING_KIND_BY_FAMILY[family];
+  if (base.kind !== kind && next.kind === kind) return next;
+  return base;
+}
+
+/** Fold `next` into `base` (base takes precedence on scalar/key conflicts).
+ * Outputs and inputs union; behaviors recompute against the merged outputs. */
+function mergeContent(base: DescriptorContent, next: DescriptorContent): DescriptorContent {
+  const outputs = unionModalities(base.outputs, next.outputs);
+  const name = base.name ?? next.name;
+  const description = base.description ?? next.description;
+  // Only language sources carry reasoning, so at most one sibling declares it
+  // — base precedence is deterministic regardless of contribution order.
+  const reasoning = base.reasoning ?? next.reasoning;
+  return {
+    id: base.id,
+    provider: base.provider,
+    version: base.version,
+    inputs: unionModalities(base.inputs, next.inputs),
+    outputs,
+    releasedAt: base.releasedAt,
+    parameters: { ...next.parameters, ...base.parameters },
+    behaviors: mergedBehaviors(outputs, base.behaviors, next.behaviors),
+    limits: { ...next.limits, ...base.limits },
+    pricing: mergedPricing(outputs, base.pricing, next.pricing),
+    zdrReachable: base.zdrReachable,
+    ...(name === undefined ? {} : { name }),
+    ...(description === undefined ? {} : { description }),
+    ...(reasoning === undefined ? {} : { reasoning }),
+  };
+}
+
+/** A normalized catalog entry, carrying `pricingFallbacks` only when non-empty. */
+function normalizedEntry(
+  modelId: string,
+  content: DescriptorContent,
+  fallbacks: readonly string[]
+): CatalogEntry {
+  return fallbacks.length > 0
+    ? { kind: 'normalized', modelId, content, pricingFallbacks: fallbacks }
+    : { kind: 'normalized', modelId, content };
+}
+
+/** Resolve one id's siblings into a single entry: fold the normalized ones in
+ * merge order; excluded only when every sibling is excluded (a normalized
+ * sibling wins — the model is exposed via its merged form). */
+function resolveGroup(
+  modelId: string,
+  siblings: readonly GatewayModelMetadata[],
+  zdrModelIds: ReadonlySet<string>,
+  admission: CatalogAdmission
+): CatalogEntry {
+  const ordered = siblings.toSorted(
+    (a, b) => SOURCE_MERGE_PRIORITY[a.source] - SOURCE_MERGE_PRIORITY[b.source]
+  );
+  let content: DescriptorContent | undefined;
+  let excludedReason: ExcludeReason | undefined;
+  const fallbacks: string[] = [];
+  for (const model of ordered) {
+    const outcome = normalizeModel(model, zdrModelIds, admission);
+    if (outcome.kind === 'excluded') {
+      excludedReason ??= outcome.reason;
+      continue;
+    }
+    fallbacks.push(...(outcome.pricingFallbacks ?? []));
+    content = content === undefined ? outcome.content : mergeContent(content, outcome.content);
+  }
+  if (content === undefined) {
+    // A group always has ≥1 sibling, so with no normalized content a reason is set.
+    return { kind: 'excluded', modelId, reason: excludedReason ?? 'deprecated' };
+  }
+  // Admission enforces the shared runnability predicate on the MERGED content:
+  // a slug advertised across endpoints (e.g. /models + /images) folds to a
+  // multi-output descriptor no turn can run — deny it here so "in catalog ⟺
+  // runs correctly" holds, and it is never persisted.
+  if (!isRunnableModelShape(content)) {
+    return { kind: 'excluded', modelId, reason: 'non-runnable-shape' };
+  }
+  return normalizedEntry(modelId, content, fallbacks);
+}
+
+/**
+ * Normalize a full catalog into one {@link CatalogEntry} per model id, merging
+ * duplicate ids across endpoints into a single descriptor. The `model_catalog`
+ * table is one-row-per-model, so a slug advertised by more than one endpoint
+ * must resolve to ONE descriptor — not rows racing to overwrite each other and
+ * oscillating between refreshes.
+ *
+ * This is also where catalog admission's top-context exemption is measured, and
+ * the only place it can be: the threshold is a percentile over the pool, so no
+ * per-model function can derive it. `nowMs` is the refresh clock the age cutoff
+ * is measured back from, injected so normalization stays a pure function.
+ */
+export function normalizeCatalog(
+  models: readonly GatewayModelMetadata[],
+  zdrModelIds: ReadonlySet<string>,
+  nowMs: number
+): CatalogEntry[] {
+  const groups = new Map<string, GatewayModelMetadata[]>();
+  const order: string[] = [];
+  for (const model of models) {
+    const existing = groups.get(model.id);
+    if (existing === undefined) {
+      groups.set(model.id, [model]);
+      order.push(model.id);
+    } else {
+      existing.push(model);
+    }
+  }
+  const admission: CatalogAdmission = {
+    contextExemptionTokens: topContextExemptionTokens(zdrLanguageContexts(models, zdrModelIds)),
+    nowMs,
+  };
+  return order.map((modelId) =>
+    resolveGroup(modelId, groups.get(modelId) ?? [], zdrModelIds, admission)
+  );
+}
+
+/** The pool the context exemption is measured over: ZDR-reachable language
+ * models. Media entries are excluded because a per-unit-priced model carries no
+ * token context, and unreachable models because they are never sold — either
+ * would move a text model's exemption for a reason unrelated to text
+ * capability. A model whose context length the gateway did not state is
+ * excluded for the same reason: it is an unstated window, not a zero-token one,
+ * and counting it as zero drags the percentile down and exempts models from the
+ * price floor that have not earned it. */
+function zdrLanguageContexts(
+  models: readonly GatewayModelMetadata[],
+  zdrModelIds: ReadonlySet<string>
+): number[] {
+  return models.flatMap((model) =>
+    model.source === 'language' && zdrModelIds.has(model.id) && model.contextLength !== undefined
+      ? [model.contextLength]
+      : []
+  );
+}

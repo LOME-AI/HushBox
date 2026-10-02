@@ -1,0 +1,29 @@
+{
+  "name": "@hushbox/ops",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./associated-pull-requests": "./lib/associated-pull-requests.ts",
+    "./generate-labels": "./lib/generate-labels.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx ../scripts/with-env.ts tsx ../scripts/run-package-tests.ts"
+  },
+  "devDependencies": {
+    "@hushbox/api": "workspace:*",
+    "@hushbox/config": "workspace:*",
+    "@hushbox/crypto": "workspace:*",
+    "@hushbox/db": "workspace:*",
+    "@hushbox/shared": "workspace:*",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^24.13.3",
+    "aws4fetch": "^1.0.20",
+    "eslint": "^9.39.4",
+    "js-yaml": "^4.2.0",
+    "typescript": "catalog:",
+    "vitest": "^4.1.10"
+  }
+}

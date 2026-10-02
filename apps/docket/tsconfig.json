@@ -1,0 +1,17 @@
+{
+  "extends": "../../packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "types": ["vite/client", "vitest/globals"]
+  },
+  // The claims declaration is reached because the audit store's write lock
+  // imports the claim primitive, which imports a package that ships no types;
+  // the ambient declaration for it sits beside that primitive and only a
+  // program including it can see it.
+  "include": ["src", "*.config.ts", "../../scripts/lib/claims/fs-native-extensions.d.ts"]
+}

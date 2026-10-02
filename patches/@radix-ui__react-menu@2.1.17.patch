@@ -1,0 +1,50 @@
+diff --git a/dist/index.js b/dist/index.js
+index 6e6d5b3cbc221b1ab820eca06c2795cf8ab2550e..2d09e4ad2bfd0a613bbbd4a90650507bc199abdd 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -277,7 +277,19 @@ var MenuContentImpl = React.forwardRef(
+         if (value !== "") timerRef.current = window.setTimeout(() => updateSearch(""), 1e3);
+       })(search);
+       if (newItem) {
+-        setTimeout(() => newItem.focus());
++        // HushBox patch: upstream moves focus here in `setTimeout`, so a key event
++        // handled before that timer fires acts on the item focus is leaving: in a menu of Pin,
++        // Mute, Rename and Delete, "r" then Enter chose Pin. This patch moves focus in a
++        // microtask instead, which runs before the next key event is handled. Source:
++        // packages/react/menu/src/menu.tsx line 419 at @radix-ui/react-menu 2.1.17
++        // (https://github.com/radix-ui/primitives).
++        // No upstream issue tracks this timer; https://github.com/radix-ui/primitives/pull/4108
++        // makes the same change in @radix-ui/react-roving-focus.
++        // Remove this patch once a released @radix-ui/react-menu moves this focus in a microtask
++        // or synchronously. The packages/ui dropdown-menu test "chooses the item typeahead
++        // reached when Enter arrives before a timer turn" fails whenever this patch is not
++        // applied.
++        queueMicrotask(() => newItem.focus());
+       }
+     };
+     React.useEffect(() => {
+diff --git a/dist/index.mjs b/dist/index.mjs
+index d4665a18db8b1add383413a4959b5419aa9bcad7..cf5d625d79ee7fc41e763b4ba61af4fc525150fa 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -210,7 +210,19 @@ var MenuContentImpl = React.forwardRef(
+         if (value !== "") timerRef.current = window.setTimeout(() => updateSearch(""), 1e3);
+       })(search);
+       if (newItem) {
+-        setTimeout(() => newItem.focus());
++        // HushBox patch: upstream moves focus here in `setTimeout`, so a key event
++        // handled before that timer fires acts on the item focus is leaving: in a menu of Pin,
++        // Mute, Rename and Delete, "r" then Enter chose Pin. This patch moves focus in a
++        // microtask instead, which runs before the next key event is handled. Source:
++        // packages/react/menu/src/menu.tsx line 419 at @radix-ui/react-menu 2.1.17
++        // (https://github.com/radix-ui/primitives).
++        // No upstream issue tracks this timer; https://github.com/radix-ui/primitives/pull/4108
++        // makes the same change in @radix-ui/react-roving-focus.
++        // Remove this patch once a released @radix-ui/react-menu moves this focus in a microtask
++        // or synchronously. The packages/ui dropdown-menu test "chooses the item typeahead
++        // reached when Enter arrives before a timer turn" fails whenever this patch is not
++        // applied.
++        queueMicrotask(() => newItem.focus());
+       }
+     };
+     React.useEffect(() => {

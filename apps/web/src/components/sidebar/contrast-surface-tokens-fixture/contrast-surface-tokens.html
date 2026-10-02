@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>contrast surface tokens fixture</title>
+  </head>
+  <body>
+    <!-- The sidebar rail, and inside it the fill a chat row paints when hovered
+         (chat-item.tsx). The opacity modifier is the point: it is what turns the
+         derived token into an oklab mix the browser has to resolve twice. -->
+    <div id="rail" class="bg-sidebar">
+      <div id="hover-fill" class="bg-sidebar-border/50">chat</div>
+    </div>
+    <script type="module" src="./contrast-surface-tokens.entry.ts"></script>
+  </body>
+</html>

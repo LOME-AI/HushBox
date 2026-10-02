@@ -1,0 +1,158 @@
+---
+title: Encryption Architecture
+---
+graph TB
+%% ═══════════════════════════════
+%% ECIES PRIMITIVE (used everywhere)
+%% ═══════════════════════════════
+
+    subgraph ECIES["ECIES — Single Encryption Primitive"]
+        direction LR
+        E1["Ephemeral X25519 keypair"] --> E2["X25519 DH with recipient pubkey"]
+        E2 --> E3["HKDF-SHA-256 → symmetric key"]
+        E3 --> E4["XChaCha20-Poly1305 encrypt"]
+        E4 --> E5["version byte ‖ ephemeral pub ‖ ciphertext ‖ tag"]
+    end
+
+%% ═══════════════════════════════
+%% ACCOUNT KEY HIERARCHY
+%% ═══════════════════════════════
+
+    subgraph ACCOUNT["Account Key Hierarchy"]
+        direction TB
+
+        PW["Password"] --> OPAQUE["OPAQUE Protocol"]
+        OPAQUE --> EK["Export Key\n(server never sees)"]
+        EK --> HKDF1["HKDF → Wrapping Keypair"]
+        HKDF1 --> PW_WRAP["ECIES wrap account privkey\n→ passwordWrappedPrivateKey"]
+
+        MN["12-word Mnemonic"] --> BIP["BIP-39 → 256-bit seed"]
+        BIP --> ARG["Argon2id → Recovery KEK"]
+        ARG --> HKDF2["HKDF → Recovery Keypair"]
+        HKDF2 --> REC_WRAP["ECIES wrap account privkey\n→ recoveryWrappedPrivateKey"]
+
+        ACCT["Account X25519 Keypair"]
+        ACCT_PUB["Account Public Key\n(stored plaintext on server)"]
+        ACCT_PRIV["Account Private Key\n(never leaves client memory)"]
+
+        ACCT --> ACCT_PUB
+        ACCT --> ACCT_PRIV
+        ACCT_PRIV --> PW_WRAP
+        ACCT_PRIV --> REC_WRAP
+    end
+
+%% ═══════════════════════════════
+%% EPOCH KEY SYSTEM
+%% ═══════════════════════════════
+
+    subgraph EPOCHS["Epoch Key System (per conversation)"]
+        direction TB
+
+        EP_KP["Epoch X25519 Keypair"]
+        EP_PUB["Epoch Public Key\n(stored plaintext — server encrypts with this)"]
+        EP_PRIV["Epoch Private Key\n(wrapped per member)"]
+
+        EP_KP --> EP_PUB
+        EP_KP --> EP_PRIV
+
+        subgraph WRAPS["Member Wraps (epochMembers table)"]
+            direction LR
+            W_ALICE["ECIES(Alice pubkey, epoch privkey)"]
+            W_BOB["ECIES(Bob pubkey, epoch privkey)"]
+            W_LINK["ECIES(link pubkey, epoch privkey)"]
+        end
+
+        EP_PRIV --> WRAPS
+
+        CONF["Confirmation Hash\nSHA-256(epoch privkey)\nstored on epoch row"]
+        EP_PRIV --> CONF
+    end
+
+%% ═══════════════════════════════
+%% EPOCH CHAIN (backward access)
+%% ═══════════════════════════════
+
+    subgraph CHAIN["Epoch Chain — Backward Traversal"]
+        direction LR
+        EP5["Epoch 5 privkey\n(unwrap from member wrap)"]
+        CL5["chain_link_5\nECIES(ep5 pub, ep4 priv)"]
+        EP4["Epoch 4 privkey"]
+        CL4["chain_link_4\nECIES(ep4 pub, ep3 priv)"]
+        EP3["Epoch 3 privkey"]
+        CL3["..."]
+        EP1["Epoch 1 privkey"]
+
+        EP5 -->|"decrypt"| CL5
+        CL5 --> EP4
+        EP4 -->|"decrypt"| CL4
+        CL4 --> EP3
+        EP3 --> CL3
+        CL3 --> EP1
+    end
+
+%% ═══════════════════════════════
+%% MESSAGE ENCRYPTION
+%% ═══════════════════════════════
+
+    subgraph MSG["Message Encryption (server-side)"]
+        direction TB
+        PLAIN["Plaintext message"] --> COMP["Compress (deflate)"]
+        COMP --> MSG_ENC["ECIES(epoch public key, compressed)"]
+        MSG_ENC --> BLOB["encryptedBlob\nstored in messages table"]
+    end
+
+%% ═══════════════════════════════
+%% MESSAGE DECRYPTION
+%% ═══════════════════════════════
+
+    subgraph DECRYPT["Message Decryption (client-side)"]
+        direction TB
+        D_WRAP["Fetch own member wrap\nfor message's epochNumber"]
+        D_UNWRAP["ECIES decrypt wrap\nwith account private key\n→ epoch private key"]
+        D_VERIFY["Verify SHA-256 hash\nagainst confirmationHash"]
+        D_MSG["ECIES decrypt message blob\nwith epoch private key"]
+        D_DECOMP["Decompress (inflate)\n→ plaintext"]
+
+        D_WRAP --> D_UNWRAP
+        D_UNWRAP --> D_VERIFY
+        D_VERIFY --> D_MSG
+        D_MSG --> D_DECOMP
+    end
+
+%% ═══════════════════════════════
+%% SHARED LINKS
+%% ═══════════════════════════════
+
+    subgraph LINKS["Shared Link Encryption"]
+        direction TB
+        LS["Random 256-bit link_secret\n(in URL fragment, never sent to server)"]
+        LS --> LHKDF["HKDF(link_secret) → Link X25519 Keypair"]
+        LHKDF --> LPUB["Link Public Key\n(stored on server)"]
+        LHKDF --> LPRIV["Link Private Key\n(derived by visitor from URL)"]
+        LPUB --> LW["Epoch privkey wrapped for link pubkey\nin epochMembers — same as any member"]
+        LPRIV --> LUNWRAP["Visitor unwraps epoch key\n→ decrypts messages via chain"]
+    end
+
+%% ═══════════════════════════════
+%% MESSAGE SHARING
+%% ═══════════════════════════════
+
+    subgraph SHARE["Single Message Sharing"]
+        direction TB
+        SS["Random 256-bit share_secret\n(in URL fragment)"]
+        SS --> SHKDF["HKDF(share_secret) → Share X25519 Keypair"]
+        SHKDF --> SENC["ECIES(share pubkey, plaintext message)"]
+        SENC --> SBLOB["shareBlob\nstored in sharedMessages"]
+        SS --> SDEC["Visitor derives share keypair\nfrom URL fragment"]
+        SDEC --> SDECRYPT["ECIES decrypt shareBlob\n→ plaintext"]
+    end
+
+%% ═══════════════════════════════
+%% CONNECTIONS BETWEEN SUBGRAPHS
+%% ═══════════════════════════════
+
+    ACCT_PRIV -->|"unwraps epoch keys"| WRAPS
+    ACCT_PUB -->|"epoch keys wrapped for this"| WRAPS
+    EP_PUB -->|"server encrypts messages"| MSG
+    CHAIN -->|"traverse to older epochs"| DECRYPT
+    WRAPS -->|"unwrap current epoch"| DECRYPT

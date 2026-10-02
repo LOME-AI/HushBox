@@ -1,0 +1,71 @@
+appId: ai.hushbox.app
+name: OTA update prompts, applies on tap, and clears
+tags:
+  - must
+androidWebViewHierarchy: devtools
+---
+# App installed with VITE_APP_VERSION=local-mobile-test.
+# Server version overridden to ota-v2 by the orchestrator.
+# On launch useLiveUpdate sees the mismatch and raises the blocking
+# upgrade-required modal; the bundle is deliberately never applied without the
+# user tapping Update, so this flow drives that tap and proves the new bundle
+# came live.
+
+- launchApp:
+    clearState: true
+
+# useLiveUpdate fires on mount, calls /updates/current, sees ota-v2 against the
+# installed local-mobile-test, and raises the modal. 60s covers cold start plus
+# the version round-trip on the emulator. If the check never fires, this step
+# times out rather than passing vacuously.
+- extendedWaitUntil:
+    visible: 'Update Required'
+    timeout: 60000
+
+# Accept the update. The button's label is platform-dependent — `Update` on
+# Capacitor, `Refresh` on web — and this flow runs on Capacitor.
+- tapOn: 'Update'
+
+# applyUpdate downloads the bundle and calls CapacitorUpdater.set(), which
+# destroys the JS context and reloads with the new bundle. The modal's title is
+# unchanged while the download runs, so the modal going is what marks the
+# reload. Waiting for the landing text instead would be satisfied by the text
+# rendered behind the modal wherever the WebView hierarchy enumerates it, and
+# would move on with the modal still up. 60s covers download plus Capgo apply.
+- extendedWaitUntil:
+    notVisible: 'Update Required'
+    timeout: 60000
+
+# The reload leaves the WebView with nothing rendered for a moment, so the
+# landing page is waited for rather than asserted. Reaching it proves the app
+# came back up on the new bundle.
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 60000
+
+# The mount check reads the installed version, calls /updates/current and
+# compares, all after the landing page paints — an immediate assertion would
+# pass before it could raise anything. Settle first: a modal after that means
+# the bundle that came back up is still the pre-update one.
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertNotVisible: 'Update Required'
+
+# Background + foreground to trigger the onResume update check.
+- pressKey: home
+- waitForAnimationToEnd:
+    timeout: 3000
+- launchApp:
+    stopApp: false
+
+# The app is already running, so the landing text is back immediately and shows
+# only that the process resumed. The onResume check still has its readiness
+# call, version read and round trip to make before it could raise anything, so
+# settle before asserting. This covers the resume path specifically; the mount
+# path is covered above.
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 15000
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertNotVisible: 'Update Required'

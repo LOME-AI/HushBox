@@ -1,0 +1,30 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the stamp parser band inventory > generates the case set recorded for it 1`] = `
+[
+  "alt:(?:author|committer)#1 | branch 1 of 2 | endpoint | match | full | d1b67b3ccdc6a2ad",
+  "alt:(?:author|committer)#1 | branch 2 of 2 | endpoint | match | full | 0bcf1a1c83fd1092",
+  "quant:*#1 | min 0 reps | endpoint | match | full | d1b67b3ccdc6a2ad",
+  "set:.#1 | any | endpoint | match | full | 4697dd1f47ec9e57",
+  "quant:*#2 | min 0 reps | endpoint | match | full | d1b67b3ccdc6a2ad",
+  "set:.#2 | any | endpoint | match | full | 4f7b1e16a63cdbf9",
+  "quant:?#1 | min 0 reps | endpoint | match | full | d1b67b3ccdc6a2ad",
+  "quant:?#1 | max 1 reps | endpoint | match | full | 8997aa72ed26eba8",
+  "quant:+#1 | min 1 reps | endpoint | match | full | d1b67b3ccdc6a2ad",
+  "quant:+#1 | min 1 reps | outside | silent | full | 4e798c8c5a6c19a1",
+  "set:\\d#1 | digits low | endpoint | match | full | 34d467088728557b",
+  "set:\\d#1 | digits low | outside | silent | full | 538c8741fed9eb34",
+  "set:\\d#1 | digits high | endpoint | match | full | d231c89876e6490f",
+  "set:\\d#1 | digits high | outside | silent | full | 9c16af5f85101960",
+  "class:[+-]#1 | member + | endpoint | match | full | d1b67b3ccdc6a2ad",
+  "class:[+-]#1 | member - | endpoint | match | full | 50435a7003b34e53",
+  "quant:{4}#1 | min 4 reps | endpoint | match | full | d1b67b3ccdc6a2ad",
+  "quant:{4}#1 | min 4 reps | outside | silent | full | 28345fd98dc4617d",
+  "quant:{4}#1 | max 4 reps | endpoint | match | full | d1b67b3ccdc6a2ad",
+  "quant:{4}#1 | max 4 reps | outside | silent | full | 5187efb5d6cad283",
+  "set:\\d#2 | digits low | endpoint | match | full | 7a6bd56f33f9833a",
+  "set:\\d#2 | digits low | outside | silent | full | c40923762b361bc5",
+  "set:\\d#2 | digits high | endpoint | match | full | dab6ffbd240c3b81",
+  "set:\\d#2 | digits high | outside | silent | full | f7bbc3432640980b",
+]
+`;

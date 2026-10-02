@@ -1,0 +1,35 @@
+{
+  "detectHtml/marketing-page.html": [
+    "broken-image|<fixtures>/marketing-page.html|0",
+    "dark-glow|<fixtures>/marketing-page.html|0",
+    "flat-type-hierarchy|<fixtures>/marketing-page.html|0",
+    "low-contrast|<fixtures>/marketing-page.html|0",
+    "low-contrast|<fixtures>/marketing-page.html|0",
+    "low-contrast|<fixtures>/marketing-page.html|0",
+    "low-contrast|<fixtures>/marketing-page.html|0",
+    "low-contrast|<fixtures>/marketing-page.html|0",
+    "low-contrast|<fixtures>/marketing-page.html|0",
+    "low-contrast|<fixtures>/marketing-page.html|0",
+    "marketing-buzzword|<fixtures>/marketing-page.html|0",
+    "numbered-section-markers|<fixtures>/marketing-page.html|0",
+    "overused-font|<fixtures>/marketing-page.html|0",
+    "side-tab|<fixtures>/marketing-page.html|0"
+  ],
+  "detectText/marketing-page.html": [
+    "broken-image|<fixtures>/marketing-page.html|24",
+    "dark-glow|<fixtures>/marketing-page.html|12",
+    "flat-type-hierarchy|<fixtures>/marketing-page.html|8",
+    "marketing-buzzword|<fixtures>/marketing-page.html|0",
+    "numbered-section-markers|<fixtures>/marketing-page.html|0",
+    "overused-font|<fixtures>/marketing-page.html|7",
+    "side-tab|<fixtures>/marketing-page.html|11",
+    "single-font|<fixtures>/marketing-page.html|7"
+  ],
+  "detectText/component-styles.css": [
+    "border-accent-on-rounded|<fixtures>/component-styles.css|6",
+    "bounce-easing|<fixtures>/component-styles.css|16",
+    "layout-transition|<fixtures>/component-styles.css|17",
+    "overused-font|<fixtures>/component-styles.css|11",
+    "side-tab|<fixtures>/component-styles.css|2"
+  ]
+}

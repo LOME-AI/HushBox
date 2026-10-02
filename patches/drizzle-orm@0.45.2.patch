@@ -1,0 +1,102 @@
+diff --git a/neon-serverless/session.cjs b/neon-serverless/session.cjs
+index f6414fa06608a63e5fec5a89ffbe9c8e447bc4c4..8c7f7ecde7044e9d4d9efa650c08aeb6e376cbed 100644
+--- a/neon-serverless/session.cjs
++++ b/neon-serverless/session.cjs
+@@ -197,20 +197,44 @@ class NeonSession extends import_session.PgSession {
+       res["rows"][0]["count"]
+     );
+   }
++  // HushBox patch: drizzle-orm awaits `begin` outside the try/finally that
++  // releases the checked-out client, so when `begin` rejects (a login the server
++  // refuses, which the Neon driver's pipelined connect reports on the first
++  // statement) the client is never released: the pool keeps it forever, `end()`
++  // never settles, and the server's close of the refused session escapes as an
++  // unhandled "Connection terminated unexpectedly". Upstream:
++  // https://github.com/drizzle-team/drizzle-orm/issues/6023 and
++  // https://github.com/drizzle-team/drizzle-orm/issues/6341 (both report this
++  // order for node-postgres; this neon-serverless session carries the same one).
++  // This patch runs `begin` inside the try. When `begin` rejects, no `rollback`
++  // is sent and the client is released with the error, so the pool destroys it,
++  // and the `begin` error propagates unchanged. A transaction whose `begin`
++  // succeeds runs exactly as before.
++  // Remove this patch once a drizzle-orm release's neon-serverless `transaction`
++  // releases the client when `begin` fails, shown by the refused-login tests in
++  // apps/api/src/lib/context/factories.integration.test.ts passing on that
++  // release without it.
+   async transaction(transaction, config = {}) {
+     const session = this.client instanceof import_serverless.Pool ? new NeonSession(await this.client.connect(), this.dialect, this.schema, this.options) : this;
+     const tx = new NeonTransaction(this.dialect, session, this.schema);
+-    await tx.execute(import_sql.sql`begin ${tx.getTransactionConfigSQL(config)}`);
++    let begun = false;
++    let releaseError;
+     try {
++      await tx.execute(import_sql.sql`begin ${tx.getTransactionConfigSQL(config)}`);
++      begun = true;
+       const result = await transaction(tx);
+       await tx.execute(import_sql.sql`commit`);
+       return result;
+     } catch (error) {
++      if (!begun) {
++        releaseError = error;
++        throw error;
++      }
+       await tx.execute(import_sql.sql`rollback`);
+       throw error;
+     } finally {
+       if (this.client instanceof import_serverless.Pool) {
+-        session.client.release();
++        session.client.release(releaseError);
+       }
+     }
+   }
+diff --git a/neon-serverless/session.js b/neon-serverless/session.js
+index 9a2d220e4bdc126c91a764b4afb8108ec2235cbe..b50b8eccd70b26b918b702801eedb7a78b43a983 100644
+--- a/neon-serverless/session.js
++++ b/neon-serverless/session.js
+@@ -175,20 +175,44 @@ class NeonSession extends PgSession {
+       res["rows"][0]["count"]
+     );
+   }
++  // HushBox patch: drizzle-orm awaits `begin` outside the try/finally that
++  // releases the checked-out client, so when `begin` rejects (a login the server
++  // refuses, which the Neon driver's pipelined connect reports on the first
++  // statement) the client is never released: the pool keeps it forever, `end()`
++  // never settles, and the server's close of the refused session escapes as an
++  // unhandled "Connection terminated unexpectedly". Upstream:
++  // https://github.com/drizzle-team/drizzle-orm/issues/6023 and
++  // https://github.com/drizzle-team/drizzle-orm/issues/6341 (both report this
++  // order for node-postgres; this neon-serverless session carries the same one).
++  // This patch runs `begin` inside the try. When `begin` rejects, no `rollback`
++  // is sent and the client is released with the error, so the pool destroys it,
++  // and the `begin` error propagates unchanged. A transaction whose `begin`
++  // succeeds runs exactly as before.
++  // Remove this patch once a drizzle-orm release's neon-serverless `transaction`
++  // releases the client when `begin` fails, shown by the refused-login tests in
++  // apps/api/src/lib/context/factories.integration.test.ts passing on that
++  // release without it.
+   async transaction(transaction, config = {}) {
+     const session = this.client instanceof Pool ? new NeonSession(await this.client.connect(), this.dialect, this.schema, this.options) : this;
+     const tx = new NeonTransaction(this.dialect, session, this.schema);
+-    await tx.execute(sql`begin ${tx.getTransactionConfigSQL(config)}`);
++    let begun = false;
++    let releaseError;
+     try {
++      await tx.execute(sql`begin ${tx.getTransactionConfigSQL(config)}`);
++      begun = true;
+       const result = await transaction(tx);
+       await tx.execute(sql`commit`);
+       return result;
+     } catch (error) {
++      if (!begun) {
++        releaseError = error;
++        throw error;
++      }
+       await tx.execute(sql`rollback`);
+       throw error;
+     } finally {
+       if (this.client instanceof Pool) {
+-        session.client.release();
++        session.client.release(releaseError);
+       }
+     }
+   }

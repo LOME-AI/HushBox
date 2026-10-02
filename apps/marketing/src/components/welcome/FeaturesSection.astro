@@ -1,0 +1,30 @@
+---
+import { COMING_SOON_FEATURES, SHIPPED_FEATURES } from '@hushbox/shared';
+import FeatureCard from '../FeatureCard.astro';
+import SectionHeading from '../SectionHeading.astro';
+import { lucideIconSvg } from '../../lib/lucide-icon';
+import WelcomeSection from './WelcomeSection.astro';
+---
+
+<WelcomeSection reveal>
+  <SectionHeading>Everything you need</SectionHeading>
+  <div class="mt-12 flex flex-wrap justify-center gap-3">
+    {
+      SHIPPED_FEATURES.map((feature) => (
+        <FeatureCard name={feature.name} description={feature.description}>
+          <Fragment slot="icon" set:html={lucideIconSvg(feature.lucideIcon)} />
+        </FeatureCard>
+      ))
+    }
+  </div>
+  <p class="text-foreground mt-10 text-center text-sm font-semibold">Coming Soon</p>
+  <div class="mt-4 flex flex-wrap justify-center gap-3">
+    {
+      COMING_SOON_FEATURES.map((feature) => (
+        <FeatureCard name={feature.name} comingSoon>
+          <Fragment slot="icon" set:html={lucideIconSvg(feature.lucideIcon)} />
+        </FeatureCard>
+      ))
+    }
+  </div>
+</WelcomeSection>

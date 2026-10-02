@@ -1,0 +1,3 @@
+# The marketing site, built a second time and copied here by the admin-preview
+# task so the admin bundler carries it into the dist the assets Worker serves.
+preview/

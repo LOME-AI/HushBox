@@ -1,0 +1,398 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook } from '@testing-library/react';
+import {
+  createModelStoreStub,
+  selectorFromState,
+  type ModelStoreStub,
+} from '@/test-utils/model-store-mock';
+import { useModelStore } from '@/stores/model';
+import { useResolveDefaultModel } from '@/hooks/models/use-resolve-default-model';
+
+vi.mock('@/lib/auth/auth', () => ({
+  useSession: vi.fn(),
+}));
+
+// A double, not a second implementation: each test states what is KNOWN about
+// the payer's funding — served, awaiting, exhausted, or no door at all. Which
+// credential opens which door, and how a query settles into one of those
+// answers, is pinned where it lives, in `use-spendable.test.ts`.
+vi.mock('@/hooks/billing/use-spendable.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/billing/use-spendable.js')>()),
+  useFundingRead: vi.fn(),
+}));
+
+vi.mock('@/hooks/models/models.js', () => ({
+  useModels: vi.fn(),
+}));
+
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  return {
+    ...actual,
+    useModelStore: vi.fn(),
+  };
+});
+
+import { useSession } from '@/lib/auth/auth';
+import { useFundingRead } from '@/hooks/billing/use-spendable.js';
+import { useModels } from '@/hooks/models/models.js';
+import type { FundingRead } from '@/hooks/billing/use-spendable.js';
+import type { SelectedModelEntry } from '@/stores/model';
+import type { Model, ChatModality } from '@hushbox/shared';
+
+const mockedUseSession = vi.mocked(useSession);
+const mockedUseFundingRead = vi.mocked(useFundingRead);
+
+/** A landed read of the payer's snapshot at the given tier. */
+function servedTier(
+  tier: 'paid' | 'free' | 'trial' | 'guest',
+  payer: 'self' | 'owner' = 'self'
+): FundingRead {
+  return {
+    status: 'served',
+    snapshot: {
+      spendableNanoUsd: '0',
+      heldNanoUsd: '0',
+      payerTier: tier,
+      payer,
+      ownerFundingLimit: payer === 'owner' ? 'member_allocation' : null,
+    },
+  };
+}
+
+/** A door-holder's read still in flight. */
+const AWAITING: FundingRead = { status: 'awaiting', snapshot: undefined };
+
+/** A door-holder's read that has exhausted its retries and will not land. */
+const UNAVAILABLE: FundingRead = { status: 'unavailable', snapshot: undefined };
+
+/** A caller with no funding door at all — the trial, and any unscoped guest read. */
+const NO_DOOR: FundingRead = { status: 'no-door', snapshot: undefined };
+
+/**
+ * Serve `read` to exactly one funding scope and `otherwise` to every other, so
+ * a hook reading the wrong scope reads a different tier and the assertion
+ * moves.
+ */
+function servedByScope(scope: string | null, read: FundingRead, otherwise: FundingRead): void {
+  mockedUseFundingRead.mockImplementation((_isAuthenticated, conversationId) =>
+    conversationId === scope ? read : otherwise
+  );
+}
+const mockedUseModels = vi.mocked(useModels);
+const mockedUseModelStore = vi.mocked(useModelStore);
+
+const modelList: Model[] = [
+  {
+    id: 'imagen-cheap',
+    name: 'Imagen Cheap',
+    description: 'Cheap image model',
+    provider: 'Google',
+    modality: 'image',
+    contextLength: 0,
+    supportedParameters: [],
+    created: Math.floor(Date.now() / 1000),
+    pricing: { perImage: '20000000' },
+  },
+  {
+    id: 'imagen-premium',
+    name: 'Imagen Premium',
+    description: 'Premium image model',
+    provider: 'Google',
+    modality: 'image',
+    contextLength: 0,
+    supportedParameters: [],
+    created: Math.floor(Date.now() / 1000),
+    pricing: { perImage: '120000000' },
+  },
+  {
+    id: 'claude',
+    name: 'Claude',
+    description: 'Text model',
+    provider: 'Anthropic',
+    modality: 'text',
+    contextLength: 200_000,
+    supportedParameters: [],
+    created: Math.floor(Date.now() / 1000),
+    pricing: { inputPerToken: '3000', outputPerToken: '15000' },
+  },
+];
+
+function imageModel(id: string, name: string, popularityRank?: number): Model {
+  return {
+    id,
+    name,
+    description: 'Image model',
+    provider: 'Test',
+    modality: 'image',
+    contextLength: 0,
+    supportedParameters: [],
+    created: Math.floor(Date.now() / 1000),
+    pricing: { perImage: '20000000' },
+    ...(popularityRank === undefined ? {} : { popularityRank }),
+  };
+}
+
+const mockSetSelectedModels = vi.fn();
+
+function buildState(
+  overrides: Partial<Record<ChatModality, SelectedModelEntry[]>> = {}
+): ModelStoreStub {
+  return createModelStoreStub({
+    selections: {
+      text: overrides.text ?? [{ id: 'smart-model', name: 'Smart Model' }],
+      image: overrides.image ?? [],
+      audio: overrides.audio ?? [],
+      video: overrides.video ?? [],
+    },
+    setSelectedModels: mockSetSelectedModels,
+  });
+}
+
+function stubStore(state: ModelStoreStub): void {
+  mockedUseModelStore.mockImplementation(selectorFromState(state) as typeof useModelStore);
+}
+
+describe('useResolveDefaultModel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedUseSession.mockReturnValue({
+      data: { user: { id: 'u1' } },
+      isPending: false,
+    } as ReturnType<typeof useSession>);
+    mockedUseFundingRead.mockReturnValue(servedTier('paid'));
+    mockedUseModels.mockReturnValue({
+      data: { models: modelList, premiumIds: new Set(['imagen-premium']) },
+    } as ReturnType<typeof useModels>);
+    stubStore(buildState());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('does nothing for text modality (text is always seeded with Smart Model)', () => {
+    renderHook(() => {
+      useResolveDefaultModel('text', null);
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when selections[modality] already has entries', () => {
+    stubStore(buildState({ image: [{ id: 'imagen-cheap', name: 'Imagen Cheap' }] }));
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while models data has not loaded', () => {
+    mockedUseModels.mockReturnValue({ data: undefined } as ReturnType<typeof useModels>);
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('auto-picks first available image model for a paid user', () => {
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [
+      { id: 'imagen-cheap', name: 'Imagen Cheap' },
+    ]);
+  });
+
+  it('filters out premium models when user has no balance', () => {
+    mockedUseFundingRead.mockReturnValue(servedTier('free'));
+    stubStore(buildState());
+    // Only non-premium model should be available
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [
+      { id: 'imagen-cheap', name: 'Imagen Cheap' },
+    ]);
+  });
+
+  it('does nothing when only premium models exist and user cannot access premium', () => {
+    mockedUseFundingRead.mockReturnValue(servedTier('free'));
+    mockedUseModels.mockReturnValue({
+      data: {
+        models: modelList.filter((m) => m.id === 'imagen-premium' || m.modality === 'text'),
+        premiumIds: new Set(['imagen-premium']),
+      },
+    } as ReturnType<typeof useModels>);
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('does nothing for modalities without any matching models (e.g., audio)', () => {
+    renderHook(() => {
+      useResolveDefaultModel('audio', null);
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('does nothing while session is still pending', () => {
+    mockedUseSession.mockReturnValue({ data: undefined, isPending: true } as unknown as ReturnType<
+      typeof useSession
+    >);
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when authenticated user is waiting for balance', () => {
+    mockedUseFundingRead.mockReturnValue(AWAITING);
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('seeds no default when the payer read is exhausted', () => {
+    mockedUseFundingRead.mockReturnValue(UNAVAILABLE);
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    // Same outcome as an in-flight read, for a different reason: this one will
+    // not land on its own. Seeding anyway is worse than the wait, because the
+    // resolver runs once, only while the selection is empty, so a default
+    // chosen without the payer's tier would sit below it permanently.
+    expect(mockSetSelectedModels).not.toHaveBeenCalled();
+  });
+
+  it('breaks a popularity-rank tie by ascending model id', () => {
+    mockedUseModels.mockReturnValue({
+      data: {
+        models: [imageModel('img-b', 'Img B', 5), imageModel('img-a', 'Img A', 5)],
+        premiumIds: new Set<string>(),
+      },
+    } as ReturnType<typeof useModels>);
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [{ id: 'img-a', name: 'Img A' }]);
+  });
+
+  it('prefers a ranked model over an unranked one', () => {
+    mockedUseModels.mockReturnValue({
+      data: {
+        models: [
+          imageModel('img-unranked', 'Img Unranked'),
+          imageModel('img-ranked', 'Img Ranked', 2),
+        ],
+        premiumIds: new Set<string>(),
+      },
+    } as ReturnType<typeof useModels>);
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [
+      { id: 'img-ranked', name: 'Img Ranked' },
+    ]);
+  });
+
+  it('prefers the lower popularity rank when two models are ranked', () => {
+    mockedUseModels.mockReturnValue({
+      data: {
+        models: [imageModel('img-low', 'Img Low', 1), imageModel('img-high', 'Img High', 9)],
+        premiumIds: new Set<string>(),
+      },
+    } as ReturnType<typeof useModels>);
+    renderHook(() => {
+      useResolveDefaultModel('image', null);
+    });
+    expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [
+      { id: 'img-low', name: 'Img Low' },
+    ]);
+  });
+
+  describe('the payer, not the sender, decides which default is reachable', () => {
+    /** Nothing but a premium model, so premium access alone decides the outcome. */
+    function premiumOnlyCatalog(): void {
+      mockedUseModels.mockReturnValue({
+        data: {
+          models: modelList.filter((m) => m.id === 'imagen-premium' || m.modality === 'text'),
+          premiumIds: new Set(['imagen-premium']),
+        },
+      } as ReturnType<typeof useModels>);
+    }
+
+    it("picks an owner-funded member's default from the owner's paid tier", () => {
+      premiumOnlyCatalog();
+      servedByScope('conv-owner', servedTier('paid', 'owner'), servedTier('free'));
+
+      renderHook(() => {
+        useResolveDefaultModel('image', 'conv-owner');
+      });
+
+      expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [
+        { id: 'imagen-premium', name: 'Imagen Premium' },
+      ]);
+    });
+
+    it("picks an owner-funded link guest's default from the owner's paid tier", () => {
+      mockedUseSession.mockReturnValue({ data: null, isPending: false } as ReturnType<
+        typeof useSession
+      >);
+      premiumOnlyCatalog();
+      // A guest is an unauthenticated caller reading the door its credential
+      // grants inside one conversation. The unscoped door is closed to it,
+      // which is exactly what made the guest resolve as if the owner had no
+      // premium access.
+      servedByScope('conv-shared', servedTier('paid', 'owner'), NO_DOOR);
+
+      renderHook(() => {
+        useResolveDefaultModel('image', 'conv-shared');
+      });
+
+      expect(mockedUseFundingRead).toHaveBeenCalledWith(false, 'conv-shared');
+      expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [
+        { id: 'imagen-premium', name: 'Imagen Premium' },
+      ]);
+    });
+
+    it('waits for the payer snapshot of a link guest instead of defaulting below it', () => {
+      mockedUseSession.mockReturnValue({ data: null, isPending: false } as ReturnType<
+        typeof useSession
+      >);
+      mockedUseModels.mockReturnValue({
+        data: {
+          models: [
+            imageModel('imagen-premium', 'Imagen Premium', 0),
+            imageModel('imagen-cheap', 'Imagen Cheap', 1),
+          ],
+          premiumIds: new Set(['imagen-premium']),
+        },
+      } as ReturnType<typeof useModels>);
+      servedByScope('conv-shared', AWAITING, NO_DOOR);
+
+      renderHook(() => {
+        useResolveDefaultModel('image', 'conv-shared');
+      });
+
+      // Choosing now would seed the cheaper model permanently: the resolver
+      // runs once, only while the selection is empty.
+      expect(mockSetSelectedModels).not.toHaveBeenCalled();
+    });
+
+    it('leaves a solo self-funded caller reading its own unscoped door', () => {
+      premiumOnlyCatalog();
+      servedByScope(null, servedTier('paid'), servedTier('free'));
+
+      renderHook(() => {
+        useResolveDefaultModel('image', null);
+      });
+
+      expect(mockedUseFundingRead).toHaveBeenCalledWith(true, null);
+      expect(mockSetSelectedModels).toHaveBeenCalledWith('image', [
+        { id: 'imagen-premium', name: 'Imagen Premium' },
+      ]);
+    });
+  });
+});

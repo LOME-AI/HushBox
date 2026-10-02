@@ -1,0 +1,7 @@
+/* The app's own entry stylesheet, so the filters are measured under the cascade they ship in:
+   the theme tokens, the text-size classes and the pointer variant included. */
+@import '../../../app.css';
+
+/* The fixture's root is this folder, so the filters' and the page body's classes are named here. */
+@source '../usage-filters.tsx';
+@source '../../shared/page-body.tsx';

@@ -1,0 +1,41 @@
+{
+  "name": "@hushbox/crawler-view",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx ../../scripts/with-env.ts tsx ../../scripts/run-package-tests.ts",
+    "test:watch": "tsx ../../scripts/with-env.ts tsx ../../scripts/package-vitest.ts"
+  },
+  "dependencies": {
+    "@hushbox/shared": "workspace:*",
+    "@hushbox/ui": "workspace:*",
+    "css-select": "^7.0.0",
+    "domhandler": "^6.0.1",
+    "domutils": "^4.0.2",
+    "htmlparser2": "^12.0.0",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@hushbox/config": "workspace:*",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "eslint": "^9.39.4",
+    "happy-dom": "^20.11.0",
+    "typescript": "catalog:",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.10"
+  }
+}

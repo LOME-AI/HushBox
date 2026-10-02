@@ -1,0 +1,227 @@
+erDiagram
+    users {
+        text id PK
+        text email UK
+        text username UK
+        boolean emailVerified
+        text emailVerifyToken
+        timestamptz emailVerifyExpires
+        bytea opaqueRegistration
+        bytea publicKey
+        bytea passwordWrappedPrivateKey
+        bytea recoveryWrappedPrivateKey
+        bytea totpSecretEncrypted
+        boolean totpEnabled
+        boolean hasAcknowledgedPhrase
+        timestamptz createdAt
+        timestamptz updatedAt
+    }
+
+    wallets {
+        text id PK
+        text userId FK
+        text type
+        numeric balance
+        integer priority
+        timestamptz createdAt
+    }
+
+    ledger_entries {
+        text id PK
+        text walletId FK
+        numeric amount
+        numeric balanceAfter
+        text entryType
+        text paymentId FK "nullable - CHECK exactly one non-null"
+        text usageRecordId FK "nullable"
+        text sourceWalletId FK "nullable"
+        timestamptz createdAt
+    }
+
+    usage_records {
+        text id PK
+        text userId FK "nullable - SET NULL on user delete"
+        text type
+        text status
+        numeric cost
+        text sourceType
+        text sourceId
+        timestamptz createdAt
+        timestamptz completedAt
+    }
+
+    llmCompletions {
+        text id PK
+        text usageRecordId UK "one-to-one with parent"
+        text model
+        text provider
+        integer inputTokens
+        integer outputTokens
+        integer cachedTokens
+    }
+
+    projects {
+        text id PK
+        text userId FK
+        bytea encryptedName
+        bytea encryptedDescription
+        timestamptz createdAt
+        timestamptz updatedAt
+    }
+
+    conversations {
+        text id PK
+        text userId FK "owner"
+        text projectId FK "nullable"
+        bytea title
+        integer titleEpochNumber
+        integer currentEpoch
+        integer nextSequence
+        boolean rotationPending
+        numeric perPersonBudget "nullable"
+        numeric conversationBudget "nullable"
+        timestamptz createdAt
+        timestamptz updatedAt
+    }
+
+    conversationMembers {
+        text id PK
+        text conversationId FK
+        text userId FK "nullable - set for users"
+        text linkId FK "nullable - set for links"
+        text privilege
+        integer visibleFromEpoch
+        timestamptz joinedAt
+        timestamptz leftAt "nullable - soft delete"
+    }
+
+    pendingRemovals {
+        text id PK
+        text conversationId FK
+        text memberId FK "FK to conversationMembers"
+        text requestedBy FK "nullable - FK to users"
+        timestamptz createdAt
+    }
+
+    epochs {
+        text id PK
+        text conversationId FK
+        integer epochNumber
+        bytea epochPublicKey
+        bytea confirmationHash
+        bytea chainLink "nullable - NULL for epoch 1"
+        timestamptz createdAt
+    }
+
+    epochMembers {
+        text id PK
+        text epochId FK
+        bytea memberPublicKey UK "32B X25519"
+        bytea wrap
+        text privilege
+        integer visibleFromEpoch
+        timestamptz createdAt
+    }
+
+    sharedLinks {
+        text id PK
+        text conversationId FK
+        bytea linkPublicKey
+        text privilege
+        integer visibleFromEpoch
+        timestamptz revokedAt "nullable"
+        timestamptz createdAt
+    }
+
+    messages {
+        text id PK
+        text conversationId FK
+        bytea encryptedBlob
+        text senderType
+        text senderId "nullable"
+        text senderDisplayName "nullable"
+        text payerId "nullable"
+        integer epochNumber
+        integer sequenceNumber
+        timestamptz createdAt
+    }
+
+    sharedMessages {
+        text id PK
+        text messageId FK
+        bytea shareBlob
+        timestamptz createdAt
+    }
+
+    memberBudgets {
+        text id PK
+        text memberId UK "FK to conversationMembers"
+        numeric budget
+        numeric spent
+        timestamptz createdAt
+    }
+
+    conversationSpending {
+        text id PK
+        text conversationId UK
+        numeric totalSpent
+        timestamptz updatedAt
+    }
+
+    payments {
+        text id PK
+        text userId FK "nullable - SET NULL on user delete"
+        numeric amount
+        text status
+        text idempotencyKey
+        text helcimTransactionId UK
+        text cardType
+        text cardLastFour
+        text errorMessage
+        timestamptz createdAt
+        timestamptz updatedAt
+        timestamptz webhookReceivedAt
+    }
+
+    serviceEvidence {
+        text id PK
+        text service
+        jsonb details
+        timestamptz createdAt
+    }
+
+%% OWNERSHIP
+    users ||--o{ wallets : "has wallets"
+    users ||--o{ projects : "owns"
+    users ||--o{ conversations : "owns"
+    users ||--o{ usage_records : "incurred"
+    users ||--o{ payments : "made"
+
+%% FINANCIAL - three nullable FKs on ledger_entries
+    wallets ||--o{ ledger_entries : "wallet movements"
+    payments ||--o{ ledger_entries : "deposit entries"
+    usage_records ||--o{ ledger_entries : "charge and refund entries"
+
+%% USAGE RECORD INHERITANCE
+    usage_records ||--o| llmCompletions : "LLM details"
+
+%% CONVERSATION STRUCTURE
+    projects ||--o{ conversations : "contains"
+    conversations ||--o{ conversationMembers : "has members"
+    conversations ||--o{ epochs : "has epochs"
+    conversations ||--o{ messages : "contains"
+    conversations ||--o{ sharedLinks : "has links"
+    conversations ||--o{ pendingRemovals : "queues removals"
+    conversations ||--o| conversationSpending : "tracks spending"
+
+%% MEMBERSHIP LAYER
+    users ||--o{ conversationMembers : "member as user"
+    sharedLinks ||--o{ conversationMembers : "member as link"
+    conversationMembers ||--o| memberBudgets : "has budget"
+    conversationMembers ||--o{ pendingRemovals : "pending removal"
+
+%% CRYPTO LAYER
+    epochs ||--o{ epochMembers : "distributes keys to"
+
+%% MESSAGE SHARING
+    messages ||--o{ sharedMessages : "shared as"

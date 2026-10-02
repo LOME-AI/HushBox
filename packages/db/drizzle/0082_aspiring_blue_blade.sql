@@ -1,0 +1,1 @@
+ALTER TABLE "growth_hourly_funnel" ADD COLUMN "overflow" boolean DEFAULT false NOT NULL;

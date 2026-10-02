@@ -1,0 +1,2 @@
+#!/bin/sh
+tsx scripts/normalize-commit-date.ts

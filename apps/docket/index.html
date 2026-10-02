@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <!-- Paint the theme background before app CSS loads so there is no white
+         flash on a dark-mode cold load. Values mirror the --background token in
+         packages/config/tailwind/index.css. -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        background-color: #faf9f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background-color: #1a1816;
+        }
+      }
+    </style>
+    <title>HushBox Docket</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

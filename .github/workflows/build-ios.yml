@@ -1,0 +1,174 @@
+name: Build iOS
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+        description: 'The commit to build: the one the release tag points at, never the dispatched head.'
+      version-name:
+        required: true
+        type: string
+      version-code:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      privacy-policy-effective-date:
+        required: true
+        type: string
+        description: 'Derived by the caller from the release tags; never typed by a person.'
+      terms-of-service-effective-date:
+        required: true
+        type: string
+        description: 'Derived by the caller from the release tags; never typed by a person.'
+      output:
+        required: true
+        type: string
+        description: '"testflight" | "app-store-submit" | "ipa-artifact"'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    environment: production
+    # Every step below is a process of its own, so none of them inherits the
+    # mode from the step that generated its env file. This job builds what
+    # ships, and production is the one mode that runs no stack: naming it here
+    # is what makes each build resolve production instead of refusing for want
+    # of a mode.
+    env:
+      HB_ENV_MODE: production
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup
+
+      - name: Generate production environment file
+        run: pnpm generate:env --mode=production
+        # BEGIN GENERATED: production-env-ios
+        env:
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          VITE_HELCIM_JS_TOKEN_PRODUCTION: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_APP_VERSION: ${{ inputs.version }}
+          VITE_PRIVACY_POLICY_EFFECTIVE_DATE: ${{ inputs.privacy-policy-effective-date }}
+          VITE_TERMS_OF_SERVICE_EFFECTIVE_DATE: ${{ inputs.terms-of-service-effective-date }}
+        # END GENERATED: production-env-ios
+
+      - name: Verify production environment
+        run: pnpm verify:env --mode=production
+
+      - name: Build web for iOS
+        run: pnpm --filter web build
+        # BEGIN GENERATED: build-env-ios
+        env:
+          VITE_SANDBOX_ORIGIN_URL: https://sandbox.hushbox.ai
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          VITE_API_URL: https://api.hushbox.ai
+          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_PLATFORM: ios
+          VITE_APP_VERSION: ${{ inputs.version }}
+          VITE_PRIVACY_POLICY_EFFECTIVE_DATE: ${{ inputs.privacy-policy-effective-date }}
+          VITE_TERMS_OF_SERVICE_EFFECTIVE_DATE: ${{ inputs.terms-of-service-effective-date }}
+          VITE_WEB_URL: https://hushbox.ai
+        # END GENERATED: build-env-ios
+
+      # `cap sync` copies this dist into the Xcode project, so the bundle guard
+      # runs on the build above. The step needs no env block.
+      #
+      # This bundle is compiled into the application binary and served there by
+      # the web view, which is no HTTP origin: the check is told so, because the
+      # output directory it is in cannot say it.
+      - name: Verify web bundle
+        run: pnpm verify:bundle --not-served-over-http
+
+      # The platform flag is compiled into the JavaScript and is invisible in the
+      # archive afterwards: a web-flagged bundle inside an IPA leaves `isNative()`
+      # false, so the splash screen is never dismissed and the app shows nothing
+      # else, permanently. The first check is what keeps the second honest — a
+      # bundle carrying no stamp at all would otherwise pass it by saying nothing.
+      - name: Assert the bundle carries a native platform flag
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          # Whether the key is quoted and which delimiter carries the value are
+          # the printer's choice, not the stamp's: the minified build emits
+          # VITE_PLATFORM:`ios` while an unminified one emits "VITE_PLATFORM":
+          # "ios". Requiring a delimited value is what keeps the bundle's own
+          # `frontendEnvSchema` field and its member accesses, which carry the
+          # same key and no stamp, from satisfying the first check.
+          q="[\"'\`]"
+          stamp="${q}?VITE_PLATFORM${q}?[[:space:]]*:[[:space:]]*${q}"
+          if ! grep -rlE "${stamp}[a-z-]+${q}" dist >/dev/null; then
+            echo "::error::the built bundle carries no VITE_PLATFORM stamp, so this check can no longer tell an iOS build from a web one"
+            exit 1
+          fi
+          if grep -rlE "${stamp}web${q}" dist >/dev/null; then
+            echo "::error::the bundle about to be synced into the Xcode project was built for the web platform; an iOS archive built from it never leaves its splash screen"
+            exit 1
+          fi
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: apps/web/ios
+
+      - name: Generate platform assets
+        working-directory: apps/web
+        run: pnpm asset:sync
+
+      - name: Sync iOS
+        working-directory: apps/web
+        run: pnpm cap:sync ios
+
+      - name: Set iOS version
+        working-directory: apps/web/ios/App
+        run: |
+          agvtool new-marketing-version "$VERSION_NAME"
+          agvtool new-version -all "$VERSION_CODE"
+        env:
+          VERSION_NAME: ${{ inputs.version-name }}
+          VERSION_CODE: ${{ inputs.version-code }}
+
+      # ── output=ipa-artifact ───────────────────────────────
+      - name: Build IPA only
+        if: inputs.output == 'ipa-artifact'
+        working-directory: apps/web/ios
+        run: bundle exec fastlane build
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+
+      - name: Upload IPA as workflow artifact
+        if: inputs.output == 'ipa-artifact'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: HushBox-ipa-v${{ inputs.version-name }}
+          path: apps/web/ios/build/HushBox.ipa
+          if-no-files-found: error
+
+      # ── output=testflight | app-store-submit ──────────────
+      - name: Build and upload to App Store Connect
+        if: inputs.output == 'testflight' || inputs.output == 'app-store-submit'
+        working-directory: apps/web/ios
+        run: bundle exec fastlane release submit_for_review:"$SUBMIT_FOR_REVIEW"
+        env:
+          SUBMIT_FOR_REVIEW: ${{ inputs.output == 'app-store-submit' }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}

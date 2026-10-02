@@ -1,0 +1,18 @@
+---
+import { VALUE_BLOCKS } from '../lib/word-blocks';
+import WordBlock from './WordBlock.astro';
+---
+
+<div class="flex flex-col gap-6 wrap-break-word md:flex-row md:flex-wrap md:*:flex-1">
+  {
+    VALUE_BLOCKS.map((block) => (
+      <WordBlock
+        tone="value"
+        icon={block.icon}
+        title={block.title}
+        text={block.text}
+        headingLevel={2}
+      />
+    ))
+  }
+</div>

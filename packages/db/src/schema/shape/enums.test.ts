@@ -1,0 +1,227 @@
+import { describe, it, expect } from 'vitest';
+import { isPgEnum } from 'drizzle-orm/pg-core';
+import {
+  ACQUISITION_PLATFORMS,
+  EXCLUDE_REASONS,
+  FEEDBACK_KINDS,
+  FEEDBACK_STATUSES,
+  LEDGER_ENTRY_KINDS,
+  MEMBER_PRIVILEGES,
+  MODALITIES,
+  NEWSLETTER_CONSENT_SOURCES,
+  NEWSLETTER_DELIVERY_STATUSES,
+  NEWSLETTER_ISSUE_STATUSES,
+  NEWSLETTER_STATUSES,
+  NEWSLETTER_SUPPRESS_REASONS,
+  PAYMENT_STATUSES,
+  RESOLVED_REASONING_EFFORTS,
+} from '@hushbox/shared';
+
+import * as schema from '../index';
+import {
+  adminRoleEnum,
+  contentItemTypeEnum,
+  devicePlatformEnum,
+  feedbackKindEnum,
+  feedbackStatusEnum,
+  growthCampaignStatusEnum,
+  growthChannelEnum,
+  growthDeviceEnum,
+  growthFunnelStepEnum,
+  growthGrainEnum,
+  growthSelfReportContextEnum,
+  houseAccountEnum,
+  idempotencyKeyKindEnum,
+  idempotencyKeyStatusEnum,
+  jobShardEnum,
+  jobStatusEnum,
+  ledgerEntryKindEnum,
+  memberPrivilegeEnum,
+  messageSenderTypeEnum,
+  modalityEnum,
+  modelExcludeReasonEnum,
+  newsletterConsentSourceEnum,
+  newsletterDeliveryStatusEnum,
+  newsletterIssueStatusEnum,
+  newsletterStatusEnum,
+  newsletterSuppressReasonEnum,
+  paymentStatusEnum,
+  llmCompletions,
+  reasoningEffortEnum,
+  userLockReasonEnum,
+  verificationPurposeEnum,
+  walletTypeEnum,
+} from '../index';
+
+const ALL_ENUMS = [
+  adminRoleEnum,
+  contentItemTypeEnum,
+  devicePlatformEnum,
+  feedbackKindEnum,
+  feedbackStatusEnum,
+  growthCampaignStatusEnum,
+  growthChannelEnum,
+  growthDeviceEnum,
+  growthFunnelStepEnum,
+  growthGrainEnum,
+  growthSelfReportContextEnum,
+  houseAccountEnum,
+  idempotencyKeyKindEnum,
+  idempotencyKeyStatusEnum,
+  jobShardEnum,
+  jobStatusEnum,
+  ledgerEntryKindEnum,
+  memberPrivilegeEnum,
+  messageSenderTypeEnum,
+  modalityEnum,
+  modelExcludeReasonEnum,
+  newsletterConsentSourceEnum,
+  newsletterDeliveryStatusEnum,
+  newsletterIssueStatusEnum,
+  newsletterStatusEnum,
+  newsletterSuppressReasonEnum,
+  paymentStatusEnum,
+  reasoningEffortEnum,
+  userLockReasonEnum,
+  verificationPurposeEnum,
+  walletTypeEnum,
+];
+
+const schemaEnumNames = (Object.values(schema) as unknown[])
+  .filter((value) => isPgEnum(value))
+  .map((declared) => declared.enumName)
+  .toSorted((a, b) => a.localeCompare(b));
+
+/**
+ * An enum absent from ALL_ENUMS is unregistered, and every rule this file
+ * states about enums would silently skip it. Only the forward direction needs
+ * asserting: an entry naming an enum the barrel no longer exports cannot
+ * compile, because the symbol it binds would not resolve.
+ */
+describe('enum registry completeness', () => {
+  it('registers every enum in the schema barrel', () => {
+    const registered = new Set(ALL_ENUMS.map((declared) => declared.enumName));
+    expect(schemaEnumNames.filter((name) => !registered.has(name))).toEqual([]);
+  });
+});
+
+describe('pgEnums', () => {
+  it('declares every enum in the public pg schema', () => {
+    for (const e of ALL_ENUMS) {
+      expect(e.schema).toBeUndefined();
+    }
+  });
+
+  it('derives modality values from the single shared MODALITIES source', () => {
+    expect(modalityEnum.enumValues).toEqual([...MODALITIES]);
+  });
+
+  it('derives member-privilege values from the single shared MEMBER_PRIVILEGES source', () => {
+    expect(memberPrivilegeEnum.enumValues).toEqual([...MEMBER_PRIVILEGES]);
+    // Byte-identical to the deployed pg enum — a drift here would generate a migration.
+    expect(memberPrivilegeEnum.enumValues).toEqual(['read', 'write', 'admin', 'owner']);
+  });
+
+  it('derives model-exclude-reason values from the single shared EXCLUDE_REASONS source', () => {
+    expect(modelExcludeReasonEnum.enumValues).toEqual([...EXCLUDE_REASONS]);
+  });
+
+  it('derives reasoning-effort values from the single shared RESOLVED_REASONING_EFFORTS source', () => {
+    expect(reasoningEffortEnum.enumValues).toEqual([...RESOLVED_REASONING_EFFORTS]);
+  });
+
+  it('leaves the recorded reasoning effort nullable, so "does not apply" stays distinct from off', () => {
+    expect(llmCompletions.reasoningEffort.notNull).toBe(false);
+    expect(llmCompletions.reasoningEffort.enumValues).toEqual([...RESOLVED_REASONING_EFFORTS]);
+  });
+
+  it('derives feedback-kind values from the single shared FEEDBACK_KINDS source', () => {
+    expect(feedbackKindEnum.enumValues).toEqual([...FEEDBACK_KINDS]);
+  });
+
+  it('derives feedback-status values from the single shared FEEDBACK_STATUSES source', () => {
+    expect(feedbackStatusEnum.enumValues).toEqual([...FEEDBACK_STATUSES]);
+  });
+
+  it('declares the job_status state machine', () => {
+    expect(jobStatusEnum.enumValues).toEqual([
+      'pending',
+      'running',
+      'succeeded',
+      'cancelled',
+      'dead',
+    ]);
+  });
+
+  it('declares the dispatcher shards', () => {
+    expect(jobShardEnum.enumValues).toEqual(['default', 'bulk']);
+  });
+
+  it('derives ledger_entries.kind values from the single shared LEDGER_ENTRY_KINDS source', () => {
+    expect(ledgerEntryKindEnum.enumValues).toEqual([...LEDGER_ENTRY_KINDS]);
+    // Byte-identical to the deployed pg enum — a drift here would generate a migration.
+    expect(ledgerEntryKindEnum.enumValues).toEqual([
+      'deposit',
+      'charge',
+      'clawback',
+      'promo',
+      'refund',
+    ]);
+  });
+
+  it('derives payment_status values from the single shared PAYMENT_STATUSES source', () => {
+    expect(paymentStatusEnum.enumValues).toEqual([...PAYMENT_STATUSES]);
+    // Byte-identical to the deployed pg enum — a drift here would generate a migration.
+    expect(paymentStatusEnum.enumValues).toEqual([
+      'pending',
+      'awaiting_webhook',
+      'completed',
+      'failed',
+      'expired',
+    ]);
+  });
+
+  it('declares the house accounts', () => {
+    expect(houseAccountEnum.enumValues).toEqual(['revenue', 'payments-in', 'promo']);
+  });
+
+  it('declares the idempotency-key kinds', () => {
+    expect(idempotencyKeyKindEnum.enumValues).toEqual(['request', 'run']);
+  });
+
+  it('declares the idempotency-key outcome states', () => {
+    expect(idempotencyKeyStatusEnum.enumValues).toEqual(['claimed', 'succeeded', 'failed']);
+  });
+
+  it('declares one purchased and one free-tier wallet type', () => {
+    expect(walletTypeEnum.enumValues).toEqual(['purchased', 'free']);
+  });
+
+  it('declares device platforms including web push', () => {
+    expect(devicePlatformEnum.enumValues).toEqual(['ios', 'android', 'web']);
+  });
+
+  it('derives device-platform values from the single shared ACQUISITION_PLATFORMS source', () => {
+    expect(devicePlatformEnum.enumValues).toEqual([...ACQUISITION_PLATFORMS]);
+  });
+
+  it('derives newsletter-status values from the single shared NEWSLETTER_STATUSES source', () => {
+    expect(newsletterStatusEnum.enumValues).toEqual([...NEWSLETTER_STATUSES]);
+  });
+
+  it('derives newsletter-suppress-reason values from the single shared NEWSLETTER_SUPPRESS_REASONS source', () => {
+    expect(newsletterSuppressReasonEnum.enumValues).toEqual([...NEWSLETTER_SUPPRESS_REASONS]);
+  });
+
+  it('derives newsletter-issue-status values from the single shared NEWSLETTER_ISSUE_STATUSES source', () => {
+    expect(newsletterIssueStatusEnum.enumValues).toEqual([...NEWSLETTER_ISSUE_STATUSES]);
+  });
+
+  it('derives newsletter-delivery-status values from the single shared NEWSLETTER_DELIVERY_STATUSES source', () => {
+    expect(newsletterDeliveryStatusEnum.enumValues).toEqual([...NEWSLETTER_DELIVERY_STATUSES]);
+  });
+
+  it('derives newsletter-consent-source values from the single shared NEWSLETTER_CONSENT_SOURCES source', () => {
+    expect(newsletterConsentSourceEnum.enumValues).toEqual([...NEWSLETTER_CONSENT_SOURCES]);
+  });
+});

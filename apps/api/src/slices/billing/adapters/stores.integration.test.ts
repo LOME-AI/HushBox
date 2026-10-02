@@ -1,0 +1,568 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { eq, inArray } from 'drizzle-orm';
+import {
+  LOCAL_NEON_DEV_CONFIG,
+  conversationMembers,
+  conversationSpending,
+  conversations,
+  createDb,
+  ledgerEntries,
+  memberBudgets,
+  payments,
+  users,
+  wallets,
+} from '@hushbox/db';
+import { userFactory } from '@hushbox/db/factories';
+import { runSettlement } from '../../../lib/idempotency/index.js';
+import { sweepLeakedTestWallets } from '../__tests__/orphan-wallet-sweep.setup.js';
+import { requireRow } from './store-failure.js';
+import { createBillingStores } from './stores.js';
+import { seedConversationWithEpoch } from '../../../test-support/conversation-seed.js';
+
+const DATABASE_URL = process.env['DATABASE_URL'];
+if (!DATABASE_URL) {
+  throw new Error('DATABASE_URL is required for billing store integration tests');
+}
+
+const db = createDb(DATABASE_URL, { neonDev: LOCAL_NEON_DEV_CONFIG });
+const stores = createBillingStores();
+const createdWalletIds: string[] = [];
+const createdUserIds: string[] = [];
+const createdConversationIds: string[] = [];
+const BYTES = new Uint8Array([1, 2, 3]);
+let userCounter = 0;
+
+async function seedWallet(): Promise<string> {
+  const rows = await db
+    .insert(wallets)
+    .values({ userId: null, type: 'purchased', balanceNanoUsd: 0n })
+    .returning({ id: wallets.id });
+  const id = rows[0]?.id;
+  if (id === undefined) throw new Error('wallet seed failed');
+  createdWalletIds.push(id);
+  return id;
+}
+
+async function seedUser(): Promise<string> {
+  userCounter += 1;
+  const username = `blst${crypto.randomUUID().replaceAll('-', '').slice(0, 8)}${String(userCounter)}`;
+  const rows = await db
+    .insert(users)
+    .values(
+      userFactory.build({
+        email: `${username}@billing-stores.test`,
+        username,
+        opaqueRegistration: BYTES,
+        publicKey: BYTES,
+        passwordWrappedPrivateKey: BYTES,
+        recoveryWrappedPrivateKey: BYTES,
+        recoveryPublicKey: BYTES,
+      })
+    )
+    .returning({ id: users.id });
+  const id = rows[0]?.id;
+  if (id === undefined) throw new Error('user seed failed');
+  createdUserIds.push(id);
+  return id;
+}
+
+async function seedPendingPayment(
+  userId: string,
+  amountNanoUsd = 5_000_000_000n
+): Promise<{ id: string; idempotencyKey: string }> {
+  const idempotencyKey = `pay:${userId}:${crypto.randomUUID()}`;
+  const created = await runSettlement(db, (tx) =>
+    stores.insertPaymentIfAbsentWithinTx(tx, { userId, amountNanoUsd, idempotencyKey })
+  );
+  return { id: created.payment.id, idempotencyKey };
+}
+
+beforeAll(async () => {
+  await sweepLeakedTestWallets(db);
+});
+
+afterAll(async () => {
+  if (createdConversationIds.length > 0) {
+    // conversation_members, member_budgets, and conversation_spending cascade.
+    await db.delete(conversations).where(inArray(conversations.id, createdConversationIds));
+  }
+  if (createdUserIds.length > 0) {
+    await db.delete(payments).where(inArray(payments.userId, createdUserIds));
+  }
+  if (createdWalletIds.length > 0) {
+    const legRows = await db
+      .select({ transactionId: ledgerEntries.transactionId })
+      .from(ledgerEntries)
+      .where(inArray(ledgerEntries.walletId, createdWalletIds));
+    const transactionIds = [...new Set(legRows.map((row) => row.transactionId))];
+    if (transactionIds.length > 0) {
+      await db.delete(ledgerEntries).where(inArray(ledgerEntries.transactionId, transactionIds));
+    }
+    await db.delete(wallets).where(inArray(wallets.id, createdWalletIds));
+  }
+  if (createdUserIds.length > 0) {
+    await db.delete(users).where(inArray(users.id, createdUserIds));
+  }
+  await db.$client.end();
+});
+
+describe('requireRow', () => {
+  it('returns a present row', () => {
+    expect(requireRow('row', 'missing')).toBe('row');
+  });
+
+  it('throws the defect message for an absent row', () => {
+    expect(() => {
+      requireRow(undefined, 'wallet to lock does not exist');
+    }).toThrow(/wallet to lock does not exist/);
+  });
+});
+
+describe('settlement defect guards', () => {
+  it('aborts on locking a wallet that does not exist', async () => {
+    await expect(
+      runSettlement(db, (tx) => stores.lockWalletWithinTx(tx, crypto.randomUUID()))
+    ).rejects.toThrow(/wallet to lock does not exist/);
+  });
+
+  it('aborts on a balance update that hits no wallet', async () => {
+    await expect(
+      runSettlement(db, (tx) => stores.updateWalletBalanceWithinTx(tx, crypto.randomUUID(), 0n, 1n))
+    ).rejects.toThrow(/wallet balance update affected no row/);
+  });
+
+  it('rejects a ledger write with no legs', async () => {
+    await expect(
+      runSettlement(db, (tx) => stores.insertLedgerLegsWithinTx(tx, []))
+    ).rejects.toThrow(/at least one leg/);
+  });
+});
+
+describe('reads', () => {
+  it('reads an absent member budget as null', async () => {
+    const result = await stores.readMemberBudget(db, crypto.randomUUID());
+    expect(result._unsafeUnwrap()).toBeNull();
+  });
+
+  it('reads absent conversation spending as zero', async () => {
+    const result = await stores.readConversationSpent(db, crypto.randomUUID());
+    expect(result._unsafeUnwrap()).toBe(0n);
+  });
+
+  it('reads an absent usage record as null', async () => {
+    const result = await stores.readUsageRecord(db, crypto.randomUUID());
+    expect(result._unsafeUnwrap()).toBeNull();
+  });
+
+  it('reads a chargeless usage record wallet as null', async () => {
+    const result = await stores.readUsageChargeWallet(db, crypto.randomUUID());
+    expect(result._unsafeUnwrap()).toBeNull();
+  });
+
+  it('reads an absent wallet snapshot as null', async () => {
+    const result = await stores.readWalletSnapshot(db, crypto.randomUUID());
+    expect(result._unsafeUnwrap()).toBeNull();
+  });
+
+  it('finds no drift or unbalanced groups on a fresh wallet', async () => {
+    const walletId = await seedWallet();
+    const drift = await stores.findWalletDrift(db, 1000);
+    expect(drift._unsafeUnwrap().some((entry) => entry.walletId === walletId)).toBe(false);
+  });
+
+  it('maps an unreachable database onto the unavailable error channel', async () => {
+    const badDb = createDb('postgresql://user:pw@localhost:1/nope', {
+      neonDev: LOCAL_NEON_DEV_CONFIG,
+    });
+    const result = await stores.readWallets(badDb, crypto.randomUUID());
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr().code).toBe('unavailable');
+    await badDb.$client.end();
+  });
+});
+
+describe('payment pre-claim insert', () => {
+  it('creates a pending payment row on first insert', async () => {
+    const userId = await seedUser();
+    const idempotencyKey = `pay:${userId}:${crypto.randomUUID()}`;
+    const result = await runSettlement(db, (tx) =>
+      stores.insertPaymentIfAbsentWithinTx(tx, {
+        userId,
+        amountNanoUsd: 5_000_000_000n,
+        idempotencyKey,
+      })
+    );
+    expect(result.created).toBe(true);
+    expect(result.payment.status).toBe('pending');
+    expect(result.payment.userId).toBe(userId);
+    expect(result.payment.amountNanoUsd).toBe(5_000_000_000n);
+  });
+
+  it('returns the existing row on a duplicate idempotency key', async () => {
+    const userId = await seedUser();
+    const idempotencyKey = `pay:${userId}:${crypto.randomUUID()}`;
+    const first = await runSettlement(db, (tx) =>
+      stores.insertPaymentIfAbsentWithinTx(tx, {
+        userId,
+        amountNanoUsd: 5_000_000_000n,
+        idempotencyKey,
+      })
+    );
+    const second = await runSettlement(db, (tx) =>
+      stores.insertPaymentIfAbsentWithinTx(tx, {
+        userId,
+        amountNanoUsd: 9_000_000_000n,
+        idempotencyKey,
+      })
+    );
+    expect(second.created).toBe(false);
+    expect(second.payment.id).toBe(first.payment.id);
+    expect(second.payment.amountNanoUsd).toBe(5_000_000_000n);
+  });
+});
+
+describe('payment state transitions', () => {
+  it('marks a pending payment charged with the provider identifiers', async () => {
+    const userId = await seedUser();
+    const { id } = await seedPendingPayment(userId);
+    const transitioned = await runSettlement(db, (tx) =>
+      stores.markPaymentChargedWithinTx(tx, id, {
+        helcimTransactionId: `txn-${crypto.randomUUID()}`,
+        cardType: 'Visa',
+        cardLastFour: '9990',
+      })
+    );
+    expect(transitioned).toBe(true);
+    const row = await stores.readPayment(db, id);
+    expect(row._unsafeUnwrap()?.status).toBe('awaiting_webhook');
+    expect(row._unsafeUnwrap()?.cardLastFour).toBe('9990');
+  });
+
+  it('refuses to re-mark an already charged payment', async () => {
+    const userId = await seedUser();
+    const { id } = await seedPendingPayment(userId);
+    await runSettlement(db, (tx) =>
+      stores.markPaymentChargedWithinTx(tx, id, {
+        helcimTransactionId: `txn-${crypto.randomUUID()}`,
+      })
+    );
+    const again = await runSettlement(db, (tx) =>
+      stores.markPaymentChargedWithinTx(tx, id, {
+        helcimTransactionId: `txn-${crypto.randomUUID()}`,
+      })
+    );
+    expect(again).toBe(false);
+  });
+
+  it('marks a pending payment failed with an error code', async () => {
+    const userId = await seedUser();
+    const { id } = await seedPendingPayment(userId);
+    const transitioned = await runSettlement(db, (tx) =>
+      stores.markPaymentFailedWithinTx(tx, id, 'card_declined', 'pending')
+    );
+    expect(transitioned).toBe(true);
+    const row = await stores.readPayment(db, id);
+    expect(row._unsafeUnwrap()?.status).toBe('failed');
+    expect(row._unsafeUnwrap()?.errorCode).toBe('card_declined');
+  });
+
+  it('refuses to fail a payment from the wrong expected status', async () => {
+    const userId = await seedUser();
+    const { id } = await seedPendingPayment(userId);
+    const transitioned = await runSettlement(db, (tx) =>
+      stores.markPaymentFailedWithinTx(tx, id, 'card_declined', 'awaiting_webhook')
+    );
+    expect(transitioned).toBe(false);
+  });
+
+  it('expires a pending payment', async () => {
+    const userId = await seedUser();
+    const { id } = await seedPendingPayment(userId);
+    const expired = await runSettlement(db, (tx) => stores.markPaymentExpiredWithinTx(tx, id));
+    expect(expired).toBe(true);
+    const row = await stores.readPayment(db, id);
+    expect(row._unsafeUnwrap()?.status).toBe('expired');
+  });
+
+  it('refuses to expire a payment that is already charged', async () => {
+    const userId = await seedUser();
+    const { id } = await seedPendingPayment(userId);
+    await runSettlement(db, (tx) =>
+      stores.markPaymentChargedWithinTx(tx, id, {
+        helcimTransactionId: `txn-${crypto.randomUUID()}`,
+      })
+    );
+    const expired = await runSettlement(db, (tx) => stores.markPaymentExpiredWithinTx(tx, id));
+    expect(expired).toBe(false);
+  });
+});
+
+describe('guarded transaction-id move', () => {
+  it('answers id-taken when another payment row already carries the id', async () => {
+    const ownerId = await seedUser();
+    const owner = await seedPendingPayment(ownerId);
+    const takenId = `txn-${crypto.randomUUID()}`;
+    await runSettlement(db, (tx) =>
+      stores.markPaymentChargedWithinTx(tx, owner.id, { helcimTransactionId: takenId })
+    );
+    const targetId = await seedUser();
+    const target = await seedPendingPayment(targetId);
+
+    const outcome = await runSettlement(db, (tx) =>
+      stores.setPaymentTransactionIdWithinTx(tx, target.id, { expected: null, next: takenId })
+    );
+
+    expect(outcome).toBe('id-taken');
+    const row = await stores.readPayment(db, target.id);
+    expect(row._unsafeUnwrap()?.helcimTransactionId).toBeNull();
+  });
+
+  it('leaves the settlement transaction usable after id-taken', async () => {
+    const ownerId = await seedUser();
+    const owner = await seedPendingPayment(ownerId);
+    const takenId = `txn-${crypto.randomUUID()}`;
+    await runSettlement(db, (tx) =>
+      stores.markPaymentChargedWithinTx(tx, owner.id, { helcimTransactionId: takenId })
+    );
+    const targetId = await seedUser();
+    const target = await seedPendingPayment(targetId);
+
+    const outcomes = await runSettlement(db, async (tx) => {
+      const taken = await stores.setPaymentTransactionIdWithinTx(tx, target.id, {
+        expected: null,
+        next: takenId,
+      });
+      const moved = await stores.transitionPaymentStatusWithinTx(
+        tx,
+        target.id,
+        'pending',
+        'expired'
+      );
+      return { taken, moved: moved.outcome };
+    });
+
+    expect(outcomes).toEqual({ taken: 'id-taken', moved: 'transitioned' });
+    const targetRead = await stores.readPayment(db, target.id);
+    const targetRow = targetRead._unsafeUnwrap();
+    expect(targetRow?.status).toBe('expired');
+    expect(targetRow?.helcimTransactionId).toBeNull();
+    const ownerRead = await stores.readPayment(db, owner.id);
+    expect(ownerRead._unsafeUnwrap()?.helcimTransactionId).toBe(takenId);
+  });
+
+  it('re-raises a database failure that is not that constraint', async () => {
+    // The narrowness proof: a real Postgres rejection of another SQLSTATE
+    // (invalid uuid syntax) must still reach the caller as a defect. A catch
+    // that answered a refusal here would turn every future store fault on this
+    // statement into a shrug.
+    await expect(
+      runSettlement(db, (tx) =>
+        stores.setPaymentTransactionIdWithinTx(tx, 'not-a-uuid', {
+          expected: null,
+          next: `txn-${crypto.randomUUID()}`,
+        })
+      )
+    ).rejects.toThrow();
+  });
+});
+
+describe('payment completed claim', () => {
+  it('claims an awaiting-webhook payment by transaction id exactly once', async () => {
+    const userId = await seedUser();
+    const { id } = await seedPendingPayment(userId);
+    const transactionId = `txn-${crypto.randomUUID()}`;
+    await runSettlement(db, (tx) =>
+      stores.markPaymentChargedWithinTx(tx, id, { helcimTransactionId: transactionId })
+    );
+    const first = await runSettlement(db, (tx) =>
+      stores.claimPaymentCompletedWithinTx(tx, { helcimTransactionId: transactionId })
+    );
+    const second = await runSettlement(db, (tx) =>
+      stores.claimPaymentCompletedWithinTx(tx, { helcimTransactionId: transactionId })
+    );
+    expect(first?.id).toBe(id);
+    expect(first?.status).toBe('completed');
+    expect(second).toBeNull();
+  });
+
+  it('claims an awaiting-webhook payment by payment id', async () => {
+    const userId = await seedUser();
+    const { id } = await seedPendingPayment(userId);
+    await runSettlement(db, (tx) =>
+      stores.markPaymentChargedWithinTx(tx, id, {
+        helcimTransactionId: `txn-${crypto.randomUUID()}`,
+      })
+    );
+    const claimed = await runSettlement(db, (tx) =>
+      stores.claimPaymentCompletedWithinTx(tx, { paymentId: id })
+    );
+    expect(claimed?.id).toBe(id);
+  });
+
+  it('never claims a payment that is still pending', async () => {
+    const userId = await seedUser();
+    const { id } = await seedPendingPayment(userId);
+    const claimed = await runSettlement(db, (tx) =>
+      stores.claimPaymentCompletedWithinTx(tx, { paymentId: id })
+    );
+    expect(claimed).toBeNull();
+  });
+});
+
+describe('payment reads', () => {
+  it('reads an absent payment as null', async () => {
+    const result = await stores.readPayment(db, crypto.randomUUID());
+    expect(result._unsafeUnwrap()).toBeNull();
+  });
+
+  it('reads an absent transaction id as null', async () => {
+    const result = await stores.readPaymentByTransactionId(db, `txn-${crypto.randomUUID()}`);
+    expect(result._unsafeUnwrap()).toBeNull();
+  });
+
+  it('reads a payment back by its provider transaction id', async () => {
+    const userId = await seedUser();
+    const { id } = await seedPendingPayment(userId);
+    const transactionId = `txn-${crypto.randomUUID()}`;
+    await runSettlement(db, (tx) =>
+      stores.markPaymentChargedWithinTx(tx, id, { helcimTransactionId: transactionId })
+    );
+    const result = await stores.readPaymentByTransactionId(db, transactionId);
+    expect(result._unsafeUnwrap()?.id).toBe(id);
+  });
+});
+
+describe('guarded ledger leg insert', () => {
+  it('inserts a zero-sum pair once and reports the duplicate', async () => {
+    const walletId = await seedWallet();
+    const key = crypto.randomUUID();
+    const legs = [
+      {
+        transactionId: crypto.randomUUID(),
+        kind: 'clawback' as const,
+        amountNanoUsd: -5_000_000_000n,
+        balanceAfterNanoUsd: -5_000_000_000n,
+        walletId,
+        idempotencyKey: `clawback:${key}:user`,
+      },
+      {
+        transactionId: crypto.randomUUID(),
+        kind: 'clawback' as const,
+        amountNanoUsd: 5_000_000_000n,
+        houseAccount: 'payments-in' as const,
+        idempotencyKey: `clawback:${key}:house`,
+      },
+    ];
+    // Distinct transactionIds would break zero-sum; share one.
+    const transactionId = crypto.randomUUID();
+    const sharedLegs = legs.map((leg) => ({ ...leg, transactionId }));
+    const first = await runSettlement(db, (tx) =>
+      stores.insertLedgerLegsIfAbsentWithinTx(tx, sharedLegs)
+    );
+    const second = await runSettlement(db, (tx) =>
+      stores.insertLedgerLegsIfAbsentWithinTx(tx, sharedLegs)
+    );
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+  });
+
+  it('rejects a guarded insert with no legs', async () => {
+    await expect(
+      runSettlement(db, (tx) => stores.insertLedgerLegsIfAbsentWithinTx(tx, []))
+    ).rejects.toThrow(/at least one leg/);
+  });
+});
+
+describe('member-budget lifecycle writes', () => {
+  async function seedMember(): Promise<{ conversationId: string; memberId: string }> {
+    const ownerId = await seedUser();
+    const conversationId = crypto.randomUUID();
+    await seedConversationWithEpoch(db, { id: conversationId, userId: ownerId, title: BYTES });
+    createdConversationIds.push(conversationId);
+    const rows = await db
+      .insert(conversationMembers)
+      .values({
+        conversationId,
+        userId: ownerId,
+        privilege: 'write',
+        visibleFromEpoch: 1,
+        acceptedAt: new Date(),
+      })
+      .returning({ id: conversationMembers.id });
+    const memberId = rows[0]?.id;
+    if (memberId === undefined) throw new Error('member seed failed');
+    return { conversationId, memberId };
+  }
+
+  async function readBudgetRow(
+    memberId: string
+  ): Promise<{ budgetNanoUsd: bigint; spentNanoUsd: bigint } | undefined> {
+    const rows = await db
+      .select({
+        budgetNanoUsd: memberBudgets.budgetNanoUsd,
+        spentNanoUsd: memberBudgets.spentNanoUsd,
+      })
+      .from(memberBudgets)
+      .where(eq(memberBudgets.memberId, memberId));
+    return rows[0];
+  }
+
+  it('applies a fresh cap insert and reports applied', async () => {
+    const { memberId } = await seedMember();
+    const outcome = await stores.setMemberBudgetCapWithinTx(db, memberId, 500n);
+    expect(outcome._unsafeUnwrap()).toBe('applied');
+    expect(await readBudgetRow(memberId)).toEqual({ budgetNanoUsd: 500n, spentNanoUsd: 0n });
+  });
+
+  it('rejects a cap below the accrued spend atomically, leaving the stored cap untouched', async () => {
+    const { memberId } = await seedMember();
+    await db.insert(memberBudgets).values({ memberId, budgetNanoUsd: 900n, spentNanoUsd: 700n });
+    const outcome = await stores.setMemberBudgetCapWithinTx(db, memberId, 699n);
+    expect(outcome._unsafeUnwrap()).toBe('below-spent');
+    expect(await readBudgetRow(memberId)).toEqual({ budgetNanoUsd: 900n, spentNanoUsd: 700n });
+  });
+
+  it('applies a cap exactly equal to the accrued spend (boundary), preserving spend', async () => {
+    const { memberId } = await seedMember();
+    await db.insert(memberBudgets).values({ memberId, budgetNanoUsd: 900n, spentNanoUsd: 700n });
+    const outcome = await stores.setMemberBudgetCapWithinTx(db, memberId, 700n);
+    expect(outcome._unsafeUnwrap()).toBe('applied');
+    expect(await readBudgetRow(memberId)).toEqual({ budgetNanoUsd: 700n, spentNanoUsd: 700n });
+  });
+
+  it('deletes the member-budget row, and deleting an absent row is the idempotent no-op', async () => {
+    const { memberId } = await seedMember();
+    await db.insert(memberBudgets).values({ memberId, budgetNanoUsd: 900n, spentNanoUsd: 100n });
+    const first = await stores.deleteMemberBudgetWithinTx(db, memberId);
+    expect(first.isOk()).toBe(true);
+    expect(await readBudgetRow(memberId)).toBeUndefined();
+    const second = await stores.deleteMemberBudgetWithinTx(db, memberId);
+    expect(second.isOk()).toBe(true);
+  });
+});
+
+describe('conversation-spend locked read', () => {
+  it('reads zero for a conversation that never spent, materializing a lockable row', async () => {
+    const ownerId = await seedUser();
+    const conversationId = crypto.randomUUID();
+    await seedConversationWithEpoch(db, { id: conversationId, userId: ownerId, title: BYTES });
+    createdConversationIds.push(conversationId);
+    const spent = await stores.lockConversationSpentWithinTx(db, conversationId);
+    expect(spent._unsafeUnwrap()).toBe(0n);
+    const rows = await db
+      .select({ spentNanoUsd: conversationSpending.spentNanoUsd })
+      .from(conversationSpending)
+      .where(eq(conversationSpending.conversationId, conversationId));
+    expect(rows[0]?.spentNanoUsd).toBe(0n);
+  });
+
+  it('reads the accrued spend without clobbering it', async () => {
+    const ownerId = await seedUser();
+    const conversationId = crypto.randomUUID();
+    await seedConversationWithEpoch(db, { id: conversationId, userId: ownerId, title: BYTES });
+    createdConversationIds.push(conversationId);
+    await db.insert(conversationSpending).values({ conversationId, spentNanoUsd: 1234n });
+    const spent = await stores.lockConversationSpentWithinTx(db, conversationId);
+    expect(spent._unsafeUnwrap()).toBe(1234n);
+  });
+});

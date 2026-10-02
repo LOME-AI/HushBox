@@ -1,0 +1,69 @@
+appId: ai.hushbox.app
+name: Message list scrolls correctly
+tags:
+  - should
+androidWebViewHierarchy: devtools
+env:
+  # See 10-core-user-flow.yaml for the full reasoning. Short version:
+  # Maestro 2.6.0 takes ~10 s per character on Capacitor WebViews on
+  # docker-android (issue #2718), so we use the shortest legal username
+  # (3 chars) instead of the 27-char email.
+  TEST_USERNAME: tmu
+  TEST_PASSWORD: pass1234
+---
+- launchApp:
+    clearState: true
+
+# Wait for app to stabilize
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 45000
+
+# /login is not deep-linkable (auth routes fall back to home), so reach it via
+# in-app links: the trial banner's "Sign up", then "Log in" on the signup page.
+- tapOn: 'Sign up'
+# While RELEASE_STAGE is 'beta', /signup opens on the welcome step and the form
+# sits behind its 'Join the beta' button.
+- extendedWaitUntil:
+    visible: 'Join the beta'
+    timeout: 10000
+- tapOn: 'Join the beta'
+- extendedWaitUntil:
+    visible: 'Create your account'
+    timeout: 10000
+- tapOn: 'Log in'
+- extendedWaitUntil:
+    visible: 'Welcome back'
+    timeout: 10000
+- tapOn: 'Email or Username'
+- inputText: ${TEST_USERNAME}
+- hideKeyboard
+- tapOn: 'Password'
+- inputText: ${TEST_PASSWORD}
+- hideKeyboard
+- tapOn: 'Log in'
+
+# Wait for authenticated chat page (use element unique to chat, not login page)
+- extendedWaitUntil:
+    visible:
+      id: 'model-selector-button'
+    timeout: 15000
+
+# Send a message using suggestion chip (IME inputText doesn't trigger React onChange)
+- tapOn: 'Explain a concept'
+- tapOn:
+    id: 'send-button'
+# Wait for AI mock response to complete. We assert on "Regenerate" (an
+# action button that only renders once streaming finishes) rather than the
+# response body text — Maestro's Android text matcher fails to surface
+# WebView TextView nodes nested in large parent containers, even when the
+# text is present in the hierarchy dump. The button is reliably exposed.
+# 30s budget covers the first-message cold path on the emulator
+# (create conversation + epoch keys + SSE stream + per-chunk decrypt).
+- extendedWaitUntil:
+    visible: 'Regenerate'
+    timeout: 30000
+
+# Scroll to verify the message list handles scroll correctly
+- scroll
+- waitForAnimationToEnd

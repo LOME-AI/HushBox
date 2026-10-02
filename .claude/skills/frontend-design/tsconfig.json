@@ -1,0 +1,15 @@
+{
+  "extends": "../../../packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // No build artifact is kept for this tree: it sits outside every workspace,
+    // so there is no package directory to hold one.
+    "incremental": false,
+    "types": ["node"],
+    // The skill's tooling is JavaScript, and no other project includes it —
+    // without these the whole tree is checked by nothing at all.
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": ["scripts/**/*.mjs", "types/**/*.d.ts"]
+}

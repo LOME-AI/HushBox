@@ -1,0 +1,13 @@
+{
+  "extends": "../../packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    // Nothing here sets an output directory, so emit lands each artifact beside the source
+    // it came from; what the project reaches through `node_modules` is read and not emitted
+    // for, so the litter stays inside this package. The `typecheck` script's `--noEmit`
+    // cannot bind an ad-hoc run.
+    "noEmit": true,
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src/**/*", "*.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

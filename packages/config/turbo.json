@@ -1,0 +1,70 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // Two suites in this package read trees OUTSIDE it, and `$TURBO_DEFAULT$`
+    // carries only files inside the package — so an edit to a read tree left
+    // this task's hash untouched and a cache-warm run replayed a green without
+    // executing either gate, on exactly the edit the gate exists to catch.
+    // Every entry below is derived from what a suite actually reads, not from
+    // the tree it is about; a glob that drifts from the real reach reopens the
+    // same hole one level up. Only `inputs` is overridden — `outputs`,
+    // `dependsOn` and `passThroughEnv` are inherited from the root task, and
+    // the two package-relative entries are the root task's own, repeated
+    // because an override replaces the array rather than extending it. Its
+    // third, `!**/*.md`, is deliberately NOT repeated: a negation is applied to
+    // the whole expanded set rather than to the package subtree, so it dropped
+    // `e2e/CLAUDE.md` — the file the citation gate reads first — out of the
+    // hash, and anchoring it (`!./**/*.md`) matches nothing at all. The price
+    // is this package's two READMEs entering the hash, which over-declares in
+    // the direction that only ever costs a re-run.
+    //
+    // `eslint-extensions/boundaries.test.mjs` reads `apps/api` through
+    // `sliceModules()`: a recursive `readdirSync` of `apps/api/src/slices`
+    // filtered to names ending `.ts`, each read whole. That is the entire
+    // reach — one glob, exactly.
+    //
+    // `rules-citations.test.mjs` reads `docs/CODE-RULES.md` and `e2e/CLAUDE.md`,
+    // and resolves each citation in them against: files under `e2e/` (spec
+    // paths and fixture modules); the per-workspace ESLint configs it prints a
+    // resolved rule set from; `playwright.config.ts` and this package's own
+    // vitest config; the architecture rule modules beside it; the root
+    // `package.json` scripts; the workflow files that decide which of those
+    // scripts CI reaches; `scripts/<name>.ts` for report citations; and the env
+    // registry for config citations.
+    //
+    // NOT DECLARED, and the residual a reader should know about: that suite's
+    // `type:` and `config:` resolvers also sweep EVERY TypeScript file in the
+    // repository (`collectSourceFiles(repoRoot)`), and a `test:` citation is a
+    // claim about a path anywhere in it, so deleting an exported type or a test
+    // module anywhere can falsify a citation with this task's hash unmoved. Declaring
+    // it means naming every `.ts`/`.tsx`/`.mts`/`.cts` outside that collector's
+    // skip list, which makes this suite re-run on every code edit in the repo —
+    // a far larger trade than the two trees above, and one to take deliberately
+    // rather than as a side effect. `node_modules` is unhashed here for the
+    // reason the root config already records: hashing it is what closes the
+    // ESLint-plugin half of the citation resolver, at the cost that makes a
+    // filesystem-walking glob uncacheable.
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "**/*.test.{ts,tsx}",
+        "$TURBO_ROOT$/apps/api/src/slices/**/*.ts",
+        "$TURBO_ROOT$/e2e/**",
+        "!$TURBO_ROOT$/e2e/.auth/**",
+        "!$TURBO_ROOT$/e2e/.turbo/**",
+        "!$TURBO_ROOT$/e2e/node_modules/**",
+        "!$TURBO_ROOT$/e2e/report/**",
+        "$TURBO_ROOT$/playwright.config.ts",
+        "$TURBO_ROOT$/docs/CODE-RULES.md",
+        "$TURBO_ROOT$/apps/*/eslint.config.js",
+        "$TURBO_ROOT$/packages/*/eslint.config.js",
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/.github/workflows/*.yaml",
+        "$TURBO_ROOT$/.github/workflows/*.yml",
+        "$TURBO_ROOT$/scripts/**/*.ts",
+        "$TURBO_ROOT$/packages/shared/src/env/env.config.ts"
+      ]
+    }
+  }
+}

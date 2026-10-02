@@ -1,0 +1,973 @@
+import { describe, expect, it } from 'vitest';
+import { fetchGatewayCatalog } from './gateway-metadata.js';
+import { usdRateToNanoUsd } from '../pricing/usd-rate.js';
+import {
+  TEST_GATEWAY_BASE_URL,
+  catalogFetch,
+  imageEndpointsFixture,
+  imageModelFixture,
+  jsonResponse,
+  modelEntryFixture,
+  routedFetch,
+  videoModelFixture,
+  zdrBody,
+} from './gateway-fixtures.js';
+import type {
+  GatewayCatalog,
+  ImageMetadata,
+  LanguageMetadata,
+  ListWalkCutoff,
+  VideoMetadata,
+} from './gateway-metadata.js';
+import type { DomainError } from '../../../../lib/errors/index.js';
+import type { ResultAsync } from '../../../../lib/result/index.js';
+
+const BASE_URL = TEST_GATEWAY_BASE_URL;
+
+async function unwrap(result: ResultAsync<GatewayCatalog, DomainError>): Promise<GatewayCatalog> {
+  const settled = await result;
+  return settled._unsafeUnwrap();
+}
+
+/** A fetch that never answers, settling only when the caller's abort signal
+ * fires — a hung connection as the platform's own fetch reports one. */
+function neverAnswers(init: Parameters<typeof globalThis.fetch>[1]): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => {
+      reject(new Error('the request was aborted'));
+    });
+  });
+}
+
+function byId<T extends { readonly id: string }>(models: readonly T[], id: string): T {
+  const found = models.find((model) => model.id === id);
+  if (found === undefined) throw new Error(`no model ${id}`);
+  return found;
+}
+
+describe('fetchGatewayCatalog', () => {
+  it('fetches and merges the four catalog endpoints', async () => {
+    const fetch = catalogFetch({
+      models: [modelEntryFixture()],
+      images: [imageModelFixture()],
+      videos: [videoModelFixture()],
+      zdrModelIds: ['openai/gpt-test'],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.models.map((m) => m.source).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      'image',
+      'language',
+      'video',
+    ]);
+    const language = byId(catalog.models, 'openai/gpt-test') as LanguageMetadata;
+    expect(language).toMatchObject({
+      source: 'language',
+      provider: 'openai',
+      inputModalities: ['text'],
+      outputModalities: ['text'],
+      supportedParameters: ['temperature', 'top_p', 'max_tokens'],
+      contextLength: 128_000,
+      maxCompletionTokens: 16_384,
+      deprecated: false,
+    });
+    expect(language.pricing).toEqual({
+      prompt: '0.0000025',
+      completion: '0.00001',
+      cacheRead: undefined,
+    });
+  });
+
+  it('captures each source description for the classifier prompt', async () => {
+    const fetch = catalogFetch({
+      models: [modelEntryFixture({ description: 'A test model' })],
+      images: [imageModelFixture({ description: 'Draws pictures' })],
+      videos: [videoModelFixture({ description: 'Makes movies' })],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(byId(catalog.models, 'openai/gpt-test').description).toBe('A test model');
+    expect(byId(catalog.models, 'google/test-image').description).toBe('Draws pictures');
+    expect(byId(catalog.models, 'google/test-video').description).toBe('Makes movies');
+  });
+
+  it('leaves description undefined when a source entry carries none', async () => {
+    const fetch = catalogFetch({
+      models: [modelEntryFixture({ description: null })],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(byId(catalog.models, 'openai/gpt-test').description).toBeUndefined();
+  });
+
+  it('carries top_provider.max_completion_tokens as maxCompletionTokens', async () => {
+    const fetch = catalogFetch({
+      models: [
+        modelEntryFixture({
+          top_provider: {
+            context_length: 128_000,
+            max_completion_tokens: 16_384,
+            is_moderated: false,
+          },
+        }),
+      ],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const language = byId(catalog.models, 'openai/gpt-test') as LanguageMetadata;
+    expect(language.maxCompletionTokens).toBe(16_384);
+  });
+
+  it('collapses a null max_completion_tokens to absent', async () => {
+    const fetch = catalogFetch({
+      models: [
+        modelEntryFixture({
+          top_provider: {
+            context_length: 128_000,
+            max_completion_tokens: null,
+            is_moderated: false,
+          },
+        }),
+      ],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const language = byId(catalog.models, 'openai/gpt-test') as LanguageMetadata;
+    expect(language.maxCompletionTokens).toBeUndefined();
+  });
+
+  it('leaves maxCompletionTokens absent when top_provider is missing entirely', async () => {
+    const fetch = catalogFetch({
+      models: [modelEntryFixture({ top_provider: undefined })],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const language = byId(catalog.models, 'openai/gpt-test') as LanguageMetadata;
+    expect(language.maxCompletionTokens).toBeUndefined();
+  });
+
+  it('derives ZDR membership as a set of model ids', async () => {
+    const fetch = catalogFetch({
+      models: [modelEntryFixture()],
+      zdrModelIds: ['openai/gpt-test', 'google/other'],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.zdrModelIds.has('openai/gpt-test')).toBe(true);
+    expect(catalog.zdrModelIds.has('google/other')).toBe(true);
+    expect(catalog.zdrModelIds.has('missing/model')).toBe(false);
+  });
+
+  it('fetches per-image-model pricing from the N+1 endpoints call', async () => {
+    const fetch = catalogFetch({
+      images: [imageModelFixture()],
+      imageEndpoints: () =>
+        imageEndpointsFixture([{ billable: 'output_image', unit: 'image', cost_usd: '0.05' }]),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+    expect(image.source).toBe('image');
+    expect(image.endpointPricing).toEqual([
+      { billable: 'output_image', unit: 'image', costUsd: '0.05' },
+    ]);
+    expect(image.supportedParameters).toEqual({
+      resolution: [],
+      aspectRatio: ['1:1', '16:9'],
+      maxN: 4,
+    });
+  });
+
+  it('extracts enum values, a range max, and tolerates other parameter types', async () => {
+    const fetch = catalogFetch({
+      images: [
+        imageModelFixture({
+          supported_parameters: {
+            resolution: { type: 'enum', values: ['1K'] },
+            aspect_ratio: { type: 'enum', values: ['1:1', '9:16'] },
+            n: { type: 'range', min: 1, max: 1 },
+            // A boolean-typed param and a range on an unextracted key must not
+            // break parsing — the descriptor exposes none of them.
+            seed: { type: 'boolean' },
+            input_references: { type: 'range', min: 0, max: 14 },
+          },
+        }),
+      ],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+    expect(image.supportedParameters).toEqual({
+      resolution: ['1K'],
+      aspectRatio: ['1:1', '9:16'],
+      maxN: 1,
+    });
+  });
+
+  it('drops a single parameter of an unexpected shape without failing the model', async () => {
+    const fetch = catalogFetch({
+      images: [
+        imageModelFixture({
+          // `resolution` arriving as a range instead of an enum is dropped
+          // per-field; the model is still cataloged with its valid params.
+          supported_parameters: {
+            resolution: { type: 'range', min: 1, max: 4 },
+            aspect_ratio: { type: 'enum', values: ['1:1'] },
+          },
+        }),
+      ],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+    expect(image.supportedParameters).toEqual({
+      resolution: [],
+      aspectRatio: ['1:1'],
+      maxN: undefined,
+    });
+  });
+
+  it('carries the billable role and stringifies a numeric cost_usd', async () => {
+    const fetch = catalogFetch({
+      images: [imageModelFixture()],
+      imageEndpoints: () =>
+        imageEndpointsFixture([
+          { billable: 'output_image', unit: 'token', cost_usd: 3e-5 },
+          { billable: 'input_image', unit: 'token', cost_usd: 1e-6 },
+        ]),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+    expect(image.endpointPricing).toEqual([
+      { billable: 'output_image', unit: 'token', costUsd: '0.00003' },
+      { billable: 'input_image', unit: 'token', costUsd: '0.000001' },
+    ]);
+  });
+
+  it('renders a rate too small for twelve decimals as an unrepresentable one', async () => {
+    // `toFixed(12)` would render this as `0.000000000000`, which parses and
+    // would sell the model for nothing; it must stay unparseable so the
+    // pricing scan rejects it.
+    const fetch = catalogFetch({
+      images: [imageModelFixture()],
+      imageEndpoints: () =>
+        imageEndpointsFixture([{ billable: 'output_image', unit: 'image', cost_usd: 3e-13 }]),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+
+    expect(usdRateToNanoUsd(image.endpointPricing[0]?.costUsd ?? '')).toBeUndefined();
+  });
+
+  it('renders a numeric rate below a microdollar at twelve decimals', async () => {
+    const fetch = catalogFetch({
+      images: [imageModelFixture()],
+      imageEndpoints: () =>
+        imageEndpointsFixture([{ billable: 'output_image', unit: 'image', cost_usd: 5e-7 }]),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+
+    expect(image.endpointPricing[0]?.costUsd).toBe('0.000000500000');
+  });
+
+  it('renders a genuinely zero rate as a parseable zero', async () => {
+    const fetch = catalogFetch({
+      images: [imageModelFixture()],
+      imageEndpoints: () =>
+        imageEndpointsFixture([{ billable: 'output_image', unit: 'image', cost_usd: 0 }]),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+
+    expect(image.endpointPricing[0]?.costUsd).toBe('0');
+  });
+
+  it('leaves billable undefined when a pricing row omits it', async () => {
+    const fetch = catalogFetch({
+      images: [imageModelFixture()],
+      imageEndpoints: () => imageEndpointsFixture([{ unit: 'image', cost_usd: 0.05 }]),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+    expect(image.endpointPricing[0]?.billable).toBeUndefined();
+  });
+
+  it('carries the raw video SKU dict and derived params through', async () => {
+    const fetch = catalogFetch({ videos: [videoModelFixture()] });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const video = byId(catalog.models, 'google/test-video') as VideoMetadata;
+    expect(video).toMatchObject({
+      source: 'video',
+      provider: 'google',
+      generateAudio: true,
+      seed: true,
+      resolutions: ['720p', '1080p'],
+      durations: ['4', '8'],
+    });
+    expect(video.pricingSkus).toEqual({
+      duration_seconds_720p: '0.0988',
+      duration_seconds_1080p: '0.15',
+    });
+  });
+
+  it('derives provider from a model id without a slash', async () => {
+    const fetch = catalogFetch({ models: [modelEntryFixture({ id: 'solomodel' })] });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(byId(catalog.models, 'solomodel').provider).toBe('solomodel');
+  });
+
+  it('marks a model with an expiration date as deprecated', async () => {
+    const fetch = catalogFetch({ models: [modelEntryFixture({ expiration_date: '2026-01-01' })] });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect((byId(catalog.models, 'openai/gpt-test') as LanguageMetadata).deprecated).toBe(true);
+  });
+
+  it('defaults absent language fields to empty metadata', async () => {
+    const fetch = catalogFetch({
+      models: [{ id: 'bare/model' }],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const language = byId(catalog.models, 'bare/model') as LanguageMetadata;
+    expect(language).toMatchObject({
+      inputModalities: [],
+      outputModalities: [],
+      supportedParameters: [],
+      contextLength: undefined,
+      pricing: undefined,
+      deprecated: false,
+    });
+  });
+
+  /** A fetch that serves 14 image models and records peak concurrent
+   * `/endpoints` fan-out — the observable the N+1 batch cap controls. */
+  function concurrencyProbe(): { readonly fetch: typeof globalThis.fetch; peak: () => number } {
+    const images = Array.from({ length: 14 }, (_, index) =>
+      imageModelFixture({ id: `prov/img-${String(index)}` })
+    );
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetch: typeof globalThis.fetch = async (input: RequestInfo | URL) => {
+      const url = new Request(input).url;
+      // Match by pathname: the language `/models` fetch carries `?sort=top-weekly`.
+      const pathname = new URL(url).pathname;
+      if (pathname === new URL(`${BASE_URL}/models`).pathname) return jsonResponse({ data: [] });
+      if (pathname === new URL(`${BASE_URL}/endpoints/zdr`).pathname)
+        return jsonResponse(zdrBody([]));
+      if (pathname === new URL(`${BASE_URL}/videos/models`).pathname)
+        return jsonResponse({ data: [] });
+      if (pathname === new URL(`${BASE_URL}/images/models`).pathname)
+        return jsonResponse({ data: images });
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight -= 1;
+      return jsonResponse(imageEndpointsFixture());
+    };
+    return { fetch, peak: () => maxInFlight };
+  }
+
+  it('caps image endpoint fetch concurrency at six by default', async () => {
+    const probe = concurrencyProbe();
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch: probe.fetch }));
+    expect(catalog.models).toHaveLength(14);
+    expect(probe.peak()).toBeLessThanOrEqual(6);
+    expect(probe.peak()).toBeGreaterThan(1);
+  });
+
+  it('honors a lower threaded endpoint concurrency', async () => {
+    const probe = concurrencyProbe();
+    const catalog = await unwrap(
+      fetchGatewayCatalog({ baseUrl: BASE_URL, fetch: probe.fetch, endpointConcurrency: 3 })
+    );
+    expect(catalog.models).toHaveLength(14);
+    expect(probe.peak()).toBeLessThanOrEqual(3);
+    expect(probe.peak()).toBeGreaterThan(1);
+  });
+
+  it('fans out past the six-cap when a higher concurrency is threaded (dev)', async () => {
+    const probe = concurrencyProbe();
+    const catalog = await unwrap(
+      fetchGatewayCatalog({ baseUrl: BASE_URL, fetch: probe.fetch, endpointConcurrency: 30 })
+    );
+    expect(catalog.models).toHaveLength(14);
+    // 30 > 14, so every `/endpoints` fetch runs in a single batch.
+    expect(probe.peak()).toBe(14);
+  });
+
+  it.each([
+    ['models', () => routedFetch({ models: () => jsonResponse({}, 503) })],
+    ['endpoints/zdr', () => routedFetch({ zdr: () => jsonResponse({}, 503) })],
+    ['images/models', () => routedFetch({ images: () => jsonResponse({}, 500) })],
+    ['videos/models', () => routedFetch({ videos: () => jsonResponse({}, 502) })],
+  ])('fails unavailable on an HTTP error from %s', async (_label, makeFetch) => {
+    const result = await fetchGatewayCatalog({ baseUrl: BASE_URL, fetch: makeFetch() });
+    expect(result._unsafeUnwrapErr().code).toBe('unavailable');
+  });
+
+  it('excludes an image model whose endpoints fetch returns an HTTP error', async () => {
+    const fetch = routedFetch({
+      images: () =>
+        jsonResponse({
+          data: [imageModelFixture(), imageModelFixture({ id: 'google/other-image' })],
+        }),
+      imageEndpoints: (modelId) =>
+        modelId === 'google/test-image'
+          ? jsonResponse({}, 500)
+          : jsonResponse(imageEndpointsFixture()),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.models.map((model) => model.id)).toEqual(['google/other-image']);
+    expect(catalog.excludedModels).toEqual([{ id: 'google/test-image', reason: 'unavailable' }]);
+  });
+
+  it.each([
+    ['models', () => routedFetch({ models: () => jsonResponse({ data: [{ nope: true }] }) })],
+    ['endpoints/zdr', () => routedFetch({ zdr: () => jsonResponse({ data: [{ nope: true }] }) })],
+    [
+      'images/models',
+      () => routedFetch({ images: () => jsonResponse({ data: [{ nope: true }] }) }),
+    ],
+    [
+      'videos/models',
+      () => routedFetch({ videos: () => jsonResponse({ data: [{ nope: true }] }) }),
+    ],
+  ])('fails validation on schema drift from %s', async (_label, makeFetch) => {
+    const result = await fetchGatewayCatalog({ baseUrl: BASE_URL, fetch: makeFetch() });
+    expect(result._unsafeUnwrapErr().code).toBe('validation');
+  });
+
+  it('excludes an image model whose endpoints body has a non-array pricing', async () => {
+    const fetch = routedFetch({
+      images: () =>
+        jsonResponse({
+          data: [imageModelFixture(), imageModelFixture({ id: 'google/other-image' })],
+        }),
+      imageEndpoints: (modelId) =>
+        modelId === 'google/test-image'
+          ? jsonResponse({ id: modelId, endpoints: [{ pricing: 'not-a-list' }] })
+          : jsonResponse(imageEndpointsFixture()),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.models.map((model) => model.id)).toEqual(['google/other-image']);
+    expect(catalog.excludedModels).toEqual([{ id: 'google/test-image', reason: 'validation' }]);
+  });
+
+  it('completes the refresh when one image model 500s and another is unparseable', async () => {
+    const fetch = routedFetch({
+      models: () => jsonResponse({ data: [modelEntryFixture()] }),
+      videos: () => jsonResponse({ data: [videoModelFixture()] }),
+      images: () =>
+        jsonResponse({
+          data: [
+            imageModelFixture({ id: 'google/unreachable' }),
+            imageModelFixture({ id: 'google/unparseable' }),
+            imageModelFixture({ id: 'google/healthy' }),
+          ],
+        }),
+      imageEndpoints: (modelId) => {
+        if (modelId === 'google/unreachable') return jsonResponse({}, 500);
+        if (modelId === 'google/unparseable') {
+          return new Response('<html>maintenance</html>', { status: 200 });
+        }
+        return jsonResponse(imageEndpointsFixture());
+      },
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.models.map((model) => model.id).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      'google/healthy',
+      'google/test-video',
+      'openai/gpt-test',
+    ]);
+    expect(catalog.excludedModels).toEqual([
+      { id: 'google/unreachable', reason: 'unavailable' },
+      { id: 'google/unparseable', reason: 'validation' },
+    ]);
+  });
+
+  it('records no exclusions when every listed image model reads', async () => {
+    const fetch = catalogFetch({
+      models: [modelEntryFixture()],
+      images: [imageModelFixture()],
+      videos: [videoModelFixture()],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.models).toHaveLength(3);
+    expect(catalog.excludedModels).toEqual([]);
+  });
+
+  it('fails unavailable when the network call itself rejects', async () => {
+    const fetch: typeof globalThis.fetch = () => Promise.reject(new Error('socket hangup'));
+    const result = await fetchGatewayCatalog({ baseUrl: BASE_URL, fetch });
+    expect(result._unsafeUnwrapErr().code).toBe('unavailable');
+  });
+
+  it('fails validation when a list body is not JSON', async () => {
+    const fetch = routedFetch({
+      models: () => new Response('<html>maintenance</html>', { status: 200 }),
+    });
+    const result = await fetchGatewayCatalog({ baseUrl: BASE_URL, fetch });
+    expect(result._unsafeUnwrapErr().code).toBe('validation');
+  });
+
+  it('defaults absent image endpoint pricing to an empty list', async () => {
+    const fetch = routedFetch({
+      images: () => jsonResponse({ data: [imageModelFixture()] }),
+      imageEndpoints: () => jsonResponse({ id: 'google/test-image', endpoints: [] }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'google/test-image') as ImageMetadata;
+    expect(image.endpointPricing).toEqual([]);
+  });
+
+  it('defaults every absent image and video field to empty metadata', async () => {
+    const fetch = routedFetch({
+      images: () => jsonResponse({ data: [{ id: 'x/bare-img' }] }),
+      imageEndpoints: () => jsonResponse(imageEndpointsFixture()),
+      videos: () => jsonResponse({ data: [{ id: 'x/bare-vid' }] }),
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    const image = byId(catalog.models, 'x/bare-img') as ImageMetadata;
+    expect(image.inputModalities).toEqual(['text']);
+    expect(image.supportedParameters).toEqual({ resolution: [], aspectRatio: [], maxN: undefined });
+    const video = byId(catalog.models, 'x/bare-vid') as VideoMetadata;
+    expect(video).toMatchObject({
+      supportsFrameImages: false,
+      generateAudio: false,
+      seed: false,
+      resolutions: [],
+      aspectRatios: [],
+      durations: [],
+    });
+    expect(video.pricingSkus).toEqual({});
+  });
+
+  it('excludes an image model whose endpoints request rejects outright', async () => {
+    const fetch = routedFetch({ images: () => jsonResponse({ data: [imageModelFixture()] }) });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(catalog.models).toEqual([]);
+    expect(catalog.excludedModels).toEqual([{ id: 'google/test-image', reason: 'unavailable' }]);
+  });
+
+  it('excludes an image model whose endpoints fetch never answers', async () => {
+    const fetch: typeof globalThis.fetch = (input, init) => {
+      const pathname = new URL(new Request(input).url).pathname;
+      if (pathname === new URL(`${BASE_URL}/images/models`).pathname) {
+        return Promise.resolve(jsonResponse({ data: [imageModelFixture()] }));
+      }
+      if (pathname === new URL(`${BASE_URL}/endpoints/zdr`).pathname) {
+        return Promise.resolve(jsonResponse(zdrBody([])));
+      }
+      if (pathname.endsWith('/endpoints')) return neverAnswers(init);
+      return Promise.resolve(jsonResponse({ data: [] }));
+    };
+    const catalog = await unwrap(
+      fetchGatewayCatalog({ baseUrl: BASE_URL, fetch, requestTimeoutMs: 5 })
+    );
+    expect(catalog.models).toEqual([]);
+    expect(catalog.excludedModels).toEqual([{ id: 'google/test-image', reason: 'unavailable' }]);
+  });
+
+  it('fails the refresh when a list fetch never answers, rather than waiting on it', async () => {
+    const fetch: typeof globalThis.fetch = (input, init) => {
+      const pathname = new URL(new Request(input).url).pathname;
+      if (pathname === new URL(`${BASE_URL}/models`).pathname) return neverAnswers(init);
+      if (pathname === new URL(`${BASE_URL}/endpoints/zdr`).pathname) {
+        return Promise.resolve(jsonResponse(zdrBody([])));
+      }
+      return Promise.resolve(jsonResponse({ data: [] }));
+    };
+    const result = await fetchGatewayCatalog({ baseUrl: BASE_URL, fetch, requestTimeoutMs: 5 });
+    expect(result._unsafeUnwrapErr().code).toBe('unavailable');
+  });
+
+  it('the fixture rejects an unrouted URL', async () => {
+    const fetch = routedFetch({});
+    await expect(fetch(`${BASE_URL}/unknown`)).rejects.toThrow('unrouted');
+  });
+
+  it('sorts the language models fetch by top-weekly usage rank', async () => {
+    const seen: string[] = [];
+    const base = catalogFetch({ models: [modelEntryFixture()], zdrModelIds: ['openai/gpt-test'] });
+    const fetch: typeof globalThis.fetch = (input, init) => {
+      seen.push(new Request(input).url);
+      return base(input, init);
+    };
+    await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect(seen).toContain(`${BASE_URL}/models?sort=top-weekly`);
+  });
+
+  it('captures the top-level reasoning object as camelCased metadata', async () => {
+    const fetch = catalogFetch({
+      models: [
+        modelEntryFixture({
+          reasoning: {
+            mandatory: true,
+            supported_efforts: ['xhigh', 'high', 'medium', 'low', 'none'],
+            default_effort: 'medium',
+            default_enabled: true,
+          },
+        }),
+      ],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect((byId(catalog.models, 'openai/gpt-test') as LanguageMetadata).reasoning).toEqual({
+      mandatory: true,
+      supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'none'],
+      defaultEffort: 'medium',
+      defaultEnabled: true,
+    });
+  });
+
+  it('leaves reasoning undefined when the entry carries no reasoning object', async () => {
+    const fetch = catalogFetch({ models: [modelEntryFixture()] });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect((byId(catalog.models, 'openai/gpt-test') as LanguageMetadata).reasoning).toBeUndefined();
+  });
+
+  it('preserves a null supported_efforts (all-accepted) distinct from an absent one', async () => {
+    const fetch = catalogFetch({
+      models: [modelEntryFixture({ reasoning: { mandatory: false, supported_efforts: null } })],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect((byId(catalog.models, 'openai/gpt-test') as LanguageMetadata).reasoning).toEqual({
+      mandatory: false,
+      supportedEfforts: null,
+    });
+  });
+
+  it('omits reasoning sub-fields the entry leaves null or absent', async () => {
+    const fetch = catalogFetch({
+      models: [
+        modelEntryFixture({
+          reasoning: { mandatory: true, default_effort: null, default_enabled: null },
+        }),
+      ],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect((byId(catalog.models, 'openai/gpt-test') as LanguageMetadata).reasoning).toEqual({
+      mandatory: true,
+    });
+  });
+
+  it('follows links.next until the gateway stops offering one', async () => {
+    const seen: string[] = [];
+    const pages: Record<string, unknown> = {
+      [`${BASE_URL}/models?sort=top-weekly`]: {
+        data: [modelEntryFixture({ id: 'a/one' })],
+        links: { next: `${BASE_URL}/models?sort=top-weekly&offset=1` },
+      },
+      [`${BASE_URL}/models?sort=top-weekly&offset=1`]: {
+        data: [modelEntryFixture({ id: 'b/two' })],
+        links: { next: `${BASE_URL}/models?sort=top-weekly&offset=2` },
+      },
+      [`${BASE_URL}/models?sort=top-weekly&offset=2`]: {
+        data: [modelEntryFixture({ id: 'c/three' })],
+        links: { next: null },
+      },
+    };
+    const fetch = routedFetch({
+      models: () => {
+        const requested = seen.at(-1) ?? '';
+        const page = pages[requested];
+        if (page === undefined) throw new Error(`no page fixture for ${requested}`);
+        return jsonResponse(page);
+      },
+    });
+    const recording: typeof globalThis.fetch = (input, init) => {
+      seen.push(new Request(input).url);
+      return fetch(input, init);
+    };
+
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch: recording }));
+
+    expect(seen.filter((url) => url.startsWith(`${BASE_URL}/models`))).toEqual(Object.keys(pages));
+    expect(catalog.models.map((model) => model.id)).toEqual(['a/one', 'b/two', 'c/three']);
+    // The list ended because the gateway said it had, so nothing was cut off.
+    expect(catalog.modelsWalkCutoff).toBeUndefined();
+  });
+
+  it('continues popularityRank across page boundaries', async () => {
+    let fetched = 0;
+    const fetch = routedFetch({
+      models: () => {
+        fetched += 1;
+        return fetched === 1
+          ? jsonResponse({
+              data: [modelEntryFixture({ id: 'a/one' })],
+              links: { next: `${BASE_URL}/models?sort=top-weekly&offset=1` },
+            })
+          : jsonResponse({ data: [modelEntryFixture({ id: 'b/two' })] });
+      },
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect((byId(catalog.models, 'a/one') as LanguageMetadata).popularityRank).toBe(0);
+    expect((byId(catalog.models, 'b/two') as LanguageMetadata).popularityRank).toBe(1);
+  });
+
+  it('stops at a next link it cannot resolve, keeping the pages it has', async () => {
+    let fetched = 0;
+    const fetch = routedFetch({
+      models: () => {
+        fetched += 1;
+        return jsonResponse({
+          data: [modelEntryFixture({ id: 'a/one' })],
+          links: { next: 'not a url' },
+        });
+      },
+    });
+
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+    expect(catalog.models.map((model) => model.id)).toEqual(['a/one']);
+    expect(catalog.modelsWalkCutoff).toBe('unfollowable-next-link');
+    expect(fetched).toBe(1);
+  });
+
+  it('stops at a next link shaped unlike the string it assumes', async () => {
+    let fetched = 0;
+    const fetch = routedFetch({
+      models: () => {
+        fetched += 1;
+        return jsonResponse({
+          data: [modelEntryFixture({ id: 'a/one' })],
+          links: { next: { href: `${BASE_URL}/models?sort=top-weekly&offset=1` } },
+        });
+      },
+    });
+
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+    expect(catalog.models.map((model) => model.id)).toEqual(['a/one']);
+    expect(catalog.modelsWalkCutoff).toBe('unfollowable-next-link');
+    expect(fetched).toBe(1);
+  });
+
+  it.each([
+    ['a string', 'https://openrouter.test/next'],
+    ['an array', [{ next: 'https://openrouter.test/next' }]],
+    ['a number', 7],
+  ])('stops when links itself is %s, without refusing the refresh', async (_label, links) => {
+    let fetched = 0;
+    const fetch = routedFetch({
+      models: () => {
+        fetched += 1;
+        return jsonResponse({ data: [modelEntryFixture({ id: 'a/one' })], links });
+      },
+    });
+
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+    expect(catalog.models.map((model) => model.id)).toEqual(['a/one']);
+    expect(catalog.modelsWalkCutoff).toBe('unfollowable-next-link');
+    expect(fetched).toBe(1);
+  });
+
+  it('treats a links object carrying no next as the last page, not a cutoff', async () => {
+    const fetch = routedFetch({
+      models: () => jsonResponse({ data: [modelEntryFixture({ id: 'a/one' })], links: {} }),
+    });
+
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+    expect(catalog.models.map((model) => model.id)).toEqual(['a/one']);
+    expect(catalog.modelsWalkCutoff).toBeUndefined();
+  });
+
+  it('stops at a next link that revisits a page already fetched', async () => {
+    let fetched = 0;
+    const fetch = routedFetch({
+      models: () => {
+        fetched += 1;
+        return jsonResponse({
+          data: [modelEntryFixture({ id: 'a/one' })],
+          links: { next: `${BASE_URL}/models?sort=top-weekly` },
+        });
+      },
+    });
+
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+    expect(catalog.models.map((model) => model.id)).toEqual(['a/one']);
+    expect(catalog.modelsWalkCutoff).toBe('unfollowable-next-link');
+    expect(fetched).toBe(1);
+  });
+
+  it('stops after the page budget is spent, however many fresh links it is offered', async () => {
+    let fetched = 0;
+    const fetch = routedFetch({
+      models: () => {
+        fetched += 1;
+        // Every page offers a link to a page never seen before, so the visited
+        // set can never end this walk — only the budget can.
+        return jsonResponse({
+          data: [modelEntryFixture({ id: `page/${String(fetched)}` })],
+          links: { next: `${BASE_URL}/models?sort=top-weekly&offset=${String(fetched)}` },
+        });
+      },
+    });
+
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+    expect(fetched).toBe(50);
+    expect(catalog.models).toHaveLength(50);
+    expect(catalog.modelsWalkCutoff).toBe('page-budget-spent');
+  });
+
+  it('stops at the first page when the body carries no links object', async () => {
+    let fetched = 0;
+    const fetch = routedFetch({
+      models: () => {
+        fetched += 1;
+        return jsonResponse({ data: [modelEntryFixture()] });
+      },
+    });
+
+    await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+    expect(fetched).toBe(1);
+  });
+
+  it('assigns each language model its 0-based gateway index as popularityRank', async () => {
+    const fetch = catalogFetch({
+      models: [
+        modelEntryFixture({ id: 'a/one' }),
+        modelEntryFixture({ id: 'b/two' }),
+        modelEntryFixture({ id: 'c/three' }),
+      ],
+      zdrModelIds: ['a/one', 'b/two', 'c/three'],
+    });
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+    expect((byId(catalog.models, 'a/one') as LanguageMetadata).popularityRank).toBe(0);
+    expect((byId(catalog.models, 'b/two') as LanguageMetadata).popularityRank).toBe(1);
+    expect((byId(catalog.models, 'c/three') as LanguageMetadata).popularityRank).toBe(2);
+  });
+
+  /** One walk case per paged list other than `/models`: how to build a page of
+   * it, how to serve it, and where its ids and its cutoff land on the catalog. */
+  interface ListWalkCase {
+    readonly label: string;
+    readonly firstUrl: string;
+    readonly page: (ids: readonly string[], links: unknown) => unknown;
+    readonly serve: (respond: () => Response) => typeof globalThis.fetch;
+    readonly idsOf: (catalog: GatewayCatalog) => readonly string[];
+    readonly cutoffOf: (catalog: GatewayCatalog) => ListWalkCutoff | undefined;
+  }
+
+  const LIST_WALKS: readonly ListWalkCase[] = [
+    {
+      label: 'ZDR membership',
+      firstUrl: `${BASE_URL}/endpoints/zdr`,
+      page: (ids, links) => ({ data: ids.map((id) => ({ model_id: id })), links }),
+      serve: (respond) => routedFetch({ zdr: respond }),
+      idsOf: (catalog) => [...catalog.zdrModelIds],
+      cutoffOf: (catalog) => catalog.zdrWalkCutoff,
+    },
+    {
+      label: 'image models',
+      firstUrl: `${BASE_URL}/images/models`,
+      page: (ids, links) => ({ data: ids.map((id) => imageModelFixture({ id })), links }),
+      serve: (respond) =>
+        routedFetch({
+          images: respond,
+          imageEndpoints: () => jsonResponse(imageEndpointsFixture()),
+        }),
+      idsOf: (catalog) =>
+        catalog.models.filter((model) => model.source === 'image').map((model) => model.id),
+      cutoffOf: (catalog) => catalog.imageModelsWalkCutoff,
+    },
+    {
+      label: 'video models',
+      firstUrl: `${BASE_URL}/videos/models`,
+      page: (ids, links) => ({ data: ids.map((id) => videoModelFixture({ id })), links }),
+      serve: (respond) => routedFetch({ videos: respond }),
+      idsOf: (catalog) =>
+        catalog.models.filter((model) => model.source === 'video').map((model) => model.id),
+      cutoffOf: (catalog) => catalog.videoModelsWalkCutoff,
+    },
+  ];
+
+  describe.each(LIST_WALKS)('$label pagination', (walk) => {
+    it('follows links.next until the gateway stops offering one', async () => {
+      let fetched = 0;
+      const fetch = walk.serve(() => {
+        fetched += 1;
+        return fetched === 1
+          ? jsonResponse(walk.page(['a/one'], { next: `${walk.firstUrl}?offset=1` }))
+          : jsonResponse(walk.page(['b/two'], { next: null }));
+      });
+
+      const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+      expect(fetched).toBe(2);
+      expect(walk.idsOf(catalog)).toEqual(['a/one', 'b/two']);
+      // The list ended because the gateway said it had, so nothing was cut off.
+      expect(walk.cutoffOf(catalog)).toBeUndefined();
+    });
+
+    it('treats a links object carrying no next as the last page, not a cutoff', async () => {
+      let fetched = 0;
+      const fetch = walk.serve(() => {
+        fetched += 1;
+        return jsonResponse(walk.page(['a/one'], {}));
+      });
+
+      const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+      expect(fetched).toBe(1);
+      expect(walk.idsOf(catalog)).toEqual(['a/one']);
+      expect(walk.cutoffOf(catalog)).toBeUndefined();
+    });
+
+    it('stops at a next link that revisits a page already fetched', async () => {
+      let fetched = 0;
+      const fetch = walk.serve(() => {
+        fetched += 1;
+        return jsonResponse(walk.page(['a/one'], { next: walk.firstUrl }));
+      });
+
+      const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+      expect(fetched).toBe(1);
+      expect(walk.idsOf(catalog)).toEqual(['a/one']);
+      expect(walk.cutoffOf(catalog)).toBe('unfollowable-next-link');
+    });
+
+    it('stops after the page budget is spent, however many fresh links it is offered', async () => {
+      let fetched = 0;
+      const fetch = walk.serve(() => {
+        fetched += 1;
+        // Every page offers a link to a page never seen before, so the visited
+        // set can never end this walk — only the budget can.
+        return jsonResponse(
+          walk.page([`page/${String(fetched)}`], {
+            next: `${walk.firstUrl}?offset=${String(fetched)}`,
+          })
+        );
+      });
+
+      const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+      expect(fetched).toBe(50);
+      expect(walk.idsOf(catalog)).toHaveLength(50);
+      expect(walk.cutoffOf(catalog)).toBe('page-budget-spent');
+    });
+  });
+
+  it('fetches the image endpoint detail for models found on a later page', async () => {
+    const detailIds: string[] = [];
+    let fetched = 0;
+    const fetch = routedFetch({
+      images: () => {
+        fetched += 1;
+        return fetched === 1
+          ? jsonResponse({
+              data: [imageModelFixture({ id: 'a/one' })],
+              links: { next: `${BASE_URL}/images/models?offset=1` },
+            })
+          : jsonResponse({ data: [imageModelFixture({ id: 'b/two' })] });
+      },
+      imageEndpoints: (modelId) => {
+        detailIds.push(modelId);
+        return jsonResponse(imageEndpointsFixture());
+      },
+    });
+
+    const catalog = await unwrap(fetchGatewayCatalog({ baseUrl: BASE_URL, fetch }));
+
+    expect(detailIds).toEqual(['a/one', 'b/two']);
+    expect((byId(catalog.models, 'b/two') as ImageMetadata).endpointPricing).toEqual([
+      { billable: 'output_image', unit: 'image', costUsd: '0.04' },
+    ]);
+  });
+});

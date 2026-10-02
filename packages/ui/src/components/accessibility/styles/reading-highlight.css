@@ -1,0 +1,56 @@
+/* Reading highlight for the document reader (blog read-aloud). Two paint
+ * mechanisms share one look: the CSS Custom Highlight API via ::highlight()
+ * when supported, and a whole-block class fallback otherwise. They stay two
+ * rules rather than one selector list, which a browser lacking ::highlight()
+ * would drop whole, taking the fallback with it.
+ *
+ * The aid is two marks in one brand colour, and which mark carries which
+ * obligation is the point of the split.
+ *
+ * The underline is the indicator, and it is the half that may not be weakened.
+ * Solid --brand-red beside the text rather than under it, so it clears 3:1
+ * against the canvas in every tier (3.56 on the light canvas, 4.72 on the dark,
+ * 3.75 and 5.60 in the high tier) and satisfies WCAG 1.4.11 without touching the
+ * text's own contrast. Thinning it, tinting it, or dropping the line is a
+ * conformance regression, not a style change.
+ *
+ * The wash is aesthetic. Same brand colour at --reading-highlight-strength,
+ * which styles/contrast.css redefines per tier. It sits under the text, so the
+ * one bound it is held to is the text on top of it: 7:1 in every tier. It does
+ * not reach 3:1 against the canvas and is not meant to — a mid-dark red would
+ * need a near-solid bar to get there, and the underline already carries what the
+ * bar would have been for.
+ *
+ * Both marks are pinned by lib/chunk-highlighter.test.ts.
+ *
+ * The mark is an underline because ::highlight() accepts no box properties at
+ * all — a boxed rule or a left bar beside the text cannot be drawn there, and
+ * the decoration longhands are the only marks it does take. Chromium, Gecko and
+ * WebKit all honour text-decoration-line and text-decoration-color; only the
+ * first two honour text-decoration-thickness, and WebKit substitutes its own
+ * font-scaled thickness, which changes how heavy the line looks but neither its
+ * colour nor its ratio. */
+
+::highlight(tts-reading) {
+  background-color: color-mix(
+    in srgb,
+    var(--brand-red) var(--reading-highlight-strength),
+    transparent
+  );
+  text-decoration-line: underline;
+  text-decoration-color: var(--brand-red);
+  text-decoration-thickness: 3px;
+  text-underline-offset: 2px;
+}
+
+.tts-reading-block {
+  background-color: color-mix(
+    in srgb,
+    var(--brand-red) var(--reading-highlight-strength),
+    transparent
+  );
+  text-decoration-line: underline;
+  text-decoration-color: var(--brand-red);
+  text-decoration-thickness: 3px;
+  text-underline-offset: 2px;
+}

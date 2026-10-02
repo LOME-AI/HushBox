@@ -1,0 +1,219 @@
+name: Build Android
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+        description: 'The commit to build: the one the release tag points at, never the dispatched head.'
+      version-name:
+        required: true
+        type: string
+      version-code:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      privacy-policy-effective-date:
+        required: true
+        type: string
+        description: 'Derived by the caller from the release tags; never typed by a person.'
+      terms-of-service-effective-date:
+        required: true
+        type: string
+        description: 'Derived by the caller from the release tags; never typed by a person.'
+      vite-platform:
+        required: true
+        type: string
+        description: 'Vite build platform: "android" for Play-Store-configured build, "android-direct" for Obtainium/direct-install build.'
+      output:
+        required: true
+        type: string
+        description: '"apk-github-release" | "aab-play-upload" | "aab-artifact"'
+      play-track:
+        required: false
+        type: string
+        default: production
+        description: 'Play Store track when output=aab-play-upload. Ignored otherwise.'
+      github-release-prerelease:
+        required: false
+        type: boolean
+        default: false
+        description: 'Mark the GitHub Release as a pre-release when output=apk-github-release.'
+      github-release-title-suffix:
+        required: false
+        type: string
+        default: ''
+        description: 'Suffix appended to the GitHub Release title when output=apk-github-release.'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    # Every step below is a process of its own, so none of them inherits the
+    # mode from the step that generated its env file. This job builds what
+    # ships, and production is the one mode that runs no stack: naming it here
+    # is what makes each build resolve production instead of refusing for want
+    # of a mode.
+    env:
+      HB_ENV_MODE: production
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: ./.github/actions/setup
+
+      - name: Setup Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Decode keystore
+        run: echo "$KEYSTORE_B64" | base64 -d > /tmp/hushbox-release.jks
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Verify keystore
+        run: |
+          echo "Keystore file exists: $(test -s /tmp/hushbox-release.jks && echo YES || echo NO)"
+          echo "Store password set: $(test -n "$ANDROID_KEYSTORE_PASSWORD" && echo YES || echo NO)"
+          echo "Key alias set: $(test -n "$ANDROID_KEY_ALIAS" && echo YES || echo NO)"
+          echo "Key password set: $(test -n "$ANDROID_KEY_PASSWORD" && echo YES || echo NO)"
+          if keytool -list -keystore /tmp/hushbox-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" > /dev/null; then
+            echo "Store password: CORRECT"
+          else
+            echo "Store password: WRONG"
+            exit 1
+          fi
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Decode google-services.json
+        # BEGIN GENERATED: decode-google-services
+        run: echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > apps/web/android/app/google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        # END GENERATED: decode-google-services
+
+      - name: Generate production environment file
+        run: pnpm generate:env --mode=production
+        # BEGIN GENERATED: production-env-android
+        env:
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          VITE_HELCIM_JS_TOKEN_PRODUCTION: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_APP_VERSION: ${{ inputs.version }}
+          VITE_PRIVACY_POLICY_EFFECTIVE_DATE: ${{ inputs.privacy-policy-effective-date }}
+          VITE_TERMS_OF_SERVICE_EFFECTIVE_DATE: ${{ inputs.terms-of-service-effective-date }}
+        # END GENERATED: production-env-android
+
+      - name: Verify production environment
+        run: pnpm verify:env --mode=production
+
+      - name: Build web for Android
+        run: pnpm --filter web build
+        # BEGIN GENERATED: build-env-android
+        env:
+          VITE_SANDBOX_ORIGIN_URL: https://sandbox.hushbox.ai
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+          VITE_API_URL: https://api.hushbox.ai
+          VITE_HELCIM_JS_TOKEN: ${{ secrets.VITE_HELCIM_JS_TOKEN_PRODUCTION }}
+          VITE_PLATFORM: ${{ inputs.vite-platform }}
+          VITE_APP_VERSION: ${{ inputs.version }}
+          VITE_PRIVACY_POLICY_EFFECTIVE_DATE: ${{ inputs.privacy-policy-effective-date }}
+          VITE_TERMS_OF_SERVICE_EFFECTIVE_DATE: ${{ inputs.terms-of-service-effective-date }}
+          VITE_WEB_URL: https://hushbox.ai
+        # END GENERATED: build-env-android
+
+      # `cap sync` copies this dist into the APK, so the bundle guard runs on it
+      # between the build and the sync. The step needs no env block.
+      #
+      # This bundle is compiled into the APK and served there by the web view,
+      # which is no HTTP origin: the check is told so, because the output
+      # directory it is in cannot say it.
+      - name: Verify web bundle
+        run: pnpm verify:bundle --not-served-over-http
+
+      - name: Generate platform assets
+        working-directory: apps/web
+        run: pnpm asset:sync
+
+      - name: Sync Android
+        working-directory: apps/web
+        run: pnpm cap:sync android
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: apps/web/android
+
+      # ── output=apk-github-release ─────────────────────────
+      - name: Build APK
+        if: inputs.output == 'apk-github-release'
+        working-directory: apps/web/android
+        run: bundle exec fastlane build_apk
+        env:
+          ANDROID_KEYSTORE_PATH: /tmp/hushbox-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_CODE: ${{ inputs.version-code }}
+          VERSION_NAME: ${{ inputs.version-name }}
+
+      - name: Create GitHub Release
+        if: inputs.output == 'apk-github-release'
+        # PRERELEASE carries the flag or nothing, so it is the one expansion here
+        # that must stay unquoted: quoting an empty value passes `gh` an empty
+        # argument instead of no argument.
+        run: |
+          gh release create "v$VERSION_NAME" \
+            apps/web/android/app/build/outputs/apk/release/app-release.apk \
+            --title "v$VERSION_NAME$TITLE_SUFFIX" \
+            --generate-notes \
+            $PRERELEASE
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_NAME: ${{ inputs.version-name }}
+          TITLE_SUFFIX: ${{ inputs.github-release-title-suffix }}
+          PRERELEASE: ${{ inputs.github-release-prerelease && '--prerelease' || '' }}
+
+      # ── output=aab-* (shared build) ───────────────────────
+      - name: Build AAB
+        if: inputs.output == 'aab-play-upload' || inputs.output == 'aab-artifact'
+        working-directory: apps/web/android
+        run: bundle exec fastlane build_aab
+        env:
+          ANDROID_KEYSTORE_PATH: /tmp/hushbox-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_CODE: ${{ inputs.version-code }}
+          VERSION_NAME: ${{ inputs.version-name }}
+
+      # ── output=aab-play-upload ────────────────────────────
+      - name: Upload AAB to Play Store
+        if: inputs.output == 'aab-play-upload'
+        working-directory: apps/web/android
+        run: bundle exec fastlane upload_aab track:"$PLAY_TRACK"
+        env:
+          PLAY_STORE_JSON_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
+          PLAY_TRACK: ${{ inputs.play-track }}
+
+      # ── output=aab-artifact ───────────────────────────────
+      - name: Upload AAB as workflow artifact
+        if: inputs.output == 'aab-artifact'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: app-release-aab-v${{ inputs.version-name }}
+          path: apps/web/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error

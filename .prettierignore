@@ -1,0 +1,91 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.vercel/
+.wrangler/
+
+# Turbo
+.turbo/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Generated files
+*.d.ts
+*.min.js
+*.min.css
+**/routeTree.gen.ts
+
+# Document-sandbox served assets. The two bundles are esbuild output committed so
+# the reviewed bytes are the served bytes; a drift test asserts they equal a fresh
+# build, so reformatting them would break that byte-equality. The pyodide runtime
+# is fetched, pinned third-party wasm/wheels.
+apps/sandbox/public/render.js
+apps/sandbox/public/python.js
+apps/sandbox/public/pyodide/
+
+# The marketing site, built a second time and copied into the admin origin's
+# static assets, where that origin's bundler carries it into the dist its assets
+# Worker serves. Everything under it is that build's output, held to that
+# build's rules, so formatting any of it would rewrite what it produced. The
+# directory is named here rather than left to the ignore file beside the copy:
+# this tool reads the repository's root ignore file and not a nested one.
+apps/admin/public/preview/
+
+# Captured upstream package-registry responses, replayed verbatim in tests.
+# Reformatting them would change the bytes under replay.
+apps/sandbox/test-fixtures/
+
+# Audit findings, their skeletons, and the parser's fixtures. The format quotes
+# every frontmatter string with JSON escaping and reads it back with
+# `JSON.parse`, so `singleQuote: true` would rewrite `id: "AI-1"` to `id: 'AI-1'`
+# and make every finding unparseable. Reformatting would also break the
+# byte-identical round trip that keeps a no-op write from touching the file.
+# `docs/audits/CLAUDE.md` is prose, not format, and stays formatted.
+docs/audits/*/
+.claude/skills/improve-codebase/template/audit.md
+.claude/skills/improve-codebase/template/finding.md
+packages/docket/test-fixtures/
+
+# Run records: a plan, a ledger and the task reports, written during a run and
+# never updated afterwards (`docs/CODE-RULES.md` §Doc Lifecycle). Formatting them
+# would rewrite a historical record.
+docs/runs/
+
+# The billing behaviour ledger. One row per line is load-bearing: a behaviour's whole
+# entry is a single line, so a review diff reads as one line per behaviour changed and a
+# row can be edited without navigating a block. `pnpm format` is a documented command
+# (`docs/DEVELOPMENT.md`), and reformatting would explode each row across ~20 lines,
+# destroying that shape.
+packages/config/behaviour-ledger.json
+
+# The frontend-design skill's two vendored halves: the craft guides under
+# `reference/` and the detector under `scripts/`, both seeded verbatim at a
+# pinned commit from `pbakaus/impeccable` (Apache-2.0) and since maintained
+# here as a fork, so the two directories hold that vendored code plus HushBox
+# additions written in its style — this exempts both. Dev-only tooling that
+# ships to no user and runs on no production path; none of it was written to
+# this repo's conventions, and it is deliberately not held to them. The
+# provenance, the fork's divergence, and the three further upstreams the skill
+# merges are recorded in `.claude/skills/frontend-design/.MAINTAINERS.md`.
+# Scoped to those two directories, so HushBox-authored files outside them —
+# the skill's own, and first-party code elsewhere under `.claude/` — stay
+# formatted.
+.claude/skills/frontend-design/reference/
+.claude/skills/frontend-design/scripts/
+
+# IDE
+.idea/
+.vscode/

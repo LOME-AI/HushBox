@@ -1,0 +1,32 @@
+---
+interface Props {
+  name: string;
+  description?: string;
+  comingSoon?: boolean;
+}
+
+const { name: featureName, description, comingSoon = false } = Astro.props;
+const hasIcon = Astro.slots.has('icon');
+const widthClass = comingSoon
+  ? 'md:w-[calc((100%_-_2.25rem)/4)]'
+  : 'md:w-[calc((100%_-_1.5rem)/3)]';
+---
+
+<div
+  data-feature-card
+  class={`w-[calc((100%_-_0.75rem)/2)] min-w-0 rounded-lg border-2 px-4 py-3 ${widthClass} ${comingSoon ? 'border-dashed border-border text-foreground' : 'border-border'}`}
+>
+  <div class="min-w-0 wrap-break-word">
+    <p class="flex items-center gap-2 text-sm font-medium">
+      <span class="min-w-0 wrap-anywhere">{featureName}</span>
+      {
+        hasIcon && (
+          <span class="text-primary ml-auto shrink-0 [&>svg]:h-4 [&>svg]:w-4">
+            <slot name="icon" />
+          </span>
+        )
+      }
+    </p>
+    {description && <p class="text-foreground/70 mt-1 text-xs">{description}</p>}
+  </div>
+</div>

@@ -1,0 +1,454 @@
+import { describe, expect, it } from 'vitest';
+import { SMART_MODEL_ID, modelsListResponseSchema } from '@hushbox/shared';
+import { DAY_MS, OLD_RELEASE_SECONDS, TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
+import {
+  perImagePricingFixture,
+  perSecondPricingFixture,
+  tokenPricingFixture,
+} from '@hushbox/shared/pricing-fixture';
+import { buildModelsListResponse } from './list-models.js';
+import type { Modality, ModelDescriptor } from '@hushbox/shared';
+
+// A fixed reference clock; recency is judged against it, not the wall clock.
+const NOW_MS = TEST_DAY_START;
+// releasedAt 100 days back — inside the 182-day recency window.
+const RECENT_RELEASE = secondsAt(NOW_MS - 100 * DAY_MS);
+
+function tokenPricing(inputPerToken: bigint, outputPerToken: bigint): ModelDescriptor['pricing'] {
+  return tokenPricingFixture({ input: inputPerToken, output: outputPerToken });
+}
+
+function textModel(overrides: Partial<ModelDescriptor> = {}): ModelDescriptor {
+  return {
+    id: 'test/text-model',
+    provider: 'test',
+    version: '1',
+    inputs: ['text'] as Modality[],
+    outputs: ['text'] as Modality[],
+    parameters: {},
+    behaviors: ['streaming'],
+    limits: { contextLength: 128_000 },
+    pricing: tokenPricing(3000n, 6000n),
+    zdrReachable: true,
+    releasedAt: OLD_RELEASE_SECONDS,
+    fetchedAt: 0,
+    ...overrides,
+  };
+}
+
+function imageModel(overrides: Partial<ModelDescriptor> = {}): ModelDescriptor {
+  return textModel({
+    id: 'test/image-model',
+    outputs: ['image'] as Modality[],
+    behaviors: [],
+    limits: {},
+    pricing: perImagePricingFixture({ anchor: 40_000_000n, dearest: 40_000_000n }),
+    parameters: {
+      aspectRatio: { type: 'enum', values: ['1:1', '16:9'], wire: 'providerOptions' },
+    },
+    ...overrides,
+  });
+}
+
+function videoModel(overrides: Partial<ModelDescriptor> = {}): ModelDescriptor {
+  return textModel({
+    id: 'test/video-model',
+    outputs: ['video'] as Modality[],
+    behaviors: [],
+    limits: {},
+    pricing: perSecondPricingFixture({
+      anchor: {
+        '720p': 100_000_000n,
+        '1080p': 200_000_000n,
+      },
+      dearest: {
+        '720p': 100_000_000n,
+        '1080p': 200_000_000n,
+      },
+    }),
+    parameters: {
+      resolution: { type: 'enum', values: ['720p', '1080p'], wire: 'providerOptions' },
+      aspectRatio: { type: 'enum', values: ['16:9', '9:16'], wire: 'providerOptions' },
+      durationSeconds: { type: 'enum', values: [4, 6, 8], wire: 'providerOptions' },
+    },
+    ...overrides,
+  });
+}
+
+/** Cheap-to-expensive old text models feeding the premium price percentile. */
+function priceSpread(prices: readonly bigint[]): ModelDescriptor[] {
+  return prices.map((combined, index) =>
+    textModel({ id: `spread/${String(index)}`, pricing: tokenPricing(combined - 1n, 1n) })
+  );
+}
+
+describe('buildModelsListResponse', () => {
+  it('projects a text descriptor into the shared Model shape with billable nano pricing', () => {
+    const descriptor = textModel({ name: 'Testy: Text Model', description: 'A test model.' });
+    const { response } = buildModelsListResponse([descriptor], NOW_MS);
+    const model = response.models.find((entry) => entry.id === descriptor.id);
+    expect(model).toBeDefined();
+    expect(model).toMatchObject({
+      name: 'Text Model',
+      provider: 'Testy',
+      modality: 'text',
+      contextLength: 128_000,
+      description: 'A test model.',
+      created: OLD_RELEASE_SECONDS,
+    });
+    // Billable nano rates, verbatim from the descriptor — the projection adds
+    // no fee of its own, because the catalog already baked one.
+    expect(model?.pricing.inputPerToken).toBe('3000');
+    expect(model?.pricing.outputPerToken).toBe('6000');
+    expect(model?.pricing.perImage).toBeUndefined();
+  });
+
+  it('serves a tiered anchor’s long-context rates beside its base rates', () => {
+    const descriptor = textModel({
+      pricing: tokenPricingFixture({
+        input: 3450n,
+        output: 17_250n,
+        tiers: [{ abovePromptTokens: 200_000, input: 6900n, output: 25_875n }],
+      }),
+    });
+    const { response } = buildModelsListResponse([descriptor], NOW_MS);
+    const model = response.models.find((entry) => entry.id === descriptor.id);
+
+    expect(model?.pricing.longContextRates).toEqual([
+      { abovePromptTokens: 200_000, inputPerToken: '6900', outputPerToken: '25875' },
+    ]);
+  });
+
+  it('serves no long-context key for an untiered anchor', () => {
+    const { response } = buildModelsListResponse([textModel()], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/text-model');
+
+    expect(model?.pricing).not.toHaveProperty('longContextRates');
+  });
+
+  it('serves an image model’s dearest per-image rate beside the rate it is shown at', () => {
+    const descriptor = imageModel({
+      pricing: perImagePricingFixture({ anchor: 40_000_000n, dearest: 90_000_000n }),
+    });
+    const { response } = buildModelsListResponse([descriptor], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/image-model');
+
+    expect(model?.pricing.dearestPerImage).toBe('90000000');
+  });
+
+  it('serves a video model’s dearest per-second matrix beside the one it is shown at', () => {
+    const descriptor = videoModel({
+      pricing: perSecondPricingFixture({
+        anchor: { '720p': 100_000_000n },
+        dearest: { '720p': 300_000_000n },
+      }),
+    });
+    const { response } = buildModelsListResponse([descriptor], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/video-model');
+
+    expect(model?.pricing.dearestPerSecondByResolution).toEqual({ '720p': '300000000' });
+  });
+
+  it('serves the catalog maxOutputTokens limit on the language wire row', () => {
+    const descriptor = textModel({ limits: { contextLength: 128_000, maxOutputTokens: 8192 } });
+    const { response } = buildModelsListResponse([descriptor], NOW_MS);
+    const model = response.models.find((entry) => entry.id === descriptor.id);
+    expect(model?.maxOutputTokens).toBe(8192);
+  });
+
+  it('leaves maxOutputTokens off the wire when the descriptor carries no completion cap', () => {
+    const { response } = buildModelsListResponse([textModel()], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/text-model');
+    expect(model).not.toHaveProperty('maxOutputTokens');
+  });
+
+  it('leaves maxOutputTokens off the synthetic Smart Model row (per-candidate caps rule it)', () => {
+    const capped = textModel({ limits: { contextLength: 128_000, maxOutputTokens: 8192 } });
+    const { response } = buildModelsListResponse([capped], NOW_MS);
+    const smart = response.models.find((entry) => entry.id === SMART_MODEL_ID);
+    expect(smart).toBeDefined();
+    expect(smart).not.toHaveProperty('maxOutputTokens');
+  });
+
+  it('parses against the shared modelsListResponseSchema wire contract', () => {
+    const { response } = buildModelsListResponse([textModel(), imageModel(), videoModel()], NOW_MS);
+    expect(() => modelsListResponseSchema.parse(response)).not.toThrow();
+  });
+
+  it('falls back to the descriptor provider slug and id when no display name exists', () => {
+    const descriptor = textModel({ id: 'test/no-name' });
+    const { response } = buildModelsListResponse([descriptor], NOW_MS);
+    const model = response.models.find((entry) => entry.id === descriptor.id);
+    expect(model?.provider).toBe('test');
+    expect(model?.name).toBe('test/no-name');
+  });
+
+  it('marks the top price quartile of old, affordable text models premium', () => {
+    const catalog = priceSpread([10n, 20n, 30n, 40n, 50n]);
+    const { response } = buildModelsListResponse(catalog, NOW_MS);
+    // Threshold = combined price at floor(5 * 0.75) = index 3 of the ascending
+    // sort — models at or above it (40n, 50n) are premium; the rest are not.
+    expect(response.premiumModelIds).toContain('spread/3');
+    expect(response.premiumModelIds).toContain('spread/4');
+    expect(response.premiumModelIds).not.toContain('spread/0');
+    expect(response.premiumModelIds).not.toContain('spread/1');
+    expect(response.premiumModelIds).not.toContain('spread/2');
+  });
+
+  it('marks a recently released text model premium regardless of price', () => {
+    const recent = textModel({
+      id: 'test/recent',
+      releasedAt: RECENT_RELEASE,
+      pricing: tokenPricing(1n, 1n),
+    });
+    const catalog = [...priceSpread([10n, 20n, 30n, 40n, 50n]), recent];
+    const { response } = buildModelsListResponse(catalog, NOW_MS);
+    expect(response.premiumModelIds).toContain('test/recent');
+  });
+
+  it('marks every media model premium', () => {
+    // 100n/200n per token keeps the text model under the trial affordability
+    // cap, so only the media models are classified premium here.
+    const cheapText = textModel({ pricing: tokenPricing(100n, 200n) });
+    const { response } = buildModelsListResponse([cheapText, imageModel(), videoModel()], NOW_MS);
+    expect(response.premiumModelIds).toContain('test/image-model');
+    expect(response.premiumModelIds).toContain('test/video-model');
+    expect(response.premiumModelIds).not.toContain('test/text-model');
+  });
+
+  it('projects an image descriptor with per-image pricing and aspect ratios', () => {
+    const { response } = buildModelsListResponse([imageModel()], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/image-model');
+    expect(model?.modality).toBe('image');
+    expect(model?.pricing.perImage).toBe('40000000');
+    expect(model?.pricing.inputPerToken).toBeUndefined();
+    expect(model?.supportedAspectRatios).toEqual(['1:1', '16:9']);
+  });
+
+  it('projects a video descriptor with per-resolution pricing and capability lists', () => {
+    const { response } = buildModelsListResponse([videoModel()], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/video-model');
+    expect(model?.modality).toBe('video');
+    expect(model?.pricing.perSecondByResolution?.['720p']).toBe('100000000');
+    expect(model?.pricing.perSecondByResolution?.['1080p']).toBe('200000000');
+    expect(model?.supportedVideoResolutions).toEqual(['720p', '1080p']);
+    expect(model?.supportedAspectRatios).toEqual(['16:9', '9:16']);
+    expect(model?.supportedVideoDurationsSeconds).toEqual([4, 6, 8]);
+  });
+
+  it('appends a synthetic Smart Model entry spanning the text pool price range', () => {
+    const cheap = textModel({ id: 'test/cheap', pricing: tokenPricing(100n, 200n) });
+    const dear = textModel({ id: 'test/dear', pricing: tokenPricing(1000n, 2000n) });
+    const { response } = buildModelsListResponse([cheap, dear], NOW_MS);
+    const smart = response.models.find((entry) => entry.id === SMART_MODEL_ID);
+    expect(smart).toBeDefined();
+    if (smart === undefined) return;
+    expect(smart.isSmartModel).toBe(true);
+    expect(smart.modality).toBe('text');
+    // Headline pricing tracks the cheapest pool model; min/max carry the
+    // billable nano range, unchanged from the descriptor rates.
+    expect(smart.pricing.inputPerToken).toBe('100');
+    expect(smart.minPricing).toEqual({ inputPerToken: '100', outputPerToken: '200' });
+    expect(smart.maxPricing).toEqual({ inputPerToken: '1000', outputPerToken: '2000' });
+    expect(response.premiumModelIds).not.toContain(SMART_MODEL_ID);
+  });
+
+  it('omits the Smart Model entry when no priceable text model exists', () => {
+    const { response } = buildModelsListResponse([imageModel()], NOW_MS);
+    expect(response.models.some((entry) => entry.id === SMART_MODEL_ID)).toBe(false);
+  });
+
+  it('keeps a language-source image-output model out of the Smart Model pool', () => {
+    // The shape the text leg of `isPriceableTextDescriptor` exists for, and the
+    // reason it is not redundant with the two rate legs beside it: catalog
+    // normalization applies token pricing to every language-sourced row it
+    // admits, image outputs included. This row is too malformed to list — an
+    // image wire row needs a per-image rate — yet the pool is built from the
+    // raw descriptors, so without that leg it would mint a Smart Model row
+    // advertising this row's per-token prices.
+    const textToImage = textModel({
+      id: 'test/text-to-image',
+      outputs: ['image'] as Modality[],
+      behaviors: [],
+    });
+    const { response, dropped } = buildModelsListResponse([textToImage], NOW_MS);
+    expect(dropped).toContain('test/text-to-image');
+    expect(response.models.map((entry) => entry.id)).not.toContain(SMART_MODEL_ID);
+  });
+
+  it('maps a known provider slug through PROVIDER_MAP when the name has no colon', () => {
+    const descriptor = textModel({ id: 'openai/gpt-test', provider: 'openai', name: 'GPT Test' });
+    const { response } = buildModelsListResponse([descriptor], NOW_MS);
+    const model = response.models.find((entry) => entry.id === descriptor.id);
+    expect(model?.provider).toBe('OpenAI');
+    expect(model?.name).toBe('GPT Test');
+  });
+
+  it('ignores a colon split that would leave an empty display name', () => {
+    const descriptor = textModel({ id: 'test/trailing-colon', name: 'Weird:' });
+    const { response } = buildModelsListResponse([descriptor], NOW_MS);
+    const model = response.models.find((entry) => entry.id === descriptor.id);
+    expect(model?.provider).toBe('test');
+    expect(model?.name).toBe('Weird:');
+  });
+
+  it('drops a descriptor whose outputs match no listed family', () => {
+    // No refresh can write this row, and none could write the audio one it
+    // replaced either: driven through `normalizeCatalog`, an embedding output is
+    // refused at group resolution (`non-runnable-shape`) and an audio one at the
+    // language path's call-shape-family check. The case stays because the drop
+    // is defence over STORED rows — nothing re-normalizes a persisted descriptor
+    // on read, so a row written before admission enforced runnability keeps its
+    // shape, and this function refuses it on its own rather than trusting what
+    // its caller filtered.
+    const embeddingOnly = textModel({
+      id: 'test/embedding-only',
+      outputs: ['embedding'] as Modality[],
+      behaviors: [],
+    });
+    const { response, dropped } = buildModelsListResponse([embeddingOnly], NOW_MS);
+    expect(dropped).toContain('test/embedding-only');
+    expect(response.models).toHaveLength(0);
+  });
+
+  it('drops an image descriptor without a per-image rate', () => {
+    const unpriced = imageModel({
+      id: 'test/image-unpriced',
+      pricing: tokenPricingFixture({ input: 1n, output: 1n }),
+    });
+    const { response, dropped } = buildModelsListResponse([unpriced], NOW_MS);
+    expect(dropped).toContain('test/image-unpriced');
+    expect(response.models).toHaveLength(0);
+  });
+
+  it('drops a video descriptor without per-resolution pricing', () => {
+    const unpriced = videoModel({
+      id: 'test/video-unpriced',
+      pricing: tokenPricingFixture({ input: 1n, output: 1n }),
+    });
+    const { dropped } = buildModelsListResponse([unpriced], NOW_MS);
+    expect(dropped).toContain('test/video-unpriced');
+  });
+
+  it('omits video capability lists the descriptor parameters cannot supply', () => {
+    const bare = videoModel({ id: 'test/video-bare', parameters: {} });
+    const nonNumeric = videoModel({
+      id: 'test/video-nonnumeric',
+      parameters: {
+        durationSeconds: { type: 'enum', values: ['4', 'fast'], wire: 'providerOptions' },
+      },
+    });
+    const { response } = buildModelsListResponse([bare, nonNumeric], NOW_MS);
+    const bareModel = response.models.find((entry) => entry.id === 'test/video-bare');
+    expect(bareModel?.supportedVideoDurationsSeconds).toBeUndefined();
+    expect(bareModel?.supportedVideoResolutions).toBeUndefined();
+    const mixed = response.models.find((entry) => entry.id === 'test/video-nonnumeric');
+    expect(mixed?.supportedVideoDurationsSeconds).toEqual([4]);
+  });
+
+  it('drops all-non-numeric video durations entirely', () => {
+    const invalid = videoModel({
+      id: 'test/video-bad-durations',
+      parameters: { durationSeconds: { type: 'enum', values: ['fast'], wire: 'providerOptions' } },
+    });
+    const { response } = buildModelsListResponse([invalid], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/video-bad-durations');
+    expect(model?.supportedVideoDurationsSeconds).toBeUndefined();
+  });
+
+  it('drops the Smart Model entry when the text pool cannot satisfy the contract', () => {
+    // Priceable text models without a context length: each is dropped itself,
+    // and the synthetic entry (max context = 0) fails the text refine too.
+    const noContext = textModel({ id: 'test/no-ctx-a', limits: {} });
+    const noContextB = textModel({ id: 'test/no-ctx-b', limits: {} });
+    const { response, dropped } = buildModelsListResponse([noContext, noContextB], NOW_MS);
+    expect(dropped).toContain(SMART_MODEL_ID);
+    expect(response.models).toHaveLength(0);
+  });
+
+  it('drops a text descriptor without a context length instead of failing the list', () => {
+    const invalid = textModel({ id: 'test/no-context', limits: {} });
+    const { response, dropped } = buildModelsListResponse([invalid, textModel()], NOW_MS);
+    expect(dropped).toContain('test/no-context');
+    expect(response.models.some((entry) => entry.id === 'test/no-context')).toBe(false);
+    expect(response.models.some((entry) => entry.id === 'test/text-model')).toBe(true);
+  });
+
+  it('projects a defined popularityRank onto the wire model', () => {
+    const descriptor = textModel({ id: 'test/ranked', popularityRank: 5 });
+    const { response } = buildModelsListResponse([descriptor], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/ranked');
+    expect(model?.popularityRank).toBe(5);
+  });
+
+  it('omits popularityRank from the wire model when the descriptor carries none', () => {
+    const { response } = buildModelsListResponse([textModel()], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/text-model');
+    expect(model).toBeDefined();
+    expect(model !== undefined && 'popularityRank' in model).toBe(false);
+  });
+
+  it('projects the descriptor reasoning metadata onto the wire model', () => {
+    const descriptor = textModel({
+      id: 'test/reasoner',
+      reasoning: {
+        mandatory: true,
+        supportedEfforts: ['xhigh', 'high', 'medium', 'low'],
+        defaultEffort: 'medium',
+        defaultEnabled: true,
+      },
+    });
+    const { response } = buildModelsListResponse([descriptor], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/reasoner');
+    expect(model?.reasoning).toEqual({
+      mandatory: true,
+      supportedEfforts: ['xhigh', 'high', 'medium', 'low'],
+      defaultEffort: 'medium',
+      defaultEnabled: true,
+    });
+  });
+
+  it('omits reasoning from the wire model when the descriptor carries none', () => {
+    const { response } = buildModelsListResponse([textModel()], NOW_MS);
+    const model = response.models.find((entry) => entry.id === 'test/text-model');
+    expect(model).toBeDefined();
+    expect(model !== undefined && 'reasoning' in model).toBe(false);
+  });
+});
+
+describe('buildModelsListResponse premium threshold', () => {
+  /**
+   * One descriptor whose `pricing` counts its own reads. Building the premium
+   * price threshold means projecting the whole priceable text pool, so every
+   * pool build reads this descriptor's pricing — which makes "how many times was
+   * the threshold built" observable without mocking anything.
+   */
+  function countingModel(): { descriptor: ModelDescriptor; reads: () => number } {
+    const base = textModel({ id: 'spread/probe', pricing: tokenPricing(34n, 1n) });
+    const { pricing } = base;
+    let count = 0;
+    Object.defineProperty(base, 'pricing', {
+      get: (): ModelDescriptor['pricing'] => {
+        count += 1;
+        return pricing;
+      },
+    });
+    return { descriptor: base, reads: (): number => count };
+  }
+
+  /** Pricing reads on the probe while projecting a catalog of `size` models. */
+  function readsOverCatalogOf(size: number): number {
+    const probe = countingModel();
+    const filler = priceSpread(Array.from({ length: size - 1 }, (_, index) => BigInt(index + 2)));
+    buildModelsListResponse([probe.descriptor, ...filler], NOW_MS);
+    return probe.reads();
+  }
+
+  it('builds the whole-pool threshold a fixed number of times, whatever the catalog size', () => {
+    // Once per response, so the work per model does not grow with the catalog.
+    // Recomputing it inside the per-descriptor loop made this quadratic: the
+    // pool was rebuilt once per model, so a bigger catalog read each model's
+    // pricing proportionally more often.
+    expect(readsOverCatalogOf(12)).toBe(readsOverCatalogOf(4));
+  });
+});

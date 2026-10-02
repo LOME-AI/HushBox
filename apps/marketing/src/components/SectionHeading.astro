@@ -1,0 +1,16 @@
+---
+import { Heading } from '@hushbox/ui/type';
+
+interface Props {
+  level?: 2 | 3;
+  id?: string;
+}
+
+const { level = 2, id } = Astro.props;
+---
+
+<div class="min-w-0 text-center wrap-break-word">
+  <Heading level={level} variant="site-section" {...id === undefined ? {} : { id }}>
+    <slot />
+  </Heading>
+</div>

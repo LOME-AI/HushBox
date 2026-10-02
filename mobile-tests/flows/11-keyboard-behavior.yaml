@@ -1,0 +1,45 @@
+appId: ai.hushbox.app
+name: Keyboard appears and input remains visible
+tags:
+  - should
+androidWebViewHierarchy: devtools
+---
+- launchApp:
+    clearState: true
+
+# Wait for app to stabilize
+- extendedWaitUntil:
+    visible: 'Sign up'
+    timeout: 45000
+
+# Tap the prompt input to trigger the software keyboard. It carries a literal
+# HTML `id`, which Maestro's `id:` selector matches.
+- tapOn:
+    id: 'prompt-input'
+
+# The field the keyboard was raised over is still on screen rather than covered
+# by it — the second half of what this flow is named for.
+- assertVisible:
+    id: 'prompt-input'
+
+# Type a short string to verify input works. Kept under 12 characters
+# because Maestro 2.6.0 stalls inputText at exactly the 12th character on
+# docker-android (the WebView's input queue fills before Maestro can drain
+# it, and the 120 s gRPC deadline fires). Maestro issue #2718.
+- inputText: 'TestKeys'
+
+# The typed characters reached the field: a textarea's node text in the WebView
+# hierarchy is its value, so a field the keyboard never reached carries its
+# accessible label here instead and cannot match. Typing is only possible
+# through the software keyboard, so this is also what proves it appeared.
+- assertVisible:
+    id: 'prompt-input'
+    text: 'TestKeys'
+
+# Dismiss keyboard
+- hideKeyboard
+
+# The field and its contents survive the keyboard going away.
+- assertVisible:
+    id: 'prompt-input'
+    text: 'TestKeys'

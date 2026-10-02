@@ -1,0 +1,612 @@
+import * as React from 'react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
+import { NOTICE_COPY } from '@hushbox/shared';
+import { makeBalance } from '@/test-utils/balance-fixture';
+import { renderRoute } from '@/test-utils/render';
+import { SUGGESTION_LIST_ALTERNATIVE_COUNT } from '@/lib/prediction/alternative-count';
+import { Route } from './chat.index';
+import type { Model } from '@hushbox/shared';
+
+// Mock dependencies using vi.hoisted for values referenced in vi.mock factory
+const {
+  mockUseStableSession,
+  mockNavigate,
+  mockUseBalance,
+  mockUseStability,
+  mockInvalidateQueries,
+} = vi.hoisted(() => ({
+  mockUseStableSession: vi.fn(),
+  mockNavigate: vi.fn(),
+  mockUseBalance: vi.fn(),
+  mockUseStability: vi.fn(),
+  mockInvalidateQueries: vi.fn(),
+}));
+
+const { mockPromptPredictor } = vi.hoisted(() => ({
+  mockPromptPredictor: vi.fn(() => undefined),
+}));
+
+vi.mock('@/lib/prediction/prompt-predictor', () => ({
+  promptPredictor: mockPromptPredictor,
+}));
+
+// Keep the real router (createFileRoute must run for the route file); override only useNavigate.
+vi.mock('@/hooks/billing/use-spendable', () => ({
+  useSpendable: () => ({ data: undefined, isPending: false }),
+  hasServedFunding: (isAuthenticated: boolean) => isAuthenticated,
+  useFundingRead: (isAuthenticated: boolean) => ({
+    status: isAuthenticated ? 'awaiting' : 'no-door',
+    snapshot: undefined,
+  }),
+}));
+vi.mock('@/hooks/billing/use-turn-options', () => ({
+  useTurnOptions: () => ({ isPending: false, options: undefined }),
+  usePickerOptions: () => ({
+    isPending: false,
+    affordable: undefined,
+    smartSlotAvailability: undefined,
+  }),
+}));
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+    // The route renders with no RouterProvider, which the real Link needs.
+    Link: ({
+      to,
+      onClick,
+      className,
+      children,
+    }: {
+      to: string;
+      onClick?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
+      className?: string;
+      children: React.ReactNode;
+    }): React.JSX.Element => (
+      <a href={to} onClick={onClick} className={className}>
+        {children}
+      </a>
+    ),
+  };
+});
+
+// Keep the real @tanstack/react-query (the render harness provides the real
+// QueryClientProvider); override only useQueryClient so the PaymentModal's
+// onSuccess invalidation is observable and can be forced to reject.
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>();
+  return {
+    ...actual,
+    useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+  };
+});
+
+// PaymentModal renders only when open; the stub surfaces its onSuccess so the
+// route's balance-invalidation callback can be triggered from a click, and the
+// refused row it was handed so the threading is observable.
+vi.mock('@/components/billing/payment-modal', () => ({
+  PaymentModal: ({
+    open,
+    onSuccess,
+    modelName,
+    reason,
+  }: {
+    open: boolean;
+    onSuccess: () => void;
+    modelName?: string | undefined;
+    reason?: string | undefined;
+  }) =>
+    open ? (
+      <button
+        type="button"
+        data-testid="payment-modal-success"
+        data-model-name={modelName}
+        data-reason={reason}
+        onClick={onSuccess}
+      >
+        success
+      </button>
+    ) : null,
+}));
+
+vi.mock('@/hooks/auth/use-stable-session', () => ({
+  useStableSession: mockUseStableSession,
+}));
+
+// Override the global stability mock (test.setup) so each test controls useStability,
+// while keeping a pass-through StabilityProvider for the real render harness.
+vi.mock('@/providers/stability-provider', () => ({
+  useStability: mockUseStability,
+  StabilityProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+// The welcome's Continue list reads the conversation list; the route's tests need none.
+vi.mock('@/hooks/chat/chat', () => ({
+  useDecryptedConversations: () => ({
+    data: undefined,
+    isLoading: false,
+    fetchNextPage: vi.fn(),
+    hasNextPage: false,
+    isFetchingNextPage: false,
+  }),
+}));
+
+vi.mock('@/hooks/billing/billing', () => ({
+  useBalance: mockUseBalance,
+  billingKeys: {
+    balance: () => ['balance'],
+  },
+}));
+
+vi.mock('@/lib/api/api', () => ({
+  getApiUrl: vi.fn(() => 'http://localhost:8787'),
+  ApiError: class ApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public data?: unknown
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  },
+}));
+
+const mockClearError = vi.fn();
+const mockClearAll = vi.fn();
+vi.mock('@/stores/chat/error', () => ({
+  MAIN_FORK_KEY: 'main',
+  useChatErrorStore: Object.assign(() => null, {
+    getState: () => ({
+      errorsByFork: {},
+      setError: vi.fn(),
+      clearError: mockClearError,
+      clearAll: mockClearAll,
+    }),
+  }),
+}));
+
+vi.mock('@/stores/model', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/model')>();
+  const { createModelStoreStub, selectorFromState } = await import('@/test-utils/model-store-mock');
+  const state = createModelStoreStub();
+  return { ...actual, useModelStore: vi.fn(selectorFromState(state)) };
+});
+
+vi.mock('@/hooks/models/models', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/models/models')>();
+  return {
+    ...actual,
+    useModels: vi.fn(() => ({
+      data: {
+        models: [
+          {
+            id: 'test-model',
+            name: 'Test Model',
+            contextLength: 50_000,
+            provider: 'Test Provider',
+            modality: 'text',
+            description: 'A test model',
+            supportedParameters: [],
+            pricing: { inputPerToken: '1000', outputPerToken: '2000' },
+          },
+        ] satisfies Model[],
+        premiumIds: new Set<string>(),
+      },
+      isLoading: false,
+      error: null,
+    })),
+  };
+});
+
+vi.mock('@/hooks/billing/use-prompt-budget', () => ({
+  // The picker's affordability floor shares this module; greying is out of
+  // scope for the route's behavior.
+  usePromptBudget: (input: { value: string }) => ({
+    fundingSource: 'personal_balance',
+    notifications: [],
+    capacityPercent: 5,
+    capacityBand: 'room_to_spare',
+    capacityCurrentUsage: 1100,
+    capacityMaxCapacity: 50_000,
+    estimatedCostNanoUsd: 1_000_000n,
+    isOverCapacity: false,
+    hasBlockingError: false,
+    hasContent: input.value.trim().length > 0,
+  }),
+}));
+
+// Keep the real framer-motion (MotionProvider in the render harness needs
+// MotionConfig/useReducedMotion); override only the animated primitives ChatWelcome uses.
+vi.mock('framer-motion', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('framer-motion')>();
+  const react = await import('react');
+
+  const createMotionComponent = (
+    tag: string
+  ): React.ForwardRefExoticComponent<
+    Omit<Record<string, unknown> & { children?: React.ReactNode }, 'ref'> &
+      React.RefAttributes<HTMLElement>
+  > => {
+    return react.forwardRef(
+      (
+        {
+          children,
+          // Strip framer-motion-only props so they are not forwarded to the DOM
+          // element, which would make React warn about non-boolean attributes.
+          initial: _initial,
+          animate: _animate,
+          exit: _exit,
+          transition: _transition,
+          variants: _variants,
+          whileHover: _whileHover,
+          whileTap: _whileTap,
+          whileFocus: _whileFocus,
+          whileInView: _whileInView,
+          whileDrag: _whileDrag,
+          layout: _layout,
+          layoutId: _layoutId,
+          drag: _drag,
+          dragConstraints: _dragConstraints,
+          onAnimationComplete: _onAnimationComplete,
+          ...props
+        }: Record<string, unknown> & { children?: React.ReactNode },
+        ref: React.Ref<HTMLElement>
+      ) => {
+        return react.createElement(tag, { ...props, ref }, children);
+      }
+    );
+  };
+
+  const AnimatePresence = ({
+    children,
+  }: {
+    children?: React.ReactNode;
+  }): React.ReactElement<React.FragmentProps, React.FunctionComponent<React.FragmentProps>> => {
+    return react.createElement(react.Fragment, null, children);
+  };
+
+  return {
+    ...actual,
+    motion: {
+      span: createMotionComponent('span'),
+      div: createMotionComponent('div'),
+      p: createMotionComponent('p'),
+    },
+    AnimatePresence,
+  };
+});
+
+describe('ChatIndex', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseBalance.mockReturnValue({ data: makeBalance('0') });
+    mockUseStability.mockReturnValue({
+      isAuthStable: true,
+      isBalanceStable: true,
+      isAppStable: true,
+    });
+  });
+
+  afterEach(async () => {
+    // Reset the shared UI-modals store so a test that opens the payment modal
+    // never leaks that state into a later render.
+    const { useUIModalsStore } = await import('@/stores/ui/modals');
+    useUIModalsStore.setState({
+      paymentModalOpen: false,
+      signupModalOpen: false,
+      refusalReason: undefined,
+    });
+  });
+
+  it('tells a signed-out visitor why the row they clicked was refused', async () => {
+    mockUseStableSession.mockReturnValue({
+      session: null,
+      isAuthenticated: false,
+      isStable: true,
+      isPending: false,
+    });
+    const { useUIModalsStore } = await import('@/stores/ui/modals');
+    useUIModalsStore.getState().openSignupModal('GPT-4 Turbo', 'prompt_too_long');
+
+    renderRoute(Route);
+
+    expect(screen.getByText(NOTICE_COPY.prompt_too_long.cause)).toBeInTheDocument();
+  });
+
+  it('asks its predictor for the alternatives this surface can list', () => {
+    mockUseStableSession.mockReturnValue({
+      session: null,
+      isAuthenticated: false,
+      isStable: true,
+      isPending: false,
+    });
+
+    renderRoute(Route);
+
+    expect(mockPromptPredictor).toHaveBeenCalledWith(SUGGESTION_LIST_ALTERNATIVE_COUNT);
+  });
+
+  it('shows loading state while session is not stable', () => {
+    mockUseStableSession.mockReturnValue({
+      session: null,
+      isAuthenticated: false,
+      isStable: false,
+      isPending: true,
+    });
+
+    renderRoute(Route);
+
+    expect(screen.getByTestId('chat-welcome')).toHaveAttribute('data-loading', 'true');
+  });
+
+  it('shows authenticated greeting after session becomes stable', async () => {
+    mockUseStableSession.mockReturnValue({
+      session: {
+        user: { email: 'test@example.com' },
+        session: { id: 'session-123' },
+      },
+      isAuthenticated: true,
+      isStable: true,
+      isPending: false,
+    });
+
+    renderRoute(Route);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-welcome')).toHaveAttribute('data-loading', 'false');
+    });
+  });
+
+  it('does not re-render greeting when session becomes stable', async () => {
+    mockUseStableSession.mockReturnValue({
+      session: null,
+      isAuthenticated: false,
+      isStable: false,
+      isPending: true,
+    });
+
+    const { rerender } = renderRoute(Route);
+    const RouteComponent = Route.options.component;
+    if (!RouteComponent) throw new Error('Route has no component');
+
+    mockUseStableSession.mockReturnValue({
+      session: {
+        user: { email: 'test@example.com' },
+        session: { id: 'session-123' },
+      },
+      isAuthenticated: true,
+      isStable: true,
+      isPending: false,
+    });
+
+    rerender(<RouteComponent />);
+
+    // Greeting should be stable (computed only after session loaded)
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-welcome')).toHaveAttribute('data-loading', 'false');
+    });
+  });
+
+  describe('authenticated user navigation', () => {
+    it('navigates to /chat/new and stores pending message', async () => {
+      const { usePendingChatStore } = await import('@/stores/chat/pending-chat');
+
+      mockUseStableSession.mockReturnValue({
+        session: {
+          user: { email: 'test@example.com' },
+          session: { id: 'session-123' },
+        },
+        isAuthenticated: true,
+        isStable: true,
+        isPending: false,
+      });
+
+      renderRoute(Route);
+
+      const textarea = screen.getByRole('textbox');
+      const userEventModule = await import('@testing-library/user-event');
+      const user = userEventModule.default;
+      await user.setup().type(textarea, 'Hello AI!{enter}');
+
+      const state = usePendingChatStore.getState();
+      expect(state.pendingMessage).toBe('Hello AI!');
+
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: '/chat/$id',
+        params: { id: 'new' },
+        search: { fork: undefined },
+      });
+    });
+  });
+
+  describe('premium click modal routing', () => {
+    it('renders SignupModal component for trial users', () => {
+      // Trial: not authenticated
+      mockUseStableSession.mockReturnValue({
+        session: null,
+        isAuthenticated: false,
+        isStable: true,
+        isPending: false,
+      });
+      mockUseBalance.mockReturnValue({ data: makeBalance('0') });
+
+      renderRoute(Route);
+
+      // SignupModal should be in the DOM (but closed)
+      // The modal is rendered but with open={false}
+      expect(screen.queryByTestId('payment-modal')).not.toBeInTheDocument();
+    });
+
+    it('renders PaymentModal component for authenticated users', () => {
+      // Free user: authenticated but no balance
+      mockUseStableSession.mockReturnValue({
+        session: {
+          user: { email: 'test@example.com' },
+          session: { id: 'session-123' },
+        },
+        isAuthenticated: true,
+        isStable: true,
+        isPending: false,
+      });
+      mockUseBalance.mockReturnValue({ data: makeBalance('0') });
+
+      renderRoute(Route);
+
+      // PaymentModal component should be in the DOM (but closed)
+      // The modal only renders when open=true, so it won't be there initially
+      expect(screen.queryByTestId('payment-modal')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('error cleanup', () => {
+    it('clears chat error on mount', () => {
+      mockUseStableSession.mockReturnValue({
+        session: null,
+        isAuthenticated: false,
+        isStable: true,
+        isPending: false,
+      });
+
+      renderRoute(Route);
+
+      expect(mockClearAll).toHaveBeenCalled();
+    });
+
+    it('clears chat error when sending a message', async () => {
+      mockUseStableSession.mockReturnValue({
+        session: {
+          user: { email: 'test@example.com' },
+          session: { id: 'session-123' },
+        },
+        isAuthenticated: true,
+        isStable: true,
+        isPending: false,
+      });
+
+      renderRoute(Route);
+
+      mockClearAll.mockClear();
+
+      const textarea = screen.getByRole('textbox');
+      const userEventModule = await import('@testing-library/user-event');
+      const user = userEventModule.default;
+      await user.setup().type(textarea, 'Hello AI!{enter}');
+
+      expect(mockClearAll).toHaveBeenCalled();
+    });
+  });
+
+  describe('models fallback', () => {
+    it('renders with an empty model list when models data is unavailable', async () => {
+      const modelsModule = await import('@/hooks/models/models');
+      vi.mocked(modelsModule.useModels).mockReturnValueOnce({
+        data: undefined,
+        isLoading: false,
+        error: null,
+      } as ReturnType<typeof modelsModule.useModels>);
+
+      mockUseStableSession.mockReturnValue({
+        session: null,
+        isAuthenticated: false,
+        isStable: true,
+        isPending: false,
+      });
+
+      renderRoute(Route);
+
+      // The page still renders its welcome surface; `modelsData?.models ?? []`
+      // collapses to an empty list without throwing.
+      expect(screen.getByTestId('chat-welcome')).toBeInTheDocument();
+    });
+  });
+
+  describe('unauthenticated (trial) navigation', () => {
+    it('routes an unauthenticated send to the trial flow and stores the message', async () => {
+      const { useTrialChatStore } = await import('@/stores/chat/trial-chat');
+
+      mockUseStableSession.mockReturnValue({
+        session: null,
+        isAuthenticated: false,
+        isStable: true,
+        isPending: false,
+      });
+
+      renderRoute(Route);
+
+      const textarea = screen.getByRole('textbox');
+      const userEventModule = await import('@testing-library/user-event');
+      const user = userEventModule.default;
+      await user.setup().type(textarea, 'Trial hello!{enter}');
+
+      expect(useTrialChatStore.getState().pendingMessage).toBe('Trial hello!');
+      expect(mockNavigate).toHaveBeenCalledWith({ to: '/chat/trial' });
+    });
+  });
+
+  describe('payment modal balance invalidation', () => {
+    async function openPaymentModalAuthenticated(): Promise<void> {
+      const { useUIModalsStore } = await import('@/stores/ui/modals');
+      mockUseStableSession.mockReturnValue({
+        session: {
+          user: { email: 'test@example.com' },
+          session: { id: 'session-123' },
+        },
+        isAuthenticated: true,
+        isStable: true,
+        isPending: false,
+      });
+      useUIModalsStore.setState({ paymentModalOpen: true });
+    }
+
+    it('hands the payment modal the row the payer was refused', async () => {
+      const { useUIModalsStore } = await import('@/stores/ui/modals');
+      await openPaymentModalAuthenticated();
+      useUIModalsStore.setState({
+        premiumModelName: 'GPT-5',
+        refusalReason: 'insufficient_funds',
+      });
+
+      renderRoute(Route);
+
+      const trigger = screen.getByTestId('payment-modal-success');
+      expect(trigger).toHaveAttribute('data-model-name', 'GPT-5');
+      expect(trigger).toHaveAttribute('data-reason', 'insufficient_funds');
+    });
+
+    it('invalidates the balance query when payment succeeds', async () => {
+      mockInvalidateQueries.mockReturnValue(Promise.resolve());
+      await openPaymentModalAuthenticated();
+
+      renderRoute(Route);
+
+      const userEventModule = await import('@testing-library/user-event');
+      const user = userEventModule.default;
+      await user.setup().click(screen.getByTestId('payment-modal-success'));
+
+      await waitFor(() => {
+        expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['balance'] });
+      });
+    });
+
+    it('logs the error when balance invalidation rejects', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockInvalidateQueries.mockRejectedValue(new Error('invalidate failed'));
+      await openPaymentModalAuthenticated();
+
+      renderRoute(Route);
+
+      const userEventModule = await import('@testing-library/user-event');
+      const user = userEventModule.default;
+      await user.setup().click(screen.getByTestId('payment-modal-success'));
+
+      await waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith(expect.any(Error));
+      });
+
+      consoleSpy.mockRestore();
+    });
+  });
+});

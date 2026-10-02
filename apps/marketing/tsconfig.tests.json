@@ -1,0 +1,21 @@
+{
+  "extends": "../../packages/config/tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tests.tsbuildinfo",
+    "noEmit": true,
+    // The dev-server config assertion imports `astro.config.mjs` directly, so the
+    // compiler must be allowed to infer that module rather than demand a `.d.ts`.
+    "allowJs": true,
+    // Test modules reach @hushbox/ui barrels whose graph is `.tsx`; without
+    // these the compiler rejects the resolution rather than the code.
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "../../packages/config/import-meta-env.d.ts",
+    "vitest.config.ts",
+    "src/env.d.ts",
+    "src/**/*.test.ts"
+  ]
+}

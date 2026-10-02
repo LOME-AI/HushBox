@@ -1,0 +1,167 @@
+import * as React from 'react';
+import { motion } from 'framer-motion';
+import { cn } from '@hushbox/ui';
+import { TEST_IDS } from '@hushbox/shared';
+import type { PickerMode } from '@/stores/model';
+
+interface PickerModeToggleProps {
+  mode: PickerMode;
+  onChange: (mode: PickerMode) => void;
+  orientation: 'horizontal' | 'vertical';
+  singleLabel: React.ReactNode;
+  multiLabel: React.ReactNode;
+  className?: string;
+}
+
+const PILL_LAYOUT_ID = 'picker-mode-toggle-pill';
+
+interface OptionProps {
+  ref: React.Ref<HTMLButtonElement>;
+  value: PickerMode;
+  active: boolean;
+  testId: string;
+  onSelect: (value: PickerMode) => void;
+  onArrowToOther: () => void;
+  arrowKeyToOther: 'ArrowRight' | 'ArrowDown' | 'ArrowLeft' | 'ArrowUp';
+  children: React.ReactNode;
+}
+
+function PickerModeOption({
+  ref,
+  value,
+  active,
+  testId,
+  onSelect,
+  onArrowToOther,
+  arrowKeyToOther,
+  children,
+}: Readonly<OptionProps>): React.JSX.Element {
+  const handleClick = (): void => {
+    if (!active) onSelect(value);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>): void => {
+    if (e.key === arrowKeyToOther) {
+      e.preventDefault();
+      onArrowToOther();
+    }
+  };
+
+  return (
+    <button
+      ref={ref}
+      type="button"
+      role="radio"
+      aria-checked={active}
+      data-active={active}
+      data-testid={testId}
+      tabIndex={active ? 0 : -1}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      className={cn(
+        'relative flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+        'focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-hidden',
+        active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground/80 cursor-pointer'
+      )}
+    >
+      {active && (
+        <motion.span
+          layoutId={PILL_LAYOUT_ID}
+          className="bg-background absolute inset-0 rounded-md shadow-sm forced-colors:bg-[Highlight]"
+          aria-hidden
+          transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+        />
+      )}
+      <span
+        className={cn(
+          'relative z-10 flex items-center gap-2',
+          active && 'forced-color-adjust-none forced-colors:text-[HighlightText]'
+        )}
+      >
+        {children}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Two-option segmented control for switching the model picker between
+ * single-select and multi-select modes. Renders horizontally on mobile
+ * (top of bottom sheet) and vertically on desktop (right-top of modal).
+ *
+ * The active-state pill slides between options via shared layoutId. Reduced
+ * motion is handled globally by the root MotionConfig — no per-component
+ * check needed.
+ */
+export function PickerModeToggle({
+  mode,
+  onChange,
+  orientation,
+  singleLabel,
+  multiLabel,
+  className,
+}: Readonly<PickerModeToggleProps>): React.JSX.Element {
+  const isHorizontal = orientation === 'horizontal';
+  // Per option, the arrow key is the one that points TOWARDS the other option:
+  // single (leftmost / topmost) → right/down. multi (rightmost / bottommost) → left/up.
+  const singleArrowKey = isHorizontal ? 'ArrowRight' : 'ArrowDown';
+  const multiArrowKey = isHorizontal ? 'ArrowLeft' : 'ArrowUp';
+
+  const singleRef = React.useRef<HTMLButtonElement>(null);
+  const multiRef = React.useRef<HTMLButtonElement>(null);
+  // Focus follows an arrow key only after the new option has committed as checked, so a
+  // screen reader announces it selected on arrival, the radio-group order WAI-ARIA sets.
+  // Only a mode change clears the target, so an arrow that selects nothing new sets none.
+  const focusAfterCommitRef = React.useRef<HTMLButtonElement | null>(null);
+
+  React.useLayoutEffect(() => {
+    focusAfterCommitRef.current?.focus();
+    focusAfterCommitRef.current = null;
+  }, [mode]);
+
+  const handleSelectFromSingle = (): void => {
+    if (mode !== 'multi') focusAfterCommitRef.current = multiRef.current;
+    onChange('multi');
+  };
+
+  const handleSelectFromMulti = (): void => {
+    if (mode !== 'single') focusAfterCommitRef.current = singleRef.current;
+    onChange('single');
+  };
+
+  return (
+    <div
+      role="radiogroup"
+      aria-orientation={orientation}
+      data-testid={TEST_IDS.pickerModeToggle}
+      className={cn(
+        'bg-muted/50 flex gap-1 rounded-lg p-1',
+        isHorizontal ? 'flex-row' : 'flex-col',
+        className
+      )}
+    >
+      <PickerModeOption
+        ref={singleRef}
+        value="single"
+        active={mode === 'single'}
+        testId={TEST_IDS.pickerModeSingle}
+        onSelect={onChange}
+        onArrowToOther={handleSelectFromSingle}
+        arrowKeyToOther={singleArrowKey}
+      >
+        {singleLabel}
+      </PickerModeOption>
+      <PickerModeOption
+        ref={multiRef}
+        value="multi"
+        active={mode === 'multi'}
+        testId={TEST_IDS.pickerModeMulti}
+        onSelect={onChange}
+        onArrowToOther={handleSelectFromMulti}
+        arrowKeyToOther={multiArrowKey}
+      >
+        {multiLabel}
+      </PickerModeOption>
+    </div>
+  );
+}

@@ -1,0 +1,300 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const stylesDir = path.dirname(fileURLToPath(import.meta.url));
+
+function escapeRegex(value: string): string {
+  return value.replaceAll(/[$()*+.?[\\\]^{|}]/g, String.raw`\$&`);
+}
+
+function importPattern(module: string, layer: string): RegExp {
+  const escapedModule = escapeRegex(module);
+  const escapedLayer = escapeRegex(layer);
+  return new RegExp(String.raw`@import\s+['"]${escapedModule}['"]\s+layer\(${escapedLayer}\)`);
+}
+
+function colorblindPattern(key: string): RegExp {
+  const escapedKey = escapeRegex(key);
+  return new RegExp(
+    String.raw`html\.a11y-cb-${escapedKey}\s*{\s*filter:\s*url\(#a11y-cb-${escapedKey}\)`
+  );
+}
+
+describe('accessibility styles bundle', () => {
+  const indexPath = path.join(stylesDir, 'index.css');
+  const indexContents = readFileSync(indexPath, 'utf8');
+
+  // Read off the directory, never retyped here: a hand-kept list omits a
+  // stylesheet silently, and a skipped assertion is the one failure no run
+  // reports.
+  const stylesheets = readdirSync(stylesDir)
+    .filter((name) => name.endsWith('.css') && name !== 'index.css')
+    .toSorted((left, right) => left.localeCompare(right));
+
+  it.each(stylesheets)('index.css imports %s into the accessibility cascade layer', (name) => {
+    expect(indexContents).toMatch(importPattern(`./${name}`, 'accessibility'));
+  });
+
+  it('index.css imports exactly the stylesheets sitting in this directory', () => {
+    const imported = [...indexContents.matchAll(/@import\s+['"]\.\/([^'"]+)['"]/g)]
+      .map(([, module]) => module!)
+      .toSorted((left, right) => left.localeCompare(right));
+
+    expect(imported).toStrictEqual(stylesheets);
+  });
+
+  it('contrast.css overrides background, foreground, border, and muted text for high-contrast mode', () => {
+    const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
+    expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--background:\s*#ffffff/);
+    expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--foreground:\s*#000000/);
+    expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--border:\s*#000000/);
+    // The real muted token is --foreground-muted; --muted-foreground was a dead
+    // alias (0 consumers) and overriding it never changed any rendered text.
+    expect(contents).toMatch(/html\.a11y-contrast-high\s*{[^}]*--foreground-muted:\s*#1a1a1a/);
+  });
+
+  it('contrast.css applies saturation to html, never body (body would trap fixed descendants)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
+    expect(contents).toMatch(/html\.a11y-saturate-0\s*{\s*filter:\s*saturate\(0\)/);
+    expect(contents).toMatch(/html\.a11y-saturate-50\s*{\s*filter:\s*saturate\(0\.5\)/);
+    expect(contents).toMatch(/html\.a11y-saturate-150\s*{\s*filter:\s*saturate\(1\.5\)/);
+  });
+
+  it('contrast.css uses !important on variable redefinitions to win against unlayered :root', () => {
+    const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
+    expect(contents).toMatch(/--background:\s*#ffffff\s*!important/);
+    expect(contents).toMatch(/--foreground:\s*#000000\s*!important/);
+  });
+
+  it('contrast-increased darkens foreground and border (not just muted text)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'contrast.css'), 'utf8');
+    // Stronger contrast must visibly change actual text/border colors, not only
+    // the muted text variable.
+    expect(contents).toMatch(/html\.a11y-contrast-increased\s*{[^}]*--foreground:\s*#000000/);
+    expect(contents).toMatch(/html\.a11y-contrast-increased\s*{[^}]*--border:/);
+  });
+
+  it('colorblind.css references the SVG filter ids injected by SvgColorblindDefs', () => {
+    const contents = readFileSync(path.join(stylesDir, 'colorblind.css'), 'utf8');
+    for (const key of ['protan', 'deutan', 'tritan', 'achroma', 'achromatomaly']) {
+      expect(contents).toMatch(colorblindPattern(key));
+    }
+  });
+
+  it('typography.css sets the root baseline as a percentage (preserves user browser default)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    expect(contents).toMatch(/html\s*{\s*font-size:\s*106\.25%/);
+  });
+
+  it('typography.css scales the html font-size for the four magnification steps', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    expect(contents).toMatch(/html\.a11y-font-scale-88\s*{\s*font-size:\s*93\.75%/);
+    expect(contents).toMatch(/html\.a11y-font-scale-112\s*{\s*font-size:\s*118\.75%/);
+    expect(contents).toMatch(/html\.a11y-font-scale-124\s*{\s*font-size:\s*131\.25%/);
+    expect(contents).toMatch(/html\.a11y-font-scale-141\s*{\s*font-size:\s*150%/);
+  });
+
+  it('typography.css carves form-control font-size up to 16px at the smallest scale to prevent iOS form-zoom', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    expect(contents).toMatch(
+      /html\.a11y-font-scale-88 input,\s*html\.a11y-font-scale-88 textarea,\s*html\.a11y-font-scale-88 select\s*{\s*font-size:\s*16px/
+    );
+  });
+
+  it('typography.css drops the root to 100% (16px) below Tailwind --breakpoint-md', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    // The 48rem literal is load-bearing: it must match Tailwind's --breakpoint-md.
+    // packages/shared/src/platform/mobile.test.ts asserts MOBILE_BREAKPOINT === 48 * 16,
+    // which keeps useIsMobile, the sidebar md: breakpoint, and this media query
+    // in lock-step. rem in @media resolves against the CSS initial 16px (not the
+    // document root), so 48rem = 768px regardless of html font-size.
+    expect(contents).toMatch(
+      /@media\s*\(\s*width\s*<\s*48rem\s*\)\s*{[\s\S]*?html\s*{\s*font-size:\s*100%/
+    );
+  });
+
+  it('typography.css mobile Smaller tier overrides to 87.5% so Smaller stays perceptibly below mobile Normal', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    // Without this, mobile Normal (100%, 16px) sits 1px above the global
+    // Smaller (93.75%, 15px) — too close to read as a distinct step. 87.5%
+    // restores a 2px gap (14px Smaller vs 16px Normal). The iOS form-zoom
+    // carve-out above keeps inputs at 16px regardless.
+    expect(contents).toMatch(
+      /@media\s*\(\s*width\s*<\s*48rem\s*\)\s*{[\s\S]*?html\.a11y-font-scale-88\s*{\s*font-size:\s*87\.5%/
+    );
+  });
+
+  it('typography.css tightens line-height below the Normal default for the Tight tier', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    // "Tight" must visibly differ from "Normal". Normal (the schema default,
+    // lineHeight "1.5") adds no class, so unstyled text keeps the base 1.5 and
+    // Tight must use a value strictly below 1.5 — otherwise the option is a no-op.
+    const match =
+      /html\.a11y-line-height-tight[^{]*{[^}]*line-height:\s*([\d.]+)\s*!important/.exec(contents);
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBeLessThan(1.5);
+  });
+
+  it('typography.css scopes paragraph spacing to non-trailing paragraphs', () => {
+    const contents = readFileSync(path.join(stylesDir, 'typography.css'), 'utf8');
+    // :not(:last-child) is load-bearing — without it the trailing <p> in every
+    // message bubble (user text rendered as a <p>; AI markdown's final prose
+    // <p>) carries 2em margin-bottom, painting empty space inside the bubble.
+    expect(contents).toMatch(
+      /html\.a11y-para-spacing-double p:not\(:last-child\)\s*{\s*margin-bottom:\s*2em/
+    );
+  });
+
+  it('motion.css forces 0.01ms duration and !important to beat Framer inline styles', () => {
+    const contents = readFileSync(path.join(stylesDir, 'motion.css'), 'utf8');
+    expect(contents).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
+    expect(contents).toMatch(/transition-duration:\s*0\.01ms\s*!important/);
+    expect(contents).toMatch(/scroll-behavior:\s*auto\s*!important/);
+  });
+
+  it('pointer.css inlines SVG cursors via data URIs (no external asset files)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    expect(contents).toMatch(/html\.a11y-cursor-large/);
+    expect(contents).toMatch(/html\.a11y-cursor-xlarge/);
+    // Each cursor variant must use a data: URL — no external /cursors/*.svg references
+    expect(contents).toMatch(/cursor:\s*url\("data:image\/svg\+xml,/);
+    expect(contents).not.toMatch(/\/cursors\//);
+  });
+
+  it('pointer.css forces the custom cursor on every descendant via cursor: inherit !important', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // The universal-selector rule overrides element-level cursors (e.g. Tailwind cursor-pointer)
+    // so the big-arrow cursor actually wins when hovering over interactive UI.
+    expect(contents).toMatch(/html\.a11y-cursor-large \*[^{]*{[^}]*cursor:\s*inherit\s*!important/);
+    expect(contents).toMatch(
+      /html\.a11y-cursor-xlarge \*[^{]*{[^}]*cursor:\s*inherit\s*!important/
+    );
+  });
+
+  it('pointer.css applies a hand-cursor variant to interactive elements when a custom size is active', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // Hovering a button/card under a custom cursor should show the "clickable" cursor.
+    // Quotes inside selectors are matched as either `"` or `'` so the assertion survives
+    // Prettier's CSS-default single-quote normalization.
+    expect(contents).toMatch(/html\.a11y-cursor-large button/);
+    expect(contents).toMatch(/html\.a11y-cursor-large \[role=['"]button['"]]/);
+    expect(contents).toMatch(/html\.a11y-cursor-large \[data-slot=['"]setting-card['"]]/);
+    expect(contents).toMatch(/html\.a11y-cursor-large \.cursor-pointer/);
+  });
+
+  it('pointer.css defines a standalone a11y-cursor-white rule so the color picker works at normal size', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // Compound rules (`html.a11y-cursor-white.a11y-cursor-large`) cover white at large/xlarge,
+    // but white-at-normal needs an unchained selector. Without this, picking color=white while
+    // size=normal added the class but matched no rule — silent no-op for the user.
+    expect(contents).toMatch(
+      /html\.a11y-cursor-white\s*\{[^}]*cursor:\s*url\("data:image\/svg\+xml,/
+    );
+  });
+
+  it('pointer.css applies a hand-pointer variant to interactive elements at normal size when color is white', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // Same interactive-element coverage as the large/xlarge variants, but for normal+white.
+    expect(contents).toMatch(/html\.a11y-cursor-white button[^{]*\{[^}]*cursor:\s*url/);
+    expect(contents).toMatch(
+      /html\.a11y-cursor-white \[role=['"]button['"]][^{]*\{[^}]*cursor:\s*url/
+    );
+  });
+
+  it('pointer.css forces descendant cursor inheritance for the standalone a11y-cursor-white rule', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // Without this, element-default cursors (I-beam on inputs, etc.) would override the custom
+    // white cursor on non-interactive descendants.
+    expect(contents).toMatch(
+      /html\.a11y-cursor-white \*[^{]*\{[^}]*cursor:\s*inherit\s*!important/
+    );
+  });
+
+  it('pointer.css interactive hand-cursor SVG is a filled silhouette (not an empty outline drawing)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // The hand-pointer must read as a solid shape — an outline-only drawing
+    // (`fill='none'` on the path) looks "hollow" against the page and was
+    // the failure mode of an earlier Lucide-stroke-only implementation.
+    const match = /html\.a11y-cursor-large button[^{]*\{[^}]*cursor:\s*url\("([^"]+)"/.exec(
+      contents
+    );
+    expect(match).not.toBeNull();
+    const decoded = decodeURIComponent(match![1]!);
+    expect(decoded).toMatch(
+      /<path[^>]*\sfill=['"](?:black|white|currentColor|#[0-9a-fA-F]{3,8})['"]/
+    );
+    expect(decoded).not.toMatch(/<path[^>]*\sfill=['"]none['"]/);
+  });
+
+  it('pointer.css disables pointer-events on the magnifier AND its descendants (click-through)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    // pointer-events is non-inherited — must target both the lens and `*`
+    // so cloned DOM elements inside don't intercept clicks meant for the
+    // live element underneath.
+    expect(contents).toMatch(
+      /\[data-a11y-magnifier],\s*\[data-a11y-magnifier]\s*\*\s*{[^}]*pointer-events:\s*none\s*!important/
+    );
+  });
+
+  it('pointer.css hides nested magnifier lenses inside the magnifier clone (no Droste recursion)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    expect(contents).toMatch(
+      /\[data-a11y-magnifier-content]\s*\[data-a11y-magnifier]\s*{[^}]*display:\s*none\s*!important/
+    );
+  });
+
+  it('pointer.css focus rule fires on :focus AND :focus-visible (so click-focus also shows the ring)', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    expect(contents).toMatch(/html\.a11y-focus-strong \*:focus\b/);
+    expect(contents).toMatch(/html\.a11y-focus-strong \*:focus-visible\b/);
+  });
+
+  it('pointer.css configures focus indicator width/color via CSS variables', () => {
+    const contents = readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8');
+    expect(contents).toMatch(/outline:\s*var\(--a11y-focus-width/);
+    expect(contents).toMatch(/var\(--a11y-focus-color/);
+  });
+});
+
+/**
+ * The base focus outline sits in the `base` layer and the strong-focus rule in the
+ * `accessibility` layer. An `!important` declaration beats every normal one, and between
+ * two `!important` declarations the earlier layer wins, so the widget's colour wins
+ * exactly when its outline is `!important` and the base outline is not. The DOM these
+ * tests run in ignores every rule inside `@layer`, so a computed style read here would
+ * see neither rule.
+ */
+describe('strong focus over the base focus outline', () => {
+  const themePath = path.join(stylesDir, '../../../../../config/tailwind/index.css');
+  const endOfTokens = '/* END GENERATED: design-tokens */';
+
+  function declarationsOf(css: string, selector: string): string {
+    const source = css.replaceAll(/\/\*[\s\S]*?\*\//g, '');
+    const pattern = new RegExp(String.raw`(?:^|[}\s])${escapeRegex(selector)}\s*{([^}]*)}`);
+    return pattern.exec(source)?.[1] ?? '';
+  }
+
+  function outlineOf(declarations: string): string {
+    return /(?:^|;)\s*outline:\s*([^;]+)/.exec(declarations)?.[1]?.trim() ?? '';
+  }
+
+  it('with strong focus on, a focused element takes the widget colour over the base outline', () => {
+    const theme = readFileSync(themePath, 'utf8');
+    const handWritten = theme.slice(theme.indexOf(endOfTokens));
+    const base = outlineOf(declarationsOf(handWritten, ':focus-visible'));
+    const widget = outlineOf(
+      declarationsOf(
+        readFileSync(path.join(stylesDir, 'pointer.css'), 'utf8'),
+        'html.a11y-focus-strong *:focus,\nhtml.a11y-focus-strong *:focus-visible'
+      )
+    );
+
+    expect({
+      baseDrawsAnOutline: base.length > 0,
+      baseImportant: base.includes('!important'),
+      widgetColour: widget.includes('var(--a11y-focus-color') && widget.endsWith('!important'),
+    }).toEqual({ baseDrawsAnOutline: true, baseImportant: false, widgetColour: true });
+  });
+});

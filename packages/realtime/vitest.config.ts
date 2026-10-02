@@ -1,0 +1,41 @@
+import { defineConfig, mergeConfig } from 'vitest/config';
+import rootConfig from '@hushbox/config/vitest';
+
+const COVERAGE_GATE = {
+  lines: 95,
+  branches: 95,
+  functions: 95,
+  statements: 95,
+};
+
+export default mergeConfig(
+  rootConfig,
+  // defineConfig (not defineProject) because the coverage keys below are
+  // root-level: the standalone `vitest run --coverage` invocation reads them.
+  defineConfig({
+    test: {
+      name: 'realtime',
+      environment: 'node',
+      // *.workers.test.ts files run under workerd via vitest.workers.config.ts
+      // (pnpm test:workers); they import cloudflare:workers and cannot load here.
+      exclude: ['**/dist/**', '**/node_modules/**', '**/*.workers.test.ts'],
+      coverage: {
+        // Static inclusion over the runtime source globs: the v8 provider only
+        // reports files some test imported, so without `include` a
+        // never-imported source file passes the gate silently. With it, vitest
+        // merges the unimported matches into the report at 0% and the per-file
+        // thresholds below fail on them. (Root-config excludes still apply:
+        // tests, `**/index.ts` barrels, `*.d.ts`, configs.)
+        include: ['src/**/*.ts'],
+        // The DO classes and the workers test worker are platform glue (thin
+        // shell): exercised under workerd without coverage per the
+        // test-placement doctrine — all logic lives in the plain modules the
+        // node project covers.
+        exclude: ['src/conversation-room.ts', 'src/job-dispatcher.ts', 'src/workers-validation/**'],
+        thresholds: {
+          'src/**/*.ts': COVERAGE_GATE,
+        },
+      },
+    },
+  })
+);

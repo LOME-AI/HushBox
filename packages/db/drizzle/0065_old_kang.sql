@@ -1,0 +1,1 @@
+CREATE INDEX "users_username_lower_pattern_idx" ON "users" USING btree (lower("username") text_pattern_ops);

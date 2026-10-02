@@ -1,0 +1,451 @@
+import { Redis } from '@upstash/redis';
+import { and, eq } from 'drizzle-orm';
+import { afterAll, describe, expect, it } from 'vitest';
+import {
+  LOCAL_NEON_DEV_CONFIG,
+  adminAudit,
+  createDb,
+  idempotencyKeys,
+  ledgerEntries,
+  modelCatalog,
+  users,
+  wallets,
+} from '@hushbox/db';
+import { userFactory, walletFactory } from '@hushbox/db/factories';
+import { ADMIN_OP_CONTRACTS, Mode, adminOpPrefillResultSchema } from '@hushbox/shared';
+import { envConfig } from '@hushbox/shared/env.config';
+import { createApp } from '../app.js';
+import { IDEMPOTENCY_KEY_HEADER } from '../lib/idempotency/index.js';
+import { CF_ACCESS_JWT_HEADER, mintDevAdminToken } from '../middleware/pipeline-admin.js';
+import { BILLING_KEYS } from '../slices/billing/domain/keys.js';
+import { withUndoReason } from '../slices/admin/domain/undo-round-trip.js';
+import type { Bindings } from '../lib/context/index.js';
+import type { TelemetryEnv } from '../lib/telemetry/index.js';
+
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value === '') {
+    throw new Error(`admin ops mount tests: missing ${name}. Run via the package test script.`);
+  }
+  return value;
+}
+
+const DATABASE_URL = requiredEnv('DATABASE_URL');
+const UPSTASH_REDIS_REST_URL = requiredEnv('UPSTASH_REDIS_REST_URL');
+const UPSTASH_REDIS_REST_TOKEN = requiredEnv('UPSTASH_REDIS_REST_TOKEN');
+
+const ADMIN_EMAIL = `admin-ops-mount-${crypto.randomUUID().slice(0, 8)}@hushbox.test`;
+
+const ADMIN_ORIGIN = 'http://localhost:7000';
+
+const devEnv: Bindings &
+  TelemetryEnv & {
+    ADMIN_URL: string;
+    FRONTEND_URL: string;
+    MARKETING_URL: string;
+    FRONTEND_PREVIEW_URL: string;
+  } = {
+  NODE_ENV: 'development',
+  ADMIN_URL: ADMIN_ORIGIN,
+  DATABASE_URL,
+  UPSTASH_REDIS_REST_URL,
+  UPSTASH_REDIS_REST_TOKEN,
+  IRON_SESSION_SECRET: 'secret-at-least-32-characters-long!!',
+  TELEMETRY_SINKS: 'console',
+  // The composed pipeline runs CORS first; it fail-fasts on absent web origins.
+  FRONTEND_URL: requiredEnv('FRONTEND_URL'),
+  MARKETING_URL: requiredEnv('MARKETING_URL'),
+  FRONTEND_PREVIEW_URL: requiredEnv('FRONTEND_PREVIEW_URL'),
+  CF_ACCESS_TEAM_DOMAIN: 'hushbox-dev',
+  CF_ACCESS_AUD: 'dev-admin-access-aud',
+  ADMIN_ACTOR_ALLOWLIST: ADMIN_EMAIL,
+  ADMIN_ROLE_MAP: `${ADMIN_EMAIL}=operator`,
+  CF_ACCESS_DEV_PRIVATE_JWK: envConfig.CF_ACCESS_DEV_PRIVATE_JWK[Mode.Development],
+};
+
+const db = createDb(DATABASE_URL, { neonDev: LOCAL_NEON_DEV_CONFIG });
+const redis = new Redis({ url: UPSTASH_REDIS_REST_URL, token: UPSTASH_REDIS_REST_TOKEN });
+const app = createApp();
+
+const EXPECTED_OP_NAMES = [
+  'banner.set',
+  'feedback.setStatus',
+  'growth.campaign.archive',
+  'growth.campaign.create',
+  'growth.campaigns.read',
+  'growth.events.read',
+  'growth.freshness.read',
+  'growth.funnel.read',
+  'growth.marketing.read',
+  'growth.reach.read',
+  'growth.sources.read',
+  'job.discard',
+  'job.redrive',
+  'job.restore',
+  'model.disable',
+  'model.enable',
+  'newsletter.cancel',
+  'newsletter.schedule',
+  'newsletter.testSend',
+  'payment.forceCompleteAndCredit',
+  'payment.forceExpire',
+  'payment.restoreAwaitingWebhook',
+  'payment.uncompleteAndClawback',
+  'sessions.revokeAll',
+  'share.revoke',
+  'share.unrevoke',
+  'twoFactor.clear',
+  'twoFactor.clearStranded',
+  'twoFactor.restore',
+  'twoFactor.restoreStranded',
+  'user.lock',
+  'user.unlock',
+  'wallet.clawback',
+  'wallet.credit',
+] as const;
+
+const mintedIdempotencyKeys: string[] = [];
+const snapshotWalletIds: string[] = [];
+const insertedModelIds: string[] = [];
+
+afterAll(async () => {
+  // admin_audit is append-only by trigger — audit rows stay (actor-isolated);
+  // ledger/wallet rows stay too (balanced, uuid-isolated). Only the engine-claim
+  // key rows, seeded catalog rows, and Redis snapshot keys are removed.
+  for (const key of mintedIdempotencyKeys) {
+    await db.delete(idempotencyKeys).where(eq(idempotencyKeys.key, key));
+  }
+  for (const modelId of insertedModelIds) {
+    await db.delete(modelCatalog).where(eq(modelCatalog.modelId, modelId));
+  }
+  for (const walletId of snapshotWalletIds) {
+    await redis.del(BILLING_KEYS.walletSnapshot.buildKey(walletId));
+  }
+  await db.$client.end();
+});
+
+async function adminToken(): Promise<string> {
+  return mintDevAdminToken(devEnv, { email: ADMIN_EMAIL });
+}
+
+/** Type-safe JSON response parser for test assertions. */
+async function jsonBody<T>(res: Response): Promise<T> {
+  return (await res.json()) as T;
+}
+
+async function postOp(
+  name: string,
+  mode: 'preview' | 'execute',
+  body: Record<string, unknown>,
+  idempotencyKey?: string
+): Promise<Response> {
+  const token = await adminToken();
+  if (idempotencyKey !== undefined) mintedIdempotencyKeys.push(idempotencyKey);
+  return app.request(
+    `/admin/ops/${name}/${mode}`,
+    {
+      method: 'POST',
+      headers: {
+        [CF_ACCESS_JWT_HEADER]: token,
+        'Content-Type': 'application/json',
+        ...(idempotencyKey === undefined ? {} : { [IDEMPOTENCY_KEY_HEADER]: idempotencyKey }),
+      },
+      body: JSON.stringify(body),
+    },
+    devEnv
+  );
+}
+
+async function walletBalance(walletId: string): Promise<bigint> {
+  const rows = await db
+    .select({ balanceNanoUsd: wallets.balanceNanoUsd })
+    .from(wallets)
+    .where(eq(wallets.id, walletId));
+  const balance = rows[0]?.balanceNanoUsd;
+  if (balance === undefined) throw new Error('admin ops mount tests: wallet row is gone');
+  return balance;
+}
+
+// Scoped to one audit target: other tests in this file write audit rows under
+// the same shared actor, so an actor-only count would depend on test order.
+async function auditRowCount(targetId: string): Promise<number> {
+  const rows = await db
+    .select({ id: adminAudit.id })
+    .from(adminAudit)
+    .where(and(eq(adminAudit.actor, ADMIN_EMAIL), eq(adminAudit.targetId, targetId)));
+  return rows.length;
+}
+
+async function walletLegCount(walletId: string): Promise<number> {
+  const rows = await db
+    .select({ id: ledgerEntries.id })
+    .from(ledgerEntries)
+    .where(eq(ledgerEntries.walletId, walletId));
+  return rows.length;
+}
+
+async function getPrefill(name: string, options: { token?: boolean } = {}): Promise<Response> {
+  return app.request(
+    `/admin/ops/${name}/prefill`,
+    {
+      method: 'GET',
+      ...(options.token === false
+        ? {}
+        : { headers: { [CF_ACCESS_JWT_HEADER]: await adminToken() } }),
+    },
+    devEnv
+  );
+}
+
+describe('composed app: GET /admin/ops/:name/prefill', () => {
+  it('serves a schema-valid, reason-free prefill for banner.set', async () => {
+    // No config is seeded on purpose (banner_config is a single row that other
+    // files sharing this worker's database also write): the transport
+    // guarantees hold for WHATEVER the current config is, and the
+    // deterministic content cases live in the banner op's own suite.
+    const res = await getPrefill('banner.set');
+    expect(res.status).toBe(200);
+    const body = adminOpPrefillResultSchema.parse(await res.json());
+    expect(body.input).not.toHaveProperty('reason');
+    expect(() =>
+      ADMIN_OP_CONTRACTS['banner.set'].input.parse({ ...body.input, reason: 'operator-typed' })
+    ).not.toThrow();
+  });
+
+  it('answers 404 for a registered op without a resolver (wallet.credit)', async () => {
+    const res = await getPrefill('wallet.credit');
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ code: 'NOT_FOUND' });
+  });
+
+  it('answers the same 404 for an unknown op name', async () => {
+    const res = await getPrefill('nope.nope');
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ code: 'NOT_FOUND' });
+  });
+
+  it('refuses the prefill read without an admin assertion', async () => {
+    const res = await getPrefill('banner.set', { token: false });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('composed app: admin ops surface', () => {
+  it('lists every registered op contract on GET /admin/ops', async () => {
+    const token = await adminToken();
+    const res = await app.request(
+      '/admin/ops',
+      { method: 'GET', headers: { [CF_ACCESS_JWT_HEADER]: token } },
+      devEnv
+    );
+    expect(res.status).toBe(200);
+    const body = await jsonBody<{ ops: { name: string }[] }>(res);
+    expect(body.ops.map((op) => op.name)).toEqual([...EXPECTED_OP_NAMES]);
+  });
+
+  it('runs the wallet.credit money flow: preview leaves the wallet untouched, execute commits once, replay does not double-apply, undo nets to zero', async () => {
+    const [user] = await db.insert(users).values(userFactory.build()).returning({ id: users.id });
+    if (user === undefined) throw new Error('admin ops mount tests: user insert returned no row');
+    const [wallet] = await db
+      .insert(wallets)
+      .values(walletFactory.build({ userId: user.id }))
+      .returning({ id: wallets.id });
+    if (wallet === undefined) {
+      throw new Error('admin ops mount tests: wallet insert returned no row');
+    }
+    snapshotWalletIds.push(wallet.id);
+    const startingBalance = await walletBalance(wallet.id);
+    const amount = 5_000_000_000n;
+    const input = {
+      walletId: wallet.id,
+      amountNanoUsd: amount.toString(10),
+      reason: 'admin ops mount test credit',
+    };
+
+    // Preview returns effects and leaves the wallet as it was: same balance,
+    // no ledger leg, and the one row carrying it as target is the preview's
+    // own record of the read, never an effect.
+    const preview = await postOp('wallet.credit', 'preview', { input });
+    expect(preview.status).toBe(200);
+    const previewBody = await jsonBody<{ effects: unknown[] }>(preview);
+    expect(previewBody.effects.length).toBeGreaterThan(0);
+    expect(await walletBalance(wallet.id)).toBe(startingBalance);
+    expect(await walletLegCount(wallet.id)).toBe(0);
+    expect(await auditRowCount(wallet.id)).toBe(1);
+
+    // Execute commits effect + audit row exactly once.
+    const executeKey = crypto.randomUUID();
+    const execute = await postOp('wallet.credit', 'execute', { input }, executeKey);
+    expect(execute.status).toBe(200);
+    const executed = await jsonBody<{
+      auditId: string;
+      inverseInput: Record<string, unknown>;
+    }>(execute);
+    expect(await walletBalance(wallet.id)).toBe(startingBalance + amount);
+    expect(await walletLegCount(wallet.id)).toBe(1);
+    // The preview's read record plus the execute's own row.
+    expect(await auditRowCount(wallet.id)).toBe(2);
+
+    // A replayed execute under the same Idempotency-Key does not double-apply.
+    const replay = await postOp('wallet.credit', 'execute', { input }, executeKey);
+    expect(replay.status).toBe(200);
+    const replayed = await jsonBody<{ auditId: string }>(replay);
+    expect(replayed.auditId).toBe(executed.auditId);
+    expect(await walletBalance(wallet.id)).toBe(startingBalance + amount);
+    expect(await walletLegCount(wallet.id)).toBe(1);
+    expect(await auditRowCount(wallet.id)).toBe(2);
+
+    // Undo = executing the registered inverse with `undoes` nets the balance back.
+    const undo = await postOp(
+      'wallet.clawback',
+      'execute',
+      {
+        input: withUndoReason(executed.inverseInput, 'The customer was credited twice.'),
+        undoes: executed.auditId,
+      },
+      crypto.randomUUID()
+    );
+    expect(undo.status).toBe(200);
+    expect(await walletBalance(wallet.id)).toBe(startingBalance);
+    expect(await walletLegCount(wallet.id)).toBe(2);
+    expect(await auditRowCount(wallet.id)).toBe(3);
+  });
+
+  it('admits an admin mutation carrying the admin SPA Origin through CSRF', async () => {
+    const [user] = await db.insert(users).values(userFactory.build()).returning({ id: users.id });
+    if (user === undefined) throw new Error('admin ops mount tests: user insert returned no row');
+    const [wallet] = await db
+      .insert(wallets)
+      .values(walletFactory.build({ userId: user.id }))
+      .returning({ id: wallets.id });
+    if (wallet === undefined) {
+      throw new Error('admin ops mount tests: wallet insert returned no row');
+    }
+    snapshotWalletIds.push(wallet.id);
+    const token = await adminToken();
+    const input = {
+      walletId: wallet.id,
+      amountNanoUsd: '1000000000',
+      reason: 'admin origin CSRF test',
+    };
+
+    const res = await app.request(
+      '/admin/ops/wallet.credit/preview',
+      {
+        method: 'POST',
+        headers: {
+          [CF_ACCESS_JWT_HEADER]: token,
+          'Content-Type': 'application/json',
+          Origin: ADMIN_ORIGIN,
+        },
+        body: JSON.stringify({ input }),
+      },
+      devEnv
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects an admin mutation from a foreign Origin with CSRF_REJECTED even with a valid JWT', async () => {
+    const token = await adminToken();
+    const res = await app.request(
+      '/admin/ops/wallet.credit/preview',
+      {
+        method: 'POST',
+        headers: {
+          [CF_ACCESS_JWT_HEADER]: token,
+          'Content-Type': 'application/json',
+          Origin: 'https://evil.example',
+        },
+        body: JSON.stringify({ input: {} }),
+      },
+      devEnv
+    );
+    expect(res.status).toBe(403);
+    const body = await jsonBody<{ code: string }>(res);
+    expect(body.code).toBe('CSRF_REJECTED');
+  });
+
+  it('serves the same op catalog at the production /api-prefixed admin path', async () => {
+    const token = await adminToken();
+    const res = await app.request(
+      '/api/admin/ops',
+      { method: 'GET', headers: { [CF_ACCESS_JWT_HEADER]: token } },
+      devEnv
+    );
+    expect(res.status).toBe(200);
+    const body = await jsonBody<{ ops: { name: string }[] }>(res);
+    expect(body.ops.map((op) => op.name)).toEqual([...EXPECTED_OP_NAMES]);
+  });
+
+  it('routes the /api-prefixed admin alias through the fail-closed admin pipeline', async () => {
+    const res = await app.request('/api/admin/ops', { method: 'GET' }, devEnv);
+    expect(res.status).toBe(401);
+  });
+
+  it('routes POSTs through the /api-prefixed admin alias too', async () => {
+    const token = await adminToken();
+    const res = await app.request(
+      '/api/admin/ops/wallet.credit/preview',
+      {
+        method: 'POST',
+        headers: { [CF_ACCESS_JWT_HEADER]: token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: {} }),
+      },
+      devEnv
+    );
+    // The alias rewrite is method-agnostic: the POST reaches the op route
+    // (refused on its merits — empty input), never a 404.
+    expect(res.status).not.toBe(404);
+  });
+
+  it('answers 404 for an encoded-traversal path under the /api admin alias', async () => {
+    const token = await adminToken();
+    const res = await app.request(
+      '/api/admin/%2e%2e/health',
+      { method: 'GET', headers: { [CF_ACCESS_JWT_HEADER]: token } },
+      devEnv
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('does not rewrite non-admin /api paths', async () => {
+    const res = await app.request('/api/health', { method: 'GET' }, devEnv);
+    expect(res.status).toBe(404);
+    const direct = await app.request('/health', { method: 'GET' }, devEnv);
+    expect(direct.status).toBe(200);
+  });
+
+  it('runs a non-money op pair over HTTP: model.disable sets the kill switch and model.enable clears it', async () => {
+    const modelId = `admin-ops-mount-test/${crypto.randomUUID()}`;
+    insertedModelIds.push(modelId);
+    await db.insert(modelCatalog).values({ modelId, descriptor: { id: modelId } });
+
+    const disabledAt = async (): Promise<Date | null> => {
+      const rows = await db
+        .select({ adminDisabledAt: modelCatalog.adminDisabledAt })
+        .from(modelCatalog)
+        .where(eq(modelCatalog.modelId, modelId));
+      const row = rows[0];
+      if (row === undefined) throw new Error('admin ops mount tests: model row is gone');
+      return row.adminDisabledAt;
+    };
+
+    const disable = await postOp(
+      'model.disable',
+      'execute',
+      { input: { modelId, reason: 'admin ops mount test disable' } },
+      crypto.randomUUID()
+    );
+    expect(disable.status).toBe(200);
+    expect(await disabledAt()).not.toBeNull();
+
+    const enable = await postOp(
+      'model.enable',
+      'execute',
+      { input: { modelId, reason: 'admin ops mount test enable' } },
+      crypto.randomUUID()
+    );
+    expect(enable.status).toBe(200);
+    expect(await disabledAt()).toBeNull();
+  });
+});

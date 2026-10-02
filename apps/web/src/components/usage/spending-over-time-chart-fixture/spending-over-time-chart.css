@@ -1,0 +1,9 @@
+/* The app's own entry stylesheet, so the chart is measured under the cascade it ships in:
+   the theme tokens, the text-size classes and the pointer variant included. */
+@import '../../../app.css';
+
+/* The fixture's root is this folder, so the chart's, its block's and the page body's classes
+   are named here. */
+@source '../spending-over-time-chart.tsx';
+@source '../chart-utilities.tsx';
+@source '../../shared/page-body.tsx';

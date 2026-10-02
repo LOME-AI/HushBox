@@ -1,0 +1,10 @@
+export { defineScore } from './define-score.js';
+export { pattern } from './pattern.js';
+export { renderScore } from './render-score.js';
+export { ScoreError } from './score-error.js';
+export { scoreTimeline } from './timeline.js';
+export type { Score, ScoreBus, ScoreFilm, ScoreTrack, TimedEvent } from './define-score.js';
+export type { PatternOptions } from './pattern.js';
+export type { RenderedScore, ScorePlacement } from './render-score.js';
+export type { ScoreRule } from './score-error.js';
+export type { Anchor, Bus, BusEffect, ScoreEvent, ScoreInput, Track } from './schema.js';

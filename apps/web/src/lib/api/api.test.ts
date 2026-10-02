@@ -1,0 +1,118 @@
+import { describe, it, expect, vi } from 'vitest';
+
+// The one call this suite asserts on happens while `./api` is imported, so it
+// is recorded in a plain array rather than read back off `parseMock.mock.calls`:
+// the mock's call history is cleared before the first test runs.
+const { parseMock, parsedEnvironments } = vi.hoisted(() => {
+  const parsedEnvironments: unknown[] = [];
+  return {
+    parsedEnvironments,
+    parseMock: vi.fn((env: unknown) => {
+      parsedEnvironments.push(env);
+      return { VITE_API_URL: 'http://localhost:8787' };
+    }),
+  };
+});
+
+vi.mock('@hushbox/shared', () => ({
+  frontendEnvSchema: {
+    parse: parseMock,
+  },
+}));
+
+import { ApiError, getApiUrl, getErrorBody } from './api';
+import { markRequestKeyed } from './idempotent-mutation';
+
+describe('getApiUrl', () => {
+  it('returns the API URL from environment', () => {
+    expect(getApiUrl()).toBe('http://localhost:8787');
+  });
+});
+
+describe('frontend env parsing', () => {
+  it('forwards VITE_PLATFORM and VITE_APP_VERSION from import.meta.env to the schema', () => {
+    const argument = parsedEnvironments[0];
+    expect(argument).toHaveProperty('VITE_PLATFORM');
+    expect(argument).toHaveProperty('VITE_APP_VERSION');
+  });
+});
+
+describe('ApiError', () => {
+  it('creates an error with message, status, and data', () => {
+    const error = new ApiError('Not found', 404, { detail: 'missing' });
+    expect(error.message).toBe('Not found');
+    expect(error.status).toBe(404);
+    expect(error.data).toEqual({ detail: 'missing' });
+    expect(error.name).toBe('ApiError');
+  });
+
+  it('extends Error', () => {
+    const error = new ApiError('fail', 500);
+    expect(error).toBeInstanceOf(Error);
+  });
+});
+
+describe('getErrorBody', () => {
+  it('extracts code and details from an ApiError with a response body', () => {
+    const error = new ApiError('DELETE_ACCOUNT_LOCKED', 403, {
+      code: 'DELETE_ACCOUNT_LOCKED',
+      details: { retryAfterSeconds: 600 },
+    });
+    expect(getErrorBody(error)).toEqual({
+      code: 'DELETE_ACCOUNT_LOCKED',
+      details: { retryAfterSeconds: 600 },
+    });
+  });
+
+  it('falls back to error.message when data lacks a code field', () => {
+    const error = new ApiError('INTERNAL', 500);
+    expect(getErrorBody(error)).toEqual({ code: 'INTERNAL' });
+  });
+
+  it('falls back to error.message when data is not a record', () => {
+    const error = new ApiError('INVALID_JSON', 400, 'plain string body');
+    expect(getErrorBody(error)).toEqual({ code: 'INVALID_JSON' });
+  });
+
+  it('returns undefined for non-ApiError values', () => {
+    expect(getErrorBody(new Error('regular'))).toBeUndefined();
+    expect(getErrorBody('string')).toBeUndefined();
+    expect(getErrorBody(null)).toBeUndefined();
+    expect(getErrorBody({ code: 'fake' })).toBeUndefined();
+  });
+
+  it('falls back to error.message for the code when the record body omits a code field', () => {
+    // data is a record (enters the object branch) but has no string `code`, so
+    // the ternary takes its false arm and uses error.message.
+    const error = new ApiError('FALLBACK_CODE', 400, { details: { field: 'x' } });
+    expect(getErrorBody(error)).toEqual({ code: 'FALLBACK_CODE', details: { field: 'x' } });
+  });
+
+  it('drops a non-record details field', () => {
+    const error = new ApiError('VALIDATION', 422, {
+      code: 'VALIDATION',
+      details: 'not an object',
+    });
+    expect(getErrorBody(error)).toEqual({ code: 'VALIDATION' });
+  });
+});
+
+describe('the idempotency-key fact on an ApiError', () => {
+  it('derives the fact from the response the failure was built from', () => {
+    const response = markRequestKeyed(new Response(), true);
+    expect(new ApiError('X', 500, undefined, { response }).carriedIdempotencyKey).toBe(true);
+  });
+
+  it('leaves the fact false for a response no fetch wrapper recorded', () => {
+    const error = new ApiError('X', 500, undefined, { response: new Response() });
+    expect(error.carriedIdempotencyKey).toBe(false);
+  });
+
+  it('leaves the fact false for a failure built from no response at all', () => {
+    expect(new ApiError('X', 500).carriedIdempotencyKey).toBe(false);
+  });
+
+  it('reads Retry-After from the same options argument', () => {
+    expect(new ApiError('X', 429, undefined, { retryAfterMs: 2000 }).retryAfterMs).toBe(2000);
+  });
+});

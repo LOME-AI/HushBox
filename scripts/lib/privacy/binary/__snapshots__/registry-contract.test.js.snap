@@ -1,0 +1,107 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the format registry contract > records every length at which truncating 'flac' changes the verdict 1`] = `
+[
+  "0 none -/unrecognized-format",
+  "8 flac flac:blocks/unparseable-structure",
+  "62 flac ",
+  "63 flac flac:trailing/unparseable-structure",
+  "64 flac ",
+]
+`;
+
+exports[`the format registry contract > records every length at which truncating 'gif' changes the verdict 1`] = `
+[
+  "0 none -/unrecognized-format",
+  "6 gif gif:screen-descriptor/unparseable-structure",
+  "11 gif gif:trailing/unparseable-structure",
+  "13 gif ",
+  "14 gif gif:blocks/unparseable-structure",
+  "26 gif gif:comment/metadata-carrier",
+]
+`;
+
+exports[`the format registry contract > records every length at which truncating 'ico' changes the verdict 1`] = `
+[
+  "0 none -/unrecognized-format",
+  "22 ico ico:image/unparseable-structure",
+  "23 ico ico:image/unparseable-structure ico:trailing/unparseable-structure",
+  "112 ico png:tEXt/metadata-carrier",
+]
+`;
+
+exports[`the format registry contract > records every length at which truncating 'isobmff' changes the verdict 1`] = `
+[
+  "0 none -/unrecognized-format",
+  "16 isobmff ",
+  "17 isobmff isobmff:trailing/unparseable-structure",
+  "24 isobmff isobmff:boxes/unparseable-structure",
+  "56 isobmff ",
+]
+`;
+
+exports[`the format registry contract > records every length at which truncating 'matroska' changes the verdict 1`] = `
+[
+  "0 none -/unrecognized-format",
+  "4 matroska matroska:elements/unparseable-structure",
+  "16 matroska ",
+  "17 matroska matroska:elements/unparseable-structure",
+  "59 matroska matroska:MuxingApp/metadata-carrier",
+]
+`;
+
+exports[`the format registry contract > records every length at which truncating 'mp3' changes the verdict 1`] = `
+[
+  "0 none -/unrecognized-format",
+  "421 mp3 ",
+]
+`;
+
+exports[`the format registry contract > records every length at which truncating 'png' changes the verdict 1`] = `
+[
+  "0 none -/unrecognized-format",
+  "8 png ",
+  "9 png png:trailing/unparseable-structure",
+  "16 png png:chunks/unparseable-structure",
+  "33 png ",
+  "34 png png:trailing/unparseable-structure",
+  "41 png png:chunks/unparseable-structure",
+  "58 png png:tEXt/metadata-carrier",
+  "59 png png:tEXt/metadata-carrier png:trailing/unparseable-structure",
+  "66 png png:chunks/unparseable-structure png:tEXt/metadata-carrier",
+  "78 png png:tEXt/metadata-carrier",
+  "79 png png:tEXt/metadata-carrier png:trailing/unparseable-structure",
+  "86 png png:chunks/unparseable-structure png:tEXt/metadata-carrier",
+  "90 png png:tEXt/metadata-carrier",
+]
+`;
+
+exports[`the format registry contract > records every length at which truncating 'riff' changes the verdict 1`] = `
+[
+  "0 none -/unrecognized-format",
+  "12 riff ",
+  "13 riff riff:trailing/unparseable-structure",
+  "20 riff riff:chunks/unparseable-structure",
+  "36 riff ",
+  "37 riff riff:trailing/unparseable-structure",
+  "44 riff riff:chunks/unparseable-structure",
+  "60 riff ",
+]
+`;
+
+exports[`the format registry contract > records every length at which truncating 'woff2' changes the verdict 1`] = `
+[
+  "0 none -/unrecognized-format",
+  "48 woff2 woff2:directory/unparseable-structure",
+  "50 woff2 woff2:table-stream/unparseable-structure woff2:trailing/unparseable-structure",
+  "61 woff2 ",
+]
+`;
+
+exports[`the format registry contract > records every length at which truncating 'zip' changes the verdict 1`] = `
+[
+  "0 none -/unrecognized-format",
+  "4 zip zip:end-of-directory/unparseable-structure",
+  "100 zip ",
+]
+`;

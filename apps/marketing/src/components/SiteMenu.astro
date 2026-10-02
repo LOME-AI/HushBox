@@ -1,0 +1,51 @@
+---
+import { TEST_IDS } from '@hushbox/shared';
+import { LANDING_CIPHER_MESSAGES } from '@hushbox/shared/cipher-messages';
+import { ROUTES } from '@hushbox/shared/routes';
+import { CipherWall } from '@hushbox/ui';
+import { buttonVariants } from '@hushbox/ui/button';
+import { buttonStackClass } from '@hushbox/ui/button-groups';
+import GitHubLink from './GitHubLink.astro';
+import { SITE_NAV_LINKS, isCurrentNavLink } from '../lib/site-nav';
+
+interface Props {
+  stars: number;
+}
+
+const { stars } = Astro.props;
+---
+
+<div
+  id="landing-mobile-menu"
+  data-testid={TEST_IDS.landingMobileMenu}
+  data-site-menu-panel
+  hidden
+  class="bg-background absolute inset-x-0 top-[calc(100%+1px)] h-[calc(100dvh-var(--header-height)-var(--hb-banner-height))] overflow-y-auto"
+>
+  <div class="flex min-h-full flex-col px-6 pt-6">
+    {
+      SITE_NAV_LINKS.map((link) => (
+        <a
+          href={link.href}
+          aria-current={isCurrentNavLink(Astro.url.pathname, link.href) ? 'page' : undefined}
+          class="text-foreground hover:text-brand-red aria-[current=page]:text-brand-red aria-[current=page]:after:bg-brand-red text-title-1 flex min-h-14 items-center justify-center font-serif tracking-[-0.01em] transition-colors aria-[current=page]:after:ml-2.5 aria-[current=page]:after:size-1.5 aria-[current=page]:after:rounded-full aria-[current=page]:forced-colors:after:bg-[LinkText]"
+        >
+          {link.label}
+        </a>
+      ))
+    }
+    <div class:list={[buttonStackClass, 'mt-6 *:min-h-11']}>
+      <GitHubLink stars={stars} variant="menu" />
+      <a href={ROUTES.CHAT} class={buttonVariants({ size: 'lg' })}>Open HushBox</a>
+    </div>
+    {
+      /* Astro's own island style (display: contents) sits outside every cascade layer, so only an important utility gives the wall's island the box its canvas sizes by. */
+    }
+    <div
+      aria-hidden="true"
+      class="relative -mx-6 mt-6 min-h-28 flex-1 [mask-image:linear-gradient(to_bottom,transparent,black_45%)] [&>astro-island]:absolute [&>astro-island]:inset-0 [&>astro-island]:block!"
+    >
+      <CipherWall client:visible messages={LANDING_CIPHER_MESSAGES} fadeMask="none" />
+    </div>
+  </div>
+</div>

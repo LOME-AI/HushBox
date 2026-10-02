@@ -1,0 +1,82 @@
+---
+title: 'How We Count Visitors Without Knowing Who They Are'
+description: 'OpenAI argues a ChatGPT user consented to the tracking her lawsuit describes. Our site counts its visitors with no cookie and no idea who they are.'
+author: 'HushBox Team'
+date: 2026-09-25
+tags: ['privacy', 'transparency', 'legal', 'analytics']
+draft: true
+---
+
+ChatGPT gives every conversation a short title, and the title becomes the name of the browser tab. A class action filed in May says the title went further than the tab. According to PPC Land's account of the complaint, the Meta Pixel built into ChatGPT.com sent the title to Meta along with the `c_user` cookie, which holds the user's Facebook ID, and Google Analytics sent Google the same title with a hashed copy of the user's email address. The complaint's own example is a conversation titled "Super Bowl 2005 Winner."
+
+Amargo Couture, the plaintiff, says her questions concerned "her health, finances, and other private information," MediaPost reports.
+
+On Wednesday, August 19, OpenAI asked Judge Marilyn Huff of the Southern District of California to dismiss the case. MediaPost quoted the filing's central claim: "All of plaintiff's claims are barred because she consented to OpenAI's terms of use and privacy policy." OpenAI's privacy policy and cookie notice, the filing says, "make no exception for health- or budgeting-related queries"; they "disclose, categorically, that 'prompts and other content' may be shared with 'vendors' and 'service providers,' including analytics providers, regardless of subject matter."
+
+Put in plain words: if the complaint is right about the pixels, the title of a conversation about a diagnosis could travel to Meta beside the Facebook ID of the person who had it, and on OpenAI's reading, she agreed to that when she agreed to the terms.
+
+Nothing has been decided; a hearing is tentatively set for November 2. But the case puts a plain question to anyone who runs a website: what do you need to know about the people reading your pages? For hushbox.ai we decided the answer was very little, and built a counter that learns that much and no more.
+
+## What a counter needs to know
+
+Say you run a website and want to know how many people read each page, and which sites sent them there. Page loads are easy: count them like tally marks. The hard part is the word "people." Read five pages and you're one reader, not five, so a counter has to recognize you when you open the second one.
+
+Usually the answer is a cookie.
+
+The site hands your browser a numbered ticket, and the browser shows the ticket on every visit after. A tracking pixel is the same trick with somebody else's ticket: a piece of another company's code, running on the page and reporting to its owner. In the complaint's telling, the owner's cookies rode along, which is how a ChatGPT conversation could arrive at Meta already labeled with a Facebook ID.
+
+Now look at what counting needs. It needs to know that whoever is reading page two also read page one, today. It doesn't need to know who that is, and it doesn't need to remember them tomorrow. And every request your browser sends already carries two things, unasked: the IP address it came from, and the user agent, a line of text in which the browser names itself and the system it runs on. Together, for one day, those two make a workable stand-in for one reader.
+
+## A code that changes every day
+
+Our counter turns those two things into a code, and the code is what gets counted. It makes the code with a keyed hash.
+
+A hash function is a blender for data. Pour in anything and out comes a jumble of fixed length. The same ingredients always make the same jumble, one changed letter makes an entirely different one, and the blender only runs one way: you can't pour a jumble back out into its ingredients. A keyed hash puts a secret key into the blender as well. Ours is HMAC, with SHA-256 as the blade. Without the key you can't make the jumble at all, so you can't take a guess at someone's address, blend it, and see whether it matches a code.
+
+Our key changes every day at midnight UTC. Each day's key is derived from a secret on our servers and that day's date, so Tuesday's key and Wednesday's key look unrelated, and so do the codes they produce. A visit on Tuesday and a visit on Wednesday from the same browser on the same connection get two codes with nothing to connect them. This is the whole recipe:
+
+```text
+day_key = HKDF-SHA-256(secret, info = "growth-visitor:2026-09-25")
+code    = first 16 bytes of HMAC-SHA-256(day_key, address ‖ user_agent ‖ "hushbox.ai")
+```
+
+Double bars mean "joined together," and the domain at the end ties every code to this site. Two more details matter. For an IPv6 address we blend only the first half, the part your internet provider assigns to your connection; devices pick the second half themselves and can change it at will, and without this step one household could count as a crowd. And the date comes from our server's clock when the request arrives, so no browser can choose which day's key its visit goes under.
+
+## What we keep
+
+Pages on our public site, marketing and blog alike, carry a small script. It sends our server one short message when you open a page, one when you click a link or a button, and one each time you scroll past a quarter, half, three quarters and all of the page. This is a complete message:
+
+```json
+{ "t": "v", "r": "news.ycombinator.com", "p": "/welcome/", "c": "podcast" }
+```
+
+`t` says whether it's a page view (`v`) or something you did (`e`). `r` is the name of the site that linked you here, when another site did, and never the full address of the page you came from. `p` is the page's path. `c` is the campaign tag from the link you followed, if it carried one. A click adds `n`, a name taken from the page's own markup, so a link to the signup page reports as `link:/signup`. The script never reads what you type into a field.
+
+It sends the message to hushbox.ai itself and tells the browser to leave cookies off the request. It writes nothing to your device and reads nothing from it, so there's no cookie for a banner to ask you about. The campaign tag lives in the address bar and is gone when you close the tab. Known crawlers and bots get a polite answer and aren't counted.
+
+On the server, the address and the user agent become the day's code. Cloudflare, which serves the site, labels each request with a country, and with a state when the country is the US, while the user agent gives a device family: desktop, mobile, tablet or other. No city, no postal code.
+
+Then the code joins several sets in our cache, which runs on Redis: the people who visited this hour, the people who visited today, the people who viewed this page, arrived from this site, came under this campaign tag, or came from this place on this kind of device. A set holds each member once. Open the same page ten times in an hour and you're one member of that hour's set for that page, which is what "people" meant all along. There's a set for every hour and a set for every day, because hours don't add up to days. Read a post, come back a few hours later the same day for another, and you're in two hourly sets but only one daily set. Add up the hours and you'd be counted twice.
+
+Sets expire on their own. Every time a visit is counted into a set, its timer goes back to 36 hours, and a set that goes 36 hours without a new visit is deleted by Redis, codes and all. A day's sets stop taking visits at midnight UTC, so the last of them expires by noon UTC two days later.
+
+While a set is alive, a job comes by every hour and asks it one question: how many members? The number goes into our database, on a row labeled with the hour or day it covers and with what was counted, such as a page, a linking site or a campaign tag. We keep those rows for good. None of them holds a code.
+
+So the database learns that one more person read a page in a given hour, having arrived from a given site. It never learns which person.
+
+## The wall between the count and your account
+
+HushBox has two halves: the public site, where the counter lives, and the app you sign into. The app sends the counter nothing. A test reads the app's source code and fails if any of it refers to the counter, so a counting call added to the app by mistake fails the build. In the other direction, the counter never asks who you are. Its messages arrive without cookies, and the code that receives them never looks up a session.
+
+Promises like these wear away one edit at a time, so we wrote this one as a rule a machine checks. Before every push, and again in continuous integration, an architecture check fails any change that gives a counter table a column for an account, links a counter table to a table outside the counter, lets the counting code look up who's signed in, or names the function that makes visitor codes anywhere in the account code.
+
+One thing crosses on purpose, and it's a label, not a person. Arrive through a tagged link, say one we shared with a podcast, and the tag rides along in the address bar. Sign up from there, and your account records the tag. It tells us what it tells us about everyone else who clicked that link: which campaign brought them.
+
+OpenAI now has to persuade a judge that the words "vendors" and "service providers" covered what the complaint says its pages were doing. We'd like never to need words like that. Our counter can't tell anyone who you are. It never finds out.
+
+---
+
+## Sources
+
+1. [OpenAI's ChatGPT secretly sent your queries to Meta and Google, lawsuit claims](https://ppc.land/openais-chatgpt-secretly-sent-your-queries-to-meta-and-google-lawsuit-claims/)
+2. [OpenAI Pushes Judge To Throw Out Privacy Suit](https://www.mediapost.com/publications/article/417370/openai-pushes-judge-to-throw-out-privacy-suit.html)

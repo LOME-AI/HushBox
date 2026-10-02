@@ -1,0 +1,78 @@
+---
+title: 'OpenAI Read 78 Million of Your Chats to Check Its Own Exposure'
+description: 'Court filings show a database of 78 million ChatGPT conversations no user was told about. What "private" means when the provider holds the key.'
+author: 'HushBox Team'
+date: 2026-09-08
+tags: ['privacy', 'security', 'legal', 'ai-models']
+draft: false
+---
+
+## The deposition
+
+Nobody at OpenAI sat down and read 78 million conversations. A search did. The distinction matters less than it sounds, and the rest of this post is about why.
+
+In July, the New York Times and a group of other publishers asked a federal court to sanction OpenAI for hiding evidence in their copyright suit. TechCrunch's Rebecca Bellan reported the substance of the motion: beginning before the Times ever filed, the motion says, OpenAI built an internal database of roughly 78 million de-identified ChatGPT conversations and used it to gauge how much its own product was reproducing other people's work. After the suit, the company ran a set of tools it called Project Giraffe, among them a Bloom filter that detected and logged regurgitation in ChatGPT outputs. The details come from discovery: a March order by Magistrate Judge Ona Wang, quoted by the case-tracking site ChatGPT Is Eating the World, that named "the reservoirs of 78 million and 10 million logs" and ordered them produced, and a deposition of OpenAI data-privacy engineer Vinnie Monaco that the sanctions motion quotes.
+
+What the motion asks for is blunt: bar OpenAI from relying on the 20 million-conversation sample it was ordered to produce, treat it as established that the logs would show substantial regurgitation, and make OpenAI pay the publishers' fees. Ian Crosby, the lead lawyer for the plaintiffs, put the accusation in one sentence: "If OpenAI genuinely believed that copying our clients' journalism was fair and legal, it wouldn't have hid the truth about having done it."
+
+OpenAI's reply came on August 14. Bloomberg Law's Annelise Levy read the opposition brief, and the first thing to notice is what it doesn't do. It doesn't deny the database. It says the internal project searched a "rough-and-ready" sample of 78 million conversations and that this search "differs fundamentally" from what the publishers demanded. It says OpenAI followed the preservation order "to the letter" and went to "herculean efforts" in discovery. It calls the whole motion an attempt "to rewrite history" by plaintiffs with "no evidence whatsoever" of systematic regurgitation.
+
+Read that again with the users in mind, because nobody else in the case is. A sample of 78 million conversations existed. OpenAI's defense is that it was rough and that it was for a different purpose. No user was notified. The closest thing to notice anyone got is the privacy policy's clause allowing de-identified use of content for research and improvement. Whether the sample honored the "improve the model" setting, the main control a ChatGPT user has over this, no filing reported so far says. The court has not ruled on the motion as of this writing.
+
+## Two numbers
+
+There are two figures in this story. Keep them apart, because OpenAI's public statements are about one of them and the deposition is about the other.
+
+The 20 million is the litigation's number. The publishers asked for 120 million logs; OpenAI offered 20 million, and in January Judge Sidney Stein affirmed a magistrate's order that OpenAI produce that sample, de-identified, to the publishers' lawyers. Bloomberg Law summarized his reasoning: unlike surreptitious recordings, ownership of the logs was uncontested and users had voluntarily submitted their communications. OpenAI fought that order loudly. Its security chief, Dane Stuckey, wrote a post titled "Fighting the New York Times' invasion of user privacy" that says "Your private conversations are yours" and calls the demand an attempt to make them "collateral in a dispute over online content access."
+
+The 78 million is OpenAI's own number. Nobody ordered it. It was begun before the suit, for the company's benefit, to answer a question the company wanted answered.
+
+|                 | The 78 million                                                                                                                            | The 20 million                                                                                                        |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Who decided     | OpenAI, internally                                                                                                                        | A federal magistrate, affirmed by the district judge                                                                  |
+| When            | Begun before the Times filed suit                                                                                                         | Ordered in late 2025, affirmed January 2026                                                                           |
+| Purpose         | Measure OpenAI's own copyright exposure                                                                                                   | Evidence for the publishers                                                                                           |
+| Were users told | No. It surfaced in discovery                                                                                                              | Yes, in an OpenAI blog post                                                                                           |
+| Who could look  | OpenAI's internal project. In March the court ordered it produced to the publishers under a de-identification protocol still to be agreed | Publishers' outside counsel and consultants, plus what OpenAI calls "a small, audited OpenAI legal and security team" |
+
+Now hold two of Stuckey's sentences side by side. The post promises that new encryption features "will help keep your private conversations private and inaccessible to anyone else, even OpenAI." The same post describes the 20 million conversations being run through "a de-identifying procedure" and stored under legal hold where "a small, audited" team can reach them. Both sentences are true at once. They are true because "inaccessible, even to OpenAI" is a description of a future product, and the audited team is a description of the present system. In the present system, whether anyone at OpenAI can read your chat is a question about OpenAI's policies, and the 78 million show how that question gets answered when the policy is up against a lawsuit.
+
+## What "we'll delete it in 30 days" actually said
+
+OpenAI's privacy policy (we read the version it publishes for readers outside the US and Europe; the US one is a separate document) is short and says exactly what it needs to. Content you provide may be used "to improve our Services, for example to train the models that power ChatGPT." Deleted data is removed "within 30 days." And then the clause that governs everything above it: if OpenAI is legally required to retain your data, "we may retain it" for "the duration of the relevant legal or regulatory obligation."
+
+OpenAI's Help Center retention article says the same thing in plainer words. A deleted chat is "scheduled for permanent deletion from OpenAI systems within 30 days, unless: The chat has already been de-identified and disassociated from you, or OpenAI must retain it longer for security or legal obligations."
+
+Translate that out of policy language. Your deleted chat is gone in 30 days, unless OpenAI already copied it somewhere with your name scraped off, in which case the copy is not covered by your deletion at all. A database of 78 million de-identified conversations is the kind of copy that clause describes. The policy ties that kind of copy to the model-improvement setting, and if you never turned that setting off, you agreed to it in the sense that matters to a lawyer.
+
+Follow the incentives and the shape of the thing becomes clear. When OpenAI needs to know how often ChatGPT reproduces a newspaper, the cheapest instrument in the world is the pile of conversations it already holds. The cost of reading them falls on nobody at OpenAI. The risk of reading them, the exposure, the loss of confidentiality, falls entirely on the people who wrote them and who will never see the sample. When one party holds an asset and bears none of the downside of using it, it gets used. Not out of malice. Out of arithmetic.
+
+## The best case for OpenAI
+
+OpenAI's strongest defense is a real one, so it deserves a fair statement.
+
+OpenAI is the defendant in a copyright suit. A defendant is entitled to inspect its own product's behavior, and the only way to inspect a chatbot's output at scale is to look at output. The 78 million were de-identified. The court-ordered 20 million are held under legal hold, run through a scrubbing procedure, and reachable only by the publishers' lawyers and a small audited team. And it was the Times, not OpenAI, that demanded user conversations be handed to a third party. OpenAI fought that demand in public and before the district judge. On the facts, OpenAI has been the more protective party in this litigation.
+
+All true. And all beside the point, because every item on that list is a description of OpenAI's conduct, and the reader has no way to inspect any of it. "De-identified" names a procedure the reader cannot see, applied by the party with the strongest interest in calling it sufficient. "Audited" names an audit the reader will never read. "A rough-and-ready sample" is OpenAI's characterization of a database that no user of ChatGPT was ever told existed.
+
+All of it amounts to: trust us, we were careful. That may even be so. But a privacy promise that rests on the promiser's carefulness can be revised the day the promiser's interests change, and in this case that day arrived when OpenAI wanted to measure its own exposure. Which raises the question of what a promise would look like if it didn't depend on anyone's carefulness at all.
+
+## What a server can't do
+
+When people hear "encrypted," they usually picture what OpenAI already has: data scrambled on disk, with the company holding the key. That protects against a stolen hard drive. It protects against nothing the company itself decides to do, because the company can always decrypt.
+
+HushBox is built so the server holds the wrong key. Your message has to pass through our server in plaintext on its way to the model, and there is no way around that. But once the reply is written, both are stored under a key that exists only on your device. Nothing on our side can open a saved conversation, so a database like OpenAI's 78 million can't be assembled from ours. Deleting a conversation deletes it. The code is public, so none of this has to be taken on our word.
+
+None of this requires OpenAI to be dishonest. A company that holds the key to your conversations will open them the day a good enough reason arrives, and a copyright suit is a very good reason. "Private" in that arrangement was only ever a promise that no reason would come. You were being asked to trust that no one would ever have a reason.
+
+---
+
+## Sources
+
+1. [New York Times says OpenAI hid evidence in ChatGPT copyright trial](https://techcrunch.com/2026/07/09/new-york-times-says-openai-hid-evidence-in-chatgpt-copyright-trial/)
+2. [Court orders OpenAI to turn over Greg Brockman’s journal to Plaintiffs in MDL copyright suit. Plus, OAI employee Vinnie Monaco was unprepared for deposition re Project Giraffe guardrails](https://chatgptiseatingtheworld.com/2026/03/10/court-orders-openai-to-turn-over-greg-brockmans-journal-to-plaintiffs-in-mdl-copyright-suit-plus-oai-employee-vinnie-monaco-was-unprepared-for-deposition-re-project-giraffe-guardrails/)
+3. [OpenAI Says NY Times Seeks Sanctions Due to Lack of Evidence](https://news.bloomberglaw.com/ip-law/openai-says-ny-times-seeks-sanctions-due-to-lack-of-evidence)
+4. [OpenAI Must Turn Over 20 Million ChatGPT Logs, Judge Affirms](https://news.bloomberglaw.com/ip-law/openai-must-turn-over-20-million-chatgpt-logs-judge-affirms)
+5. [Fighting the New York Times' invasion of user privacy](https://openai.com/index/fighting-nyt-user-privacy-invasion/)
+6. [Privacy policy](https://openai.com/policies/row-privacy-policy/)
+7. [Chat and File Retention Policies in ChatGPT | OpenAI Help Center](https://help.openai.com/en/articles/8983778-chat-and-file-retention-policies-in-chatgpt)

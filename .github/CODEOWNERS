@@ -1,0 +1,21 @@
+# Sensitive paths — require @ctf05 approval to merge changes here.
+# Without these rules a contributor could escalate privileges by adding
+# malicious entries to ops/manifest.yml or weakening the deploy workflow
+# in the same PR they apply a `run-script:` label to.
+#
+# The rules cover what the production deploy reads or executes, not only the
+# workflows: composite actions run inside the deploy job, the environment
+# registry decides which secrets are pushed to the Workers, its generator emits
+# the secret-push block, the wrangler configs decide what is deployed, and the
+# migrations run against the production database.
+#
+# These rules only enforce review IF branch protection on `main` has
+# "Require review from Code Owners" enabled. Verify in repo Settings →
+# Branches (or Rulesets) before relying on this protection.
+
+.github/                            @ctf05
+ops/                                @ctf05
+packages/db/drizzle/                @ctf05
+packages/shared/src/env/env.config.ts @ctf05
+scripts/generate-env.ts             @ctf05
+apps/*/wrangler.toml                @ctf05

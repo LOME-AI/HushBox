@@ -1,0 +1,170 @@
+import path from 'node:path';
+import { recordServiceEvidence, SERVICE_NAMES } from '@hushbox/db';
+import { CASSETTE_DIRECTORY } from '@hushbox/shared/cassettes';
+import { createModelProvider } from './dispatch.js';
+import { createMockModelProvider } from './mock-provider.js';
+import { createCassetteFetch } from './cassette/recording-fetch.js';
+import { createCassetteStore } from './cassette/cassette-store.js';
+import { cassetteModeFor } from './cassette/mode.js';
+import type { CassetteStore } from './cassette/cassette-store.js';
+import type { CreateModelProviderOptions } from './dispatch.js';
+import type { MockDirectives } from './mock-provider.js';
+import type { ModelProvider } from '../ports/index.js';
+import type { Database } from '@hushbox/db';
+import type { InferenceEvent } from '@hushbox/shared';
+
+/**
+ * THE single source of truth for how AI inference is served. It mirrors the
+ * legacy `getAIClient` three-way gate in the vertical-slice design; chat's
+ * `adaptersFor` delegates here so no provider-selection logic lives anywhere
+ * else. The three mutually-exclusive states:
+ *
+ *   1. dev / E2E (`useMock`)           → deterministic mock provider. NEVER
+ *      records evidence, NEVER makes a real call, needs no key.
+ *   2. real + CI-vitest (`!useMock && isCI`) → real provider whose SDK `fetch`
+ *      is the record-on-miss HTTP cassette, wrapped so the FIRST successful
+ *      inference event records `openrouter-inference` service-evidence
+ *      exactly once.
+ *   3. real + production (`!useMock && !isCI`) → real provider with plain
+ *      `globalThis.fetch`; no cassette, no evidence.
+ */
+
+/**
+ * Filesystem root for HTTP cassettes, at the repository root from the api cwd.
+ * CI restores/saves this directory across runs; locally it is git-ignored.
+ * Same computation as the legacy integration setup so recordings are shared.
+ */
+export const CASSETTE_ROOT = path.resolve(process.cwd(), '..', '..', CASSETTE_DIRECTORY);
+
+/**
+ * The dev/local `.dev.vars` placeholder for `OPENROUTER_API_KEY`. Recording CI
+ * cassettes against it would burn a run and cache a 401 forever, so the
+ * CI-vitest path refuses it explicitly — belt-and-suspenders over the composer
+ * having already selected the real path from the environment.
+ */
+const DEV_MOCK_OPENROUTER_KEY = 'mock-openrouter-key';
+
+/**
+ * Video poll cadence on the replay branch alone, where a status check reads the
+ * local store instead of the gateway — so the interval protects nothing and a
+ * replay pays it once per recorded status check. A recording run is governed by
+ * the provider's own cadence instead, which is what paces its live calls.
+ * Nonzero so the poll loop still yields between store reads.
+ */
+const REPLAY_POLL_INTERVAL_MS = 10;
+
+interface ResolveModelProviderInput {
+  /** True only when THIS run selects the deterministic mock (dev/E2E + directives). */
+  readonly useMock: boolean;
+  /** OpenRouter key; must be present and non-empty on any real path. */
+  readonly apiKey: string;
+  /** CI classification — gates cassette engagement and service-evidence recording. */
+  readonly isCI: boolean;
+  /** DO-scoped db for the CI-vitest evidence write; unused on the mock/production paths. */
+  readonly db: Database | undefined;
+  /** Per-run mock directives (dev/E2E only); ignored on the real paths. */
+  readonly mockDirectives?: MockDirectives;
+  /** Dev/E2E held-stream release barrier; ignored on the real paths. */
+  readonly awaitStreamRelease?: () => Promise<void>;
+  /**
+   * Whether this is a real interactive dev server (`createEnvUtilities().isDevServer`,
+   * which excludes E2E, vitest, CI and production), set by the composer. Gates every
+   * dev-server default of the mock: on only here, so automated runs get none of
+   * them. Omitted defaults to false; a per-request directive always wins over a
+   * default. Ignored on the real paths.
+   */
+  readonly isDevServer?: boolean;
+}
+
+/** Test seams: a fake provider factory and a fake cassette store, so the real paths are unit-testable without a live call. */
+interface ResolveModelProviderInternals {
+  readonly createProvider?: (options: CreateModelProviderOptions) => ModelProvider;
+  readonly store?: CassetteStore;
+}
+
+/**
+ * Wrap a real provider so the FIRST successful inference event records
+ * `openrouter-inference` service-evidence exactly once (mirrors legacy
+ * `real.ts`). A stream that errors before yielding never records; a stream that
+ * errors after the first event keeps the record — evidence proves the
+ * integration ran, regardless of whether the bytes came from a live call or a
+ * cassette replay. The write is isCI-gated inside `recordServiceEvidence`.
+ */
+function withEvidenceOnFirstEvent(
+  provider: ModelProvider,
+  db: Database,
+  isCI: boolean
+): ModelProvider {
+  return {
+    infer(request, descriptor, options): AsyncIterable<InferenceEvent> {
+      const upstream = provider.infer(request, descriptor, options);
+      return {
+        async *[Symbol.asyncIterator](): AsyncIterator<InferenceEvent> {
+          let recorded = false;
+          for await (const event of upstream) {
+            if (!recorded) {
+              recorded = true;
+              await recordServiceEvidence(db, isCI, SERVICE_NAMES.OPENROUTER_INFERENCE);
+            }
+            yield event;
+          }
+        },
+      };
+    },
+  };
+}
+
+export function resolveModelProvider(
+  input: ResolveModelProviderInput,
+  internals: ResolveModelProviderInternals = {}
+): ModelProvider {
+  const createProvider = internals.createProvider ?? createModelProvider;
+
+  if (input.useMock) {
+    return createMockModelProvider(
+      input.mockDirectives,
+      input.awaitStreamRelease,
+      input.isDevServer
+    );
+  }
+
+  // Real path: the key is load-bearing and must never be empty.
+  if (input.apiKey === '') {
+    throw new Error(
+      'resolveModelProvider: real inference requires a non-empty OPENROUTER_API_KEY — the runtime fails fast instead of degrading.'
+    );
+  }
+
+  if (!input.isCI) {
+    // Production: plain globalThis.fetch, no cassette, no evidence.
+    return createProvider({ apiKey: input.apiKey });
+  }
+
+  // CI-vitest: real provider over the record-on-miss cassette + evidence-once.
+  if (input.apiKey === DEV_MOCK_OPENROUTER_KEY) {
+    throw new Error(
+      'resolveModelProvider: refusing to record CI cassettes against the dev mock OPENROUTER_API_KEY.'
+    );
+  }
+  if (input.db === undefined) {
+    throw new Error('resolveModelProvider: the CI-vitest path requires a db for service-evidence.');
+  }
+
+  const store = internals.store ?? createCassetteStore({ rootDir: CASSETTE_ROOT });
+  const fetch = createCassetteFetch({
+    store,
+    mode: cassetteModeFor(),
+    realFetch: globalThis.fetch.bind(globalThis),
+  });
+  // An empty store means this run records, whose polls are live gateway calls the
+  // provider's own cadence paces; a populated one means it replays from disk.
+  // Residue: a store holding other recordings but not this request's takes the
+  // replay cadence into a live call, bounded to a newly added request shape.
+  const replaying = store.list().length > 0;
+  const provider = createProvider({
+    apiKey: input.apiKey,
+    fetch,
+    ...(replaying ? { pollIntervalMs: REPLAY_POLL_INTERVAL_MS } : {}),
+  });
+  return withEvidenceOnFirstEvent(provider, input.db, input.isCI);
+}

@@ -1,0 +1,53 @@
+#!/bin/sh
+[ -f .husky/pre-commit.local ] && . .husky/pre-commit.local
+# Every step below carries its own guard: this file has no exit-on-error, and
+# the shell flag that supplies one comes from a shim generated at install time
+# rather than from anything this repository tracks. Without the guard a failed
+# generator is skipped silently and the staging line below it stages the stale
+# artifact anyway.
+# First, because the README generator below reads its brand colours out of the
+# stylesheet this one writes.
+pnpm generate:design-tokens || exit 1
+git add packages/config/tailwind/index.css || exit 1
+pnpm generate:readme || exit 1
+git add README.md \
+  .github/readme/banner-dark.gif \
+  .github/readme/banner-light.gif \
+  .github/readme/*.svg \
+  .github/readme/.cache \
+  packages/ui/src/assets/icons || exit 1
+# The generator prints the committed files it wrote, one path per line, so this
+# is never maintained by hand — a workflow that becomes a generated-block owner
+# needs no edit here. Its progress goes to stderr, so stdout is only ever paths.
+generated=$(pnpm -s generate:env) || exit 1
+if [ -z "$generated" ]; then
+  echo "pre-commit: generate:env printed no output paths; refusing to stage nothing" >&2
+  exit 1
+fi
+# Unquoted on purpose: one repo path per line, none containing whitespace.
+# shellcheck disable=SC2086
+git add $generated || exit 1
+pnpm generate:ops-dispatch || exit 1
+git add .github/workflows/run-ops-script.yml || exit 1
+# db:generate normalizes the entry it stamps before it returns, and the guard is
+# what keeps a failed normalization out of the staging below: that value is also
+# the migrator's applied watermark, so it cannot be corrected once a database has
+# read it.
+pnpm --filter @hushbox/db db:generate || exit 1
+git add packages/db/drizzle || exit 1
+pnpm verify:bundle:update || exit 1
+git add apps/web/ios/App/App.xcodeproj/project.pbxproj || exit 1
+# The generator prints what it wrote, one path per line, so this list is never
+# maintained by hand — adding a skill needs no edit here. It prints the same list
+# on a cache hit, and its progress goes to stderr, so stdout is only ever paths.
+skills=$(pnpm -s generate:skills) || exit 1
+if [ -z "$skills" ]; then
+  echo "pre-commit: generate:skills printed no output paths; refusing to stage nothing" >&2
+  exit 1
+fi
+# Unquoted on purpose: one repo path per line, none containing whitespace.
+# shellcheck disable=SC2086
+git add $skills || exit 1
+# Last, so it judges the index as this commit will write it — including the
+# files the generators above just staged.
+tsx scripts/privacy-gate.ts commit || exit 1

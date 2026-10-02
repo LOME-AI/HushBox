@@ -1,0 +1,472 @@
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { Hono } from 'hono';
+import { sealData } from 'iron-session';
+import { ERROR_CODES } from '@hushbox/shared';
+import { errAsync, okAsync } from '../lib/result/index.js';
+import { assertRequiredBindings, bindRequestValue } from '../lib/context/index.js';
+import { FINGERPRINT_CODES } from '../lib/telemetry/index.js';
+import { unavailableError } from '../lib/errors/index.js';
+import { pipelineEnv } from './pipeline-env.js';
+import { pipelineBindings } from './pipeline-bindings.js';
+import {
+  pipelineSession,
+  BILLING_PORTAL_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
+} from './pipeline-session.js';
+import { isPipelineHandler, routeClass } from './pipeline-markers.js';
+import type { Redis } from '@upstash/redis';
+import type {
+  AppEnv,
+  BillingPortalRevocationCheck,
+  Bindings,
+  Principal,
+  SessionRevocationCheck,
+} from '../lib/context/index.js';
+import type { Telemetry, TelemetryEnv } from '../lib/telemetry/index.js';
+
+/** Type-safe JSON response parser for test assertions. */
+async function jsonBody<T = Record<string, unknown>>(res: Response): Promise<T> {
+  return await res.json();
+}
+
+const SECRET = 'secret-at-least-32-characters-long!!';
+
+const env: Bindings & TelemetryEnv = {
+  NODE_ENV: 'development',
+  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/hushbox',
+  UPSTASH_REDIS_REST_URL: 'http://localhost:8079',
+  UPSTASH_REDIS_REST_TOKEN: 'token',
+  IRON_SESSION_SECRET: SECRET,
+  TELEMETRY_SINKS: 'console',
+};
+
+function createProbeApp(): Hono<AppEnv> {
+  return new Hono<AppEnv>()
+    .use('*', pipelineEnv())
+    .use('*', pipelineBindings())
+    .use('*', pipelineSession())
+    .get('/probe', (c) => c.json(c.get('principal')))
+    .onError((err, c) => c.json({ message: err.message }, 500));
+}
+
+async function sealedCookie(data: Record<string, unknown>): Promise<string> {
+  const sealed = await sealData(data, { password: SECRET });
+  return `${SESSION_COOKIE_NAME}=${sealed}`;
+}
+
+async function sealedBillingCookie(data: Record<string, unknown>): Promise<string> {
+  const sealed = await sealData(data, { password: SECRET });
+  return `${BILLING_PORTAL_COOKIE_NAME}=${sealed}`;
+}
+
+function billingPortalData(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    credentialKind: 'billing-portal',
+    userId: 'payer-1',
+    sessionId: 'billing-session-1',
+    createdAt: Date.now() - 1000,
+    ...overrides,
+  };
+}
+
+function sessionData(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    userId: 'user-1',
+    sessionId: 'session-1',
+    createdAt: Date.now() - 1000,
+    pending2FA: false,
+    pending2FAExpiresAt: 0,
+    ...overrides,
+  };
+}
+
+async function probePrincipal(cookie?: string): Promise<Principal> {
+  const init = cookie === undefined ? {} : { headers: { cookie } };
+  const res = await createProbeApp().request('/probe', init, env);
+  expect(res.status).toBe(200);
+  return jsonBody<Principal>(res);
+}
+
+describe('pipelineSession', () => {
+  it('derives a none principal without a session cookie', async () => {
+    expect(await probePrincipal()).toEqual({ kind: 'none' });
+  });
+
+  it('derives a full principal from a valid session cookie', async () => {
+    const principal = await probePrincipal(await sealedCookie(sessionData()));
+    expect(principal.kind).toBe('full');
+    if (principal.kind === 'full') {
+      expect(principal.claims.userId).toBe('user-1');
+    }
+  });
+
+  it('derives a pending-2fa principal from an unexpired mid-2FA session', async () => {
+    const cookie = await sealedCookie(
+      sessionData({ pending2FA: true, pending2FAExpiresAt: Date.now() + 60_000 })
+    );
+    const principal = await probePrincipal(cookie);
+    expect(principal.kind).toBe('pending-2fa');
+  });
+
+  it('derives a none principal from an expired mid-2FA session', async () => {
+    const cookie = await sealedCookie(
+      sessionData({ pending2FA: true, pending2FAExpiresAt: Date.now() - 60_000 })
+    );
+    expect(await probePrincipal(cookie)).toEqual({ kind: 'none' });
+  });
+
+  it('derives a billing-portal principal from the billing cookie alone', async () => {
+    const principal = await probePrincipal(await sealedBillingCookie(billingPortalData()));
+    expect(principal.kind).toBe('billing-portal');
+    if (principal.kind === 'billing-portal') {
+      expect(principal.credential.userId).toBe('payer-1');
+    }
+  });
+
+  it('lets the login principal win when both cookies are presented', async () => {
+    const cookie = `${await sealedCookie(sessionData())}; ${await sealedBillingCookie(
+      billingPortalData()
+    )}`;
+    const principal = await probePrincipal(cookie);
+    expect(principal.kind).toBe('full');
+  });
+
+  it('derives none from a billing credential presented under the login cookie name', async () => {
+    const sealed = await sealData(billingPortalData(), { password: SECRET });
+    expect(await probePrincipal(`${SESSION_COOKIE_NAME}=${sealed}`)).toEqual({ kind: 'none' });
+  });
+
+  it('derives none from a pre-separation billing-flagged login cookie', async () => {
+    const cookie = await sealedCookie(sessionData({ billingOnly: true }));
+    expect(await probePrincipal(cookie)).toEqual({ kind: 'none' });
+  });
+
+  it('derives none from a login payload presented under the billing cookie name', async () => {
+    const sealed = await sealData(sessionData(), { password: SECRET });
+    expect(await probePrincipal(`${BILLING_PORTAL_COOKIE_NAME}=${sealed}`)).toEqual({
+      kind: 'none',
+    });
+  });
+
+  it('derives a none principal from an unreadable cookie', async () => {
+    expect(await probePrincipal(`${SESSION_COOKIE_NAME}=garbage`)).toEqual({ kind: 'none' });
+  });
+
+  it('fails fast when applied without the bindings stage (pipeline order violated)', async () => {
+    const app = new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', pipelineSession())
+      .get('/probe', (c) => c.json(c.get('principal')))
+      .onError((err, c) => c.json({ message: err.message }, 500));
+    const res = await app.request('/probe', {}, env);
+    expect(res.status).toBe(500);
+    const body = await jsonBody<{ message: string }>(res);
+    expect(body.message).toMatch(/pipeline order/);
+  });
+
+  it('is marked as a pipeline handler', () => {
+    expect(isPipelineHandler(pipelineSession())).toBe(true);
+  });
+});
+
+describe('pipelineSession billing-portal revocation seam', () => {
+  function createBillingApp(billingRevocation: BillingPortalRevocationCheck): Hono<AppEnv> {
+    return new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', pipelineBindings())
+      .use('*', pipelineSession({ billingRevocation }))
+      .get('/probe', (c) => c.json(c.get('principal')));
+  }
+
+  async function probeBilling(
+    billingRevocation: BillingPortalRevocationCheck,
+    data: Record<string, unknown> = billingPortalData()
+  ): Promise<Response> {
+    return createBillingApp(billingRevocation).request(
+      '/probe',
+      { headers: { cookie: await sealedBillingCookie(data) } },
+      env
+    );
+  }
+
+  it('degrades a revoked billing credential to a none principal', async () => {
+    const res = await probeBilling(() => okAsync('revoked'));
+    expect(res.status).toBe(200);
+    expect(await jsonBody<Principal>(res)).toEqual({ kind: 'none' });
+  });
+
+  it('keeps a live billing credential as a billing-portal principal', async () => {
+    const res = await probeBilling(() => okAsync('active'));
+    const principal = await jsonBody<Principal>(res);
+    expect(principal.kind).toBe('billing-portal');
+  });
+
+  it('fails closed with 503 when the billing liveness check cannot be answered', async () => {
+    const res = await probeBilling(() => errAsync(unavailableError('redis get failed')));
+    expect(res.status).toBe(503);
+    expect(await jsonBody(res)).toEqual({ code: ERROR_CODES.UNAVAILABLE });
+  });
+
+  it('passes the parsed credential to the billing revocation check', async () => {
+    const billingRevocation = vi.fn<BillingPortalRevocationCheck>(() => okAsync('active'));
+    await probeBilling(billingRevocation);
+    expect(billingRevocation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: 'payer-1', sessionId: 'billing-session-1' })
+    );
+  });
+
+  it('never invokes the billing check for a request carrying a login session', async () => {
+    const billingRevocation = vi.fn<BillingPortalRevocationCheck>(() => okAsync('active'));
+    const res = await createBillingApp(billingRevocation).request(
+      '/probe',
+      { headers: { cookie: await sealedCookie(sessionData()) } },
+      env
+    );
+    const principal = await jsonBody<Principal>(res);
+    expect(principal.kind).toBe('full');
+    expect(billingRevocation).not.toHaveBeenCalled();
+  });
+});
+
+interface RecordedCapture {
+  readonly error: Error;
+  readonly code: string;
+}
+
+/**
+ * The session stage as a fresh isolate has it, beside the real login liveness
+ * check and a Redis client whose every command outlives a short deadline. What
+ * the refusal tail has already reported is latched in module state, so the
+ * stage is taken fresh, and the check and the client from the same graph.
+ */
+async function freshStageOverAStoreThatNeverAnswers(): Promise<{
+  readonly stage: typeof pipelineSession;
+  readonly revocation: SessionRevocationCheck;
+  readonly redis: Redis;
+}> {
+  vi.resetModules();
+  vi.stubGlobal('fetch', (): Promise<Response> => new Promise<Response>(() => {}));
+  const { pipelineSession: stage } = await import('./pipeline-session.js');
+  const { checkSessionRevocation } = await import('../slices/identity/index.js');
+  const { createBoundedRedis } = await import('../lib/resilience/index.js');
+  return {
+    stage,
+    revocation: checkSessionRevocation,
+    redis: createBoundedRedis({ url: 'http://localhost:8079', token: 'token' }, 20),
+  };
+}
+
+describe('pipelineSession revocation seam', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function createRevocationApp(revocation: SessionRevocationCheck): Hono<AppEnv> {
+    return new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', pipelineBindings())
+      .use('*', pipelineSession({ revocation }))
+      .get('/probe', (c) => c.json(c.get('principal')));
+  }
+
+  it('degrades a revoked session to a none principal', async () => {
+    const app = createRevocationApp(() => okAsync('revoked'));
+    const res = await app.request(
+      '/probe',
+      { headers: { cookie: await sealedCookie(sessionData()) } },
+      env
+    );
+    expect(res.status).toBe(200);
+    expect(await jsonBody<Principal>(res)).toEqual({ kind: 'none' });
+  });
+
+  it('keeps an active session as a full principal', async () => {
+    const app = createRevocationApp(() => okAsync('active'));
+    const res = await app.request(
+      '/probe',
+      { headers: { cookie: await sealedCookie(sessionData()) } },
+      env
+    );
+    const principal = await jsonBody<Principal>(res);
+    expect(principal.kind).toBe('full');
+  });
+
+  it('fails closed with 503 when the liveness check cannot be answered', async () => {
+    const app = createRevocationApp(() => errAsync(unavailableError('redis get failed')));
+    const res = await app.request(
+      '/probe',
+      { headers: { cookie: await sealedCookie(sessionData()) } },
+      env
+    );
+    expect(res.status).toBe(503);
+    expect(await jsonBody(res)).toEqual({ code: ERROR_CODES.UNAVAILABLE });
+  });
+
+  it('fails closed with 503 when the store never answers, reporting the store and its arm', async () => {
+    const { stage, revocation, redis } = await freshStageOverAStoreThatNeverAnswers();
+    const captures: RecordedCapture[] = [];
+    const app = new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', pipelineBindings())
+      .use('*', async (c, next) => {
+        const logger: Telemetry = {
+          ...c.var.logger,
+          captureError: (error: Error, code: string): void => {
+            captures.push({ error, code });
+          },
+        };
+        bindRequestValue(c, 'logger', logger);
+        bindRequestValue(c, 'redis', redis);
+        await next();
+      })
+      .use('*', stage({ revocation }))
+      .get('/probe', (c) => c.json(c.get('principal')));
+
+    const res = await app.request(
+      '/probe',
+      { headers: { cookie: await sealedCookie(sessionData()) } },
+      env
+    );
+
+    expect(res.status).toBe(503);
+    expect(await jsonBody(res)).toEqual({ code: ERROR_CODES.UNAVAILABLE });
+    expect(captures.map(({ code }) => code)).toEqual([FINGERPRINT_CODES.dependencyUnavailable]);
+    expect(captures[0]?.error).toMatchObject({
+      dependency: 'redis',
+      dependencyFailure: 'deadline',
+    });
+  });
+
+  it('passes the parsed claims to the revocation check', async () => {
+    const revocation = vi.fn<SessionRevocationCheck>(() => okAsync('active'));
+    const app = createRevocationApp(revocation);
+    await app.request('/probe', { headers: { cookie: await sealedCookie(sessionData()) } }, env);
+    expect(revocation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: 'user-1', sessionId: 'session-1' })
+    );
+  });
+
+  it('never invokes the check for a request without parseable claims', async () => {
+    const revocation = vi.fn<SessionRevocationCheck>(() => okAsync('active'));
+    const app = createRevocationApp(revocation);
+    const res = await app.request('/probe', {}, env);
+    expect(res.status).toBe(200);
+    expect(await jsonBody<Principal>(res)).toEqual({ kind: 'none' });
+    expect(revocation).not.toHaveBeenCalled();
+  });
+
+  it('fails fast in production when an authenticated route is reachable without a revocation check', async () => {
+    const app = new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', pipelineBindings())
+      .use('*', pipelineSession())
+      .get('/guarded', routeClass('session'), (c) => c.json(c.get('principal')))
+      .onError((err, c) => c.json({ message: err.message }, 500));
+    const res = await app.request('/guarded', {}, { ...env, NODE_ENV: 'production' });
+    expect(res.status).toBe(500);
+    const body = await jsonBody<{ message: string }>(res);
+    expect(body.message).toMatch(/revocation check/i);
+  });
+
+  it('fails fast in production for pending-2fa and billing-token routes too', async () => {
+    for (const cls of ['pending-2fa', 'billing-token'] as const) {
+      const app = new Hono<AppEnv>()
+        .use('*', pipelineEnv())
+        .use('*', pipelineBindings())
+        .use('*', pipelineSession())
+        .get('/guarded', routeClass(cls), (c) => c.json(c.get('principal')))
+        .onError((err, c) => c.json({ message: err.message }, 500));
+      const res = await app.request('/guarded', {}, { ...env, NODE_ENV: 'production' });
+      expect(res.status).toBe(500);
+    }
+  });
+
+  it('does not guard a public route in production without a revocation check', async () => {
+    const app = new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', pipelineBindings())
+      .use('*', pipelineSession())
+      .get('/open', routeClass('public'), (c) => c.json(c.get('principal')))
+      .onError((err, c) => c.json({ message: err.message }, 500));
+    const res = await app.request('/open', {}, { ...env, NODE_ENV: 'production' });
+    expect(res.status).toBe(200);
+    expect(await jsonBody<Principal>(res)).toEqual({ kind: 'none' });
+  });
+
+  it('permits a missing revocation check outside production (dev proceeds)', async () => {
+    const app = new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', pipelineBindings())
+      .use('*', pipelineSession())
+      .get('/guarded', routeClass('session'), (c) => c.json(c.get('principal')))
+      .onError((err, c) => c.json({ message: err.message }, 500));
+    const res = await app.request('/guarded', {}, env);
+    expect(res.status).toBe(200);
+    expect(await jsonBody<Principal>(res)).toEqual({ kind: 'none' });
+  });
+
+  it('permits an authenticated route in production when a revocation check is wired', async () => {
+    const app = new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', pipelineBindings())
+      .use('*', pipelineSession({ revocation: () => okAsync('active') }))
+      .get('/guarded', routeClass('session'), (c) => c.json(c.get('principal')))
+      .onError((err, c) => c.json({ message: err.message }, 500));
+    const res = await app.request('/guarded', {}, { ...env, NODE_ENV: 'production' });
+    expect(res.status).toBe(200);
+  });
+
+  it('fails fast in production when billing-token is reachable without a billing check', async () => {
+    const app = new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', pipelineBindings())
+      .use('*', pipelineSession({ revocation: () => okAsync('active') }))
+      .get('/guarded', routeClass('billing-token'), (c) => c.json(c.get('principal')))
+      .onError((err, c) => c.json({ message: err.message }, 500));
+    const res = await app.request('/guarded', {}, { ...env, NODE_ENV: 'production' });
+    expect(res.status).toBe(500);
+    const body = await jsonBody<{ message: string }>(res);
+    expect(body.message).toMatch(/billing-portal revocation check/i);
+  });
+
+  it('permits billing-token in production when both checks are wired', async () => {
+    const app = new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', pipelineBindings())
+      .use(
+        '*',
+        pipelineSession({
+          revocation: () => okAsync('active'),
+          billingRevocation: () => okAsync('active'),
+        })
+      )
+      .get('/guarded', routeClass('billing-token'), (c) => c.json(c.get('principal')))
+      .onError((err, c) => c.json({ message: err.message }, 500));
+    const res = await app.request('/guarded', {}, { ...env, NODE_ENV: 'production' });
+    expect(res.status).toBe(200);
+  });
+
+  it('fails fast when the bindings stage installed no redis (pipeline order violated)', async () => {
+    // A hand-rolled stage installs bindings without the redis client: the
+    // revocation path must refuse to run rather than skip the check.
+    const app = new Hono<AppEnv>()
+      .use('*', pipelineEnv())
+      .use('*', async (c, next) => {
+        c.set('bindings', assertRequiredBindings(env));
+        await next();
+      })
+      .use('*', pipelineSession({ revocation: () => okAsync('active') }))
+      .get('/probe', (c) => c.json(c.get('principal')))
+      .onError((err, c) => c.json({ message: err.message }, 500));
+    const res = await app.request(
+      '/probe',
+      { headers: { cookie: await sealedCookie(sessionData()) } },
+      env
+    );
+    expect(res.status).toBe(500);
+    const body = await jsonBody<{ message: string }>(res);
+    expect(body.message).toMatch(/pipeline order/);
+  });
+});

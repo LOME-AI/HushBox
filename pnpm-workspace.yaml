@@ -1,0 +1,220 @@
+# Without this, a `--filter` naming no package prints a message and exits 0, so a command
+# addressed to a renamed package becomes a silent success — the production migration and the
+# migration-drift check in CI both run that way. Here rather than `.npmrc` because only this
+# placement survives a pnpm major: measured on 10.26.0, `.npmrc`'s `fail-if-no-match=true`
+# also works (`failIfNoMatch=true` never does), but on 11.14.0 both `.npmrc` spellings are
+# inert while this one still fails the command.
+failIfNoMatch: true
+
+# The defense against a compromised maintainer account: a release is not installable until it
+# has been public long enough for a malicious one to be noticed and pulled. The unit is
+# minutes, so this is three days. Here rather than in `.npmrc`, as with `failIfNoMatch`, and
+# measured for this key on its own: on 10.26.0 `.npmrc`'s `minimum-release-age` works while
+# `minimumReleaseAge` there does not, and on 11.22.0 neither `.npmrc` spelling is read while
+# this placement still refuses. Only deliberate resolution waits — a `--frozen-lockfile`
+# install skips resolution and is unaffected.
+# An urgent release inside the window is taken by naming it in `minimumReleaseAgeExclude`,
+# never by lowering this.
+minimumReleaseAge: 4320
+
+# An entry in `minimumReleaseAgeExclude` waives the window for exactly what it names. Each entry
+# here names a version rather than a package, so the waiver expires with the version: the next
+# release of the same package is refused until it has aged, instead of being taken the day it
+# publishes. `wrangler` is the reason the setting exists here: its dev proxy decides what a client
+# disconnect does to the local Worker it runs, and the local E2E run is only as alive as that
+# decision, so a release that changes it has to be installable the day it ships. Every other entry
+# is forced by wrangler rather than chosen — wrangler pins each of its dependencies at an exact
+# version, and the runtime half of that tree publishes on wrangler's own release day, so excluding
+# wrangler alone leaves the install refusing on whichever of those exact pins it reaches first.
+#
+# Three constraints on what may be written here, measured on pnpm 10.26.0 rather than documented
+# by it: a range (`wrangler@^4.129.0`) is a fatal config error; a glob name cannot carry a version,
+# so each platform binary is named in full; and two entries for one package name silently honour
+# only the first, so several versions of one name must be a single `||` entry. Only the last fails
+# quietly.
+#
+# An entry retires once the version it names has aged past `minimumReleaseAge`, at which point
+# deleting it changes nothing; a version move replaces its entry rather than adding one.
+minimumReleaseAgeExclude:
+  - wrangler@4.134.0
+  - workerd@1.20260917.1
+  - miniflare@5.20260917.0-alpha
+  - '@cloudflare/workerd-linux-64@1.20260917.1'
+  - '@cloudflare/workerd-darwin-64@1.20260917.1'
+  - '@cloudflare/workerd-darwin-arm64@1.20260917.1'
+  - '@cloudflare/workerd-linux-arm64@1.20260917.1'
+  - '@cloudflare/workerd-windows-64@1.20260917.1'
+
+packages:
+  - apps/*
+  - packages/*
+  - e2e
+  - ops
+  - scripts
+  - ads
+  - films
+
+# Two TypeScript generations are installed on purpose. The `typecheck` script of every
+# workspace runs the released compiler, which ships no programmatic API; everything that
+# imports `typescript` as a library — the lint stack first among them — still needs one.
+# So the released compiler is installed under an alias and supplies the `tsc` binary those
+# scripts name, while the `typescript` name resolves to the vendor's API-only companion
+# package, whose binary carries a different name and therefore cannot shadow it. The
+# aliasing is the vendor's own documented arrangement for this transition rather than a
+# local workaround, and the catalog is what states each specifier once instead of once per
+# manifest that declares it.
+#
+# The alias carries one hazard, measured rather than reasoned: pnpm matches a `typescript`
+# peer request against the alias key where the requesting workspace declares one, and
+# against the resolved package name otherwise — and the alias's resolved name is
+# `typescript`. So a workspace whose dependencies take `typescript` as a peer must declare
+# it too, or those dependencies are handed the API-less compiler and fail at run time
+# inside the tool rather than at install.
+#
+# Both entries retire together, the moment `typescript-eslint` accepts the released major
+# as a peer: drop the alias and point `typescript` straight at the released compiler. That
+# acceptance is readable only from its `peerDependencies` range, never from its changelog.
+catalog:
+  '@typescript/native': npm:typescript@^7.0.2
+  typescript: npm:@typescript/typescript6@^6.0.2
+
+# Overrides live here as of pnpm 10.26 (the package.json "pnpm" field is no longer read).
+# sharp is deduped to a single copy (transitive consumers otherwise each bundle their own
+# heavy native binary) at a version that is also a patched floor, so that entry does both
+# jobs. Security floors here come in two kinds, and which kind an entry is decides what it
+# would take to retire it. Some name a release every range declaring the package already
+# admits: nothing is forced, and the entry only stops a future resolution drifting back
+# below the patch. Others force a package past a pin a parent still declares — an exact
+# version, or a range stopping short of the patched release — and hand that consumer a
+# version its own manifest never named, which an install cannot prove safe.
+#
+# `dompurify` is the whole sanitizer between model-generated diagram markup and the app
+# origin, and it arrives only as mermaid's transitive dependency under a range wide enough
+# to resolve below a patched version. `scripts/lib/privacy/sanitizer-floor.ts` asserts the lockfile
+# obeys the floor stated here, so the barrier cannot be downgraded or dropped silently.
+#
+# `tar` crosses a major on purpose: the old `@capacitor/cli` that `@capacitor/assets` pins
+# carries the critical archive advisory in its own tar range, and so does the copy the
+# production kokoro-js/onnxruntime-node chain resolves; one resolution is the only shape
+# that clears both. The cost is a latent break, not a loud one: that old CLI default-imports
+# tar's CJS build, which exports no default, so its template extraction throws a TypeError
+# under this override. Nothing here reaches it — the only route from `@capacitor/assets` to
+# tar is that CLI, which its compiled output never references, and `cap` resolves the
+# current CLI, which imports the named export — so the break waits for whoever first runs
+# one of the old CLI's archive-extracting commands.
+#
+# The HTML/CSS parser stack is both overridden here and declared in the root manifest, and the
+# two do different jobs, so dropping either is a silent regression. The override is what
+# collapses the tree onto one patched major — a manifest declaration adds a graph node and
+# rewrites nothing a transitive parent resolves to. The root declaration is what links these
+# packages into the root `node_modules`, the only resolution path the frontend-design skill's
+# static-HTML detector has: it imports them as bare specifiers from a directory under no
+# workspace, and on failure falls back to a regex-only scan without reporting anything. The
+# override hands the older build-time consumers — the SVG optimiser Astro runs, and the HTML
+# parser `@capacitor/assets` reaches — a parser major their own ranges never named, so what
+# proves the collapse is a build and what proves the detector still parses is a detector run.
+# Neither is proven by an install.
+#
+# Every entry here is removable, and the condition is derived from why the entry exists rather
+# than listed per entry: a dedupe entry goes when the package resolves to a single copy without
+# it, a hoist goes when the consumers that forced the split are gone, and any entry goes when
+# the package it names no longer resolves in the lockfile at all. A security floor goes only
+# once the package can no longer resolve below the patched release: every range declaring it
+# has a lower bound at or above the floor. Read those ranges off the graph as it stands, since
+# retiring one entry can change what another entry's consumers declare. It is not enough that
+# every such range admits the patched release — a range whose lower bound sits under the floor
+# admits the patch and a vulnerable version alike, and that is the case a floor is written for.
+# Where a gate asserts a floor, the entry and its gate retire together: the gate reads the floor
+# from here, so deleting the entry on its own turns the gate red rather than retiring anything.
+#
+# The `typescript` entry is neither a dedupe nor a floor: it belongs to the compiler arrangement
+# documented at this file's catalog, and it retires with those catalog entries. Its job is to
+# redirect the graph rather than to raise it. A third-party package that declares `typescript` as
+# an ordinary dependency asks for a range open at the top and gets the released compiler, which
+# carries no programmatic API — an ESLint plugin that reads a syntax-kind table off it then throws
+# at plugin load and takes the whole lint run down with it, in every package at once. Redirecting
+# the name to the API-only companion package is what keeps such a consumer working; the alias key
+# the released compiler is installed under is a different dependency name, so this entry does not
+# reach it.
+#
+# `lightningcss` is a third kind again: it forces one consumer past an exact pin to silence a
+# diagnostic about correct CSS. `@tailwindcss/node` declares it at exactly `1.32.0`, so every
+# build running Tailwind's output through it warns that `::highlight()` — the read-aloud
+# reading mark, and a valid pseudo-element — "is not recognized as a valid pseudo-element".
+# Measured by calling `transform` on that rule under each version rather than read from a
+# changelog: 1.32.0 emits the warning, 1.33.0 emits none, and both emit the rule byte-identical,
+# so the warning was noise and no version ever dropped the rule. The cost is that Tailwind runs
+# against a patch release it pinned away from and never tested against, which an install cannot
+# prove safe; what proves it here is a marketing build whose emitted stylesheet still carries the
+# rule. Vite already resolves the patched line, so this also collapses the two copies onto one.
+# It retires when `@tailwindcss/node`'s own pin reaches the patched release.
+overrides:
+  brace-expansion@1: ^1.1.18
+  brace-expansion@2: ^2.1.4
+  brace-expansion@5: ^5.0.9
+  css-select: ^7.0.0
+  css-tree: ^3.2.1
+  dompurify: ^3.4.14
+  domutils: ^4.0.2
+  fast-uri@3: ^3.1.5
+  htmlparser2: ^12.0.0
+  lightningcss: ^1.33.0
+  minimatch@<3.1.4: ^3.1.5
+  nanoid@3: ^3.3.18
+  protobufjs@7: ^7.6.5
+  qs: ^6.15.2
+  sharp: ^0.35.4
+  svgo@4: ^4.0.2
+  tar: ^7.5.22
+  typescript: npm:@typescript/typescript6@^6.0.2
+  undici@7: ^7.29.0
+  ws@8: ^8.21.3
+  yaml: ^2.9.0
+
+# Advisories no override in this file can reach, with the parent that pins each. Read that parent off
+# the lockfile rather than trusting the name here: a parent's own dependency move can hand the pin to
+# a different package without clearing the advisory. Forcing any of them would hand a consumer a
+# release its own code was never written against, so they stand until the parent moves:
+#   esbuild@0.18.20 — `@esbuild-kit/core-utils`, deprecated and reached through drizzle-kit,
+#     declares `~0.18.20`, and the patched line is a minor above that tilde.
+#   esbuild@0.27.3 — `@cloudflare/vitest-pool-workers` declares the exact version, and pins the exact
+#     `wrangler` that declares it as well, so nothing outside that package's dependencies holds it.
+#   uuid@7.0.3 — `xcode`, under `@capacitor/assets` > `@trapezedev/project`, declares `^7.0.3`
+#     and the patched release is four majors above it.
+
+# @huggingface/transformers imports `onnxruntime-common` as a bare specifier its own
+# manifest never declares. Declaring the edge here is what turns the shipped ORT version
+# into a decision instead of a pnpm hoist-order outcome: pnpm merges this into the
+# resolver's manifest, so the dependency becomes a real graph edge and a real symlink in
+# transformers' private directory. (A pnpm patch of that manifest cannot do this — the
+# graph is built before patches are applied to files.)
+#
+# The selector pins one exact transformers version and the version is exact, never a
+# range. A range would keep applying this pin next to a future newer onnxruntime-web,
+# installing a genuine second onnxruntime-common copy — two different `Tensor` classes,
+# so `instanceof Tensor` fails across the boundary and inference breaks with no error
+# pointing here. The exact selector fails safe instead: on a transformers bump the
+# extension silently stops applying, resolution falls back to pnpm's private hoist dir as
+# it did before this entry existed, and the build guard catches the version that ships.
+#
+# That guard is `checkOrtCommonVersion`, which reads the version below and asserts every
+# ORT copy in a built bundle reports it. It is not a mirrored constant to be cleaned up:
+# the only other declaration of this version lives in upstream's manifest, which no
+# amount of sharing can reach, so the guard is the sole cross-check that the version
+# declared here is the version that actually ships.
+packageExtensions:
+  '@huggingface/transformers@3.8.1':
+    dependencies:
+      onnxruntime-common: 1.22.0-dev.20250409-89f8206ba4
+
+# Vendored patches. Registered here and nowhere else: pnpm no longer reads the root
+# manifest's `pnpm` field, and `pnpm patch-commit` writes this key. That command rewrites
+# this whole file through a YAML serializer and drops every comment above, so a patch
+# recorded with it has to have this file restored around the one key it added.
+# Each patch states its own reason and removal criteria in the file it edits.
+patchedDependencies:
+  '@radix-ui/react-menu@2.1.17': patches/@radix-ui__react-menu@2.1.17.patch
+  '@radix-ui/react-roving-focus@1.1.12': patches/@radix-ui__react-roving-focus@1.1.12.patch
+  '@radix-ui/react-select@2.3.0': patches/@radix-ui__react-select@2.3.0.patch
+  drizzle-orm@0.45.2: patches/drizzle-orm@0.45.2.patch
+  kokoro-js@1.2.1: patches/kokoro-js@1.2.1.patch

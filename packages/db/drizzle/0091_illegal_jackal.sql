@@ -1,0 +1,1 @@
+ALTER TABLE "llm_completions" DROP COLUMN "tool_steps";

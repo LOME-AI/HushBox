@@ -1,0 +1,162 @@
+/* Contrast modes — override CSS variables defined in packages/config/tailwind/index.css.
+ * !important is required because Tailwind's :root and .dark blocks are UNLAYERED, and
+ * unlayered rules always beat layered ones regardless of specificity. The accessibility
+ * stylesheets are imported into @layer accessibility, so without !important the variable
+ * redefinitions silently lose to :root. This file also owns --reading-highlight-strength
+ * outright — nothing else declares it — which needs no !important for that reason, but a
+ * tier carries it anyway so it outranks the html.dark default it ties with on specificity.
+ *
+ * --reading-highlight-strength is the alpha styles/reading-highlight.css washes the read
+ * line with, over a --brand-red no tier redefines. The wash is aesthetic: the underline
+ * drawn beside the text, not this, is what carries the 3:1 non-text contrast, so the only
+ * bound on these values is the read text sitting on top of the wash, which keeps at least
+ * 7:1 against it.
+ *
+ * 18% / 22% is a chosen appearance and holds in every tier but one. The low tier pulls
+ * --foreground toward the canvas, which leaves the text too little room over a wash that
+ * strong (18% there measures 6.71, under the bound), so low alone steps down. Ratios,
+ * light / dark: neutral 13.17 / 12.12, increased 15.90 / 13.68, high 16.64 / 17.12,
+ * low 7.43 / 7.30. Pinned by lib/chunk-highlighter.test.ts. */
+html {
+  --reading-highlight-strength: 18%;
+}
+html.dark {
+  --reading-highlight-strength: 22%;
+}
+
+/* Surfaces are derived rather than authored per tier: each one is a step of the tier's own
+ * ink mixed into the tier's own canvas, so a tier that moves --background or --foreground
+ * moves its cards, wells, fills and rail with it, and a tier added later gets surfaces
+ * without declaring any. The five steps are the whole appearance; a tier needing a
+ * different one overrides that property alone, as the low tier does for the rail below.
+ *
+ * The sidebar's partner is black rather than --foreground because the rail sits BELOW its
+ * canvas in both themes, where every other surface sits toward the ink. In the high tier's
+ * dark half that collapses the rail onto the black canvas, and its border-r — pure white
+ * there — is what marks it. Pinned by styles/contrast-surfaces.test.ts. */
+html[class*='a11y-contrast-'] {
+  --surface-step-paper: 3%;
+  --surface-step-subtle: 6%;
+  --surface-step-fill: 10%;
+  --surface-step-rail: 18%;
+  --surface-step-sidebar: 4%;
+
+  --background-paper: color-mix(
+    in srgb,
+    var(--foreground) var(--surface-step-paper),
+    var(--background)
+  ) !important;
+  --background-subtle: color-mix(
+    in srgb,
+    var(--foreground) var(--surface-step-subtle),
+    var(--background)
+  ) !important;
+  --secondary: color-mix(
+    in srgb,
+    var(--foreground) var(--surface-step-fill),
+    var(--background)
+  ) !important;
+  --accent: color-mix(
+    in srgb,
+    var(--foreground) var(--surface-step-fill),
+    var(--background)
+  ) !important;
+  --sidebar: color-mix(in srgb, #000000 var(--surface-step-sidebar), var(--background)) !important;
+  --sidebar-border: color-mix(
+    in srgb,
+    var(--foreground) var(--surface-step-rail),
+    var(--background)
+  ) !important;
+}
+
+/* --border-control carries a value in every tier below for the same reason: a control's
+ * boundary owes 3:1 against the surfaces it sits on under every setting (WCAG 1.4.11). The
+ * high and increased tiers draw it in their own --border; the low tier softens --border
+ * below that floor, so it keeps the theme's control value. Pinned by
+ * styles/contrast-surfaces.test.ts.
+ *
+ * --prediction carries a value in every tier below rather than inheriting the theme's.
+ * Each tier moves --foreground, so a prediction left at the theme value drifts toward
+ * typed text as the tier pulls typed text toward it — in the low tier they meet. Every
+ * value keeps the prediction at least 1.5:1 from that tier's --foreground by luminance
+ * alone, so the mark holds with the achromatopsia simulation on and colour carrying
+ * nothing; the dotted underline drawn at the call site
+ * (apps/web/src/components/chat/input/prediction-overlay.tsx) is the region cue that
+ * pairs with it. Pinned by styles/prediction-token.test.ts, which is also where the
+ * ratios are recorded.
+ *
+ * The dark values are measured against the composer field, not against --background:
+ * primitives/textarea.tsx washes the field with a fraction of --input in dark mode, and
+ * that composite is a lighter backdrop than the page. A dark value therefore sits higher
+ * than its light counterpart's mirror image would suggest, and lowering one toward the
+ * page background is a regression the test above catches. */
+html.a11y-contrast-high {
+  --background: #ffffff !important;
+  --foreground: #000000 !important;
+  --border: #000000 !important;
+  --border-control: #000000 !important;
+  --foreground-muted: #1a1a1a !important;
+  --prediction: #1a4569 !important;
+}
+html.a11y-contrast-high.dark {
+  --background: #000000 !important;
+  --foreground: #ffffff !important;
+  --border: #ffffff !important;
+  --border-control: #ffffff !important;
+  --foreground-muted: #f0f0f0 !important;
+  --prediction: #a9cbea !important;
+}
+
+html.a11y-contrast-low {
+  --foreground: #4a4a4a !important;
+  --foreground-muted: #6b6b6b !important;
+  --border: #ececec !important;
+  --border-control: #86827a !important;
+  --prediction: #3f75a5 !important;
+  --reading-highlight-strength: 10% !important;
+  /* The one surface step no tier shares. This tier pulls its ink toward the canvas, so
+   * muted text on a rail fill mixed at the shared step falls under 4.5:1 — and no step
+   * both keeps that text legible and holds the fill 1.3:1 off the rail. Text wins: this is
+   * the largest whole step muted text survives in both halves, and the cost is that a
+   * hovered or active sidebar item is marked by a weaker wash here than in any other tier.
+   * Declared for both halves, and !important because it ties the rule above on specificity. */
+  --surface-step-rail: 7% !important;
+}
+html.a11y-contrast-low.dark {
+  --foreground: #b0b0b0 !important;
+  --foreground-muted: #909090 !important;
+  --border: #2a2a2a !important;
+  --border-control: #7a756d !important;
+  --prediction: #548cbe !important;
+  --reading-highlight-strength: 11% !important;
+}
+
+html.a11y-contrast-increased {
+  --foreground: #000000 !important;
+  --border: #4a4a4a !important;
+  --border-control: #4a4a4a !important;
+  --foreground-muted: #2a2a2a !important;
+  --prediction: #1d4364 !important;
+}
+html.a11y-contrast-increased.dark {
+  --foreground: #ffffff !important;
+  --border: #b8b8b8 !important;
+  --border-control: #b8b8b8 !important;
+  --foreground-muted: #e0e0e0 !important;
+  --prediction: #9fc3e3 !important;
+}
+
+/* Saturation modes — apply to html, NOT body. Per CSS Filter Effects 1 a filtered element
+ * becomes the containing block for its position:fixed descendants unless it is the document
+ * root; the root is the only exemption, so filtering body detaches every fixed overlay from
+ * the viewport. Body's background propagates to the canvas, so filtering the root also tints
+ * the page background — a body-scoped filter left it untouched. */
+html.a11y-saturate-0 {
+  filter: saturate(0);
+}
+html.a11y-saturate-50 {
+  filter: saturate(0.5);
+}
+html.a11y-saturate-150 {
+  filter: saturate(1.5);
+}
