@@ -19,7 +19,7 @@ import {
   decodeWrappedKeyField,
   getReferenceWrappedKey,
 } from '../guards.js';
-import { consumeLayers } from '../../../../lib/rate-limit/index.js';
+import { clear, consumeLayers } from '../../../../lib/rate-limit/index.js';
 import { unavailableError } from '../../../../lib/errors/index.js';
 import { IDENTITY_KEYS, recoveryNetworkLockoutId } from '../keys.js';
 import {
@@ -438,9 +438,28 @@ function executeReset(
         serverMaterial: new Uint8Array(pending.serverMaterial),
         kekFingerprint: new Uint8Array(pending.kekFingerprint),
         notify: (notice) => args.emailPort.sendPasswordResetEmail(notice),
-      }).map(
-        (outcome): RecoveryResetOutcome => ({ kind: outcome === 'rotated' ? 'reset' : outcome })
+      }).andThen((outcome) =>
+        outcome === 'rotated'
+          ? releaseTotpCeiling(args, user.id)
+          : okAsync<RecoveryResetOutcome, DomainError>({ kind: outcome })
       );
     });
   });
+}
+
+/**
+ * A completed reset is the recovery-phrase holder proving the account is theirs,
+ * so it lifts the TOTP consecutive-failure ceiling a password holder may have
+ * frozen: without this, a frozen owner would be refused at the second factor
+ * for the ceiling's whole window. Runs only after the rotation committed, and
+ * `clear` absorbs its own failure, which leaves the ceiling standing rather
+ * than failing a reset that has already happened.
+ */
+function releaseTotpCeiling(
+  args: RecoveryResetFinishArgs,
+  userId: string
+): ResultAsync<RecoveryResetOutcome, DomainError> {
+  return clear(args.redis, IDENTITY_KEYS.twoFactorCeiling, userId).map(
+    (): RecoveryResetOutcome => ({ kind: 'reset' })
+  );
 }

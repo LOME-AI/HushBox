@@ -117,13 +117,15 @@ export function levelInFlightWidth(
 }
 
 /**
- * A succeeded node's final cost, the figure that replaces its reported running
- * total: its own generation's cost plus every auxiliary generation's.
+ * A finished node's final cost, the figure that replaces its reported running
+ * total: a succeeded node's own generation plus every auxiliary generation, or
+ * the spend a failed node observed.
  */
-export function finalCostOf(success: NodeRunSuccess): bigint {
-  return (success.auxiliaryCharges ?? []).reduce(
+export function finalCostOf(result: Result<NodeRunSuccess, NodeRunError>): bigint {
+  if (result.isErr()) return result.error.costNanoUsd ?? 0n;
+  return (result.value.auxiliaryCharges ?? []).reduce(
     (total, charge) => total + charge.billableCostNanoUsd,
-    success.costNanoUsd
+    result.value.costNanoUsd
   );
 }
 
@@ -163,13 +165,11 @@ export interface ExecutedValue {
   readonly result: Result<NodeRunSuccess, NodeRunError>;
   /**
    * The spend gate had closed by the time the execution returned: the node ran
-   * on past a closer, so its step is `stopped` whatever its value. Read when
-   * the execution returns, never at apply, because a sibling's final cost
-   * applied earlier in the level must not decide this node's step.
+   * on past a closer, so its step is `stopped` whatever its value. Read before
+   * the node's own final cost counts, so a node whose own cost crosses the
+   * circuit ends as it finished.
    */
   readonly drained: boolean;
-  /** Replaces the node's reported running total with its final cost. */
-  readonly settleSpend: (finalNanoUsd: bigint) => void;
 }
 
 /** A node's produced work, split so value-node charges apply in level order. */

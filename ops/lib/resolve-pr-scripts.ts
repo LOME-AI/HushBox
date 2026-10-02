@@ -14,7 +14,8 @@
  *   GITHUB_REPOSITORY — "owner/repo" (provided by Actions)
  *   GITHUB_SHA        — merge commit SHA (provided by Actions)
  *   GITHUB_OUTPUT     — path to write workflow outputs (provided by Actions)
- *   <secrets...>      — every value listed in any script's requires_secrets
+ *   <secrets...>      — the `requires_secrets` union its workflow step binds; the
+ *                       deploy's excludes what only `dispatch_only` entries require
  *
  * Outputs (`$GITHUB_OUTPUT`):
  *   pre  — JSON array of `{ name, file }` for pre-deploy scripts

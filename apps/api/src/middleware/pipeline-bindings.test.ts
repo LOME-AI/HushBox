@@ -135,6 +135,7 @@ describe('pipelineBindings rate-limit bound', () => {
       ...completeEnv,
       RATE_LIMIT_REDIS_TIMEOUT_MS: '77',
       RATE_LIMIT_KEY_SECRET: 'probe-key',
+      IDEMPOTENCY_BODY_HASH_SECRET: 'probe-body-hash-key',
     });
     const { rateLimitBound } = await import('../lib/rate-limit/index.js');
 
@@ -157,6 +158,7 @@ describe('pipelineBindings rate-limit identifier key', () => {
       ...completeEnv,
       RATE_LIMIT_REDIS_TIMEOUT_MS: '77',
       RATE_LIMIT_KEY_SECRET: 'probe-key',
+      IDEMPOTENCY_BODY_HASH_SECRET: 'probe-body-hash-key',
     });
     const { hmacRateLimitId } = await import('../lib/rate-limit/index.js');
 
@@ -172,6 +174,33 @@ describe('pipelineBindings rate-limit identifier key', () => {
     expect(res.status).toBe(500);
     const body = await jsonBody<{ message: string }>(res);
     expect(body.message).toMatch(/RATE_LIMIT_KEY_SECRET/);
+  });
+});
+
+describe('pipelineBindings idempotency body-hash key', () => {
+  it('puts the isolate body-hash key in force from the registry entry', async () => {
+    const res = await freshBoundProbe({
+      ...completeEnv,
+      RATE_LIMIT_REDIS_TIMEOUT_MS: '77',
+      RATE_LIMIT_KEY_SECRET: 'probe-key',
+      IDEMPOTENCY_BODY_HASH_SECRET: 'probe-body-hash-key',
+    });
+    const { hashRequestBody } = await import('../lib/idempotency/index.js');
+
+    expect(res.status).toBe(200);
+    expect(hashRequestBody({ a: 1 })).toBe(hmacSha256Hex('probe-body-hash-key', '{"a":1}'));
+  });
+
+  it('fails fast naming the entry when the body-hash key is not declared', async () => {
+    const res = await freshBoundProbe({
+      ...completeEnv,
+      RATE_LIMIT_REDIS_TIMEOUT_MS: '77',
+      RATE_LIMIT_KEY_SECRET: 'probe-key',
+    });
+
+    expect(res.status).toBe(500);
+    const body = await jsonBody<{ message: string }>(res);
+    expect(body.message).toMatch(/IDEMPOTENCY_BODY_HASH_SECRET/);
   });
 });
 

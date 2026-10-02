@@ -101,19 +101,43 @@ describe('determineBumpType', () => {
 });
 
 describe('computeNextVersion', () => {
-  it('returns 1.0.0 when no prior tags', () => {
+  it('numbers the first release one patch above the legacy deployment when nothing was released', () => {
     const result = computeNextVersion({ latestTag: null, labels: [] });
 
-    expect(result.version).toBe('1.0.0');
-    expect(result.versionName).toBe('1.0.0');
-    expect(result.versionCode).toBe(1_000_000);
+    expect(result.version).toBe('1.0.32');
+    expect(result.versionName).toBe('1.0.32');
+    expect(result.versionCode).toBe(1_000_032);
+  });
+
+  it('bumps the minor above the legacy deployment when nothing was released', () => {
+    const result = computeNextVersion({ latestTag: null, labels: ['minor'] });
+
+    expect(result.version).toBe('1.1.0');
+  });
+
+  it('bumps the major above the legacy deployment when nothing was released', () => {
+    const result = computeNextVersion({ latestTag: null, labels: ['major'] });
+
+    expect(result.version).toBe('2.0.0');
+  });
+
+  it('bumps from the legacy deployment rather than from a lower release', () => {
+    const result = computeNextVersion({ latestTag: 'v1.0.5', labels: [] });
+
+    expect(result.version).toBe('1.0.32');
+  });
+
+  it('bumps from a release above the legacy deployment', () => {
+    const result = computeNextVersion({ latestTag: 'v1.0.40', labels: [] });
+
+    expect(result.version).toBe('1.0.41');
   });
 
   it('increments patch by default', () => {
-    const result = computeNextVersion({ latestTag: 'v1.0.0', labels: [] });
+    const result = computeNextVersion({ latestTag: 'v1.1.0', labels: [] });
 
-    expect(result.version).toBe('1.0.1');
-    expect(result.versionCode).toBe(1_000_001);
+    expect(result.version).toBe('1.1.1');
+    expect(result.versionCode).toBe(1_001_001);
   });
 
   it('increments minor and resets patch', () => {
@@ -135,12 +159,6 @@ describe('computeNextVersion', () => {
 
     expect(result.version).toBe('1.2.4');
     expect(result.versionCode).toBe(1_002_004);
-  });
-
-  it('returns 1.0.0 when no prior tags even with major label', () => {
-    const result = computeNextVersion({ latestTag: null, labels: ['major'] });
-
-    expect(result.version).toBe('1.0.0');
   });
 
   it('version and versionName are always equal', () => {
@@ -289,19 +307,30 @@ describe('pushClaim', () => {
 });
 
 describe('claimNextVersion', () => {
-  it('claims 1.0.0 at the commit when nothing was ever tagged or claimed', async () => {
+  it('claims one patch above the legacy deployment when nothing was ever tagged or claimed', async () => {
     const { remote, clone } = await initRemote();
     const head = await run(clone, ['rev-parse', 'HEAD']);
 
     const result = await claimNextVersion({ repositoryRoot: clone, sha: head, labels: [] });
 
     expect(result).toEqual({
-      version: '1.0.0',
-      versionName: '1.0.0',
-      versionCode: 1_000_000,
+      version: '1.0.32',
+      versionName: '1.0.32',
+      versionCode: 1_000_032,
       claimed: true,
     });
-    expect(await remoteClaims(remote)).toEqual({ [claimRef('1.0.0')]: head });
+    expect(await remoteClaims(remote)).toEqual({ [claimRef('1.0.32')]: head });
+  });
+
+  it('bumps from a claim above the legacy deployment', async () => {
+    const { clone } = await initRemote();
+    const first = await run(clone, ['rev-parse', 'HEAD']);
+    await claimOnRemote(clone, first, '1.0.40');
+    const head = await commit(clone, 'second');
+
+    const result = await claimNextVersion({ repositoryRoot: clone, sha: head, labels: [] });
+
+    expect(result.version).toBe('1.0.41');
   });
 
   it('bumps from the highest of the release tags and the claims', async () => {
@@ -334,17 +363,17 @@ describe('claimNextVersion', () => {
     const { remote, clone } = await initRemote();
     const older = await run(clone, ['rev-parse', 'HEAD']);
     const newer = await commit(clone, 'second');
-    await claimOnRemote(clone, newer, '1.0.0');
+    await claimOnRemote(clone, newer, '2.0.0');
 
     const result = await claimNextVersion({ repositoryRoot: clone, sha: older, labels: [] });
 
     expect(result).toEqual({
-      version: '1.0.1',
-      versionName: '1.0.1',
-      versionCode: 1_000_001,
+      version: '2.0.1',
+      versionName: '2.0.1',
+      versionCode: 2_000_001,
       claimed: false,
     });
-    expect(await remoteClaims(remote)).toEqual({ [claimRef('1.0.0')]: newer });
+    expect(await remoteClaims(remote)).toEqual({ [claimRef('2.0.0')]: newer });
   });
 
   it('declines to claim when a release tag already names a descendant commit', async () => {
@@ -362,25 +391,25 @@ describe('claimNextVersion', () => {
   it('claims a fresh number when a claim already names this very commit', async () => {
     const { remote, clone } = await initRemote();
     const head = await run(clone, ['rev-parse', 'HEAD']);
-    await claimOnRemote(clone, head, '1.0.0');
+    await claimOnRemote(clone, head, '2.0.0');
 
     const result = await claimNextVersion({ repositoryRoot: clone, sha: head, labels: [] });
 
-    expect(result).toMatchObject({ version: '1.0.1', claimed: true });
+    expect(result).toMatchObject({ version: '2.0.1', claimed: true });
     expect(await remoteClaims(remote)).toEqual({
-      [claimRef('1.0.0')]: head,
-      [claimRef('1.0.1')]: head,
+      [claimRef('2.0.0')]: head,
+      [claimRef('2.0.1')]: head,
     });
   });
 
   it('reads an annotated release tag on this very commit as taken rather than as newer', async () => {
     const { clone } = await initRemote();
     const head = await run(clone, ['rev-parse', 'HEAD']);
-    await run(clone, ['tag', '-a', '-m', 'release', 'v1.0.0']);
+    await run(clone, ['tag', '-a', '-m', 'release', 'v2.0.0']);
 
     const result = await claimNextVersion({ repositoryRoot: clone, sha: head, labels: [] });
 
-    expect(result).toMatchObject({ version: '1.0.1', claimed: true });
+    expect(result).toMatchObject({ version: '2.0.1', claimed: true });
   });
 
   it('reads the claims the remote carries now rather than the ones the checkout saw', async () => {
@@ -403,14 +432,14 @@ describe('claimNextVersion', () => {
     // A second run claiming the number this one is about to claim, landing after
     // this run fetched the claims and before it pushed.
     const racing: GitRunner = async (cwd, args) => {
-      if (args[0] === 'push') await claimOnRemote(other, rival, '1.0.0');
+      if (args[0] === 'push') await claimOnRemote(other, rival, '1.0.32');
       return publicationGit(cwd, args);
     };
 
     await expect(
       claimNextVersion({ repositoryRoot: clone, sha: head, labels: [], git: racing })
     ).rejects.toThrow('git push failed');
-    expect(await remoteClaims(remote)).toEqual({ [claimRef('1.0.0')]: rival });
+    expect(await remoteClaims(remote)).toEqual({ [claimRef('1.0.32')]: rival });
   });
 });
 

@@ -409,7 +409,7 @@ describe('a pinned sibling is graded on a monotone arrangement', () => {
     // provider cap, which is the ceiling a payer with this balance can genuinely
     // buy on it; grading the pinned entry on the arrangement any viable candidate
     // would create puts both passes below that cap.
-    const pair = pairAt(110_000_000n, 0n, LONG_BASIS);
+    const pair = pairAt(137_500_000n, 0n, LONG_BASIS);
     expect(ceilingOf(pair.affordable, 'vendor/a-cheap')).toBe(64_000);
     expect(ceilingOf(pair.admissible, 'vendor/a-cheap')).toBe(64_000);
     expectSubset(pair);
@@ -420,7 +420,7 @@ describe('a pinned sibling is graded on a monotone arrangement', () => {
     // pinned sibling: the row carries the sibling's own verdict, and the menu ANDs
     // over the pinned siblings inside an OR over the arrangements the turn could
     // become. Both arms must offer the rung this balance can buy.
-    const pair = pairAt(110_000_000n, 0n, LONG_BASIS);
+    const pair = pairAt(137_500_000n, 0n, LONG_BASIS);
     expect(turnOptionAvailableIn(pair.admissible, 'medium')).toBe(true);
     expect(turnOptionAvailableIn(pair.affordable, 'medium')).toBe(true);
   });

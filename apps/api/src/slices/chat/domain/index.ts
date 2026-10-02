@@ -111,7 +111,7 @@ export { storesNewUserMessage } from './settlement/settlement.js';
 export { callerIpId } from '../../../lib/redis/index.js';
 export { createErrorResponse } from '../../../lib/errors/index.js';
 export {
-  hashCanonicalJson,
+  hashRequestBody,
   idempotencyExempt,
   idempotent,
   readIdempotencyKey,

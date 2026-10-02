@@ -55,6 +55,7 @@
         "src/components/chat/input/composer-growth-fixture/composer-growth.entry.tsx",
         "src/components/chat/member/member-sidebar-body-fixture/member-sidebar-body.entry.tsx",
         "src/components/shared/overlay-focus-reveal-fixture/overlay-focus-reveal.entry.tsx",
+        "src/components/shared/page-body-fixture/page-body.entry.tsx",
         "src/components/shared/sidebar-rows-fixture/sidebar-rows.entry.tsx",
         "src/components/sidebar/contrast-surface-tokens-fixture/contrast-surface-tokens.entry.ts",
         "src/components/usage/cost-by-model-chart-fixture/cost-by-model-chart.entry.tsx",

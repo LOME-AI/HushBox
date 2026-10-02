@@ -73,7 +73,13 @@
       // package-level `env` replaces this array rather than extending it: a
       // package naming the variable would have to restate every entry here, and
       // anything added here afterwards would silently stop reaching it.
-      "env": ["ESM_CDN_URL", "HB_ENV_MODE"]
+      "env": ["ESM_CDN_URL", "HB_ENV_MODE"],
+      // The run claim the env wrapper takes refuses to start without a slot,
+      // and a mode that writes no stack files loads no file carrying one. It is
+      // passed through rather than hashed: the slot is a per-checkout label that
+      // decides nothing a build writes, so hashing it would split the cache per
+      // checkout.
+      "passThroughEnv": ["HB_STACK_SLOT"]
     },
     // The marketing site built a second time, for the admin origin to serve and
     // frame. Its own task rather than a variant of `build` because both
@@ -95,7 +101,8 @@
       "dependsOn": ["^build", "build"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.env*"],
       "outputs": ["dist-preview/**"],
-      "env": ["ESM_CDN_URL", "HB_ENV_MODE"]
+      "env": ["ESM_CDN_URL", "HB_ENV_MODE"],
+      "passThroughEnv": ["HB_STACK_SLOT"]
     },
     // Moves that build into the admin app's static assets, where the admin
     // build carries it into the dist its assets Worker serves. Uncached for

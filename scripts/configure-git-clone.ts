@@ -1,6 +1,6 @@
 /**
  * Configures a clone at install time (wired to the root `prepare`, alongside
- * husky). Two effects, both local to the clone:
+ * husky). Three effects, all local to the clone:
  *
  * - `user.useConfigOnly` — git otherwise invents an identity from the machine's
  *   hostname and login name and stamps it onto commits. Refusing that guess is
@@ -9,19 +9,24 @@
  *   can reach staging pushes to staging while fetching from public, which is the
  *   whole of `docs/PUBLICATION.md` §Maintainer setup. Everyone else is left
  *   exactly as they were.
+ * - the records overlay — a maintainer who can reach the records repository and
+ *   has no overlay and no record files gets them restored (`pnpm records restore`).
  *
- * Routing is a convenience, never a gate: an unreachable staging repository, a
+ * Both are conveniences, never gates: an unreachable staging repository, a
  * clone of a fork, a repository with no `origin`, a directory that is not a
  * repository, and a machine with no usable git all end as silent no-ops, because
  * this runs inside `pnpm install` and must never fail or stall it.
  */
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { execa } from 'execa';
 import { z } from 'zod';
 import { isMainModule } from './lib/cli/is-main.js';
 import { readCommandLine, type CommandSpec } from './lib/cli/command-line.js';
-import { runMain } from './lib/cli/run-main.js';
+import { messageChain, runMain } from './lib/cli/run-main.js';
+import { presentRecordFiles, restore } from './records/operations.js';
+import { overlayDirectory } from './records/overlay.js';
+import { recordsRemote } from './records/remote.js';
 
 const REPOSITORIES_FILE = 'repositories.json';
 
@@ -48,10 +53,17 @@ export type RoutingOutcome =
   | { status: 'staging-unreachable' }
   | { status: 'routed' };
 
+export type RecordsOutcome =
+  | { status: 'overlay-present' }
+  | { status: 'records-unreachable' }
+  | { status: 'records-present' }
+  | { status: 'restored' }
+  | { status: 'restore-failed'; reason: string };
+
 /** `no-repository` covers both an unpacked archive and a machine whose git cannot run. */
 export type CloneOutcome =
   | { status: 'no-repository' }
-  | { status: 'configured'; routing: RoutingOutcome };
+  | { status: 'configured'; routing: RoutingOutcome; records: RecordsOutcome };
 
 export function parseRepositories(source: string): Repositories {
   let json: unknown;
@@ -122,13 +134,13 @@ async function configuredValue(cwd: string, key: string): Promise<string | null>
 }
 
 /**
- * Whether staging answers for this developer's credentials. Prompting is
- * disabled so a clone without access fails immediately instead of stopping the
- * install on a password prompt, and the timeout bounds every other way a remote
- * can decline to answer.
+ * Whether a private repository answers for this developer's credentials.
+ * Prompting is disabled so a clone without access fails immediately instead of
+ * stopping the install on a password prompt, and the timeout bounds every other
+ * way a remote can decline to answer.
  */
-async function canReachStaging(cwd: string, stagingUrl: string): Promise<boolean> {
-  const result = await execa('git', ['ls-remote', '--exit-code', stagingUrl, 'HEAD'], {
+async function canReach(cwd: string, url: string): Promise<boolean> {
+  const result = await execa('git', ['ls-remote', '--exit-code', url, 'HEAD'], {
     cwd,
     reject: false,
     timeout: PROBE_TIMEOUT_MS,
@@ -154,9 +166,29 @@ async function route(cwd: string, repositories: Repositories): Promise<RoutingOu
     return { status: routed ? 'already-routed' : 'manual-push-url' };
   }
 
-  if (!(await canReachStaging(cwd, stagingUrl))) return { status: 'staging-unreachable' };
+  if (!(await canReach(cwd, stagingUrl))) return { status: 'staging-unreachable' };
   await git(cwd, ['remote', 'set-url', '--push', 'origin', stagingUrl]);
   return { status: 'routed' };
+}
+
+/**
+ * The probe comes before the record-file check: a fork's own runs write record
+ * files too, and a fork must see no output, so nothing is said to anyone the
+ * records repository does not answer. Nothing here throws — a restore that
+ * cannot finish is reported and the install goes on.
+ */
+async function restoreRecords(cwd: string, repositories: Repositories): Promise<RecordsOutcome> {
+  if (existsSync(overlayDirectory(cwd))) return { status: 'overlay-present' };
+  const remote = recordsRemote(repositories);
+  if (!(await canReach(cwd, remote))) return { status: 'records-unreachable' };
+  try {
+    const present = await presentRecordFiles(cwd);
+    if (present.length > 0) return { status: 'records-present' };
+    await restore({ root: cwd, remote, log: () => undefined });
+  } catch (error) {
+    return { status: 'restore-failed', reason: messageChain(error) };
+  }
+  return { status: 'restored' };
 }
 
 export async function configureGitClone(
@@ -170,7 +202,11 @@ export async function configureGitClone(
   // not a preference, and a clone that has turned it off stamps its machine's
   // name onto the next commit.
   await git(cwd, ['config', '--local', 'user.useConfigOnly', 'true']);
-  return { status: 'configured', routing: await route(cwd, repositories) };
+  return {
+    status: 'configured',
+    routing: await route(cwd, repositories),
+    records: await restoreRecords(cwd, repositories),
+  };
 }
 
 /**
@@ -203,6 +239,20 @@ export function describeOutcome(outcome: CloneOutcome): string | null {
   return null;
 }
 
+export function describeRecords(records: RecordsOutcome): string | null {
+  if (records.status === 'restored') {
+    return 'records: restored .records.git from the records repository.';
+  }
+  if (records.status === 'records-present') {
+    return 'records: record files exist but .records.git does not; run pnpm records init to start the overlay.';
+  }
+  if (records.status === 'restore-failed') {
+    const [first] = records.reason.replace(/^records: /u, '').split('\n');
+    return `records: .records.git was not restored (${String(first)}); run pnpm records restore to retry.`;
+  }
+  return null;
+}
+
 export const COMMAND_LINE = {
   command: 'tsx scripts/configure-git-clone.ts',
   summary: "Configures this clone's git settings at install time.",
@@ -215,8 +265,11 @@ if (isMainModule(import.meta.url)) {
   void runMain(async () => {
     if (readCommandLine(COMMAND_LINE, process.argv.slice(2)) === null) return;
     const outcome = await configureGitClone(process.cwd(), await readRepositories());
-    const line = describeOutcome(outcome);
-    if (line !== null) console.log(line);
+    const lines = [
+      describeOutcome(outcome),
+      outcome.status === 'configured' ? describeRecords(outcome.records) : null,
+    ];
+    for (const line of lines) if (line !== null) console.log(line);
   });
 }
 /* v8 ignore stop */

@@ -65,6 +65,9 @@ export interface Bindings extends EnvContext {
   // key. Read by every isolate entry that puts `RATE_LIMIT_REDIS_TIMEOUT_MS` in
   // force, which owns its own fail-fast for the same reason.
   RATE_LIMIT_KEY_SECRET?: string;
+  // The key every idempotency body hash is HMACed under. Read by the bindings
+  // stage, which owns its own fail-fast for the same reason.
+  IDEMPOTENCY_BODY_HASH_SECRET?: string;
   // The key growth derives its per-day visitor hash and address identities
   // under. Read by the beacon route, which fails fast without it, and by
   // registration, which reports its absence and still signs the caller up —

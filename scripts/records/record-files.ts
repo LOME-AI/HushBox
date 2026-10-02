@@ -79,7 +79,8 @@ function copyIgnoreFiles(root: string, tree: string, candidates: readonly string
 /** The candidates some rule other than the block excludes. */
 async function excludedElsewhere(
   root: string,
-  candidates: readonly string[]
+  candidates: readonly string[],
+  ignoreCase: string
 ): Promise<Set<string>> {
   const shadow = mkdtempSync(path.join(tmpdir(), 'records-shadow-'));
   try {
@@ -98,8 +99,6 @@ async function excludedElsewhere(
       existsSync(excludeFile) ? readFileSync(excludeFile) : ''
     );
     copyIgnoreFiles(root, tree, candidates);
-    const ignoreCase =
-      (await mainConfig(root, ['--type=bool', '--get', 'core.ignoreCase'])) ?? 'false';
     const userExcludes = await mainConfig(root, ['--path', '--get', 'core.excludesFile']);
     // check-ignore exits 1 when it excludes none of the paths it was given.
     const result = await gitResult(
@@ -134,10 +133,16 @@ async function excludedElsewhere(
 export async function listRecordFiles(root: string, gitDirectory: string): Promise<string[]> {
   const patterns = recordPatterns(readFileSync(path.join(root, '.gitignore'), 'utf8'));
   const pathspecs = ['--', ...new Set(patterns.map((pattern) => literalPrefix(pattern)))];
+  const ignoreCase =
+    (await mainConfig(root, ['--type=bool', '--get', 'core.ignoreCase'])) ?? 'false';
   const candidates = entries(
     await git(
       root,
       [
+        '-c',
+        `core.ignoreCase=${ignoreCase}`,
+        // A pathspec matches case exactly whatever core.ignoreCase says.
+        ...(ignoreCase === 'true' ? ['--icase-pathspecs'] : []),
         `--git-dir=${gitDirectory}`,
         `--work-tree=${root}`,
         'ls-files',
@@ -151,6 +156,6 @@ export async function listRecordFiles(root: string, gitDirectory: string): Promi
     )
   );
   if (candidates.length === 0) return [];
-  const excluded = await excludedElsewhere(root, candidates);
+  const excluded = await excludedElsewhere(root, candidates, ignoreCase);
   return candidates.filter((file) => !excluded.has(file));
 }

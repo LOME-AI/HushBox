@@ -113,6 +113,17 @@ export const TEST_SIGNALS = {
   // Emitted: apps/marketing/src/components/stats/StatsBoard.tsx
   statsReady: 'data-stats-ready',
 
+  // Welcome page cost section's catalog fetch resolved (figures or the
+  // unavailable line). Set to "true" on each of the section's two islands.
+  // Emitted: apps/marketing/src/components/welcome/CostFigures.tsx,
+  // apps/marketing/src/components/welcome/ProviderStrip.tsx
+  costSettled: 'data-cost-settled',
+  // Present only once an island shows catalog figures (never on the
+  // unavailable line), so settled-without-ready means "loaded, unavailable".
+  // Emitted: apps/marketing/src/components/welcome/CostFigures.tsx,
+  // apps/marketing/src/components/welcome/ProviderStrip.tsx
+  costReady: 'data-cost-ready',
+
   // Marketing newsletter signup form hydrated and ready to accept input.
   newsletterReady: 'data-newsletter-ready',
 

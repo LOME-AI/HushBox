@@ -9,7 +9,7 @@ import { pricingFromWire, tokenPricingOf } from '@hushbox/shared/affordability/p
 import type { Model } from '@hushbox/shared';
 import type { TokenPricing } from '@hushbox/shared/affordability/price/schedule';
 
-const MESSAGES_PER_DAY = 50;
+export const MESSAGES_PER_DAY = 50;
 const DAYS_PER_MONTH = 30;
 
 const SYSTEM_PROMPT_CHARS = 500;

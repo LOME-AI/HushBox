@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import { modelCatalog } from '@hushbox/db';
 import { planReasoning, reasoningPlanModelFrom } from '@hushbox/shared/affordability';
 import { okAsync } from '../../lib/result/index.js';
-import { hashCanonicalJson } from './domain/index.js';
+import { hashRequestBody } from './domain/index.js';
 import {
   MODEL,
   MODEL_B,
@@ -458,7 +458,7 @@ describe('chat route: POST /chat', () => {
     // client's retry never 409s against its own turn.
     expect(hashes[1]).not.toBe(hashes[0]);
     expect(hashes[0]).toBe(
-      await hashCanonicalJson({
+      hashRequestBody({
         conversationId,
         turnSources: [{ kind: 'model', id: model }],
         userMessage,
@@ -466,7 +466,7 @@ describe('chat route: POST /chat', () => {
       })
     );
     expect(hashes[1]).toBe(
-      await hashCanonicalJson({
+      hashRequestBody({
         conversationId,
         turnSources: [{ kind: 'model', id: model }],
         reasoningEffort: 'low',

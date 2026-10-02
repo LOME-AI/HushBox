@@ -40,6 +40,7 @@ vi.mock('./turn-core.ts', async (importOriginal) => {
   };
 });
 
+/** Stored at 1,000 / 2,000 nano per token, held at their ceilings, 1,250 / 2,500. */
 const PLAIN: PriceableModel = {
   modelId: modelId('vendor/plain'),
   pricing: tokenPricingFixture({ input: nanoUSD(1000n), output: nanoUSD(2000n) }),
@@ -103,7 +104,7 @@ describe('the returned pair', () => {
     );
     expect(options.affordable.sendable).toBe(true);
     expect(options.admissible.sendable).toBe(true);
-    expect(options.holdNanoUsd).toBe(28_556_000n);
+    expect(options.holdNanoUsd).toBe(32_639_500n);
   });
 
   it('carries no hold when the turn cannot start', () => {
@@ -254,10 +255,10 @@ describe('one input ratio and one stored-output ratio', () => {
       selectionOf(['vendor/plain']),
       { models: [PLAIN], nowMs: NOW_MS }
     );
-    // 334 input tokens x 1,000 + 8,000 x (2,000 + 1,500) + 30,000 input storage
+    // 334 input tokens x 1,250 + 8,000 x (2,500 + 1,500) + 30,000 input storage
     // (the 100 new-message characters, not all 1,000 prompt characters) +
     // 192,000 framing (640 characters at 300 nano).
-    expect(options.holdNanoUsd).toBe(28_556_000n);
+    expect(options.holdNanoUsd).toBe(32_639_500n);
   });
 
   it('prices a free turn exactly as it prices a paid one', () => {
@@ -267,7 +268,7 @@ describe('one input ratio and one stored-output ratio', () => {
       selectionOf(['vendor/plain']),
       { models: [PLAIN], nowMs: NOW_MS }
     );
-    expect(options.holdNanoUsd).toBe(28_556_000n);
+    expect(options.holdNanoUsd).toBe(32_639_500n);
   });
 
   it('rounds the input division up, against the user', () => {
@@ -280,7 +281,7 @@ describe('one input ratio and one stored-output ratio', () => {
     // 1,001 characters fill 333 tokens and part of a 334th, which is held whole:
     // the same 334 input tokens as 1,000 characters, so the one more character
     // adds its own storage and nothing else. Rounding down would hold 333.
-    expect(partial.holdNanoUsd).toBe(28_556_000n + 300n);
+    expect(partial.holdNanoUsd).toBe(32_639_500n + 300n);
   });
 });
 
@@ -292,8 +293,8 @@ describe('a trial turn never persists', () => {
       selectionOf(['vendor/plain']),
       { models: [PLAIN], nowMs: NOW_MS }
     );
-    // 334 input tokens x 1,000 + 8,000 x 2,000, and nothing else.
-    expect(options.holdNanoUsd).toBe(16_334_000n);
+    // 334 input tokens x 1,250 + 8,000 x 2,500, and nothing else.
+    expect(options.holdNanoUsd).toBe(20_417_500n);
   });
 });
 
@@ -317,8 +318,9 @@ describe('cache reads', () => {
       selectionOf(['vendor/plain']),
       { models: [cached], nowMs: NOW_MS }
     );
-    // 334 input tokens at the FULL 1,000-nano rate, not the 1-nano cached rate.
-    expect(options.holdNanoUsd).toBe(28_556_000n);
+    // 334 input tokens at the ceiling of the FULL 1,000-nano rate, not the
+    // 1-nano cached rate.
+    expect(options.holdNanoUsd).toBe(32_639_500n);
   });
 });
 
@@ -341,21 +343,21 @@ describe('web search', () => {
       selectionOf(['vendor/plain', 'vendor/plain-b', 'vendor/plain-c'], { webSearch: true }),
       { models: models, nowMs: NOW_MS }
     );
-    // Each sibling answers at its 8,000-token cap, over 334 prompt tokens,
-    // and its loop takes 10 more steps than a plain answer: 10 more prompts, each
-    // of 10 calls' results re-sent on 10 later steps, the tool-use overhead on
-    // the 10 tool-carrying steps, 10 call fees and the stored search rows, plus
-    // 10 more steps of output and its storage and the model's own output re-sent
-    // 55 times.
+    // Each sibling answers at its 8,000-token cap, over 334 prompt tokens, at
+    // the ceiling of its rates, and its loop takes 10 more steps than a plain
+    // answer: 10 more prompts, each of 10 calls' results re-sent on 10 later
+    // steps, the tool-use overhead on the 10 tool-carrying steps, 10 call fees
+    // and the stored search rows, plus 10 more steps of output and its storage
+    // and the model's own output re-sent 55 times.
     const resultTokens = BigInt(Math.ceil(WEB_SEARCH_RESULT_MAX_CHARS / 3));
     const overheadTokens = BigInt(toolLoopBound(['webSearch'], 10).overheadTokens);
     const loopExtra =
-      10n * 334n * 1000n +
-      10n * 10n * resultTokens * 1000n +
-      10n * overheadTokens * 1000n +
+      10n * 334n * 1250n +
+      10n * 10n * resultTokens * 1250n +
+      10n * overheadTokens * 1250n +
       10n * toolCallBillableNano('webSearch') +
       BigInt(WEB_SEARCH_ROW_MAX_CHARS) * 300n +
-      8000n * (10n * (2000n + 1500n) + 55n * 1000n);
+      8000n * (10n * (2500n + 1500n) + 55n * 1250n);
     expect((withSearch.holdNanoUsd ?? 0n) - (withoutSearch.holdNanoUsd ?? 0n)).toBe(3n * loopExtra);
   });
 });

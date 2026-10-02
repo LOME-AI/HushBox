@@ -368,7 +368,7 @@ describe('the classifier reserve a replacing click leaves', () => {
   // prompt, which no longer lists a pool of candidates to choose between.
   it('offers a row whose committed turn buys a classifier for its rung alone', () => {
     const row = candidateOf(
-      evaluateTurn(slotInputOf(LADDERED_POOL, 2_562_000n)),
+      evaluateTurn(slotInputOf(LADDERED_POOL, 3_202_500n)),
       'vendor/laddered-1'
     );
 

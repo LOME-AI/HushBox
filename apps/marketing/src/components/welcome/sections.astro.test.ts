@@ -158,31 +158,27 @@ describe('ValuesSection', () => {
 describe('CostSection', () => {
   const source = read('CostSection');
 
-  it('reads the catalog through the build-time loader', () => {
-    expect(source).toMatch(/await loadCatalogAtBuild\(getApiUrl\(\), \{/);
+  it('reads nothing from the API while the site builds', () => {
+    expect(source).not.toMatch(/\bawait\b|catalog-at-build|getApiUrl/);
   });
 
-  it('fails a production build on a catalog it cannot read', () => {
-    expect(source).toContain('isProduction: env.isProduction');
+  it('loads the cost figures in the browser at page load', () => {
+    expect(source).toMatch(/<div class="mt-12">\s*<CostFigures client:load \/>\s*<\/div>/);
   });
 
-  it('shows where the catalog failed in place of the figures', () => {
+  it('fades the provider strip up after the figures, from outside the island', () => {
     expect(source).toMatch(
-      /catalog\.kind === 'unavailable' \? \([\s\S]*Catalog unavailable at build[\s\S]*\) : /
+      /<div class="border-border mt-16 rounded-lg border-2 p-6" data-reveal="delayed">\s*<ProviderStrip client:load \/>\s*<\/div>/
     );
   });
 
-  it('keeps the section hidden when the catalog prices nothing', () => {
-    expect(source).toContain('costData.monthlyCost > 0 && (');
-  });
-
-  it('fades the provider strip up after the figures', () => {
-    expect(source).toMatch(
-      /<div class="border-border mt-16 rounded-lg border-2 p-6" data-reveal="delayed">\s*<ModelProviderStrip\b/
+  it('sets its heading through the shared section heading', () => {
+    expect(source).toContain(
+      '<SectionHeading>Same models. A fraction of the cost</SectionHeading>'
     );
   });
 
   it('fades up with the rest of the page', () => {
-    expect(source.match(/<WelcomeSection reveal>/g)).toHaveLength(2);
+    expect(source.match(/<WelcomeSection reveal>/g)).toHaveLength(1);
   });
 });

@@ -4,7 +4,7 @@ import { ToolCallLimitError, toolErrorReason } from './tool-error-reason.js';
 
 function abortedSignal(): AbortSignal {
   const controller = new AbortController();
-  controller.abort(new Error('run stopped'));
+  controller.abort(new Error('run hard-stopped'));
   return controller.signal;
 }
 

@@ -167,7 +167,7 @@ describe('absorbedLossEvent', () => {
 describe('costCircuitTripEvent', () => {
   const RUN_ID = '0b7f2c1e-4a3d-4f6b-9c2e-8d1a5e7f3b90';
 
-  it('carries the run id, the accrual and the limit as its only own properties beside its name', () => {
+  it('carries the run id, the accrual and the limit as its only enumerable own properties beside its name', () => {
     const event = costCircuitTripEvent({
       runId: RUN_ID,
       accruedNanoUsd: 2000n,

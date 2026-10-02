@@ -23,7 +23,7 @@ export {
   snapshotResolver,
   TRIAL_MESSAGE_COST_CAP_NANO_USD,
   trialEligibility,
-  trialMessageBillableNanoUsd,
+  trialMessageReserveNanoUsd,
   upsertCatalog,
 } from './domain/index.js';
 export { WEB_SEARCH_TOOL_NAME } from '@hushbox/shared';

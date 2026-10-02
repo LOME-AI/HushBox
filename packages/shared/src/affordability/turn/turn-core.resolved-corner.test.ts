@@ -35,6 +35,7 @@ const BASIS: PromptBasis = {
   attachmentBytes: 0,
 };
 
+/** Stored at 100 / 200 nano per token, held at their ceilings, 125 / 250. */
 const RATES = {
   pricing: tokenPricingFixture({ input: nanoUSD(100n), output: nanoUSD(200n) }),
   contextLength: 200_000,
@@ -78,8 +79,8 @@ function autoTurn(model: PriceableModel, spendable: bigint): OptionSet {
 }
 
 /**
- * The funding that leaves a ceiling of about sixteen hundred tokens: 0.3¢ less
- * the turn's fixed costs, over a 1,700-nano variable rate. Chosen because it sits
+ * The funding that leaves a ceiling of about fifteen hundred tokens: 0.3¢ less
+ * the turn's fixed costs, over a 1,750-nano variable rate. Chosen because it sits
  * above the minimum-answer floor and below either model's cheapest reasoning
  * budget, which is exactly the band the two verdicts used to disagree in.
  */
@@ -89,7 +90,7 @@ describe('a mandatory-reasoning model is graded on the rung it will actually run
   it('refuses the single-rung model where its own cheapest rung does not fit', () => {
     const options = autoTurn(SINGLE_RUNG, NARROW_FUNDING);
     expect(options.sendable).toBe(false);
-    expect(options.all[0]?.ceilingTokens).toBe(1614);
+    expect(options.all[0]?.ceilingTokens).toBe(1563);
   });
 
   it('reaches the same verdict as its rate-identical three-rung twin', () => {
@@ -106,13 +107,13 @@ describe('a mandatory-reasoning model is graded on the rung it will actually run
   it('sends at funding whose ceiling covers B(m, e_min(m)) + a minimum answer', () => {
     // Its one rung is High, clamped by the 64,000-token provider cap to 32,768.
     const corner = REASONING_BUDGET_TOKENS_BY_EFFORT.high + MINIMUM_OUTPUT_TOKENS;
-    const options = autoTurn(SINGLE_RUNG, 58_000_000n);
+    const options = autoTurn(SINGLE_RUNG, 72_500_000n);
     expect(options.sendable).toBe(true);
     expect(options.all[0]?.ceilingTokens).toBeGreaterThanOrEqual(corner);
   });
 
   it('offers that rung on the menu rather than presenting an empty axis', () => {
-    const options = autoTurn(SINGLE_RUNG, 58_000_000n);
+    const options = autoTurn(SINGLE_RUNG, 72_500_000n);
     expect(options.turnDimensions).toEqual([
       {
         dimensionId: 'effort',

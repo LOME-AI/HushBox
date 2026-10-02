@@ -66,6 +66,7 @@ const SPENDABLE = 20_000_000n;
 /** 600 system + 300 history + 100 input, the module fixture's basis. */
 const PROMPT_CHARS = 1000;
 
+/** Stored rates, held at their ceilings, 125 / 250. */
 const RATES = { input: 100n, output: 200n } as const;
 
 function descriptorOf(id: string, providerCap: number): ModelDescriptor {
@@ -172,16 +173,16 @@ describe('the two clamp orders on one saturating-sibling turn', () => {
   });
 
   it('diverges on the wide sibling, and the server hands it the longer answer', () => {
-    expect(moduleCeilingOf(WIDE_ID)).toBe(5740);
-    expect(serverCapOf(WIDE_ID)).toBe(9481);
+    expect(moduleCeilingOf(WIDE_ID)).toBe(5572);
+    expect(serverCapOf(WIDE_ID)).toBe(9144);
   });
 
   it('spends the saturated sibling unused budget instead of leaving it, unlike the module', () => {
-    // The module leaves 6,361,200 nano unspent (its own pinned amount); the
+    // The module leaves 6,251,500 nano unspent (its own pinned amount); the
     // server's fit reallocates all of it to the sibling that can use it but the
-    // 1,500 nano left short of one more token at 200 + 1,500.
-    expect(BigInt(FUNDING.spendableNanoUsd) - (MODULE_SIDE.holdNanoUsd ?? 0n)).toBe(6_361_200n);
-    expect(SPENDABLE - SERVER_HOLD).toBe(1500n);
+    // 500 nano left short of one more token at 250 + 1,500.
+    expect(BigInt(FUNDING.spendableNanoUsd) - (MODULE_SIDE.holdNanoUsd ?? 0n)).toBe(6_251_500n);
+    expect(SPENDABLE - SERVER_HOLD).toBe(500n);
   });
 
   it('keeps the server hold inside the same funding the module solved against', () => {

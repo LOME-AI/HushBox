@@ -1,13 +1,17 @@
 /**
  * The four records subcommands. Each one writes the overlay alone: the main
- * repository is only read, for the ignore rules that decide which files are
- * records, and its index, refs and config are never written.
+ * repository is read for the ignore rules that decide which files are records,
+ * its git directory lends restore a staging place, and its index, refs and
+ * config are never written.
  */
 import { existsSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { absentDirectories, firstOccupied, removePaths } from './new-paths.js';
 import { git, overlayArguments, overlayDirectory, overlayGit, runGit } from './overlay.js';
 import { listRecordFiles } from './record-files.js';
+import { atStep, duringStep } from './step.js';
+import { treeFiles, unchangedFiles, type TreeFile } from './tree-files.js';
 
 const MAIN_REF = 'refs/heads/main';
 
@@ -158,7 +162,7 @@ export async function init({ root, log, remote }: RemoteContext): Promise<void> 
 }
 
 /** The record files present in the working tree, read against an empty index. */
-async function presentRecordFiles(root: string): Promise<string[]> {
+export async function presentRecordFiles(root: string): Promise<string[]> {
   const scratch = mkdtempSync(path.join(tmpdir(), 'records-scan-'));
   try {
     await git(root, ['init', '--bare', '--quiet', scratch], 'create a scratch repository');
@@ -169,35 +173,103 @@ async function presentRecordFiles(root: string): Promise<string[]> {
 }
 
 /**
- * Clones `remote` into a git directory beside the checkout, checks `main` out
- * over the working tree, and only then moves that directory into place as the
- * overlay; any failure removes it, so a failed restore leaves no overlay. The
- * overlay's view of the record roots is all ignored, and git overwrites ignored
- * files by default, so the checkout is told not to: a local file of any kind at
- * a path the remote holds refuses the restore. Refused too while any record
- * file exists, which the user saves with init instead.
+ * Where restore builds the overlay before moving it into place: inside the main
+ * repository's git directory, which no `git add` reaches, so the staged copy is
+ * never in the working tree or beside it, and the next restore clears whatever
+ * a restore that died left there. In a linked worktree that directory is the
+ * worktree's own, under the main checkout's `.git`, and can sit on another
+ * filesystem than the working tree; the move into place then fails, and the
+ * restore is undone like any other failure.
+ */
+async function stagingDirectory(root: string): Promise<string> {
+  const relative = await git(
+    root,
+    ['rev-parse', '--git-path', 'records-restore'],
+    'find the staging place'
+  );
+  return path.resolve(root, relative);
+}
+
+/** What a checkout that has begun wrote, as far as it can be told from what was there before. */
+interface Checkout {
+  readonly files: readonly TreeFile[];
+  /** The folders above those files that did not exist before the checkout, deepest first. */
+  readonly directories: readonly string[];
+}
+
+/**
+ * Takes back a checkout that began: each file it names that still holds the
+ * tree's bytes, then each folder it created that is left empty. A file whose
+ * bytes differ was written by someone else and stays.
+ */
+async function undoCheckout(
+  root: string,
+  gitArguments: readonly string[],
+  checkout: Checkout
+): Promise<void> {
+  const written = await unchangedFiles(root, gitArguments, checkout.files);
+  removePaths(root, written, checkout.directories);
+}
+
+/**
+ * Clones `remote` into a staging git directory, checks `main` out over the
+ * working tree, and only then moves that directory into place as the overlay.
+ * Refused while any record file exists, which the user saves with init instead,
+ * and while anything at all stands at a path the remote's tree names. The
+ * checkout is also told not to overwrite ignored files, which is all the record
+ * roots are to the overlay, so a file that appears there after the check still
+ * stops it. Any failure from the checkout on removes the files that hold the
+ * tree's bytes and the folders the checkout created, then the staging
+ * directory, so a failed restore leaves no overlay and the working tree as it
+ * was.
  */
 export async function restore({ root, log, remote }: RemoteContext): Promise<void> {
   refuseExistingOverlay(root, 'restore');
-  const present = await presentRecordFiles(root);
+  const present = await duringStep('scan the record files', () => presentRecordFiles(root));
   if (present.length > 0) {
     throw new Error(
       `records: restore refused: ${String(present.length)} record file(s) already exist, ` +
         `among them ${present[0] ?? ''}; save them with pnpm records init instead`
     );
   }
-  const staging = mkdtempSync(path.join(path.dirname(root), `.${path.basename(root)}-records-`));
+  const staging = await stagingDirectory(root);
+  const stagingArguments = [`--git-dir=${staging}`, `--work-tree=${root}`];
+  const stagingGit = (args: readonly string[], step?: string): Promise<string> =>
+    git(root, [...stagingArguments, ...args], step ?? args.join(' '));
+  atStep('clear the staging place', () => {
+    rmSync(staging, { recursive: true, force: true });
+  });
+  let checkout: Checkout | undefined;
   try {
-    const stagingGit = (args: readonly string[], step?: string): Promise<string> =>
-      git(root, [`--git-dir=${staging}`, `--work-tree=${root}`, ...args], step ?? args.join(' '));
     await git(root, ['clone', '--bare', '--quiet', remote, staging], 'clone');
     await stagingGit(['config', 'status.showUntrackedFiles', 'no']);
     await stagingGit(['config', 'remote.origin.fetch', TRACKING_REFSPEC]);
+    const files = treeFiles(
+      await stagingGit(['ls-tree', '-r', '-z', MAIN_REF], 'read the records tree')
+    );
+    const paths = files.map((file) => file.path);
+    const occupied = atStep('read the working tree', () => firstOccupied(root, paths));
+    if (occupied !== undefined) {
+      throw new Error(
+        `records: restore refused: ${occupied} already exists where the remote holds a record; ` +
+          'move it aside and run restore again'
+      );
+    }
+    checkout = {
+      files,
+      directories: atStep('read the working tree', () => absentDirectories(root, paths)),
+    };
     await stagingGit(['checkout', '--quiet', '--no-overwrite-ignore', 'main'], 'check out main');
     await stagingGit(['update-ref', 'refs/remotes/origin/main', MAIN_REF]);
-    renameSync(staging, overlayDirectory(root));
+    atStep('move the overlay into place', () => {
+      renameSync(staging, overlayDirectory(root));
+    });
   } catch (error) {
-    rmSync(staging, { recursive: true, force: true });
+    const begun = checkout;
+    await duringStep('undo the failed restore', async () => {
+      if (begun !== undefined) await undoCheckout(root, stagingArguments, begun);
+      rmSync(staging, { recursive: true, force: true });
+    });
     throw error;
   }
   log(`records: restored main from ${remote}`);

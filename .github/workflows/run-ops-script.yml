@@ -50,7 +50,7 @@ jobs:
         run: pnpm tsx ops/lib/resolve-dispatch-script.ts
         env:
           OPS_SCRIPT: ${{ inputs.script }}
-          # BEGIN GENERATED: ops-env
+          # BEGIN GENERATED: ops-dispatch-env
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
           OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
@@ -60,7 +60,7 @@ jobs:
           R2_BUCKET_MEDIA: hushbox-media
           R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}
           R2_ADMIN_SECRET_ACCESS_KEY: ${{ secrets.R2_ADMIN_SECRET_ACCESS_KEY }}
-          # END GENERATED: ops-env
+          # END GENERATED: ops-dispatch-env
 
       - name: Run ops script
         run: pnpm tsx "$OPS_SCRIPT_FILE"
@@ -69,7 +69,7 @@ jobs:
           # BEGIN GENERATED: ops-dispatch-run-env
           NODE_ENV: production
           # END GENERATED: ops-dispatch-run-env
-          # BEGIN GENERATED: ops-env
+          # BEGIN GENERATED: ops-dispatch-env
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
           OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
@@ -79,4 +79,4 @@ jobs:
           R2_BUCKET_MEDIA: hushbox-media
           R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}
           R2_ADMIN_SECRET_ACCESS_KEY: ${{ secrets.R2_ADMIN_SECRET_ACCESS_KEY }}
-          # END GENERATED: ops-env
+          # END GENERATED: ops-dispatch-env

@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { LOCAL_NEON_DEV_CONFIG, createDb, idempotencyKeys } from '@hushbox/db';
-import { createIdempotencyKeyPurgeEntry, purgeTerminalIdempotencyKeys } from './purge.js';
+import { createIdempotencyKeyPurgeEntry, purgeExpiredIdempotencyKeys } from './purge.js';
 import type { DbTransaction } from './transaction.js';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
@@ -31,6 +31,31 @@ interface KeyRowSeed {
   readonly status: 'claimed' | 'succeeded' | 'failed';
   /** Null models a non-terminal row; a number is days before now. */
   readonly completedDaysAgo: number | null;
+}
+
+/** A row its claimant left `claimed`, last claimed or heartbeat this many days ago. */
+async function insertClaimedRow(
+  tx: DbTransaction,
+  kind: 'request' | 'run',
+  claimedDaysAgo: number
+): Promise<string> {
+  const rows = await tx
+    .insert(idempotencyKeys)
+    .values({
+      userId: crypto.randomUUID(),
+      route: '/test/purge',
+      key: crypto.randomUUID(),
+      kind,
+      status: 'claimed',
+      bodyHash: 'hash',
+      claimedBy: 'purge-test',
+      claimedAt: sql`now() - make_interval(days => ${claimedDaysAgo})`,
+      createdAt: sql`now() - make_interval(days => ${claimedDaysAgo})`,
+    })
+    .returning({ id: idempotencyKeys.id });
+  const row = rows[0];
+  if (row === undefined) throw new Error('failed to insert idempotency key row');
+  return row.id;
 }
 
 async function insertKeyRow(tx: DbTransaction, seed: KeyRowSeed): Promise<string> {
@@ -67,12 +92,12 @@ afterAll(async () => {
   await db.$client.end();
 });
 
-describe('purgeTerminalIdempotencyKeys', () => {
+describe('purgeExpiredIdempotencyKeys', () => {
   it('deletes terminal rows older than the purge TTL', async () => {
     const kept = await withRollback(async (tx) => {
       const oldSucceeded = await insertKeyRow(tx, { status: 'succeeded', completedDaysAgo: 8 });
       const oldFailed = await insertKeyRow(tx, { status: 'failed', completedDaysAgo: 8 });
-      await purgeTerminalIdempotencyKeys(tx, { batchSize: 100 });
+      await purgeExpiredIdempotencyKeys(tx, { batchSize: 100 });
       return { succeeded: await exists(tx, oldSucceeded), failed: await exists(tx, oldFailed) };
     });
     expect(kept).toEqual({ succeeded: false, failed: false });
@@ -81,24 +106,62 @@ describe('purgeTerminalIdempotencyKeys', () => {
   it('keeps terminal rows inside the purge TTL', async () => {
     const kept = await withRollback(async (tx) => {
       const recent = await insertKeyRow(tx, { status: 'succeeded', completedDaysAgo: 6 });
-      await purgeTerminalIdempotencyKeys(tx, { batchSize: 100 });
+      await purgeExpiredIdempotencyKeys(tx, { batchSize: 100 });
       return exists(tx, recent);
     });
     expect(kept).toBe(true);
   });
 
-  it('never touches non-terminal rows, however old', async () => {
+  it('keeps a claimed row whose claimant still heartbeats it, however old the row', async () => {
     const kept = await withRollback(async (tx) => {
       const claimed = await insertKeyRow(tx, { status: 'claimed', completedDaysAgo: null });
-      // Age the claim far past the TTL; completedAt stays null (non-terminal).
       await tx
         .update(idempotencyKeys)
         .set({ createdAt: sql`now() - make_interval(days => 400)` })
         .where(eq(idempotencyKeys.id, claimed));
-      await purgeTerminalIdempotencyKeys(tx, { batchSize: 100 });
+      await purgeExpiredIdempotencyKeys(tx, { batchSize: 100 });
       return exists(tx, claimed);
     });
     expect(kept).toBe(true);
+  });
+
+  it('deletes a request row left claimed past the stale-claim horizon', async () => {
+    const kept = await withRollback(async (tx) => {
+      const stranded = await insertClaimedRow(tx, 'request', 8);
+      await purgeExpiredIdempotencyKeys(tx, { batchSize: 100 });
+      return exists(tx, stranded);
+    });
+    expect(kept).toBe(false);
+  });
+
+  it('deletes a run row left claimed past the stale-claim horizon', async () => {
+    const kept = await withRollback(async (tx) => {
+      const stranded = await insertClaimedRow(tx, 'run', 8);
+      await purgeExpiredIdempotencyKeys(tx, { batchSize: 100 });
+      return exists(tx, stranded);
+    });
+    expect(kept).toBe(false);
+  });
+
+  it('keeps a claimed row inside the stale-claim horizon', async () => {
+    const kept = await withRollback(async (tx) => {
+      const recent = await insertClaimedRow(tx, 'run', 6);
+      await purgeExpiredIdempotencyKeys(tx, { batchSize: 100 });
+      return exists(tx, recent);
+    });
+    expect(kept).toBe(true);
+  });
+
+  it('counts stale claimed rows against the batch size', async () => {
+    const counts = await withRollback(async (tx) => {
+      await insertClaimedRow(tx, 'request', 9);
+      await insertKeyRow(tx, { status: 'succeeded', completedDaysAgo: 9 });
+      await insertClaimedRow(tx, 'run', 10);
+      const first = await purgeExpiredIdempotencyKeys(tx, { batchSize: 2 });
+      const second = await purgeExpiredIdempotencyKeys(tx, { batchSize: 2 });
+      return { first, second };
+    });
+    expect(counts).toEqual({ first: 2, second: 1 });
   });
 
   it('deletes at most the batch size per call', async () => {
@@ -106,8 +169,8 @@ describe('purgeTerminalIdempotencyKeys', () => {
       await insertKeyRow(tx, { status: 'succeeded', completedDaysAgo: 9 });
       await insertKeyRow(tx, { status: 'failed', completedDaysAgo: 10 });
       await insertKeyRow(tx, { status: 'succeeded', completedDaysAgo: 11 });
-      const first = await purgeTerminalIdempotencyKeys(tx, { batchSize: 2 });
-      const second = await purgeTerminalIdempotencyKeys(tx, { batchSize: 2 });
+      const first = await purgeExpiredIdempotencyKeys(tx, { batchSize: 2 });
+      const second = await purgeExpiredIdempotencyKeys(tx, { batchSize: 2 });
       return { first, second };
     });
     expect(counts.first).toBe(2);

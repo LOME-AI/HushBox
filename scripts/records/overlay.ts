@@ -7,6 +7,7 @@
  */
 import path from 'node:path';
 import { execa } from 'execa';
+import { StepFailure } from './step.js';
 
 /** The overlay's git directory, at the root of the checkout it shares. */
 export const OVERLAY_DIRECTORY = '.records.git';
@@ -38,7 +39,7 @@ export interface GitResult {
 
 export interface GitOptions {
   /** Written to the call's standard input. */
-  readonly input?: string;
+  readonly input?: string | Uint8Array;
   /** Set on top of the calling environment. */
   readonly env?: Readonly<Record<string, string>>;
   /** The exit codes that are not a failure; 0 alone when omitted. */
@@ -53,7 +54,8 @@ export async function runGit(
 ): Promise<GitResult> {
   const { exitCode, stdout, stderr } = await execa('git', [...args], {
     cwd,
-    env: { ...childEnvironment(process.env), ...options.env },
+    // A remote that wants credentials fails the call rather than waiting on a prompt nobody answers.
+    env: { ...childEnvironment(process.env), GIT_TERMINAL_PROMPT: '0', ...options.env },
     extendEnv: false,
     reject: false,
     ...(options.input === undefined ? {} : { input: options.input }),
@@ -71,7 +73,7 @@ export async function gitResult(
   const accepted: readonly (number | undefined)[] = options.accepted ?? [0];
   const result = await runGit(cwd, args, options);
   if (!accepted.includes(result.exitCode)) {
-    throw new Error(`records: ${step} failed: ${result.stderr}`);
+    throw new StepFailure(step, result.stderr);
   }
   return result;
 }

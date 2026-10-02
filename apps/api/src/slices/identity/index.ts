@@ -73,5 +73,6 @@ export type {
   PasswordResetEmailPort,
   TwoFactorDisabledEmailPort,
   TwoFactorEnabledEmailPort,
+  TwoFactorLockedEmailPort,
   VerificationEmailPort,
 } from './domain/index.js';

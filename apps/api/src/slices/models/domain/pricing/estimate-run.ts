@@ -889,11 +889,13 @@ function withInputStorage(
 /**
  * Reserves a definition's declared worst case: every model node's calls, each
  * at its ceiling. A single-model turn is one node; a data-driven `fanOut` is its
- * node at the declared max width. The per-call math (billable rates × the
- * ceiling multiplier) is the shared core's `reservedCallParts`, reused — never
- * re-derived here. No fee is applied on this path: catalog rates arrive already
- * billable from ingestion, which is the one seam that bakes the markup, so the
- * reservation carries it exactly once without this site applying any.
+ * node at the declared max width. The per-call math — a text call's tokens at
+ * the ceiling of its billable rates or a media call's units at its dearest rate,
+ * times the enclosure's fan-out × iterations multiplier — is the shared core's
+ * `reservedCallParts`, reused — never re-derived here. No fee is applied on
+ * this path: catalog rates arrive already billable from ingestion, which is the
+ * one seam that bakes the markup, so the reservation carries it exactly once
+ * without this site applying any.
  *
  * The storage stamp rides the DEFINITION and is read per-run: absent (general
  * workflows, and every no-persist definition) the reservation is provider cost

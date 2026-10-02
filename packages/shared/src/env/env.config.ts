@@ -364,6 +364,32 @@ export const envConfig = {
     [Mode.Production]: secret('RATE_LIMIT_KEY_SECRET'),
   },
 
+  // HMAC key every idempotency body hash is keyed under. A chat turn's body
+  // carries its plaintext message, history and custom instructions, and every
+  // other input to the hash is readable beside it, so an unkeyed digest would
+  // let a database or backup reader confirm guesses of what a user wrote. A
+  // replacement makes a stored hash mismatch its resubmit for at most the
+  // client's auto-resubmit horizon.
+  IDEMPOTENCY_BODY_HASH_SECRET: {
+    to: [Destination.Backend],
+    credential: {
+      description:
+        'Keys every idempotency body hash; a holder with the idempotency_keys table can test guessed chat messages against the stored hashes.',
+      store: 'github:production',
+      replace: 'transparent',
+      onLoss: 'restoreFromCopy',
+      family: 'random-secret',
+      userVisible: 'none',
+      leakImpact: 'expensive',
+    },
+    [Mode.Development]: 'dev-idempotency-body-hash-secret-literal',
+    [Mode.Test]: ref(Mode.Development),
+    [Mode.CiVitest]: ref(Mode.Development),
+    [Mode.E2E]: ref(Mode.Development),
+    [Mode.CiE2E]: ref(Mode.E2E),
+    [Mode.Production]: secret('IDEMPOTENCY_BODY_HASH_SECRET'),
+  },
+
   // Key-encryption key sealing each user's OPAQUE server material (OPRF seed +
   // AKE keypair) in the users row. The material never changes across a swap of
   // this key; the re-seal ops script re-wraps every row under OPAQUE_KEK_NEXT.

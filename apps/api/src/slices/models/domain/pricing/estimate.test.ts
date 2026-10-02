@@ -20,6 +20,16 @@ const TOKEN_PRICING: ModelDescriptor['pricing'] = tokenPricingFixture({
   output: 10_000n,
 });
 
+/**
+ * {@link TOKEN_PRICING}'s ceiling, the rates a reserve holds: five quarters of
+ * 2,500 / 10,000. Written out because the price core's `ceilingOf` sits behind
+ * the money wall this file is not an owner of.
+ */
+const TOKEN_PRICING_AT_CEILING: ModelDescriptor['pricing'] = tokenPricingFixture({
+  input: 3125n,
+  output: 12_500n,
+});
+
 const TOKEN_USAGE: CallUsage = { kind: 'tokens', inputTokens: 1000, outputTokens: 200 };
 
 const CEILING: DeclaredCeiling = { maxFanOutWidth: 3, maxIterations: 2 };
@@ -40,9 +50,9 @@ describe('estimateRunCeilingNanoUsd — one call', () => {
   it('prices token usage from the billable catalog rates as a pure sum (no fee math)', () => {
     const result = estimateRunCeilingNanoUsd(TOKEN_PRICING, TOKEN_USAGE, ONE_CALL);
 
-    // 1000 × 2500 + 200 × 10000 = 4_500_000 — rates are billable at ingestion,
-    // so the fold applies no further markup.
-    expect(result._unsafeUnwrap()).toBe(4_500_000n);
+    // At the ceiling of 2,500 / 10,000: 1000 × 3125 + 200 × 12_500 = 5_625_000 —
+    // rates are billable at ingestion, so the fold applies no further markup.
+    expect(result._unsafeUnwrap()).toBe(5_625_000n);
   });
 
   it('prices media units from a per-image catalog rate', () => {
@@ -159,7 +169,7 @@ describe('reservedCallParts', () => {
       mediaStorageBytes: 0,
     })._unsafeUnwrap();
 
-    expect(parts.providerNanoUsd).toBe(4_500_000n);
+    expect(parts.providerNanoUsd).toBe(5_625_000n);
     expect(parts.storageNanoUsd).toBeGreaterThan(0n);
   });
 
@@ -180,9 +190,9 @@ describe('estimateRunCeilingNanoUsd', () => {
   it('prices the declared ceiling: per-call billable cost times width and iterations', () => {
     const result = estimateRunCeilingNanoUsd(TOKEN_PRICING, TOKEN_USAGE, CEILING);
 
-    // 4_500_000 billable per call × 3 × 2 = 27_000_000 — rates are already
-    // fee-inclusive, so the ceiling is a pure sum.
-    expect(result._unsafeUnwrap()).toBe(27_000_000n);
+    // 5_625_000 billable per call at the rates' ceiling × 3 × 2 = 33_750_000 —
+    // rates are already fee-inclusive, so the ceiling is a pure sum.
+    expect(result._unsafeUnwrap()).toBe(33_750_000n);
   });
 
   it('rejects a non-positive ceiling dimension', () => {
@@ -285,15 +295,29 @@ describe('priceUsageBillableNanoUsd', () => {
     expect(result._unsafeUnwrap()).toBe(4_500_000n);
   });
 
-  it('agrees exactly with the one-call ceiling over the same token counts', () => {
-    const fromUsage = priceUsageBillableNanoUsd(TOKEN_PRICING, oneStep(USAGE))._unsafeUnwrap();
+  it('reserves one call at exactly the same token counts priced at the ceiling rates', () => {
+    const fromCall = estimateRunCeilingNanoUsd(
+      TOKEN_PRICING,
+      TOKEN_USAGE,
+      ONE_CALL
+    )._unsafeUnwrap();
+    const atCeiling = priceUsageBillableNanoUsd(
+      TOKEN_PRICING_AT_CEILING,
+      oneStep(USAGE)
+    )._unsafeUnwrap();
+
+    expect(fromCall).toBe(atCeiling);
+  });
+
+  it('reserves one call at no less than the charge the same token counts are billed', () => {
+    const charged = priceUsageBillableNanoUsd(TOKEN_PRICING, oneStep(USAGE))._unsafeUnwrap();
     const fromCall = estimateRunCeilingNanoUsd(
       TOKEN_PRICING,
       TOKEN_USAGE,
       ONE_CALL
     )._unsafeUnwrap();
 
-    expect(fromUsage).toBe(fromCall);
+    expect(fromCall).toBeGreaterThanOrEqual(charged);
   });
 
   it('prices usage past a tier boundary at that tier, as an estimated charge', () => {

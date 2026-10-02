@@ -57,8 +57,8 @@ function layOut({ band, scroller }: { band: number; scroller: number }): void {
 }
 
 function isPinned(): boolean {
-  const classes = pinnedBand().className.split(' ');
-  return classes.includes('md:sticky') && classes.includes('md:top-0');
+  const classes = new Set(pinnedBand().className.split(' '));
+  return classes.has('md:sticky') && classes.has('md:top-0');
 }
 
 describe('PageBody pinned band fit', () => {
@@ -76,35 +76,67 @@ describe('PageBody pinned band fit', () => {
     expect(bandObserver().observed).toEqual([pinnedBand(), screen.getByTestId('page-body')]);
   });
 
-  it('keeps the band pinned while it is exactly half the scroller tall', () => {
+  it('keeps the band pinned while it is exactly 70% of the scroller tall', () => {
     render(<PageBody pinned="links">content</PageBody>);
-    layOut({ band: 400, scroller: 800 });
+    layOut({ band: 700, scroller: 1000 });
     expect(isPinned()).toBe(true);
   });
 
-  it('lets the band scroll with the page once it is taller than half the scroller', () => {
+  it('lets the band scroll with the page once it is taller than 70% of the scroller', () => {
     render(<PageBody pinned="links">content</PageBody>);
-    layOut({ band: 401, scroller: 800 });
+    layOut({ band: 701, scroller: 1000 });
     expect(isPinned()).toBe(false);
+  });
+
+  // The measured /accessibility cases the threshold is set to sort.
+  it.each([
+    { label: '768x900 at 100% text', band: 466, scroller: 844, pinned: true },
+    { label: '1440x900 at the largest text', band: 529, scroller: 779, pinned: true },
+    { label: '834x1112 at the largest text', band: 933, scroller: 1033, pinned: false },
+    { label: '768x900 at the largest text', band: 1103, scroller: 821, pinned: false },
+  ])('sorts the /accessibility band at $label', ({ band, scroller, pinned }) => {
+    render(<PageBody pinned="links">content</PageBody>);
+    layOut({ band, scroller });
+    expect(isPinned()).toBe(pinned);
   });
 
   it('pins the band again once it fits', () => {
     render(<PageBody pinned="links">content</PageBody>);
-    layOut({ band: 401, scroller: 800 });
-    layOut({ band: 400, scroller: 800 });
+    layOut({ band: 701, scroller: 1000 });
+    layOut({ band: 700, scroller: 1000 });
     expect(isPinned()).toBe(true);
   });
 
   it('unpins the band when the scroller shrinks under it', () => {
     render(<PageBody pinned="links">content</PageBody>);
-    layOut({ band: 300, scroller: 800 });
-    layOut({ band: 300, scroller: 599 });
+    layOut({ band: 600, scroller: 1000 });
+    layOut({ band: 600, scroller: 857 });
     expect(isPinned()).toBe(false);
+  });
+
+  it("pads the scroller's top by the band's height while the band is pinned", () => {
+    render(<PageBody pinned="links">content</PageBody>);
+    layOut({ band: 300, scroller: 1000 });
+    expect(screen.getByTestId('page-body').style.scrollPaddingTop).toBe('300px');
+  });
+
+  it('follows the band height in the padding as the pinned band grows', () => {
+    render(<PageBody pinned="links">content</PageBody>);
+    layOut({ band: 300, scroller: 1000 });
+    layOut({ band: 450, scroller: 1000 });
+    expect(screen.getByTestId('page-body').style.scrollPaddingTop).toBe('450px');
+  });
+
+  it("drops the scroller's top padding once the band scrolls with the page", () => {
+    render(<PageBody pinned="links">content</PageBody>);
+    layOut({ band: 300, scroller: 1000 });
+    layOut({ band: 701, scroller: 1000 });
+    expect(screen.getByTestId('page-body').style.scrollPaddingTop).toBe('');
   });
 
   it('keeps the band boxless below 768 whether or not it fits', () => {
     render(<PageBody pinned="links">content</PageBody>);
-    layOut({ band: 401, scroller: 800 });
+    layOut({ band: 701, scroller: 1000 });
     expect(pinnedBand().className.split(' ')).toContain('max-md:contents');
   });
 

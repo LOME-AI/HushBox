@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { LOCAL_NEON_DEV_CONFIG, adminAudit, createDb, idempotencyKeys } from '@hushbox/db';
 import { Mode } from '@hushbox/shared';
 import { envConfig } from '@hushbox/shared/env.config';
-import { hashCanonicalJson, uuidFromHex } from '../../lib/idempotency/index.js';
+import { hashCanonicalJson, hashRequestBody, uuidFromHex } from '../../lib/idempotency/index.js';
 import { applyPipeline } from '../../middleware/pipeline.js';
 import { ADMIN_ROUTE_ROLES } from '../../composition/admin-route-roles.js';
 import {
@@ -785,7 +785,7 @@ describe('admin routes: POST /admin/ops/:name/execute', () => {
       route: 'admin/ops/fixture.mark',
       key,
       kind: 'request',
-      bodyHash: await hashCanonicalJson({ input: body.input, undoes: null }),
+      bodyHash: hashRequestBody({ input: body.input, undoes: null }),
       claimedBy: `admin-routes-other-executor-${RUN_ID}`,
     });
     const response = await send('/admin/ops/fixture.mark/execute', {

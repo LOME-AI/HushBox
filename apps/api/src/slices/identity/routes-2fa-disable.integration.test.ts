@@ -9,6 +9,8 @@ import {
   startLogin as opaqueClientStartLogin,
 } from '@hushbox/crypto';
 import { DELETE_ACCOUNT_CONFIRMATION_PHRASE, ERROR_CODES } from '@hushbox/shared';
+import { rateLimitKey } from '../../lib/rate-limit/index.js';
+import { IDENTITY_KEYS } from './domain/keys.js';
 import {
   db,
   disabledEmailFailure,
@@ -17,10 +19,12 @@ import {
   post,
   recordCaptures,
   recordErrorLines,
+  redis,
   registerAccount,
   registerLoginFull,
   scrubbedCaptureTags,
   sentTwoFactorDisabled,
+  sentTwoFactorLocked,
   stepUpKe3,
   testEnv,
   wrongCode,
@@ -244,6 +248,26 @@ describe('identity routes: 2FA disable (step-up + code)', () => {
     );
     expect(finish.status).toBe(400);
     expect(await finish.json()).toEqual({ code: ERROR_CODES.INVALID_TOTP_CODE });
+  });
+
+  it('sends no first-trip email when the disable finish trips the TOTP gate', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+    const { maxAttempts, windowSeconds } = IDENTITY_KEYS.twoFactorLockout;
+    await redis.set(
+      rateLimitKey(IDENTITY_KEYS.twoFactorLockout, account.userId)._unsafeUnwrap(),
+      maxAttempts,
+      { ex: windowSeconds }
+    );
+    const init = await disableInit(cookie, account.password);
+    const ke3 = await stepUpKe3(init.ke2, init.client);
+    const finish = await post(
+      '/auth/2fa/disable/finish',
+      { ke3, code: wrongCode(secret), disable2FASessionId: init.sessionId },
+      cookie
+    );
+    expect(finish.status).toBe(429);
+    expect(sentTwoFactorLocked.filter((sent) => sent.to === account.email)).toEqual([]);
   });
 });
 

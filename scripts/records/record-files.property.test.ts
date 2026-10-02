@@ -194,7 +194,7 @@ async function referenceSet(main: string, checkout: Checkout): Promise<string[]>
     .toSorted((a, b) => a.localeCompare(b));
 }
 
-/** Checkouts to sweep. Each costs about a dozen git processes, so the sweep is sized to a few seconds. */
+/** Checkouts to sweep. Each one runs about a dozen git processes, so the sweep's cost grows linearly with this count. */
 const CHECKOUTS = 150;
 
 const SEED = 0x7e_c0_4d_51;

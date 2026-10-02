@@ -1,4 +1,4 @@
-// POST /chat/stop: who may abort a run — members and link guests — the
+// POST /chat/stop: who may stop a run — members and link guests — the
 // revocation, expiry and privilege edges of that permission, and the caller
 // principal the route hands to the room, which authorizes it against the live
 // run there.
@@ -280,7 +280,7 @@ describe('chat route: POST /chat/stop', () => {
     expect(res.status).toBe(401);
   });
 
-  it('keeps a READ-privileged session member able to abort a run started before demotion', async () => {
+  it('keeps a READ-privileged session member able to stop a run started before demotion', async () => {
     const ownerId = await seedUser();
     const conversationId = await seedConversation(ownerId, false);
     await db

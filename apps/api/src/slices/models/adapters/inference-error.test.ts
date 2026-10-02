@@ -234,11 +234,11 @@ describe('classifyInferenceFailure', () => {
 
 describe('error factories', () => {
   it('builds an aborted error carrying the reason', () => {
-    const error = abortedError('user stop');
+    const error = abortedError('hard stop');
 
     expect(error).toBeInstanceOf(InferenceError);
     expect(error.code).toBe('aborted');
-    expect(error.message).toContain('user stop');
+    expect(error.message).toContain('hard stop');
   });
 
   it('builds an aborted error without a reason', () => {

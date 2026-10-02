@@ -12,6 +12,7 @@ import {
   tokenPricingFixture,
 } from '../../testing/pricing-fixture.ts';
 
+/** Stored rates 1 / 2; a reserve holds their ceilings, five quarters rounded up: 2 / 3. */
 const TOKEN_PRICING = tokenPricingFixture({ input: 1n, output: 2n });
 
 const IMAGE_PRICING = perImagePricingFixture({ anchor: 100n, dearest: 100n });
@@ -40,7 +41,7 @@ describe('reservedCallParts', () => {
       { kind: 'tokens', inputTokens: 100, outputTokens: 50 },
       CEILING
     );
-    expect(result.ok && result.value.providerNanoUsd).toBe(100n * 1n + 50n * 2n);
+    expect(result.ok && result.value.providerNanoUsd).toBe(100n * 2n + 50n * 3n);
   });
 
   it('reserves no storage for a call with no storage context', () => {
@@ -219,9 +220,9 @@ describe('estimateRunCeilingNanoUsd', () => {
       { kind: 'tokens', inputTokens: 1000, outputTokens: 1000 },
       CEILING
     );
-    // billable provider cost = 1000×1 + 1000×2 = 3000; rates are already
-    // fee-inclusive, so no fee math applies here.
-    expect(result.ok && result.value).toBe(3000n);
+    // billable provider cost at the ceiling = 1000×2 + 1000×3 = 5000; rates are
+    // already fee-inclusive, so no fee math applies here.
+    expect(result.ok && result.value).toBe(5000n);
   });
 
   it('multiplies the ceiling by the declared width × iterations', () => {
@@ -271,15 +272,15 @@ describe('estimateRunCeilingNanoUsd', () => {
     );
     // Three steps: the prompt and the output on each, the model's own output
     // re-sent 3 × 2 / 2 times, 2 results re-sent on 2 later steps each, and the
-    // tool-use overhead on the 2 tool-carrying steps, at 1 nano per input token
-    // and 2 per output token; then the two call fees.
+    // tool-use overhead on the 2 tool-carrying steps, at the ceiling's 2 nano
+    // per input token and 3 per output token; then the two call fees.
     const resultTokens = BigInt(loop.resultTokens);
     expect(looped.ok && looped.value).toBe(
-      3n * 1000n * 1n +
+      3n * 1000n * 2n +
+        3n * 1000n * 3n +
         3n * 1000n * 2n +
-        3n * 1000n * 1n +
-        2n * 2n * resultTokens * 1n +
-        2n * BigInt(loop.overheadTokens) * 1n +
+        2n * 2n * resultTokens * 2n +
+        2n * BigInt(loop.overheadTokens) * 2n +
         2n * loop.callFeeNano
     );
   });

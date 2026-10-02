@@ -216,7 +216,7 @@ const FUNDING_LEVELS = [
  * fundings where the pin changes nothing, so without this one the fixed point
  * would be a comparison of two identical no-op calls.
  */
-const PIN_SENSITIVE_FUNDING = 18_500_000n;
+const PIN_SENSITIVE_FUNDING = 23_125_000n;
 
 describe('the composer effort loop converges', () => {
   it('reaches a fixed point at every funding level', () => {

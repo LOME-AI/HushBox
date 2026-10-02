@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { Slot } from '@radix-ui/react-slot';
 
 import { cn } from '../../lib/utilities';
 import { useFormFactor } from '../platform/use-form-factor';
@@ -25,9 +24,10 @@ const WIDTH_CLASS = {
 // Radix measures the room on the side the popover lands on, inside the boundary, into these
 // variables; capping to them is what narrows it to the room and scrolls a body taller than it.
 // The height cap never drops below 10rem, so a boundary with no room left still leaves a
-// scrolling popover rather than an empty or uncapped one. The column lets a child that opts
-// into shrinking, with `min-h-0`, take the scroll itself and keep what sits around it in view;
-// every other child keeps its own height, so a body of fixed height still scrolls the popover.
+// scrolling popover rather than an empty or uncapped one. In the column every child keeps its
+// own height (`*:shrink-0`), so a body of fixed height still scrolls the popover. A child takes
+// the scroll itself, keeping what sits around it in view, only with `min-h-0` and a shrink that
+// outranks `*:shrink-0`, which Tailwind sorts after a plain `shrink`: `[&]:shrink` does.
 const ANCHORED_CLASS =
   'flex flex-col *:shrink-0 max-h-[max(10rem,var(--radix-popover-content-available-height))] max-w-(--radix-popover-content-available-width) overflow-y-auto';
 
@@ -62,78 +62,92 @@ interface PopoverProps {
 
 type Presentation = 'anchored' | 'sheet';
 
-function AnchoredPopover({
-  trigger,
+/** A rectangle the popover hangs from: the caller's anchor, or else its own trigger. */
+interface HangPoint {
+  getBoundingClientRect: () => DOMRect;
+}
+
+/**
+ * Where the anchored popover hangs. It is always one registered anchor, the caller's or else a
+ * stand-in that measures the trigger, so Radix never swaps the trigger in and out as its own
+ * anchor: each swap remounts the trigger node, which drops focus from it and can leave Radix
+ * measuring a node no longer on the page. It registers a commit after the trigger, because the
+ * trigger registers itself whenever its ref attaches, which StrictMode repeats after the
+ * anchor's one registration in the same commit.
+ */
+function useHangPoint(
+  anchor: Measurable | null | undefined,
+  trigger: React.RefObject<HTMLElement | null>
+): { current: HangPoint } | undefined {
+  const [triggerAttached, setTriggerAttached] = React.useState(false);
+  React.useEffect(() => {
+    setTriggerAttached(true);
+  }, []);
+  return React.useMemo(() => {
+    if (!triggerAttached) return;
+    if (anchor) return { current: anchor };
+    return {
+      current: {
+        getBoundingClientRect: () => (trigger.current ?? document.body).getBoundingClientRect(),
+      },
+    };
+  }, [anchor, trigger, triggerAttached]);
+}
+
+type ContentProps = Pick<
+  PopoverProps,
+  'title' | 'align' | 'side' | 'width' | 'boundary' | 'data-testid' | 'children'
+>;
+
+function AnchoredContent({
   title,
   align = 'center',
   side = 'bottom',
   width = 'sm',
-  anchor,
   boundary,
-  open,
-  onOpenChange,
   'data-testid': testId,
   children,
-}: Readonly<
-  PopoverProps & { open: boolean; onOpenChange: (open: boolean) => void }
->): React.JSX.Element {
-  const anchorRef = React.useMemo(() => (anchor ? { current: anchor } : undefined), [anchor]);
+}: Readonly<ContentProps>): React.JSX.Element {
   return (
-    <PopoverRoot open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      {anchorRef !== undefined && <PopoverAnchor virtualRef={anchorRef} />}
-      <PopoverContent
-        aria-label={title}
-        side={side}
-        align={align}
-        sideOffset={SIDE_OFFSET_PX}
-        collisionPadding={COLLISION_PADDING_PX}
-        collisionBoundary={boundary ?? []}
-        className={cn(WIDTH_CLASS[width], ANCHORED_CLASS, TEXT_CLASS)}
-        {...(testId !== undefined && { 'data-testid': testId })}
-      >
-        {children}
-      </PopoverContent>
-    </PopoverRoot>
+    <PopoverContent
+      aria-label={title}
+      side={side}
+      align={align}
+      sideOffset={SIDE_OFFSET_PX}
+      collisionPadding={COLLISION_PADDING_PX}
+      collisionBoundary={boundary ?? []}
+      className={cn(WIDTH_CLASS[width], ANCHORED_CLASS, TEXT_CLASS)}
+      {...(testId !== undefined && { 'data-testid': testId })}
+    >
+      {children}
+    </PopoverContent>
   );
 }
 
-function SheetPopover({
-  trigger,
+function SheetContent({
   title,
   open,
   onOpenChange,
   'data-testid': testId,
   children,
 }: Readonly<
-  PopoverProps & { open: boolean; onOpenChange: (open: boolean) => void }
+  ContentProps & { open: boolean; onOpenChange: (open: boolean) => void }
 >): React.JSX.Element {
   return (
-    <>
-      <Slot
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => {
-          onOpenChange(!open);
-        }}
+    <Overlay open={open} onOpenChange={onOpenChange} ariaLabel={title} showCloseButton={false}>
+      <OverlayContent
+        className={TEXT_CLASS}
+        {...(testId !== undefined && { 'data-testid': testId })}
       >
-        {trigger}
-      </Slot>
-      <Overlay open={open} onOpenChange={onOpenChange} ariaLabel={title} showCloseButton={false}>
-        <OverlayContent
-          className={TEXT_CLASS}
-          {...(testId !== undefined && { 'data-testid': testId })}
-        >
-          <SheetHead
-            title={title}
-            onClose={() => {
-              onOpenChange(false);
-            }}
-          />
-          {children}
-        </OverlayContent>
-      </Overlay>
-    </>
+        <SheetHead
+          title={title}
+          onClose={() => {
+            onOpenChange(false);
+          }}
+        />
+        {children}
+      </OverlayContent>
+    </Overlay>
   );
 }
 
@@ -142,19 +156,41 @@ function SheetPopover({
  * fits the room it opens in: it flips to the other side only when its own side is short, caps its
  * height to the room and scrolls, and stays inside `boundary`. Below 768 it is a bottom sheet
  * headed by its title, with a close button.
+ *
+ * One trigger serves both presentations, so crossing 768 never replaces the node a reader is
+ * focused on or the popover is measured from.
  */
 function Popover({
   open: requestedOpen,
   onOpenChange,
-  ...props
+  trigger,
+  anchor,
+  ...content
 }: Readonly<PopoverProps>): React.JSX.Element {
   const { band } = useFormFactor();
   const [open, setOpen] = useOpenState(requestedOpen, onOpenChange);
   const presentation = useOpenedValue<Presentation>(open, band === 'phone' ? 'sheet' : 'anchored');
-  return presentation === 'sheet' ? (
-    <SheetPopover {...props} open={open} onOpenChange={setOpen} />
-  ) : (
-    <AnchoredPopover {...props} open={open} onOpenChange={setOpen} />
+  const sheet = presentation === 'sheet';
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const hangPoint = useHangPoint(anchor, triggerRef);
+  return (
+    // As a sheet the Radix popover stays shut and the overlay is what opens; its trigger still
+    // toggles through Radix, which reports a press while shut as a request to open.
+    <PopoverRoot open={open && !sheet} onOpenChange={setOpen}>
+      <PopoverTrigger
+        ref={triggerRef}
+        asChild
+        {...(sheet && { 'aria-expanded': open, 'aria-controls': undefined })}
+      >
+        {trigger}
+      </PopoverTrigger>
+      {hangPoint !== undefined && <PopoverAnchor virtualRef={hangPoint} />}
+      {sheet ? (
+        <SheetContent {...content} open={open} onOpenChange={setOpen} />
+      ) : (
+        <AnchoredContent {...content} />
+      )}
+    </PopoverRoot>
   );
 }
 

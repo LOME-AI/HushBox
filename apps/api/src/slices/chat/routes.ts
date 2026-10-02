@@ -27,7 +27,7 @@ import {
   consumeTrialQuota,
   consumeTrialRemainingIpLimit,
   createErrorResponse,
-  hashCanonicalJson,
+  hashRequestBody,
   idempotent,
   memberAdmits,
   readTrialQuotaRemaining,
@@ -199,7 +199,7 @@ export function createChatManifest(deps: ChatRouteDeps) {
           const definition = await turnDefinitionOrRefusal(c, deps, body, { userId, budget });
           if (definition instanceof Response) return definition;
 
-          const bodyHash = await startTurnBodyHash(body, history);
+          const bodyHash = startTurnBodyHash(body, history);
           const userMessageId = randomUuid();
           const runStartBody = paidRunStartBody(c, {
             body,
@@ -278,7 +278,7 @@ export function createChatManifest(deps: ChatRouteDeps) {
           });
           if (definition instanceof Response) return definition;
 
-          const bodyHash = await startTurnBodyHash(body, history);
+          const bodyHash = startTurnBodyHash(body, history);
           const userMessageId = randomUuid();
           const runStartBody = paidRunStartBody(c, {
             body,
@@ -376,7 +376,7 @@ export function createChatManifest(deps: ChatRouteDeps) {
               ? {}
               : { replaceAssistantId: body.replaceAssistantId }),
           };
-          const bodyHash = await regenerateTurnBodyHash(body, history, regenerateCore);
+          const bodyHash = regenerateTurnBodyHash(body, history, regenerateCore);
           // Carry the tip the guard validated its deletable tail against so the
           // settlement can assert the fork-row-locked tip still matches it (the
           // fork-tip TOCTOU fence). Only meaningful on a fork regenerate.
@@ -467,7 +467,7 @@ export function createChatManifest(deps: ChatRouteDeps) {
             return c.json(createErrorResponse(ERROR_CODES.TRIAL_LIMIT_REACHED), 429);
           }
 
-          const bodyHash = await hashCanonicalJson({
+          const bodyHash = hashRequestBody({
             turnSources: body.turnSources,
             prompt: body.prompt,
             history,
@@ -593,18 +593,18 @@ export function createChatManifest(deps: ChatRouteDeps) {
         );
       })
       // Explicit user stop. Plain HTTP by design — a WS-blocked caller must
-      // still be able to abort a paid run — and membership-gated so no one can
+      // still be able to stop a paid run — and membership-gated so no one can
       // stop another conversation's run. The resolved caller rides to the room,
       // the only place it can be compared against the live run's own sender and
       // payer: a member with no money at stake must not be able to trigger a
-      // settlement that bills the payer, and the room refuses it. The DO settles
-      // and bills the partial; a repeat is a no-op (`stopped:false` once the run
-      // is gone).
+      // settlement that bills the payer, and the room refuses it. The DO starts
+      // nothing new, lets the work in flight finish, and settles what the run
+      // produced; a repeat is a no-op (`stopped:false` once the run is gone).
       //
       // PUBLIC, like the guest send and for the same reason: the HTTP matrix
       // admits no link-guest principal, so a guest reaches the run it started
       // only through the in-handler credential gate. Both send and stop resolve
-      // through that one gate, so a guest that may start a run may abort it and
+      // through that one gate, so a guest that may start a run may stop it and
       // no revocation predicate exists twice.
       .post(
         '/stop',

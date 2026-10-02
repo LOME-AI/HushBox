@@ -122,6 +122,9 @@ vi.mock('@/stores/search', () => ({ useSearchStore: () => ({ webSearchEnabled: f
 /** The served input rate: what one input token costs, in nano-USD. */
 const INPUT_RATE_NANO = 10_000n;
 
+/** What affordability reserves per input token: the served rate's ceiling, five quarters of it. */
+const HELD_INPUT_RATE_NANO = 12_500n;
+
 const TEXT_MODEL: Model = {
   id: 'test-model',
   name: 'Test Model',
@@ -215,13 +218,13 @@ describe('the composer figures a payer sees before anything is sent', () => {
     // The identity that makes this a derivation rather than an agreement: the
     // two inputs are priced against each other. Characters the hook measured
     // off the composed message are added, and the balance the server served is
-    // raised by precisely what those characters cost — the served rate over the
+    // raised by precisely what those characters cost — the held rate over the
     // tokens they occupy, plus what storing them costs. A client deriving its
     // answer length from both cannot move; one that stopped counting characters
     // would report a LONGER answer for the extra money, and one that ignored
     // the served balance a shorter one for the extra prompt.
     const addedCost =
-      BigInt(inputTokensOf(ADDED_CHARACTERS)) * INPUT_RATE_NANO +
+      BigInt(inputTokensOf(ADDED_CHARACTERS)) * HELD_INPUT_RATE_NANO +
       charStorageNanoUsd(ADDED_CHARACTERS);
     const base = await composerWith(TYPED);
 

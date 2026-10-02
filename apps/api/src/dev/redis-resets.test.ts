@@ -155,11 +155,20 @@ describe('resetAuthRateLimits', () => {
         `ratelimit:identity:resend-verify:email:${hmacRateLimitId(NAMED.canonical)}`,
         `ratelimit:identity:login:lockout:${hmacRateLimitId('user-named')}`,
         `ratelimit:identity:totp:lockout:${hmacRateLimitId('user-named')}`,
+        `ratelimit:identity:totp:ceiling:${hmacRateLimitId('user-named')}`,
         `ratelimit:identity:step-up:lockout:${hmacRateLimitId('user-named')}`,
         `ratelimit:identity:delete-account:lockout:${hmacRateLimitId('user-named')}`,
         `ratelimit:identity:delete-account:init-lockout:${hmacRateLimitId('user-named')}`,
       ])
     );
+  });
+
+  it('clears the named account’s first-trip TOTP email latch', async () => {
+    const { redis, deleted } = stubSweepRedis();
+
+    await resetAuthRateLimits(redis, CALLER_IP_ID, [NAMED]);
+
+    expect(deleted).toContain(`totp:trip-notified:${String(NAMED.userId)}`);
   });
 
   it('names no counter key that carries the email it clears', async () => {

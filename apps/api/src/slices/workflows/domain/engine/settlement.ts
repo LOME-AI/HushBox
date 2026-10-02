@@ -1,7 +1,7 @@
 import {
   runSettlement,
   runSettlementSavepoint,
-  succeedKeyRow,
+  succeedRunKeyRow,
 } from '../../../../lib/idempotency/index.js';
 import { chargeWithinTx } from '../../../billing/index.js';
 import { AbsorbedSettlementRefusal, SettlementConflictError } from './failures.js';
@@ -42,11 +42,16 @@ export class SettlementCompletionError extends Error {
 /** Persists content + charges within the settlement transaction. */
 export type SettlementCommit = (tx: SettlementTx, request: SettlementRequest) => Promise<void>;
 
-/** The fenced `claimed → succeeded` flip; production wires `keyRowCompletion`. */
+/**
+ * The fenced `claimed → succeeded` flip; production wires `keyRowCompletion`.
+ * `lost`: another claimant holds the row. `missing`: the row is gone because
+ * the run's account was deleted, so there is nothing left to flip and nobody
+ * left to retry; the settlement stands as it would have.
+ */
 export type KeyRowCompletion = (
   tx: SettlementTx,
   fence: KeyRowFence
-) => Promise<'flipped' | 'lost'>;
+) => Promise<'flipped' | 'lost' | 'missing'>;
 
 /** What a refusal commit did with a refused run's charges. */
 type RefusalDisposition = 'billed' | 'absorbed';
@@ -120,13 +125,14 @@ async function commitOrBillRefusal(
 
 /**
  * Production wiring of the fence flip over the idempotency-key row: the
- * `succeedKeyRow` fenced transition stores the replayable response and yields
- * `'lost'` when a zombie claimant reaches the fence. An infra error throws
- * (rolling the settlement back), never resolves to a silent outcome.
+ * `succeedRunKeyRow` fenced transition stores the replayable response, yields
+ * `'lost'` when a zombie claimant reaches the fence and `'missing'` when the
+ * row went with its account. An infra error throws (rolling the settlement
+ * back), never resolves to a silent outcome.
  */
 export function keyRowCompletion(response: unknown): KeyRowCompletion {
   return (tx, fence) =>
-    succeedKeyRow(tx, fence, response).match(
+    succeedRunKeyRow(tx, fence, response).match(
       (outcome) => outcome,
       (error) => {
         throw new SettlementCompletionError(error);

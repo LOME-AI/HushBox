@@ -31,6 +31,7 @@ const CITED_ENTRIES: readonly RateLimitDefinition[] = [
   IDENTITY_KEYS.deleteAccountInitLockout,
   IDENTITY_KEYS.deleteAccountLockout,
   IDENTITY_KEYS.twoFactorLockout,
+  IDENTITY_KEYS.twoFactorCeiling,
   IDENTITY_KEYS.loginLockout,
   IDENTITY_KEYS.loginLockoutPerNetwork,
   IDENTITY_KEYS.registerRateLimit,
@@ -107,21 +108,23 @@ describe("the step-up routes' citations", () => {
     );
   });
 
-  it('cites both counters the deletion finish spends, in the order it spends them', () => {
+  it('cites every counter the deletion finish spends, in the order it spends them', () => {
     // The deletion gate answers first; a 2FA-enabled account then pays the
-    // shared TOTP lockout on the same request. Declaring only the first would
-    // understate the route's bound, and `keyedBy` is positional, so the order
-    // here is the order the flow charges them in.
+    // shared TOTP pair — ceiling, then window — on the same request. Declaring
+    // only the first would understate the route's bound, and `keyedBy` is
+    // positional, so the order here is the order the flow charges them in.
     expect(
       IDENTITY_ROUTE_POSTURES['$post /auth/account/delete/finish'].countedInFlow
     ).toStrictEqual([
       countedInFlow(IDENTITY_KEYS.deleteAccountLockout),
+      countedInFlow(IDENTITY_KEYS.twoFactorCeiling),
       countedInFlow(IDENTITY_KEYS.twoFactorLockout),
     ]);
   });
 
   it('names one identity per layer on the deletion finish, repeating the shared one', () => {
     expect(IDENTITY_ROUTE_POSTURES['$post /auth/account/delete/finish'].keyedBy).toStrictEqual([
+      'user',
       'user',
       'user',
     ]);
@@ -133,11 +136,15 @@ describe("the step-up routes' citations", () => {
     ).toBeUndefined();
   });
 
-  it('cites the TOTP lockout, alone, on the login and 2FA-disable verifications', () => {
+  it('cites the TOTP ceiling then window, alone, on the login and 2FA-disable verifications', () => {
+    // Positional: the ceiling is spent first so that a frozen account's
+    // refusal is attributed to the ceiling, whose wait is the one that holds.
     expect(IDENTITY_ROUTE_POSTURES['$post /auth/login/2fa/verify'].countedInFlow).toStrictEqual([
+      countedInFlow(IDENTITY_KEYS.twoFactorCeiling),
       countedInFlow(IDENTITY_KEYS.twoFactorLockout),
     ]);
     expect(IDENTITY_ROUTE_POSTURES['$post /auth/2fa/disable/finish'].countedInFlow).toStrictEqual([
+      countedInFlow(IDENTITY_KEYS.twoFactorCeiling),
       countedInFlow(IDENTITY_KEYS.twoFactorLockout),
     ]);
   });

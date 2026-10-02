@@ -52,6 +52,14 @@ describe('git', () => {
       /^records: find the root failed: /u
     );
   });
+
+  it('runs git with terminal prompts turned off', async () => {
+    vi.stubEnv('GIT_TERMINAL_PROMPT', '1');
+
+    await expect(
+      git(sandbox, ['-c', 'alias.prompt=!printf %s "$GIT_TERMINAL_PROMPT"', 'prompt'])
+    ).resolves.toBe('0');
+  });
 });
 
 describe('gitResult', () => {

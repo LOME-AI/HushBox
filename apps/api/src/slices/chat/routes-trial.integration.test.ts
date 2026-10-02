@@ -137,14 +137,15 @@ describe('chat route: POST /chat/trial', () => {
 
   /**
    * Rates at which the 1¢ ceiling is genuinely the binding term for a reasoning
-   * level: `medium` (B = 12,288) plus a minimum viable answer costs
+   * level. Stored at 800 / 1,200, they are held at their ceilings, 1,000 /
+   * 1,500: `medium` (B = 12,288) plus a minimum viable answer costs
    * 13,288 × 1,500 ≈ 19.9M nano and overruns the ceiling, while `low` (B = 4,096)
    * plus one fits. The suite's default 2/3 nano rates cannot tell the two apart —
    * storage-free, every level fits a 1¢ ceiling there — so a refusal pinned on that
    * basis would pin nothing. Determinism comes from the seeding, not the rates —
    * see {@link REASONING_TRIAL_FIXTURE}.
    */
-  const REASONING_TRIAL_RATES = { anchor: { base: { input: '1000', output: '1500' } } } as const;
+  const REASONING_TRIAL_RATES = { anchor: { base: { input: '800', output: '1200' } } } as const;
 
   /**
    * The reasoning fixture's descriptor. Seeded through `withPinnedTrialCatalog`
@@ -159,7 +160,7 @@ describe('chat route: POST /chat/trial', () => {
     pricing: REASONING_TRIAL_RATES,
   } as const;
 
-  /** What the 1¢ ceiling buys at {@link REASONING_TRIAL_RATES}, storage-free. */
+  /** What the 1¢ ceiling buys at the ceiling of {@link REASONING_TRIAL_RATES}, storage-free. */
   function trialBuysTokens(prompt: string): number {
     return Math.floor((10_000_000 - trialInputTokens(prompt) * 1000) / 1500);
   }
@@ -178,7 +179,7 @@ describe('chat route: POST /chat/trial', () => {
   const CLASSIFIER_RESERVE_TRIAL_FIXTURE = {
     reasoning: { supportedEfforts: null },
     limits: { contextLength: 1_000_000 },
-    pricing: { anchor: { base: { input: '1000', output: '3000' } } },
+    pricing: { anchor: { base: { input: '800', output: '2400' } } },
   } as const;
 
   /**
@@ -219,9 +220,10 @@ describe('chat route: POST /chat/trial', () => {
 
   it('caps a trial single-model answer at its context headroom when the money does not bind', async () => {
     // BILLING §Model bounds: ceiling = min(providerCap, contextHeadroom, budgetBuys).
-    // The seeded model has no provider cap, and at 3 nano per output token the 1¢
-    // ceiling buys ~3.3M tokens — far past this 1M window — so the PROMPT is what
-    // binds and the cap is the context headroom.
+    // The seeded model has no provider cap, and with its stored 3-nano output
+    // rate held at the ceiling of 4 nano per token the 1¢ ceiling buys ~2.5M
+    // tokens — far past this 1M window — so the PROMPT is what binds and the cap
+    // is the context headroom.
     //
     // Recorded because it is the trap in this fixture: the spec-conformant cap here
     // equals what an entirely UNBOUNDED cap would also produce, so this case pins the
@@ -254,7 +256,8 @@ describe('chat route: POST /chat/trial', () => {
     // The companion case, on a window wide enough that the MONEY term is tightest.
     // The oracle is §Model bounds' `budgetBuys` on a turn that never persists, so
     // §Trial Usage gives it no storage term at all:
-    //   floor((1¢ − inputTokens × inputRate) / outputRate), at the seeded 2/3 rates.
+    //   floor((1¢ − inputTokens × inputRate) / outputRate), at 3/4, the ceilings
+    //   of the seeded 2/3 rates.
     // Storage would have swallowed ~99.8% of this ceiling — the old cap was 7,909
     // tokens on the 1M-window fixture — and a trial turn does not pay it.
     const wideCtx = `chat-route/${crypto.randomUUID().slice(0, 8)}`;
@@ -278,7 +281,7 @@ describe('chat route: POST /chat/trial', () => {
     const definition = captured[0];
     if (definition === undefined) throw new Error('expected a captured definition');
     const inputTokens = trialInputTokens('hi');
-    const buys = Math.floor((10_000_000 - inputTokens * 2) / 3);
+    const buys = Math.floor((10_000_000 - inputTokens * 3) / 4);
     // The money term is genuinely the binding one here, which is what the other
     // fixture cannot show.
     expect(buys).toBeLessThan(5_000_000 - inputTokens);
@@ -575,14 +578,15 @@ describe('chat route: POST /chat/trial', () => {
   });
 
   /**
-   * Rates at which the 1¢ ceiling buys an answer but no rung: it fits a cap past
-   * the minimum-answer floor and short of Lite's budget plus that same floor.
-   * The ladder is full (six choices), so the turn classifies.
+   * Rates at which the 1¢ ceiling buys an answer but no rung: held at their
+   * ceilings, 1,000 / 4,000, it fits a cap past the minimum-answer floor and
+   * short of Lite's budget plus that same floor. The ladder is full (six
+   * choices), so the turn classifies.
    */
   const UNFUNDABLE_LADDER_TRIAL_FIXTURE = {
     reasoning: { supportedEfforts: null },
     limits: { contextLength: 1_000_000 },
-    pricing: { anchor: { base: { input: '1000', output: '4000' } } },
+    pricing: { anchor: { base: { input: '800', output: '3200' } } },
   } as const;
 
   it('sends the same fixture without auto (201 — the answer alone fits the ceiling)', async () => {

@@ -1601,10 +1601,11 @@ describe('reasoning answer cap fitting (B constant, H sized)', () => {
 describe('trialReasoningSelection', () => {
   // A trial turn persists nothing, so §Trial Usage gives it no storage term at all
   // and the 1¢ ceiling buys purely provider tokens. Rates are therefore chosen so the
-  // MONEY term actually binds: at 1,500 billable nano per output token,
-  // `low` costs 3 × 1,000 + (4,096 + 1,000) × 1,500 = 7,647,000 nano and fits the
-  // 10,000,000-nano ceiling, while `medium` costs
-  // 3 × 1,000 + (12,288 + 1,000) × 1,500 = 19,935,000 and does not. A 2–3 nano
+  // MONEY term actually binds: the fit prices on the reserve side, so the stored
+  // 1,000 / 1,500 billable nano per token are held at their ceilings, 1,250 /
+  // 1,875, and `low` costs 3 × 1,250 + (4,096 + 1,000) × 1,875 = 9,558,750 nano
+  // and fits the 10,000,000-nano ceiling, while `medium` costs
+  // 3 × 1,250 + (12,288 + 1,000) × 1,875 = 24,918,750 and does not. A 2–3 nano
   // fixture cannot tell the two apart — every level fits — so it would pin nothing.
   function trialDescriptor(reasoning?: ModelDescriptor['reasoning']): ModelDescriptor {
     return {

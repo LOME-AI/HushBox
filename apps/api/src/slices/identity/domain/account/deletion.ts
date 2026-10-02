@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { DELETE_ACCOUNT_CONFIRMATION_PHRASE, NanoUSD } from '@hushbox/shared';
 import { fromPromise, okAsync } from '../../../../lib/result/index.js';
 import { unavailableError } from '../../../../lib/errors/index.js';
-import { runSettlement } from '../../../../lib/idempotency/index.js';
+import { deleteAccountKeyRowsWithinTx, runSettlement } from '../../../../lib/idempotency/index.js';
 import { readBalance } from '../../../billing/public/read-balance.js';
 import { redisDel, redisSet, redisTtl } from '../../../../lib/redis/index.js';
 import {
@@ -435,7 +435,9 @@ export function executeAccountDeletion(
  *   6. Delete the owned conversations explicitly (see
  *      deleteOwnedConversationsWithinTx for why the users cascade alone
  *      aborts against membership rows this transaction rewrote).
- *   7. Insert the ANONYMOUS deletion event, then delete the users row.
+ *   7. Insert the ANONYMOUS deletion event, delete every idempotency key row
+ *      the account left (live claims included: a run whose row is gone settles
+ *      as already completed), then delete the users row.
  *   8. Enqueue media.reclaimUser.v1 with the owned and foreign keys captured
  *      in steps 2 and 4, each once — atomic with the delete (Pattern C);
  *      skipped when neither step captured a key.
@@ -469,6 +471,7 @@ async function runDeletionTransaction(
       ipAddress: args.ipAddress,
       userAgent: args.userAgent,
     });
+    await deleteAccountKeyRowsWithinTx(tx, args.userId);
     await args.store.deleteUserWithinTx(tx, args.userId);
     // Disjoint by construction: storage keys are unique per content item, and
     // the two captures select messages from disjoint conversation sets.

@@ -391,7 +391,7 @@ describe('the pinned siblings` web search reaches candidate derivation', () => {
         budget: {
           promptCharacterCount: 400,
           inputCharacterCount: 400,
-          funding: { spendableNanoUsd: 4_000_000_000n, kind: 'purchased' },
+          funding: { spendableNanoUsd: 5_000_000_000n, kind: 'purchased' },
         },
       }
     );

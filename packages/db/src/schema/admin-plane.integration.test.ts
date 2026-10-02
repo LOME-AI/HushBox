@@ -239,6 +239,27 @@ describe('admin_sql_panel role', () => {
     });
   });
 
+  it('cannot select idempotency_keys.body_hash (a digest of request bodies)', async () => {
+    const error = await captureError(
+      db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL ROLE admin_sql_panel`);
+        await tx.execute(sql`SELECT body_hash FROM idempotency_keys`);
+      })
+    );
+    expect(error).toBeDefined();
+    expect(errorChainText(error)).toMatch(/permission denied/i);
+  });
+
+  it('can select the remaining idempotency_keys columns', async () => {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL ROLE admin_sql_panel`);
+      const result = await tx.execute(
+        sql`SELECT id, user_id, route, key, kind, status, response, run_id, claims, claimed_by, claimed_at, completed_at, created_at FROM idempotency_keys LIMIT 1`
+      );
+      expect(Array.isArray(result.rows)).toBe(true);
+    });
+  });
+
   it('can select the remaining users columns', async () => {
     await db.transaction(async (tx) => {
       await tx.execute(sql`SET LOCAL ROLE admin_sql_panel`);

@@ -2047,6 +2047,46 @@ describe('createWorkflowExecutor — the spend gate', () => {
     expect(run.settlements[0]?.charges).toHaveLength(6);
   });
 
+  it("refuses the queued siblings once a finished sibling's final cost crosses the circuit", async () => {
+    // `first-model` returns at once with twice the limit while five siblings stay
+    // parked; the two queued behind them must not start once its cost counts.
+    let parkedStarted = 0;
+    let markFiveParked!: () => void;
+    const fiveParked = new Promise<void>((resolve) => {
+      markFiveParked = resolve;
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const parked: FakeBehavior = {
+      streaming: true,
+      run: async () => {
+        parkedStarted += 1;
+        if (parkedStarted === 5) markFiveParked();
+        await released;
+        return ok({ value: 'answer', costNanoUsd: 5n, billing: ANSWER_BILLING });
+      },
+    };
+    const run = startRun({
+      definition: multiModelDefinition([
+        'first-model',
+        ...Array.from({ length: 7 }, () => 'answer-model'),
+      ]),
+      behaviors: {
+        'first-model': respondWith('costly', 2000n, ANSWER_BILLING),
+        'answer-model': parked,
+      },
+      decision: grantWithLimit(1000n),
+    });
+    await fiveParked;
+    // Give a queued sibling every chance to take the slot the first one freed.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+    await expect(run.done).resolves.toEqual({ outcome: 'stopped' });
+    expect(parkedStarted).toBe(5);
+  });
+
   it('ends stopped when a node in flight at a stop then throws', async () => {
     const behavior = drainingBehavior(() => {
       throw new Error('provider stream broke');
@@ -2722,8 +2762,8 @@ describe('createWorkflowExecutor — concurrent multi-model siblings', () => {
     //
     // `m0` succeeds at the provider and spends 5000n, but its value (a number
     // under a text port) never commits, so it bills nothing. That 5000n alone
-    // must still cross the 500n circuit limit. The crossing comes at the last
-    // node's end, with nothing left to start, so the run still succeeds.
+    // must still cross the 500n circuit limit. `m0` returns first, so its cost
+    // closes the gate while `m1` is still finishing; `m1` drains and still bills.
     const run = startRun({
       definition: multiModelDefinition(['first-model', 'second-model']),
       behaviors: {
@@ -2740,7 +2780,7 @@ describe('createWorkflowExecutor — concurrent multi-model siblings', () => {
       },
       decision: grantWithLimit(500n),
     });
-    await expect(run.done).resolves.toEqual({ outcome: 'succeeded' });
+    await expect(run.done).resolves.toEqual({ outcome: 'stopped' });
     // The circuit's accrual names the uncommitted generation's cost exactly,
     // which is the direct assertion that it counted: nothing else in this run
     // spent.

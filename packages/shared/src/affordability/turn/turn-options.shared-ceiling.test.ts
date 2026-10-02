@@ -84,14 +84,15 @@ describe('one shared token count, clamped per sibling afterwards', () => {
   });
 
   it('gives the wide sibling the shared count, uncapped by its tight sibling', () => {
-    // fixedCosts = 334 × 100 × 2 + 100 × 300 + 2 × 192,000 = 480,800; Σ
-    // variableRate = 2 × (200 + 1,500) = 3,400; T = floor(19,519,200 / 3,400).
-    expect(ceilingOf('vendor/wide')).toBe(5740);
+    // Both siblings' rates are held at the ceiling of 100 / 200, 125 / 250.
+    // fixedCosts = 334 × 125 × 2 + 100 × 300 + 2 × 192,000 = 497,500; Σ
+    // variableRate = 2 × (250 + 1,500) = 3,500; T = floor(19,502,500 / 3,500).
+    expect(ceilingOf('vendor/wide')).toBe(5572);
   });
 
   it('holds the summed cost at each sibling own ceiling, not the shared count twice', () => {
-    // 480,800 + 2,000 × 1,700 + 5,740 × 1,700.
-    expect(OPTIONS.holdNanoUsd).toBe(13_638_800n);
+    // 497,500 + 2,000 × 1,750 + 5,572 × 1,750.
+    expect(OPTIONS.holdNanoUsd).toBe(13_748_500n);
   });
 
   it('holds no more than the funding it was solved against', () => {
@@ -104,6 +105,6 @@ describe('one shared token count, clamped per sibling afterwards', () => {
     // strictly under the funding. A solve that clamped inside the sum would raise
     // `T` until the summed cost met the funding, which is the divergence this
     // file's amounts exist to catch.
-    expect(BigInt(FUNDING.spendableNanoUsd) - (OPTIONS.holdNanoUsd ?? 0n)).toBe(6_361_200n);
+    expect(BigInt(FUNDING.spendableNanoUsd) - (OPTIONS.holdNanoUsd ?? 0n)).toBe(6_251_500n);
   });
 });

@@ -46,6 +46,10 @@ export function PillGroup<T extends string>({
             key={option.value}
             variant="bare"
             aria-pressed={pressed}
+            // A count moves with the data behind it, so a pill showing one is
+            // counted under its label alone: the click name its visible text
+            // would derive is then one the build's growth index never lists.
+            data-track={option.count === undefined ? undefined : option.label}
             className={cn(PILL_FRAME, PILL_SIZE[size], pressed ? PILL_PRESSED : PILL_UNPRESSED)}
             onClick={() => {
               onChange(option.value);

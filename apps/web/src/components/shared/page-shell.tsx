@@ -57,10 +57,12 @@ export function PageShell({
           <div
             ref={setTitle}
             data-page-slot="title"
-            className="flex min-w-0 flex-1 items-center group-has-[[data-page-slot=center]:not(:empty)]/app-header:max-w-max"
+            className="flex min-w-0 flex-1 items-center group-has-[[data-page-slot=center]:not(:empty)]/app-header:max-w-max md:group-has-[[data-page-slot=center]:not(:empty)]/app-header:min-w-10"
           />
           {/* While a page fills the centre, the title stops at its text so the centre
-              follows it, and the controls keep to the header's end. */}
+              follows it, and the controls keep to the header's end. From 768 the title keeps
+              2.5rem, about a first word, so at large text the row wraps before the title
+              vanishes; below 768 the centre's switcher is hidden and takes no room. */}
           <div
             ref={setCenter}
             data-page-slot="center"

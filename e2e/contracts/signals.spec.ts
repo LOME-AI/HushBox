@@ -30,11 +30,14 @@ const EXERCISED_HERE = new Set<string>(
  * spec runs on every engine, so duplicating them here would multiply the cost
  * that narrowing exists to avoid; the sign-out signal is waited on by the
  * shared logout helper, so it is exercised wherever a logout runs rather than
- * in a case of its own.
+ * in a case of its own; the welcome cost signals are driven by the spec that
+ * owns that section, which reads both the ready and the failed catalog.
  */
 const EXERCISED_ELSEWHERE = {
   blogSpeaking: 'helpers/page-signals.ts',
   chatSpeaking: 'helpers/page-signals.ts',
+  costReady: 'marketing-welcome-cost.spec.ts',
+  costSettled: 'marketing-welcome-cost.spec.ts',
   signedOut: 'helpers/auth.ts',
 } satisfies Partial<Record<SignalKey, string>>;
 

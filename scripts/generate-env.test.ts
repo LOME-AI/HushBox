@@ -2395,14 +2395,15 @@ old content
   describe('ops-env section', () => {
     const content = (): string => workflowSections()['ops-env']?.content ?? '';
 
-    // Which entries a run carries is chosen at run time — from PR labels in the
-    // deploy, from a dropdown in the manual runner — so the block binds what any
-    // entry could need, and the credentials no entry names stay off the runner.
-    it('binds every variable a manifest entry requires, and nothing else', () => {
+    // Which entries a deploy carries is chosen at run time, from PR labels, so
+    // the block binds what any entry a label can name could need. A
+    // `dispatch_only` entry mints no label and the resolver refuses one.
+    it('binds every variable a deployable manifest entry requires, and nothing else', () => {
       const required = new Set(
-        loadManifest(REPO_ROOT).scripts.flatMap((script) => script.requires_secrets)
+        loadManifest(REPO_ROOT)
+          .scripts.filter((script) => script.dispatch_only !== true)
+          .flatMap((script) => script.requires_secrets)
       );
-      const byName = (a: string, b: string): number => a.localeCompare(b);
 
       expect(boundNames(content()).toSorted(byName)).toEqual([...required].toSorted(byName));
     });
@@ -2500,6 +2501,19 @@ old content
     );
   });
 
+  describe('ops-dispatch-env section', () => {
+    // The manual runner is the one path a `dispatch_only` entry has, and which
+    // entry it runs is chosen at run time, from a dropdown.
+    it('binds every variable any manifest entry requires, and nothing else', () => {
+      const required = new Set(
+        loadManifest(REPO_ROOT).scripts.flatMap((script) => script.requires_secrets)
+      );
+      const content = workflowSections()['ops-dispatch-env']?.content ?? '';
+
+      expect(boundNames(content).toSorted(byName)).toEqual([...required].toSorted(byName));
+    });
+  });
+
   describe('ops-dispatch-run-env section', () => {
     // An ops script that classifies its environment through createEnvUtilities
     // refuses to run without NODE_ENV.
@@ -2553,6 +2567,8 @@ old verify
     );
   });
 });
+
+const byName = (a: string, b: string): number => a.localeCompare(b);
 
 /** The variable names a block of bare mapping entries binds, in order. */
 function boundNames(bindings: string): string[] {
@@ -2612,7 +2628,7 @@ describe('the manual ops runner', () => {
   });
 
   it('binds no stored secret outside what a manifest entry requires', () => {
-    const allowed = new Set(storedSecrets(generateOpsEnv(loadManifest(REPO_ROOT))));
+    const allowed = new Set(storedSecrets(workflowSections()['ops-dispatch-env']?.content ?? ''));
 
     for (const step of runnerJob().steps) {
       const extra = storedSecrets(JSON.stringify(step.env ?? {})).filter(

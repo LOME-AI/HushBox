@@ -766,7 +766,7 @@ jobs:
       - name: Growth event index drift check
         run: |
           pnpm --filter @hushbox/marketing growth:index
-          git diff --exit-code apps/api/src/slices/growth/domain/growth-index.json || (echo "Growth event index drift. Regenerating the committed index means running 'pnpm --filter @hushbox/marketing growth:index' over a production marketing build, and that build needs production credentials a working checkout does not hold, so it cannot be redone locally. Route it to someone who can run a production build." && exit 1)
+          git diff --exit-code apps/api/src/slices/growth/domain/growth-index.json || (echo "Growth event index drift: the committed index no longer matches the site this commit builds. Run 'pnpm growth:index:refresh' on any checkout and commit the index it writes." && exit 1)
 
       - name: Merge marketing into web dist
         run: pnpm tsx scripts/merge-marketing-into-web.ts
@@ -926,8 +926,11 @@ jobs:
       # createEnvUtilities; mode (CiE2E) is selected from isCI at runtime.
       - name: Build e2e admin bundle
         run: pnpm build:e2e:admin
+        # BEGIN GENERATED: e2e-build-env
         env:
           NODE_ENV: development
+          VITE_HELCIM_JS_TOKEN_SANDBOX: ${{ secrets.VITE_HELCIM_JS_TOKEN_SANDBOX }}
+        # END GENERATED: e2e-build-env
 
       - name: Upload e2e admin bundle
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -1478,9 +1481,11 @@ jobs:
       cancel-in-progress: false
       queue: max
     environment: production
-    # `contents: write` is for the release tag pushed as the final step.
+    # `contents: write` is for the release tag pushed as the final step;
+    # `pull-requests: read` is for the ops-script step's pull-request label lookup.
     permissions:
       contents: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -1709,11 +1714,6 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
           # BEGIN GENERATED: ops-env
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
-          OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
-          TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
-          TOTP_ENCRYPTION_SECRET_NEXT: ${{ secrets.TOTP_ENCRYPTION_SECRET_NEXT }}
           R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
           R2_BUCKET_MEDIA: hushbox-media
           R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}
@@ -1733,11 +1733,6 @@ jobs:
         env:
           OPS_SCRIPTS: ${{ steps.ops.outputs.pre }}
           # BEGIN GENERATED: ops-env
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
-          OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
-          TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
-          TOTP_ENCRYPTION_SECRET_NEXT: ${{ secrets.TOTP_ENCRYPTION_SECRET_NEXT }}
           R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
           R2_BUCKET_MEDIA: hushbox-media
           R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}
@@ -1788,6 +1783,7 @@ jobs:
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
           RATE_LIMIT_KEY_SECRET: ${{ secrets.RATE_LIMIT_KEY_SECRET }}
+          IDEMPOTENCY_BODY_HASH_SECRET: ${{ secrets.IDEMPOTENCY_BODY_HASH_SECRET }}
           OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
           TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
           ENUMERATION_DECOY_SECRET: ${{ secrets.ENUMERATION_DECOY_SECRET }}
@@ -1832,7 +1828,7 @@ jobs:
         run: |
           secrets=$(pnpm exec wrangler secret list)
           # BEGIN GENERATED: verify-secrets
-          for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN RATE_LIMIT_KEY_SECRET OPAQUE_KEK TOTP_ENCRYPTION_SECRET ENUMERATION_DECOY_SECRET IRON_SESSION_SECRET CF_ACCESS_TEAM_DOMAIN CF_ACCESS_AUD ADMIN_ACTOR_ALLOWLIST ADMIN_ROLE_MAP GROWTH_READER_DATABASE_URL ADMIN_SQL_PANEL_DATABASE_URL CLOUDFLARE_ACCESS_LOG_API_TOKEN CLOUDFLARE_ACCOUNT_ID APP_VERSION APP_BUNDLE_CHECKSUM_IOS APP_BUNDLE_CHECKSUM_ANDROID APP_BUNDLE_CHECKSUM_ANDROID_DIRECT GROWTH_HASH_SECRET RESEND_API_KEY RESEND_WEBHOOK_SECRET OPENROUTER_API_KEY BRAVE_SEARCH_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY NOTIFICATION_TAG_SECRET HELCIM_API_TOKEN LINEAR_API_KEY_READ HELCIM_WEBHOOK_VERIFIER R2_S3_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY BACKUP_B2_S3_ENDPOINT BACKUP_B2_REGION BACKUP_B2_AUDITOR_KEY_ID BACKUP_B2_AUDITOR_KEY SENTRY_DSN; do
+          for secret in DATABASE_URL UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN RATE_LIMIT_KEY_SECRET IDEMPOTENCY_BODY_HASH_SECRET OPAQUE_KEK TOTP_ENCRYPTION_SECRET ENUMERATION_DECOY_SECRET IRON_SESSION_SECRET CF_ACCESS_TEAM_DOMAIN CF_ACCESS_AUD ADMIN_ACTOR_ALLOWLIST ADMIN_ROLE_MAP GROWTH_READER_DATABASE_URL ADMIN_SQL_PANEL_DATABASE_URL CLOUDFLARE_ACCESS_LOG_API_TOKEN CLOUDFLARE_ACCOUNT_ID APP_VERSION APP_BUNDLE_CHECKSUM_IOS APP_BUNDLE_CHECKSUM_ANDROID APP_BUNDLE_CHECKSUM_ANDROID_DIRECT GROWTH_HASH_SECRET RESEND_API_KEY RESEND_WEBHOOK_SECRET OPENROUTER_API_KEY BRAVE_SEARCH_API_KEY FCM_PROJECT_ID FCM_SERVICE_ACCOUNT_JSON VAPID_PUBLIC_KEY VAPID_PRIVATE_KEY NOTIFICATION_TAG_SECRET HELCIM_API_TOKEN LINEAR_API_KEY_READ HELCIM_WEBHOOK_VERIFIER R2_S3_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY BACKUP_B2_S3_ENDPOINT BACKUP_B2_REGION BACKUP_B2_AUDITOR_KEY_ID BACKUP_B2_AUDITOR_KEY SENTRY_DSN; do
           # END GENERATED: verify-secrets
             # -w, not a bare match: the deployed set holds a containment pair
             # (DATABASE_URL inside ADMIN_SQL_PANEL_DATABASE_URL), and `_` is a word
@@ -1883,11 +1879,6 @@ jobs:
         env:
           OPS_SCRIPTS: ${{ steps.ops.outputs.post }}
           # BEGIN GENERATED: ops-env
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          OPAQUE_KEK: ${{ secrets.OPAQUE_KEK }}
-          OPAQUE_KEK_NEXT: ${{ secrets.OPAQUE_KEK_NEXT }}
-          TOTP_ENCRYPTION_SECRET: ${{ secrets.TOTP_ENCRYPTION_SECRET }}
-          TOTP_ENCRYPTION_SECRET_NEXT: ${{ secrets.TOTP_ENCRYPTION_SECRET_NEXT }}
           R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
           R2_BUCKET_MEDIA: hushbox-media
           R2_ADMIN_ACCESS_KEY_ID: ${{ secrets.R2_ADMIN_ACCESS_KEY_ID }}

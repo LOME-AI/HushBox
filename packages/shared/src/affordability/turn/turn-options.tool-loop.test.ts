@@ -215,8 +215,8 @@ describe('a searching turn prices the loop of the rung it runs at', () => {
 });
 
 describe('a menu that marks exactly one rung available settles effort', () => {
-  /** 30 cents: a searching Sonnet turn whose menu marks only Min available. */
-  const ONE_RUNG = 300_000_000n;
+  /** 37.5 cents: a searching Sonnet turn whose menu marks only Min available. */
+  const ONE_RUNG = 375_000_000n;
   const catalog = [SONNET, ENGINE];
 
   it('marks exactly one rung available at this balance', () => {
@@ -307,7 +307,7 @@ describe('the directed cases the Auto rule must hold', () => {
   });
 
   it('sends a slot turn with no available rung at the lowest rung`s loop', () => {
-    const options = getTurnOptions(fundingOf(300_000_000n), BASIS, SLOT_BESIDE_SONNET, {
+    const options = getTurnOptions(fundingOf(375_000_000n), BASIS, SLOT_BESIDE_SONNET, {
       models: [SONNET, ENGINE, LADDERLESS],
       nowMs: NOW_MS,
     });

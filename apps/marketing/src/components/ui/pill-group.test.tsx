@@ -3,6 +3,7 @@ import path from 'node:path';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
+import { deriveEventName } from '@hushbox/shared';
 import { PillGroup } from './pill-group';
 
 type Window = '7d' | '30d' | 'all';
@@ -82,6 +83,16 @@ describe('PillGroup', () => {
   it('renders no count when an option has none', () => {
     render(<PillGroup label="Window" options={WINDOWS} value="30d" onChange={noop} />);
     expect(pill('Window', '7 days').children).toHaveLength(1);
+  });
+
+  it('counts a click on a pill showing a count under its label alone', () => {
+    render(<PillGroup label="Type" options={KINDS} value="all" onChange={noop} />);
+    expect(deriveEventName(pill('Type', 'Features 11'))).toBe('features');
+  });
+
+  it('leaves a pill showing no count to the name its own markup derives', () => {
+    render(<PillGroup label="Window" options={WINDOWS} value="30d" onChange={noop} />);
+    expect(pill('Window', '7 days')).not.toHaveAttribute('data-track');
   });
 
   it('moves focus through the pills in option order with Tab', async () => {

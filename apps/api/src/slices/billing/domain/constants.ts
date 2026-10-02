@@ -7,7 +7,7 @@ import {
 /**
  * K — the cost-circuit multiplier: once a run's observed spend exceeds
  * `hold × K`, the engine starts no further node, level or loop iteration for it;
- * spend already in flight finishes and bills. The check runs against the whole
+ * spend already in flight runs to its end. The check runs against the whole
  * hold, so it must sit above what an ordinary run legitimately reaches. Two
  * inputs set that: a dense-script prompt reaches about 2.1× its reserved input
  * at the reserved 3 characters per token, and a long-context tier doubles a

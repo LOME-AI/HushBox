@@ -9,6 +9,7 @@ import { inputTokensOf } from '../price/quantities.ts';
 import { classifierReserveChars, classifierWorstCaseNanoUsd } from './smart-model-affordability.ts';
 import { tokenPricingFixture } from '../../testing/pricing-fixture.ts';
 
+/** Stored rates 1 / 2; a reserve holds their ceilings, 2 / 3. */
 const CHEAP = {
   id: 'cheap',
   description: 'cheap and fast',
@@ -61,15 +62,16 @@ describe('classifierWorstCaseNanoUsd', () => {
     // in it scales with the turn's output.
     const inputTokens = BigInt(inputTokensOf(classifierReserveChars([CHEAP])));
     expect(classifierWorstCaseNanoUsd(CHEAP, [{ id: 'cheap' }])).toBe(
-      inputTokens * 1n + BigInt(CLASSIFIER_OUTPUT_TOKEN_CAP) * 2n
+      inputTokens * 2n + BigInt(CLASSIFIER_OUTPUT_TOKEN_CAP) * 3n
     );
   });
 
   it('reserves 1,570 input tokens for the 4,708 characters of an empty candidate list', () => {
-    // ceil(4,708 / 3) = 1,570 input tokens and the 2,048-token output cap, both at 173 nano.
+    // ceil(4,708 / 3) = 1,570 input tokens and the 2,048-token output cap, both
+    // at 217 nano, the ceiling of a stored 173.
     const engine = { pricing: tokenPricingFixture({ input: 173n, output: 173n }) };
     expect(classifierReserveChars([])).toBe(4708);
-    expect(classifierWorstCaseNanoUsd(engine, [])).toBe((1570n + 2048n) * 173n);
+    expect(classifierWorstCaseNanoUsd(engine, [])).toBe((1570n + 2048n) * 217n);
   });
 
   it('grows with the candidate list the classifier prompt will carry', () => {
@@ -79,15 +81,14 @@ describe('classifierWorstCaseNanoUsd', () => {
     );
   });
 
-  it('prices the reserve at the billable rates as given — no markup on top', () => {
+  it('prices the reserve at the ceiling of the billable rates — no markup on top', () => {
     // Rates are billable at ingestion, so the reserve is exactly the folded line
-    // items; a fee applied here would be a third seam.
-    const doubled = {
-      ...CHEAP,
-      pricing: tokenPricingFixture({ input: 2n, output: 4n }),
-    };
+    // items at the rates' ceiling; a fee applied here would be a third seam.
+    // Stored 4 / 8 and 8 / 16 hold at 5 / 10 and 10 / 20, exactly double.
+    const single = { ...CHEAP, pricing: tokenPricingFixture({ input: 4n, output: 8n }) };
+    const doubled = { ...CHEAP, pricing: tokenPricingFixture({ input: 8n, output: 16n }) };
     expect(classifierWorstCaseNanoUsd(doubled, [{ id: 'cheap' }])).toBe(
-      classifierWorstCaseNanoUsd(CHEAP, [{ id: 'cheap' }]) * 2n
+      classifierWorstCaseNanoUsd(single, [{ id: 'cheap' }]) * 2n
     );
   });
 });

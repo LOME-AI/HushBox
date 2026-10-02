@@ -691,6 +691,17 @@ async function findAdminPreviewPages(distributionDir: string): Promise<Marketing
     .toSorted((left, right) => left.urlPath.localeCompare(right.urlPath));
 }
 
+/** The same headers with a CSP `sandbox` that withholds script but keeps the origin. */
+function sandboxKeepingOrigin(
+  headers: readonly { name: string; value: string }[]
+): readonly { name: string; value: string }[] {
+  return headers.map((header) =>
+    header.name === 'Content-Security-Policy'
+      ? { name: header.name, value: `${header.value}; sandbox allow-same-origin` }
+      : header
+  );
+}
+
 export async function generateAdminHeaders(
   options: GenerateAdminHeadersOptions
 ): Promise<GenerateAdminHeadersResult> {
@@ -712,7 +723,12 @@ export async function generateAdminHeaders(
   // Derived from the unhashed admin policy, not from the `/*` block above,
   // which carries the admin shell's hashes for scripts a copied page does not
   // contain.
-  const framed = relaxFramingToSameOrigin(adminHeaders);
+  //
+  // The frame's own sandbox attribute does not reach a copy loaded top-level —
+  // through the overlay's new-tab link or a typed URL — so the policy sandboxes
+  // the copy too. `allow-same-origin` stays because the overlay reads the framed
+  // document; a frame sandboxed the same way gets the same set either way.
+  const framed = sandboxKeepingOrigin(relaxFramingToSameOrigin(adminHeaders));
   const blocks: string[] = [formatSpaBlock(headers)];
   for (const page of await findAdminPreviewPages(options.distDir)) {
     // Keyed at the trailing-slash form only, unlike the marketing loop above:

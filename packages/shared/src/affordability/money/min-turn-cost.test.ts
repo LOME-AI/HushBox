@@ -23,6 +23,7 @@ import { getTurnOptions } from '../turn/turn-options.ts';
 import { ASSISTANT_FRAMING_MAX_CHARS } from '../../assistant-text/grammar.ts';
 import { WEB_SEARCH_ROW_MAX_CHARS } from '../../web-search/web-search-row.ts';
 import { toolCallBillableNano } from '../estimate/tool-pricing.ts';
+import { ceilingOf } from '../price/schedule.ts';
 import { WEB_SEARCH_RESULT_MAX_CHARS, toolCallCapFor, toolLoopBound } from '../tool-loop.ts';
 import { tokenPricingFixture } from '../../testing/pricing-fixture.ts';
 import type { MinTurnCostInput, MinTurnCostSibling } from './min-turn-cost.ts';
@@ -31,7 +32,10 @@ import type { PriceableModel } from '../model/priceable-model.ts';
 import type { NonEmpty, PromptBasis, TurnOptions } from '../turn/turn-types.ts';
 import type { UserTier } from './tiers.ts';
 
-/** 100 nano per input token, 200 per output token — round numbers on purpose. */
+/**
+ * 100 nano per input token, 200 per output token — round numbers on purpose,
+ * held at their ceilings: 125 and 250.
+ */
 const MODEL: PriceableModel = {
   modelId: modelId('vendor/base'),
   pricing: tokenPricingFixture({ input: nanoUSD(100n), output: nanoUSD(200n) }),
@@ -95,12 +99,12 @@ function inputFor(overrides: Partial<MinTurnCostInput> = {}): MinTurnCostInput {
 
 /**
  * What a sibling's search loop of `calls` calls adds over the same sibling
- * answering in one step, at 134 input tokens: one more prompt per call, every
- * call's result re-sent on each later step, the tool-use overhead on each
- * call's step, the call fees and the stored search rows as fixed terms; one
- * more step of output and its storage per call, and the model's own earlier
- * output re-sent `calls × (calls + 1) / 2` answers' worth, per output token.
- * The ceiling loop is ten calls.
+ * answering in one step, at 134 input tokens and the model's ceiling rates:
+ * one more prompt per call, every call's result re-sent on each later step,
+ * the tool-use overhead on each call's step, the call fees and the stored
+ * search rows as fixed terms; one more step of output and its storage per
+ * call, and the model's own earlier output re-sent `calls × (calls + 1) / 2`
+ * answers' worth, per output token. The ceiling loop is ten calls.
  */
 function searchLoopExtra(
   model: PriceableModel,
@@ -109,7 +113,7 @@ function searchLoopExtra(
   readonly fixed: bigint;
   readonly perToken: bigint;
 } {
-  const { input, output } = model.pricing.anchor.base;
+  const { input, output } = ceilingOf(model.pricing.anchor).base;
   const resultTokens = BigInt(Math.ceil(WEB_SEARCH_RESULT_MAX_CHARS / 3));
   const overheadTokens = BigInt(toolLoopBound(['webSearch'], 1).overheadTokens);
   return {
@@ -198,26 +202,26 @@ function holdAt(
 
 describe('minTurnCostNanoUsd — the eligible corner, by amount', () => {
   it('prices input tokens, input storage, framing and a minimum answer for one model', () => {
-    // 400 chars at 3 chars/token = 134 input tokens × 100 nano = 13,400.
+    // 400 chars at 3 chars/token = 134 input tokens × 125 nano = 16,750.
     // Input storage: 400 chars × 300 nano = 120,000.
     // Framing: 640 chars × 300 nano = 192,000.
-    // Output: 1,000 minimum tokens × (200 provider + 5 chars × 300 storage) = 1,700,000.
-    expect(minTurnCostNanoUsd(inputFor())).toBe(2_025_400n);
+    // Output: 1,000 minimum tokens × (250 provider + 5 chars × 300 storage) = 1,750,000.
+    expect(minTurnCostNanoUsd(inputFor())).toBe(2_078_750n);
   });
 
   it('drops both storage terms on a turn that does not persist', () => {
-    // Provider legs only: 13,400 input + 1,000 × 200 output = 213,400.
-    expect(minTurnCostNanoUsd(inputFor({ persists: false }))).toBe(213_400n);
+    // Provider legs only: 16,750 input + 1,000 × 250 output = 266,750.
+    expect(minTurnCostNanoUsd(inputFor({ persists: false }))).toBe(266_750n);
   });
 
   it('adds the classifier reserve as a fixed term', () => {
-    expect(minTurnCostNanoUsd(inputFor({ classifierReserveNanoUsd: 7n }))).toBe(2_025_407n);
+    expect(minTurnCostNanoUsd(inputFor({ classifierReserveNanoUsd: 7n }))).toBe(2_078_757n);
   });
 
   it("adds the web-search reservation per sibling when the turn's search tool is on", () => {
     const extra = searchLoopExtra(MODEL);
     expect(minTurnCostNanoUsd(inputFor({ siblings: [searching(MODEL)] }))).toBe(
-      2_025_400n + extra.fixed + 1000n * extra.perToken
+      2_078_750n + extra.fixed + 1000n * extra.perToken
     );
   });
 
@@ -272,18 +276,18 @@ describe('minTurnCostNanoUsd — the eligible corner, by amount', () => {
     const extra = searchLoopExtra(MODEL);
     expect(
       minTurnCostNanoUsd(inputFor({ siblings: [searching(MODEL)], reasoningEffort: undefined }))
-    ).toBe(2_025_400n + extra.fixed + 1000n * extra.perToken);
+    ).toBe(2_078_750n + extra.fixed + 1000n * extra.perToken);
   });
 
   it('prices input storage over the new message alone, never the assembled prompt', () => {
     // 4,000 prompt characters carrying a 400-character new message.
-    // Input tokens: 4,000 / 3 = 1,334 tokens x 100 nano = 133,400 — the WHOLE
+    // Input tokens: 4,000 / 3 = 1,334 tokens x 125 nano = 166,750 — the WHOLE
     // prompt, which is what the provider receives.
     // Input storage: 400 x 300 = 120,000 — the new message, which is all a turn
     // newly stores.
     // Framing: 640 x 300 = 192,000.
-    // Output: 1,000 minimum tokens x (200 provider + 5 chars x 300 storage) = 1,700,000.
-    expect(minTurnCostNanoUsd(inputFor({ promptChars: 4000, inputChars: 400 }))).toBe(2_145_400n);
+    // Output: 1,000 minimum tokens x (250 provider + 5 chars x 300 storage) = 1,750,000.
+    expect(minTurnCostNanoUsd(inputFor({ promptChars: 4000, inputChars: 400 }))).toBe(2_228_750n);
   });
 
   it('moves only the storage leg when the same prompt carries a shorter new message', () => {
@@ -307,7 +311,7 @@ describe('minTurnCostNanoUsd — the eligible corner, by amount', () => {
     // the 1,000-token minimum answer, both billed at the output rate.
     const corner = BigInt(MANDATORY_REASONING_TOKENS + MINIMUM_OUTPUT_TOKENS);
     expect(minTurnCostNanoUsd(inputFor({ siblings: [plain(MANDATORY_MODEL)] }))).toBe(
-      13_400n + 120_000n + FRAMING_NANO + corner * 1700n
+      16_750n + 120_000n + FRAMING_NANO + corner * 1750n
     );
   });
 });

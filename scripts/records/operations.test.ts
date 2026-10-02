@@ -1,5 +1,6 @@
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -9,6 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -19,6 +21,12 @@ import { git, overlayDirectory, overlayGit } from './overlay.js';
 /** The repository's own `.gitignore`, so every rule the checkout ships is in force. */
 const SHIPPED_GITIGNORE = readFileSync(
   path.join(import.meta.dirname, '..', '..', '.gitignore'),
+  'utf8'
+);
+
+/** The repository's own `.gitattributes`, whose line-ending rules a checkout applies. */
+const SHIPPED_GITATTRIBUTES = readFileSync(
+  path.join(import.meta.dirname, '..', '..', '.gitattributes'),
   'utf8'
 );
 
@@ -37,6 +45,7 @@ let sandbox: string;
 let checkout: string;
 let remote: string;
 let printed: string[];
+let servers: Server[];
 
 const log = (line: string): void => {
   printed.push(line);
@@ -96,6 +105,23 @@ function refuseCommits(): void {
   );
 }
 
+/** A remote on this machine that answers every request by asking for credentials. */
+async function remoteAskingForCredentials(): Promise<string> {
+  // An askpass program would answer before git reaches its own prompt.
+  vi.stubEnv('GIT_ASKPASS', '');
+  const server = createServer((_request, response) => {
+    response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="records"' });
+    response.end();
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('no port to reach');
+  return `http://127.0.0.1:${String(address.port)}/records.git`;
+}
+
 async function remoteFiles(): Promise<string[]> {
   const listing = await git(sandbox, [
     `--git-dir=${remote}`,
@@ -146,12 +172,22 @@ beforeEach(async () => {
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
   freezeClock(NOW, { toFake: ['Date'] });
   printed = [];
+  servers = [];
   remote = path.join(sandbox, 'remote.git');
   await git(sandbox, ['init', '--bare', '--quiet', '--initial-branch=main', remote]);
   checkout = await createCheckout('checkout');
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(
+    servers.map(
+      (server) =>
+        new Promise((resolve) => {
+          server.closeAllConnections();
+          server.close(resolve);
+        })
+    )
+  );
   vi.useRealTimers();
   vi.unstubAllEnvs();
   rmSync(sandbox, { recursive: true, force: true });
@@ -323,6 +359,24 @@ describe('save', () => {
     writeRecords(checkout);
 
     await expect(save({ root: checkout, log })).rejects.toThrow(/^records: push failed/u);
+  });
+
+  it('names the push step when the remote asks for credentials', async () => {
+    await overlayGit(checkout, ['remote', 'set-url', 'origin', await remoteAskingForCredentials()]);
+    writeRecords(checkout);
+
+    await expect(save({ root: checkout, log })).rejects.toThrow(
+      /^records: push failed: .*terminal prompts disabled/su
+    );
+  });
+
+  it('saves a file under a record root spelled in another case when the main repository folds case', async () => {
+    await git(checkout, ['config', 'core.ignoreCase', 'true']);
+    write(checkout, 'Docs/Runs/r/upper.md');
+
+    await save({ root: checkout, log });
+
+    expect(await remoteFiles()).toEqual(['Docs/Runs/r/upper.md']);
   });
 
   it('pushes a commit an earlier push left behind even when nothing is new', async () => {
@@ -527,16 +581,19 @@ describe('restore', () => {
       what: 'a file the remote also holds',
       exclude: 'docs/runs/run-a/plan.md',
       local: 'docs/runs/run-a/plan.md',
+      occupied: 'docs/runs/run-a/plan.md',
     },
     {
       what: 'a file where the remote holds a folder',
       exclude: '/docs/runs/run-a',
       local: 'docs/runs/run-a',
+      occupied: 'docs/runs/run-a',
     },
     {
       what: 'a folder where the remote holds a file',
       exclude: '/docs/history/OLD-PLAN.md/',
       local: 'docs/history/OLD-PLAN.md/inner.md',
+      occupied: 'docs/history/OLD-PLAN.md',
     },
   ] as const;
 
@@ -549,7 +606,7 @@ describe('restore', () => {
     collide(collision);
 
     await expect(restore({ root: second, log, remote })).rejects.toThrow(
-      /^records: check out main failed: /u
+      `records: restore refused: ${collision.occupied} already exists`
     );
   });
 
@@ -586,10 +643,173 @@ describe('restore', () => {
     expect(readdirSync(sandbox)).toEqual(before);
   });
 
+  /** Runs `action` while the checkout root refuses new entries, so the overlay cannot move in. */
+  async function withRootLocked(action: () => Promise<unknown>): Promise<void> {
+    chmodSync(second, 0o555);
+    try {
+      await action();
+    } finally {
+      chmodSync(second, 0o755);
+    }
+  }
+
+  /** The working tree, the main repository's git directory and the checkout's parent. */
+  function surroundings(): Record<string, unknown> {
+    return {
+      tree: workingTree(second),
+      gitDirectory: readdirSync(path.join(second, '.git')),
+      beside: readdirSync(sandbox),
+      overlay: existsSync(overlayDirectory(second)),
+    };
+  }
+
+  it('names the step that fails when the overlay cannot be moved into place', async () => {
+    await withRootLocked(() =>
+      expect(restore({ root: second, log, remote })).rejects.toThrow(
+        /^records: move the overlay into place failed: /u
+      )
+    );
+  });
+
+  it('leaves everything as it was when the overlay cannot be moved into place', async () => {
+    const before = surroundings();
+
+    await withRootLocked(() => restore({ root: second, log, remote }).catch(() => undefined));
+
+    expect(surroundings()).toEqual(before);
+  });
+
+  /** Makes every checkout fail once it has written the files. */
+  function failAfterCheckout(): void {
+    const hooks = path.join(sandbox, 'hooks');
+    write(hooks, 'post-checkout', '#!/bin/sh\nexit 1\n');
+    chmodSync(path.join(hooks, 'post-checkout'), 0o755);
+    appendFileSync(path.join(sandbox, 'gitconfig'), `[core]\n\thooksPath = ${hooks}\n`);
+  }
+
+  it('leaves everything as it was when the checkout fails after writing the records', async () => {
+    failAfterCheckout();
+    const before = surroundings();
+
+    await restore({ root: second, log, remote }).catch(() => undefined);
+
+    expect(surroundings()).toEqual(before);
+  });
+
+  it('leaves everything as it was when a failed checkout wrote a record stored with CRLF line endings', async () => {
+    write(checkout, 'docs/runs/run-a/windows.md', 'one\r\ntwo\r\n');
+    await save({ root: checkout, log });
+    write(second, '.gitattributes', SHIPPED_GITATTRIBUTES);
+    failAfterCheckout();
+    const before = surroundings();
+
+    await restore({ root: second, log, remote }).catch(() => undefined);
+
+    expect(surroundings()).toEqual(before);
+  });
+
+  it('removes a directory left at its staging place by an earlier restore', async () => {
+    write(second, '.git/records-restore/leftover', 'from a restore that died\n');
+
+    await restore({ root: second, log, remote });
+
+    expect(existsSync(path.join(second, '.git', 'records-restore'))).toBe(false);
+  });
+
+  it('restores over a directory left at its staging place by an earlier restore', async () => {
+    write(second, '.git/records-restore/leftover', 'from a restore that died\n');
+
+    await restore({ root: second, log, remote });
+
+    expect(read(second, 'docs/runs/run-a/plan.md')).toBe(RECORDS['docs/runs/run-a/plan.md']);
+  });
+
+  it('refuses a checkout holding an empty folder where the remote holds a file', async () => {
+    mkdirSync(path.join(second, 'docs', 'history', 'OLD-PLAN.md'), { recursive: true });
+
+    await expect(restore({ root: second, log, remote })).rejects.toThrow(
+      /^records: restore refused: docs\/history\/OLD-PLAN\.md /u
+    );
+  });
+
+  it('leaves an empty folder where the remote holds a file as it was', async () => {
+    mkdirSync(path.join(second, 'docs', 'history', 'OLD-PLAN.md'), { recursive: true });
+    const before = surroundings();
+
+    await restore({ root: second, log, remote }).catch(() => undefined);
+
+    expect(surroundings()).toEqual(before);
+  });
+
+  /** Puts a `git` first on the path that writes `file` into the checkout as the checkout starts. */
+  function writeDuringCheckout(file: string, content: string): void {
+    const realGit = (process.env['PATH'] ?? '')
+      .split(path.delimiter)
+      .map((directory) => path.join(directory, 'git'))
+      .find((candidate) => existsSync(candidate));
+    const target = path.join(second, ...file.split('/'));
+    const wrapper = path.join(sandbox, 'wrapper');
+    write(
+      wrapper,
+      'git',
+      [
+        '#!/bin/sh',
+        'for argument in "$@"; do',
+        '  if [ "$argument" = checkout ]; then',
+        `    mkdir -p '${path.dirname(target)}'`,
+        `    printf '${content}' > '${target}'`,
+        '  fi',
+        'done',
+        `exec '${realGit ?? 'git'}' "$@"`,
+        '',
+      ].join('\n')
+    );
+    chmodSync(path.join(wrapper, 'git'), 0o755);
+    vi.stubEnv('PATH', `${wrapper}${path.delimiter}${process.env['PATH'] ?? ''}`);
+  }
+
+  it('keeps a file written at a remote path after its check and before the checkout', async () => {
+    writeDuringCheckout('docs/runs/run-a/plan.md', 'written during the restore\n');
+
+    await restore({ root: second, log, remote }).catch(() => undefined);
+
+    expect(read(second, 'docs/runs/run-a/plan.md')).toBe('written during the restore\n');
+  });
+
+  it('names the record-file scan when the checkout has no .gitignore', async () => {
+    rmSync(path.join(second, '.gitignore'));
+
+    await expect(restore({ root: second, log, remote })).rejects.toThrow(
+      /^records: scan the record files failed: /u
+    );
+  });
+
+  it('names the record-file scan when the .gitignore has no records block', async () => {
+    write(second, '.gitignore', 'node_modules/\n');
+
+    await expect(restore({ root: second, log, remote })).rejects.toThrow(
+      /^records: scan the record files failed: /u
+    );
+  });
+
+  it('names the record-file scan when it cannot make its scratch directory', async () => {
+    vi.stubEnv('TMPDIR', path.join(sandbox, 'absent'));
+
+    await expect(restore({ root: second, log, remote })).rejects.toThrow(
+      /^records: scan the record files failed: /u
+    );
+  });
+
   it('names the clone step when the remote cannot be read', async () => {
     await expect(
       restore({ root: second, log, remote: path.join(sandbox, 'absent.git') })
     ).rejects.toThrow(/^records: clone failed/u);
+  });
+
+  it('names the clone step when the remote asks for credentials', async () => {
+    await expect(
+      restore({ root: second, log, remote: await remoteAskingForCredentials() })
+    ).rejects.toThrow(/^records: clone failed: .*terminal prompts disabled/su);
   });
 
   it('leaves the main repository untouched', async () => {

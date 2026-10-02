@@ -35,6 +35,7 @@ import {
 import { MINIMUM_OUTPUT_TOKENS } from '@hushbox/shared/affordability/constants';
 import { classifierWorstCaseNanoUsd } from '@hushbox/shared/affordability/estimate/smart-model-affordability';
 import { REASONING_BUDGET_TOKENS_BY_EFFORT } from '@hushbox/shared/affordability/estimate/reasoning-plan';
+import { ceilingOf } from '@hushbox/shared/affordability/price/schedule';
 import { DAY_MS, OLD_RELEASE_SECONDS, TEST_DAY_START, secondsAt } from '@hushbox/shared/test-time';
 import { perImagePricingFixture, tokenPricingFixture } from '@hushbox/shared/pricing-fixture';
 import { buildModelsListResponse } from '../catalog/list-models.js';
@@ -127,11 +128,12 @@ const PROMPT_TOKENS = 134n;
 /** The framing allowance every persisting answer reserves, at 300 nano per character. */
 const FRAMING_NANO = BigInt(ASSISTANT_FRAMING_MAX_CHARS) * 300n;
 
+/** The base rates a hold reserves at: the ceiling of the row's anchor. */
 function ratesOf(row: ModelDescriptor): { readonly input: bigint; readonly output: bigint } {
   if (row.pricing.kind !== 'tokens') {
     throw new TypeError(`expected per-token rates on ${row.id}`);
   }
-  return row.pricing.anchor.base;
+  return ceilingOf(row.pricing.anchor).base;
 }
 
 /** A token-priced descriptor as the shared reserve reads it. */
@@ -216,8 +218,9 @@ describe('classifierWorstCaseNanoUsd', () => {
       catalog.map((d) => ({ id: d.id, description: d.description ?? '' }))
     );
     const expectedInputTokens = inputTokensOf(MAX_CLASSIFIER_CONTEXT_CHARS + overheadChars);
+    // At the ceiling of 1,000 / 2,000.
     const expectedBase =
-      BigInt(expectedInputTokens) * 1000n + BigInt(CLASSIFIER_OUTPUT_TOKEN_CAP) * 2000n;
+      BigInt(expectedInputTokens) * 1250n + BigInt(CLASSIFIER_OUTPUT_TOKEN_CAP) * 2500n;
     expect(classifierWorstCaseNanoUsd(tokenPriced(classifier), catalog)).toBe(expectedBase);
   });
 });

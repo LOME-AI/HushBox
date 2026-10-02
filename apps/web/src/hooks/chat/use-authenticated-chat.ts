@@ -266,7 +266,7 @@ export function useAuthenticatedChat({
 
   // A transport disconnect never cancels a run — the server completes,
   // persists, and bills it (the answer is there on return). Only the explicit
-  // stop control aborts, so unmount does no run teardown.
+  // stop control stops a run from the client, so unmount does no run teardown.
   React.useEffect(() => {
     return () => {
       useChatErrorStore.getState().clearAll();
@@ -765,12 +765,13 @@ export function useAuthenticatedChat({
 
   /**
    * Explicit user stop — plain HTTP by design (a WS-blocked user can always
-   * abort a paid run). The server settles + BILLS the partial; the streamed
-   * partial stays rendered and the run-finished refetch loads the persisted
-   * rows. `stopped:false` (run already over) is a benign no-op.
+   * stop a paid run). The server starts nothing new, lets the work in flight
+   * finish, and settles what the run produced; the streamed text stays rendered
+   * and the run-finished refetch loads the persisted rows.
+   * `stopped:false` (run already over) is a benign no-op.
    *
-   * A refusal is shown, never logged away: the run keeps spending until it is
-   * aborted, so a caller who is told nothing believes it stopped. The sentence
+   * A refusal is shown, never logged away: the run keeps spending until
+   * something stops it, so a caller who is told nothing believes it stopped. The sentence
    * comes from the same wire-code mapping a failed turn uses. A toast rather
    * than the chat-error tile because that tile is keyed to a failed user
    * message and offers to retry it, and a stop has neither.

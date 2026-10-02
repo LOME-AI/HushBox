@@ -49,10 +49,10 @@ export type ChatRouteKey = SliceRouteKey<ReturnType<typeof createChatManifest>>;
  * the counter is the only thing between a caller and provider spend we cannot
  * un-spend, which is the clearest case the assignment rule names. `$post
  * /chat/stop` is the one named row here declaring `open`, for a money reason
- * pointing the other way — it is the abort path for a run that is already
- * being paid for, and `docs/ARCHITECTURE.md` promises a caller blocked from
- * the socket can always abort one, so refusing it bills a user for a run they
- * tried to stop. A route counted only in flow declares `closed` and its own
+ * pointing the other way — it is the stop path for a run that is already
+ * being paid for, and `docs/ARCHITECTURE.md` gives stop an HTTP path so a
+ * caller blocked from the socket can always stop one, so refusing it bills a
+ * user for a run they tried to stop. A route counted only in flow declares `closed` and its own
  * slice enforces that; the pipeline spends nothing for it.
  */
 export const CHAT_ROUTE_POSTURES = {

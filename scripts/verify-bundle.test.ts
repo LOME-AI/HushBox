@@ -1612,8 +1612,56 @@ describe('collectBuildTargetViolations', () => {
     return path.relative(REPO_ROOT, configPath);
   }
 
+  /**
+   * Fills a stand-in repository root holding a production env file of its own, so
+   * the production-mode load needs no generated file: a run that writes only its own
+   * mode's files, CI's test job among them, has none, and a stand-in written at the
+   * real root would be baked by any production build running beside the test.
+   * Each config is copied, never linked, because the shipping configs root their env
+   * file at their own directory's grandparent, and a loader that follows a link
+   * would put that back at the real root. Every other file is copied too, since a
+   * file symlink needs a privilege Windows does not grant by default; every other
+   * directory, a linked one included, links to the real tree as a junction.
+   */
+  async function mirrorWithProductionEnvFile(
+    mirrorRoot: string,
+    configPaths: readonly string[]
+  ): Promise<void> {
+    const configs = configPaths.map((configPath) => path.normalize(configPath));
+    const holdsConfig = (relative: string): boolean =>
+      configs.some((configPath) => configPath.startsWith(`${relative}${path.sep}`));
+
+    async function mirror(relativeDir: string): Promise<void> {
+      for (const name of await fs.readdir(path.join(REPO_ROOT, relativeDir))) {
+        const relative = path.join(relativeDir, name);
+        const source = path.join(REPO_ROOT, relative);
+        const destination = path.join(mirrorRoot, relative);
+        if (relativeDir === '' && name.startsWith('.env.')) continue;
+        const stats = await fs.stat(source);
+        if (holdsConfig(relative)) {
+          await fs.mkdir(destination);
+          await mirror(relative);
+        } else if (stats.isDirectory()) {
+          await fs.symlink(source, destination, 'junction');
+        } else {
+          await fs.copyFile(source, destination);
+        }
+      }
+    }
+
+    await mirror('');
+    await fs.writeFile(path.join(mirrorRoot, '.env.production'), 'VITE_STAND_IN=1\n');
+  }
+
   it('accepts every shipping config in this repository', async () => {
-    expect(await collectBuildTargetViolations(REPO_ROOT)).toEqual([]);
+    const configPaths = discoverTargetPinnedConfigs(REPO_ROOT);
+    const mirrorRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'verify-bundle-mirror-'));
+    try {
+      await mirrorWithProductionEnvFile(mirrorRoot, configPaths);
+      expect(await collectBuildTargetViolations(mirrorRoot, configPaths)).toEqual([]);
+    } finally {
+      await fs.rm(mirrorRoot, { recursive: true, force: true });
+    }
   });
 
   it('accepts an Astro config that pins the target its nested Vite options build at', async () => {
@@ -1689,6 +1737,63 @@ describe('collectBuildTargetViolations', () => {
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain(configPath);
     expect(violations[0]).toMatch(/could not be loaded/iu);
+  });
+
+  /**
+   * The guard every shipping config carries, rooted at the stand-in's own
+   * directory so the env files beside it are the only ones it can find.
+   */
+  function envFileGuardImport(): string {
+    const guardModule = path.join(REPO_ROOT, 'scripts', 'lib', 'bundling', 'build-mode.ts');
+    return `import { frontendEnvFilePlugin } from ${JSON.stringify(guardModule)};\n`;
+  }
+
+  function guardedOptions(): string {
+    return (
+      `build: { target: ${JSON.stringify(BUILD_TARGET)} }, ` +
+      `plugins: [frontendEnvFilePlugin(${JSON.stringify(configDir)})]`
+    );
+  }
+
+  async function writeProductionEnvFile(): Promise<void> {
+    await fs.writeFile(path.join(configDir, '.env.production'), 'VITE_STAND_IN=1\n');
+  }
+
+  it('resolves an Astro config in production mode when only the production env file is there', async () => {
+    await writeProductionEnvFile();
+    const configPath = await writeAstroConfig(
+      `${envFileGuardImport()}export default { vite: { ${guardedOptions()} } };\n`
+    );
+
+    expect(await collectBuildTargetViolations(REPO_ROOT, [configPath])).toEqual([]);
+  });
+
+  it('resolves a Vite config in production mode when only the production env file is there', async () => {
+    await writeProductionEnvFile();
+    const configPath = await writeConfig(
+      `${envFileGuardImport()}export default { ${guardedOptions()} };\n`
+    );
+
+    expect(await collectBuildTargetViolations(REPO_ROOT, [configPath])).toEqual([]);
+  });
+
+  it('resolves a Vite config in production mode over the mode the config names itself', async () => {
+    await writeProductionEnvFile();
+    const configPath = await writeConfig(
+      `${envFileGuardImport()}export default { mode: 'test', ${guardedOptions()} };\n`
+    );
+
+    expect(await collectBuildTargetViolations(REPO_ROOT, [configPath])).toEqual([]);
+  });
+
+  it('names the command that writes the production env file when it is not there', async () => {
+    const configPath = await writeAstroConfig(
+      `${envFileGuardImport()}export default { vite: { ${guardedOptions()} } };\n`
+    );
+
+    const violations = await collectBuildTargetViolations(REPO_ROOT, [configPath]);
+
+    expect(violations.join('\n')).toContain('pnpm generate:env --mode=production');
   });
 });
 

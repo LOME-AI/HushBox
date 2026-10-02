@@ -5,6 +5,7 @@ import { generateTotpCodeSync } from '@hushbox/crypto';
 import { ERROR_CODES } from '@hushbox/shared';
 import { IDENTITY_KEYS } from './domain/keys.js';
 import { issueBillingLoginToken } from './domain/account/billing-portal.js';
+import { rateLimitKey } from '../../lib/rate-limit/index.js';
 import {
   billingPortalCookieOf,
   db,
@@ -20,8 +21,10 @@ import {
   registerAccount,
   registerLoginFull,
   scrubbedCaptureTags,
+  sentTwoFactorLocked,
   sessionCookieOf,
   testEnv,
+  twoFactorLockedFailure,
   wrongCode,
 } from './routes.integration.setup.js';
 
@@ -233,6 +236,36 @@ describe('identity routes: TOTP-verify lockout', () => {
     expect(body.details.retryAfterSeconds).toBeGreaterThan(0);
   });
 
+  it('stays frozen past the consecutive-failure ceiling, through correct passwords and fresh windows', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+    const window = IDENTITY_KEYS.twoFactorLockout;
+    const ceiling = IDENTITY_KEYS.twoFactorCeiling;
+    const windowKey = rateLimitKey(window, account.userId)._unsafeUnwrap();
+    let failures = 0;
+    while (failures < ceiling.maxAttempts) {
+      // Every window opens with a correct password, which must not lift the ceiling.
+      const pending = sessionCookieOf(await login(account.email, account.password));
+      for (let n = 0; n < window.maxAttempts && failures < ceiling.maxAttempts; n += 1) {
+        const res = await post('/auth/login/2fa/verify', { code: wrongCode(secret) }, pending);
+        expect(res.status).toBe(400);
+        failures += 1;
+      }
+      // The window's own expiry, brought forward: a guesser waits it out.
+      await redis.del(windowKey);
+    }
+    const pending = sessionCookieOf(await login(account.email, account.password));
+    const frozen = await post(
+      '/auth/login/2fa/verify',
+      { code: generateTotpCodeSync(secret) },
+      pending
+    );
+    expect(frozen.status).toBe(429);
+    const body = await frozen.json<{ code: string; details: { retryAfterSeconds: number } }>();
+    expect(body.code).toBe(ERROR_CODES.TOO_MANY_ATTEMPTS);
+    expect(body.details.retryAfterSeconds).toBeGreaterThan(window.windowSeconds);
+  });
+
   it('verifies at most the cap even under concurrent distinct wrong codes', async () => {
     const { account, cookie } = await registerLoginFull();
     const secret = await enrollTotp(cookie);
@@ -254,6 +287,78 @@ describe('identity routes: TOTP-verify lockout', () => {
     // the rest are gated before any crypto runs.
     expect(statuses.filter((status) => status === 400)).toHaveLength(maxAttempts);
     expect(statuses.filter((status) => status === 429)).toHaveLength(5);
+  });
+});
+
+describe('identity routes: the email on the first trip of the login 2FA gate', () => {
+  const window = IDENTITY_KEYS.twoFactorLockout;
+
+  function sentTo(email: string): { to: string; lockoutMinutes: number }[] {
+    return sentTwoFactorLocked.filter((sent) => sent.to === email);
+  }
+
+  /** Spends the window from a fresh pending session until the gate refuses. */
+  async function tripTheGate(email: string, password: string, secret: string): Promise<void> {
+    const pending = sessionCookieOf(await login(email, password));
+    for (let attempt = 0; attempt < window.maxAttempts; attempt += 1) {
+      await expectStatus(post('/auth/login/2fa/verify', { code: wrongCode(secret) }, pending), 400);
+    }
+    await expectStatus(post('/auth/login/2fa/verify', { code: wrongCode(secret) }, pending), 429);
+  }
+
+  /** The window's own expiry, brought forward. */
+  async function lapseTheWindow(userId: string): Promise<void> {
+    await redis.del(rateLimitKey(window, userId)._unsafeUnwrap());
+  }
+
+  it('emails the account holder the window length when the gate first trips', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+
+    await tripTheGate(account.email, account.password, secret);
+
+    expect(sentTo(account.email)).toEqual([
+      { to: account.email, lockoutMinutes: window.windowSeconds / 60 },
+    ]);
+  });
+
+  it('sends nothing for a second trip before any code verifies', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+    await tripTheGate(account.email, account.password, secret);
+    await lapseTheWindow(account.userId);
+
+    await tripTheGate(account.email, account.password, secret);
+
+    expect(sentTo(account.email)).toHaveLength(1);
+  });
+
+  it('emails again on the first trip after a code verifies', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+    await tripTheGate(account.email, account.password, secret);
+    await lapseTheWindow(account.userId);
+    const pending = sessionCookieOf(await login(account.email, account.password));
+    await expectStatus(
+      post('/auth/login/2fa/verify', { code: generateTotpCodeSync(secret) }, pending),
+      200
+    );
+
+    await tripTheGate(account.email, account.password, secret);
+
+    expect(sentTo(account.email)).toHaveLength(2);
+  });
+
+  it('answers the same lockout when the email fails to send', async () => {
+    const { account, cookie } = await registerLoginFull();
+    const secret = await enrollTotp(cookie);
+    twoFactorLockedFailure.shouldFail = true;
+    try {
+      await tripTheGate(account.email, account.password, secret);
+    } finally {
+      twoFactorLockedFailure.shouldFail = false;
+    }
+    expect(sentTo(account.email)).toHaveLength(1);
   });
 });
 

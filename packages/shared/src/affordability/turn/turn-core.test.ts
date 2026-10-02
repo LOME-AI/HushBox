@@ -266,9 +266,10 @@ describe('line items', () => {
 
   it('holds a searching sibling’s whole tool loop, its per-output-token legs included', () => {
     // PLAIN at its 8,000-token cap, funded past it: 334 prompt tokens and 11
-    // steps for 10 calls. Every term of the loop is here once, the model's own
-    // re-sent output (55 × the ceiling at the input rate) and the tool-use
-    // overhead on the 10 tool-carrying steps among them.
+    // steps for 10 calls, at the ceiling of its 1,000 / 2,000 rates. Every term
+    // of the loop is here once, the model's own re-sent output (55 × the cap at
+    // the input rate) and the tool-use overhead on the 10 tool-carrying steps
+    // among them.
     const result = evaluateTurn(
       inputOf({
         fundingNanoUsd: 2_000_000_000n,
@@ -278,11 +279,11 @@ describe('line items', () => {
     const resultTokens = BigInt(Math.ceil(WEB_SEARCH_RESULT_MAX_CHARS / 3));
     const overheadTokens = BigInt(toolLoopBound(['webSearch'], 10).overheadTokens);
     expect(result.totalNanoUsd).toBe(
-      11n * 334n * 1000n +
-        11n * 8000n * (2000n + 1500n) +
-        55n * 8000n * 1000n +
-        10n * 10n * resultTokens * 1000n +
-        10n * overheadTokens * 1000n +
+      11n * 334n * 1250n +
+        11n * 8000n * (2500n + 1500n) +
+        55n * 8000n * 1250n +
+        10n * 10n * resultTokens * 1250n +
+        10n * overheadTokens * 1250n +
         10n * toolCallBillableNano('webSearch') +
         BigInt(WEB_SEARCH_ROW_MAX_CHARS) * 300n +
         BigInt(ASSISTANT_FRAMING_MAX_CHARS) * 300n +
@@ -436,11 +437,12 @@ describe('the ceiling', () => {
   it('prices the turn at Σ cost(m, ceiling(m)) plus new-message storage', () => {
     const result = evaluateTurn(inputOf());
     // 1,000 prompt chars at 3 chars/token = 334 input tokens; the ceiling is the
-    // 8,000-token provider cap; variableRate = 2,000 output + 1,500 storage.
+    // 8,000-token provider cap; the rates are held at the ceiling of 1,000 /
+    // 2,000, so variableRate = 2,500 output + 1,500 storage.
     // Prompt storage prices the 200 NEW-message characters, not all 1,000, and
     // the answer's framing allowance is 640 × 300.
-    // 334 × 1,000 + 8,000 × 3,500 + 200 × 300 + 192,000 = 28,586,000.
-    expect(result.totalNanoUsd).toBe(28_586_000n);
+    // 334 × 1,250 + 8,000 × 4,000 + 200 × 300 + 192,000 = 32,669,500.
+    expect(result.totalNanoUsd).toBe(32_669_500n);
   });
 
   it('prices input storage over the new message in the manifest and the solve alike', () => {
@@ -469,9 +471,9 @@ describe('the ceiling', () => {
   it('is bound by what the money buys when the balance is small', () => {
     const result = evaluateTurn(inputOf({ fundingNanoUsd: 6_000_000n }));
     const entry = result.optionSet.sendable ? result.optionSet.all[0] : undefined;
-    // fixedCosts = 334 x 1,000 + 60,000 + 192,000 framing = 586,000;
-    // variableRate = 2,000 + 1,500; floor(5,414,000 / 3,500) = 1,546.
-    expect(entry?.ceilingTokens).toBe(1546);
+    // fixedCosts = 334 x 1,250 + 60,000 + 192,000 framing = 669,500;
+    // variableRate = 2,500 + 1,500; floor(5,330,500 / 4,000) = 1,332.
+    expect(entry?.ceilingTokens).toBe(1332);
   });
 
   it('is bound by the context headroom on a tight-context model', () => {
@@ -504,10 +506,11 @@ describe('one shared token count, per-model physical bounds', () => {
   }
 
   it('leaves the wide sibling on its own provider cap while the tight one takes its own context headroom', () => {
-    // 1,000 prompt chars at 3 chars/token = 334 input tokens.
-    // fixedCosts = 334 × (1,000 + 1,000) + 200 × 300 + 2 × 192,000 = 1,112,000;
-    // Σ variableRate = 2 × (2,000 + 1,500) = 7,000, so
-    // T = floor((1,000,000,000 − 1,112,000) / 7,000) = 142,698 — far above both
+    // 1,000 prompt chars at 3 chars/token = 334 input tokens, each sibling's
+    // rates held at the ceiling of 1,000 / 2,000.
+    // fixedCosts = 334 × (1,250 + 1,250) + 200 × 300 + 2 × 192,000 = 1,279,000;
+    // Σ variableRate = 2 × (2,500 + 1,500) = 8,000, so
+    // T = floor((1,000,000,000 − 1,279,000) / 8,000) = 124,840 — far above both
     // siblings' physical room, so only the physical bounds bind here.
     const result = pair(1_000_000_000n);
     // vendor/plain: min(providerCap 8,000, contextHeadroom 100,000 − 334, T).
@@ -520,12 +523,12 @@ describe('one shared token count, per-model physical bounds', () => {
 
   it('prices the pair at Σ cost(m, ceiling(m)), not at T × Σ rates', () => {
     const result = pair(1_000_000_000n);
-    // cost(plain, 8,000) = 334 × 1,000 + 8,000 × 3,500 + 200 × 300 (prompt
-    // storage rides the first sibling only) + 192,000 framing = 28,586,000.
-    // cost(tight, 3,666) = 334 × 1,000 + 3,666 × 3,500 + 192,000 = 13,357,000.
-    expect(result.totalNanoUsd).toBe(41_943_000n);
+    // cost(plain, 8,000) = 334 × 1,250 + 8,000 × 4,000 + 200 × 300 (prompt
+    // storage rides the first sibling only) + 192,000 framing = 32,669,500.
+    // cost(tight, 3,666) = 334 × 1,250 + 3,666 × 4,000 + 192,000 = 15,273,500.
+    expect(result.totalNanoUsd).toBe(47_943_000n);
     // The forbidden summed-rate basis on this very turn: fixedCosts + T × Σ rates
-    // = 1,112,000 + 142,698 × 7,000 = 999,998,000 — effectively the whole funding,
+    // = 1,279,000 + 124,840 × 8,000 = 999,999,000 — effectively the whole funding,
     // which is why §Multi-Model 2 forbids it as a charge basis even though `T` is
     // solved against those same summed rates. The number is recorded, not
     // asserted: an assertion over test-side arithmetic alone cannot fail for any
@@ -533,12 +536,12 @@ describe('one shared token count, per-model physical bounds', () => {
   });
 
   it('shares the money bound when the money is what binds, leaving both physical clamps loose', () => {
-    // fixedCosts = 1,112,000 with both framings; T = floor((11,000,000 −
-    // 1,112,000) / 7,000) = 1,412 — below both siblings' physical room, so ONE
+    // fixedCosts = 1,279,000 with both framings; T = floor((11,000,000 −
+    // 1,279,000) / 8,000) = 1,215 — below both siblings' physical room, so ONE
     // shared count binds both.
     const result = pair(11_000_000n);
-    expect(ceilingOf(result, 'vendor/plain')).toBe(1412);
-    expect(ceilingOf(result, 'vendor/tight')).toBe(1412);
+    expect(ceilingOf(result, 'vendor/plain')).toBe(1215);
+    expect(ceilingOf(result, 'vendor/tight')).toBe(1215);
   });
 });
 
@@ -1277,8 +1280,8 @@ describe('the hold covers every presented candidate`s arrangement', () => {
 
   it('withholds a candidate whose arrangement starves a pinned sibling', () => {
     // At this balance v/dear itself fits a minimum answer — its own ceiling is
-    // 1,888 tokens — but the arrangement it would create leaves the PINNED
-    // sibling only those same 1,888 tokens, which its High budget cannot fit.
+    // 1,447 tokens — but the arrangement it would create leaves the PINNED
+    // sibling only those same 1,447 tokens, which its High budget cannot fit.
     // §Story 1.2 grades a candidate on "B + MINIMUM_OUTPUT_TOKENS inside every
     // sibling's ceiling", and §Story 1.3 makes the pinned siblings a hard gate.
     const result = slotTurn(210_000_000n, 'high');
@@ -1286,14 +1289,15 @@ describe('the hold covers every presented candidate`s arrangement', () => {
     expect(presentedCandidateIds(result)).toEqual(['v/cheap']);
     const dear = result.optionSet.all.find((entry) => entry.modelId === 'v/dear');
     expect(dear?.availability).toEqual({ available: false, reason: 'insufficient_funds' });
-    // The hold is v/cheap's arrangement and carries NO classifier reserve. v/dear
-    // is 60× the pool median's `maxCallCost`, so `outlier(m)` keeps it out of the
-    // classifier-selectable set; that leaves one selectable candidate, and one
+    // The hold is v/cheap's arrangement and carries NO classifier reserve. v/dear's
+    // `maxCallCost` is past 20× the pool median's, so `outlier(m)` keeps it out of
+    // the classifier-selectable set; that leaves one selectable candidate, and one
     // candidate beside a pinned effort is nothing to classify (§Reserve ⟺ classify
-    // is decided on pool size). At the caps: 1,667 prompt tokens × (60 + 5),
-    // 64,000 × (150 + 1,500) and 65,000 × (10 + 1,500) output, and 1,000 new
-    // characters plus two 640-character framings at 300 each.
-    expect(result.totalNanoUsd).toBe(204_542_355n);
+    // is decided on pool size). At the caps, every rate held at its ceiling:
+    // 1,667 prompt tokens × (75 + 7), 64,000 × (188 + 1,500) and 65,000 ×
+    // (13 + 1,500) output, and 1,000 new characters plus two 640-character
+    // framings at 300 each.
+    expect(result.totalNanoUsd).toBe(207_197_694n);
     expect(reserveOf(result)).toBe(0n);
     const ceilingOf = (modelId: string): number | undefined =>
       result.optionSet.all.find((entry) => entry.modelId === modelId)?.ceilingTokens;
@@ -1777,8 +1781,8 @@ describe('candidate order — §Smart Model 1', () => {
     // provider cap, and the priced holds differ by that much.
     const ceilingOf = (result: CoreResult, id: string): number | undefined =>
       result.optionSet.all.find((entry) => entry.modelId === id)?.ceilingTokens;
-    expect([ceilingOf(rich, 'a/expensive'), ceilingOf(lean, 'a/expensive')]).toEqual([8000, 2392]);
-    expect([rich.totalNanoUsd, lean.totalNanoUsd]).toEqual([12_747_830n, 3_999_626n]);
+    expect([ceilingOf(rich, 'a/expensive'), ceilingOf(lean, 'a/expensive')]).toEqual([8000, 2365]);
+    expect([rich.totalNanoUsd, lean.totalNanoUsd]).toEqual([12_874_264n, 3_999_139n]);
 
     // `maxCallCost(m)` prices the physical cap, never what the money buys, so the
     // pool and its order are reproducible from the catalog and the prompt alone.

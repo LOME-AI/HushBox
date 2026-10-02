@@ -333,13 +333,18 @@ function declaredCeiling(node: ModelCallNode): number {
   return ceiling;
 }
 
-interface StoredRates {
+interface HeldRates {
   readonly inputPerToken: bigint;
   readonly outputPerToken: bigint;
 }
 
-/** The model's stored billable token rates, read off its catalog row. */
-async function storedRates(model: string): Promise<StoredRates> {
+/** Five quarters of a stored rate, rounded up: what a hold reserves one token at. */
+function heldRate(storedRate: bigint): bigint {
+  return (storedRate * 5n + 3n) / 4n;
+}
+
+/** The token rates a hold reserves the model at, from the stored rates on its catalog row. */
+async function heldRates(model: string): Promise<HeldRates> {
   const rows = await db
     .select({ descriptor: modelCatalog.descriptor })
     .from(modelCatalog)
@@ -347,7 +352,7 @@ async function storedRates(model: string): Promise<StoredRates> {
   const { pricing } = ModelDescriptor.parse(rows[0]?.descriptor);
   if (pricing.kind !== 'tokens') throw new TypeError('expected stored token rates');
   const { base } = pricing.anchor;
-  return { inputPerToken: base.input, outputPerToken: base.output };
+  return { inputPerToken: heldRate(base.input), outputPerToken: heldRate(base.output) };
 }
 
 interface LoopHoldTerms {
@@ -371,7 +376,7 @@ const OUTPUT_STORAGE_NANO_PER_TOKEN = 1500n;
  */
 function loopHoldTerms(
   loop: { readonly calls: number; readonly ceiling: number; readonly promptTokens: number },
-  rates: StoredRates
+  rates: HeldRates
 ): LoopHoldTerms {
   const C = BigInt(loop.calls);
   const S = C + 1n;
@@ -418,7 +423,7 @@ async function rungHold(
   const stamp = storageStamp(definition);
   const terms = loopHoldTerms(
     { calls: toolCallCapFor(rung), ceiling, promptTokens: promptTokens(node) },
-    await storedRates(node.model)
+    await heldRates(node.model)
   );
   const inputStorage = charStorageNanoUsd(stamp.inputChars);
   return { terms, inputStorage, total: sumTerms(terms) + inputStorage };
@@ -735,7 +740,7 @@ describe('an Auto searching turn whose classifier decides Low, end to end', () =
   async function classifierHold(): Promise<bigint> {
     const classifier = turn.definition.nodes.find((node) => node.id === CHAT_CLASSIFIER_NODE_ID);
     if (classifier?.type !== 'modelCall') throw new Error('expected a classifier call');
-    const rates = await storedRates(classifier.model);
+    const rates = await heldRates(classifier.model);
     return (
       BigInt(promptTokens(classifier)) * rates.inputPerToken +
       BigInt(declaredCeiling(classifier)) * rates.outputPerToken

@@ -52,9 +52,10 @@ export function classifierReserveChars(promptedModels: readonly { readonly id: s
 }
 
 /**
- * The Smart-Model classifier pre-reserve, in nano-USD: the billable provider
- * cost of one bounded classifier call, priced as an ordinary call that does not
- * persist. Its input is the classifier's full truncated-context budget plus the
+ * The Smart-Model classifier pre-reserve, in nano-USD: the provider cost of one
+ * bounded classifier call on the reserve side, each token at the ceiling of the
+ * classifier's billable rate, priced as an ordinary call that does not persist.
+ * Its input is the classifier's full truncated-context budget plus the
  * exact prompt overhead (rendered against the candidate list — an upper bound on
  * what the classifier sees once affordability shrinks the list), and its output
  * is {@link CLASSIFIER_OUTPUT_TOKEN_CAP}, at the classifier's rates. Every

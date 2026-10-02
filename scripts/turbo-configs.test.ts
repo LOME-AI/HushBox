@@ -1,8 +1,12 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 
+import { getWorkspacePaths } from './lib/cli/workspaces.js';
+import { manifestScripts, tokensOf } from './lib/root-manifest.js';
 import { ENV_MODE_VARIABLE } from './lib/stack/stack-mode.js';
+import { STACK_SLOT_VARIABLE } from './lib/stack/stack-slot.js';
 
 import {
   CONFIG_FILE,
@@ -33,6 +37,71 @@ function listReceivedBy(
   key: 'env' | 'inputs'
 ): readonly string[] {
   return task?.[key] ?? rootTask?.[key] ?? [];
+}
+
+/** The wrapper whose run claim reads the stack slot, repo-relative. */
+const ENV_WRAPPER = 'scripts/with-env.ts';
+
+/** The tasks known to forward the stack mode into the wrapper, as `<workspace>#<task>`. */
+const KNOWN_MODE_FORWARDING_WRAPPED_TASKS: readonly string[] = [
+  'apps/marketing#build',
+  'apps/marketing#admin-preview:build',
+];
+
+const PassThroughShape = z.array(z.string()).optional();
+
+/**
+ * The pass-through list a task receives: its own where it declares one, the
+ * root task's otherwise, for the replacement {@link listReceivedBy} states.
+ * Read here rather than through the task shape, which leaves the key unmodelled.
+ */
+function passThroughReceivedBy(
+  task: TurboTask | undefined,
+  rootTask: TurboTask | undefined
+): readonly string[] {
+  return (
+    PassThroughShape.parse(task?.['passThroughEnv']) ??
+    PassThroughShape.parse(rootTask?.['passThroughEnv']) ??
+    []
+  );
+}
+
+/** Whether a script body runs the env wrapper, resolving its paths from the workspace. */
+function runsEnvWrapper(workspace: string, body: string): boolean {
+  return tokensOf(body).some(
+    (token) => path.posix.normalize(path.posix.join(workspace, token)) === ENV_WRAPPER
+  );
+}
+
+interface WrappedTask {
+  readonly id: string;
+  readonly task: TurboTask | undefined;
+  readonly rootTask: TurboTask | undefined;
+}
+
+/**
+ * Every task-runner task whose package script runs the env wrapper and which
+ * forwards the stack mode to it. Only a forwarded mode can be the one that
+ * writes no stack files, and so loads no file carrying the slot; a task that
+ * forwards none runs the default mode and reads the slot from that mode's
+ * generated scripts file where it was generated.
+ */
+function modeForwardingWrappedTasks(): WrappedTask[] {
+  const rootTasks = tasksIn(CONFIG_FILE);
+  return getWorkspacePaths(REPO_ROOT).flatMap((workspace) => {
+    const configFile = `${workspace}/${CONFIG_FILE}`;
+    const packageTasks = existsSync(path.join(REPO_ROOT, configFile)) ? tasksIn(configFile) : {};
+    return Object.entries(manifestScripts(`${workspace}/package.json`))
+      .filter(([, body]) => runsEnvWrapper(workspace, body))
+      .map(([name]) => ({
+        id: `${workspace}#${name}`,
+        task: packageTasks[name],
+        rootTask: rootTasks[name],
+      }))
+      .filter(({ task, rootTask }) =>
+        listReceivedBy(task, rootTask, 'env').includes(ENV_MODE_VARIABLE)
+      );
+  });
 }
 
 /**
@@ -145,6 +214,24 @@ describe('the build cache key every package config inherits or replaces', () => 
       // matches nothing, and the build hashes no env file at all.
       const received = listReceivedBy(buildTask(file), buildTask(CONFIG_FILE), 'inputs');
       expect(rootAnchoredBuildInputs().filter((entry) => !received.includes(entry))).toEqual([]);
+    });
+  });
+});
+
+describe('the stack slot a wrapped task receives', () => {
+  it('finds the tasks known to forward the stack mode into the env wrapper, without which the slot case has no subjects', () => {
+    expect(modeForwardingWrappedTasks().map(({ id }) => id)).toEqual(
+      expect.arrayContaining([...KNOWN_MODE_FORWARDING_WRAPPED_TASKS])
+    );
+  });
+
+  describe.each(modeForwardingWrappedTasks())('$id', ({ task, rootTask }) => {
+    it('passes the stack slot through to the run claim the wrapper takes', () => {
+      // Under the task runner's strict env mode an unlisted variable is
+      // stripped, and the claim refuses to run without a slot. `env` would
+      // hash the value, splitting the cache per checkout for a label that
+      // changes nothing the build writes.
+      expect(passThroughReceivedBy(task, rootTask)).toContain(STACK_SLOT_VARIABLE);
     });
   });
 });

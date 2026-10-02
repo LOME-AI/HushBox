@@ -26,7 +26,7 @@ export { findTierLockedModel } from './smart-model/tier-gate.js';
 export {
   TRIAL_MESSAGE_COST_CAP_NANO_USD,
   trialEligibility,
-  trialMessageBillableNanoUsd,
+  trialMessageReserveNanoUsd,
 } from './smart-model/trial-eligibility.js';
 export { createToolRegistry, resolveToolRegistry } from './tool-registry.js';
 // `DeclaredCeiling` and `NodeStorage` stay OFF this barrel: they are walled money

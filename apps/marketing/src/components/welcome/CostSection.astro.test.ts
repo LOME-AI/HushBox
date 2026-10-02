@@ -8,7 +8,7 @@ const source = readFileSync(path.resolve(__dirname, './CostSection.astro'), 'utf
 describe('CostSection', () => {
   it('sets the lede in the ui type role', () => {
     expect(source).toMatch(
-      /<Text variant="ui">\s*Based on \{costData\.messagesPerDay\} messages per day:\s*<\/Text>/
+      /<Text variant="ui">\s*Based on \{MESSAGES_PER_DAY\} messages per day:\s*<\/Text>/
     );
   });
 
@@ -20,9 +20,7 @@ describe('CostSection', () => {
     expect(source).toMatch(/<div class="text-foreground mt-3 text-center">\s*<Text variant="ui">/);
   });
 
-  it('draws every catalog figure from the real models, leaving out the Smart Model', () => {
-    expect(source).toContain(
-      "const models = catalogModels(catalog.kind === 'ok' ? catalog.models : []);"
-    );
+  it('takes the message count the figures are priced at from the cost calculator', () => {
+    expect(source).toContain("import { MESSAGES_PER_DAY } from '../../lib/calculate-cost';");
   });
 });

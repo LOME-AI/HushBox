@@ -9,6 +9,9 @@ dist/
 dist-*/
 build/
 out/
+!films/*/out/
+films/*/out/*
+!films/*/out/*.mp4
 .next/
 .vercel/
 .wrangler/

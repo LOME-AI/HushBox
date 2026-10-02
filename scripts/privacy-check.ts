@@ -22,7 +22,9 @@ import { formatGateReport, isBlocked, reportablePath, scanBlobs } from './privac
 import { batchEntries, repositoryRoot } from './privacy-sweep.js';
 import { PRIVACY_ALLOWLIST_PATH, parsePrivacyAllowlist } from './lib/privacy/allowlist.js';
 import { LIVE_RULE_NAMES } from './lib/privacy/rules.js';
+import { listRecordFiles } from './records/record-files.js';
 import {
+  absoluteGitDirectory,
   isIgnoredPath,
   listUntrackedPathsUnder,
   listWorktreePaths,
@@ -86,6 +88,10 @@ const withinScope = (filePath: string, scope: string): boolean =>
   // match would find: no enumerated path is spelled `.`, and a tool that refuses
   // `.` while accepting `docs/` reads as broken.
   scope === ROOT_SCOPE || filePath === scope || filePath.startsWith(`${scope}/`);
+
+/** Whether the arguments select the whole tree: none at all, or one naming the root. */
+const coversWholeTree = (args: readonly string[]): boolean =>
+  args.length === 0 || args.some((argument) => normalizeScopeArgument(argument) === ROOT_SCOPE);
 
 /**
  * The arguments whose files are examined whether or not git ignores them: those
@@ -185,7 +191,15 @@ export async function runPrivacyCheck(
     repoRoot,
     await ignoreBypassingScopes(repoRoot, args)
   );
-  const scope = resolveScope([...new Set([...enumerated, ...named])], args);
+  // This repository ignores the record files and the records overlay keeps them,
+  // so the whole-tree run — no arguments, or one naming the root — reads them too.
+  // The listing leaves out any record file this repository's index holds, which
+  // the enumeration already names. A checkout without the records block fails
+  // rather than leaving its records unread.
+  const records = coversWholeTree(args)
+    ? await listRecordFiles(repoRoot, await absoluteGitDirectory(repoRoot))
+    : [];
+  const scope = resolveScope([...new Set([...enumerated, ...named, ...records])], args);
   if (scope.unmatched.length > 0) return { report: unmatchedReport(scope.unmatched), code: 1 };
   // The allowlist is looked up over the whole enumeration rather than the scope:
   // an exemption stays in force when a run is narrowed to a subdirectory.

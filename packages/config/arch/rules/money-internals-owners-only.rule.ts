@@ -78,7 +78,8 @@ export const PRICE_OWNERS: readonly string[] = [
   // classifier reserve.
   'apps/api/src/slices/models/domain/smart-model/candidates.ts',
   'apps/api/src/slices/models/domain/smart-model/candidates.test.ts',
-  // The trial gate's own price: the billable cost of one trial message.
+  // The trial gate's own price: the reserve-side price of one trial message, each
+  // token at the ceiling of the model's billable rate.
   'apps/api/src/slices/models/domain/smart-model/trial-eligibility.ts',
   // Catalog ingestion: refuses a price the schedule cannot parse before it is
   // written.

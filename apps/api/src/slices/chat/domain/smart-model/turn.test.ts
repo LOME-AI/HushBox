@@ -13,6 +13,7 @@ import {
 import { MINIMUM_OUTPUT_TOKENS } from '@hushbox/shared/affordability/constants';
 import { classifierWorstCaseNanoUsd } from '@hushbox/shared/affordability/estimate/smart-model-affordability';
 import { REASONING_BUDGET_TOKENS_BY_EFFORT } from '@hushbox/shared/affordability/estimate/reasoning-plan';
+import { ceilingOf } from '@hushbox/shared/affordability/price/schedule';
 import {
   WEB_SEARCH_RESULT_MAX_CHARS,
   toolCallBillableNano,
@@ -364,11 +365,11 @@ describe('Smart Model per-candidate caps keep the reserve within the balance (mo
     );
     // The literal, so a silent move in either the reserve formula or the
     // estimator's fold shows up as a number rather than as a passing identity:
-    // 5,020 reserve characters at 3 chars/token = 1,674 input tokens at 2n, plus
-    // the 2,048-token output cap at 3n. Provider legs only — a storage term
-    // creeping into the classifier reserve would break this equality, which is
-    // the other property it pins.
-    expect(pooled - max).toBe(9492n);
+    // 5,020 reserve characters at 3 chars/token = 1,674 input tokens at 3n, plus
+    // the 2,048-token output cap at 4n — the ceilings of the stored 2n and 3n.
+    // Provider legs only — a storage term creeping into the classifier reserve
+    // would break this equality, which is the other property it pins.
+    expect(pooled - max).toBe(13_214n);
     // And the classifier's leg is small next to an answer leg — it prices a
     // truncated context and a capped output, not a full turn.
     expect(pooled - max).toBeLessThan(max);
@@ -1071,10 +1072,10 @@ describe('the pinned-model auto build offers the classifier its own menu', () =>
     ).toBe(BigInt(held));
   });
 
-  it('holds what the browser holds at every one-rung balance from $0.055 to $0.130', () => {
+  it('holds what the browser holds at every one-rung balance from $0.068 to $0.161', () => {
     const estimate = createEstimateTotal(snapshotResolver(catalog));
     let compared = 0;
-    for (let mills = 55n; mills <= 130n; mills += 1n) {
+    for (let mills = 68n; mills <= 161n; mills += 1n) {
       const turnBudget = paidBudget(mills * 1_000_000n);
       const options = browser(turnBudget);
       if (availableRungsOf(options).length !== 1 || options.holdNanoUsd === undefined) continue;
@@ -1083,7 +1084,7 @@ describe('the pinned-model auto build offers the classifier its own menu', () =>
       );
       compared += 1;
     }
-    expect(compared).toBe(76);
+    expect(compared).toBe(94);
   });
 
   describe('on the trial policy, at the fixed 1¢ ceiling', () => {
@@ -1114,28 +1115,28 @@ describe('the pinned-model auto build offers the classifier its own menu', () =>
     }
 
     it('offers the classifier only the rungs the trial menu marks available', () => {
-      const build = compileTrialAt(3000n);
+      const build = compileTrialAt(2400n);
       if (build.kind !== 'built') throw new Error(`expected a built turn, got '${build.kind}'`);
-      expect(availableRungsOf(trialBrowser(3000n))).toEqual(['off', 'lite']);
+      expect(availableRungsOf(trialBrowser(2400n))).toEqual(['off', 'lite']);
       expect(build.classifier?.decisionDomain.presentedEfforts).toEqual(['off', 'lite']);
     });
 
     it('settles a trial menu that marks one rung and holds what the browser holds', () => {
-      const build = compileTrialAt(4000n);
+      const build = compileTrialAt(3200n);
       if (build.kind !== 'built') throw new Error(`expected a built turn, got '${build.kind}'`);
-      const held = trialBrowser(4000n).holdNanoUsd;
+      const held = trialBrowser(3200n).holdNanoUsd;
       if (held === undefined) throw new Error('expected a sendable turn');
-      expect(availableRungsOf(trialBrowser(4000n))).toEqual(['off']);
+      expect(availableRungsOf(trialBrowser(3200n))).toEqual(['off']);
       expect(build.classifier).toBeUndefined();
       expect(
-        createEstimateTotal(snapshotResolver([answerAt(4000n), trialEngine]))(
+        createEstimateTotal(snapshotResolver([answerAt(3200n), trialEngine]))(
           build.definition
         )._unsafeUnwrap()
       ).toBe(BigInt(held));
     });
 
     it('holds what the browser holds at every one-rung prompt length', () => {
-      const catalogAt = [answerAt(4000n), trialEngine];
+      const catalogAt = [answerAt(3200n), trialEngine];
       const estimate = createEstimateTotal(snapshotResolver(catalogAt));
       let compared = 0;
       for (let chars = 0; chars <= 2000; chars += 10) {
@@ -1159,8 +1160,8 @@ describe('the pinned-model auto build offers the classifier its own menu', () =>
     });
 
     it('refuses a trial send whose menu marks no rung', () => {
-      expect(availableRungsOf(trialBrowser(5000n))).toEqual([]);
-      expect(compileTrialAt(5000n)).toEqual({ kind: 'unaffordable' });
+      expect(availableRungsOf(trialBrowser(4000n))).toEqual([]);
+      expect(compileTrialAt(4000n)).toEqual({ kind: 'unaffordable' });
     });
   });
 });
@@ -1321,7 +1322,7 @@ describe('compileAutoEffortTurn on the trial policy', () => {
       // A cap short of the cheapest rung's budget plus a minimum answer funds
       // Min and nothing above it, so the one available rung settles the turn:
       // no rung is offered that would run with less than a minimum answer.
-      const build = compileTrial([answerAt(4000n), engine], 'trial/answer');
+      const build = compileTrial([answerAt(3200n), engine], 'trial/answer');
       if (build.kind !== 'built') throw new Error(`expected a built turn, got '${build.kind}'`);
       expect(build.classifier).toBeUndefined();
       const node = build.definition.nodes.at(-1);
@@ -1338,12 +1339,12 @@ describe('compileAutoEffortTurn on the trial policy', () => {
       // very rate a model with no ladder to classify leaves the classifier
       // nothing to decide, so it is handed to the regular path instead of
       // compiling a classified slot.
-      const ladderless = { ...answerAt(4000n), reasoning: undefined };
+      const ladderless = { ...answerAt(3200n), reasoning: undefined };
       expect(compileTrial([ladderless, engine], 'trial/answer')).toEqual({ kind: 'fallback' });
     });
 
     it('builds the classified turn once the fitted cap covers the cheapest rung', () => {
-      const build = compileTrial([answerAt(3000n), engine], 'trial/answer');
+      const build = compileTrial([answerAt(2400n), engine], 'trial/answer');
       if (build.kind !== 'built') throw new Error(`expected a built turn, got '${build.kind}'`);
       const node = build.definition.nodes.at(-1);
       const cap = node?.type === 'smartModel' ? node.params['maxOutputTokens'] : undefined;
@@ -1725,9 +1726,10 @@ describe('the hold a Smart Model send places', () => {
      * call, from first principles: ten more prompts, ten more steps of output
      * and its storage, the model's own output re-sent 55 answers' worth, each of
      * ten calls' results re-sent on ten later steps, the tool-use overhead on the
-     * ten tool-carrying steps, ten call fees and the stored search rows. The
-     * node's prompt and output ceiling are read off the send, and the window
-     * bounds both, as it bounds the estimator's legs.
+     * ten tool-carrying steps, ten call fees and the stored search rows, each
+     * token at the ceiling of the row's rates. The node's prompt and output
+     * ceiling are read off the send, and the window bounds both, as it bounds
+     * the estimator's legs.
      */
     const loopExtraOf = (definition: WorkflowDefinition, row: ModelDescriptor): bigint => {
       const node = definition.nodes.find(
@@ -1738,7 +1740,7 @@ describe('the hold a Smart Model send places', () => {
       const declared = node.params['maxOutputTokens'];
       const prompt = BigInt(Math.min(context, node.promptInputTokens ?? context));
       const ceiling = BigInt(Math.min(context, typeof declared === 'number' ? declared : context));
-      const { input, output } = tokenPriced(row).pricing.anchor.base;
+      const { input, output } = ceilingOf(tokenPriced(row).pricing.anchor).base;
       const resultTokens = BigInt(Math.ceil(WEB_SEARCH_RESULT_MAX_CHARS / 3));
       const overheadTokens = BigInt(toolLoopBound(['webSearch'], 10).overheadTokens);
       return (

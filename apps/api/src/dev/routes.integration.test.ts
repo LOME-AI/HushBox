@@ -1557,6 +1557,7 @@ describe('GET /dev/emails', () => {
       'two-factor-enabled',
       'two-factor-disabled',
       'account-locked',
+      'two-factor-locked',
       'welcome',
       'account-deleted',
       'chargeback-lock',

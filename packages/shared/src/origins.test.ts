@@ -23,7 +23,7 @@ function workerConfigs(): Map<string, string> {
     // eslint-disable-next-line sonarjs/no-os-command-from-path -- git is a standard tool wherever this repo is checked out
     'git',
     ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
-    // The file list nears spawnSync's default 1 MiB buffer, and an overflow makes the scan throw.
+    // The file list grows with the checkout and has no bound under spawnSync's default buffer; an overflow makes the scan throw.
     { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
   );
   if (listing.status !== 0) {

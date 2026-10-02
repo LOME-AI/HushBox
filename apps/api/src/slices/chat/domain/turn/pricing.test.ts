@@ -104,9 +104,10 @@ describe('the payer freeze minimum and its classifier reserve', () => {
     // exists — and this is the file that owns the composition, so it is the
     // file the literal belongs in.
     const model = descriptorOf({ id: 'vendor/anchor', outputs: ['text'] });
-    // 134 input tokens × 10 + 400 new characters × 300 + 640 framing characters
-    // × 300 + 1,000 minimum answer tokens × (20 + 1,500 storage).
-    expect(pricedMinimum([model], pinned(model.id))).toBe(1_833_340n);
+    // At the ceilings of the stored 10 / 20, 13 / 25: 134 input tokens × 13 +
+    // 400 new characters × 300 + 640 framing characters × 300 + 1,000 minimum
+    // answer tokens × (25 + 1,500 storage).
+    expect(pricedMinimum([model], pinned(model.id))).toBe(1_838_742n);
   });
 
   it('prices no minimum for a classifying turn whose catalog holds no priceable engine', () => {

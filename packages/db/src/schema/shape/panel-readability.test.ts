@@ -44,7 +44,8 @@ const PANEL_READABILITY: Record<string, 'readable' | 'revoked'> = {
   newsletter_issues: 'readable',
   newsletter_deliveries: 'readable',
   newsletter_webhook_events: 'readable',
-  idempotency_keys: 'readable',
+  // body_hash digests a request body that carries a chat turn's plaintext.
+  idempotency_keys: 'revoked',
   jobs: 'readable',
   admin_audit: 'readable',
   feedback: 'readable',

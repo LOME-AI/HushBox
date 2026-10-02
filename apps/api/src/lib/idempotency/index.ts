@@ -7,7 +7,15 @@ export { byExternalPreClaim } from './by-external-pre-claim.js';
 export { runMutation } from './run-mutation.js';
 export { runSettlement, runSettlementSavepoint } from './settlement.js';
 export { canonicalJson, hashCanonicalJson, uuidFromHex } from './canonical-json.js';
-export { claimKeyRow, succeedKeyRow, failKeyRow, heartbeatKeyRow } from './key-row.js';
+export { configureIdempotencyBodyHashSecret, hashRequestBody } from './body-hash.js';
+export {
+  claimKeyRow,
+  deleteAccountKeyRowsWithinTx,
+  failKeyRow,
+  heartbeatKeyRow,
+  succeedKeyRow,
+  succeedRunKeyRow,
+} from './key-row.js';
 export {
   IDEMPOTENCY_GRACE_SECONDS,
   IDEMPOTENCY_PURGE_TTL_SECONDS,
@@ -18,7 +26,7 @@ export {
   RUN_LEASE_SECONDS,
   assertIdempotencyTtlFloor,
 } from './config.js';
-export { createIdempotencyKeyPurgeEntry, purgeTerminalIdempotencyKeys } from './purge.js';
+export { createIdempotencyKeyPurgeEntry, purgeExpiredIdempotencyKeys } from './purge.js';
 export { bodyMismatchError, isIdempotencyConflict, requestInProgressError } from './errors.js';
 export {
   IDEMPOTENCY_EXEMPTION_CLASSES,
@@ -34,6 +42,7 @@ export type { ByKeyParams } from './by-key.js';
 export type { ByTransitionParams } from './by-transition.js';
 export type { ByEventIdParams } from './by-event-id.js';
 export type { ByExternalPreClaimParams } from './by-external-pre-claim.js';
+export type { IdempotencyBodyHashSecretEnv } from './body-hash.js';
 export type { IdempotencyTtlConfig } from './config.js';
 export type { IdempotencyPurgeParams } from './purge.js';
 export type { IdempotencyConflictError } from './errors.js';

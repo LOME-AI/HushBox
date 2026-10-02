@@ -35,7 +35,10 @@ function textRow(overrides: Partial<Model> = {}): Model {
   };
 }
 
-/** Billable nano rates: $0.00001 input, $0.00003 output per token. */
+/**
+ * Billable nano rates: $0.00001 input, $0.00003 output per token, held at
+ * their ceilings, 12,500 and 37,500 nano.
+ */
 const model = textRow();
 
 /** The Smart Model row the catalog serves, priced at its pool's cheapest rates. */
@@ -138,9 +141,9 @@ describe('textTurnBudget', () => {
   it('funds the minimum answer exactly at the fixed terms plus that answer', () => {
     // fixed = input tokens x input rate + input chars x char storage + framing;
     // variable = output rate + 5 stored chars per output token x char storage,
-    // over the 1000-token minimum answer.
-    const fixed = 1334n * 10_000n + 4000n * 300n + FRAMING_NANO;
-    const variableRate = 30_000n + 5n * 300n;
+    // over the 1000-token minimum answer, each rate at its ceiling.
+    const fixed = 1334n * 12_500n + 4000n * 300n + FRAMING_NANO;
+    const variableRate = 37_500n + 5n * 300n;
     const threshold = fixed + 1000n * variableRate;
 
     expect(budgetOf(input({ payerSpendableNanoUsd: threshold })).maxOutputTokens).toBe(1000);
@@ -151,8 +154,8 @@ describe('textTurnBudget', () => {
     // 4,000 prompt characters carrying a 400-character new message. The input
     // TOKEN leg still prices the whole prompt — the provider receives all of it
     // — while storage prices what the turn newly stores.
-    const fixed = 1334n * 10_000n + 400n * 300n + FRAMING_NANO;
-    const variableRate = 30_000n + 5n * 300n;
+    const fixed = 1334n * 12_500n + 400n * 300n + FRAMING_NANO;
+    const variableRate = 37_500n + 5n * 300n;
     const payerSpendableNanoUsd = fixed + 1000n * variableRate;
 
     expect(
@@ -216,14 +219,14 @@ describe('textTurnBudget', () => {
     const resultTokens = BigInt(Math.ceil(WEB_SEARCH_RESULT_MAX_CHARS / 3));
     const overheadTokens = BigInt(toolLoopBound(['webSearch'], 10).overheadTokens);
     const fixed =
-      11n * 1334n * 10_000n +
-      10n * 10n * resultTokens * 10_000n +
-      10n * overheadTokens * 10_000n +
+      11n * 1334n * 12_500n +
+      10n * 10n * resultTokens * 12_500n +
+      10n * overheadTokens * 12_500n +
       10n * toolCallBillableNano('webSearch') +
       BigInt(WEB_SEARCH_ROW_MAX_CHARS) * 300n +
       FRAMING_NANO +
       4000n * 300n;
-    const variableRate = 11n * (30_000n + 5n * 300n) + 55n * 10_000n;
+    const variableRate = 11n * (37_500n + 5n * 300n) + 55n * 12_500n;
     const threshold = fixed + 1000n * variableRate;
 
     expect(
@@ -300,10 +303,10 @@ describe('textTurnBudget', () => {
 
   it('leaves the funded pool minus the reasoning budget for the answer', () => {
     // Funding chosen so the pool solves to exactly 34,000 tokens: fixed is
-    // 1334 input tokens x 10,000 plus 4000 chars x 300 storage plus the framing
-    // allowance, and the variable rate is 30,000 + 5 x 300.
+    // 1334 input tokens x 12,500 plus 4000 chars x 300 storage plus the framing
+    // allowance, and the variable rate is 37,500 + 5 x 300.
     const budget = budgetOf(
-      input({ payerSpendableNanoUsd: 1_085_540_000n + FRAMING_NANO, reasoningBudgetTokens: 32_768 })
+      input({ payerSpendableNanoUsd: 1_343_875_000n + FRAMING_NANO, reasoningBudgetTokens: 32_768 })
     );
 
     expect(budget.maxOutputTokens).toBe(34_000);
@@ -397,12 +400,12 @@ describe('the composer preview against the send gate', () => {
     reasoning: undefined,
   };
 
-  /** The least funding that buys the 1000-token minimum answer at these rates. */
+  /** The least funding that buys the 1000-token minimum answer at these rates' ceilings. */
   const THRESHOLD_NANO_USD =
-    1334n * 10_000n +
+    1334n * 12_500n +
     BigInt(SPLIT_BASIS.inputChars) * 300n +
     FRAMING_NANO +
-    1000n * (30_000n + 5n * 300n);
+    1000n * (37_500n + 5n * 300n);
 
   function previewFundsAt(fundingNanoUsd: bigint): boolean {
     return (
@@ -465,15 +468,16 @@ describe('textTurnBudget on a model with a long-context rate', () => {
 
   it('offers the cap the server fits for an 880,000-character history at the long-context rate', () => {
     // 880,000 characters are 293,334 prompt tokens, past the 200,000 threshold.
-    // The server holds a 40,000-token answer at 293,334 × 6,900 + 40,000 ×
-    // (25,875 + 1,500 output storage) + 640 framing and 88 new characters × 300,
-    // 3,119,223,000 nano, so that funding fits exactly 40,000 tokens.
+    // The server holds a 40,000-token answer at the tier's ceiling, 293,334 ×
+    // 8,625 + 40,000 × (32,344 + 1,500 output storage) + 640 framing and 88 new
+    // characters × 300, 3,883,984,150 nano, so that funding fits exactly 40,000
+    // tokens.
     const budget = budgetOf(
       input({
         models: [tieredSonnet],
         promptChars: 880_000,
         inputChars: 88,
-        payerSpendableNanoUsd: 3_119_223_000n,
+        payerSpendableNanoUsd: 3_883_984_150n,
       })
     );
 
@@ -504,20 +508,20 @@ describe('textTurnBudget on the Smart slot', () => {
   });
 
   it('funds the answer its candidate funds at the long-context rate an 880,000-character history reaches', () => {
-    // The synthetic row's base rates alone fund 112,373 tokens; the candidate,
+    // The synthetic row's base rates alone fund 113,541 tokens; the candidate,
     // priced at the rate 293,334 prompt tokens reach, funds 40,000.
     const budget = budgetOf(
       input({
         models: [smartOverTiered],
         promptChars: 880_000,
         inputChars: 88,
-        payerSpendableNanoUsd: 3_119_223_000n,
+        payerSpendableNanoUsd: 3_883_984_150n,
         turnOptions: slotOptions({
           catalog: [tieredCandidate],
           pinned: [],
           promptChars: 880_000,
           inputChars: 88,
-          spendable: 3_119_223_000n,
+          spendable: 3_883_984_150n,
         }),
       })
     );
@@ -572,14 +576,14 @@ describe('textTurnBudget on the Smart slot', () => {
 
     it('funds the answer the one candidate the slot can resolve to funds beside it', () => {
       // The pinned sibling is not a candidate, so the only arrangement is the
-      // pinned sibling with the dearer model, which funds 10,558 tokens.
-      expect(slotFigure([cheapPinned, dearer])).toBe(10_558);
+      // pinned sibling with the dearer model, which funds 8,685 tokens.
+      expect(slotFigure([cheapPinned, dearer])).toBe(8685);
     });
 
     it('takes no figure from the pinned sibling or from a row whose context cannot hold the prompt', () => {
       // Neither is an arrangement the slot can run: the figure stays the dearer
-      // model's, 10,553 once the short row joins the classifier's pool.
-      expect(slotFigure([cheapPinned, dearer, shortContext])).toBe(10_553);
+      // model's, 8,679 once the short row joins the classifier's pool.
+      expect(slotFigure([cheapPinned, dearer, shortContext])).toBe(8679);
     });
   });
 

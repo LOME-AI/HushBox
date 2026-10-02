@@ -25,11 +25,18 @@ import type { ToolLoopBound } from '../tool-loop.ts';
 import type { CallQuantities, CostCurve } from './curve.ts';
 import type { TokenPricing } from './schedule.ts';
 
-/**
- * A tiered model's anchor: base 3,450 / 17,250, and 6,900 / 25,875 above
- * 200,000. A reserve reads its ceiling: 4,313 / 21,563, and 8,625 / 32,344.
- */
+/** A tiered model's rates, passed directly: base 4,313 / 21,563, and 8,625 / 32,344 above 200,000. */
 const tiered = tokenPricingFixture({
+  input: 4313n,
+  output: 21_563n,
+  tiers: [{ abovePromptTokens: 200_000, input: 8625n, output: 32_344n }],
+});
+
+/**
+ * The anchor whose ceiling is `tiered`'s rates: base 3,450 / 17,250, and
+ * 6,900 / 25,875 above 200,000. A reserve over it prices at `tiered`'s rates.
+ */
+const tieredAnchor = tokenPricingFixture({
   input: 3450n,
   output: 17_250n,
   tiers: [{ abovePromptTokens: 200_000, input: 6900n, output: 25_875n }],
@@ -83,7 +90,7 @@ describe('stepInputBoundTokens', () => {
 });
 
 describe('textCallCurve — a tool loop whose later steps cross a tier', () => {
-  const curve = textCallCurve(tiered, 'reserve', midSearch, 200_000);
+  const curve = textCallCurve(tieredAnchor, 'reserve', midSearch, 200_000);
 
   it('prices every step at base below the first crossing', () => {
     expect(costAt(curve, 26_484)).toBe(8_573_673_048n);
@@ -99,7 +106,7 @@ describe('textCallCurve — a tool loop whose later steps cross a tier', () => {
     const everyStepAtTier = steppedCallLineItems(
       [
         {
-          stepRates: Array.from({ length: 8 }, () => ceilingOf(tiered.anchor).tiers[0]!.rates),
+          stepRates: Array.from({ length: 8 }, () => tiered.anchor.tiers[0]!.rates),
           toolLoop: midLoop,
         },
       ],
@@ -124,19 +131,24 @@ describe('textCallCurve — a tool loop whose later steps cross a tier', () => {
   });
 
   it('clips the regime starts to the output cap', () => {
-    const clipped = textCallCurve(tiered, 'reserve', midSearch, 61_798);
+    const clipped = textCallCurve(tieredAnchor, 'reserve', midSearch, 61_798);
     expect(clipped.regimes.map((regime) => regime.fromOutputTokens)).toEqual([
       0, 26_485, 30_899, 37_079, 46_348, 61_798,
     ]);
   });
 
   it('drops a regime that would start one token above the cap', () => {
-    const clipped = textCallCurve(tiered, 'reserve', midSearch, 61_797);
+    const clipped = textCallCurve(tieredAnchor, 'reserve', midSearch, 61_797);
     expect(clipped.regimes.at(-1)?.fromOutputTokens).toBe(46_348);
   });
 
   it('starts at the tier a step already exceeds with no output at all', () => {
-    const long = textCallCurve(tiered, 'reserve', { ...midSearch, promptTokens: 190_000 }, 1000);
+    const long = textCallCurve(
+      tieredAnchor,
+      'reserve',
+      { ...midSearch, promptTokens: 190_000 },
+      1000
+    );
     expect(tiersAt(long, 0)).toEqual([0, 1, 1, 1, 1, 1, 1, 1]);
     expect(long.regimes).toHaveLength(1);
   });
@@ -148,15 +160,20 @@ describe('textCallCurve — a tool loop whose later steps cross a tier', () => {
       { promptTokens: 200_001, persists: false, newMessageChars: 0 },
       100
     );
-    expect(costAt(single, 100)).toBe(200_001n * 6900n + 100n * 25_875n);
+    expect(costAt(single, 100)).toBe(200_001n * 8625n + 100n * 32_344n);
   });
 
   it('records the output cap it was built for', () => {
-    expect(textCallCurve(tiered, 'reserve', midSearch, 61_797).cap).toBe(61_797);
+    expect(textCallCurve(tieredAnchor, 'reserve', midSearch, 61_797).cap).toBe(61_797);
   });
 
   it('leaves out every storage leg of a call that does not persist', () => {
-    const provider = textCallCurve(tiered, 'reserve', { ...midSearch, persists: false }, 200_000);
+    const provider = textCallCurve(
+      tieredAnchor,
+      'reserve',
+      { ...midSearch, persists: false },
+      200_000
+    );
     expect(provider.regimes[0]?.manifest.every((item) => item.kind === 'provider')).toBe(true);
   });
 
@@ -165,7 +182,7 @@ describe('textCallCurve — a tool loop whose later steps cross a tier', () => {
     ['a fractional new-message length', { ...midSearch, newMessageChars: 0.5 }, 100],
     ['a negative output cap', midSearch, -1],
   ] as const)('refuses %s', (_label, quantities, cap) => {
-    expect(() => textCallCurve(tiered, 'reserve', quantities, cap)).toThrow(RangeError);
+    expect(() => textCallCurve(tieredAnchor, 'reserve', quantities, cap)).toThrow(RangeError);
   });
 });
 
@@ -276,8 +293,13 @@ describe('textCallCurve — a single regime prices as the stepped line items do'
 
 describe('sumCurves', () => {
   it('breaks the sum wherever either curve breaks', () => {
-    const early = textCallCurve(tiered, 'reserve', midSearch, 200_000);
-    const late = textCallCurve(tiered, 'reserve', { ...midSearch, promptTokens: 700 }, 200_000);
+    const early = textCallCurve(tieredAnchor, 'reserve', midSearch, 200_000);
+    const late = textCallCurve(
+      tieredAnchor,
+      'reserve',
+      { ...midSearch, promptTokens: 700 },
+      200_000
+    );
     const summed = sumCurves([early, late]);
     const starts = new Set([
       ...early.regimes.map((regime) => regime.fromOutputTokens),
@@ -289,8 +311,13 @@ describe('sumCurves', () => {
   });
 
   it('costs each output count at the sum of the curves’ costs', () => {
-    const early = textCallCurve(tiered, 'reserve', midSearch, 200_000);
-    const late = textCallCurve(tiered, 'reserve', { ...midSearch, promptTokens: 700 }, 200_000);
+    const early = textCallCurve(tieredAnchor, 'reserve', midSearch, 200_000);
+    const late = textCallCurve(
+      tieredAnchor,
+      'reserve',
+      { ...midSearch, promptTokens: 700 },
+      200_000
+    );
     const summed = sumCurves([early, late]);
     for (const outputTokens of [0, 26_470, 26_485, 100_000]) {
       expect(costAt(summed, outputTokens)).toBe(
@@ -301,24 +328,24 @@ describe('sumCurves', () => {
 
   it('carries every curve’s step tiers, first curve first', () => {
     const single = textCallCurve(
-      tiered,
+      tieredAnchor,
       'reserve',
       { promptTokens: 200_001, persists: false, newMessageChars: 0 },
       30_000
     );
-    const loop = textCallCurve(tiered, 'reserve', midSearch, 200_000);
+    const loop = textCallCurve(tieredAnchor, 'reserve', midSearch, 200_000);
     expect(tiersAt(sumCurves([single, loop]), 26_485)).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 1]);
   });
 
   it('takes the smallest cap of the curves it sums', () => {
-    const wide = textCallCurve(tiered, 'reserve', midSearch, 200_000);
-    const narrow = textCallCurve(tiered, 'reserve', midSearch, 30_000);
+    const wide = textCallCurve(tieredAnchor, 'reserve', midSearch, 200_000);
+    const narrow = textCallCurve(tieredAnchor, 'reserve', midSearch, 30_000);
     expect(sumCurves([wide, narrow]).cap).toBe(30_000);
     expect(sumCurves([narrow, wide]).cap).toBe(30_000);
   });
 
   it('drops a regime that starts above the smallest cap', () => {
-    const wide = textCallCurve(tiered, 'reserve', midSearch, 200_000);
+    const wide = textCallCurve(tieredAnchor, 'reserve', midSearch, 200_000);
     const narrow = textCallCurve(flat(5n, 15n), 'reserve', midSearch, 30_000);
     expect(sumCurves([wide, narrow]).regimes.map((regime) => regime.fromOutputTokens)).toEqual([
       0, 26_485,
@@ -326,7 +353,7 @@ describe('sumCurves', () => {
   });
 
   it('keeps a text curve’s cap and regimes when summed with a media curve', () => {
-    const text = textCallCurve(tiered, 'reserve', midSearch, 200_000);
+    const text = textCallCurve(tieredAnchor, 'reserve', midSearch, 200_000);
     const image = perImagePricingFixture({ anchor: 51_750_000n, dearest: 103_500_000n });
     const summed = sumCurves([text, mediaCallCurve(image, 'reserve', { images: 1 })]);
     expect(summed.cap).toBe(200_000);
@@ -371,7 +398,7 @@ describe('costAt and tiersAt', () => {
 });
 
 describe('largestFundedOutput', () => {
-  const curve = textCallCurve(tiered, 'reserve', midSearch, 200_000);
+  const curve = textCallCurve(tieredAnchor, 'reserve', midSearch, 200_000);
 
   it('funds the last output count before the tier when the funding stops there', () => {
     expect(largestFundedOutput(curve, 8_573_673_048n)).toBe(26_484);
@@ -496,7 +523,12 @@ describe('priceSteps', () => {
   });
 
   it('agrees with the curve’s provider cost at each step’s bound', () => {
-    const provider = textCallCurve(tiered, 'reserve', { ...midSearch, persists: false }, 200_000);
+    const provider = textCallCurve(
+      tieredAnchor,
+      'reserve',
+      { ...midSearch, persists: false },
+      200_000
+    );
     const outputTokens = 40_000;
     const steps = Array.from({ length: 8 }, (_unused, index) => ({
       inputTokens: stepInputBoundTokens(midSearch, index + 1, outputTokens),
@@ -504,7 +536,7 @@ describe('priceSteps', () => {
     }));
     const fees = BigInt(midLoop.calls) * midLoop.callFeeNano;
     expect(costAt(provider, outputTokens)).toBe(
-      priceSteps(tiered, 'reserve', steps).nanoUsd + fees
+      priceSteps(tieredAnchor, 'reserve', steps).nanoUsd + fees
     );
   });
 

@@ -52,14 +52,19 @@ export function determineBumpType(labels: string[]): BumpType {
   return 'patch';
 }
 
-/** Compute the next version from the latest git tag and PR labels. */
-export function computeNextVersion(input: ComputeVersionInput): ComputeVersionResult {
-  if (input.latestTag === null) {
-    const version = '1.0.0';
-    return { version, versionName: version, versionCode: semverToCode(version) };
-  }
+/**
+ * The last release of the legacy deployment. Its installed clients take any served version
+ * that differs from theirs, a lower one included, so numbering below it would downgrade them.
+ */
+const RELEASE_FLOOR = 'v1.0.31';
 
-  const current = parseSemver(input.latestTag);
+/** Compute the next version from the higher of the latest git tag and the floor, and PR labels. */
+export function computeNextVersion(input: ComputeVersionInput): ComputeVersionResult {
+  const base =
+    input.latestTag !== null && compareSemver(input.latestTag, RELEASE_FLOOR) > 0
+      ? input.latestTag
+      : RELEASE_FLOOR;
+  const current = parseSemver(base);
   const bump = determineBumpType(input.labels);
 
   let next: Semver;

@@ -6,7 +6,7 @@ import { bodyMismatchError, requestInProgressError } from './errors.js';
 import type { Database } from '@hushbox/db';
 import type { DomainError } from '../errors/index.js';
 import type { ResultAsync } from '../result/index.js';
-import type { DbWriter } from './transaction.js';
+import type { DbTransaction, DbWriter } from './transaction.js';
 
 /**
  * The idempotency-key row state machine — the run referee and request dedup
@@ -244,6 +244,44 @@ export function succeedKeyRow(
       .returning({ id: idempotencyKeys.id }),
     infraError
   ).map((rows) => (rows.length === 1 ? 'flipped' : 'lost'));
+}
+
+/**
+ * The run settlement's fenced flip: {@link succeedKeyRow}, except that a flip
+ * matching no row then tells a row another claimant holds (`lost`) from a row
+ * that no longer exists (`missing`). Only account deletion removes a row a run
+ * still holds — the purge's stale-claim horizon lies past every run deadline —
+ * so `missing` means the run's account is gone, not that a retry superseded it.
+ */
+export function succeedRunKeyRow(
+  writer: DbWriter,
+  fence: KeyRowFence,
+  response: unknown
+): ResultAsync<'flipped' | 'lost' | 'missing', DomainError> {
+  return succeedKeyRow(writer, fence, response).andThen((outcome) =>
+    outcome === 'flipped'
+      ? okAsync('flipped' as const)
+      : fromPromise(
+          writer
+            .select({ id: idempotencyKeys.id })
+            .from(idempotencyKeys)
+            .where(eq(idempotencyKeys.id, fence.id)),
+          infraError
+        ).map((rows) => (rows.length === 0 ? ('missing' as const) : ('lost' as const)))
+  );
+}
+
+/**
+ * Deletes every key row an account's requests and runs left, live claims
+ * included, inside the account-deletion transaction: a row carries the
+ * account's id and a digest of what it sent, and the table has no foreign key
+ * to `users` to take it with the account.
+ */
+export async function deleteAccountKeyRowsWithinTx(
+  tx: DbTransaction,
+  userId: string
+): Promise<void> {
+  await tx.delete(idempotencyKeys).where(eq(idempotencyKeys.userId, userId));
 }
 
 /** Fenced terminal flip to `failed` — permits one serialized re-execution. */

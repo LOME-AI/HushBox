@@ -2,7 +2,14 @@ import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { LOCAL_NEON_DEV_CONFIG, createDb, idempotencyKeys } from '@hushbox/db';
 import { isIdempotencyConflict } from './errors.js';
-import { claimKeyRow, failKeyRow, heartbeatKeyRow, succeedKeyRow } from './key-row.js';
+import {
+  claimKeyRow,
+  deleteAccountKeyRowsWithinTx,
+  failKeyRow,
+  heartbeatKeyRow,
+  succeedKeyRow,
+  succeedRunKeyRow,
+} from './key-row.js';
 import type { Database } from '@hushbox/db';
 import type { DomainError } from '../errors/index.js';
 import type { ResultAsync } from '../result/index.js';
@@ -411,6 +418,62 @@ describe('completion fence', () => {
     expect(flip).toBe('lost');
     const stored = await readRow(p.scope);
     expect(stored.claimedBy).toBe('executor-b');
+  });
+});
+
+describe('run settlement fence', () => {
+  it('flips a live run claim to succeeded', async () => {
+    const p = params({ kind: 'run' });
+    const row = await expectExecutor(claimKeyRow(db, p));
+    const flip = await unwrap(succeedRunKeyRow(db, fenceOf(row), { ok: true }));
+    expect(flip).toBe('flipped');
+    expect((await readRow(p.scope)).status).toBe('succeeded');
+  });
+
+  it('reports lost when another claimant holds the row', async () => {
+    const p = params({ kind: 'run' });
+    const zombie = await expectExecutor(claimKeyRow(db, p));
+    await backdateClaim(p.scope);
+    await expectExecutor(claimKeyRow(db, { ...p, executorId: 'executor-b' }));
+    const flip = await unwrap(succeedRunKeyRow(db, fenceOf(zombie), { ok: true }));
+    expect(flip).toBe('lost');
+  });
+
+  it('reports missing when the row no longer exists', async () => {
+    const p = params({ kind: 'run' });
+    const row = await expectExecutor(claimKeyRow(db, p));
+    await db.delete(idempotencyKeys).where(eq(idempotencyKeys.id, row.id));
+    const flip = await unwrap(succeedRunKeyRow(db, fenceOf(row), { ok: true }));
+    expect(flip).toBe('missing');
+  });
+});
+
+describe('account deletion', () => {
+  async function rowsOf(userId: string): Promise<number> {
+    const rows = await db
+      .select({ id: idempotencyKeys.id })
+      .from(idempotencyKeys)
+      .where(eq(idempotencyKeys.userId, userId));
+    return rows.length;
+  }
+
+  it("deletes every one of the account's key rows, whatever their kind or status", async () => {
+    const live = params({ kind: 'run' });
+    const userId = live.scope.userId;
+    await expectExecutor(claimKeyRow(db, live));
+    const settled = await expectExecutor(
+      claimKeyRow(db, params({ scope: { userId, route: '/things', key: crypto.randomUUID() } }))
+    );
+    await unwrap(succeedKeyRow(db, fenceOf(settled), { ok: true }));
+    await db.transaction((tx) => deleteAccountKeyRowsWithinTx(tx, userId));
+    expect(await rowsOf(userId)).toBe(0);
+  });
+
+  it("leaves another account's key rows", async () => {
+    const other = params();
+    await expectExecutor(claimKeyRow(db, other));
+    await db.transaction((tx) => deleteAccountKeyRowsWithinTx(tx, crypto.randomUUID()));
+    expect(await rowsOf(other.scope.userId)).toBe(1);
   });
 });
 

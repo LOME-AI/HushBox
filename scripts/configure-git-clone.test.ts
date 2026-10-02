@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { promises as fs } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { promises as fs, existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execa } from 'execa';
@@ -11,6 +11,8 @@ import {
   configureGitClone,
   checkPushDestination,
   describeOutcome,
+  describeRecords,
+  type RecordsOutcome,
   type Repositories,
 } from './configure-git-clone.js';
 
@@ -25,17 +27,32 @@ const REPOSITORIES: Repositories = {
   recordsRepo: 'Example-Org/Example-records',
 };
 
+const SHIPPED_GITIGNORE = readFileSync(path.join(import.meta.dirname, '..', '.gitignore'), 'utf8');
+
+/** What a remote holds when a test names nothing else. */
+const SEED_FILES: Readonly<Record<string, string>> = { 'a.txt': 'a\n' };
+
 /** Both stamps of every fixture commit, so no fixture reads the running clock. */
 const FIXTURE_DATE = `@${String(TEST_DAY_START / SECOND_MS)} +0000`;
 
 let sandbox: string;
 let cloneSequence = 0;
 
+/**
+ * Every git call the suite makes, the module's own included, reads
+ * `https://github.com/<slug>` as the bare repository `createRemote` builds for
+ * that slug, so the records repository's real URL resolves inside the sandbox
+ * and no call leaves the machine.
+ */
 beforeEach(async () => {
   sandbox = await fs.mkdtemp(path.join(os.tmpdir(), 'configure-git-clone-'));
+  vi.stubEnv('GIT_CONFIG_COUNT', '1');
+  vi.stubEnv('GIT_CONFIG_KEY_0', `url.${toPosixPath(path.join(sandbox, 'remotes'))}/.insteadOf`);
+  vi.stubEnv('GIT_CONFIG_VALUE_0', 'https://github.com/');
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await fs.rm(sandbox, { recursive: true, force: true });
 });
 
@@ -65,20 +82,48 @@ async function initWorkRepository(directory: string): Promise<void> {
  * commit because `ls-remote --exit-code` reports an empty repository as a
  * failure, and the staging repository this stands in for carries the codebase.
  */
-async function createRemote(slug: string): Promise<string> {
+async function createRemote(
+  slug: string,
+  files: Readonly<Record<string, string>> = SEED_FILES,
+  branch = 'main'
+): Promise<string> {
   const bare = path.join(sandbox, 'remotes', `${slug}.git`);
   await fs.mkdir(path.dirname(bare), { recursive: true });
-  await execa('git', ['init', '--bare', '-q', '-b', 'main', bare]);
+  await execa('git', ['init', '--bare', '-q', '-b', branch, bare]);
 
   const seed = path.join(sandbox, 'seed');
   await initWorkRepository(seed);
-  await fs.writeFile(path.join(seed, 'a.txt'), 'a\n');
-  await git(seed, ['add', 'a.txt']);
+  for (const [relative, content] of Object.entries(files)) await write(seed, relative, content);
+  await git(seed, ['add', '--all', '--force']);
   await git(seed, ['commit', '-q', '-m', 'seed']);
-  await git(seed, ['push', '-q', toPosixPath(bare), 'main']);
+  await git(seed, ['push', '-q', toPosixPath(bare), `main:${branch}`]);
   await fs.rm(seed, { recursive: true, force: true });
 
   return toPosixPath(bare);
+}
+
+async function write(root: string, relative: string, content = `${relative}\n`): Promise<void> {
+  const file = path.join(root, ...relative.split('/'));
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, content);
+}
+
+const RECORD = 'docs/runs/run-a/plan.md';
+
+/** The records repository, holding one record file. */
+async function createRecordsRemote(branch = 'main'): Promise<void> {
+  await createRemote(REPOSITORIES.recordsRepo, { [RECORD]: 'the plan\n' }, branch);
+}
+
+/** A clone carrying the shipped records block, which every checkout of the repository has. */
+async function createRecordsClone(): Promise<string> {
+  const clone = await createClone(null);
+  await write(clone, '.gitignore', SHIPPED_GITIGNORE);
+  return clone;
+}
+
+function overlayExists(clone: string): boolean {
+  return existsSync(path.join(clone, '.records.git'));
 }
 
 /** The URL a remote would carry without the remote existing. */
@@ -209,7 +254,7 @@ describe('configureGitClone', () => {
 
     const outcome = await configureGitClone(clone, REPOSITORIES);
 
-    expect(outcome).toEqual({ status: 'configured', routing: { status: 'routed' } });
+    expect(outcome).toMatchObject({ status: 'configured', routing: { status: 'routed' } });
     await expect(remoteDirections(clone)).resolves.toEqual({
       '(fetch)': publicUrl,
       '(push)': stagingUrl,
@@ -221,7 +266,10 @@ describe('configureGitClone', () => {
 
     const outcome = await configureGitClone(clone, REPOSITORIES);
 
-    expect(outcome).toEqual({ status: 'configured', routing: { status: 'staging-unreachable' } });
+    expect(outcome).toMatchObject({
+      status: 'configured',
+      routing: { status: 'staging-unreachable' },
+    });
     await expect(configuredValue(clone, 'remote.origin.pushurl')).resolves.toBe('');
   });
 
@@ -232,7 +280,7 @@ describe('configureGitClone', () => {
     const stagingUrl = await createRemote(REPOSITORIES.stagingRepo);
     const outcome = await configureGitClone(clone, REPOSITORIES);
 
-    expect(outcome).toEqual({ status: 'configured', routing: { status: 'routed' } });
+    expect(outcome).toMatchObject({ status: 'configured', routing: { status: 'routed' } });
     await expect(configuredValue(clone, 'remote.origin.pushurl')).resolves.toBe(stagingUrl);
   });
 
@@ -242,7 +290,10 @@ describe('configureGitClone', () => {
 
     const outcome = await configureGitClone(clone, REPOSITORIES);
 
-    expect(outcome).toEqual({ status: 'configured', routing: { status: 'origin-not-canonical' } });
+    expect(outcome).toMatchObject({
+      status: 'configured',
+      routing: { status: 'origin-not-canonical' },
+    });
     await expect(configuredValue(clone, 'remote.origin.pushurl')).resolves.toBe('');
   });
 
@@ -257,7 +308,7 @@ describe('configureGitClone', () => {
 
     const outcome = await configureGitClone(clone, REPOSITORIES);
 
-    expect(outcome).toEqual({ status: 'configured', routing: { status: 'already-routed' } });
+    expect(outcome).toMatchObject({ status: 'configured', routing: { status: 'already-routed' } });
     await expect(configuredValue(clone, 'remote.origin.pushurl')).resolves.toBe(stagingUrl);
   });
 
@@ -269,7 +320,7 @@ describe('configureGitClone', () => {
 
     const outcome = await configureGitClone(clone, REPOSITORIES);
 
-    expect(outcome).toEqual({ status: 'configured', routing: { status: 'manual-push-url' } });
+    expect(outcome).toMatchObject({ status: 'configured', routing: { status: 'manual-push-url' } });
     await expect(configuredValue(clone, 'remote.origin.pushurl')).resolves.toBe(chosen);
   });
 
@@ -278,7 +329,7 @@ describe('configureGitClone', () => {
 
     const outcome = await configureGitClone(clone, REPOSITORIES);
 
-    expect(outcome).toEqual({ status: 'configured', routing: { status: 'no-origin' } });
+    expect(outcome).toMatchObject({ status: 'configured', routing: { status: 'no-origin' } });
   });
 
   it('does nothing in a directory that is not a repository', async () => {
@@ -340,16 +391,22 @@ describe('checkPushDestination', () => {
   });
 });
 
+const UNREACHABLE: RecordsOutcome = { status: 'records-unreachable' };
+
 describe('describeOutcome', () => {
   it('announces the routing it applied', () => {
-    expect(describeOutcome({ status: 'configured', routing: { status: 'routed' } })).toContain(
-      'push'
-    );
+    expect(
+      describeOutcome({ status: 'configured', routing: { status: 'routed' }, records: UNREACHABLE })
+    ).toContain('push');
   });
 
   it('announces that it kept a push URL it found', () => {
     expect(
-      describeOutcome({ status: 'configured', routing: { status: 'manual-push-url' } })
+      describeOutcome({
+        status: 'configured',
+        routing: { status: 'manual-push-url' },
+        records: UNREACHABLE,
+      })
     ).toContain('push');
   });
 
@@ -359,7 +416,156 @@ describe('describeOutcome', () => {
 
   it('says nothing about a clone it left alone', () => {
     expect(
-      describeOutcome({ status: 'configured', routing: { status: 'staging-unreachable' } })
+      describeOutcome({
+        status: 'configured',
+        routing: { status: 'staging-unreachable' },
+        records: UNREACHABLE,
+      })
     ).toBeNull();
+  });
+});
+
+describe('configureGitClone restoring the records', () => {
+  it('restores the records overlay when the records repository answers', async () => {
+    await createRecordsRemote();
+    const clone = await createRecordsClone();
+
+    const outcome = await configureGitClone(clone, REPOSITORIES);
+
+    expect(outcome).toMatchObject({ records: { status: 'restored' } });
+  });
+
+  it('checks the records out into the working tree', async () => {
+    await createRecordsRemote();
+    const clone = await createRecordsClone();
+
+    await configureGitClone(clone, REPOSITORIES);
+
+    await expect(fs.readFile(path.join(clone, ...RECORD.split('/')), 'utf8')).resolves.toBe(
+      'the plan\n'
+    );
+  });
+
+  it('leaves the records alone when the records repository does not answer', async () => {
+    const clone = await createRecordsClone();
+
+    const outcome = await configureGitClone(clone, REPOSITORIES);
+
+    expect(outcome).toMatchObject({ records: { status: 'records-unreachable' } });
+  });
+
+  it('restores nothing when the probe fails though the repository could be cloned', async () => {
+    await createRecordsRemote();
+    const bare = path.join(sandbox, 'remotes', `${REPOSITORIES.recordsRepo}.git`);
+    await git(bare, ['symbolic-ref', 'HEAD', 'refs/heads/absent']);
+    const clone = await createRecordsClone();
+
+    await configureGitClone(clone, REPOSITORIES);
+
+    expect(overlayExists(clone)).toBe(false);
+  });
+
+  it('reports record files that have no overlay', async () => {
+    await createRecordsRemote();
+    const clone = await createRecordsClone();
+    await write(clone, 'docs/runs/run-b/notes.md');
+
+    const outcome = await configureGitClone(clone, REPOSITORIES);
+
+    expect(outcome).toMatchObject({ records: { status: 'records-present' } });
+  });
+
+  it('restores nothing over record files that have no overlay', async () => {
+    await createRecordsRemote();
+    const clone = await createRecordsClone();
+    await write(clone, 'docs/runs/run-b/notes.md');
+
+    await configureGitClone(clone, REPOSITORIES);
+
+    expect(overlayExists(clone)).toBe(false);
+  });
+
+  it('leaves a clone that already has its overlay alone', async () => {
+    await createRecordsRemote();
+    const clone = await createRecordsClone();
+    await fs.mkdir(path.join(clone, '.records.git'));
+
+    const outcome = await configureGitClone(clone, REPOSITORIES);
+
+    expect(outcome).toMatchObject({ records: { status: 'overlay-present' } });
+  });
+
+  it('resolves when the restore is refused', async () => {
+    await createRecordsRemote();
+    const clone = await createRecordsClone();
+    await fs.mkdir(path.join(clone, ...RECORD.split('/')), { recursive: true });
+
+    const outcome = await configureGitClone(clone, REPOSITORIES);
+
+    expect(outcome).toMatchObject({ records: { status: 'restore-failed' } });
+  });
+
+  it('resolves when the restore fails', async () => {
+    await createRecordsRemote('trunk');
+    const clone = await createRecordsClone();
+
+    const outcome = await configureGitClone(clone, REPOSITORIES);
+
+    expect(outcome).toMatchObject({ records: { status: 'restore-failed' } });
+  });
+
+  it('resolves when the checkout carries no records block', async () => {
+    await createRecordsRemote();
+    const clone = await createClone(null);
+
+    const outcome = await configureGitClone(clone, REPOSITORIES);
+
+    expect(outcome).toMatchObject({ records: { status: 'restore-failed' } });
+  });
+
+  it('says nothing for a fork whose records repository does not answer', async () => {
+    const clone = await createClone(await createRemote('Someone-Else/Example'));
+    await write(clone, '.gitignore', SHIPPED_GITIGNORE);
+    await write(clone, 'docs/runs/run-b/notes.md');
+
+    const outcome = await configureGitClone(clone, REPOSITORIES);
+
+    expect(outcome.status === 'configured' ? describeRecords(outcome.records) : null).toBeNull();
+  });
+});
+
+describe('describeRecords', () => {
+  it('announces the overlay it restored', () => {
+    expect(describeRecords({ status: 'restored' })).toContain('.records.git');
+  });
+
+  it('names pnpm records init for record files with no overlay', () => {
+    expect(describeRecords({ status: 'records-present' })).toContain('pnpm records init');
+  });
+
+  it('names pnpm records restore for a restore that did not complete', () => {
+    expect(
+      describeRecords({ status: 'restore-failed', reason: 'records: clone failed: no answer' })
+    ).toContain('pnpm records restore');
+  });
+
+  it('carries the reason a restore did not complete', () => {
+    expect(
+      describeRecords({ status: 'restore-failed', reason: 'records: clone failed: no answer' })
+    ).toContain('clone failed: no answer');
+  });
+
+  it('reports a restore that did not complete on one line', () => {
+    expect(
+      describeRecords({ status: 'restore-failed', reason: 'records: clone failed:\nfatal: gone' })
+    ).not.toContain('\n');
+  });
+
+  it('says nothing when the records repository did not answer', () => {
+    expect(describeRecords({ status: 'records-unreachable' })).toBeNull();
+  });
+
+  it('says nothing about an overlay that was already there', () => {
+    expect(describeRecords({ status: 'overlay-present' })).toBeNull();
   });
 });

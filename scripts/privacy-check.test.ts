@@ -14,6 +14,15 @@ const DISCLOSING_INSTANT = isoAt(TEST_DAY_START + 14 * HOUR_MS);
 const DISCLOSING_TEXT = `recorded ${DISCLOSING_INSTANT}\n`;
 const NO_FINDINGS = formatGateReport({ text: [], binary: [] });
 
+/** The marked `.gitignore` block naming the record roots, as every checkout carries it. */
+const RECORDS_BLOCK = [
+  '# BEGIN records overlay',
+  'docs/runs/',
+  '/.records.git/',
+  '# END records overlay',
+  '',
+].join('\n');
+
 interface Harness {
   readonly directory: string;
   git: (...args: string[]) => Promise<string>;
@@ -49,6 +58,20 @@ async function harness(): Promise<Harness> {
   await git('config', 'user.email', 'agent@hushbox.ai');
   await git('config', 'user.name', 'agent');
   return { directory, git, write, commit };
+}
+
+/** A worktree whose `.gitignore` carries the records block after `otherRules`. */
+async function checkoutHarness(otherRules = ''): Promise<Harness> {
+  const repo = await harness();
+  await repo.write('.gitignore', `${otherRules}${RECORDS_BLOCK}`);
+  return repo;
+}
+
+/** A worktree whose `.gitignore` carries the records block beside an ordinary ignore rule. */
+async function recordsHarness(): Promise<Harness> {
+  const repo = await checkoutHarness('*.md.lock\n');
+  await repo.write('notes.md', CLEAN_TEXT);
+  return repo;
 }
 
 /** A worktree holding one more file than a single batch covers. */
@@ -108,7 +131,7 @@ describe('resolveScope', () => {
 
 describe('the working-tree check', () => {
   it('passes a working tree that discloses nothing', async () => {
-    const repo = await harness();
+    const repo = await checkoutHarness();
     await repo.write('notes.md', CLEAN_TEXT);
 
     const outcome = await runPrivacyCheck(repo.directory, []);
@@ -117,7 +140,7 @@ describe('the working-tree check', () => {
   });
 
   it('reports through the gate s own findings text, unchanged', async () => {
-    const repo = await harness();
+    const repo = await checkoutHarness();
     await repo.write('notes.md', CLEAN_TEXT);
 
     const outcome = await runPrivacyCheck(repo.directory, []);
@@ -126,19 +149,19 @@ describe('the working-tree check', () => {
   });
 
   it('opens with a line naming the working tree and the number of files examined', async () => {
-    const repo = await harness();
+    const repo = await checkoutHarness();
     await repo.write('notes.md', CLEAN_TEXT);
     await repo.write('deep/other.md', CLEAN_TEXT);
 
     const outcome = await runPrivacyCheck(repo.directory, []);
 
     expect(outcome.report.split('\n')[0]).toBe(
-      'Privacy check: 2 file(s) examined across the whole working tree, staged or not.'
+      'Privacy check: 3 file(s) examined across the whole working tree, staged or not.'
     );
   });
 
   it('finds a violation in an untracked file nobody has staged', async () => {
-    const repo = await harness();
+    const repo = await checkoutHarness();
     await repo.write('untracked.md', DISCLOSING_TEXT);
 
     const outcome = await runPrivacyCheck(repo.directory, []);
@@ -148,8 +171,7 @@ describe('the working-tree check', () => {
   });
 
   it('leaves the same violation unread in a gitignored file', async () => {
-    const repo = await harness();
-    await repo.write('.gitignore', 'ignored.md\n');
+    const repo = await checkoutHarness('ignored.md\n');
     await repo.write('ignored.md', DISCLOSING_TEXT);
 
     const outcome = await runPrivacyCheck(repo.directory, []);
@@ -158,7 +180,7 @@ describe('the working-tree check', () => {
   });
 
   it('judges the bytes on disk rather than the ones the commit carries', async () => {
-    const repo = await harness();
+    const repo = await checkoutHarness();
     await repo.write('notes.md', CLEAN_TEXT);
     await repo.git('add', 'notes.md');
     await repo.commit('clean');
@@ -245,7 +267,7 @@ describe('the working-tree check', () => {
   });
 
   it('honours an allowlist entry the worktree file carries and nobody staged', async () => {
-    const repo = await harness();
+    const repo = await checkoutHarness();
     await repo.write('notes.md', DISCLOSING_TEXT);
     await repo.write(
       'privacy-allowlist.json',
@@ -267,7 +289,7 @@ describe('the working-tree check', () => {
   });
 
   it('admits a binary blob the worktree allowlist claims as third-party without blocking', async () => {
-    const repo = await harness();
+    const repo = await checkoutHarness();
     // A GIF89a header whose comment extension carries a clock the gate reads.
     const comment = Buffer.from(`recorded ${DISCLOSING_INSTANT}`, 'latin1');
     await repo.write(
@@ -294,7 +316,7 @@ describe('the working-tree check', () => {
   });
 
   it('blocks on a binary blob no allowlist entry admits', async () => {
-    const repo = await harness();
+    const repo = await checkoutHarness();
     const comment = Buffer.from(`recorded ${DISCLOSING_INSTANT}`, 'latin1');
     await repo.write(
       'shot.gif',
@@ -405,6 +427,7 @@ describe('a path argument naming files git ignores', () => {
 
   it('keeps the ignored directory out of a run with no arguments', async () => {
     const repo = await ignoringHarness();
+    await repo.write('.gitignore', `records/\n${RECORDS_BLOCK}`);
 
     const outcome = await runPrivacyCheck(repo.directory, []);
 
@@ -415,6 +438,7 @@ describe('a path argument naming files git ignores', () => {
 
   it('keeps the ignored directory out of a run naming the repository root', async () => {
     const repo = await ignoringHarness();
+    await repo.write('.gitignore', `records/\n${RECORDS_BLOCK}`);
 
     const outcome = await runPrivacyCheck(repo.directory, ['.']);
 
@@ -460,6 +484,118 @@ describe('a path argument naming files git ignores', () => {
 
     expect(outcome.code).toBe(1);
     expect(outcome.report).not.toContain('named nothing the working tree holds');
+  });
+});
+
+describe('the record files in a run with no arguments', () => {
+  it('reports the finding a record file carries', async () => {
+    const repo = await recordsHarness();
+    await repo.write('docs/runs/plan.md', DISCLOSING_TEXT);
+
+    const outcome = await runPrivacyCheck(repo.directory, []);
+
+    expect(outcome.code).toBe(1);
+    expect(outcome.report).toContain('docs/runs/plan.md');
+  });
+
+  it('counts the record files among the files examined', async () => {
+    const repo = await recordsHarness();
+    await repo.write('docs/runs/plan.md', CLEAN_TEXT);
+
+    const outcome = await runPrivacyCheck(repo.directory, []);
+
+    expect(outcome.report.split('\n')[0]).toBe(
+      'Privacy check: 3 file(s) examined across the whole working tree, staged or not.'
+    );
+  });
+
+  it('examines a record file the repository also tracks once', async () => {
+    const repo = await recordsHarness();
+    await repo.write('docs/runs/plan.md', CLEAN_TEXT);
+    await repo.git('add', '--force', 'docs/runs/plan.md');
+
+    const outcome = await runPrivacyCheck(repo.directory, []);
+
+    expect(outcome.report.split('\n')[0]).toBe(
+      'Privacy check: 3 file(s) examined across the whole working tree, staged or not.'
+    );
+  });
+
+  it('leaves a finding unread in a file another ignore rule excludes from the record roots', async () => {
+    const repo = await recordsHarness();
+    await repo.write('docs/runs/plan.md', CLEAN_TEXT);
+    await repo.write('docs/runs/plan.md.lock', DISCLOSING_TEXT);
+
+    const outcome = await runPrivacyCheck(repo.directory, []);
+
+    expect(outcome.code).toBe(0);
+  });
+
+  it('fails in a checkout whose .gitignore lacks the records block', async () => {
+    const repo = await harness();
+    await repo.write('.gitignore', 'ignored.md\n');
+    await repo.write('notes.md', CLEAN_TEXT);
+
+    await expect(runPrivacyCheck(repo.directory, [])).rejects.toThrow('records overlay');
+  });
+
+  it('fails in a checkout with no .gitignore', async () => {
+    const repo = await harness();
+    await repo.write('notes.md', CLEAN_TEXT);
+
+    await expect(runPrivacyCheck(repo.directory, [])).rejects.toThrow('.gitignore');
+  });
+
+  it('leaves the record files out of a run naming a path', async () => {
+    const repo = await recordsHarness();
+    await repo.write('docs/runs/plan.md', DISCLOSING_TEXT);
+
+    const outcome = await runPrivacyCheck(repo.directory, ['notes.md']);
+
+    expect(outcome.code).toBe(0);
+  });
+});
+
+describe('the record files in a run naming the repository root', () => {
+  it('reports the finding a record file carries', async () => {
+    const repo = await recordsHarness();
+    await repo.write('docs/runs/plan.md', DISCLOSING_TEXT);
+
+    const outcome = await runPrivacyCheck(repo.directory, ['.']);
+
+    expect(outcome.code).toBe(1);
+    expect(outcome.report).toContain('docs/runs/plan.md');
+  });
+
+  it('examines as many files as a run with no arguments', async () => {
+    const repo = await recordsHarness();
+    await repo.write('docs/runs/plan.md', CLEAN_TEXT);
+
+    const rooted = await runPrivacyCheck(repo.directory, ['.']);
+    const whole = await runPrivacyCheck(repo.directory, []);
+
+    expect(rooted.report.split('\n')[0]).toMatch(/^Privacy check: 3 file\(s\) examined /u);
+    expect(whole.report.split('\n')[0]).toMatch(/^Privacy check: 3 file\(s\) examined /u);
+  });
+
+  it('examines a record file the repository also tracks once', async () => {
+    const repo = await recordsHarness();
+    await repo.write('docs/runs/plan.md', CLEAN_TEXT);
+    await repo.git('add', '--force', 'docs/runs/plan.md');
+
+    const outcome = await runPrivacyCheck(repo.directory, ['.']);
+
+    expect(outcome.report.split('\n')[0]).toBe(
+      'Privacy check: 3 file(s) examined in the working tree under ., staged or not.'
+    );
+  });
+
+  it('fails in a checkout whose .gitignore lacks the records block', async () => {
+    const repo = await harness();
+    await repo.write('.gitignore', 'ignored.md\n');
+    await repo.write('notes.md', CLEAN_TEXT);
+
+    await expect(runPrivacyCheck(repo.directory, ['.'])).rejects.toThrow('records overlay');
   });
 });
 

@@ -26,18 +26,20 @@ import type { DomainError } from '../../../../lib/errors/index.js';
  * This file contributes what counts as a TEXT model, and nothing about premium.
  *
  * Cost basis, stated once (see also the chat slice's `trialGateVerdict`): the
- * 1¢ cap compares BILLABLE
- * cost — the same figure a paid send would be charged, never the worst-case run
- * ceiling. Both legs are PROVIDER-ONLY, because a trial turn never persists
- * (§Trial Usage). They differ only in their input basis, deliberately: the
- * MODEL-level leg prices a fixed synthetic exchange, because "may this model ever
- * be used on trial" must not move with what a user typed, while the per-send leg
- * prices the send's own character count.
+ * 1¢ cap is compared against the reserve-side price of the trial turn — each
+ * token at the ceiling of the model's billable rate, the rate a hold reserves
+ * at, above the anchor rate a send's estimated charge reads — never against the
+ * worst-case run reservation. Both legs are PROVIDER-ONLY, because a trial turn
+ * never persists (§Trial Usage). They differ only in their input basis,
+ * deliberately: the MODEL-level leg prices a fixed synthetic exchange, because
+ * "may this model ever be used on trial" must not move with what a user typed,
+ * while the per-send leg prices the send's own character count.
  */
 
 // Re-exported, not re-derived: the money layer owns the cap, and this slice's
-// barrel is where the gates that compose it read it from. The cap compares
-// BILLABLE (all-in) cost against this.
+// barrel is where the gates that compose it read it from. The cap is compared
+// against the reserve-side price of a trial turn, which covers the provider
+// legs only.
 export { TRIAL_MESSAGE_COST_CAP_NANO_USD } from '@hushbox/shared/affordability';
 
 /**
@@ -170,11 +172,12 @@ export function trialEligibility(
 }
 
 /**
- * The BILLABLE cost of the ACTUAL trial message on a minimum basis: the money
- * layer's one trial turn price over the input the model will see, NOT the
- * worst-case run ceiling. The trial gate refuses the send when this exceeds
+ * The reserve-side price of the ACTUAL trial message on a minimum basis — each
+ * token at the ceiling of the model's billable rate: the money layer's one trial
+ * turn price over the input the model will see, NOT the worst-case run
+ * reservation. The trial gate refuses the send when this exceeds
  * `TRIAL_MESSAGE_COST_CAP_NANO_USD` — a long resent history legitimately trips
- * the cap, which is the honest cost of the send.
+ * the cap, because its own tokens, held at that ceiling, cost more than it.
  *
  * **Provider cost only, and the basis is the WHOLE prompt.** Those are one change
  * and neither is correct without the other:
@@ -187,13 +190,14 @@ export function trialEligibility(
  *   system prompt's unpriced input tokens sat under the storage term, so
  *   removing storage without widening the basis would let a turn the compiled
  *   definition prices above 1¢ through this gate whenever input costs more per
- *   token than output. With the whole prompt priced, this gate's surplus over that
- *   floor is 1,000 output tokens at the model's own output rate — positive for
- *   every rate shape, inverted ones included.
+ *   token than output. With the whole prompt priced, and both this gate and that
+ *   floor holding each token at the ceiling of the model's billable rate, this
+ *   gate's surplus over that floor is 1,000 output tokens at the held output
+ *   rate — positive for every rate shape, inverted ones included.
  *
  * A target without a token price refuses: it has no trial turn to price.
  */
-export function trialMessageBillableNanoUsd(
+export function trialMessageReserveNanoUsd(
   target: ModelDescriptor,
   promptChars: number
 ): Result<bigint, DomainError> {

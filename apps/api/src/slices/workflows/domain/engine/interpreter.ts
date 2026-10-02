@@ -480,14 +480,19 @@ class RunExecution {
     if (invoked.kind === 'thrown') {
       return { kind: 'step', step: this.isOpen() ? invoked.step : { kind: 'stopped' } };
     }
-    return {
-      kind: 'executed',
-      executed: {
-        result: invoked.result,
-        drained: !this.isOpen(),
-        settleSpend: ledger.settle,
-      },
-    };
+    const drained = !this.isOpen();
+    // The final cost counts toward the circuit when the node returns, so a
+    // crossing refuses the siblings still queued in its level. It counts whatever
+    // becomes of the value at apply, because the money left the platform either
+    // way: counting only committed values would let a model returning malformed
+    // output spend on every attempt while contributing nothing to the circuit,
+    // and exposure would stop being bounded by `hold × K`. Absorbed-but-counted
+    // is pinned in `interpreter.test.ts` ("counts an uncommitted generation's
+    // spend toward the circuit"). A failed node's cost is what its execution
+    // reported, which can be less than it spent, so the circuit under-counts it;
+    // that is never a user over-bill, since a failed node charges nothing.
+    ledger.settle(finalCostOf(invoked.result));
+    return { kind: 'executed', executed: { result: invoked.result, drained } };
   }
 
   /** Runs a node execution, turning a throw into the step the node ends in. */
@@ -539,35 +544,18 @@ class RunExecution {
   }
 
   /**
-   * Counts, commits, and charges a produced value — the only ordered mutation.
-   * A drained node — one that returned after the gate closed — still commits
-   * and bills its value, and its step is `stopped`.
+   * Commits and charges a produced value — the only ordered mutation; its cost
+   * already counted toward the circuit when the node returned. A drained node —
+   * one that returned after the gate closed — is committed and charged as any
+   * other, and its step is `stopped`.
    */
   private applyValueResult(target: ValueTarget, executed: ExecutedValue): NodeStep {
     const { compiledNode, node, scope, chargeKey } = target;
-    const { result, drained, settleSpend } = executed;
+    const { result, drained } = executed;
     if (result.isErr()) {
-      // A failed node's cost is what its execution reported, which can be less
-      // than it spent: a model call reports only the charges of its returned
-      // tool calls, never its model steps' cost, so an absent or partial figure
-      // means no model-step spend was reported, not that none occurred. The
-      // shortfall under-counts the circuit, so the gate closes later; it is
-      // never a user over-bill, since a failed node charges nothing.
-      settleSpend(result.error.costNanoUsd ?? 0n);
       if (drained) return { kind: 'stopped' };
       return applyNodeFailure(this.store, node, scope, result.error.reason);
     }
-    // COUNTING STAYS ABOVE THE COMMIT. Only BILLING is gated on the value
-    // committing (below); the spend counts toward the circuit whatever becomes
-    // of the value, because the money left the platform either way. Moving this
-    // line into the committed branch to match the charge looks like tidying and
-    // is not: a model returning malformed output would then cost real provider
-    // money on every attempt while contributing nothing to the circuit that
-    // exists to stop that, so exposure would stop being bounded by `hold × K`.
-    // Absorbed-but-counted is the intended asymmetry, and it is pinned in
-    // `interpreter.test.ts` ("counts an uncommitted generation's spend toward
-    // the circuit").
-    settleSpend(finalCostOf(result.value));
     // BILLABLE ⟺ THE VALUE WAS COMMITTED, and this ordering is the whole
     // guarantee: charge after the commit, only on success. A generation whose
     // provider call succeeded but whose value fails `commitValue`'s runtime

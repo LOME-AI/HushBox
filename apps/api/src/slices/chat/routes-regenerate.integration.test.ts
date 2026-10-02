@@ -7,7 +7,7 @@ import { ResolvedReasoningEffort, SMART_MODEL_ID, isTurnClassifierNode } from '@
 import { toolCallCapFor, toolLoopStepsFor } from '@hushbox/shared/affordability';
 import { okAsync } from '../../lib/result/index.js';
 import { hmacRateLimitId } from '../../lib/rate-limit/index.js';
-import { CHAT_TURN_NODE_ID, hashCanonicalJson, storesNewUserMessage } from './domain/index.js';
+import { CHAT_TURN_NODE_ID, hashRequestBody, storesNewUserMessage } from './domain/index.js';
 import {
   MODEL,
   MODEL_B,
@@ -872,7 +872,7 @@ describe('chat route: POST /chat/regenerate', () => {
     expect(hashes[1]).not.toBe(hashes[0]);
     const regenerate = { action: 'retry', targetMessageId: anchor };
     expect(hashes[0]).toBe(
-      await hashCanonicalJson({
+      hashRequestBody({
         conversationId,
         turnSources: [{ kind: 'model', id: model }],
         userMessage,
@@ -881,7 +881,7 @@ describe('chat route: POST /chat/regenerate', () => {
       })
     );
     expect(hashes[1]).toBe(
-      await hashCanonicalJson({
+      hashRequestBody({
         conversationId,
         turnSources: [{ kind: 'model', id: model }],
         reasoningEffort: 'low',

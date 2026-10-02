@@ -121,16 +121,17 @@ const HOLD_PROBE_FIELDS = {
 /**
  * A hold-probe row whose hold falls short of twice the paid cushion
  * (1,000,000,000 nano) because of its rates and its window: 1 nano a token on
- * each leg and a 100,000-token window. Its hold is 150,295,618 nano:
+ * each leg, held at its ceiling of 2, and a 100,000-token window. Its hold is
+ * 150,399,236 nano:
  *
- * - the answer, 100,000 output tokens × (1 + 5 stored chars × 300 nano) =
- *   150,100,000;
+ * - the answer, 100,000 output tokens × (2 + 5 stored chars × 300 nano) =
+ *   150,200,000;
  * - the answer's framing, `ASSISTANT_FRAMING_MAX_CHARS` 640 × 300 = 192,000;
- * - the classifier reserve its mandatory reasoning adds, 1,570 input tokens × 1
- *   + `CLASSIFIER_OUTPUT_TOKEN_CAP` 2,048 output tokens × 1 = 3,618.
+ * - the classifier reserve its mandatory reasoning adds, 1,570 input tokens × 2
+ *   + `CLASSIFIER_OUTPUT_TOKEN_CAP` 2,048 output tokens × 2 = 7,236.
  *
  * At {@link HOLD_PROBE_FIELDS}' 1,000,000-token window the same rates would hold
- * 1,501,195,618 and clear the threshold, so the window is what keeps this row
+ * 1,502,199,236 and clear the threshold, so the window is what keeps this row
  * short.
  */
 const UNDERSIZED_HOLD_PROBE = {
@@ -813,7 +814,7 @@ describe('assertE2eModelsPresent', () => {
   it('throws when the hold-probe model holds no more than twice the paid cushion', async () => {
     // The pin the spec makes is half the hold less that cushion, so a hold at or
     // below twice it lands the payer at or under zero and the scarcity the spec
-    // needs is unreachable. The undersized probe holds 150,295,618, far short.
+    // needs is unreachable. The undersized probe holds 150,399,236, far short.
     await expect(
       assertE2eModelsPresent(fakeDb(holdProbeRows(UNDERSIZED_HOLD_PROBE)), NO_LIVE_EXCLUSIONS)
     ).rejects.toThrow('holds too little');

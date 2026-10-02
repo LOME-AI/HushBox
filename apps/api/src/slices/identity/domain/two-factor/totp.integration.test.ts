@@ -7,6 +7,7 @@ import {
   generateTotpSecret,
 } from '@hushbox/crypto';
 import { textEncoder } from '@hushbox/shared';
+import { rateLimitKey } from '../../../../lib/rate-limit/index.js';
 import { IDENTITY_KEYS } from '../keys.js';
 import { verifyStoredTotp } from './totp.js';
 import type { VerifyStoredTotpArgs } from './totp.js';
@@ -85,5 +86,34 @@ describe('verifyStoredTotp single-use replay claim', () => {
     expect(first._unsafeUnwrap().kind).toBe('ok');
     const replay = await verifyStoredTotp(args);
     expect(replay._unsafeUnwrap().kind).toBe('invalid');
+  });
+});
+
+describe('verifyStoredTotp consecutive-failure ceiling', () => {
+  it('clears the ceiling counter when a code verifies', async () => {
+    const args = verifyArgs();
+    const { maxAttempts, windowSeconds } = IDENTITY_KEYS.twoFactorCeiling;
+    const ceilingKey = rateLimitKey(IDENTITY_KEYS.twoFactorCeiling, args.userId)._unsafeUnwrap();
+    await redis.set(ceilingKey, maxAttempts - 1, { ex: windowSeconds });
+
+    expect(await unwrap(verifyStoredTotp(args))).toEqual({ kind: 'ok' });
+
+    expect(await redis.get(ceilingKey)).toBeNull();
+  });
+
+  it('still accepts a verified code when nothing can be deleted afterwards', async () => {
+    // Every clear after a verified code is best-effort: a store refusing the
+    // deletes leaves a counter or the first-trip latch standing, never a
+    // refused code.
+    const refusingDeletes = new Proxy(redis, {
+      get(target, property) {
+        if (property === 'del') return () => Promise.reject(new Error('redis del refused'));
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const args = { ...verifyArgs(), redis: refusingDeletes };
+
+    expect(await unwrap(verifyStoredTotp(args))).toEqual({ kind: 'ok' });
   });
 });

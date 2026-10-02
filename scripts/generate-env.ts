@@ -806,8 +806,8 @@ function generateSecretsEnv(
 }
 
 /**
- * Generate the ops-env section: the union of every manifest entry's
- * `requires_secrets`, each bound to its production value and keyed by its
+ * Generate an ops-script step's bindings — the ops-env and ops-dispatch-env
+ * sections: the union of the given manifest entries' `requires_secrets`, each bound to its production value and keyed by its
  * canonical Worker-env-var name (the env.config.ts key) — not the GitHub secret
  * name — so a script reading `process.env.OPENROUTER_API_KEY` works identically
  * locally and in CI. The union is static because which entries a run carries is
@@ -1235,6 +1235,7 @@ function generateBackupEnv(): string {
  * generator instead of quietly generating into nothing.
  */
 export function workflowSections(): Record<string, GeneratedSection> {
+  const opsManifest = loadManifest(REPO_ROOT);
   const sections: Record<string, GeneratedSection> = {
     'vitest-env': { owners: [CI_WORKFLOW], content: generateSecretsEnv(Mode.CiVitest) },
     // Two jobs generate the e2e environment: the browser suite and the mobile
@@ -1246,9 +1247,10 @@ export function workflowSections(): Record<string, GeneratedSection> {
     // NODE_ENV rides along as a literal: createEnvUtilities fail-fasts on a
     // missing NODE_ENV, and its development value is what builds the e2e
     // marketing islands on React's development build. The web app's own Vite
-    // config pins React's production build whatever this carries.
+    // config pins React's production build whatever this carries. One copy per
+    // e2e bundle build, web and admin: each regenerates the e2e env files.
     'e2e-build-env': {
-      owners: [CI_WORKFLOW],
+      owners: [CI_WORKFLOW, CI_WORKFLOW],
       content: generateSecretsEnv(
         Mode.CiE2E,
         [Destination.Frontend, Destination.Scripts],
@@ -1265,14 +1267,22 @@ export function workflowSections(): Record<string, GeneratedSection> {
       owners: [CI_WORKFLOW],
       content: generateSecretsEnv(Mode.Production, [], ['VITE_API_URL', 'SANDBOX_ORIGIN_URL']),
     },
-    // One copy per ops-script step: in the deploy, the resolver, which checks
+    // One copy per ops-script step of the deploy: the resolver, which checks
     // each labelled script's declared secrets against its own environment, and
     // the pre- and post-deploy runners, which hand that environment to the
-    // scripts; in the manual runner, its resolver and the step that runs the
-    // selected script.
+    // scripts. A `dispatch_only` entry's requirements stay off them: the
+    // resolver refuses its label, so no deploy can run it.
     'ops-env': {
-      owners: [CI_WORKFLOW, CI_WORKFLOW, CI_WORKFLOW, OPS_DISPATCH_WORKFLOW, OPS_DISPATCH_WORKFLOW],
-      content: generateOpsEnv(loadManifest(REPO_ROOT)),
+      owners: [CI_WORKFLOW, CI_WORKFLOW, CI_WORKFLOW],
+      content: generateOpsEnv({
+        scripts: opsManifest.scripts.filter((script) => script.dispatch_only !== true),
+      }),
+    },
+    // The manual runner's resolver and the step that runs the selected entry,
+    // which may be any entry, `dispatch_only` ones included.
+    'ops-dispatch-env': {
+      owners: [OPS_DISPATCH_WORKFLOW, OPS_DISPATCH_WORKFLOW],
+      content: generateOpsEnv(opsManifest),
     },
     // An ops script that classifies its environment through createEnvUtilities
     // refuses to run without NODE_ENV, a literal `requires_secrets` does not carry.

@@ -41,6 +41,7 @@ export { passwordChangedEmail } from './templates/password-changed.js';
 export { passwordResetEmail } from './templates/password-reset.js';
 export { twoFactorEnabledEmail } from './templates/two-factor-enabled.js';
 export { twoFactorDisabledEmail } from './templates/two-factor-disabled.js';
+export { twoFactorLockedEmail } from './templates/two-factor-locked.js';
 export { accountLockedEmail } from './templates/account-locked.js';
 export { chargebackLockEmail } from './templates/chargeback-lock.js';
 export { accountDeletedEmail } from './templates/account-deleted.js';

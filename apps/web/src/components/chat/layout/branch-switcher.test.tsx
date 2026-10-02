@@ -277,7 +277,7 @@ describe('BranchSwitcher', () => {
   });
 
   describe('labels from the message tree', () => {
-    it("labels the reference's thread by the question where its three branches part", async () => {
+    it('labels three branches parting after the first answer as from the second question', async () => {
       const messages = [
         message('u1', 'user', null),
         message('a1', 'assistant', 'u1'),

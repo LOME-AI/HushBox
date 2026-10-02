@@ -12,6 +12,7 @@ import {
   renderEmail,
   twoFactorDisabledEmail,
   twoFactorEnabledEmail,
+  twoFactorLockedEmail,
   verificationEmail,
   welcomeEmail,
 } from '../slices/notifications/index.js';
@@ -106,6 +107,16 @@ export const EMAIL_TEMPLATE_PREVIEWS: readonly {
     render: (): string =>
       renderEmail(
         accountLockedEmail,
+        { userName: 'Alice', lockoutMinutes: 15 },
+        { sentAt: PREVIEW_SENT_AT }
+      ).html,
+  },
+  {
+    name: 'two-factor-locked',
+    label: 'Two-Factor Locked',
+    render: (): string =>
+      renderEmail(
+        twoFactorLockedEmail,
         { userName: 'Alice', lockoutMinutes: 15 },
         { sentAt: PREVIEW_SENT_AT }
       ).html,

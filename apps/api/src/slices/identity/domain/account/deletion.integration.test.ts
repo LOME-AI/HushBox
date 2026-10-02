@@ -8,6 +8,7 @@ import {
   conversationMembers,
   conversations,
   createDb,
+  idempotencyKeys,
   jobs,
   messages,
   newsletterSubscribers,
@@ -167,6 +168,31 @@ async function seedSubscription(userId: string): Promise<{ id: string; email: st
   return row;
 }
 
+async function seedKeyRow(
+  userId: string,
+  kind: 'request' | 'run',
+  status: 'claimed' | 'succeeded'
+): Promise<void> {
+  await db.insert(idempotencyKeys).values({
+    userId,
+    route: '/deletion-executor',
+    key: crypto.randomUUID(),
+    kind,
+    status,
+    bodyHash: 'body-hash',
+    claimedBy: 'deletion-executor-test',
+    ...(status === 'succeeded' ? { completedAt: sql`now()` } : {}),
+  });
+}
+
+async function keyRowCount(userId: string): Promise<number> {
+  const rows = await db
+    .select({ id: idempotencyKeys.id })
+    .from(idempotencyKeys)
+    .where(eq(idempotencyKeys.userId, userId));
+  return rows.length;
+}
+
 async function seedConversation(ownerUserId: string): Promise<string> {
   // Rotated, so deletion is proven over a conversation whose `current_epoch`
   // names a later epoch and whose chain has to cascade with it.
@@ -283,6 +309,7 @@ afterAll(async () => {
         )
       );
   }
+  await db.delete(idempotencyKeys).where(inArray(idempotencyKeys.userId, createdUserIds));
   await db.delete(accountDeletionEvents).where(like(accountDeletionEvents.userAgent, `${PREFIX}%`));
   await db.delete(payments).where(like(payments.idempotencyKey, `${PREFIX}%`));
   await db.delete(usageRecords).where(like(usageRecords.idempotencyKey, `${PREFIX}%`));
@@ -519,6 +546,27 @@ describe('executeAccountDeletion', () => {
     expect(row?.leftAt).not.toBeNull();
   });
 
+  it("deletes the account's idempotency key rows, live claims included", async () => {
+    const account = await seedUser();
+    await seedKeyRow(account.id, 'run', 'claimed');
+    await seedKeyRow(account.id, 'request', 'succeeded');
+
+    const outcome = await executeAccountDeletion(executorArgs(account.id));
+    expect(outcome._unsafeUnwrap()).toEqual({ kind: 'deleted' });
+
+    expect(await keyRowCount(account.id)).toBe(0);
+  });
+
+  it("leaves another account's idempotency key rows", async () => {
+    const account = await seedUser();
+    const other = await seedUser();
+    await seedKeyRow(other.id, 'request', 'succeeded');
+
+    await executeAccountDeletion(executorArgs(account.id));
+
+    expect(await keyRowCount(other.id)).toBe(1);
+  });
+
   it('enqueues no reclaim job for an account without stored media', async () => {
     const account = await seedUser();
     await seedConversation(account.id);
@@ -563,6 +611,7 @@ describe('executeAccountDeletion', () => {
     const foreignMessage = await seedMessage(foreign, account.id);
     await seedTextItem(foreignMessage);
     await seedMediaItem(foreignMessage, mediaKey());
+    await seedKeyRow(account.id, 'request', 'succeeded');
     const args = executorArgs(account.id, {
       detachMessageSendersWithinTx: () => {
         throw new Error('injected failure before the users delete');
@@ -608,6 +657,7 @@ describe('executeAccountDeletion', () => {
         )
     ).toHaveLength(0);
     expect(await redis.get(IDENTITY_KEYS.passwordChangedAt.buildKey(account.id))).toBeNull();
+    expect(await keyRowCount(account.id)).toBe(1);
   });
 
   // The mailing list is consent given to the list, not data held on behalf of

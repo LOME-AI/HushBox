@@ -11,8 +11,16 @@ import { existsSync, promises as fs, readFileSync, writeFileSync } from 'node:fs
 import os from 'node:os';
 import path from 'node:path';
 import { build, loadConfigFromFile, resolveConfig, type InlineConfig, type UserConfig } from 'vite';
+import { Mode } from '../../../packages/shared/src/env/env-types.ts';
 import { discoverWorkspaces } from '../cli/workspaces.ts';
 import { BUILD_TARGET } from './seam.ts';
+
+/**
+ * What ships is what a production build resolves, so every config is resolved
+ * in it whatever the running environment names. It goes on the inline config
+ * because only that beats a mode the config returns itself.
+ */
+const SHIPPING_MODE = Mode.Production;
 
 /**
  * The build config filenames this check knows how to read, mapped to where each
@@ -163,7 +171,7 @@ function appleEntriesOf(target: false | string | string[] | undefined): string[]
  */
 async function astroClientConfig(configFile: string): Promise<InlineConfig> {
   const loaded = await loadConfigFromFile(
-    { command: 'build', mode: 'production' },
+    { command: 'build', mode: SHIPPING_MODE },
     configFile,
     path.dirname(configFile),
     'silent'
@@ -178,7 +186,7 @@ async function resolvedClientTarget(configFile: string): Promise<false | string 
   // The client environment, not the top-level `build`, is what emits the
   // browser chunks, and a per-environment override would not show up above it.
   const resolved = await resolveConfig(
-    { ...inline, root: path.dirname(configFile), logLevel: 'silent' },
+    { ...inline, mode: SHIPPING_MODE, root: path.dirname(configFile), logLevel: 'silent' },
     'build'
   );
   /* v8 ignore next -- a build resolution always carries a client environment with a resolved

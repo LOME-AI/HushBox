@@ -1339,6 +1339,35 @@ describe('generateAdminHeaders — the framed marketing preview', () => {
     expect(scriptSource).toBe("script-src 'self'");
   });
 
+  // The overlay's frame is sandboxed by its own attribute, but a copied page
+  // loaded top-level — the overlay's new-tab link, or a typed URL — is reached
+  // only by the policy the origin sends with it.
+  it('sandboxes every copied page against script while keeping its origin', async () => {
+    await seedShell();
+    await seedPreviewPage('welcome', 'beacon()');
+    await seedPreviewPage('blog/why-we-published-our-source-code', 'beacon()');
+    const rules = await emittedRules();
+    const previewPatterns = rules
+      .map((rule) => rule.pattern)
+      .filter((pattern) => pattern.startsWith(`/${ADMIN_PREVIEW_PREFIX}/`));
+    expect(previewPatterns).toHaveLength(2);
+    for (const route of previewPatterns) {
+      const csp = matchHeaders(rules, route)['Content-Security-Policy'];
+      expect(directiveTokens(csp, 'sandbox'), route).toEqual(['allow-same-origin']);
+    }
+  });
+
+  it('sends no sandbox directive on any admin route outside the prefix', async () => {
+    await seedShell();
+    await seedPreviewPage('welcome', 'beacon()');
+    const rules = await emittedRules();
+    for (const route of ['/', '/growth', '/assets/app-Bq1.js', '/previewing', '/preview']) {
+      const csp = String(matchHeaders(rules, route)['Content-Security-Policy']);
+      const directiveNames = csp.split(';').map((directive) => directive.trim().split(/\s+/)[0]);
+      expect(directiveNames, route).not.toContain('sandbox');
+    }
+  });
+
   it('preserves the rest of the admin policy on the preview prefix', async () => {
     await seedShell();
     await seedPreviewPage('welcome', 'beacon()');

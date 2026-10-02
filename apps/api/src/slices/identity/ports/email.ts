@@ -102,3 +102,18 @@ export interface AccountLockedEmailPort {
     readonly lockoutMinutes: number;
   }): ResultAsync<void, DomainError>;
 }
+
+/**
+ * Security notification sent when a login that already passed the password
+ * first trips the two-factor guessing gate: whoever is sending wrong codes
+ * holds the password. Same shape and doctrine as AccountLockedEmailPort —
+ * composition-root adapter over the notifications slice's template +
+ * EmailSender, best-effort, never changing the verify response.
+ */
+export interface TwoFactorLockedEmailPort {
+  sendTwoFactorLockedEmail(args: {
+    readonly to: string;
+    readonly userName?: string;
+    readonly lockoutMinutes: number;
+  }): ResultAsync<void, DomainError>;
+}

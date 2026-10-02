@@ -14,6 +14,7 @@ export {
   passwordResetEmail,
   twoFactorDisabledEmail,
   twoFactorEnabledEmail,
+  twoFactorLockedEmail,
   verificationEmail,
   welcomeEmail,
 } from './domain/index.js';

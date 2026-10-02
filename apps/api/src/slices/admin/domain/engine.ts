@@ -12,6 +12,7 @@ import {
   claimKeyRow,
   failKeyRow,
   hashCanonicalJson,
+  hashRequestBody,
   uuidFromHex,
   requestInProgressError,
   runSettlement,
@@ -659,7 +660,7 @@ async function executeRun<Deps, PostDeps>(
     route: `admin/ops/${op.contract.name}`,
     key: params.idempotencyKey,
   };
-  const bodyHash = await hashCanonicalJson({
+  const bodyHash = hashRequestBody({
     input: params.input,
     undoes: params.undoes ?? null,
   });

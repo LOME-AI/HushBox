@@ -77,6 +77,12 @@ export async function listWorktreePaths(repoRoot: string): Promise<string[]> {
   return parseWorktreeListing(stdout);
 }
 
+/** The repository's git directory as an absolute path, a linked worktree's own included. */
+export async function absoluteGitDirectory(repoRoot: string): Promise<string> {
+  const { stdout } = await execa('git', ['-C', repoRoot, 'rev-parse', '--absolute-git-dir']);
+  return stdout.trim();
+}
+
 /**
  * Whether git ignores the repo-relative path, by its own name or through one of
  * its parent directories. A path git refuses outright — outside the repository,

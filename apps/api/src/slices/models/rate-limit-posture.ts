@@ -19,10 +19,10 @@ export type ModelsRouteKey = SliceRouteKey<ReturnType<typeof createModelsManifes
  * material and the `clear` disarm stay unreachable from everything this module
  * publishes.
  *
- * The catalog list is unauthenticated by design — the marketing site fetches it
- * at build time and the picker loads it before login — and costs one catalog
- * read per request, so it carries a per-IP window. The entry is this slice's
- * own, so it is in scope here without leaving the slice.
+ * The catalog list is unauthenticated by design — the marketing site's welcome
+ * page reads it in the visitor's browser and the picker loads it before login —
+ * and costs one catalog read per request, so it carries a per-IP window. The
+ * entry is this slice's own, so it is in scope here without leaving the slice.
  *
  * It declares `open`: the window guards nothing secret and nothing that leaves
  * this Worker — one catalog read, on a route declared storable at the edge —

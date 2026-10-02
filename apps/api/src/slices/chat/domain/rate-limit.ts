@@ -57,7 +57,7 @@ export const CHAT_GUEST_SEND_IP_RATE_LIMIT = {
 
 /**
  * The run stop's per-IP abuse throttle. Stop carries its own window rather than
- * sharing the send's: a caller must stay able to abort a paid run after a burst
+ * sharing the send's: a caller must stay able to stop a paid run after a burst
  * of sends has exhausted the send window, since the alternative is a run that
  * bills on while its stop is refused.
  */

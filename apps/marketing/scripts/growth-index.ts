@@ -33,7 +33,8 @@ const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const MARKETING_ROOT = path.resolve(CURRENT_DIR, '..');
 const REPO_ROOT = path.resolve(MARKETING_ROOT, '../..');
 
-const INDEX_FILE = 'apps/api/src/slices/growth/domain/growth-index.json';
+/** The committed index, relative to the repo root. */
+export const INDEX_FILE = 'apps/api/src/slices/growth/domain/growth-index.json';
 
 /**
  * Where the built marketing site sits: the marketing build output if that

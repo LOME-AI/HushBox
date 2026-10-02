@@ -2434,7 +2434,7 @@ describe('the OTA checksum path', () => {
  * install's lifecycle scripts, wrangler, the model-weight download — so a
  * production secret reaches only the steps whose command reads it. A job-level
  * block would hand the root keys to all of them. The ops-script steps bind what
- * any manifest entry requires: the resolver checks each labelled script's
+ * any entry a label can carry requires: the resolver checks each labelled script's
  * declared secrets against its own environment, and the runners hand that
  * environment to the scripts.
  */
@@ -2461,8 +2461,18 @@ describe('the deploy job secret scope', () => {
       return [[key, raw !== undefined && isSecret(raw) ? raw.name : undefined]];
     })
   );
-  const required = [
-    ...new Set(loadManifest(REPO_ROOT).scripts.flatMap((script) => script.requires_secrets)),
+  // The deploy carries only the entries its label resolver admits, so a
+  // `dispatch_only` entry's requirements are no requirement of its steps.
+  const manifest = loadManifest(REPO_ROOT).scripts;
+  const deployable = manifest.filter((script) => script.dispatch_only !== true);
+  const required = [...new Set(deployable.flatMap((script) => script.requires_secrets))];
+  const dispatchOnly = [
+    ...new Set(
+      manifest
+        .filter((script) => script.dispatch_only === true)
+        .flatMap((script) => script.requires_secrets)
+        .filter((name) => !required.includes(name))
+    ),
   ];
   const opsSteps = OPS_SCRIPT_STEPS.map((name) => ({
     name,
@@ -2506,7 +2516,17 @@ describe('the deploy job secret scope', () => {
     expect(deploy?.env).toBeUndefined();
   });
 
-  it('binds every variable a manifest entry requires on each ops-script step', () => {
+  it('binds no variable that only a dispatch-only entry requires on an ops-script step', () => {
+    expect(dispatchOnly).not.toEqual([]);
+    for (const { name, env } of opsSteps) {
+      expect(
+        dispatchOnly.filter((key) => env[key] !== undefined),
+        name
+      ).toEqual([]);
+    }
+  });
+
+  it('binds every variable a deployable manifest entry requires on each ops-script step', () => {
     expect(required).not.toEqual([]);
     for (const { name, env } of opsSteps) {
       expect(
@@ -2516,7 +2536,7 @@ describe('the deploy job secret scope', () => {
     }
   });
 
-  it('binds no Backend or Ops variable a manifest entry does not require on an ops-script step', () => {
+  it('binds no Backend or Ops variable a deployable entry does not require on an ops-script step', () => {
     for (const { name, env } of opsSteps) {
       expect(
         Object.keys(env).filter((key) => runnerSet.has(key) && !required.includes(key)),
@@ -2778,6 +2798,21 @@ describe('the write token', () => {
     };
 
     expect(contentsWriters(planted)).not.toContain('deploy');
+  });
+});
+
+/**
+ * The deploy's ops-script resolver reads the labels of the pull requests behind
+ * the deployed commit, and that lookup throws on any non-OK status rather than
+ * falling back, so the read is required. A job's own grant replaces the
+ * workflow's, so the tag push's write is the job's only other grant.
+ */
+describe('the deploy job token', () => {
+  it('may push the release tag and read the pull requests its ops scripts come from', () => {
+    expect(ci.jobs['deploy']?.permissions).toEqual({
+      contents: 'write',
+      'pull-requests': 'read',
+    });
   });
 });
 
@@ -3153,5 +3188,32 @@ describe('the native release', () => {
 
   it('grants the token the read of Actions runs the gate makes', () => {
     expect(release.jobs[RESOLVING_JOB]?.permissions).toMatchObject({ actions: 'read' });
+  });
+});
+
+/**
+ * A step building an e2e bundle regenerates the env files in the CI e2e mode
+ * first, which refuses to run without the secrets that mode resolves, and a
+ * step sees an environment secret only through its own `env:`. So every such
+ * step carries the generated block rather than a hand-written subset of it.
+ */
+describe('the e2e bundle builds', () => {
+  const E2E_BUILD_COMMAND = /\bpnpm (?:run )?build:e2e(?::[\w-]+)?(?=\s|$)/;
+  const builds = Object.values(ci.jobs)
+    .flatMap((job) => job.steps ?? [])
+    .filter((step) => E2E_BUILD_COMMAND.test(step.run ?? ''));
+  const section = workflowSections()['e2e-build-env'];
+  const generated = (parse(section?.content ?? '') as { env?: Record<string, unknown> }).env;
+  const ciFile = path.relative(REPO_ROOT, path.join(WORKFLOWS, 'ci.yml')).split(path.sep).join('/');
+
+  it('binds the generated e2e build env on every step that builds an e2e bundle', () => {
+    expect(builds).not.toEqual([]);
+    for (const step of builds) {
+      expect(step.env, step.name).toEqual(generated);
+    }
+  });
+
+  it('declares one copy of the e2e build env per step that builds an e2e bundle', () => {
+    expect(section?.owners.filter((owner) => owner === ciFile)).toHaveLength(builds.length);
   });
 });

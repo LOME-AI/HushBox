@@ -32,6 +32,7 @@ export type {
   PasswordResetEmailPort,
   TwoFactorDisabledEmailPort,
   TwoFactorEnabledEmailPort,
+  TwoFactorLockedEmailPort,
   VerificationEmailPort,
 } from './email.js';
 export type { AccountDeletionPurge } from './deletion.js';

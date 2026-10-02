@@ -4,6 +4,7 @@ import {
   createRequestDb,
   createRequestRedis,
 } from '../lib/context/index.js';
+import { configureIdempotencyBodyHashSecret } from '../lib/idempotency/index.js';
 import { createJobWakeCollector, dischargeJobWakes, grantJobWakes } from '../lib/jobs/index.js';
 import { configureRateLimitBound, configureRateLimitKeySecret } from '../lib/rate-limit/index.js';
 import { createRequestTelemetry } from '../lib/telemetry/index.js';
@@ -56,6 +57,9 @@ export function pipelineBindings(): MiddlewareHandler<AppEnv> {
     // signature.
     configureRateLimitBound(c.env);
     configureRateLimitKeySecret(c.env);
+    // The idempotency body-hash key, at module scope for the same reason: the
+    // hash is computed in route and engine code that carries no env.
+    configureIdempotencyBodyHashSecret(c.env);
     // Mint and discharge in one scope: a second grant on the same handle
     // would replace this collector rather than merge into it, so the two
     // halves stay together where nothing can come between them.

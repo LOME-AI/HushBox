@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('execa', () => ({ execa: vi.fn() }));
 vi.mock('./lib/privacy/gitleaks.js', async (importOriginal) => ({
@@ -19,8 +22,12 @@ import {
   buildPrivacyGateTask,
   budgetShares,
   launcherFailure,
+  backUpRecords,
+  type PushDestination,
+  type RecordsBackup,
   type Task,
 } from './pre-push.js';
+import { save, type RecordsContext } from './records/operations.js';
 
 const mockExeca = vi.mocked(execa);
 const mockEnsure = vi.mocked(ensureGitleaks);
@@ -76,6 +83,30 @@ function captureProcs(): FakeProcess[] {
     return p;
   }) as never);
   return procs;
+}
+
+const checkouts: string[] = [];
+
+const DESTINATION: PushDestination = { remote: 'origin', remoteUrl: 'url' };
+
+/** A checkout root in a temp directory, holding the records overlay's git directory when asked. */
+function makeCheckout(withOverlay: boolean): string {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'pre-push-records-'));
+  if (withOverlay) mkdirSync(path.join(root, '.records.git'));
+  checkouts.push(root);
+  return root;
+}
+
+afterEach(() => {
+  for (const root of checkouts.splice(0)) rmSync(root, { recursive: true, force: true });
+  vi.restoreAllMocks();
+});
+
+function savingNothing(): RecordsBackup {
+  return {
+    root: makeCheckout(false),
+    save: vi.fn((): Promise<void> => Promise.resolve()),
+  };
 }
 
 async function waitForExecaCalls(n: number): Promise<void> {
@@ -315,8 +346,8 @@ describe('pre-push', () => {
       const promise = main(
         `refs/heads/feat newsha refs/heads/feat ${ZERO}`,
         false,
-        'origin',
-        'url'
+        DESTINATION,
+        savingNothing()
       );
       await waitForExecaCalls(12);
       for (let index = 0; index < 12; index++) procs[index]!._resolve();
@@ -461,7 +492,7 @@ describe('pre-push', () => {
   describe('main', () => {
     it('runs parallel checks plus gitleaks and the gate, then test on success', async () => {
       const procs = captureProcs();
-      const promise = main('', true, 'origin', 'url');
+      const promise = main('', true, DESTINATION, savingNothing());
       await waitForExecaCalls(12);
       for (let index = 0; index < 12; index++) {
         procs[index]!._resolve();
@@ -500,8 +531,8 @@ describe('pre-push', () => {
       const promise = main(
         `refs/heads/gone ${'0'.repeat(40)} refs/heads/gone oldsha`,
         false,
-        'origin',
-        'url'
+        DESTINATION,
+        savingNothing()
       );
       await waitForExecaCalls(10);
       for (let index = 0; index < 10; index++) {
@@ -525,7 +556,7 @@ describe('pre-push', () => {
 
     it('does not run test when a parallel task fails', async () => {
       const procs = captureProcs();
-      const promise = main('', true, 'origin', 'url');
+      const promise = main('', true, DESTINATION, savingNothing());
       await waitForExecaCalls(7);
       procs[0]!._reject(new Error('lint failed'));
       await expect(promise).rejects.toThrow('lint failed');
@@ -534,6 +565,128 @@ describe('pre-push', () => {
         ['test'],
         expect.objectContaining({ stdio: 'inherit' })
       );
+    });
+  });
+
+  describe('records backup', () => {
+    function overlaySave(
+      implementation: (context: RecordsContext) => Promise<void> = () => Promise.resolve()
+    ): RecordsBackup & { save: ReturnType<typeof vi.fn> } {
+      return { root: makeCheckout(true), save: vi.fn(implementation) };
+    }
+
+    async function passEveryCheck(procs: FakeProcess[]): Promise<void> {
+      await waitForExecaCalls(12);
+      for (let index = 0; index < 12; index++) procs[index]!._resolve();
+      await waitForExecaCalls(13);
+    }
+
+    it('saves the records at the checkout root once the test suite has passed', async () => {
+      const procs = captureProcs();
+      let testsPassed: boolean | undefined;
+      const records = overlaySave(() => {
+        testsPassed = procs[12]!.nodeChildProcess.exitCode === 0;
+        return Promise.resolve();
+      });
+      const promise = main('', true, DESTINATION, records);
+      await passEveryCheck(procs);
+      expect(records.save).not.toHaveBeenCalled();
+      procs[12]!._resolve();
+      await promise;
+      expect(records.save).toHaveBeenCalledTimes(1);
+      expect(records.save).toHaveBeenCalledWith(expect.objectContaining({ root: records.root }));
+      expect(testsPassed).toBe(true);
+    });
+
+    it('saves nothing when a static check fails', async () => {
+      const procs = captureProcs();
+      const records = overlaySave();
+      const promise = main('', true, DESTINATION, records);
+      await waitForExecaCalls(12);
+      procs[0]!._reject(new Error('lint failed'));
+      await expect(promise).rejects.toThrow('lint failed');
+      expect(records.save).not.toHaveBeenCalled();
+    });
+
+    it('saves nothing when the test suite fails', async () => {
+      const procs = captureProcs();
+      const records = overlaySave();
+      const promise = main('', true, DESTINATION, records);
+      await passEveryCheck(procs);
+      procs[12]!._reject(new Error('tests failed'));
+      await expect(promise).rejects.toThrow('tests failed');
+      expect(records.save).not.toHaveBeenCalled();
+    });
+
+    it('lets the push proceed when the records save fails', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const procs = captureProcs();
+      const records = overlaySave(() => Promise.reject(new Error('records: push failed')));
+      const promise = main('', true, DESTINATION, records);
+      await passEveryCheck(procs);
+      procs[12]!._resolve();
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it('does not save a checkout that has no records overlay', async () => {
+      const records: RecordsBackup & { save: ReturnType<typeof vi.fn> } = {
+        root: makeCheckout(false),
+        save: vi.fn((): Promise<void> => Promise.resolve()),
+      };
+      await backUpRecords(records);
+      expect(records.save).not.toHaveBeenCalled();
+    });
+
+    it('prints nothing for a checkout that has no records overlay', async () => {
+      const log = vi.spyOn(console, 'log');
+      const warn = vi.spyOn(console, 'warn');
+      const error = vi.spyOn(console, 'error');
+      await backUpRecords({ root: makeCheckout(false), save });
+      expect([log, warn, error].flatMap((spy) => spy.mock.calls)).toEqual([]);
+    });
+
+    it('prints the lines the save reports', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      await backUpRecords(
+        overlaySave(({ log: report }) => {
+          report('records: nothing to save');
+          return Promise.resolve();
+        })
+      );
+      expect(log).toHaveBeenCalledWith('records: nothing to save');
+    });
+
+    it('warns once on stderr, naming the command that retries the save, when the save fails', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await backUpRecords(overlaySave(() => Promise.reject(new Error('records: push failed'))));
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toContain('pnpm records save');
+    });
+
+    it('carries the reason the save failed in its warning', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await backUpRecords(overlaySave(() => Promise.reject(new Error('records: push failed'))));
+      expect(warn.mock.calls[0]![0]).toContain('records: push failed');
+    });
+
+    it('blanks a host path out of its warning', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const checkout = ['', 'example', 'first.last', 'clone'].join('/');
+      await backUpRecords(
+        overlaySave(() => Promise.reject(new Error(`records: ${checkout} has no .records.git`)))
+      );
+      expect(warn.mock.calls[0]![0]).not.toContain('first.last');
+    });
+
+    it('warns on a rejection that is not an Error', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await backUpRecords(
+        overlaySave(() =>
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- a string rejection exercises the warning's non-Error String(error) branch
+          Promise.reject('plain string failure')
+        )
+      );
+      expect(warn.mock.calls[0]![0]).toContain('plain string failure');
     });
   });
 });

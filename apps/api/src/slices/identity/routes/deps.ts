@@ -13,6 +13,7 @@ import type {
   RedisClient,
   TwoFactorDisabledEmailPort,
   TwoFactorEnabledEmailPort,
+  TwoFactorLockedEmailPort,
   VerificationEmailPort,
   WelcomeEmailPort,
 } from '../domain/index.js';
@@ -49,6 +50,8 @@ export interface IdentityRouteDeps {
   readonly twoFactorDisabledEmailPort: TwoFactorDisabledEmailPort;
   /** Login-lockout security notification, dispatched best-effort on the trip. */
   readonly accountLockedEmailPort: AccountLockedEmailPort;
+  /** Login-2FA first-trip security notification, dispatched best-effort. */
+  readonly twoFactorLockedEmailPort: TwoFactorLockedEmailPort;
   /**
    * Builds the session-revocation eviction port from request-scoped infra (the
    * Redis active-room reader + the ConversationRoom DO client). Threaded into

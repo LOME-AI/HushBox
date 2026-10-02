@@ -26,12 +26,12 @@ import type { Telemetry } from '../../../../lib/telemetry/index.js';
  *
  * `send` — authoring a turn. Read-only is refused for every caller kind.
  *
- * `runControl` — aborting a run in flight. A session member keeps the latitude
+ * `runControl` — stopping a run in flight. A session member keeps the latitude
  * it has always had here, because ARCHITECTURE §Streaming guarantees a user can
- * always abort a paid run they were able to start — and a member demoted to read
+ * always stop a paid run they were able to start — and a member demoted to read
  * mid-run started one. A link guest still needs write: `send` refuses a read-only
- * guest, so it can never be aborting a run of its own, and a stop settles the
- * OWNER's billable partial.
+ * guest, so it can never be stopping a run of its own, and a stop settles what
+ * the run produced at the OWNER's expense.
  */
 export type GatedCallerAction = 'send' | 'runControl';
 

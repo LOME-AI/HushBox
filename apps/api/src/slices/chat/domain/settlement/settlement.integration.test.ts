@@ -3897,12 +3897,13 @@ async function ledgerNet(usageRecordIds: readonly string[]): Promise<bigint> {
   return legs.reduce((sum, leg) => sum + leg.amount, 0n);
 }
 
-async function keyRowStatus(keyRowId: string): Promise<string> {
+/** The key row's status, or null once the row is gone (its account was deleted). */
+async function keyRowStatus(keyRowId: string): Promise<string | null> {
   const rows = await db
     .select({ status: idempotencyKeys.status })
     .from(idempotencyKeys)
     .where(eq(idempotencyKeys.id, keyRowId));
-  return first(rows, 'key row').status;
+  return rows[0]?.status ?? null;
 }
 
 /**
@@ -4288,6 +4289,8 @@ describe('a user action mid-run against the real runtime', () => {
       readonly code: string;
       readonly payerWalletId: string;
       readonly walletBefore: bigint;
+      /** The sender's account was deleted mid-run, taking the run's key row with it. */
+      readonly keyRowGone?: true;
     }
   ): Promise<(typeof usageRecords.$inferSelect)[]> {
     expect(run.outcome).toEqual({ outcome: 'failed', code: expected.code });
@@ -4301,7 +4304,7 @@ describe('a user action mid-run against the real runtime', () => {
     expect(billed).toBe(billable);
     expect(await ledgerNet(usage.map((row) => row.id))).toBe(0n);
     expect(await walletBalance(expected.payerWalletId)).toBe(expected.walletBefore - billed);
-    expect(await keyRowStatus(run.keyRowId)).toBe('succeeded');
+    expect(await keyRowStatus(run.keyRowId)).toBe(expected.keyRowGone ? null : 'succeeded');
     expect(run.telemetry.captureError).not.toHaveBeenCalled();
     return usage;
   }
@@ -4983,6 +4986,7 @@ describe('a user action mid-run against the real runtime', () => {
       code: ERROR_CODES.CONFLICT,
       payerWalletId: fixture.walletId,
       walletBefore: RUN_WALLET_BALANCE,
+      keyRowGone: true,
     });
     expect(usage.map((row) => [row.payerUserId, row.senderUserId, row.senderLinkId])).toEqual([
       [fixture.userId, null, null],
@@ -5004,7 +5008,7 @@ describe('a user action mid-run against the real runtime', () => {
     // left behind does not move.
     expect(await usageOf(run.runId)).toHaveLength(0);
     expect(await walletBalance(fixture.member.walletId)).toBe(RUN_WALLET_BALANCE);
-    expect(await keyRowStatus(run.keyRowId)).toBe('succeeded');
+    expect(await keyRowStatus(run.keyRowId)).toBeNull();
     const captures = vi.mocked(run.telemetry.captureError).mock.calls;
     expect(captures.map(([, fingerprint]) => fingerprint)).toEqual(['workflow_refusal_absorbed']);
     const billable = run.charges.reduce((sum, charge) => sum + charge.billableCostNanoUsd, 0n);
@@ -5031,7 +5035,7 @@ describe('a user action mid-run against the real runtime', () => {
     expect(streamedText(run)).toContain(RUN_PROMPT);
     expect(run.outcome).toEqual({ outcome: 'failed', code: ERROR_CODES.CONFLICT });
     expect(await usageOf(run.runId)).toHaveLength(0);
-    expect(await keyRowStatus(run.keyRowId)).toBe('succeeded');
+    expect(await keyRowStatus(run.keyRowId)).toBeNull();
     const captures = vi.mocked(run.telemetry.captureError).mock.calls;
     expect(captures.map(([, fingerprint]) => fingerprint)).toEqual(['workflow_refusal_absorbed']);
   });
@@ -5057,6 +5061,7 @@ describe('a user action mid-run against the real runtime', () => {
       code: ERROR_CODES.CONFLICT,
       payerWalletId: fixture.walletId,
       walletBefore: RUN_WALLET_BALANCE,
+      keyRowGone: true,
     });
     expect(usage.map((row) => [row.payerUserId, row.senderUserId, row.senderLinkId])).toEqual([
       [fixture.userId, null, null],
@@ -5156,7 +5161,7 @@ describe('a user action mid-run against the real runtime', () => {
     expect(streamedText(run)).toContain(RUN_PROMPT);
     expect(run.outcome).toEqual({ outcome: 'failed', code: ERROR_CODES.FORK_TIP_CONFLICT });
     expect(await usageOf(run.runId)).toHaveLength(0);
-    expect(await keyRowStatus(run.keyRowId)).toBe('succeeded');
+    expect(await keyRowStatus(run.keyRowId)).toBeNull();
     const captures = vi.mocked(run.telemetry.captureError).mock.calls;
     expect(captures.map(([, fingerprint]) => fingerprint)).toEqual(['workflow_refusal_absorbed']);
   });

@@ -86,7 +86,10 @@ export type IdentityRouteKey = SliceRouteKey<ReturnType<typeof createIdentityMan
 export const IDENTITY_ROUTE_POSTURES = {
   '$post /auth/2fa/disable/finish': bindRoutePosture({
     failure: 'closed',
-    layers: [{ identity: 'user', countedAt: 'flow', definition: IDENTITY_KEYS.twoFactorLockout }],
+    layers: [
+      { identity: 'user', countedAt: 'flow', definition: IDENTITY_KEYS.twoFactorCeiling },
+      { identity: 'user', countedAt: 'flow', definition: IDENTITY_KEYS.twoFactorLockout },
+    ],
   }),
   '$post /auth/2fa/disable/init': bindRoutePosture({
     failure: 'closed',
@@ -104,13 +107,14 @@ export const IDENTITY_ROUTE_POSTURES = {
   // converges on itself.
   '$get /auth/account/acquisition-source': { kind: 'default', failure: 'open' },
   '$patch /auth/account/acquisition-source': { kind: 'default', failure: 'open' },
-  // Two layers on one identity: the deletion gate always, then the shared TOTP
-  // lockout when the account has 2FA. `keyedBy` is positional, so the second
-  // 'user' is the second layer rather than a duplicate to fold away.
+  // Three layers on one identity: the deletion gate always, then the shared
+  // TOTP ceiling and window when the account has 2FA. `keyedBy` is positional,
+  // so each repeated 'user' is its own layer rather than a duplicate to fold away.
   '$post /auth/account/delete/finish': bindRoutePosture({
     failure: 'closed',
     layers: [
       { identity: 'user', countedAt: 'flow', definition: IDENTITY_KEYS.deleteAccountLockout },
+      { identity: 'user', countedAt: 'flow', definition: IDENTITY_KEYS.twoFactorCeiling },
       { identity: 'user', countedAt: 'flow', definition: IDENTITY_KEYS.twoFactorLockout },
     ],
   }),
@@ -129,7 +133,10 @@ export const IDENTITY_ROUTE_POSTURES = {
   }),
   '$post /auth/login/2fa/verify': bindRoutePosture({
     failure: 'closed',
-    layers: [{ identity: 'user', countedAt: 'flow', definition: IDENTITY_KEYS.twoFactorLockout }],
+    layers: [
+      { identity: 'user', countedAt: 'flow', definition: IDENTITY_KEYS.twoFactorCeiling },
+      { identity: 'user', countedAt: 'flow', definition: IDENTITY_KEYS.twoFactorLockout },
+    ],
   }),
   '$post /auth/login/finish': { kind: 'default', failure: 'closed' },
   '$post /auth/login/init': bindRoutePosture({

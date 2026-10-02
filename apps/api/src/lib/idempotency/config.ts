@@ -43,6 +43,17 @@ export const MAX_AUTO_RESUBMIT_HORIZON_SECONDS = 10 * 60;
  */
 export const IDEMPOTENCY_PURGE_TTL_SECONDS = 7 * 24 * 3600;
 
+/**
+ * How long after its last claim or heartbeat a row still `claimed` may stand
+ * before the purge deletes it: the claimant of a request or a run that was
+ * killed and never retried has stopped heartbeating, and nothing else would
+ * ever complete the row. A live run refreshes `claimedAt` and ends within the
+ * run deadline, so this horizon is the purge TTL counted from the latest
+ * moment a live claim could still be settling.
+ */
+export const IDEMPOTENCY_STALE_CLAIM_PURGE_SECONDS =
+  MAX_RUN_DEADLINE_SECONDS + IDEMPOTENCY_GRACE_SECONDS + IDEMPOTENCY_PURGE_TTL_SECONDS;
+
 export interface IdempotencyTtlConfig {
   readonly purgeTtlSeconds: number;
   readonly leaseSecondsByKind: { readonly request: number; readonly run: number };

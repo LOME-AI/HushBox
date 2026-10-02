@@ -179,6 +179,18 @@ regexes = [
   '''^f6e5d4c3b2a1$''',
 ]
 
+# Two variable names, not values: the rule's keyword heuristic captures the
+# property access after `key:` in the epoch-key assertions.
+[[rules.allowlists]]
+description = "Epoch-lifecycle test variable names after `key:`; AND-pins the exact secrets to that file."
+condition = "AND"
+paths = ['''^packages/crypto/src/content/epoch-lifecycle\.test\.ts$''']
+regexTarget = "secret"
+regexes = [
+  '''^epoch1\.epochPrivateKey$''',
+  '''^epoch2\.epochPrivateKey$''',
+]
+
 # Every entry below is in a document that is never edited (`docs/CODE-RULES.md`
 # §Doc Lifecycle), so an allowlist entry is its only disposition.
 

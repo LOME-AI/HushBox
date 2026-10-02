@@ -181,6 +181,14 @@ describe('listRecordFiles', () => {
     expect(await listed()).toEqual(['docs/runs/run-a/.gitignore']);
   });
 
+  it('lists a file under a record root spelled in another case when the main repository folds case', async () => {
+    await git(root, ['config', 'core.ignoreCase', 'true']);
+    write('Docs/Runs/r/upper.md');
+    write('docs/runs/r/plan.md');
+
+    expect(await listed()).toEqual(['Docs/Runs/r/upper.md', 'docs/runs/r/plan.md']);
+  });
+
   it('does not read a nested ignore file that is a symbolic link, as git does not', async () => {
     write('elsewhere/rules', 'private.md\n');
     mkdirSync(path.join(root, 'docs', 'runs', 'run-a'), { recursive: true });

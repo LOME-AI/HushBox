@@ -10,6 +10,7 @@ import {
   finishLogin as opaqueClientFinishLogin,
   finishRegistration as opaqueClientFinishRegistration,
   generateAccountKeyPair,
+  generateTotpCodeSync,
   openResetChallenge,
   recoverAccountFromMnemonic,
   regenerateRecoveryPhrase,
@@ -19,7 +20,9 @@ import {
 } from '@hushbox/crypto';
 import { ERROR_CODES, fromBase64, toBase64 } from '@hushbox/shared';
 import { ResultAsync } from '../../lib/result/index.js';
+import { rateLimitKey } from '../../lib/rate-limit/index.js';
 import { createIdentityStores } from './index.js';
+import { IDENTITY_KEYS } from './domain/keys.js';
 import {
   KEY_BLOBS,
   NEW_WRAPPED_KEY,
@@ -27,12 +30,14 @@ import {
   RECOVERY_PRIVATE_KEY,
   createApp,
   db,
+  enrollTotp,
   evictedUserIds,
   expectStatus,
   get,
   login,
   manifestDeps,
   post,
+  redis,
   registerAccount,
   registerLoginFull,
   sentPasswordChanged,
@@ -646,6 +651,32 @@ describe('identity routes: recovery', () => {
     await expectStatus(get('/t/session', cookie), 401);
     const relogin = await login(account.email, newPassword);
     expect(relogin.status).toBe(200);
+  });
+
+  it('lifts a frozen TOTP ceiling once the reset completes', async () => {
+    const { account, recoveryPrivateKey } = await registerWithRecoveryKeypair();
+    const secret = await enrollTotp(sessionCookieOf(await login(account.email, account.password)));
+    const { maxAttempts, windowSeconds } = IDENTITY_KEYS.twoFactorCeiling;
+    await redis.set(
+      rateLimitKey(IDENTITY_KEYS.twoFactorCeiling, account.userId)._unsafeUnwrap(),
+      maxAttempts,
+      { ex: windowSeconds }
+    );
+    const code = generateTotpCodeSync(secret);
+    const frozenPending = sessionCookieOf(await login(account.email, account.password));
+    await expectStatus(post('/auth/login/2fa/verify', { code }, frozenPending), 429);
+
+    const newPassword = `${account.password} unfrozen`;
+    const handshake = await resetInit(account.email, newPassword);
+    const finish = await resetFinish(
+      account.email,
+      handshake,
+      proofFor(handshake, account.email, recoveryPrivateKey)
+    );
+    expect(finish.status).toBe(200);
+
+    const pending = sessionCookieOf(await login(account.email, newPassword));
+    await expectStatus(post('/auth/login/2fa/verify', { code }, pending), 200);
   });
 
   it('refuses a proof bound to a different registration record', async () => {

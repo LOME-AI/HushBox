@@ -5,7 +5,7 @@ import { LOCAL_NEON_DEV_CONFIG, createDb, idempotencyKeys } from '@hushbox/db';
 import { unavailableError } from '../errors/index.js';
 import { ResultAsync, errAsync, okAsync } from '../result/index.js';
 import { byKey, continueFromClaim } from './by-key.js';
-import { hashCanonicalJson } from './canonical-json.js';
+import { hashRequestBody } from './body-hash.js';
 import { isIdempotencyConflict } from './errors.js';
 import { claimKeyRow } from './key-row.js';
 import type { DomainError } from '../errors/index.js';
@@ -95,6 +95,19 @@ describe('idempotent.byKey', () => {
     expect(row.status).toBe('succeeded');
     expect(row.response).toEqual({ n: 7 });
     expect(await countEffects(userId)).toBe(1);
+  });
+
+  it('stores the keyed hash of the body', async () => {
+    const { userId, scope } = setup();
+    await byKey({
+      db,
+      scope,
+      body: { a: 1 },
+      executorId: 'worker-1',
+      responseSchema,
+      execute: (tx) => ResultAsync.fromSafePromise(insertEffect(tx, userId)).map(() => ({ n: 7 })),
+    });
+    expect((await readKeyRow(scope)).bodyHash).toBe(hashRequestBody({ a: 1 }));
   });
 
   it('replays the stored response on duplicate delivery without re-executing', async () => {
@@ -248,7 +261,7 @@ describe('idempotent.byKey', () => {
       route: scope.route,
       key: scope.key,
       kind: 'request',
-      bodyHash: await hashCanonicalJson({ a: 1 }),
+      bodyHash: hashRequestBody({ a: 1 }),
       claimedBy: 'dead-worker',
       claimedAt: sql`now() - interval '2 hours'`,
     });
@@ -322,7 +335,7 @@ describe('idempotent.byKey', () => {
     const claimed = await claimKeyRow(db, {
       scope,
       kind: 'request',
-      bodyHash: await hashCanonicalJson({ a: 1 }),
+      bodyHash: hashRequestBody({ a: 1 }),
       executorId: 'worker-1',
       leaseSeconds: 3600,
     });

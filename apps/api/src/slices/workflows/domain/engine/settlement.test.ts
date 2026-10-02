@@ -940,6 +940,41 @@ describe('createFencedSettlementHook: a refused commit bills the run and rethrow
     expect(world.keyRow.status).toBe('succeeded');
   });
 
+  it('rethrows the refusal as absorbed and bills nothing when the key row is missing and nobody is left to pay (modeled world)', async () => {
+    const world = makeWorld();
+    const settling = createFencedSettlementHook({
+      db: makeDb(world),
+      fence: FENCE_A,
+      complete: () => Promise.resolve('missing'),
+      commit: refusingCommit(),
+      refusalCommit: () => Promise.resolve('absorbed'),
+    })(requestWith([settlementCharge('answer')]));
+
+    await expect(settling).rejects.toBeInstanceOf(AbsorbedSettlementRefusal);
+    expect(world.content).toEqual([]);
+    expect(world.usage.size).toBe(0);
+    expect(world.wallet.balanceNanoUsd).toBe(1000n);
+  });
+
+  it('commits the refusal bill to a payer still present when the key row is missing (modeled world)', async () => {
+    const world = makeWorld();
+    const thrown = refusal();
+    await expect(
+      createFencedSettlementHook({
+        db: makeDb(world),
+        fence: FENCE_A,
+        complete: () => Promise.resolve('missing'),
+        commit: refusingCommit(thrown),
+        refusalCommit: createRefusalChargingCommit({
+          stores: makeStores(),
+          context: refusalContext(),
+        }),
+      })(requestWith([settlementCharge('answer')]))
+    ).rejects.toBe(thrown);
+    expect(world.usage.size).toBe(1);
+    expect(world.wallet.balanceNanoUsd).toBe(1000n - applyMarkup(100n));
+  });
+
   it('rolls a refusal back whole, unbilled and unflipped, for a definition with no refusal commit (modeled world)', async () => {
     const world = makeWorld();
     await expect(
@@ -1002,10 +1037,16 @@ describe('createRefusalChargingCommit: the charges of a run that stored nothing'
  * the real `runSettlement` (never cast), so the fence writes on a genuinely
  * branded transaction.
  */
-function completeVia(returning: () => Promise<unknown>): Promise<'flipped' | 'lost'> {
+function completeVia(
+  returning: () => Promise<unknown>,
+  stillHeld: readonly unknown[] = [{ id: 'key-1' }]
+): Promise<'flipped' | 'lost' | 'missing'> {
   const db = {
-    transaction: (body: (tx: unknown) => Promise<'flipped' | 'lost'>) =>
-      body({ update: () => ({ set: () => ({ where: () => ({ returning }) }) }) }),
+    transaction: (body: (tx: unknown) => Promise<'flipped' | 'lost' | 'missing'>) =>
+      body({
+        update: () => ({ set: () => ({ where: () => ({ returning }) }) }),
+        select: () => ({ from: () => ({ where: () => Promise.resolve(stillHeld) }) }),
+      }),
   } as unknown as Database;
   return runSettlement(db, (tx) => keyRowCompletion('response')(tx, FENCE_A));
 }
@@ -1017,6 +1058,10 @@ describe('keyRowCompletion — the production fence over succeedKeyRow', () => {
 
   it('reports lost when the fenced update returns no row, a zombie claimant (fake writer chain)', async () => {
     await expect(completeVia(() => Promise.resolve([]))).resolves.toBe('lost');
+  });
+
+  it('reports missing when the fenced update returns no row and the row is gone (fake writer chain)', async () => {
+    await expect(completeVia(() => Promise.resolve([]), [])).resolves.toBe('missing');
   });
 
   it('throws a SettlementCompletionError when the fenced update rejects (fake writer chain)', async () => {

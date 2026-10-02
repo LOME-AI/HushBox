@@ -64,6 +64,7 @@ import type {
   PasswordResetEmailPort,
   TwoFactorDisabledEmailPort,
   TwoFactorEnabledEmailPort,
+  TwoFactorLockedEmailPort,
   VerificationEmailPort,
 } from './index.js';
 
@@ -196,6 +197,21 @@ const accountLockedEmailPort: AccountLockedEmailPort = {
   },
 };
 
+export const sentTwoFactorLocked: { to: string; lockoutMinutes: number }[] = [];
+/**
+ * When `shouldFail` is set, the two-factor-locked port errs — exercises the
+ * best-effort swallow, which must leave the login 2FA response untouched.
+ */
+export const twoFactorLockedFailure = { shouldFail: false };
+const twoFactorLockedEmailPort: TwoFactorLockedEmailPort = {
+  sendTwoFactorLockedEmail: (args) => {
+    sentTwoFactorLocked.push({ to: args.to, lockoutMinutes: args.lockoutMinutes });
+    return twoFactorLockedFailure.shouldFail
+      ? errAsync(unavailableError('two-factor-locked sender down'))
+      : okAsync();
+  },
+};
+
 /** Billing's real single-writer stores — registration provisions through them. */
 export const billingStores = createBillingStores();
 
@@ -271,6 +287,7 @@ export const manifestDeps: IdentityRouteDeps = {
   twoFactorEnabledEmailPort,
   twoFactorDisabledEmailPort,
   accountLockedEmailPort,
+  twoFactorLockedEmailPort,
   evictUser: recordingEvictUser,
   growthStores: createGrowthStores(),
   accountDeletedEmailPort,

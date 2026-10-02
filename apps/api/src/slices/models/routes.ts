@@ -9,8 +9,8 @@ import type { AppEnv } from '../../middleware/pipeline-manifest.js';
 
 /**
  * The models slice's HTTP surface: the public catalog list. `public`-class by
- * design — the marketing site fetches it unauthenticated at build time, and
- * the picker loads it before login. Read-only, so no idempotency machinery.
+ * design — the marketing site's welcome page reads it unauthenticated in the
+ * visitor's browser, and the picker loads it before login. Read-only, so no idempotency machinery.
  *
  * Per-IP window-capped: unauthenticated and one catalog read per request.
  *

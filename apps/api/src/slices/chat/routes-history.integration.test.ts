@@ -560,7 +560,7 @@ describe('chat routes: client-supplied history threading', () => {
   it('admits a trial send whose short history stays within the 1¢ cap', async () => {
     // The known-eligible cheap model: a short history adds a handful of input
     // tokens, nowhere near the cap (the exact price boundary is unit-tested on
-    // trialMessageBillableNanoUsd).
+    // trialMessageReserveNanoUsd).
     await pinTrialCatalogBaseline();
     const res = await postTrial(fakeRealtime(STARTED), trialHeaders(), {
       turnSources: [{ kind: 'model', id: MODEL }],

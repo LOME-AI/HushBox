@@ -98,6 +98,7 @@
     "generate:design-tokens": "node --import tsx scripts/generate-design-tokens.ts",
     "generate:env": "node --import tsx scripts/generate-env.ts",
     "generate:ops-dispatch": "node --import tsx ops/lib/generate-dispatch-options.ts",
+    "growth:index:refresh": "node --import tsx apps/marketing/scripts/refresh-growth-index.ts",
     "generate:headers": "node --import tsx scripts/with-build-lease.ts \"tsx scripts/with-env.ts tsx scripts/merge-marketing-into-web.ts && tsx scripts/with-env.ts tsx scripts/generate-headers.ts\"",
     "verify:env": "node --import tsx scripts/verify-env.ts",
     "verify:evidence": "node --import tsx scripts/with-env.ts tsx scripts/verify-evidence.ts",

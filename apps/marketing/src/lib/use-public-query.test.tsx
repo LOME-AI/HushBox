@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { render, renderHook, waitFor } from '@testing-library/react';
 import { z } from 'zod';
 import { usePublicQuery } from './use-public-query';
 
@@ -119,6 +119,101 @@ describe('usePublicQuery', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(result.current.error).toBeNull();
     expect(result.current.data).toBeNull();
+  });
+
+  it('sends the request without credentials', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(VALID_RESPONSE) })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderQuery();
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/public/example'),
+      expect.objectContaining({ credentials: 'omit' })
+    );
+  });
+
+  it('shares one request between two instances reading the same path', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(VALID_RESPONSE) })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const first = renderQuery();
+    const second = renderQuery();
+    await waitFor(() => {
+      expect(first.result.current.data).toEqual(VALID_RESPONSE);
+    });
+    await waitFor(() => {
+      expect(second.result.current.data).toEqual(VALID_RESPONSE);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts a later instance in the loading state after the shared request has resolved', async () => {
+    stubFetch(() =>
+      Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(VALID_RESPONSE) })
+    );
+    const first = renderQuery();
+    await waitFor(() => {
+      expect(first.result.current.data).toEqual(VALID_RESPONSE);
+    });
+    const firstRenders: boolean[] = [];
+    function Probe(): null {
+      const state = useExampleQuery();
+      firstRenders.push(state.isLoading);
+      return null;
+    }
+    render(<Probe />);
+    await waitFor(() => {
+      expect(firstRenders.at(-1)).toBe(false);
+    });
+    expect(firstRenders[0]).toBe(true);
+  });
+
+  it('keeps a failed request failed for a later instance rather than asking again', async () => {
+    const fetchMock = vi.fn(() => Promise.reject(new Error('offline')));
+    vi.stubGlobal('fetch', fetchMock);
+    const first = renderQuery();
+    await waitFor(() => {
+      expect(first.result.current.error).not.toBeNull();
+    });
+    const second = renderQuery();
+    await waitFor(() => {
+      expect(second.result.current.error?.message).toBe('offline');
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels a failed status with the label of the instance reading it', async () => {
+    stubFetch(() => Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({}) }));
+    const first = renderQuery();
+    const second = renderHook(() => usePublicQuery('/public/example', testSchema, 'other'));
+    await waitFor(() => {
+      expect(first.result.current.error?.message).toBe('example request failed: 502');
+    });
+    await waitFor(() => {
+      expect(second.result.current.error?.message).toBe('other request failed: 502');
+    });
+  });
+
+  it('validates the shared body against each instance schema', async () => {
+    stubFetch(() =>
+      Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(VALID_RESPONSE) })
+    );
+    const lenient = renderQuery();
+    const strict = renderHook(() =>
+      usePublicQuery('/public/example', z.object({ value: z.literal('other') }), 'strict')
+    );
+    await waitFor(() => {
+      expect(lenient.result.current.data).toEqual(VALID_RESPONSE);
+    });
+    await waitFor(() => {
+      expect(strict.result.current.error).not.toBeNull();
+    });
+    expect(strict.result.current.data).toBeNull();
   });
 
   it('reports a missing VITE_API_URL through the error state instead of at module load', async () => {

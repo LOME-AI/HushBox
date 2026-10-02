@@ -1,6 +1,6 @@
-import { and, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { idempotencyKeys } from '@hushbox/db';
-import { IDEMPOTENCY_PURGE_TTL_SECONDS } from './config.js';
+import { IDEMPOTENCY_PURGE_TTL_SECONDS, IDEMPOTENCY_STALE_CLAIM_PURGE_SECONDS } from './config.js';
 import { createRetentionEntry } from '../jobs/retention.js';
 import type { CronEntry } from '../jobs/cron.js';
 import type { DbWriter } from './transaction.js';
@@ -10,14 +10,15 @@ export interface IdempotencyPurgeParams {
 }
 
 /**
- * The TTL retention delete for terminal key rows, batched so a backlog never
- * holds long locks (the partial index on `completedAt` makes the scan cheap).
- * Non-terminal rows have a null `completedAt` and are skipped by predicate —
- * a live claim can never be purged, and read paths never depend on the purge
- * having run. The TTL floor in config.ts guarantees a purged `succeeded` row
- * is already past every replay horizon.
+ * The TTL retention delete for key rows, batched so a backlog never holds long
+ * locks. A terminal row goes once its `completedAt` passes the purge TTL; a
+ * row still `claimed` goes once its `claimedAt` passes the stale-claim
+ * horizon, which a live claimant's heartbeat keeps it inside. A zombie whose
+ * row is gone finds its completion fence matching nothing and aborts, and read
+ * paths never depend on the purge having run. The TTL floor in config.ts
+ * guarantees a purged `succeeded` row is already past every replay horizon.
  */
-export async function purgeTerminalIdempotencyKeys(
+export async function purgeExpiredIdempotencyKeys(
   writer: DbWriter,
   params: IdempotencyPurgeParams
 ): Promise<number> {
@@ -25,9 +26,15 @@ export async function purgeTerminalIdempotencyKeys(
     .select({ id: idempotencyKeys.id })
     .from(idempotencyKeys)
     .where(
-      and(
-        isNotNull(idempotencyKeys.completedAt),
-        sql`${idempotencyKeys.completedAt} < now() - make_interval(secs => ${IDEMPOTENCY_PURGE_TTL_SECONDS})`
+      or(
+        and(
+          isNotNull(idempotencyKeys.completedAt),
+          sql`${idempotencyKeys.completedAt} < now() - make_interval(secs => ${IDEMPOTENCY_PURGE_TTL_SECONDS})`
+        ),
+        and(
+          eq(idempotencyKeys.status, 'claimed'),
+          sql`${idempotencyKeys.claimedAt} < now() - make_interval(secs => ${IDEMPOTENCY_STALE_CLAIM_PURGE_SECONDS})`
+        )
       )
     )
     .limit(params.batchSize);
@@ -41,6 +48,6 @@ export async function purgeTerminalIdempotencyKeys(
 /** The daily cron entry for this table's purge, published by the module that owns it. */
 export function createIdempotencyKeyPurgeEntry(writer: DbWriter): CronEntry {
   return createRetentionEntry('idempotency-key-purge', (batchSize) =>
-    purgeTerminalIdempotencyKeys(writer, { batchSize })
+    purgeExpiredIdempotencyKeys(writer, { batchSize })
   );
 }

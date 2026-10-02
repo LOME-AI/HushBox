@@ -198,8 +198,8 @@ function namedExportElements(statement: ts.Statement): readonly ts.ExportSpecifi
 /**
  * Every `export { original as exported } from …` in the Worker, so a name a
  * barrel republishes resolves back to what it binds — the identity barrel
- * publishes the resolvers as `resolveCallerIpId` and `resolveTrustedCallerIpId`,
- * and a walk reading only import text would see two names it never heard of.
+ * publishes a resolver under a name of its own, and a walk reading only import
+ * text would see a name it never heard of.
  */
 const REEXPORT_ALIASES: ReadonlyMap<string, string> = (() => {
   const aliases = new Map<string, string>();

@@ -5,7 +5,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { conversationForks, conversationMembers, messages } from '@hushbox/db';
 import { TEST_DAY_START } from '@hushbox/shared/test-time';
 import { okAsync } from '../../lib/result/index.js';
-import { hashCanonicalJson } from './domain/index.js';
+import { hashRequestBody } from './domain/index.js';
 import {
   MODEL,
   STARTED,
@@ -146,7 +146,7 @@ describe('chat route: POST /chat/regenerate', () => {
     expect(captured[1]?.bodyHash).toBe(captured[0]?.bodyHash);
     // Non-vacuity: folding the moved tip into the same hash input would have
     // produced a different digest, so the equality above is a real exclusion.
-    const hashWithTip = await hashCanonicalJson({
+    const hashWithTip = hashRequestBody({
       conversationId,
       turnSources: [{ kind: 'model', id: MODEL }],
       forkId,

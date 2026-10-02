@@ -182,6 +182,14 @@ describe('PageShell', () => {
       expect(slot('shield').parentElement).toHaveClass(`${filled}:ms-auto`);
     });
 
+    it('keeps a title beside a filled centre wide enough for its first word, from 768', () => {
+      renderWithProviders(<PageShell>page</PageShell>);
+
+      expect(slot('title')).toHaveClass(
+        'md:group-has-[[data-page-slot=center]:not(:empty)]/app-header:min-w-10'
+      );
+    });
+
     // Until the strip carries the members below 768, the facepile is the phone's
     // way to the member list.
     it('shows the facepile slot at every width', () => {

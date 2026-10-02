@@ -1,7 +1,7 @@
 import {
   TRIAL_MESSAGE_COST_CAP_NANO_USD,
   trialEligibility,
-  trialMessageBillableNanoUsd,
+  trialMessageReserveNanoUsd,
 } from '../../../models/index.js';
 import { ok } from '../../../../lib/result/index.js';
 import type { ModelDescriptor } from '@hushbox/shared';
@@ -63,7 +63,7 @@ export function trialGateVerdict(
   // system prompt and custom instructions included, not history-plus-prompt alone.
   // The gate has to dominate the definition's own floor, and the system prompt is
   // the term that made the two differ.
-  return trialMessageBillableNanoUsd(target, promptCharacterCount).map((cost) =>
+  return trialMessageReserveNanoUsd(target, promptCharacterCount).map((cost) =>
     cost > TRIAL_MESSAGE_COST_CAP_NANO_USD ? 'too-expensive' : 'allowed'
   );
 }

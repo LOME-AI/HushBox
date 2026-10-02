@@ -1,6 +1,6 @@
 import { ResultAsync, err, fromPromise, ok, okAsync } from '../result/index.js';
 import { brandIdempotent } from './brands.js';
-import { hashCanonicalJson } from './canonical-json.js';
+import { hashRequestBody } from './body-hash.js';
 import { REQUEST_LEASE_SECONDS } from './config.js';
 import { requestInProgressError } from './errors.js';
 import { claimKeyRow, failKeyRow, succeedKeyRow } from './key-row.js';
@@ -16,7 +16,7 @@ export interface ByKeyParams<T> {
   readonly db: Database;
   /** `(userId, route, key)` — deliberately per-route (laxer than Stripe). */
   readonly scope: IdempotencyScope;
-  /** The request body; canonicalized and hashed, so key reordering never 409s. */
+  /** The request body; canonicalized and keyed-hashed, so key reordering never 409s. */
   readonly body: unknown;
   /** The claimant identity recorded as `claimedBy` (the fence). */
   readonly executorId: string;
@@ -53,7 +53,12 @@ class FenceLost extends Error {
  * exactly one serialized re-execution.
  */
 export function byKey<T>(params: ByKeyParams<T>): ResultAsync<Idempotent<T>, DomainError> {
-  return fromPromise(hashCanonicalJson(params.body), defectRethrow)
+  // Hashed on a microtask so a body that cannot canonicalize rejects the
+  // returned ResultAsync rather than throwing at the call.
+  return fromPromise(
+    Promise.resolve().then(() => hashRequestBody(params.body)),
+    defectRethrow
+  )
     .andThen((bodyHash) =>
       claimKeyRow(params.db, {
         scope: params.scope,

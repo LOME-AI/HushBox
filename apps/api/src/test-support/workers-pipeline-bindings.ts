@@ -11,15 +11,20 @@ import type { Bindings, RequiredBindings } from '../lib/context/index.js';
  * there arrives here as a compile error. The ones picked beside it are the
  * stages that own their own fail-fast and are deliberately outside that gate:
  * the mode `createEnvUtilities` reads, the sink list `createRequestTelemetry`
- * demands, and the counter's Redis bound and identifier key, which
+ * demands, the counter's Redis bound and identifier key, which
  * `configureRateLimitBound` and `configureRateLimitKeySecret` refuse to
- * default.
+ * default, and the idempotency body-hash key, which
+ * `configureIdempotencyBodyHashSecret` refuses to default.
  */
 type WorkersPipelineBindings = RequiredBindings &
   Required<
     Pick<
       Bindings,
-      'NODE_ENV' | 'TELEMETRY_SINKS' | 'RATE_LIMIT_REDIS_TIMEOUT_MS' | 'RATE_LIMIT_KEY_SECRET'
+      | 'NODE_ENV'
+      | 'TELEMETRY_SINKS'
+      | 'RATE_LIMIT_REDIS_TIMEOUT_MS'
+      | 'RATE_LIMIT_KEY_SECRET'
+      | 'IDEMPOTENCY_BODY_HASH_SECRET'
     >
   >;
 
@@ -43,4 +48,5 @@ export const WORKERS_PIPELINE_BINDINGS = {
   TELEMETRY_SINKS: 'console',
   RATE_LIMIT_REDIS_TIMEOUT_MS: '5000',
   RATE_LIMIT_KEY_SECRET: 'workers-rate-limit-key',
+  IDEMPOTENCY_BODY_HASH_SECRET: 'workers-idempotency-body-hash-key',
 } as const satisfies WorkersPipelineBindings;

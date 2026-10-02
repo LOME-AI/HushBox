@@ -104,6 +104,7 @@ import { createAppWelcomeEmailPort } from './composition/email/welcome-email.js'
 import { createAppTwoFactorEnabledEmailPort } from './composition/email/two-factor-enabled-email.js';
 import { createAppTwoFactorDisabledEmailPort } from './composition/email/two-factor-disabled-email.js';
 import { createAppLoginLockoutEmailPort } from './composition/email/login-lockout-email.js';
+import { createAppTwoFactorLockedEmailPort } from './composition/email/two-factor-locked-email.js';
 import { createAppAdminOpNotifier } from './composition/email/admin-op-notification-email.js';
 import { createConversationFundingReader } from './composition/bindings/conversation-funding.js';
 import { createPresignReaders } from './composition/bindings/presign-readers.js';
@@ -269,6 +270,7 @@ const identityManifest = createIdentityManifest({
   twoFactorEnabledEmailPort: createAppTwoFactorEnabledEmailPort(),
   twoFactorDisabledEmailPort: createAppTwoFactorDisabledEmailPort(),
   accountLockedEmailPort: createAppLoginLockoutEmailPort(),
+  twoFactorLockedEmailPort: createAppTwoFactorLockedEmailPort(),
   growthStores,
   // Closes a revoked user's live sockets on logout, 2FA-login rotation,
   // password change, recovery reset, and account deletion (ARCHITECTURE §Streaming & realtime).

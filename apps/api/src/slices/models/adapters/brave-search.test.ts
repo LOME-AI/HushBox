@@ -383,7 +383,7 @@ function unreachable(): typeof fetch {
     Promise.reject(new TypeError(`fetch failed for ${new Request(input).url}`));
 }
 
-/** A transport that aborts the caller's signal mid-request, the way a stopped run does. */
+/** A transport that aborts the caller's signal mid-request, the way a run's hard stop does. */
 function abortedBy(caller: AbortController): typeof fetch {
   return (input, init): Promise<Response> =>
     new Promise<Response>((_resolve, reject) => {

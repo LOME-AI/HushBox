@@ -71,7 +71,10 @@ const rateArb = fc.bigInt({ min: 1n, max: 10n ** 12n });
 /** Rates that never fall below `below`: each is `below`'s plus a non-negative step. */
 function ratesAtLeast(below: TokenRates): fc.Arbitrary<TokenRates> {
   return fc
-    .record({ input: fc.bigInt({ min: 0n, max: 10n ** 12n }), output: fc.bigInt({ min: 0n, max: 10n ** 12n }) })
+    .record({
+      input: fc.bigInt({ min: 0n, max: 10n ** 12n }),
+      output: fc.bigInt({ min: 0n, max: 10n ** 12n }),
+    })
     .map((step) => ({
       input: nanoUSD(below.input + step.input),
       output: nanoUSD(below.output + step.output),

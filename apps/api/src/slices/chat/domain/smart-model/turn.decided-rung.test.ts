@@ -559,17 +559,17 @@ interface GapCase {
 const GAP_CASES: readonly GapCase[] = [
   {
     pinned: LADDERLESS.id,
-    funding: 110_000_000n,
+    funding: 137_500_000n,
     answer: `model: ${SONNET.id}\neffort: ${REASONING_EFFORT_LABELS.off}`,
   },
   {
     pinned: ENGINE.id,
-    funding: 210_000_000n,
+    funding: 262_500_000n,
     answer: `model: ${SONNET.id}\neffort: ${REASONING_EFFORT_LABELS.low}`,
   },
   {
     pinned: MANDATORY.id,
-    funding: 500_000_000n,
+    funding: 625_000_000n,
     answer: `model: ${SONNET.id}\neffort: ${REASONING_EFFORT_LABELS.lite}`,
   },
 ];

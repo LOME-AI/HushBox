@@ -1,12 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createServer, type Plugin, type ViteDevServer } from 'vite';
+import { type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { chromium, firefox, type Browser, type Page } from '@playwright/test';
+import { startFixtureServer, type FixtureServer } from '@/test-utils/fixture-server';
 
 /**
  * Lays the "Aspect ratio" grid out in real engines: whether every tile holds its own label
@@ -71,7 +70,7 @@ export function useModels() {
 `;
 
 const ENTRY_SOURCE = `
-import { createElement as h, useRef } from 'react';
+import { StrictMode, createElement as h, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@/app.css';
 import { useModelStore } from ${JSON.stringify(STORE_FILE)};
@@ -90,11 +89,11 @@ function Composer() {
     h(GenerationSettingsPopover, { modality: 'image', trigger: h(RatioChip), anchor: field }));
 }
 
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root')).render(h(StrictMode, null,
   h('main', { style: { display: 'flex', height: '100vh' } },
     h('div', { 'data-page-slot': 'region', id: 'region',
       style: { width: '${String(NARROW_REGION_PX)}px', padding: '120px 16px 0', boxSizing: 'border-box' } },
-      h(Composer))));
+      h(Composer)))));
 globalThis.__ratioGridReady = true;
 `;
 
@@ -127,37 +126,6 @@ function pageModules(): Plugin {
           }
         })();
       });
-    },
-  };
-}
-
-async function startServer(): Promise<{ origin: string; close: () => Promise<void> }> {
-  // A private dependency cache: the app's `node_modules/.vite` is the running dev server's,
-  // and a second optimiser rewriting it leaves that server answering 504.
-  const cacheDir = await mkdtemp(path.join(os.tmpdir(), 'ratio-grid-vite-'));
-  const server: ViteDevServer = await createServer({
-    root: WEB_DIR,
-    configFile: false,
-    cacheDir,
-    logLevel: 'error',
-    plugins: [pageModules(), react(), tailwindcss()],
-    resolve: {
-      alias: [
-        { find: /^@\/(?!hooks\/models\/models$)(.*)$/, replacement: path.join(SRC_DIR, '$1') },
-      ],
-    },
-    server: { port: 0, host: '127.0.0.1', hmr: false },
-  });
-  await server.listen();
-  const address = server.httpServer?.address();
-  if (address === null || address === undefined || typeof address === 'string') {
-    throw new Error('ratio grid server has no port');
-  }
-  return {
-    origin: `http://127.0.0.1:${String(address.port)}`,
-    close: async () => {
-      await server.close();
-      await rm(cacheDir, { recursive: true, force: true });
     },
   };
 }
@@ -253,15 +221,116 @@ async function readGrid(
   });
 }
 
+/** A phone screen, where the popover is a sheet, and a desktop one, where it hangs. */
+const PHONE_SCREEN = { width: 390, height: 844 } as const;
+const DESKTOP_SCREEN = { width: 1024, height: 768 } as const;
+/** The popover's gap from what it hangs from: FND-10b's side offset. */
+const HANG_GAP_PX = 8;
+
+interface ReopenReading {
+  /** The anchored popover's top less the composer's bottom. */
+  readonly gap: number;
+  /** The anchored popover's left less the composer's left. */
+  readonly leftOffset: number;
+  /** The accessible name of what holds focus once Escape closes it. */
+  readonly focusAfterEscape: string | null;
+}
+
+/**
+ * Opens the popover as the phone sheet, crosses to the desktop band (while the sheet is open
+ * or after it closed), then opens it again and reads where it hangs and where Escape leaves
+ * focus.
+ */
+async function reopenAcrossBand(
+  page: Page,
+  origin: string,
+  { crossWhileOpen, openFirst = true }: { crossWhileOpen: boolean; openFirst?: boolean }
+): Promise<ReopenReading> {
+  await page.setViewportSize(PHONE_SCREEN);
+  await page.goto(`${origin}/ratio-grid.html`, { waitUntil: 'commit', timeout: LOAD_MS });
+  await page.waitForFunction(() => globalThis.__ratioGridReady === true, undefined, {
+    timeout: LOAD_MS,
+  });
+  const chip = page.getByRole('button', { name: /^Aspect ratio: / });
+  const surface = page.getByRole('dialog', { name: 'Aspect ratio' });
+  if (openFirst) {
+    await chip.click({ timeout: ACTION_MS });
+    await surface.waitFor({ timeout: ACTION_MS });
+    if (crossWhileOpen) await page.setViewportSize(DESKTOP_SCREEN);
+    await page.keyboard.press('Escape');
+    await surface.waitFor({ state: 'hidden', timeout: ACTION_MS });
+  }
+  if (!crossWhileOpen) await page.setViewportSize(DESKTOP_SCREEN);
+
+  await chip.click({ timeout: ACTION_MS });
+  await surface.waitFor({ timeout: ACTION_MS });
+  // The popover slides and scales in; it is read where it comes to rest.
+  await surface.evaluate((dialog) =>
+    Promise.all(dialog.getAnimations().map((animation) => animation.finished))
+  );
+  const placed = await surface.evaluate((dialog) => {
+    const composer = document.querySelector('#composer');
+    if (composer === null) throw new TypeError('no composer');
+    const box = dialog.getBoundingClientRect();
+    const field = composer.getBoundingClientRect();
+    return { gap: box.top - field.bottom, leftOffset: box.left - field.left };
+  });
+  await page.keyboard.press('Escape');
+  await surface.waitFor({ state: 'hidden', timeout: ACTION_MS });
+  const focusAfterEscape = await page.evaluate(
+    () => document.activeElement?.getAttribute('aria-label') ?? null
+  );
+  return { ...placed, focusAfterEscape };
+}
+
+/**
+ * Loads on the desktop band (opening the anchored popover there first, or not), crosses below
+ * 768 while it is shut, opens it as the sheet, and reads where Escape leaves focus.
+ */
+async function sheetFocusAfterCrossingDown(
+  page: Page,
+  origin: string,
+  { openFirst }: { openFirst: boolean }
+): Promise<string | null> {
+  await page.setViewportSize(DESKTOP_SCREEN);
+  await page.goto(`${origin}/ratio-grid.html`, { waitUntil: 'commit', timeout: LOAD_MS });
+  await page.waitForFunction(() => globalThis.__ratioGridReady === true, undefined, {
+    timeout: LOAD_MS,
+  });
+  const chip = page.getByRole('button', { name: /^Aspect ratio: / });
+  const surface = page.getByRole('dialog', { name: 'Aspect ratio' });
+  if (openFirst) {
+    await chip.click({ timeout: ACTION_MS });
+    await surface.waitFor({ timeout: ACTION_MS });
+    await page.keyboard.press('Escape');
+    await surface.waitFor({ state: 'hidden', timeout: ACTION_MS });
+  }
+  await page.setViewportSize(PHONE_SCREEN);
+  await chip.click({ timeout: ACTION_MS });
+  await surface.waitFor({ timeout: ACTION_MS });
+  await page.keyboard.press('Escape');
+  await surface.waitFor({ state: 'hidden', timeout: ACTION_MS });
+  return page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
+}
+
 type EngineName = 'chromium' | 'firefox';
 const ENGINES: readonly EngineName[] = ['chromium', 'firefox'];
 
 describe('the aspect ratio grid (real browser)', () => {
-  let server: { origin: string; close: () => Promise<void> };
+  let server: FixtureServer;
   const browsers: Partial<Record<EngineName, Browser>> = {};
 
   beforeAll(async () => {
-    server = await startServer();
+    server = await startFixtureServer({
+      root: WEB_DIR,
+      configFile: false,
+      plugins: [pageModules(), react(), tailwindcss()],
+      resolve: {
+        alias: [
+          { find: /^@\/(?!hooks\/models\/models$)(.*)$/, replacement: path.join(SRC_DIR, '$1') },
+        ],
+      },
+    });
     const [chromiumBrowser, firefoxBrowser] = await Promise.all([
       chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] }),
       firefox.launch(),
@@ -284,13 +353,63 @@ describe('the aspect ratio grid (real browser)', () => {
     if (browser === undefined) throw new Error(`${engine} did not launch`);
     const page = await browser.newPage();
     try {
-      return await readGrid(page, server.origin, screen);
+      return await readGrid(page, server.url, screen);
+    } finally {
+      await page.close();
+    }
+  }
+
+  async function reopenOn(
+    engine: EngineName,
+    crossing: { crossWhileOpen: boolean; openFirst?: boolean }
+  ): Promise<ReopenReading> {
+    const browser = browsers[engine];
+    if (browser === undefined) throw new Error(`${engine} did not launch`);
+    const page = await browser.newPage();
+    try {
+      return await reopenAcrossBand(page, server.url, crossing);
     } finally {
       await page.close();
     }
   }
 
   describe.each(ENGINES)('on %s', (engine) => {
+    it.each([
+      ['after it opened anchored', true],
+      ['before it ever opened', false],
+    ])(
+      'returns focus to its chip when the sheet closes, crossing below 768 %s',
+      async (_crossing, openFirst) => {
+        const browser = browsers[engine];
+        if (browser === undefined) throw new Error(`${engine} did not launch`);
+        const page = await browser.newPage();
+        try {
+          expect(await sheetFocusAfterCrossingDown(page, server.url, { openFirst })).toMatch(
+            /^Aspect ratio: /u
+          );
+        } finally {
+          await page.close();
+        }
+      },
+      TEST_MS
+    );
+
+    it.each([
+      ['after the sheet closed', { crossWhileOpen: false }],
+      ['while the sheet was open', { crossWhileOpen: true }],
+      ['before it ever opened', { crossWhileOpen: false, openFirst: false }],
+    ])(
+      'hangs 8px below the composer and returns focus to its chip, crossing to 768+ %s',
+      async (_crossing, crossing) => {
+        const reading = await reopenOn(engine, crossing);
+
+        expect(reading.gap).toBeCloseTo(HANG_GAP_PX, 0);
+        expect(reading.leftOffset).toBeCloseTo(0, 0);
+        expect(reading.focusAfterEscape).toMatch(/^Aspect ratio: /u);
+      },
+      TEST_MS
+    );
+
     it(
       'keeps every label and shape inside its tile at 768 beside an open sidebar, under 141% text',
       async () => {

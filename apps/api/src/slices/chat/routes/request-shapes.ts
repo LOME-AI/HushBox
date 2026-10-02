@@ -7,7 +7,7 @@ import {
   utcDayKey,
 } from '@hushbox/shared';
 import {
-  hashCanonicalJson,
+  hashRequestBody,
   mockProviderEnabled,
   parseMockDirectives,
   readIdempotencyKey,
@@ -161,8 +161,8 @@ export const userOnlyMessageResponseSchema = z.object({
 export function startTurnBodyHash(
   body: z.infer<typeof startTurnBodySchema>,
   history: ChatHistoryMessage[]
-): Promise<string> {
-  return hashCanonicalJson({
+): string {
+  return hashRequestBody({
     conversationId: body.conversationId,
     turnSources: body.turnSources,
     ...(body.forkId === undefined ? {} : { forkId: body.forkId }),
@@ -188,8 +188,8 @@ export function regenerateTurnBodyHash(
   body: z.infer<typeof regenerateTurnBodySchema>,
   history: ChatHistoryMessage[],
   regenerateCore: Readonly<Record<string, unknown>>
-): Promise<string> {
-  return hashCanonicalJson({
+): string {
+  return hashRequestBody({
     conversationId: body.conversationId,
     turnSources: body.turnSources,
     ...(body.forkId === undefined ? {} : { forkId: body.forkId }),

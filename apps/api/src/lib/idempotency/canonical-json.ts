@@ -75,7 +75,12 @@ export function uuidFromHex(hex: string): string {
   ].join('-');
 }
 
-/** SHA-256 hex over the canonical serialization — the stored `bodyHash`. */
+/**
+ * Unkeyed SHA-256 hex over the canonical serialization, for identities derived
+ * from public or operator input. The stored `bodyHash` is keyed instead
+ * (`lib/idempotency/body-hash.ts`), because a request body can carry user
+ * plaintext.
+ */
 export async function hashCanonicalJson(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(canonicalJson(value));
   const digest = await crypto.subtle.digest('SHA-256', bytes);

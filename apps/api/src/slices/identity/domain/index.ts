@@ -101,6 +101,7 @@ export type {
   PasswordResetEmailPort,
   TwoFactorDisabledEmailPort,
   TwoFactorEnabledEmailPort,
+  TwoFactorLockedEmailPort,
   VerificationEmailPort,
 } from '../ports/index.js';
 

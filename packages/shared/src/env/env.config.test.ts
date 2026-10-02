@@ -725,6 +725,26 @@ describe('envConfig', () => {
     });
   });
 
+  describe('IDEMPOTENCY_BODY_HASH_SECRET', () => {
+    it('goes to Backend only', () => {
+      expect(envConfig.IDEMPOTENCY_BODY_HASH_SECRET.to).toEqual([Destination.Backend]);
+    });
+
+    it('is the IDEMPOTENCY_BODY_HASH_SECRET secret in production', () => {
+      const raw = resolveRaw(envConfig.IDEMPOTENCY_BODY_HASH_SECRET, Mode.Production);
+      expect(isSecret(raw)).toBe(true);
+      expect(isSecret(raw) && raw.name).toBe('IDEMPOTENCY_BODY_HASH_SECRET');
+    });
+
+    it('gives every non-production mode the Development key', () => {
+      const dev = resolveRaw(envConfig.IDEMPOTENCY_BODY_HASH_SECRET, Mode.Development);
+      expect(typeof dev === 'string' && dev.length > 0).toBe(true);
+      for (const mode of [Mode.Test, Mode.CiVitest, Mode.E2E, Mode.CiE2E]) {
+        expect(resolveRaw(envConfig.IDEMPOTENCY_BODY_HASH_SECRET, mode)).toBe(dev);
+      }
+    });
+  });
+
   describe('OPAQUE_KEK', () => {
     it('goes to Backend only', () => {
       expect(envConfig.OPAQUE_KEK.to).toEqual([Destination.Backend]);

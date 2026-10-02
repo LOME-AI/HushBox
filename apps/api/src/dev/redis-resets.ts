@@ -189,6 +189,7 @@ export async function authResetKeys(
     ...byIdentifier,
     keyed('ratelimit:identity:login:lockout:', identity.userId),
     keyed('ratelimit:identity:totp:lockout:', identity.userId),
+    keyed('ratelimit:identity:totp:ceiling:', identity.userId),
     keyed('ratelimit:identity:step-up:lockout:', identity.userId),
     keyed('ratelimit:identity:delete-account:lockout:', identity.userId),
     keyed('ratelimit:identity:delete-account:init-lockout:', identity.userId),
@@ -260,6 +261,10 @@ export async function resetTrialUsage(redis: Redis, callerIpId: string): Promise
  * The one surviving glob is per-account: a TOTP replay marker carries the code
  * in its key, so the codes cannot be named, but the account can.
  *
+ * Each named account's TOTP first-trip latch goes too. It is no counter, so it
+ * reaches no cross-check, but a latch a previous run left standing would mute
+ * the first-trip email the next run's login expects.
+ *
  * The per-IP keys are built through each entry's own definition and the
  * encoder `consume` keys with, so each is the key the limiter spends.
  */
@@ -275,9 +280,13 @@ export async function resetAuthRateLimits(
   const accountKeys = await Promise.all(
     identities.map((identity) => authResetKeys(identity, callerIpId))
   );
+  const tripLatches = identities
+    .filter((identity) => identity.userId !== null)
+    .map((identity) => `totp:trip-notified:${String(identity.userId)}`);
   const named = await redis.del(
     ...AUTH_IP_THROTTLES.map((throttle) => throttleKey(throttle, callerIpId)),
-    ...accountKeys.flat()
+    ...accountKeys.flat(),
+    ...tripLatches
   );
   return { deleted: markers.deleted + named };
 }

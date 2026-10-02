@@ -213,14 +213,15 @@ async function builtAnswerParams(balanceNanoUsd: bigint): Promise<Record<string,
 
 describe('the chat turn path output-token ceiling', () => {
   it('builds a low-balance payer a capped modelCall bound by what the money buys', async () => {
-    // $0.10 balance: estInput = ceil(11/3) = 4; billable rates 2500/10_000;
-    // fixed = 4×2500 + 11×300 + 640×300 framing = 205_300;
-    // variable = 10_000 + 5×300 stored output = 11_500;
+    // $0.10 balance: estInput = ceil(11/3) = 4; billable rates 2500/10_000, held
+    // at their ceilings 3125/12_500;
+    // fixed = 4×3125 + 11×300 + 640×300 framing = 207_800;
+    // variable = 12_500 + 5×300 stored output = 14_000;
     // effective = 100_000_000 + 500_000_000 cushion →
-    // maxOutputTokens = floor(599_794_700/11_500) = 52_156. Where money binds, the
+    // maxOutputTokens = floor(599_792_200/14_000) = 42_842. Where money binds, the
     // canonical estimator's own fit lands on the same token count.
     const params = await builtAnswerParams(100_000_000n);
-    expect(params).toEqual({ maxOutputTokens: 52_156 });
+    expect(params).toEqual({ maxOutputTokens: 42_842 });
   });
 
   it('caps a rich payer at the context headroom, the tightest bound left once money is loose', async () => {
@@ -402,7 +403,7 @@ describe("the hard-off ('off') turn build", () => {
         },
       },
     });
-    expect(params).toEqual({ maxOutputTokens: 52_156, reasoning: { enabled: false } });
+    expect(params).toEqual({ maxOutputTokens: 42_842, reasoning: { enabled: false } });
   });
 
   it('builds a budget-less (trial) hard-off turn uncapped, like a plain trial turn', async () => {

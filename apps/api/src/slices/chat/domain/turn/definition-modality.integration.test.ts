@@ -29,7 +29,7 @@
  * estimator's `modelCeiling` (`apps/api/src/slices/models/domain/pricing/estimate-run.ts`)
  * branches on the descriptor's call-shape family. Measured by varying `outputs`
  * alone over {@link PRICEABLE_PLAIN}: at a spendable of 1e9 nano-USD the
- * compiled answer node carries `maxOutputTokens` 99999 for `['text']` and 1000
+ * compiled answer node carries `maxOutputTokens` 79999 for `['text']` and 1000
  * — the shared `MINIMUM_OUTPUT_TOKENS` floor — for `['image']` and `['video']`,
  * and raising the funding raises the text cap while the media arms stay at the
  * floor. The estimator prices a media call from a media basis — a per-image rate,
@@ -337,7 +337,7 @@ describe('the same compile fits a different answer cap to a media model than to 
       await answerCap(['text'], PRICEABLE_PLAIN),
       await answerCap(['image'], PRICEABLE_PLAIN),
       await answerCap(['video'], PRICEABLE_PLAIN),
-    ]).toEqual([99_999, MINIMUM_OUTPUT_TOKENS, MINIMUM_OUTPUT_TOKENS]);
+    ]).toEqual([79_999, MINIMUM_OUTPUT_TOKENS, MINIMUM_OUTPUT_TOKENS]);
   });
 
   /*

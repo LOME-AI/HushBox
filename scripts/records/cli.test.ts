@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readRepositories } from '../configure-git-clone.js';
-import { COMMAND_LINE, SUBCOMMAND_LINES, main, recordsRemote } from './cli.js';
+import { COMMAND_LINE, SUBCOMMAND_LINES, main } from './cli.js';
 import { git, overlayDirectory, overlayGit } from './overlay.js';
+import { recordsRemote } from './remote.js';
 
 const SHIPPED_GITIGNORE = readFileSync(
   path.join(import.meta.dirname, '..', '..', '.gitignore'),
@@ -53,18 +54,6 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllEnvs();
   rmSync(sandbox, { recursive: true, force: true });
-});
-
-describe('recordsRemote', () => {
-  it('is the GitHub https URL of the records repository', () => {
-    expect(
-      recordsRemote({
-        publicRepo: 'Example-Org/Example',
-        stagingRepo: 'Example-Org/Example-staging',
-        recordsRepo: 'Example-Org/Example-records',
-      })
-    ).toBe('https://github.com/Example-Org/Example-records.git');
-  });
 });
 
 describe('main', () => {

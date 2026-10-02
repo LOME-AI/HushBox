@@ -65,12 +65,14 @@ describe('the classifier reserve', () => {
   });
 
   it('prices the reserve’s per-output-token leg at the output cap rather than as free', () => {
+    // Held at their ceilings, the output rates 200 and 201 are 250 and 252:
+    // two nano apart on every output token up to the cap.
     const dearerOutput = {
       pricing: tokenPricingFixture({ input: 100n, output: 201n }),
     };
     expect(
       classifierWorstCaseNanoUsd(dearerOutput, []) - classifierWorstCaseNanoUsd(CHEAP, [])
-    ).toBe(BigInt(CLASSIFIER_OUTPUT_TOKEN_CAP));
+    ).toBe(BigInt(CLASSIFIER_OUTPUT_TOKEN_CAP) * 2n);
   });
 
   it('holds the reserve in the smart slot’s turn price', () => {

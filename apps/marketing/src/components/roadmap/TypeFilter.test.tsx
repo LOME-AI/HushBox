@@ -25,6 +25,12 @@ describe('TypeFilter', () => {
     expect(pills.map((pill) => pill.textContent)).toEqual(['All14', 'Features11', 'Bugs3']);
   });
 
+  it('tracks each pill under a name its count never enters', () => {
+    renderFilter();
+    const pills = within(screen.getByRole('group', { name: 'Type' })).getAllByRole('button');
+    expect(pills.map((pill) => pill.dataset['track'])).toEqual(['All', 'Features', 'Bugs']);
+  });
+
   it('presses the pill for the chosen type', () => {
     renderFilter('bug');
     expect(screen.getByRole('button', { name: /^Bugs/ })).toHaveAttribute('aria-pressed', 'true');

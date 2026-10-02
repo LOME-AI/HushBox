@@ -53,8 +53,11 @@ function priceSpread(): readonly ModelDescriptor[] {
 }
 
 const CHEAP = model();
-/** Priced under the quartile — eligible on every model leg — yet dear per token. */
-const DEAR = model({ id: 'trial/dear', pricing: pricing(999n, 5n) });
+/**
+ * Priced under the quartile — eligible on every model leg — yet dear per token.
+ * Its stored 799 / 4 are held at their ceilings, 999 / 5.
+ */
+const DEAR = model({ id: 'trial/dear', pricing: pricing(799n, 4n) });
 /**
  * Combined rate at or above the spread's percentile, yet cheap enough that the
  * eligibility affordability leg clears it — so a `premium-required` on this
@@ -128,9 +131,9 @@ describe('the trial send gate answers a verdict, not a status', () => {
   });
 
   it('allows a message the model prices at exactly the per-message cap', () => {
-    // 30,000 characters is 10,000 input tokens at 999 nano-USD each, and the
-    // 2,000-token answer at 5 each: 9,990,000 + 10,000 = 10,000,000 — the 1¢ cap
-    // to the nano. The refusal is strictly above it.
+    // 30,000 characters is 10,000 input tokens at a held 999 nano-USD each, and
+    // the 2,000-token answer at a held 5 each: 9,990,000 + 10,000 = 10,000,000 —
+    // the 1¢ cap to the nano. The refusal is strictly above it.
     expect(trialGateVerdict(DEAR, catalogWith(CHEAP, DEAR), 30_000, NOW_MS)._unsafeUnwrap()).toBe(
       'allowed'
     );

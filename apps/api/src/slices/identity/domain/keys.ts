@@ -50,6 +50,12 @@ export const stepUpPendingSchema = z.object({
 });
 
 /**
+ * How long the TOTP consecutive-failure ceiling, and the latch that records its
+ * fifteen-minute gate's first trip, can stand without a clear: a year.
+ */
+const TWO_FACTOR_CEILING_WINDOW_SECONDS = 365 * 86_400;
+
+/**
  * The identity slice's Redis registry entries.
  *
  * OPAQUE handshake state is keyed by a server-issued UUID, never by the
@@ -337,6 +343,32 @@ export const IDENTITY_KEYS = {
     windowSeconds: 900,
     buildKey: (userId: string) => `ratelimit:identity:totp:lockout:${userId}`,
   } as const satisfies ReservationLimit,
+  // The long-horizon bound `twoFactorLockout` cannot supply: that window resets
+  // every fifteen minutes, so a password holder otherwise gets a fresh budget
+  // of guesses per window forever. This one counts every code the window
+  // admits and is spent beside it as one layered check, so a code the window
+  // refuses is never counted here. A verified code clears it and so does a
+  // completed recovery reset; a correct password does not, which is what makes
+  // it a ceiling on the second factor rather than on the first. Once it
+  // refuses, TOTP verification stays refused until one of those two clears it
+  // or the window lapses. The window is a year only because the primitive
+  // requires one; the cap is the NIST SP 800-63B consecutive-failure figure.
+  twoFactorCeiling: {
+    kind: 'reservation',
+    maxAttempts: 100,
+    windowSeconds: TWO_FACTOR_CEILING_WINDOW_SECONDS,
+    buildKey: (userId: string) => `ratelimit:identity:totp:ceiling:${userId}`,
+  } as const satisfies ReservationLimit,
+  // Set (NX) when the fifteen-minute TOTP gate trips during a login, so the
+  // account holder is emailed once per run of failures rather than once per
+  // window: only the set that creates it sends. A verified code clears it. Its
+  // TTL is the ceiling's window length, so an abandoned latch expires on the
+  // same horizon as the counter it reports on.
+  twoFactorTripNotified: defineKey({
+    schema: z.coerce.string(),
+    ttlSeconds: TWO_FACTOR_CEILING_WINDOW_SECONDS,
+    buildKey: (userId: string) => `totp:trip-notified:${userId}`,
+  }),
   // The step-up guessing gate shared by change-password, 2FA-disable and
   // recovery-save: one budget for one secret, since the same password opens all
   // three and a per-flow counter would hand an attacker three times the guesses.

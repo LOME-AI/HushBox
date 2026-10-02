@@ -112,6 +112,7 @@ export function twoFactorRoutes(deps: IdentityRouteDeps) {
                   secret: c.var.bindings.IRON_SESSION_SECRET,
                   isProduction: c.var.envUtils.isProduction,
                   evictUser: deps.evictUser(c.var.redis, c.env),
+                  lockedEmail: deps.twoFactorLockedEmailPort,
                 })
               )
             )

@@ -495,13 +495,13 @@ describe('useSectionInView, holding the hash section while the page grows', () =
     expect(document.querySelector<HTMLElement>('#legal')!.style.scrollMarginTop).toBe('16px');
   });
 
-  it('gives the hash section a scroll margin that lands a browser fragment scroll at its target', () => {
+  it("leaves the pinned band to the scroller's padding, so the section's scroll margin is the gap alone", () => {
     render(<Probe />);
     pinBand(57);
 
     growAboveLegal(80);
 
-    expect(document.querySelector<HTMLElement>('#legal')!.style.scrollMarginTop).toBe('73px');
+    expect(document.querySelector<HTMLElement>('#legal')!.style.scrollMarginTop).toBe('16px');
   });
 
   it('moves no focus when it brings the hash section back', () => {

@@ -3,12 +3,13 @@
  * checkout's working tree and tracks only the record files the root
  * `.gitignore`'s records block names — the paths the main repository ignores.
  */
-import { readRepositories, type Repositories } from '../configure-git-clone.js';
+import { readRepositories } from '../configure-git-clone.js';
 import { readCommandLine, type CommandSpec, type FlagRecord } from '../lib/cli/command-line.js';
 import { isMainModule } from '../lib/cli/is-main.js';
 import { runMain } from '../lib/cli/run-main.js';
 import { init, restore, save, status, type RecordsContext } from './operations.js';
 import { git } from './overlay.js';
+import { recordsRemote } from './remote.js';
 
 const REMOTE = {
   flag: '--remote',
@@ -65,11 +66,6 @@ type Log = (line: string) => void;
 
 function isVerb(word: string | undefined): word is Verb {
   return word !== undefined && word in SUBCOMMANDS;
-}
-
-/** The records repository's clone URL. */
-export function recordsRemote(repositories: Repositories): string {
-  return `https://github.com/${repositories.recordsRepo}.git`;
 }
 
 async function remoteOf(flags: FlagRecord): Promise<string> {

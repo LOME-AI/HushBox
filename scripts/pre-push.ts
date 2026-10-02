@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { execa } from 'execa';
 import { isMainModule } from './lib/cli/is-main.js';
 import { MEMORY_BUDGET_ENV, PLANNING_MEMORY_FRACTION, memoryBudgetKb } from './lib/pool/memory.js';
@@ -5,6 +6,8 @@ import { ensureGitleaks, gitleaksRangeScanArgs } from './lib/privacy/gitleaks.js
 import { withoutHostPaths } from './lib/privacy/host-paths.js';
 import { readStdin } from './lib/cli/read-stdin.js';
 import { resolvePushedRange, resolvePushedRefRanges } from './lib/cli/pushed-range.js';
+import { save, type RecordsContext } from './records/operations.js';
+import { overlayDirectory } from './records/overlay.js';
 
 export interface Task {
   name: string;
@@ -221,11 +224,46 @@ export function launcherFailure(error: unknown): string {
   return `pre-push failed: ${withoutHostPaths(message)}`;
 }
 
+export interface RecordsBackup {
+  /** The checkout's top level, where the records overlay's git directory sits when it exists. */
+  readonly root: string;
+  readonly save: (context: RecordsContext) => Promise<void>;
+}
+
+/**
+ * Saves the records overlay, when the checkout has one. A failed save is a
+ * warning rather than a failure: the records are a private backup beside the
+ * push, so losing one save must not cost the push it rides on.
+ */
+export async function backUpRecords(records: RecordsBackup): Promise<void> {
+  if (!existsSync(overlayDirectory(records.root))) return;
+  try {
+    await records.save({
+      root: records.root,
+      log: (line) => {
+        console.log(line);
+      },
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `pre-push: the records were not saved (${withoutHostPaths(message)}); ` +
+        'the push proceeds. Run pnpm records save to retry.'
+    );
+  }
+}
+
+/** git's pre-push arguments: the remote's name, then the URL it resolves to. */
+export interface PushDestination {
+  readonly remote: string;
+  readonly remoteUrl: string;
+}
+
 export async function main(
   stdin: string,
   isTty: boolean,
-  remote: string,
-  remoteUrl: string
+  { remote, remoteUrl }: PushDestination,
+  records: RecordsBackup
 ): Promise<void> {
   // This half deliberately asks the destination nothing. Only a new ref would
   // need asking, and the answer would have to be awaited *before* the parallel
@@ -246,6 +284,7 @@ export async function main(
   await runParallel(parallelTasks, totalBudgetKb);
   console.log('Static checks passed. Running tests...');
   await runSequential(TEST_TASK, totalBudgetKb);
+  await backUpRecords(records);
 }
 
 /* v8 ignore start -- CLI entry point uses process.exit, exercised via husky */
@@ -255,9 +294,9 @@ if (isMain) {
     try {
       const isTty = process.stdin.isTTY;
       const stdin = isTty ? '' : await readStdin();
-      // git's pre-push arguments: the remote's name, then the URL it resolves to.
       const [remote = '', remoteUrl = ''] = process.argv.slice(2);
-      await main(stdin, isTty, remote, remoteUrl);
+      // The package manager runs this script from the checkout's top level.
+      await main(stdin, isTty, { remote, remoteUrl }, { root: process.cwd(), save });
     } catch (error: unknown) {
       console.error(launcherFailure(error));
       process.exit(1);

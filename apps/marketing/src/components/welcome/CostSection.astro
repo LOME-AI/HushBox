@@ -1,57 +1,24 @@
 ---
 import { Text } from '@hushbox/ui/type';
-import CostComparison from '../CostComparison.astro';
-import ModelProviderStrip from '../ModelProviderStrip.astro';
 import SectionHeading from '../SectionHeading.astro';
-import { getApiUrl } from '../../lib/api-url';
-import { calculateMonthlyCost } from '../../lib/calculate-cost';
-import { loadCatalogAtBuild } from '../../lib/catalog-at-build';
-import { catalogModels } from '../../lib/catalog-models';
-import { env } from '../../lib/env';
-import { extractProviders } from '../../lib/extract-providers';
+import { MESSAGES_PER_DAY } from '../../lib/calculate-cost';
+import { CostFigures } from './CostFigures';
+import { ProviderStrip } from './ProviderStrip';
 import WelcomeSection from './WelcomeSection.astro';
-
-// Read once per build from the deployed API; the figures are as fresh as the last deploy.
-const catalog = await loadCatalogAtBuild(getApiUrl(), {
-  fetch: globalThis.fetch.bind(globalThis),
-  isProduction: env.isProduction,
-});
-const models = catalogModels(catalog.kind === 'ok' ? catalog.models : []);
-const costData = calculateMonthlyCost(models);
-const providers = extractProviders(models);
-const modelCount = models.length;
 ---
 
-{
-  catalog.kind === 'unavailable' ? (
-    <WelcomeSection reveal>
-      <SectionHeading>Same models. A fraction of the cost</SectionHeading>
-      <div class="border-warning mt-12 rounded-lg border-2 border-dashed p-6 text-center">
-        <p class="text-warning font-semibold">Catalog unavailable at build</p>
-        <p class="text-muted-foreground mt-2 font-mono text-xs break-all">
-          GET {catalog.url} ({catalog.status})
-        </p>
-      </div>
-    </WelcomeSection>
-  ) : (
-    costData.monthlyCost > 0 && (
-      <WelcomeSection reveal>
-        <SectionHeading>Same models. A fraction of the cost</SectionHeading>
-        <div class="text-foreground mt-3 text-center">
-          <Text variant="ui">Based on {costData.messagesPerDay} messages per day:</Text>
-        </div>
-        <div class="mt-12">
-          <CostComparison hushboxCost={costData.monthlyCost} modelCount={modelCount} />
-        </div>
-        <p class="text-foreground mt-6 text-center font-serif text-sm">
-          HushBox hates subscriptions. You only pay for what you use. Nothing more.
-        </p>
-        {providers.length > 0 && (
-          <div class="border-border mt-16 rounded-lg border-2 p-6" data-reveal="delayed">
-            <ModelProviderStrip providers={providers} modelCount={modelCount} />
-          </div>
-        )}
-      </WelcomeSection>
-    )
-  )
-}
+<WelcomeSection reveal>
+  <SectionHeading>Same models. A fraction of the cost</SectionHeading>
+  <div class="text-foreground mt-3 text-center">
+    <Text variant="ui">Based on {MESSAGES_PER_DAY} messages per day:</Text>
+  </div>
+  <div class="mt-12">
+    <CostFigures client:load />
+  </div>
+  <p class="text-foreground mt-6 text-center font-serif text-sm">
+    HushBox hates subscriptions. You only pay for what you use. Nothing more.
+  </p>
+  <div class="border-border mt-16 rounded-lg border-2 p-6" data-reveal="delayed">
+    <ProviderStrip client:load />
+  </div>
+</WelcomeSection>

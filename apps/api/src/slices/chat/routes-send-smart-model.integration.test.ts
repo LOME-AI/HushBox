@@ -17,7 +17,7 @@ import { DAILY_ALLOWANCE_NANO_USD, createBillingStores } from '../billing/index.
 import { createConversationsStores } from '../conversations/index.js';
 import { createLinkResolutionAdapter } from '../../composition/bindings/link-resolution.js';
 import { createChatManifest } from './index.js';
-import { CHAT_DECISION_NODE_ID, hashCanonicalJson } from './domain/index.js';
+import { CHAT_DECISION_NODE_ID, hashRequestBody } from './domain/index.js';
 import {
   MODEL,
   MODEL_B,
@@ -485,7 +485,7 @@ describe('chat route: POST /chat', () => {
     // The hash covers the body as sent — one smart turn source — and never the
     // candidate set the classifier resolves it to.
     expect(hashes[0]).toBe(
-      await hashCanonicalJson({
+      hashRequestBody({
         conversationId,
         turnSources: [{ kind: 'smart' }],
         userMessage,

@@ -41,7 +41,10 @@ import type { CallCostBasis, CostContext } from './turn-arithmetic.ts';
 import type { PriceableModel } from '../model/priceable-model.ts';
 import type { ToolLoopBound } from '../tool-loop.ts';
 
-/** 1,000 nano per input token, 2,000 per output token — round numbers on purpose. */
+/**
+ * 1,000 nano per input token, 2,000 per output token — round numbers on
+ * purpose, held at their ceilings: 1,250 and 2,500.
+ */
 const MODEL: PriceableModel = {
   modelId: modelId('vendor/base'),
   pricing: tokenPricingFixture({ input: nanoUSD(1000n), output: nanoUSD(2000n) }),
@@ -84,19 +87,19 @@ function fixedCostsOf(contexts: readonly CostContext[], classifierReserveNanoUsd
 }
 
 describe('variableRate(m) — outputRate(m) plus per-token storage when the turn persists', () => {
-  it('adds the storage rate per token on a persisting turn: 2,000 + 1,500', () => {
-    expect(variableRateOf(contextAt(true))).toBe(3500n);
+  it('adds the storage rate per token on a persisting turn: 2,500 + 1,500', () => {
+    expect(variableRateOf(contextAt(true))).toBe(4000n);
   });
 
   it('is the bare output rate when the turn does not persist', () => {
-    expect(variableRateOf(contextAt(false))).toBe(2000n);
+    expect(variableRateOf(contextAt(false))).toBe(2500n);
   });
 
   it('prices every step’s output and the model’s own re-sent output on a tool loop', () => {
-    // Three steps for two calls: 3 × (2,000 + 1,500), plus 3 × 2 / 2 re-sent
-    // outputs at the 1,000-nano input rate.
+    // Three steps for two calls: 3 × (2,500 + 1,500), plus 3 × 2 / 2 re-sent
+    // outputs at the 1,250-nano input rate.
     const loop = toolLoopBound(['webSearch'], 2);
-    expect(variableRateOf(contextAt(true, loop))).toBe(3n * 3500n + 3n * 1000n);
+    expect(variableRateOf(contextAt(true, loop))).toBe(3n * 4000n + 3n * 1250n);
   });
 });
 
@@ -143,23 +146,23 @@ describe('fixedCosts — the terms that do not scale with output tokens', () => 
   }
 
   it('sums every sibling’s fixed legs and the classifier reserve', () => {
-    // 250 input tokens × 1,000 nano × 2 siblings = 500,000
+    // 250 input tokens × 1,250 nano × 2 siblings = 625,000
     //                     + inputStorage 1,000 × 300 = 300,000
     //                     + framing 640 × 300 × 2 siblings = 384,000
     //                     + classifierReserve 7,000
-    expect(fixedCostsOf([sibling(1000), sibling(0)], 7000n)).toBe(1_191_000n);
+    expect(fixedCostsOf([sibling(1000), sibling(0)], 7000n)).toBe(1_316_000n);
   });
 
   it('counts input storage exactly once however many siblings share the prompt', () => {
     const one = fixedCostsOf([sibling(1000)], 0n);
     const three = fixedCostsOf([sibling(1000), sibling(0), sibling(0)], 0n);
-    expect(one).toBe(742_000n);
-    expect(three).toBe(1_626_000n);
-    expect(three - one).toBe(2n * (250_000n + 192_000n));
+    expect(one).toBe(804_500n);
+    expect(three).toBe(1_813_500n);
+    expect(three - one).toBe(2n * (312_500n + 192_000n));
   });
 
   it('carries no classifier reserve when no classifier runs', () => {
-    expect(fixedCostsOf([sibling(0, false)], 0n)).toBe(250_000n);
+    expect(fixedCostsOf([sibling(0, false)], 0n)).toBe(312_500n);
   });
 
   it('carries a tool-carrying sibling’s whole fixed loop', () => {
@@ -168,9 +171,9 @@ describe('fixedCosts — the terms that do not scale with output tokens', () => 
     // steps, two call fees, and the stored search rows.
     const loop = toolLoopBound(['webSearch'], 2);
     expect(fixedCostsOf([contextAt(true, loop)], 0n)).toBe(
-      3n * 250_000n +
-        2n * 2n * BigInt(loop.resultTokens) * 1000n +
-        2n * BigInt(loop.overheadTokens) * 1000n +
+      3n * 312_500n +
+        2n * 2n * BigInt(loop.resultTokens) * 1250n +
+        2n * BigInt(loop.overheadTokens) * 1250n +
         2n * loop.callFeeNano +
         BigInt(WEB_SEARCH_ROW_MAX_CHARS) * 300n +
         192_000n
@@ -179,21 +182,21 @@ describe('fixedCosts — the terms that do not scale with output tokens', () => 
 });
 
 describe('costNanoUsd — inputTokens × inputRate(m) + tokens × variableRate(m)', () => {
-  it('prices a persisting call: 250 × 1,000 + 1,000 × 3,500 + framing', () => {
+  it('prices a persisting call: 250 × 1,250 + 1,000 × 4,000 + framing', () => {
     expect(costNanoUsd(MODEL, 1000, { inputTokens: 250, inputChars: 0, persists: true })).toBe(
-      3_750_000n + 192_000n
+      4_312_500n + 192_000n
     );
   });
 
   it('drops the storage term when the turn does not persist', () => {
     expect(costNanoUsd(MODEL, 1000, { inputTokens: 250, inputChars: 0, persists: false })).toBe(
-      2_250_000n
+      2_812_500n
     );
   });
 
   it('adds prompt storage for the sibling that carries it: 1,000 chars × 300n', () => {
     expect(costNanoUsd(MODEL, 1000, { inputTokens: 250, inputChars: 1000, persists: true })).toBe(
-      3_750_000n + 192_000n + 300_000n
+      4_312_500n + 192_000n + 300_000n
     );
   });
 
@@ -249,7 +252,10 @@ describe('contextHeadroomTokens — contextLength(m) − inputTokens', () => {
 });
 
 describe('budgetBuysTokens — floor((funding − fixedCosts) / Σ variableRate)', () => {
-  /** A sibling whose curve costs 1,000,000 nano at no output and 2,600 per output token. */
+  /**
+   * A sibling stored at 1,000 / 2,600, whose curve holds 1,250,000 nano at no
+   * output and 3,250 per output token, at the ceiling.
+   */
   const sibling = siblingCurve(
     { ...MODEL, pricing: tokenPricingFixture({ input: 1000n, output: 2600n }) },
     { inputTokens: 1000, inputChars: 0, persists: false },
@@ -257,7 +263,7 @@ describe('budgetBuysTokens — floor((funding − fixedCosts) / Σ variableRate)
   );
 
   it('floors the division, so a partial token is never bought', () => {
-    expect(budgetBuysTokens(10_000_000n, [sibling], 0n)).toBe(3461);
+    expect(budgetBuysTokens(10_000_000n, [sibling], 0n)).toBe(2692);
   });
 
   it('is zero when the funding does not cover the fixed costs', () => {
@@ -265,13 +271,13 @@ describe('budgetBuysTokens — floor((funding − fixedCosts) / Σ variableRate)
   });
 
   it('sets the classifier reserve aside before solving', () => {
-    // (10,000,000 − 2,600,000 − 1,000,000) / 2,600.
-    expect(budgetBuysTokens(10_000_000n, [sibling], 2_600_000n)).toBe(2461);
+    // (10,000,000 − 2,600,000 − 1,250,000) / 3,250.
+    expect(budgetBuysTokens(10_000_000n, [sibling], 2_600_000n)).toBe(1892);
   });
 
   it('solves siblings at one shared token count', () => {
-    // (10,000,000 − 2 × 1,000,000) / (2 × 2,600).
-    expect(budgetBuysTokens(10_000_000n, [sibling, sibling], 0n)).toBe(1538);
+    // (10,000,000 − 2 × 1,250,000) / (2 × 3,250).
+    expect(budgetBuysTokens(10_000_000n, [sibling, sibling], 0n)).toBe(1153);
   });
 });
 
@@ -383,20 +389,20 @@ describe('feasible(m, e) and eligible(m)', () => {
 });
 
 describe('maxCallCostNanoUsd — cost(m, min(providerCap, contextHeadroom))', () => {
-  it('prices the provider cap when the prompt leaves more room: 250 × 1,000 + 8,000 × 3,500 + framing', () => {
+  it('prices the provider cap when the prompt leaves more room: 250 × 1,250 + 8,000 × 4,000 + framing', () => {
     expect(maxCallCostNanoUsd(MODEL, callCostBasis(250, true))).toBe(
-      250_000n + 28_000_000n + 192_000n
+      312_500n + 32_000_000n + 192_000n
     );
   });
 
   it('prices the context headroom when that is tighter than the provider cap', () => {
     expect(maxCallCostNanoUsd(MODEL, callCostBasis(99_000, true))).toBe(
-      99_000_000n + 1000n * 3500n + 192_000n
+      123_750_000n + 1000n * 4000n + 192_000n
     );
   });
 
   it('drops the storage term on a turn that does not persist', () => {
-    expect(maxCallCostNanoUsd(MODEL, callCostBasis(250, false))).toBe(250_000n + 16_000_000n);
+    expect(maxCallCostNanoUsd(MODEL, callCostBasis(250, false))).toBe(312_500n + 20_000_000n);
   });
 
   // A basis is a pure function of (prompt, persists), so two payers holding one
@@ -417,7 +423,7 @@ describe('maxCallCostNanoUsd — cost(m, min(providerCap, contextHeadroom))', ()
     // directive above.
     const key: 'inputTokens' | 'persists' = 'inputTokens' as keyof CallCostBasis;
     expect(key).toBe('inputTokens');
-    expect(maxCallCostNanoUsd(MODEL, basis)).toBe(250_000n + 28_000_000n + 192_000n);
+    expect(maxCallCostNanoUsd(MODEL, basis)).toBe(312_500n + 32_000_000n + 192_000n);
   });
 
   it('is zero tokens wide once the prompt fills the window', () => {
@@ -427,7 +433,8 @@ describe('maxCallCostNanoUsd — cost(m, min(providerCap, contextHeadroom))', ()
 
 describe('outlier(m) — maxCallCost above OUTLIER_COST_MULTIPLE × the pool median', () => {
   /** Output rate alone varies, and every cap is 1,000 tokens, so maxCallCost is
-   * exactly 1,000 × outputRate: 1e6, 2e6, 3e6, 4e6 and 1e8 nano. */
+   * exactly 1,000 × the output rate's ceiling: 1.25e6, 2.5e6, 3.75e6, 5e6 and
+   * 1.25e8 nano. */
   const pool: readonly PriceableModel[] = [1000n, 2000n, 3000n, 4000n, 100_000n].map((rate) => ({
     modelId: modelId(`vendor/rate-${String(rate)}`),
     pricing: tokenPricingFixture({ input: 1n, output: rate }),
@@ -438,8 +445,8 @@ describe('outlier(m) — maxCallCost above OUTLIER_COST_MULTIPLE × the pool med
   }));
   const basis = callCostBasis(0, false);
 
-  it('takes the median over the whole priceable pool: 3,000,000 nano', () => {
-    expect(medianMaxCallCostNanoUsd(pool, basis)).toBe(3_000_000n);
+  it('takes the median over the whole priceable pool: 3,750,000 nano', () => {
+    expect(medianMaxCallCostNanoUsd(pool, basis)).toBe(3_750_000n);
   });
 
   it('excludes only the model past 20 × that median', () => {

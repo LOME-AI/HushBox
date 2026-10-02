@@ -8,9 +8,9 @@ import {
   verifyTotpToken,
 } from '@hushbox/crypto';
 import { ResultAsync, okAsync } from '../../../../lib/result/index.js';
-import { redisGetDel, redisSet, redisSetNx } from '../../../../lib/redis/index.js';
+import { redisDel, redisGetDel, redisSet, redisSetNx } from '../../../../lib/redis/index.js';
 import { requireUser } from '../guards.js';
-import { clear, consume } from '../../../../lib/rate-limit/index.js';
+import { clear, consumeLayers } from '../../../../lib/rate-limit/index.js';
 import { IDENTITY_KEYS } from '../keys.js';
 import { openUnderLiveKey } from '../open-under-live-key.js';
 import { issueSession, revokeSession } from '../session/session.js';
@@ -20,6 +20,7 @@ import type {
   IdentityUserRecord,
   IdentityUsersStore,
   TwoFactorEnabledEmailPort,
+  TwoFactorLockedEmailPort,
 } from '../../ports/index.js';
 import type { IdentitySecrets, OpaqueFinishFlow } from '../opaque/opaque.js';
 import type { RedisClient } from '../keys.js';
@@ -141,8 +142,14 @@ function notifyTotpEnabled(args: TotpVerifySetupFlowArgs): ResultAsync<void, Dom
     .orElse(() => okAsync());
 }
 
+/**
+ * Which of the two TOTP counters refused: the fifteen-minute guessing window,
+ * or the consecutive-failure ceiling a password holder cannot reset.
+ */
+type TotpGate = 'window' | 'ceiling';
+
 type StoredTotpVerdict =
-  | { readonly kind: 'locked'; readonly retryAfterSeconds: number }
+  | { readonly kind: 'locked'; readonly retryAfterSeconds: number; readonly gate: TotpGate }
   | { readonly kind: 'not-configured' }
   // The stored blob is sealed under a TOTP key this deployment does not hold:
   // the key and the row disagree — an operator condition an admin operation
@@ -160,6 +167,9 @@ export interface VerifyStoredTotpArgs {
   readonly now: Date;
 }
 
+/** The ceiling's position in the layered check {@link verifyStoredTotp} spends. */
+const CEILING_LAYER = 0;
+
 /**
  * Verifies a submitted code against the user's stored encrypted secret, with
  * an attempt-reservation lockout and single-use replay protection. Shared by
@@ -167,7 +177,10 @@ export interface VerifyStoredTotpArgs {
  * reserved with an atomic increment BEFORE verification — the reservation IS
  * the failure record, so at most the window's cap of codes is ever verified
  * even under concurrency; attempts made while locked still advance the count
- * (never the window). A success clears the whole counter. A blob under a key
+ * (never the window). Two counters are spent as one layered check: the
+ * consecutive-failure ceiling first, so a frozen account answers with the
+ * ceiling's wait rather than the window's, then the fifteen-minute window. A
+ * success clears both, and the first-trip latch with them. A blob under a key
  * this deployment does not hold is the typed `stranded` verdict; one that
  * carries the live key's id and still fails to open is server-side
  * corruption — a defect, never a distinguishable client outcome.
@@ -175,11 +188,15 @@ export interface VerifyStoredTotpArgs {
 export function verifyStoredTotp(
   args: VerifyStoredTotpArgs
 ): ResultAsync<StoredTotpVerdict, DomainError> {
-  return consume(args.redis, IDENTITY_KEYS.twoFactorLockout, args.userId).andThen((decision) => {
+  return consumeLayers(args.redis, [
+    { definition: IDENTITY_KEYS.twoFactorCeiling, id: args.userId },
+    { definition: IDENTITY_KEYS.twoFactorLockout, id: args.userId },
+  ]).andThen((decision) => {
     if (!decision.allowed) {
       return okAsync<StoredTotpVerdict, DomainError>({
         kind: 'locked',
         retryAfterSeconds: decision.retryAfterSeconds,
+        gate: decision.layer === CEILING_LAYER ? 'ceiling' : 'window',
       });
     }
     if (args.encryptedSecret === null) {
@@ -222,10 +239,20 @@ function checkReplayThenVerify(
   );
 }
 
+/**
+ * The verified-success clears. `clear` absorbs its own failures; the latch's
+ * delete is absorbed here, because a code that verified must not be refused
+ * over a notification marker — a latch left standing only suppresses one email.
+ */
 function acceptCode(args: VerifyStoredTotpArgs): ResultAsync<StoredTotpVerdict, DomainError> {
-  return clear(args.redis, IDENTITY_KEYS.twoFactorLockout, args.userId).map(
-    (): StoredTotpVerdict => ({ kind: 'ok' })
-  );
+  return clear(args.redis, IDENTITY_KEYS.twoFactorLockout, args.userId)
+    .andThen(() => clear(args.redis, IDENTITY_KEYS.twoFactorCeiling, args.userId))
+    .andThen(() =>
+      redisDel(args.redis, IDENTITY_KEYS.twoFactorTripNotified, args.userId).orElse(
+        (): ResultAsync<void, DomainError> => okAsync()
+      )
+    )
+    .map((): StoredTotpVerdict => ({ kind: 'ok' }));
 }
 
 interface VerifyUserTotpArgs {
@@ -270,10 +297,12 @@ interface Login2faArgs extends VerifyUserTotpArgs {
    * (ARCHITECTURE §Streaming & realtime).
    */
   readonly evictUser?: EvictUserPort;
+  /** Best-effort notice sent when this login first trips the fifteen-minute gate. */
+  readonly lockedEmail: TwoFactorLockedEmailPort;
 }
 
 type Login2faOutcome =
-  | { readonly kind: 'locked'; readonly retryAfterSeconds: number }
+  | { readonly kind: 'locked'; readonly retryAfterSeconds: number; readonly gate: TotpGate }
   | { readonly kind: 'not-configured' }
   | { readonly kind: 'stranded' }
   | { readonly kind: 'invalid' }
@@ -286,9 +315,39 @@ type Login2faOutcome =
  */
 export function verifyLogin2fa(args: Login2faArgs): ResultAsync<Login2faOutcome, DomainError> {
   return verifyUserTotp(args).andThen(({ user, verdict }) => {
+    if (verdict.kind === 'locked' && verdict.gate === 'window') {
+      return notifyFirstTrip(args, user).map((): Login2faOutcome => verdict);
+    }
     if (verdict.kind !== 'ok') return okAsync<Login2faOutcome, DomainError>(verdict);
     return rotateToFull(args, user);
   });
+}
+
+/**
+ * Emails the account holder when the fifteen-minute gate refuses a login that
+ * already passed the password — but only when this refusal sets the latch, so
+ * one run of failures sends one email however many windows it spans, until a
+ * verified code clears the latch. Only the login flow notifies: the 2FA-disable
+ * and deletion verifications share the gate, but the copy says a sign-in used
+ * the password, which is true only here. Best-effort end to end: neither the
+ * latch nor the send can change the locked answer.
+ */
+function notifyFirstTrip(
+  args: Login2faArgs,
+  user: IdentityUserRecord
+): ResultAsync<void, DomainError> {
+  const lockoutMinutes = Math.floor(IDENTITY_KEYS.twoFactorLockout.windowSeconds / 60);
+  return redisSetNx(args.redis, IDENTITY_KEYS.twoFactorTripNotified, '1', args.userId)
+    .andThen((latched) =>
+      latched
+        ? args.lockedEmail.sendTwoFactorLockedEmail({
+            to: user.email,
+            userName: user.username,
+            lockoutMinutes,
+          })
+        : okAsync()
+    )
+    .orElse((): ResultAsync<void, DomainError> => okAsync());
 }
 
 function rotateToFull(

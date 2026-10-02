@@ -175,13 +175,10 @@ export function useSectionInView(ids: readonly SettingsSectionId[]): SettingsSec
     // The arrival runs once, but the groups keep loading after it: until the reader takes over,
     // each resize brings the section back to its place, which also finishes an arrival the page
     // was still too short to complete. A browser's own fragment scroll can land after the
-    // arrival too, so the section's scroll margin names the same place.
-    const placeMargin = (): void => {
-      target.style.scrollMarginTop = `${String(pinnedHeight(scroller) + SECTION_GAP_PX)}px`;
-    };
-    placeMargin();
+    // arrival too, so it must land at the same place: `PageBody` pads the scroller's top by the
+    // pinned band's height, so the section's scroll margin carries the gap alone.
+    target.style.scrollMarginTop = `${String(SECTION_GAP_PX)}px`;
     const restore = (): void => {
-      placeMargin();
       scroller.scrollTo({ top: arrivalTop(target, scroller), behavior: 'instant' });
     };
     const observer = new ResizeObserver(restore);
