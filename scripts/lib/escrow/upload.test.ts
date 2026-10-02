@@ -129,6 +129,17 @@ describe('putEscrowObject', () => {
     );
   });
 
+  it('sends the body digest an Object-Lock bucket requires, inside the signature', async () => {
+    const transport = recordingFetch(200);
+
+    await putEscrowObject(localBucket(), OBJECT_KEY, BODY, transport.impl);
+
+    expect(transport.calls[0]?.headers['content-md5']).toBe(
+      createHash('md5').update(BODY).digest('base64')
+    );
+    expect(transport.calls[0]?.headers['authorization']).toContain('content-md5');
+  });
+
   it('scopes the signature to the region the endpoint names', async () => {
     const transport = recordingFetch(200);
 

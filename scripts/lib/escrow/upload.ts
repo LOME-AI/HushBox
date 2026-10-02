@@ -110,6 +110,11 @@ export async function putEscrowObject(
       // Stated rather than left to the library, which signs an S3 request as
       // UNSIGNED-PAYLOAD when the header is absent.
       'x-amz-content-sha256': createHash('sha256').update(body).digest('hex'),
+      // The bucket's Object Lock default retention makes a checksum header
+      // mandatory, and Backblaze answers 400 "Missing required header for this
+      // request: Content-MD5" without one. Content-MD5 rather than an
+      // x-amz-checksum-* header, which Backblaze rejects as InvalidDigest.
+      'content-md5': createHash('md5').update(body).digest('base64'),
     },
     body,
   });
