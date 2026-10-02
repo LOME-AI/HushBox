@@ -95,7 +95,7 @@ services:
         condition: service_healthy
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     labels: *clone-labels
     ports:
       - '${HB_REDIS_PORT:?the stack env is not loaded - run pnpm generate:env and invoke through pnpm}:6379'
