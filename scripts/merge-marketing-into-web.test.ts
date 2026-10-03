@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spaRewriteRules } from './lib/bundling/spa-rewrites.js';
 import { mergeMarketingIntoWeb } from './merge-marketing-into-web.js';
 
 let repoRoot: string;
@@ -99,5 +100,33 @@ describe('mergeMarketingIntoWeb', () => {
     });
     const merged = await fs.readFile(path.join(repoRoot, 'custom-target/file.txt'), 'utf8');
     expect(merged).toBe('hello');
+  });
+
+  it('writes the shell rewrites after the existing redirect rules', async () => {
+    await writeFile(path.join(repoRoot, 'apps/web/dist/_redirects'), '/ /welcome 301\n');
+    await mergeMarketingIntoWeb({ repoRoot });
+    const redirects = await fs.readFile(path.join(repoRoot, 'apps/web/dist/_redirects'), 'utf8');
+    expect(redirects).toBe(['/ /welcome 301', ...spaRewriteRules()].join('\n') + '\n');
+  });
+
+  it('writes the shell rewrites when the web dist has no redirects file', async () => {
+    await mergeMarketingIntoWeb({ repoRoot });
+    const redirects = await fs.readFile(path.join(repoRoot, 'apps/web/dist/_redirects'), 'utf8');
+    expect(redirects).toBe(spaRewriteRules().join('\n') + '\n');
+  });
+
+  it('writes each shell rewrite once when the merge runs again', async () => {
+    await writeFile(path.join(repoRoot, 'apps/web/dist/_redirects'), '/ /welcome 301\n');
+    await mergeMarketingIntoWeb({ repoRoot });
+    await mergeMarketingIntoWeb({ repoRoot });
+    const redirects = await fs.readFile(path.join(repoRoot, 'apps/web/dist/_redirects'), 'utf8');
+    expect(redirects).toBe(['/ /welcome 301', ...spaRewriteRules()].join('\n') + '\n');
+  });
+
+  it('throws when the existing redirects file cannot be read', async () => {
+    const redirectsPath = path.join(repoRoot, 'apps/web/dist/_redirects');
+    await writeFile(redirectsPath, '/ /welcome 301\n');
+    await fs.chmod(redirectsPath, 0o200);
+    await expect(mergeMarketingIntoWeb({ repoRoot })).rejects.toThrow(/EACCES/);
   });
 });

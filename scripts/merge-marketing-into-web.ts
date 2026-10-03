@@ -4,6 +4,8 @@
  * directory can be served by `vite preview` (E2E) or Cloudflare Pages
  * (production). Mirrors what `cp -r apps/marketing/dist/* apps/web/dist/`
  * would do, with the existence checks and a summary printed at the end.
+ * It then writes the app routes' shell rewrites into the merged `_redirects`:
+ * the marketing `404.html` it copies turns off Pages' single-page fallback.
  *
  * Single source of truth for the merge step, called from:
  *   - `.github/workflows/ci.yml`
@@ -18,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { isMainModule } from './lib/cli/is-main.js';
 import { readCommandLine, type CommandSpec } from './lib/cli/command-line.js';
 import { runMain } from './lib/cli/run-main.js';
+import { isSpaRewriteRule, spaRewriteRules } from './lib/bundling/spa-rewrites.js';
 
 interface MergeOptions {
   readonly repoRoot: string;
@@ -51,6 +54,27 @@ async function assertDirectoryExists(directory: string, label: string): Promise<
   }
 }
 
+async function readIfPresent(filePath: string): Promise<string> {
+  try {
+    return await fs.readFile(filePath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+    throw error;
+  }
+}
+
+/**
+ * Appends the shell rewrites to the merged `_redirects`, replacing any a
+ * previous merge into the same directory wrote, so a re-run neither repeats
+ * them nor leaves a static rule behind a splat.
+ */
+async function writeSpaRewrites(targetDir: string): Promise<void> {
+  const redirectsPath = path.join(targetDir, '_redirects');
+  const existing = await readIfPresent(redirectsPath);
+  const kept = existing.split('\n').filter((line) => line.trim() !== '' && !isSpaRewriteRule(line));
+  await fs.writeFile(redirectsPath, `${[...kept, ...spaRewriteRules()].join('\n')}\n`);
+}
+
 async function countFiles(directory: string): Promise<number> {
   const entries = await fs.readdir(directory, { withFileTypes: true, recursive: true });
   return entries.filter((entry) => entry.isFile()).length;
@@ -69,6 +93,8 @@ export async function mergeMarketingIntoWeb(options: MergeOptions): Promise<Merg
     const destination = path.join(targetDir, entry.name);
     await fs.cp(source, destination, { recursive: true, force: true });
   }
+
+  await writeSpaRewrites(targetDir);
 
   const filesCopied = await countFiles(sourceDir);
   return { filesCopied, sourceDir, targetDir };

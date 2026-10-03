@@ -1,12 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { ROUTES, MARKETING_BASE_URL, FOOTER_LINKS, MARKETING_ROUTES } from './routes.ts';
+import {
+  ROUTES,
+  MARKETING_BASE_URL,
+  FOOTER_LINKS,
+  MARKETING_ROUTES,
+  DEVELOPMENT_ROUTES,
+} from './routes.ts';
 
 describe('ROUTES constants', () => {
   const routeEntries = Object.entries(ROUTES);
   const routeValues = Object.values(ROUTES);
 
   it('contains the expected number of route definitions', () => {
-    expect(routeEntries.length).toBe(27);
+    expect(routeEntries.length).toBe(29);
   });
 
   it('has all values as non-empty strings', () => {
@@ -40,6 +46,7 @@ describe('ROUTES constants', () => {
       {
         "ACCESSIBILITY": "/accessibility",
         "BILLING": "/billing",
+        "BILLING_PORTAL": "/billing-portal",
         "BLOG": "/blog",
         "CHAT": "/chat",
         "CHAT_ID": "/chat/$id",
@@ -48,6 +55,7 @@ describe('ROUTES constants', () => {
         "DEMO": "/demo",
         "DEV_ASSETS": "/dev/assets",
         "DEV_EMAILS": "/dev/emails",
+        "DEV_KIT": "/dev/kit",
         "DEV_PERSONAS": "/dev/personas",
         "DEV_RENDER_ASSET": "/dev/render-asset/$name",
         "LEADERBOARD": "/leaderboard",
@@ -175,6 +183,20 @@ describe('MARKETING_ROUTES', () => {
       expect(route).not.toBe('/');
       expect(route.startsWith('/chat')).toBe(false);
     }
+  });
+});
+
+describe('DEVELOPMENT_ROUTES', () => {
+  it('matches the expected development routes', () => {
+    expect(DEVELOPMENT_ROUTES).toMatchInlineSnapshot(`
+      [
+        "/dev/personas",
+        "/dev/emails",
+        "/dev/assets",
+        "/dev/kit",
+        "/dev/render-asset/$name",
+      ]
+    `);
   });
 });
 

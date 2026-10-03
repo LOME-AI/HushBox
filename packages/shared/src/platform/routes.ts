@@ -20,6 +20,7 @@ export const ROUTES = {
   CHAT_ID: '/chat/$id',
   CHAT_TRIAL: '/chat/trial',
   BILLING: '/billing',
+  BILLING_PORTAL: '/billing-portal',
   USAGE: '/usage',
   SETTINGS: '/settings',
   ACCESSIBILITY: '/accessibility',
@@ -45,6 +46,7 @@ export const ROUTES = {
   DEV_PERSONAS: '/dev/personas',
   DEV_EMAILS: '/dev/emails',
   DEV_ASSETS: '/dev/assets',
+  DEV_KIT: '/dev/kit',
   DEV_RENDER_ASSET: '/dev/render-asset/$name',
 } as const;
 
@@ -65,6 +67,14 @@ export const MARKETING_ROUTES = [
   ROUTES.PRIVACY,
   ROUTES.TERMS,
 ] as const;
+
+/**
+ * Routes the web app serves only in development: each one's page redirects away
+ * unless `env.isDev`, so production serves none of them.
+ */
+export const DEVELOPMENT_ROUTES: readonly string[] = Object.values(ROUTES).filter((route) =>
+  route.startsWith('/dev/')
+);
 
 /**
  * Marketing pages under `apps/marketing/src/pages/` that are deliberately NOT
