@@ -74,7 +74,7 @@ jobs:
       # Full history with every tag, which the `Get latest version` step needs:
       # it picks the highest `vX.Y.Z` tag in the repository, whichever branch
       # it sits on, not one reachable from the dispatched ref.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Get latest version
@@ -95,7 +95,7 @@ jobs:
       # document's revision, and a clone fetched without tags is
       # indistinguishable from one never tagged, so the derivation would answer
       # today rather than fail.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.tag.outputs.commit }}
           fetch-depth: 0
